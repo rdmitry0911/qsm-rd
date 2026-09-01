@@ -1,5 +1,11 @@
 # Критерии приёмки MVP
 
+> Это целевой production acceptance checklist. Функциональный native gate
+> Moonlight -> Sunshine -> QEMU -> VirGL, включая QSF/Weston clipboard/files/
+> resize, уже выполнен и задокументирован в [`VALIDATION.md`](VALIDATION.md).
+> Невыполненные пункты ниже (soak, reconnect, hardware encode, UEFI/Windows и
+> multi-VM operations) не должны ошибочно считаться выполненными.
+
 ## 1. Обязательные функциональные gates
 
 ### A1 — Console lifecycle

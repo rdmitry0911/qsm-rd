@@ -2,11 +2,12 @@
 
 ## Purpose
 
-This document defines the first upstream-facing integration slice. The exported
-patch implements QEMU's inline `Scanout` and `Update` methods only; no GPU,
-DMA-BUF, or Unix shared-map support is required. The output is ordinary
-CPU-resident BGR0 memory, so the existing Sunshine software encoder can consume
-it.
+This document began as the first upstream-facing integration slice.  The
+current exported series retains its safe inline CPU baseline and additionally
+implements QEMU Display1 input, guest audio, and single-plane DMA-BUF import.
+DMA-BUF is imported on a headless GBM/EGL render node and read back to ordinary
+CPU-resident BGRX memory for Sunshine's software encoder; it is not a native
+encoder or zero-copy implementation.
 
 The standalone implementation already proves the QEMU side of the contract in
 `QemuDbusDisplay`, `CpuFramebuffer`, and `DesktopSession`. The exported patch
@@ -120,7 +121,7 @@ encoder is busy, only the newest complete framebuffer is delivered next. The
 backend records dropped/superseded frame count but never blocks the QEMU peer
 D-Bus connection.
 
-## Input mapping — next slice
+## Input mapping — implemented
 
 Sunshine's Linux input backend should be made selectable independently from the
 capture backend. In QEMU mode:
@@ -132,14 +133,18 @@ capture backend. In QEMU mode:
 - disconnect/error → synthesize releases for every locally tracked pressed key
   and button before closing the connection when possible.
 
-The standalone transport already executes these methods in tests, but this
-exported Sunshine patch does not yet route Moonlight input to QEMU.
+The exported Sunshine input wrappers route Moonlight keyboard and mouse events
+to these methods.  For QEMU absolute devices, Moonlight's relative deltas are
+scaled and accumulated into bounded `SetAbsPosition` calls; `RelMotion` is
+used only for relative QEMU devices.  A native Moonlight E2E additionally
+requires raw guest evdev evidence for `KEY_A`, pointer movement, and
+`BTN_LEFT`, rather than treating a D-Bus reply as input proof.
 
-## Audio mapping — next slice
+## Audio mapping — implemented
 
-Create `qemu_dbus_audio_control_t : platf::audio_control_t` and
+`qemu_dbus_audio_control_t : platf::audio_control_t` and
 `qemu_dbus_mic_t : platf::mic_t` (the Sunshine name `mic_t` represents the host
-playback capture source).
+playback capture source) are selected by the QEMU guest-audio-only build.
 
 1. Register `org.qemu.Display1.AudioOutListener`.
 2. Convert QEMU integer or float PCM to interleaved normalized `float`.
@@ -162,10 +167,18 @@ playback capture source).
 
 ## Acceptance for the current Sunshine patch
 
-- Sunshine builds with only `SUNSHINE_ENABLE_QEMU_DBUS=ON` as a capture source;
-- the real-QEMU/TCG gate observes `Screencasting with QEMU Display1 D-Bus`,
-  creates `libx264`, and selects `software`;
-- the display listener rejects non-system-memory encoder choices, and QEMU is
-  launched with `gl=off` to keep it on the inline CPU lane;
-- no false claim is made here for Moonlight, direct QEMU input/audio, cursor
-  composition, shared maps, DMA-BUF, reconnect, or release-all.
+- The pinned upstream replay builds with `SUNSHINE_ENABLE_QEMU_DBUS=ON`,
+  `SUNSHINE_ENABLE_QEMU_DBUS_DMABUF=ON`, and
+  `SUNSHINE_ENABLE_QEMU_DBUS_AUDIO_ONLY=ON`.
+- The final deployment artifact has no X11, Wayland, PulseAudio, or ALSA
+  dependency in its complete `ldd` closure.  It is still a headless GBM/EGL
+  consumer and requires its configured render node for the DMA-BUF lane.
+- The CPU/TCG gate observes `Screencasting with QEMU Display1 D-Bus`, creates
+  `libx264`, and selects `software`; the native KVM/VirGL gate additionally
+  proves Moonlight pairing, input, DMA-BUF, guest mode change, and decoded
+  client video.
+- The audio gate proves QEMU `AudioOutListener` through Sunshine Opus to a
+  non-silent Moonlight-decoded client artifact.
+- Unix shared maps, cursor composition, reconnect/soak, release-all under an
+  unexpected disconnect, `ScanoutDMABUF2`, native GPU conversion, and hardware
+  encoding remain outside this contract.

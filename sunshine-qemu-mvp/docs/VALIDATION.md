@@ -2,269 +2,161 @@
 
 Validation date: 2026-09-01 UTC.
 
+## Result
+
+The final acceptance artifact is
+.upstream/build-sunshine-qemu-no-x11/sunshine with SHA-256:
+
+    80d22a83a552f65cbbfa594b2a4ce2a02180ba13571a43558797e8ec83e9a920
+
+It was built from Sunshine v2026.830.223700 base commit
+4f39fc116294abf8241bcd30e1b1e23d371e6e7b. A clean detached replay applied
+patches 0001 through 0006 and produced replay commit 5c179ad. The build helper
+reported:
+
+    SUNSHINE_QEMU_BUILD_OK ... desktop_runtime=none host_audio=none vaapi=off
+
+The direct ELF and complete ldd closure deny gates found no libX11, libXtst,
+libXi, libXext, libXrender, libXrandr, libwayland, libpulse, or libasound.
+Core libva/libva-drm intentionally resolve from the isolated project prefix
+because the pinned static FFmpeg needs them even with VAAPI disabled.
+
 ## Environment
 
-```text
-cmake version 3.28.3
-GNU C++ 13.3.0
-FFmpeg 6.1.1
-Ubuntu 24.04 container, x86-64
-GPU: not used
-QEMU: 8.2.2, `-display dbus` and `-audiodev dbus` available
-KVM device: absent; real guest test forced `-accel tcg`
-```
+| Component | Qualified environment |
+| --- | --- |
+| Host runtime | Ubuntu 24.04 container, x86-64, no deployment X11/Wayland/PulseAudio/ALSA runtime |
+| QEMU | 8.2.2 with Display1 D-Bus and D-Bus audio backend |
+| Acceleration | KVM through /dev/kvm |
+| Render path | QEMU virtio-vga-gl with rendernode /dev/dri/renderD128 |
+| GPU evidence | Alpine reports virgl (NVIDIA GeForce RTX 3080/PCIe/SSE2) |
+| Guest desktop | Alpine 3.20.10 cloud image, Weston 12 DRM, seatd/eudev, wl-clipboard |
+| Sunshine video | QEMU DMA-BUF -> headless GBM/EGL CPU BGRX readback -> libx264 |
+| Sunshine audio | QEMU AudioOutListener -> bounded FIFO -> Opus |
+| Moonlight harness | Moonlight Embedded SDL/FFmpeg; Xvfb is disposable client-side only |
 
-The tests use the real system D-Bus ABI, Unix socket FD passing, peer-to-peer
-D-Bus, `memfd_create()`, `mmap()`, threads and FFmpeg. The fake services retain
-coverage for deterministic fault injection and Unix shared maps; the real-QEMU
-lane qualifies the installed QEMU D-Bus implementation itself.
+## Regression matrix
 
-## Release/RelWithDebInfo matrix
+| Layer | Command/result | Outcome |
+| --- | --- | --- |
+| DMA-BUF-enabled project build | cmake --build .build-dmabuf; ctest --test-dir .build-dmabuf --output-on-failure | 10/10 passed |
+| DMA-BUF-disabled fallback build | cmake --build .build-no-dmabuf; ctest --test-dir .build-no-dmabuf --output-on-failure | 10/10 passed |
+| QSF protocol | local token control, production C guest PTY, TLS gateway | included in both CTest matrices; all passed |
+| Static checks | bash -n scripts/tests, Python bytecode compile, strict C11 guest agent/watcher compile, diff check | passed |
+| Sunshine replay | clean upstream git am 0001..0006 plus strict headless dependency build | passed |
+| Headless dynamic closure | full ldd deny gate on final artifact | passed |
+| Native video/input | fullscreen and windowed Moonlight -> Sunshine -> QEMU -> VirGL | passed |
+| Native audio | QEMU guest tone -> Sunshine Opus -> decoded Moonlight PCM | passed |
+| Native desktop companion | Moonlight plus QSF/Weston clipboard/files/resize in one VM | passed |
 
-Executed directly through:
+The CTest matrix includes core state-machine tests, in-process and
+cross-process D-Bus/FD tests, CPU H.264 self-test, inline/map message-bus E2E,
+real-QEMU relative/absolute input tests, the QSF local protocol, strict
+guest-agent UTF-8 PTY tests, and mTLS gateway tests.
 
-```bash
-cmake --build build-runtime -j2
-ctest --test-dir build-runtime --output-on-failure
-```
+## Native video and input
 
-CTest result:
+The direct fullscreen test is retained at:
 
-```text
-100% tests passed, 0 tests failed out of 7
-Total Test time (real) = 7.69 sec
-```
+    artifacts/validation/moonlight-sunshine-virgl-e2e/run.vCQmck/trace.txt
 
-### 1. Core tests
+The direct windowed test is retained at:
 
-```text
-qmdp_core_tests: passed
-```
+    artifacts/validation/moonlight-sunshine-virgl-e2e/run.gNCula/trace.txt
 
-Covers geometry, pixel formats, mapped-region bounds, latest-frame mailbox,
-audio FIFO, resize coalescing and session lifecycle.
+Both use the final no-X Sunshine artifact and require all of:
 
-### 2. In-process peer-D-Bus integration
+- private Moonlight pairing, HTTPS application launch, RTSP and RTP;
+- Moonlight FFmpeg H.264 decode and a non-black client screenshot;
+- fullscreen 1280x720 at root coordinate (0,0), or a 1280x720 window inside a
+  1600x900 root;
+- guest virtio_gpu, VirGL renderer containing NVIDIA, and kmscube;
+- real guest evdev KEY_A, pointer movement and BTN_LEFT evidence;
+- Sunshine SetUIInfo acceptance and a new Display1 scanout;
+- nonzero DMA-BUF traffic with zero failures in Sunshine and an independent
+  Display1 observer;
+- H.264 evidence of the 1280x800 to 1280x720 guest mode transition.
 
-One recorded run:
+The client Xvfb is not used by Sunshine, QEMU, the Display1 observer, or the
+guest. The video implementation is native VirGL capture but is not a
+zero-copy/hardware-encode claim: the final encoder is libx264 after CPU
+readback.
 
-```text
-frames published/encoded/dropped: 41/26/15
-map scanouts/updates: 2/39
-final mode: 426x242
-input keyboard/mouse: 2/4
-audio writes/frames: 67/32160
-session errors: 0
-```
+## Native audio
 
-This test uses a real `socketpair`, D-Bus authentication, Unix FD transfer and
-`memfd` framebuffer. A deliberately slow CPU sink verifies that stale frames are
-superseded instead of queued.
+The final audio test is retained at:
 
-### 3. Cross-process shared-map E2E
+    artifacts/validation/moonlight-sunshine-qemu-audio-e2e/run.gki7t0/
 
-```text
-FAKE_QEMU_RESULT frames=30 ui_info=1 keyboard=2 mouse=4
-requested=320x180 listener=1 peer_completed=1
+It booted a KVM BIOS PC-speaker tone fixture. The guest emitted AUDIO_TONE_ON;
+Sunshine registered AudioOutListener, accepted 48000 Hz, 2-channel, signed
+16-bit PCM and started Opus. Moonlight received its first audio packet after
+400 ms and SDL wrote decoded evidence:
 
-frames published/encoded/dropped: 30/30/0
-scanout inline/map: 0/1
-updates inline/map: 0/29
-cursor definitions/moves: 1/1
-session errors: 0
-```
+    format: s16le / 48000 Hz / 2 channels
+    bytes: 2670592
+    duration: 13.909 seconds
+    peak: 0.0 dB
+    mean: -3.3 dB
+    non_silent: yes
+    PCM SHA-256: f6c65b44678259d83d2c465c294ee3569986c96c7bce06fbbe0d5e9a0211e915
 
-A separate `qmdp-fake-qemu` process owns `org.qemu` on a real session bus. The
-probe calls `RegisterListener`; the framebuffer is shared by `memfd` over the peer
-connection.
+This is decoded client-side audio evidence, not merely a guest write count or
+Sunshine callback counter. No host sound server or hardware audio device is an
+input to this test.
 
-### 4. Cross-process inline E2E
+## Combined Moonlight, QSF and Weston desktop
 
-```text
-FAKE_QEMU_RESULT frames=30 ui_info=1 keyboard=2 mouse=4
-requested=320x180 listener=1 peer_completed=1
+The final composite outer trace is:
 
-frames published/encoded/dropped: 30/30/0
-scanout inline/map: 1/0
-updates inline/map: 29/0
-cursor definitions/moves: 1/1
-session errors: 0
-```
+    vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.KEqkVc/trace.txt
 
-This exercises the byte-array fallback used when shared maps or DMA-BUF are not
-available.
+The nested real-Moonlight hook trace is:
 
-### 5. No-GPU software-encode self-test
+    vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.KEqkVc/moonlight-sunshine-hook.480Wca/trace.txt
 
-A 1.2-second recorded run:
+The outer trace proves KVM, virtio_gpu, NVIDIA-backed VirGL, actual installed
+Alpine package versions (including weston-12.0.4-r0 and
+wl-clipboard-2.2.0-r1), a real Weston DRM selection in both directions,
+file transfer in both directions, and QEMU SetUIInfo applied.
 
-```text
-encoded frames: 36
-output segments: 2
-final mode: 854x480
-shared-map scanouts/updates: 2/39
-mailbox dropped: 5
-audio callbacks/frames: 132/63360
-ffmpeg exit status: 0
-display audio registered/failures/writes: 1/0/132
-session errors: 0
-```
+Independent SHA-256 assertions:
 
-`ffprobe` verified:
+| Direction | SHA-256 |
+| --- | --- |
+| client QSF text -> guest wl-paste | 7a86b46c203c32ccbc5234b82bd7d05c404e9c4910a36093a3b9c788aecd6548 |
+| guest wl-copy -> client QSF get | af2fd4676d16c4ffbcbc946d461ec21f16820dd948fdab1cc84cb715013dcfc6 |
+| client upload -> guest | c42a9b7de80bc704a517486501b41e44a589700f13ea09b4775cc7c90de6a94e |
+| guest download -> client | 7ad50987bb70f63abecaf196fd72e62e49a886f8136289549f80f95b5ef980cc |
 
-```text
-qmdp-cpu-000.mkv
-  codec: h264
-  size: 640x360
-  pixel format: yuv420p
-  rate: 30 fps
-  duration: 0.7 s
+The composite requires live-h264-geometry-order.txt to be exactly:
 
-qmdp-cpu-001.mkv
-  codec: h264
-  size: 854x480
-  pixel format: yuv420p
-  rate: 30 fps
-  duration: 0.5 s
-```
+    1280x800->1280x720
 
-The two files prove encoder restart on a display geometry change. They are test
-segments, not a benchmark or a Moonlight stream.
+Its final observer counters are DMA-BUF scanouts/updates/failures
+13165/13167/0 with zero session errors. The nested Moonlight hook requires
+fullscreen non-black decode and raw guest KEY_A + absolute pointer + button
+markers. It names the final no-X Sunshine binary.
 
-### 6. Real-QEMU TCG inline CPU E2E
+The failed run.tmazza is a deliberately excluded diagnostic trace from an
+earlier package-version parser; it did not pass the runner and is not used as
+evidence. The final run uses the corrected parser against Alpine's installed
+package database.
 
-Executed through:
+## Scope and evidence handling
 
-```bash
-./scripts/run-real-qemu-selftest.sh
-```
+All run directories are ignored by Git because pairing keys and QSF tokens are
+ephemeral capability material. Do not publish them unchanged.
 
-The test generated and verified a `512`-byte boot sector with signature `55 aa`,
-embedded it in a `1474560`-byte floppy image, started a private session D-Bus,
-and ran a real QEMU 8.2 process with `-accel tcg -display dbus,gl=off`.
+The test suite does not claim:
 
-```text
-frames published/encoded/dropped: 42/41/1
-scanout inline/map: 42/0
-ffmpeg exit status: 0
-session errors: 0
-
-qemu-probe-001.mkv
-  codec: h264
-  size: 640x400
-  pixel format: yuv420p
-  rate: 30 fps
-```
-
-The probe performed `Console.RegisterListener` over the real message bus and
-peer socket, captured real inline CPU scanouts, sent keyboard/relative-pointer/
-button input, and encoded the result through FFmpeg. The exact raw trace is
-`artifacts/validation/real-qemu/trace.txt`.
-
-This QEMU version does not expose Unix `Listener.Unix.Map`, so the real test
-correctly records only the inline lane. Standard VGA also rejects optional
-`Console.SetUIInfo`; the test does not misrepresent that as a resize pass.
-
-### 7. Alpine reference-guest E2E
-
-Executed through:
-
-```bash
-BUILD_DIR="$PWD/build-runtime" BOOT_WAIT_SECONDS=12 \
-  ./scripts/run-alpine-reference-e2e.sh
-```
-
-The pinned Alpine virt 3.24.1 ISO has SHA-256
-`e73a6241bd5f3c5c2d4d38c02cc52c378c0415a7c888bd292066bf36e0f41a39`.
-Its TCG guest selected the USB tablet through the Linux HID stack; the probe
-recorded absolute input, 5/5 encoded frames, inline scanouts, H.264 output and
-zero session errors. The compact trace is
-`artifacts/validation/alpine-reference-e2e/trace.txt`.
-
-### 8. Patched upstream Sunshine real-QEMU gate
-
-The exported patch was applied to Sunshine `v2026.830.223700`
-(`4f39fc116294abf8241bcd30e1b1e23d371e6e7b`), built with only the QEMU
-capture source, and run through:
-
-```bash
-SUNSHINE_BINARY=/tmp/q-sunshine-upstream-qemu/sunshine \
-  ./scripts/run-upstream-sunshine-qemu-e2e.sh
-```
-
-The gate passed against QEMU 8.2.2 under TCG. Its trace records
-`capture=qemu_dbus`, `encoder=software`, QEMU Display1 screencasting,
-`libx264` creation, and `Found H.264 encoder: libx264 [software]`.
-The bounded `timeout` exit status is intentional after startup probing. See
-`SUNSHINE_QEMU_INTEGRATION.md`; this is not a Moonlight, input, or audio test.
-
-## Sanitizers
-
-A separate Debug build was configured with:
-
-```text
--fsanitize=address,undefined
--fno-omit-frame-pointer
-ASAN_OPTIONS=detect_leaks=1:halt_on_error=1
-UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
-```
-
-Result:
-
-```text
-100% tests passed, 0 tests failed out of 5
-Total Test time (real) = 4.41 sec
-```
-
-No AddressSanitizer, leak sanitizer or UndefinedBehaviorSanitizer error was
-reported.
-
-## Harmless container warning
-
-`dbus-run-session` prints:
-
-```text
-Failed to set fd limit to 65536: Operation not permitted
-```
-
-The restricted container does not allow increasing its hard descriptor limit.
-The D-Bus sessions and all E2E assertions still complete successfully. This is
-not emitted by the project code.
-
-## Evidence files
-
-```text
-artifacts/validation/no-gpu-selftest/environment.txt
-artifacts/validation/no-gpu-selftest/ctest.log
-artifacts/validation/no-gpu-selftest/selftest.log
-artifacts/validation/no-gpu-selftest/ffprobe.txt
-artifacts/validation/no-gpu-selftest/encoded/*.mkv
-artifacts/validation/no-gpu-selftest/*-final.ppm
-artifacts/validation/sanitizers-ctest.log
-artifacts/validation/real-qemu/environment.txt
-artifacts/validation/real-qemu/ctest.log
-artifacts/validation/real-qemu/trace.txt
-artifacts/validation/real-qemu/probe.log
-artifacts/validation/real-qemu/qemu.log
-artifacts/validation/real-qemu/ffprobe.txt
-artifacts/validation/real-qemu/encoded/*.mkv
-artifacts/validation/alpine-reference-e2e/trace.txt
-artifacts/validation/alpine-reference-e2e/encoded/*.mkv
-artifacts/validation/upstream-sunshine-qemu-e2e/trace.txt
-artifacts/validation/upstream-sunshine-qemu-e2e/sunshine.log
-```
-
-## Not validated here
-
-The following claims are intentionally not made by this package:
-
-- an actual Sunshine/Moonlight network session;
-- Linux login or Windows login behavior;
-- QEMU restart/reconnect soak;
-- clipboard;
-- DMA-BUF or hardware encoding;
-- latency or CPU-performance targets.
-
-The real-QEMU result is a narrow, reproducible transport/capture/input/H.264
-qualification. Its scope and exclusions are also documented in
-`REAL_QEMU_E2E.md`.
+- stock GameStream/Moonlight clipboard or file-transfer packets; QSF is a
+  separate authenticated companion;
+- unsolicited remote clipboard push; guest-originated text is delivered to the
+  broker and retrieved by explicit clipboard-get pull/poll;
+- automatic Weston hotplug: the fixture records an explicit Weston DRM restart
+  after the accepted resize;
+- GPU-native encoding, zero-copy capture, multi-plane DMA-BUF2, latency
+  targets, reconnect/soak behavior, or production service supervision;
+- remote deployment authorization/session binding beyond the protocol-tested
+  TLS 1.3 mTLS gateway.

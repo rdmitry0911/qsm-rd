@@ -1,0 +1,993 @@
+From 8e628d3a29df7d745c824722aa421b8cfc1185fa Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 1 Sep 2026 11:53:52 +0000
+Subject: [PATCH] platform/linux: add QEMU Display1 guest audio source
+
+---
+ src/platform/linux/audio.cpp     |  13 +
+ src/platform/linux/qemu_dbus.cpp | 874 +++++++++++++++++++++++++++++++
+ src/platform/linux/qemu_dbus.h   |   9 +
+ 3 files changed, 896 insertions(+)
+
+diff --git a/src/platform/linux/audio.cpp b/src/platform/linux/audio.cpp
+index bfd3ab7..9857c83 100644
+--- a/src/platform/linux/audio.cpp
++++ b/src/platform/linux/audio.cpp
+@@ -19,6 +19,10 @@
+ #include "src/platform/common.h"
+ #include "src/thread_safe.h"
+ 
++#ifdef SUNSHINE_BUILD_QEMU_DBUS
++  #include "src/platform/linux/qemu_dbus.h"
++#endif
++
+ namespace platf {
+   using namespace std::literals;
+ 
+@@ -676,6 +680,15 @@ namespace platf {
+    * @brief Create the platform audio controller.
+    */
+   std::unique_ptr<audio_control_t> audio_control() {
++#ifdef SUNSHINE_BUILD_QEMU_DBUS
++    // A qemu_dbus video session must never accidentally expose Sunshine's
++    // host desktop audio.  The QEMU controller either captures the VM's
++    // AudioOutListener PCM or reports that this stream has no audio.
++    if (config::video.capture == "qemu_dbus") {
++      return qemu_dbus_audio_control();
++    }
++#endif
++
+     auto audio = std::make_unique<pa::server_t>();
+ 
+     if (audio->init()) {
+diff --git a/src/platform/linux/qemu_dbus.cpp b/src/platform/linux/qemu_dbus.cpp
+index 71e6e64..6477035 100644
+--- a/src/platform/linux/qemu_dbus.cpp
++++ b/src/platform/linux/qemu_dbus.cpp
+@@ -6,18 +6,21 @@
+ // standard includes
+ #include <algorithm>
+ #include <array>
++#include <bit>
+ #include <cmath>
+ #include <chrono>
+ #include <condition_variable>
+ #include <cstdint>
+ #include <cstdlib>
+ #include <cstring>
++#include <deque>
+ #include <exception>
+ #include <limits>
+ #include <mutex>
+ #include <optional>
+ #include <string_view>
+ #include <thread>
++#include <unordered_map>
+ #include <utility>
+ #include <vector>
+ 
+@@ -47,11 +50,21 @@ namespace platf {
+     constexpr char mouse_interface[] = "org.qemu.Display1.Mouse";
+     constexpr char listener_path[] = "/org/qemu/Display1/Listener";
+     constexpr char listener_interface[] = "org.qemu.Display1.Listener";
++    constexpr char audio_path[] = "/org/qemu/Display1/Audio";
++    constexpr char audio_interface[] = "org.qemu.Display1.Audio";
++    constexpr char audio_listener_path[] = "/org/qemu/Display1/AudioOutListener";
++    constexpr char audio_listener_interface[] = "org.qemu.Display1.AudioOutListener";
++    constexpr char qemu_audio_sink_name[] = "qemu-dbus";
+     constexpr std::uint32_t max_dimension = 16384U;
+     constexpr std::uint64_t max_frame_bytes = 512ULL * 1024ULL * 1024ULL;
++    constexpr std::size_t max_audio_packet_bytes = 1024U * 1024U;
++    constexpr std::uint32_t qemu_audio_sample_rate = 48000U;
++    constexpr std::uint8_t qemu_audio_channels = 2U;
++    constexpr std::uint32_t qemu_audio_fifo_milliseconds = 50U;
+     constexpr gint input_probe_timeout_ms = 1000;
+     constexpr gint ui_info_timeout_ms = 500;
+     constexpr gint input_send_timeout_ms = 500;
++    constexpr guint peer_auth_timeout_seconds = 5U;
+     constexpr int wheel_delta = 120;
+ 
+     // Public pixman wire values.  QEMU sends native byte arrays; all accepted
+@@ -174,6 +187,66 @@ namespace platf {
+       }
+     }
+ 
++    std::uint64_t read_audio_unsigned(const std::uint8_t *bytes,
++                                      std::size_t byte_count,
++                                      bool big_endian) {
++      std::uint64_t value = 0U;
++      if (big_endian) {
++        for (std::size_t index = 0U; index < byte_count; ++index) {
++          value = (value << 8U) | bytes[index];
++        }
++      } else {
++        for (std::size_t index = 0U; index < byte_count; ++index) {
++          value |= static_cast<std::uint64_t>(bytes[index]) << (index * 8U);
++        }
++      }
++      return value;
++    }
++
++    float integer_pcm_to_float(const std::uint8_t *bytes,
++                               std::size_t byte_count,
++                               std::uint8_t bits,
++                               bool is_signed,
++                               bool big_endian) {
++      if (bits == 0U || bits > 32U || byte_count == 0U || byte_count > 4U) {
++        return 0.0F;
++      }
++      const auto raw = read_audio_unsigned(bytes, byte_count, big_endian);
++      const auto mask = (std::uint64_t {1U} << bits) - 1U;
++      const auto value = raw & mask;
++      const auto scale = static_cast<double>(std::uint64_t {1U} << (bits - 1U));
++      if (is_signed) {
++        const auto sign_bit = std::uint64_t {1U} << (bits - 1U);
++        const auto signed_value = (value & sign_bit) != 0U
++                                    ? static_cast<std::int64_t>(value | ~mask)
++                                    : static_cast<std::int64_t>(value);
++        return static_cast<float>(std::clamp(
++          static_cast<double>(signed_value) / scale, -1.0, 1.0
++        ));
++      }
++      return static_cast<float>(std::clamp(
++        (static_cast<double>(value) - scale) / scale, -1.0, 1.0
++      ));
++    }
++
++    float floating_pcm_to_float(const std::uint8_t *bytes,
++                                std::size_t byte_count,
++                                std::uint8_t bits,
++                                bool big_endian) {
++      const auto raw = read_audio_unsigned(bytes, byte_count, big_endian);
++      if (bits == 32U && byte_count == sizeof(std::uint32_t)) {
++        const auto value = std::bit_cast<float>(static_cast<std::uint32_t>(raw));
++        return std::isfinite(value) ? std::clamp(value, -1.0F, 1.0F) : 0.0F;
++      }
++      if (bits == 64U && byte_count == sizeof(std::uint64_t)) {
++        const auto value = std::bit_cast<double>(raw);
++        return std::isfinite(value)
++                 ? static_cast<float>(std::clamp(value, -1.0, 1.0))
++                 : 0.0F;
++      }
++      return 0.0F;
++    }
++
+     /**
+      * Map a GameStream/Moonlight Windows virtual key to the AT set-1 value
+      * used by QEMU's historical qnum encoding.  Moonlight Qt explicitly sends
+@@ -906,6 +979,790 @@ namespace platf {
+       return input;
+     }
+ 
++    /**
++     * Per-QEMU playback stream state supplied by AudioOutListener.Init.
++     * QEMU can have more than one voice; the MVP accepts only the one whose
++     * rate/layout exactly matches Sunshine's stereo Opus stream.
++     */
++    struct qemu_audio_stream_t {
++      std::uint8_t bits {};
++      bool is_signed {};
++      bool is_float {};
++      std::uint32_t sample_rate {};
++      std::uint8_t channels {};
++      std::uint32_t bytes_per_frame {};
++      std::uint32_t bytes_per_second {};
++      bool big_endian {};
++      bool enabled {};
++      bool muted {};
++      std::vector<std::uint8_t> volume;
++    };
++
++    struct qemu_audio_target_t {
++      std::uint32_t sample_rate {};
++      std::uint8_t channels {};
++      std::uint32_t frame_size {};
++      bool configured {};
++    };
++
++    class qemu_dbus_audio_mic_t;
++
++    /**
++     * Own the QEMU main-bus registration and the private AudioOutListener
++     * peer connection.  Audio callbacks only normalize/enqueue samples; the
++     * Sunshine audio thread is the sole FIFO consumer.
++     */
++    class qemu_dbus_audio_session_t final:
++        public std::enable_shared_from_this<qemu_dbus_audio_session_t> {
++    public:
++      qemu_dbus_audio_session_t(std::string address, std::string destination)
++          : address_ {std::move(address)}, destination_ {std::move(destination)} {
++      }
++
++      ~qemu_dbus_audio_session_t() {
++        close();
++      }
++
++      qemu_dbus_audio_session_t(const qemu_dbus_audio_session_t &) = delete;
++      qemu_dbus_audio_session_t &operator=(const qemu_dbus_audio_session_t &) = delete;
++
++      bool init() {
++        if (!g_dbus_is_address(address_.c_str())) {
++          BOOST_LOG(error) << "[qemu-dbus] invalid SUNSHINE_QEMU_DBUS_ADDRESS for guest audio"sv;
++          return false;
++        }
++
++        GError *gerror = nullptr;
++        main_bus_ = g_dbus_connection_new_for_address_sync(
++          address_.c_str(),
++          static_cast<GDBusConnectionFlags>(G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT |
++                                            G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION),
++          nullptr,
++          nullptr,
++          &gerror
++        );
++        if (main_bus_ == nullptr) {
++          log_gerror("connect private QEMU D-Bus for guest audio", gerror);
++          return false;
++        }
++        g_dbus_connection_set_exit_on_close(main_bus_, false);
++        if ((g_dbus_connection_get_capabilities(main_bus_) &
++             G_DBUS_CAPABILITY_FLAGS_UNIX_FD_PASSING) == 0) {
++          BOOST_LOG(error) << "[qemu-dbus] private QEMU D-Bus does not permit AudioOutListener FD passing"sv;
++          return false;
++        }
++        g_signal_connect(main_bus_,
++                         "closed",
++                         G_CALLBACK(&qemu_dbus_audio_session_t::connection_closed),
++                         this);
++
++        int sockets[2] {-1, -1};
++        if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sockets) != 0) {
++          BOOST_LOG(error) << "[qemu-dbus] socketpair for AudioOutListener failed"sv;
++          return false;
++        }
++        const int client_fd = sockets[0];
++        const int qemu_fd = sockets[1];
++
++        GUnixFDList *fd_list = g_unix_fd_list_new();
++        const int fd_handle = g_unix_fd_list_append(fd_list, qemu_fd, &gerror);
++        if (fd_handle < 0) {
++          ::close(client_fd);
++          ::close(qemu_fd);
++          g_object_unref(fd_list);
++          log_gerror("append QEMU AudioOutListener fd", gerror);
++          return false;
++        }
++
++        // QEMU 8.2 opens the audio peer synchronously from its
++        // RegisterOutListener method handler.  Calling that method
++        // synchronously before opening our end produces a circular wait:
++        // Sunshine waits for the method reply while QEMU waits for this peer
++        // authentication.  Issue the bounded main-bus call on one thread and
++        // authenticate/register the peer on this one instead.
++        struct register_result_t {
++          GVariant *reply {};
++          GError *error {};
++        } register_result;
++        std::thread register_thread([&] {
++          register_result.reply = g_dbus_connection_call_with_unix_fd_list_sync(
++            main_bus_,
++            destination_.c_str(),
++            audio_path,
++            audio_interface,
++            "RegisterOutListener",
++            g_variant_new("(h)", fd_handle),
++            G_VARIANT_TYPE_UNIT,
++            G_DBUS_CALL_FLAGS_NO_AUTO_START,
++            5000,
++            fd_list,
++            nullptr,
++            nullptr,
++            &register_result.error
++          );
++        });
++        bool register_finalized = false;
++        bool register_succeeded = false;
++        const auto finish_register = [&] {
++          if (register_finalized) {
++            return register_succeeded;
++          }
++          register_thread.join();
++          g_object_unref(fd_list);
++          ::close(qemu_fd);
++          register_finalized = true;
++          if (register_result.reply == nullptr) {
++            log_gerror("QEMU Audio.RegisterOutListener", register_result.error);
++            register_result.error = nullptr;
++            return false;
++          }
++          g_variant_unref(register_result.reply);
++          register_result.reply = nullptr;
++          register_succeeded = true;
++          return register_succeeded;
++        };
++
++        // QEMU owns its peer FD only after the registration method starts.
++        // Connecting immediately satisfies its synchronous server handshake;
++        // DELAY_MESSAGE_PROCESSING below lets us register the listener object
++        // before it can issue Init/SetEnabled/Write calls.
++        peer_context_ = g_main_context_new();
++        g_main_context_push_thread_default(peer_context_);
++        bool context_pushed = true;
++        const auto pop_context = [&] {
++          if (context_pushed) {
++            g_main_context_pop_thread_default(peer_context_);
++            context_pushed = false;
++          }
++        };
++
++        GSocket *socket = g_socket_new_from_fd(client_fd, &gerror);
++        if (socket == nullptr) {
++          ::close(client_fd);
++          pop_context();
++          log_gerror("wrap QEMU AudioOutListener socket", gerror);
++          finish_register();
++          return false;
++        }
++        g_socket_set_timeout(socket, peer_auth_timeout_seconds);
++        GSocketConnection *stream = g_socket_connection_factory_create_connection(socket);
++        g_object_unref(socket);
++        peer_bus_ = g_dbus_connection_new_sync(
++          G_IO_STREAM(stream),
++          nullptr,
++          static_cast<GDBusConnectionFlags>(G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT |
++                                            G_DBUS_CONNECTION_FLAGS_DELAY_MESSAGE_PROCESSING),
++          nullptr,
++          nullptr,
++          &gerror
++        );
++        g_object_unref(stream);
++        if (peer_bus_ == nullptr) {
++          pop_context();
++          log_gerror("open QEMU AudioOutListener", gerror);
++          finish_register();
++          return false;
++        }
++        g_dbus_connection_set_exit_on_close(peer_bus_, false);
++        g_signal_connect(peer_bus_,
++                         "closed",
++                         G_CALLBACK(&qemu_dbus_audio_session_t::connection_closed),
++                         this);
++
++        listener_introspection_ = g_dbus_node_info_new_for_xml(listener_xml, &gerror);
++        if (listener_introspection_ == nullptr) {
++          pop_context();
++          log_gerror("parse QEMU AudioOutListener interface", gerror);
++          finish_register();
++          return false;
++        }
++        listener_registration_ = g_dbus_connection_register_object(
++          peer_bus_,
++          audio_listener_path,
++          listener_introspection_->interfaces[0],
++          &listener_vtable,
++          this,
++          nullptr,
++          &gerror
++        );
++        if (listener_registration_ == 0U) {
++          pop_context();
++          log_gerror("register QEMU AudioOutListener object", gerror);
++          finish_register();
++          return false;
++        }
++        g_dbus_connection_start_message_processing(peer_bus_);
++        peer_loop_ = g_main_loop_new(peer_context_, false);
++        pop_context();
++
++        peer_thread_ = std::thread([this] {
++          g_main_context_push_thread_default(peer_context_);
++          g_main_loop_run(peer_loop_);
++          g_main_context_pop_thread_default(peer_context_);
++        });
++        if (!finish_register()) {
++          return false;
++        }
++        {
++          std::lock_guard lock(audio_mutex_);
++          listener_ready_ = true;
++        }
++        BOOST_LOG(info) << "[qemu-dbus] registered QEMU AudioOutListener for guest PCM"sv;
++        return true;
++      }
++
++      std::unique_ptr<mic_t> microphone(int channels,
++                                        std::uint32_t sample_rate,
++                                        std::uint32_t frame_size,
++                                        bool continuous);
++
++      capture_e sample(std::vector<float> &frame_buffer, bool continuous) {
++        std::unique_lock lock(audio_mutex_);
++        if (!target_.configured || frame_buffer.size() !=
++                                     static_cast<std::size_t>(target_.frame_size) * target_.channels) {
++          return capture_e::error;
++        }
++        const auto wanted = frame_buffer.size();
++        const auto frame_duration = std::chrono::milliseconds(
++          std::max<std::uint64_t>(
++            1U,
++            static_cast<std::uint64_t>(target_.frame_size) * 1000U / target_.sample_rate
++          )
++        );
++        fifo_ready_.wait_for(lock, frame_duration, [&] {
++          return shutting_down_ || transport_closed_ || fifo_.size() >= wanted;
++        });
++        if (shutting_down_ || transport_closed_) {
++          return capture_e::reinit;
++        }
++        if (fifo_.size() >= wanted) {
++          std::copy_n(fifo_.begin(), wanted, frame_buffer.begin());
++          fifo_.erase(fifo_.begin(), fifo_.begin() + static_cast<std::ptrdiff_t>(wanted));
++          return capture_e::ok;
++        }
++        if (continuous) {
++          std::fill(frame_buffer.begin(), frame_buffer.end(), 0.0F);
++          return capture_e::ok;
++        }
++        return capture_e::timeout;
++      }
++
++      bool alive() const {
++        std::lock_guard lock(audio_mutex_);
++        return listener_ready_ && !shutting_down_ && !transport_closed_;
++      }
++
++      void close() noexcept {
++        {
++          std::lock_guard lock(audio_mutex_);
++          shutting_down_ = true;
++          listener_ready_ = false;
++          fifo_.clear();
++        }
++        fifo_ready_.notify_all();
++        if (peer_loop_ != nullptr) {
++          g_main_loop_quit(peer_loop_);
++        }
++        if (peer_thread_.joinable()) {
++          peer_thread_.join();
++        }
++        if (peer_bus_ != nullptr && listener_registration_ != 0U) {
++          g_dbus_connection_unregister_object(peer_bus_, listener_registration_);
++          listener_registration_ = 0U;
++        }
++        if (listener_introspection_ != nullptr) {
++          g_dbus_node_info_unref(listener_introspection_);
++          listener_introspection_ = nullptr;
++        }
++        if (peer_loop_ != nullptr) {
++          g_main_loop_unref(peer_loop_);
++          peer_loop_ = nullptr;
++        }
++        if (peer_bus_ != nullptr) {
++          g_object_unref(peer_bus_);
++          peer_bus_ = nullptr;
++        }
++        if (peer_context_ != nullptr) {
++          g_main_context_unref(peer_context_);
++          peer_context_ = nullptr;
++        }
++        if (main_bus_ != nullptr) {
++          g_object_unref(main_bus_);
++          main_bus_ = nullptr;
++        }
++      }
++
++    private:
++      inline static constexpr char listener_xml[] = R"xml(
++<node>
++  <interface name="org.qemu.Display1.AudioOutListener">
++    <method name="Init"><arg type="t" direction="in"/><arg type="y" direction="in"/><arg type="b" direction="in"/><arg type="b" direction="in"/><arg type="u" direction="in"/><arg type="y" direction="in"/><arg type="u" direction="in"/><arg type="u" direction="in"/><arg type="b" direction="in"/></method>
++    <method name="Fini"><arg type="t" direction="in"/></method>
++    <method name="SetEnabled"><arg type="t" direction="in"/><arg type="b" direction="in"/></method>
++    <method name="SetVolume"><arg type="t" direction="in"/><arg type="b" direction="in"/><arg type="ay" direction="in"/></method>
++    <method name="Write"><arg type="t" direction="in"/><arg type="ay" direction="in"/></method>
++    <property name="Interfaces" type="as" access="read"/>
++  </interface>
++</node>
++)xml";
++
++      static void listener_method_call(GDBusConnection *,
++                                       const gchar *,
++                                       const gchar *,
++                                       const gchar *,
++                                       const gchar *method_name,
++                                       GVariant *parameters,
++                                       GDBusMethodInvocation *invocation,
++                                       gpointer userdata) {
++        try {
++          auto *self = static_cast<qemu_dbus_audio_session_t *>(userdata);
++          std::string error;
++          if (std::strcmp(method_name, "Init") == 0) {
++            guint64 id = 0U;
++            guint8 bits = 0U;
++            gboolean is_signed = false;
++            gboolean is_float = false;
++            guint32 sample_rate = 0U;
++            guint8 channels = 0U;
++            guint32 bytes_per_frame = 0U;
++            guint32 bytes_per_second = 0U;
++            gboolean big_endian = false;
++            g_variant_get(parameters, "(tybbuyuub)", &id, &bits, &is_signed,
++                          &is_float, &sample_rate, &channels, &bytes_per_frame,
++                          &bytes_per_second, &big_endian);
++            if (!self->init_stream(id, bits, is_signed, is_float, sample_rate,
++                                   channels, bytes_per_frame, bytes_per_second,
++                                   big_endian, error)) {
++              g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
++                                                    G_DBUS_ERROR_INVALID_ARGS,
++                                                    "%s", error.c_str());
++              return;
++            }
++            g_dbus_method_invocation_return_value(invocation, nullptr);
++            return;
++          }
++          if (std::strcmp(method_name, "Fini") == 0) {
++            guint64 id = 0U;
++            g_variant_get(parameters, "(t)", &id);
++            if (!self->finish_stream(id, error)) {
++              g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
++                                                    G_DBUS_ERROR_INVALID_ARGS,
++                                                    "%s", error.c_str());
++              return;
++            }
++            g_dbus_method_invocation_return_value(invocation, nullptr);
++            return;
++          }
++          if (std::strcmp(method_name, "SetEnabled") == 0) {
++            guint64 id = 0U;
++            gboolean enabled = false;
++            g_variant_get(parameters, "(tb)", &id, &enabled);
++            if (!self->set_enabled(id, enabled, error)) {
++              g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
++                                                    G_DBUS_ERROR_INVALID_ARGS,
++                                                    "%s", error.c_str());
++              return;
++            }
++            g_dbus_method_invocation_return_value(invocation, nullptr);
++            return;
++          }
++          if (std::strcmp(method_name, "SetVolume") == 0) {
++            guint64 id = 0U;
++            gboolean muted = false;
++            GVariant *volume_variant = nullptr;
++            g_variant_get(parameters, "(tb@ay)", &id, &muted, &volume_variant);
++            gsize volume_size = 0U;
++            const auto *volume = static_cast<const std::uint8_t *>(
++              g_variant_get_fixed_array(volume_variant, &volume_size, sizeof(std::uint8_t))
++            );
++            const bool accepted = self->set_volume(id, muted, volume, volume_size, error);
++            g_variant_unref(volume_variant);
++            if (!accepted) {
++              g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
++                                                    G_DBUS_ERROR_INVALID_ARGS,
++                                                    "%s", error.c_str());
++              return;
++            }
++            g_dbus_method_invocation_return_value(invocation, nullptr);
++            return;
++          }
++          if (std::strcmp(method_name, "Write") == 0) {
++            guint64 id = 0U;
++            GVariant *pcm_variant = nullptr;
++            g_variant_get(parameters, "(t@ay)", &id, &pcm_variant);
++            gsize pcm_size = 0U;
++            const auto *pcm = static_cast<const std::uint8_t *>(
++              g_variant_get_fixed_array(pcm_variant, &pcm_size, sizeof(std::uint8_t))
++            );
++            const bool accepted = self->write_pcm(id, pcm, pcm_size, error);
++            g_variant_unref(pcm_variant);
++            if (!accepted) {
++              g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
++                                                    G_DBUS_ERROR_INVALID_ARGS,
++                                                    "%s", error.c_str());
++              return;
++            }
++            g_dbus_method_invocation_return_value(invocation, nullptr);
++            return;
++          }
++          g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
++                                                G_DBUS_ERROR_UNKNOWN_METHOD,
++                                                "Unsupported QEMU AudioOutListener method: %s",
++                                                method_name);
++        } catch (const std::exception &exception) {
++          BOOST_LOG(error) << "[qemu-dbus] AudioOutListener callback failed: "sv << exception.what();
++          g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
++                                                G_DBUS_ERROR_FAILED, "%s", exception.what());
++        } catch (...) {
++          BOOST_LOG(error) << "[qemu-dbus] AudioOutListener callback failed with an unknown exception"sv;
++          g_dbus_method_invocation_return_error(invocation, G_DBUS_ERROR,
++                                                G_DBUS_ERROR_FAILED,
++                                                "%s", "unknown audio listener failure");
++        }
++      }
++
++      static GVariant *listener_get_property(GDBusConnection *,
++                                             const gchar *,
++                                             const gchar *,
++                                             const gchar *interface_name,
++                                             const gchar *property_name,
++                                             GError **,
++                                             gpointer) {
++        if (std::strcmp(interface_name, audio_listener_interface) == 0 &&
++            std::strcmp(property_name, "Interfaces") == 0) {
++          return g_variant_new_strv(nullptr, 0);
++        }
++        return nullptr;
++      }
++
++      static void connection_closed(GDBusConnection *,
++                                    gboolean,
++                                    GError *gerror,
++                                    gpointer userdata) {
++        auto *self = static_cast<qemu_dbus_audio_session_t *>(userdata);
++        {
++          std::lock_guard lock(self->audio_mutex_);
++          if (!self->shutting_down_) {
++            self->transport_closed_ = true;
++            self->listener_ready_ = false;
++            self->fifo_.clear();
++          }
++        }
++        self->fifo_ready_.notify_all();
++        if (gerror != nullptr) {
++          BOOST_LOG(warning) << "[qemu-dbus] guest audio transport closed: "sv << gerror->message;
++        }
++      }
++
++      bool init_stream(std::uint64_t id,
++                       std::uint8_t bits,
++                       bool is_signed,
++                       bool is_float,
++                       std::uint32_t sample_rate,
++                       std::uint8_t channels,
++                       std::uint32_t bytes_per_frame,
++                       std::uint32_t bytes_per_second,
++                       bool big_endian,
++                       std::string &error) {
++        const auto sample_bytes = static_cast<std::uint32_t>((bits + 7U) / 8U);
++        const auto minimum_frame_bytes = static_cast<std::uint64_t>(sample_bytes) * channels;
++        if (id == 0U || bits == 0U || sample_rate == 0U || channels == 0U ||
++            bytes_per_frame == 0U || bytes_per_second == 0U || sample_bytes == 0U ||
++            minimum_frame_bytes > bytes_per_frame ||
++            (is_float && bits != 32U && bits != 64U) || (!is_float && bits > 32U)) {
++          error = "unsupported or internally inconsistent PCM format";
++          return false;
++        }
++        qemu_audio_stream_t state {
++          .bits = bits,
++          .is_signed = is_signed,
++          .is_float = is_float,
++          .sample_rate = sample_rate,
++          .channels = channels,
++          .bytes_per_frame = bytes_per_frame,
++          .bytes_per_second = bytes_per_second,
++          .big_endian = big_endian,
++          .volume = std::vector<std::uint8_t>(channels, 255U),
++        };
++        {
++          std::lock_guard lock(audio_mutex_);
++          streams_.insert_or_assign(id, std::move(state));
++          // QEMU reuses the listener across a guest-audio restart.  Never
++          // emit stale samples from the pre-restart stream.
++          fifo_.clear();
++        }
++        fifo_ready_.notify_all();
++        BOOST_LOG(info) << "[qemu-dbus] guest audio stream initialized: "sv
++                        << sample_rate << " Hz, "sv << static_cast<unsigned int>(channels)
++                        << " channels, "sv << static_cast<unsigned int>(bits)
++                        << (is_float ? "-bit float"sv : "-bit integer"sv);
++        return true;
++      }
++
++      bool finish_stream(std::uint64_t id, std::string &error) {
++        std::lock_guard lock(audio_mutex_);
++        if (streams_.erase(id) == 0U) {
++          error = "unknown QEMU guest-audio stream";
++          return false;
++        }
++        fifo_.clear();
++        fifo_ready_.notify_all();
++        return true;
++      }
++
++      bool set_enabled(std::uint64_t id, bool enabled, std::string &error) {
++        std::lock_guard lock(audio_mutex_);
++        const auto stream = streams_.find(id);
++        if (stream == streams_.end()) {
++          error = "unknown QEMU guest-audio stream";
++          return false;
++        }
++        stream->second.enabled = enabled;
++        if (!enabled) {
++          fifo_.clear();
++        }
++        fifo_ready_.notify_all();
++        return true;
++      }
++
++      bool set_volume(std::uint64_t id,
++                      bool muted,
++                      const std::uint8_t *volume,
++                      std::size_t volume_size,
++                      std::string &error) {
++        std::lock_guard lock(audio_mutex_);
++        const auto stream = streams_.find(id);
++        if (stream == streams_.end()) {
++          error = "unknown QEMU guest-audio stream";
++          return false;
++        }
++        stream->second.muted = muted;
++        stream->second.volume.clear();
++        if (volume != nullptr && volume_size != 0U) {
++          stream->second.volume.assign(volume, volume + volume_size);
++        }
++        stream->second.volume.resize(stream->second.channels, 255U);
++        if (muted) {
++          fifo_.clear();
++        }
++        fifo_ready_.notify_all();
++        return true;
++      }
++
++      bool write_pcm(std::uint64_t id,
++                     const std::uint8_t *pcm,
++                     std::size_t pcm_size,
++                     std::string &error) {
++        if (pcm_size > max_audio_packet_bytes) {
++          error = "guest PCM packet exceeds bounded listener limit";
++          return false;
++        }
++        qemu_audio_stream_t stream;
++        qemu_audio_target_t target;
++        {
++          std::lock_guard lock(audio_mutex_);
++          const auto found = streams_.find(id);
++          if (found == streams_.end()) {
++            error = "unknown QEMU guest-audio stream";
++            return false;
++          }
++          stream = found->second;
++          target = target_;
++        }
++        if (pcm_size % stream.bytes_per_frame != 0U) {
++          error = "PCM byte count is not a whole number of frames";
++          return false;
++        }
++        if (!stream.enabled || stream.muted || !target.configured ||
++            stream.sample_rate != target.sample_rate || stream.channels != target.channels) {
++          // The listener is intentionally permissive here: QEMU can create
++          // voices before Sunshine's session starts, and a later compatible
++          // voice must not be prevented by an error reply.
++          return true;
++        }
++
++        const auto sample_bytes = static_cast<std::size_t>((stream.bits + 7U) / 8U);
++        const auto frame_count = pcm_size / stream.bytes_per_frame;
++        if (frame_count > std::numeric_limits<std::size_t>::max() / stream.channels) {
++          error = "guest PCM frame count overflows local buffer";
++          return false;
++        }
++        std::vector<float> samples(frame_count * stream.channels, 0.0F);
++        for (std::size_t frame = 0U; frame < frame_count; ++frame) {
++          const auto frame_offset = frame * stream.bytes_per_frame;
++          for (std::size_t channel = 0U; channel < stream.channels; ++channel) {
++            const auto sample_offset = frame_offset + channel * sample_bytes;
++            float value = stream.is_float
++                            ? floating_pcm_to_float(pcm + sample_offset, sample_bytes,
++                                                   stream.bits, stream.big_endian)
++                            : integer_pcm_to_float(pcm + sample_offset, sample_bytes,
++                                                   stream.bits, stream.is_signed,
++                                                   stream.big_endian);
++            const auto volume = channel < stream.volume.size() ? stream.volume[channel] : 255U;
++            samples[frame * stream.channels + channel] = value *
++              static_cast<float>(volume) / 255.0F;
++          }
++        }
++
++        bool log_first_pcm = false;
++        bool log_drop = false;
++        {
++          std::lock_guard lock(audio_mutex_);
++          const auto found = streams_.find(id);
++          if (found == streams_.end() || !found->second.enabled || found->second.muted ||
++              !target_.configured || target_.sample_rate != target.sample_rate ||
++              target_.channels != target.channels) {
++            return true;
++          }
++          const auto max_samples = std::max<std::size_t>(
++            static_cast<std::size_t>(target_.frame_size) * target_.channels,
++            static_cast<std::size_t>(target_.sample_rate) * target_.channels *
++              qemu_audio_fifo_milliseconds / 1000U
++          );
++          const auto keep = std::min(samples.size(), max_samples);
++          const auto required_drop = fifo_.size() + keep > max_samples
++                                       ? fifo_.size() + keep - max_samples
++                                       : 0U;
++          if (required_drop > 0U) {
++            fifo_.erase(fifo_.begin(), fifo_.begin() +
++                         static_cast<std::ptrdiff_t>(std::min(required_drop, fifo_.size())));
++            log_drop = !logged_fifo_drop_;
++            logged_fifo_drop_ = true;
++          }
++          fifo_.insert(fifo_.end(), samples.end() - static_cast<std::ptrdiff_t>(keep), samples.end());
++          log_first_pcm = !logged_first_pcm_ && keep > 0U;
++          logged_first_pcm_ = logged_first_pcm_ || keep > 0U;
++        }
++        fifo_ready_.notify_all();
++        if (log_first_pcm) {
++          BOOST_LOG(info) << "[qemu-dbus] accepted guest PCM for Sunshine audio capture"sv;
++        }
++        if (log_drop) {
++          BOOST_LOG(warning) << "[qemu-dbus] guest-audio FIFO full; dropping oldest PCM"sv;
++        }
++        return true;
++      }
++
++      inline static const GDBusInterfaceVTable listener_vtable {
++        &qemu_dbus_audio_session_t::listener_method_call,
++        &qemu_dbus_audio_session_t::listener_get_property,
++        nullptr,
++      };
++
++      std::string address_;
++      std::string destination_;
++      GDBusConnection *main_bus_ {};
++      GDBusConnection *peer_bus_ {};
++      GDBusNodeInfo *listener_introspection_ {};
++      GMainContext *peer_context_ {};
++      GMainLoop *peer_loop_ {};
++      guint listener_registration_ {};
++      std::thread peer_thread_;
++
++      mutable std::mutex audio_mutex_;
++      std::condition_variable fifo_ready_;
++      std::unordered_map<std::uint64_t, qemu_audio_stream_t> streams_;
++      std::deque<float> fifo_;
++      qemu_audio_target_t target_;
++      bool shutting_down_ {};
++      bool transport_closed_ {};
++      bool listener_ready_ {};
++      bool logged_first_pcm_ {};
++      bool logged_fifo_drop_ {};
++    };
++
++    class qemu_dbus_audio_mic_t final: public mic_t {
++    public:
++      qemu_dbus_audio_mic_t(std::shared_ptr<qemu_dbus_audio_session_t> session,
++                            bool continuous)
++          : session_ {std::move(session)}, continuous_ {continuous} {
++      }
++
++      capture_e sample(std::vector<float> &frame_buffer) override {
++        return session_->sample(frame_buffer, continuous_);
++      }
++
++    private:
++      std::shared_ptr<qemu_dbus_audio_session_t> session_;
++      bool continuous_ {};
++    };
++
++    std::unique_ptr<mic_t> qemu_dbus_audio_session_t::microphone(int channels,
++                                                                   std::uint32_t sample_rate,
++                                                                   std::uint32_t frame_size,
++                                                                   bool continuous) {
++      if (channels != qemu_audio_channels || sample_rate != qemu_audio_sample_rate ||
++          frame_size == 0U) {
++        BOOST_LOG(warning) << "[qemu-dbus] guest audio MVP supports only 48 kHz stereo Sunshine streams"sv;
++        return nullptr;
++      }
++      {
++        std::lock_guard lock(audio_mutex_);
++        if (shutting_down_ || transport_closed_) {
++          return nullptr;
++        }
++        target_ = {
++          .sample_rate = sample_rate,
++          .channels = static_cast<std::uint8_t>(channels),
++          .frame_size = frame_size,
++          .configured = true,
++        };
++        fifo_.clear();
++      }
++      fifo_ready_.notify_all();
++      return std::make_unique<qemu_dbus_audio_mic_t>(shared_from_this(), continuous);
++    }
++
++    class qemu_dbus_audio_control_t final: public audio_control_t {
++    public:
++      explicit qemu_dbus_audio_control_t(std::string address, std::string destination)
++          : session_ {std::make_shared<qemu_dbus_audio_session_t>(std::move(address),
++                                                                   std::move(destination))} {
++      }
++
++      ~qemu_dbus_audio_control_t() override {
++        session_->close();
++      }
++
++      bool init() {
++        return session_->init();
++      }
++
++      int set_sink(const std::string &sink) override {
++        if (sink.empty() || sink == qemu_audio_sink_name) {
++          return 0;
++        }
++        BOOST_LOG(warning) << "[qemu-dbus] audio_sink='"sv << sink
++                           << "' cannot select host audio while capture=qemu_dbus"sv;
++        return -1;
++      }
++
++      std::unique_ptr<mic_t> microphone(const std::uint8_t *,
++                                        int channels,
++                                        std::uint32_t sample_rate,
++                                        std::uint32_t frame_size,
++                                        bool continuous,
++                                        [[maybe_unused]] bool host_audio_enabled) override {
++        return session_->microphone(channels, sample_rate, frame_size, continuous);
++      }
++
++      bool is_sink_available(const std::string &sink) override {
++        return sink == qemu_audio_sink_name && session_->alive();
++      }
++
++      std::optional<sink_t> sink_info() override {
++        if (!session_->alive()) {
++          return std::nullopt;
++        }
++        sink_t sink;
++        sink.host = qemu_audio_sink_name;
++        return sink;
++      }
++
++    private:
++      std::shared_ptr<qemu_dbus_audio_session_t> session_;
++    };
++
+     class qemu_cpu_img_t final : public img_t {
+     public:
+       void reset(std::uint32_t new_width, std::uint32_t new_height) {
+@@ -1554,6 +2411,23 @@ namespace platf {
+     return false;
+   }
+ 
++  std::unique_ptr<audio_control_t> qemu_dbus_audio_control() {
++    const auto *address = std::getenv(qemu_address_environment.data());
++    if (address == nullptr || address[0] == '\0') {
++      BOOST_LOG(error) << "[qemu-dbus] SUNSHINE_QEMU_DBUS_ADDRESS is not set; guest audio is unavailable"sv;
++      return nullptr;
++    }
++    const auto *configured_destination = std::getenv(qemu_destination_environment.data());
++    const std::string destination = configured_destination != nullptr && configured_destination[0] != '\0'
++                                      ? configured_destination
++                                      : default_destination;
++    auto control = std::make_unique<qemu_dbus_audio_control_t>(address, destination);
++    if (!control->init()) {
++      return nullptr;
++    }
++    return control;
++  }
++
+   std::vector<std::string> qemu_dbus_display_names() {
+     const auto *address = std::getenv(qemu_address_environment.data());
+     if (address == nullptr || address[0] == '\0') {
+diff --git a/src/platform/linux/qemu_dbus.h b/src/platform/linux/qemu_dbus.h
+index cacf066..e5185fd 100644
+--- a/src/platform/linux/qemu_dbus.h
++++ b/src/platform/linux/qemu_dbus.h
+@@ -79,4 +79,13 @@ namespace platf {
+    * the guest video stack remains authoritative for the resulting scanout.
+    */
+   bool qemu_dbus_request_ui_size(std::uint32_t width, std::uint32_t height);
++
++  /**
++   * Create the QEMU Display1 guest-audio controller when the private D-Bus
++   * transport exposes the standard AudioOutListener service.
++   *
++   * The controller deliberately captures only guest PCM.  It never falls
++   * back to the Sunshine host PulseAudio monitor when capture=qemu_dbus.
++   */
++  std::unique_ptr<audio_control_t> qemu_dbus_audio_control();
+ }  // namespace platf
+-- 
+2.43.0
+

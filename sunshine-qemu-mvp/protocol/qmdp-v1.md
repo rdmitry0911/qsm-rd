@@ -1,5 +1,13 @@
 # QMDP v1 — QEMU–Moonlight Desktop Profile side-channel
 
+> **Статус: историческое, не реализованное предложение.** В репозитории нет
+> QMDP WebSocket endpoint, Sunshine HTTPS session binding или Moonlight-Qt
+> реализации этого протокола. Реально проверенный companion — QSF: локальный
+> socket с токеном `0600` → QEMU virtio-serial → guest agent; его mTLS gateway
+> покрыт protocol-тестом, но не remote-session E2E. См.
+> `extensions/qsf_control/README.md` и `docs/QSF_GUEST_E2E.md`. Остальной
+> текст этого файла — проект будущего API, а не описание текущего deployment.
+
 ## 1. Назначение
 
 QMDP не заменяет GameStream/Moonlight media и input streams. Это необязательное расширение desktop-функций:

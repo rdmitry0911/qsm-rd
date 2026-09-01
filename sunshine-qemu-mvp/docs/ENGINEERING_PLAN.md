@@ -16,7 +16,23 @@
 
 ## 1.1 Текущий статус реализации
 
-По состоянию на 2026-08-31 завершён standalone CPU-first срез WP1 и значительная часть WP3/WP4:
+По состоянию на 2026-09-01 первоначальный standalone CPU-first срез расширен
+до функционального native E2E. Завершены:
+
+- pinned Sunshine patches 0001..0006, включая direct QEMU input, guest audio
+  и headless EGL DMA-BUF CPU readback;
+- actual Moonlight pairing/HTTPS/RTSP/RTP, fullscreen/windowed decode and
+  guest evdev input through KVM + virtio-vga-gl + VirGL (NVIDIA);
+- QSF companion with strict UTF-8 clipboard, constrained files, Weston DRM
+  wl-copy/wl-paste and observed 1280x800 -> 1280x720 resize;
+- no-X11/no-Wayland/no-Pulse/no-ALSA Sunshine deployment artifact.
+
+Точные результаты проверок и оставшиеся границы приведены в
+`VALIDATION.md`; последующие разделы сохраняют исходный инженерный план и
+будущие работы по аппаратному кодированию и эксплуатации.
+
+Исторический baseline от 2026-08-31 включал standalone CPU-first WP1 и
+значимые части WP3/WP4:
 
 - реальный QEMU Display1 D-Bus client/listener;
 - `Scanout`/`Update` и Unix `ScanoutMap`/`UpdateMap`;
@@ -26,9 +42,14 @@
 - software H.264 diagnostic encode;
 - release и ASan/UBSan test matrix без GPU.
 
-Следующая исполняемая задача — WP2-A: перенести CPU framebuffer source в Sunshine `platf::display_t` и получить поток stock Moonlight через `encoder = software`. GPU fast path остаётся WP2-B и не блокирует WP2-A.
+WP2-A выполнен: источник QEMU Display1 встроен в Sunshine `platf::display_t`,
+а stock Moonlight получает поток через software H.264. Выполнен и рабочий
+VirGL путь: DMA-BUF импортируется в headless EGL, читается в BGRX на CPU и
+кодируется libx264. Следующая производительная задача — GPU-конвертация и
+аппаратный encoder без полного CPU readback; она не является условием
+функционального E2E-сценария.
 
-Первый принимаемый сценарий MVP не требует GPU:
+Исторический принимаемый CPU-сценарий MVP:
 
 ```text
 Linux host + QEMU/KVM
@@ -37,10 +58,16 @@ Linux host + QEMU/KVM
        → stock Moonlight client
 ```
 
-После доказательства корректности тот же источник получает оптимизированный путь:
+Текущий проверенный VirGL-сценарий:
 
 ```text
-virtio-vga-gl/VirGL → ScanoutDMABUF → host-native encoder
+virtio-vga-gl/VirGL → ScanoutDMABUF → headless EGL → CPU BGRX → libx264
+```
+
+Целевой будущий performance path:
+
+```text
+virtio-vga-gl/VirGL → ScanoutDMABUF → GPU conversion → host-native encoder
 ```
 
 ## 2. Архитектурные решения
@@ -74,11 +101,19 @@ Moonlight передаёт видеокадры, поэтому MVP кодиру
 
 ### ADR-006 — QEMU D-Bus заменяет custom guest agent в MVP-0
 
-Для первого среза QEMU предоставляет display, cursor, keyboard/mouse, SetUIInfo, PCM audio и clipboard broker. Custom agent не входит в критический путь. Он понадобится позднее для гарантированного DPI, IME/Unicode, file transfer и OS session semantics.
+Для первого среза QEMU предоставляет display, cursor, keyboard/mouse,
+SetUIInfo и PCM audio. QEMU Clipboard broker остаётся reference-only
+вариантом: реализованный data path — QSF custom guest agent через
+virtio-serial, который уже покрывает constrained files и strict UTF-8
+clipboard. Более широкие DPI, IME/Unicode и OS session semantics остаются
+отдельной работой.
 
 ### ADR-007 — клиентское расширение не блокирует MVP-0
 
-Первый поток должен работать с обычным Moonlight. Live resize и clipboard добавляются в MVP-1 через небольшой versioned side-channel и fork Moonlight-Qt. При отсутствии расширения остаётся обычный GameStream flow.
+Первый поток работает с обычным Moonlight. Реализованные resize, clipboard и
+files идут через отдельный QSF companion и не меняют GameStream. Версионируемый
+QMDP side-channel и fork Moonlight-Qt остаются будущим предложением; при его
+отсутствии сохраняется обычный GameStream flow.
 
 ## 3. Границы MVP
 

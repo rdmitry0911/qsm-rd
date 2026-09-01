@@ -1,6 +1,16 @@
 # Архитектура
 
-## 1. Процессы MVP-0A: CPU-first
+> Статус на 2026-09-01: CPU-first схема ниже остаётся переносимым baseline,
+> однако дальнейшие слои из этого документа уже реализованы в функциональном
+> варианте: Sunshine получает QEMU `ScanoutDMABUF` через headless GBM/EGL,
+> Moonlight проходит native KVM/VirGL E2E, а QSF bridge проверен с Weston DRM
+> clipboard, файлами и `SetUIInfo`-сменой scanout. Текущий DMA-BUF тракт всё
+> ещё выполняет CPU BGRX readback перед `libx264`; это не zero-copy и не
+> hardware-encode. Актуальные acceptance evidence и границы приведены в
+> [`VALIDATION.md`](VALIDATION.md) и
+> [`MOONLIGHT_SUNSHINE_VIRGL_E2E.md`](MOONLIGHT_SUNSHINE_VIRGL_E2E.md).
+
+## 1. Процессы MVP-0A: CPU-first baseline
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -36,10 +46,12 @@
 `Scanout`/`Update` либо `ScanoutMap`/`UpdateMap` и Sunshine
 `encoder = software`, поэтому не требует GPU и `/dev/dri`.
 
-## 1.1 Процессы MVP-0B: последующая GPU-оптимизация
+## 1.1 Процессы MVP-0B: native DMA-BUF capture и последующая GPU-оптимизация
 
-После работающего stock-Moonlight потока меняется только хранение и обработка
-кадра:
+После работающего stock-Moonlight потока меняется хранение и обработка кадра.
+Первый native вариант уже работает, но его финальный readback/encode остаётся
+CPU/software; показанный ниже native-converter/encoder — последующая
+оптимизация:
 
 ```text
 virtio-vga-gl / VirGL
@@ -191,7 +203,12 @@ MVP поддерживает guest→client stereo. Client microphone→guest �
 1. изменить mode и выдать новый scanout;
 2. проигнорировать запрос — тогда Sunshine/клиент масштабирует исходный кадр.
 
-### MVP-1
+### MVP-1 (будущее предложение QMDP)
+
+Следующий QMDP flow является проектом будущего API, а не текущей реализацией.
+Проверенный runtime использует QSF: `resize` вызывает `SetUIInfo`, а guest
+Weston DRM явно перезапускается для выбора нового режима. QSF не создаёт
+QMDP WebSocket endpoint и не меняет stock GameStream protocol.
 
 ```text
 client window resize
@@ -210,17 +227,22 @@ client window resize
 
 ## 6. Clipboard
 
-QEMU предоставляет host-side clipboard broker, но GameStream не даёт универсальной системной синхронизации clipboard. Поэтому MVP-1 использует отдельный authenticated side-channel.
+GameStream не даёт универсальной системной синхронизации clipboard. Текущая
+реализация использует отдельный authenticated QSF side-channel, а не QEMU
+Clipboard interface и не QMDP WebSocket:
 
 ```text
 client clipboard
-  → QMDP offer/request/data
-  → Sunshine QEMU session
-  → QEMU Clipboard interface
-  → guest clipboard integration
+  → QSF local socket / optional mTLS gateway
+  → token-protected host broker
+  → QEMU virtio-serial
+  → guest agent → Weston wl-copy/wl-paste bridge
 ```
 
-Первая версия поддерживает только UTF-8 plain text. Для файлов clipboard передаёт лишь metadata/offer; payload должен идти будущим file-transfer engine.
+QSF поддерживает non-NUL UTF-8 plain text до 1 MiB и отдельные binary files до
+2 MiB с безопасными basename; оба направления проверены в госте Weston.
+QMDP `offer/request/data` и QEMU Clipboard interface ниже по документу —
+future/reference-only design.
 
 ## 7. Cursor
 

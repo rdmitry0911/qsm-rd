@@ -1,5 +1,9 @@
 #include "qemu/qemu_dbus_display.hpp"
 
+#ifdef QMDP_HAS_GBM
+#include "capture/dmabuf_readback.hpp"
+#endif
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -326,6 +330,9 @@ void QemuDbusDisplay::stop() noexcept {
     }
 
     lifecycle_lock.lock();
+#ifdef QMDP_HAS_GBM
+    dmabuf_readback_.reset();
+#endif
     audio_filter_slot_.reset();
     audio_bus_.close();
     {
@@ -624,6 +631,11 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
     if (sd_bus_message_is_method_call(message,
                                       listener_interface.data(),
                                       "Scanout")) {
+#ifdef QMDP_HAS_GBM
+        if (dmabuf_readback_) {
+            dmabuf_readback_->reset();
+        }
+#endif
         std::uint32_t width = 0U;
         std::uint32_t height = 0U;
         std::uint32_t stride = 0U;
@@ -710,6 +722,11 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
     if (sd_bus_message_is_method_call(message,
                                       map_interface.data(),
                                       "ScanoutMap")) {
+#ifdef QMDP_HAS_GBM
+        if (dmabuf_readback_) {
+            dmabuf_readback_->reset();
+        }
+#endif
         int fd = -1;
         std::uint32_t offset = 0U;
         std::uint32_t width = 0U;
@@ -774,9 +791,101 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
         return 1;
     }
 
+#ifdef QMDP_HAS_GBM
+    if (sd_bus_message_is_method_call(message,
+                                      listener_interface.data(),
+                                      "ScanoutDMABUF")) {
+        int fd = -1;
+        std::uint32_t width = 0U;
+        std::uint32_t height = 0U;
+        std::uint32_t stride = 0U;
+        std::uint32_t fourcc = 0U;
+        std::uint64_t modifier = 0U;
+        int y0_top = 0;
+        dbus::check(sd_bus_message_read(message,
+                                        "huuuutb",
+                                        &fd,
+                                        &width,
+                                        &height,
+                                        &stride,
+                                        &fourcc,
+                                        &modifier,
+                                        &y0_top),
+                    "read Listener.ScanoutDMABUF");
+        try {
+            if (!dmabuf_readback_) {
+                dmabuf_readback_ = std::make_unique<DmaBufReadback>();
+            }
+            publish(dmabuf_readback_->scanout(framebuffer_,
+                                               duplicate_cloexec(fd),
+                                               width,
+                                               height,
+                                               stride,
+                                               fourcc,
+                                               modifier,
+                                               y0_top != 0));
+        } catch (...) {
+            std::lock_guard lock(stats_mutex_);
+            ++dmabuf_readback_failures_;
+            throw;
+        }
+        {
+            std::lock_guard lock(stats_mutex_);
+            ++dmabuf_scanouts_;
+        }
+        dbus::check(sd_bus_reply_method_return(message, ""),
+                    "reply ScanoutDMABUF");
+        return 1;
+    }
+
+    if (sd_bus_message_is_method_call(message,
+                                      listener_interface.data(),
+                                      "UpdateDMABUF")) {
+        std::int32_t x = 0;
+        std::int32_t y = 0;
+        std::int32_t width = 0;
+        std::int32_t height = 0;
+        dbus::check(sd_bus_message_read(message, "iiii", &x, &y, &width, &height),
+                    "read Listener.UpdateDMABUF");
+        const auto compatibility = framebuffer_.damage_compatibility(x, y, width, height);
+        if (compatibility == CpuFramebuffer::DamageCompatibility::awaiting_scanout ||
+            compatibility == CpuFramebuffer::DamageCompatibility::out_of_bounds) {
+            {
+                std::lock_guard lock(stats_mutex_);
+                ++stale_geometry_update_drops_;
+            }
+            dbus::check(sd_bus_reply_method_return(message, ""),
+                        "reply stale UpdateDMABUF");
+            return 1;
+        }
+        try {
+            if (!dmabuf_readback_ || !dmabuf_readback_->active()) {
+                throw std::logic_error("DMA-BUF update arrived without an active scanout");
+            }
+            publish(dmabuf_readback_->update(framebuffer_, x, y, width, height));
+        } catch (...) {
+            std::lock_guard lock(stats_mutex_);
+            ++dmabuf_readback_failures_;
+            throw;
+        }
+        {
+            std::lock_guard lock(stats_mutex_);
+            ++dmabuf_updates_;
+        }
+        dbus::check(sd_bus_reply_method_return(message, ""),
+                    "reply UpdateDMABUF");
+        return 1;
+    }
+#endif
+
     if (sd_bus_message_is_method_call(message,
                                       listener_interface.data(),
                                       "Disable")) {
+#ifdef QMDP_HAS_GBM
+        if (dmabuf_readback_) {
+            dmabuf_readback_->reset();
+        }
+#endif
         framebuffer_.disable();
         display_disabled_.store(true);
         dbus::check(sd_bus_reply_method_return(message, ""), "reply Disable");
@@ -832,6 +941,7 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
         return 1;
     }
 
+#ifndef QMDP_HAS_GBM
     if (sd_bus_message_is_method_call(message,
                                       listener_interface.data(),
                                       "ScanoutDMABUF") ||
@@ -848,6 +958,7 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
             "%s",
             "DMA-BUF capture is not enabled in the CPU-first MVP");
     }
+#endif
 
     return 0;
 }
@@ -1237,6 +1348,9 @@ QemuDbusDisplay::Stats QemuDbusDisplay::stats() const {
         .stale_geometry_update_drops = stale_geometry_update_drops_,
         .cursor_definitions = cursor_definitions_,
         .cursor_moves = cursor_moves_,
+        .dmabuf_scanouts = dmabuf_scanouts_,
+        .dmabuf_updates = dmabuf_updates_,
+        .dmabuf_readback_failures = dmabuf_readback_failures_,
         .unsupported_dmabuf_messages = unsupported_dmabuf_messages_,
         .audio_inits = audio_inits_,
         .audio_writes = audio_writes_,

@@ -1,0 +1,154 @@
+#cloud-config
+#
+# This template is materialized by run-virgl-qsf-guest-e2e.sh.  The two SHA-256
+# placeholders are hex-only values produced for that run's read-only payload
+# ISO; the guest verifies both the manifest and every payload member before it
+# installs or executes the static QSF agent.
+write_files:
+  - path: /usr/local/sbin/qsf-virgl-bootstrap
+    permissions: '0700'
+    content: |
+      #!/bin/sh
+      set -u
+
+      serial=/dev/ttyS0
+      telemetry=/dev/virtio-ports/org.qsunshine.virgl.telemetry
+      qsf_port=/dev/virtio-ports/org.qsunshine.agent
+      payload=/mnt/qsf-virgl-payload
+      payload_device=/dev/disk/by-label/qsfvirglpayload
+      state=/var/lib/qsf-virgl
+      expected_manifest_sha256='@PAYLOAD_MANIFEST_SHA256@'
+      expected_agent_sha256='@AGENT_SHA256@'
+
+      report() {
+        printf '%s\n' "$*" >"$serial" 2>/dev/null || true
+        if [ -c "$telemetry" ]; then
+          printf '%s\n' "$*" >"$telemetry" 2>/dev/null || true
+        fi
+      }
+
+      fail() {
+        report "QSF_VIRGL_GUEST_E2E_FAILED=$*"
+        sync
+        exit 1
+      }
+
+      report QSF_VIRGL_GUEST_E2E
+      report "kernel=$(uname -srmo)"
+      mkdir -p "$payload" "$state/incoming" "$state/outgoing" /run/user/0 \
+        || fail cannot_create_guest_state
+      chmod 700 "$state" "$state/incoming" "$state/outgoing" /run/user/0 \
+        || fail cannot_protect_guest_state
+      export XDG_RUNTIME_DIR=/run/user/0
+
+      mounted=0
+      for _ in $(seq 1 60); do
+        if [ -b "$payload_device" ] && mount -o ro "$payload_device" "$payload"; then
+          mounted=1
+          break
+        fi
+        sleep 1
+      done
+      [ "$mounted" = 1 ] || fail payload_volume_not_found
+      [ -f "$payload/manifest.sha256" ] || fail payload_manifest_missing
+      actual_manifest_sha256=$(sha256sum "$payload/manifest.sha256" | awk '{print $1}')
+      [ "$actual_manifest_sha256" = "$expected_manifest_sha256" ] \
+        || fail payload_manifest_hash_mismatch
+      (cd "$payload" && sha256sum -c manifest.sha256) \
+        >/tmp/qsf-virgl-payload-verify.txt 2>&1 || {
+          cat /tmp/qsf-virgl-payload-verify.txt >"$serial" 2>/dev/null || true
+          fail payload_member_hash_mismatch
+        }
+      actual_agent_sha256=$(sha256sum "$payload/qsf-guest-agent" | awk '{print $1}')
+      [ "$actual_agent_sha256" = "$expected_agent_sha256" ] || fail agent_hash_mismatch
+      report "QSF_VIRGL_GUEST_PAYLOAD_MANIFEST_SHA256=$actual_manifest_sha256"
+      report "QSF_VIRGL_GUEST_AGENT_SHA256=$actual_agent_sha256"
+
+      for _ in $(seq 1 60); do
+        [ -c "$qsf_port" ] && break
+        sleep 1
+      done
+      [ -c "$qsf_port" ] || fail qsf_virtio_port_missing
+      cp "$payload/qsf-guest-agent" /usr/local/sbin/qsf-guest-agent \
+        || fail cannot_copy_static_agent
+      chmod 700 /usr/local/sbin/qsf-guest-agent || fail cannot_protect_static_agent
+      [ "$(stat -c '%a' /usr/local/sbin/qsf-guest-agent)" = 700 ] \
+        || fail static_agent_mode_is_not_0700
+      : >"$state/qsf-clipboard.txt"
+      cp "$payload/qsf-guest-download.txt" "$state/outgoing/guest-download.txt" \
+        || fail cannot_seed_guest_download
+
+      /usr/local/sbin/qsf-guest-agent --device "$qsf_port" --state-dir "$state" \
+        >"$serial" 2>&1 &
+      qsf_agent_pid=$!
+      sleep 1
+      kill -0 "$qsf_agent_pid" 2>/dev/null || fail static_agent_exited
+      report 'QSF_VIRGL_GUEST_AGENT_MODE=700'
+      report 'QSF_VIRGL_GUEST_AGENT_STARTED'
+
+      # Every marker below is derived from the guest filesystem after the
+      # corresponding QSF operation, not inferred from a host JSON response.
+      (
+        report "QSF_VIRGL_GUEST_QSF_DOWNLOAD_SHA256=$(sha256sum "$state/outgoing/guest-download.txt" | awk '{print $1}')"
+        while ! cmp -s "$state/qsf-clipboard.txt" "$payload/qsf-client-clipboard.txt"; do
+          sleep 1
+        done
+        report "QSF_VIRGL_GUEST_CLIENT_CLIPBOARD_SHA256=$(sha256sum "$state/qsf-clipboard.txt" | awk '{print $1}')"
+
+        cp "$payload/qsf-guest-clipboard.txt" "$state/qsf-clipboard.txt"
+        report "QSF_VIRGL_GUEST_REPLY_CLIPBOARD_SHA256=$(sha256sum "$state/qsf-clipboard.txt" | awk '{print $1}')"
+
+        while [ ! -f "$state/incoming/client-upload.txt" ]; do
+          sleep 1
+        done
+        report "QSF_VIRGL_GUEST_UPLOAD_SHA256=$(sha256sum "$state/incoming/client-upload.txt" | awk '{print $1}')"
+
+        while ! cmp -s "$state/resolution" "$payload/qsf-resize-expected.txt"; do
+          sleep 1
+        done
+        report "QSF_VIRGL_GUEST_RESIZE=$(tr -d '\n' < "$state/resolution")"
+      ) &
+
+      if ! grep -Fqx 'https://dl-cdn.alpinelinux.org/alpine/v3.20/community' \
+          /etc/apk/repositories; then
+        printf '%s\n' 'https://dl-cdn.alpinelinux.org/alpine/v3.20/community' \
+          >>/etc/apk/repositories || fail cannot_enable_alpine_community
+      fi
+      apk add --no-cache mesa-dri-gallium mesa-egl mesa-utils kmscube \
+        >/tmp/qsf-virgl-apk.txt 2>&1 || {
+          cat /tmp/qsf-virgl-apk.txt >"$serial" 2>/dev/null || true
+          fail cannot_install_virgl_packages
+        }
+      test -c /dev/dri/card0 || fail guest_card0_missing
+      test -c /dev/dri/renderD128 || fail guest_renderD128_missing
+      driver_node=$(find /sys/bus/virtio/drivers/virtio_gpu -mindepth 1 \
+        -maxdepth 1 -type l 2>/dev/null | head -n1)
+      test -n "$driver_node" || fail virtio_gpu_not_bound
+      report 'guest_drm_driver=virtio_gpu'
+      EGL_PLATFORM=surfaceless eglinfo -B >/tmp/qsf-virgl-eglinfo.txt 2>&1 || true
+      cat /tmp/qsf-virgl-eglinfo.txt >"$serial" 2>/dev/null || true
+      renderer=$(sed -n 's/^OpenGL core profile renderer: //p' \
+        /tmp/qsf-virgl-eglinfo.txt | head -n1)
+      report "guest_gl_renderer=$renderer"
+      printf '%s' "$renderer" | grep -qi virgl \
+        || fail "expected_virgl_renderer_got_$renderer"
+
+      # This window lets the host attach a Display1 listener before the KMS
+      # workload.  It also keeps QSF resize and Display1 geometry checks on
+      # the same powered-on guest rather than on separate test VMs.
+      report QSF_VIRGL_GUEST_VIRGL_READY
+      sleep 8
+      timeout 20 kmscube -D /dev/dri/card0 >/tmp/qsf-virgl-kmscube.txt 2>&1
+      kmscube_status=$?
+      cat /tmp/qsf-virgl-kmscube.txt >"$serial" 2>/dev/null || true
+      report "kmscube_status=$kmscube_status"
+      case "$kmscube_status" in
+        0|124) ;;
+        *) fail "kmscube_status_$kmscube_status" ;;
+      esac
+      grep -qiE 'renderer.*virgl|virgl.*renderer' /tmp/qsf-virgl-kmscube.txt \
+        || fail kmscube_renderer_not_virgl
+      report QSF_VIRGL_GUEST_VIRGL_OK
+
+runcmd:
+  - [ /usr/local/sbin/qsf-virgl-bootstrap ]

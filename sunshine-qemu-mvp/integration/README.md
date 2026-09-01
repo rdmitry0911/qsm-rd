@@ -1,88 +1,55 @@
 # Integration route
 
-The standalone implementation completed the CPU-side QEMU transport, and the
-first opt-in Sunshine CPU display patch is now exported, compiled, and run
-against real QEMU. The remaining integration is deliberately staged so stock
-Moonlight can be used before any client fork exists.
-
-## Completed outside Sunshine
-
-- message-bus and peer-to-peer D-Bus setup;
-- `RegisterListener` socket transfer and ownership;
-- inline and Unix shared-map framebuffers;
-- cursor, `SetUIInfo`, direct keyboard/mouse and QEMU AudioOut;
-- one-slot back-pressure;
-- software H.264 diagnostic encoding;
-- fake-QEMU cross-process test and sanitizer coverage.
-
-## Current Sunshine boundary
-
-`sunshine/patches/0001-platform-linux-add-QEMU-Display1-CPU-capture.patch`
-implements `qemu_dbus_display_t : platf::display_t` for:
+The pinned Sunshine patch series now implements the functional QEMU Display1
+route, not just a CPU capture contract:
 
 ```text
-capture = qemu_dbus
-encoder = software
+Moonlight client -> Sunshine qemu_dbus -> QEMU Display1 -> KVM/VirGL guest
+                  -> QEMU AudioOutListener -> Sunshine Opus -> Moonlight
+                  -> QEMU keyboard/mouse/SetUIInfo
 ```
 
-It is qualified through Sunshine's software/libx264 encoder probe and does not
-require `/dev/dri`, VAAPI, NVENC or Vulkan. It is not yet a qualified Moonlight
-network stream; direct QEMU input and audio are separate next boundaries.
-See `sunshine/PINNED_UPSTREAM.md` for the patch's exact source base and
-`docs/SUNSHINE_QEMU_INTEGRATION.md` for its real-QEMU gate.
+The deployment profile is explicitly headless. It has no X11, Wayland,
+PulseAudio, or ALSA runtime dependency; its full resolved `ldd` closure is
+checked by `scripts/build-upstream-sunshine-qemu.sh`. A disposable Xvfb
+process belongs only to the Moonlight SDL test client.
 
-## Execution contexts
+## Completed boundaries
 
-The production backend has at least three independent contexts:
+- private message-bus and peer-to-peer D-Bus setup with
+  `Console.RegisterListener` FD handoff;
+- inline/map CPU capture plus validated single-plane
+  `ScanoutDMABUF`/`UpdateDMABUF` import;
+- headless GBM/EGL DMA-BUF -> CPU BGRX readback for the existing
+  `libx264` software encoder;
+- Sunshine keyboard/mouse routing to QEMU Display1, including bounded virtual
+  absolute-pointer conversion for Moonlight-relative motion;
+- guest PCM through `AudioOutListener`, a bounded FIFO, Sunshine Opus, and
+  Moonlight decoded PCM;
+- real KVM Q35 + `virtio-vga-gl` + VirGL on an NVIDIA render node;
+- Moonlight fullscreen/windowed presentation, real guest evdev input,
+  `SetUIInfo` mode evidence, real guest Weston clipboard bridging, and
+  constrained QSF file transfer.
 
-1. QEMU D-Bus dispatch;
-2. Sunshine display capture/encoder scheduling;
-3. Sunshine audio pull.
+## What is deliberately separate
 
-The D-Bus dispatch path may validate/copy a CPU update and publish a frame
-sequence, but it must never wait for an encoder image or network packet. Video
-back-pressure remains a one-slot latest-frame mailbox. Audio uses a bounded FIFO.
+QSF is the authenticated companion for UTF-8 clipboard and files. It is not an
+extension of the stock Moonlight/GameStream protocol. Its local control socket
+is token protected; the optional mTLS gateway authenticates a remote companion
+without sending that local token over TCP.
 
-## Integration phases
+The native graphics path is functional but currently performs CPU readback
+before `libx264`. It must not be described as zero-copy or hardware encoded.
+Production service supervision, reconnect/soak coverage, latency targets,
+multi-plane DMA-BUF, and guest OS coverage beyond the test image remain future
+operational work.
 
-### Phase A — Sunshine software stream
+## Entry points
 
-- compile the QEMU transport into Sunshine — complete;
-- return CPU `img_t` frames from `platf::display_t` — complete;
-- use Sunshine's existing software H.264 encoder probe — complete;
-- use stock Moonlight;
-- route Moonlight input to QEMU;
-- expose QEMU PCM through Sunshine audio.
-
-### Phase B — real-QEMU hardening
-
-- UEFI, bootloader, Linux and Windows login testing;
-- listener disconnect/reconnect;
-- QEMU reboot and process restart;
-- 8-hour soak and 100 reconnect cycles;
-- per-VM D-Bus and service isolation.
-
-### Phase C — GPU optimization
-
-- `ScanoutDMABUF` and multi-plane `ScanoutDMABUF2`;
-- modifier validation;
-- existing Sunshine GPU conversion/encoder paths;
-- measured fallback to the Phase A CPU path.
-
-### Phase D — desktop extension
-
-- Moonlight-Qt capability negotiation;
-- debounced live resize;
-- QEMU clipboard broker;
-- local cursor;
-- later microphone and files.
-
-## Review evidence required for each patch
-
-- changed-file list;
-- ownership/lifetime statement for every FD and mapped surface;
-- state transition and reconnect behavior;
-- unit and integration tests;
-- sanitizer result;
-- p50/p95/p99 capture age when performance is relevant;
-- explicit fallback and rollback behavior.
+- [`sunshine/PINNED_UPSTREAM.md`](sunshine/PINNED_UPSTREAM.md) — exact upstream base and replay.
+- [`sunshine/PATCH_SERIES.md`](sunshine/PATCH_SERIES.md) — six patch layers and constraints.
+- [`sunshine/QEMU_INPUT_AND_DATA_SCOPE.md`](sunshine/QEMU_INPUT_AND_DATA_SCOPE.md) — input and companion protocol boundary.
+- [`../docs/SUNSHINE_QEMU_INTEGRATION.md`](../docs/SUNSHINE_QEMU_INTEGRATION.md) — build profile.
+- [`../docs/MOONLIGHT_SUNSHINE_VIRGL_E2E.md`](../docs/MOONLIGHT_SUNSHINE_VIRGL_E2E.md) — native video/input gate.
+- [`../docs/MOONLIGHT_AUDIO_E2E.md`](../docs/MOONLIGHT_AUDIO_E2E.md) — decoded-audio gate.
+- [`../docs/VIRGL_QSF_WAYLAND_CLIPBOARD_E2E.md`](../docs/VIRGL_QSF_WAYLAND_CLIPBOARD_E2E.md) — desktop clipboard/file/resize gate.

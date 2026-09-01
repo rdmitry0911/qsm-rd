@@ -339,6 +339,10 @@ int main(int argc, char **argv) {
             << "  cursor definitions/moves: "
             << display_stats.cursor_definitions << '/'
             << display_stats.cursor_moves << '\n'
+            << "  DMA-BUF scanouts/updates/failures: "
+            << display_stats.dmabuf_scanouts << '/'
+            << display_stats.dmabuf_updates << '/'
+            << display_stats.dmabuf_readback_failures << '\n'
             << "  input pointer mode: "
             << (!input_pointer_absolute.has_value()
                     ? "not-sent"

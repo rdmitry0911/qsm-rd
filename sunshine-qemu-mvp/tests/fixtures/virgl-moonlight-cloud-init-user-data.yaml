@@ -1,0 +1,155 @@
+#cloud-config
+#
+# Native Moonlight -> Sunshine -> QEMU -> VirGL fixture.  It is intentionally
+# derived from virgl-cloud-init-user-data.yaml rather than modifying that
+# standalone guest qualification fixture: this one adds a guest-visible evdev
+# assertions for the real Moonlight SDL keyboard and pointer routes.
+write_files:
+  - path: /usr/local/sbin/qmdp-virgl-moonlight-probe
+    permissions: '0755'
+    content: |
+      #!/bin/sh
+      set -u
+
+      serial=/dev/ttyS0
+      telemetry=/dev/virtio-ports/org.qsunshine.virgl.telemetry
+      input_events=/tmp/qmdp-moonlight-input-events.txt
+      mouse_events=/tmp/qmdp-moonlight-mouse-events.txt
+
+      report() {
+        printf '%s\n' "$*" >"$serial" 2>/dev/null || true
+        if [ -c "$telemetry" ]; then
+          printf '%s\n' "$*" >"$telemetry" 2>/dev/null || true
+        fi
+      }
+
+      fail() {
+        report "QMDP_VIRGL_GUEST_E2E_FAILED: $*"
+        sync
+        poweroff -f
+        exit 1
+      }
+
+      find_keyboard() {
+        for event in /sys/class/input/event*; do
+          [ -r "$event/device/name" ] || continue
+          name=$(cat "$event/device/name" 2>/dev/null || true)
+          case "$name" in
+            *keyboard*|*Keyboard*)
+              printf '/dev/input/%s\n' "${event##*/}"
+              return 0
+              ;;
+          esac
+        done
+        return 1
+      }
+
+      find_pointing_device() {
+        for event in /sys/class/input/event*; do
+          [ -r "$event/device/name" ] || continue
+          name=$(cat "$event/device/name" 2>/dev/null || true)
+          case "$name" in
+            *mouse*|*Mouse*|*tablet*|*Tablet*)
+              printf '/dev/input/%s\n' "${event##*/}"
+              return 0
+              ;;
+          esac
+        done
+        return 1
+      }
+
+      report QMDP_VIRGL_GUEST_E2E
+      report "kernel=$(uname -srmo)"
+
+      if ! grep -Fqx 'https://dl-cdn.alpinelinux.org/alpine/v3.20/community' \
+          /etc/apk/repositories; then
+        printf '%s\n' 'https://dl-cdn.alpinelinux.org/alpine/v3.20/community' \
+          >>/etc/apk/repositories || fail 'cannot enable Alpine community repository'
+      fi
+
+      apk add --no-cache mesa-dri-gallium mesa-egl mesa-utils kmscube evtest \
+        >/tmp/qmdp-apk.txt 2>&1 || {
+          cat /tmp/qmdp-apk.txt >"$serial" 2>/dev/null || true
+          fail 'cannot install Mesa and evdev qualification packages'
+        }
+
+      test -c /dev/dri/card0 || fail 'guest /dev/dri/card0 is absent'
+      test -c /dev/dri/renderD128 || fail 'guest /dev/dri/renderD128 is absent'
+      driver_node=$(find /sys/bus/virtio/drivers/virtio_gpu -mindepth 1 \
+        -maxdepth 1 -type l 2>/dev/null | head -n1)
+      test -n "$driver_node" || fail 'virtio_gpu has no bound virtio device'
+      report 'guest_drm_driver=virtio_gpu'
+
+      report "guest_dri_driver=$(ls /usr/lib/dri/virtio_gpu_dri.so 2>/dev/null || true)"
+      EGL_PLATFORM=surfaceless eglinfo -B >/tmp/qmdp-eglinfo.txt 2>&1 || true
+      cat /tmp/qmdp-eglinfo.txt >"$serial" 2>/dev/null || true
+      renderer=$(sed -n 's/^OpenGL core profile renderer: //p' /tmp/qmdp-eglinfo.txt | head -n1)
+      report "guest_gl_renderer=$renderer"
+      printf '%s' "$renderer" | grep -qi virgl \
+        || fail "expected virgl OpenGL renderer, got $renderer"
+
+      # Q35 exposes the default PS/2 keyboard as an evdev node.  Begin
+      # collecting before READY so an input event cannot race the host's first
+      # SDL presentation.  `evtest` records Linux EV_KEY code 30 (KEY_A) for
+      # the make and break which Sunshine sends to QEMU after Moonlight sees
+      # xdotool's client-side `a` event.
+      keyboard=$(find_keyboard || true)
+      test -n "$keyboard" && test -c "$keyboard" \
+        || fail 'guest PS/2 keyboard evdev node is absent'
+      pointing_device=$(find_pointing_device || true)
+      test -n "$pointing_device" && test -c "$pointing_device" \
+        || fail 'guest pointing-device evdev node is absent'
+      report "guest_input_device=$keyboard"
+      report "guest_pointer_device=$pointing_device"
+      timeout 17 evtest "$keyboard" >"$input_events" 2>&1 &
+      input_watcher=$!
+      timeout 17 evtest "$pointing_device" >"$mouse_events" 2>&1 &
+      mouse_watcher=$!
+
+      report QMDP_VIRGL_GUEST_READY
+      sleep 6
+      timeout 12 kmscube -D /dev/dri/card0 >/tmp/qmdp-kmscube.txt 2>&1
+      kmscube_status=$?
+      cat /tmp/qmdp-kmscube.txt >"$serial" 2>/dev/null || true
+      report "kmscube_status=$kmscube_status"
+      case "$kmscube_status" in
+        0|124) ;;
+        *) fail "kmscube exited with status $kmscube_status" ;;
+      esac
+      grep -qiE 'renderer.*virgl|virgl.*renderer' /tmp/qmdp-kmscube.txt \
+        || fail 'kmscube did not report the virgl renderer'
+
+      # The bounded watcher has expired by this point (6+12 seconds after
+      # READY).  Waiting also flushes evtest's redirected output before the
+      # event evidence is checked.
+      wait "$input_watcher" 2>/dev/null || true
+      wait "$mouse_watcher" 2>/dev/null || true
+      if grep -Eq 'type[[:space:]]+1.*code[[:space:]]+30.*value[[:space:]]+1' "$input_events" && \
+          grep -Eq 'type[[:space:]]+1.*code[[:space:]]+30.*value[[:space:]]+0' "$input_events"; then
+        report QMDP_VIRGL_GUEST_INPUT_PRESS_RELEASE_OK
+      else
+        cat "$input_events" >"$serial" 2>/dev/null || true
+        fail 'did not observe Moonlight A press and release through evdev'
+      fi
+
+      # Sunshine selects QEMU's absolute path when the Display1 Mouse reports
+      # it, and falls back to relative motion otherwise.  Both kinds are valid
+      # guest-visible motion evidence; BTN_LEFT make and break prove that the
+      # xdotool click was carried through the real Moonlight client as well.
+      if grep -Eq 'type[[:space:]]+(2|3).*value[[:space:]]+' "$mouse_events" && \
+          grep -Eq 'type[[:space:]]+1.*code[[:space:]]+272.*value[[:space:]]+1' "$mouse_events" && \
+          grep -Eq 'type[[:space:]]+1.*code[[:space:]]+272.*value[[:space:]]+0' "$mouse_events"; then
+        report QMDP_VIRGL_GUEST_MOUSE_MOVE_CLICK_OK
+      else
+        cat "$mouse_events" >"$serial" 2>/dev/null || true
+        fail 'did not observe Moonlight pointer movement and left click through evdev'
+      fi
+
+      report QMDP_VIRGL_GUEST_E2E_OK
+      sync
+      poweroff -f
+
+runcmd:
+  - [ /usr/local/sbin/qmdp-virgl-moonlight-probe ]
+instance-id: qmdp-moonlight-virgl-e2e
+local-hostname: qmdp-moonlight-virgl-e2e

@@ -11,6 +11,9 @@ option(QMDP_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSani
 option(QMDP_ENABLE_REAL_QEMU_E2E
        "Register the CPU/TCG real-QEMU E2E test when host tools are available"
        ON)
+option(QMDP_ENABLE_DMABUF_READBACK
+       "Enable optional GBM DMA-BUF to CPU readback for QEMU Display1"
+       ON)
 
 include(CTest)
 find_package(Threads REQUIRED)
@@ -101,6 +104,29 @@ if(QMDP_BUILD_DBUS)
         qmdp_core Threads::Threads ${QMDP_SYSTEMD_LIBRARY}
     )
     qmdp_target_defaults(qmdp_dbus)
+
+    if(QMDP_ENABLE_DMABUF_READBACK)
+        find_package(PkgConfig QUIET)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(QMDP_GBM QUIET IMPORTED_TARGET gbm)
+            pkg_check_modules(QMDP_DRM QUIET IMPORTED_TARGET libdrm)
+            pkg_check_modules(QMDP_EPOXY QUIET IMPORTED_TARGET epoxy)
+        endif()
+        if(TARGET PkgConfig::QMDP_GBM AND TARGET PkgConfig::QMDP_DRM AND
+           TARGET PkgConfig::QMDP_EPOXY)
+            target_sources(qmdp_dbus PRIVATE
+                src/capture/dmabuf_readback.cpp
+            )
+            target_link_libraries(qmdp_dbus PRIVATE
+                PkgConfig::QMDP_GBM
+                PkgConfig::QMDP_DRM
+                PkgConfig::QMDP_EPOXY
+            )
+            target_compile_definitions(qmdp_dbus PUBLIC QMDP_HAS_GBM=1 QMDP_HAS_EGL_READBACK=1)
+        else()
+            message(STATUS "QMDP DMA-BUF readback disabled: GBM/libdrm/libepoxy development files were not found")
+        endif()
+    endif()
 endif()
 
 if(QMDP_BUILD_TOOLS AND QMDP_BUILD_DBUS)
@@ -126,6 +152,38 @@ if(QMDP_BUILD_TOOLS AND QMDP_BUILD_DBUS)
 endif()
 
 if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter)
+
+    if(Python3_Interpreter_FOUND)
+        add_test(
+            NAME qsf_control_protocol
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/qsf_control/test_qsf_control.py
+                -v
+        )
+        set_tests_properties(qsf_control_protocol PROPERTIES TIMEOUT 20)
+
+        add_test(
+            NAME qsf_guest_agent_pty
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/qsf_control/test_qsf_guest_agent.py
+                -v
+        )
+        set_tests_properties(qsf_guest_agent_pty PROPERTIES TIMEOUT 20)
+
+        find_program(QMDP_OPENSSL_EXECUTABLE openssl)
+        if(QMDP_OPENSSL_EXECUTABLE)
+            add_test(
+                NAME qsf_tls_gateway
+                COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/qsf_control/test_qsf_tls_gateway.py
+                    -v
+            )
+            set_tests_properties(qsf_tls_gateway PROPERTIES TIMEOUT 45)
+        endif()
+
+    endif()
+
     add_executable(qmdp_core_tests tests/core_tests.cpp)
     target_link_libraries(qmdp_core_tests PRIVATE qmdp_core Threads::Threads)
     qmdp_target_defaults(qmdp_core_tests)

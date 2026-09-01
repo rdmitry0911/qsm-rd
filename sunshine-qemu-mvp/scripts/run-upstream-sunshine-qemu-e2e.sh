@@ -12,6 +12,7 @@ QEMU_BINARY="${QEMU_BINARY:-qemu-system-x86_64}"
 ASSEMBLER="${ASSEMBLER:-as}"
 LINKER="${LINKER:-ld}"
 TIMEOUT_SECONDS="${SUNSHINE_TIMEOUT_SECONDS:-15}"
+QEMU_VIDEO="${QEMU_VIDEO:-std}"
 BOOT_SOURCE="$ROOT/tests/fixtures/qmdp_vga_smoke.S"
 
 if [[ "${1:-}" != "--inside-private-bus" ]]; then
@@ -39,6 +40,10 @@ if [[ "${1:-}" != "--inside-private-bus" ]]; then
     echo "SUNSHINE_TIMEOUT_SECONDS must be a positive integer" >&2
     exit 2
   fi
+  if [[ "$QEMU_VIDEO" != "std" && "$QEMU_VIDEO" != "virtio-vga" ]]; then
+    echo "QEMU_VIDEO must be std or virtio-vga" >&2
+    exit 2
+  fi
 
   mkdir -p "$OUTPUT_DIR"
   chmod 700 "$OUTPUT_DIR"
@@ -62,17 +67,22 @@ if [[ "${1:-}" != "--inside-private-bus" ]]; then
   dd if="$boot_sector" of="$floppy_image" conv=notrunc status=none
 
   dbus-run-session -- "$SCRIPT_PATH" --inside-private-bus \
-    "$SUNSHINE_BINARY" "$OUTPUT_DIR" "$floppy_image" "$TIMEOUT_SECONDS"
+    "$SUNSHINE_BINARY" "$OUTPUT_DIR" "$floppy_image" "$TIMEOUT_SECONDS" "$QEMU_VIDEO"
 
   grep -Fq 'Screencasting with QEMU Display1 D-Bus' "$OUTPUT_DIR/sunshine.log"
   grep -Fq 'Creating encoder [libx264]' "$OUTPUT_DIR/sunshine.log"
   grep -Fq 'Found H.264 encoder: libx264 [software]' "$OUTPUT_DIR/sunshine.log"
+  if [[ "$QEMU_VIDEO" == "virtio-vga" ]]; then
+    grep -Fq 'Console.SetUIInfo accepted ' "$OUTPUT_DIR/sunshine.log"
+  else
+    grep -Fq 'Console.SetUIInfo is unavailable for this VM' "$OUTPUT_DIR/sunshine.log"
+  fi
   grep -Fq 'sunshine_timeout_status=124' "$OUTPUT_DIR/trace.txt"
   printf 'UPSTREAM_SUNSHINE_QEMU_E2E_OK output=%s\n' "$OUTPUT_DIR"
   exit 0
 fi
 
-if [[ $# -ne 5 ]]; then
+if [[ $# -ne 6 ]]; then
   echo "internal invocation has invalid arguments" >&2
   exit 2
 fi
@@ -81,17 +91,31 @@ sunshine_binary=$2
 output_dir=$3
 floppy_image=$4
 timeout_seconds=$5
+qemu_video=$6
 qemu_log="$output_dir/qemu.log"
 sunshine_log="$output_dir/sunshine.log"
 xdg_config_dir="$output_dir/xdg-config"
 mkdir -p "$xdg_config_dir"
+
+case "$qemu_video" in
+  std)
+    qemu_video_args=(-vga std)
+    ;;
+  virtio-vga)
+    qemu_video_args=(-device virtio-vga)
+    ;;
+  *)
+    echo "invalid QEMU video selector: $qemu_video" >&2
+    exit 2
+    ;;
+esac
 
 "$QEMU_BINARY" \
   -name qmdp-upstream-sunshine-e2e \
   -accel tcg \
   -machine pc \
   -m 128 \
-  -vga std \
+  "${qemu_video_args[@]}" \
   -display dbus,gl=off \
   -monitor none \
   -serial none \
@@ -139,7 +163,7 @@ fi
   echo "qemu=$($QEMU_BINARY --version | head -n1)"
   echo "sunshine_binary=$sunshine_binary"
   echo "accel=tcg"
-  echo "display=standard-vga + dbus,gl=off"
+  echo "display=$qemu_video + dbus,gl=off"
   echo "transport=private-session-dbus + RegisterListener peer socket"
   echo "sunshine_config=capture=qemu_dbus encoder=software"
   echo "scope=Sunshine Display1 CPU capture plus libx264 encoder probing"

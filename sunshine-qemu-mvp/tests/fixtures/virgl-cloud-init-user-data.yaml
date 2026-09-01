@@ -1,0 +1,89 @@
+#cloud-config
+#
+# A one-shot guest probe for scripts/run-virgl-guest-e2e.sh.  It deliberately
+# uses a serial console and a virtio-serial telemetry port so the host test is
+# independent of SSH, a desktop session, or a network listener in the guest.
+write_files:
+  - path: /usr/local/sbin/qmdp-virgl-probe
+    permissions: '0755'
+    content: |
+      #!/bin/sh
+      set -u
+
+      serial=/dev/ttyS0
+      telemetry=/dev/virtio-ports/org.qsunshine.virgl.telemetry
+
+      report() {
+        printf '%s\n' "$*" >"$serial" 2>/dev/null || true
+        if [ -c "$telemetry" ]; then
+          printf '%s\n' "$*" >"$telemetry" 2>/dev/null || true
+        fi
+      }
+
+      fail() {
+        report "QMDP_VIRGL_GUEST_E2E_FAILED: $*"
+        sync
+        poweroff -f
+        exit 1
+      }
+
+      report QMDP_VIRGL_GUEST_E2E
+      report "kernel=$(uname -srmo)"
+
+      if ! grep -Fqx 'https://dl-cdn.alpinelinux.org/alpine/v3.20/community' \
+          /etc/apk/repositories; then
+        printf '%s\n' 'https://dl-cdn.alpinelinux.org/alpine/v3.20/community' \
+          >>/etc/apk/repositories || fail 'cannot enable Alpine community repository'
+      fi
+
+      apk add --no-cache mesa-dri-gallium mesa-egl mesa-utils kmscube \
+        >/tmp/qmdp-apk.txt 2>&1 || {
+          cat /tmp/qmdp-apk.txt >"$serial" 2>/dev/null || true
+          fail 'cannot install Mesa virgl qualification packages'
+        }
+
+      test -c /dev/dri/card0 || fail 'guest /dev/dri/card0 is absent'
+      test -c /dev/dri/renderD128 || fail 'guest /dev/dri/renderD128 is absent'
+      # The PCI function is bound to virtio-pci; the nested virtio device is
+      # bound to virtio_gpu.  Testing the latter avoids mistaking the bus
+      # driver for the DRM driver.
+      driver_node=$(find /sys/bus/virtio/drivers/virtio_gpu -mindepth 1 \
+        -maxdepth 1 -type l 2>/dev/null | head -n1)
+      test -n "$driver_node" || fail 'virtio_gpu has no bound virtio device'
+      report 'guest_drm_driver=virtio_gpu'
+
+      report "guest_dri_driver=$(ls /usr/lib/dri/virtio_gpu_dri.so 2>/dev/null || true)"
+      # The generic surfaceless loader is a useful diagnostic, but the actual
+      # visible guest path is the DRM/GBM surface owned by kmscube below.
+      EGL_PLATFORM=surfaceless eglinfo -B >/tmp/qmdp-eglinfo.txt 2>&1 || true
+      cat /tmp/qmdp-eglinfo.txt >"$serial" 2>/dev/null || true
+      renderer=$(sed -n 's/^OpenGL core profile renderer: //p' /tmp/qmdp-eglinfo.txt | head -n1)
+      report "guest_gl_renderer=$renderer"
+      printf '%s' "$renderer" | grep -qi virgl \
+        || fail "expected virgl OpenGL renderer, got $renderer"
+
+      # A ready marker is emitted only after the virtio-GPU and the guest GL
+      # renderer have been qualified.  Give the host a bounded attachment
+      # window before drawing: Alpine's kmscube can return cleanly soon after
+      # setting up its DRM/GBM scene, so its lifetime is not a readiness
+      # condition.  A Display1 listener attached during this pause receives
+      # the KMS scene that follows without a timing-dependent false negative.
+      report QMDP_VIRGL_GUEST_READY
+      sleep 6
+      timeout 12 kmscube -D /dev/dri/card0 >/tmp/qmdp-kmscube.txt 2>&1
+      kmscube_status=$?
+      cat /tmp/qmdp-kmscube.txt >"$serial" 2>/dev/null || true
+      report "kmscube_status=$kmscube_status"
+      case "$kmscube_status" in
+        0|124) ;;
+        *) fail "kmscube exited with status $kmscube_status" ;;
+      esac
+      grep -qiE 'renderer.*virgl|virgl.*renderer' /tmp/qmdp-kmscube.txt \
+        || fail 'kmscube did not report the virgl renderer'
+
+      report QMDP_VIRGL_GUEST_E2E_OK
+      sync
+      poweroff -f
+
+runcmd:
+  - [ /usr/local/sbin/qmdp-virgl-probe ]

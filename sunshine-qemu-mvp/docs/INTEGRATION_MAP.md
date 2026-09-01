@@ -1,6 +1,6 @@
 # Карта интеграции
 
-Документ указывает логические точки врезки; точные строки зависят от выбранного commit Sunshine/QEMU. Реализованный CPU-first патч и его точный pin описаны в `SUNSHINE_QEMU_INTEGRATION.md`; остальное ниже — roadmap, а не статус реализации.
+Документ указывает логические точки врезки; точные строки зависят от выбранного commit Sunshine/QEMU. CPU-first baseline и его точный pin описаны в `SUNSHINE_QEMU_INTEGRATION.md`. С 2026-09-01 также реализованы Sunshine input/audio, single-plane DMA-BUF headless EGL CPU readback и native Moonlight/KVM/VirGL gate; актуальный фактологический статус — в `IMPLEMENTATION_STATUS.md` и `VALIDATION.md`. Остальные пункты ниже остаются roadmap, в частности hardware encode, multi-plane DMA-BUF и production operations.
 
 ## 1. QEMU D-Bus Display
 
@@ -43,10 +43,10 @@
 
 ### Clipboard
 
-- register clipboard peer;
-- `Grab`, `Release`, `Request`;
-- соблюдать serial ordering/race rules;
-- в MVP-1 маппить только UTF-8 text.
+QEMU Clipboard peer (`Grab`, `Release`, `Request`) остаётся reference-only
+вариантом для будущего QMDP. Функциональная реализация использует QSF через
+virtio-serial: non-NUL UTF-8 text до 1 MiB и отдельные files до 2 MiB с
+безопасными basename; Wayland guest bridge и оба направления проверены E2E.
 
 ### Референс внутри QEMU
 

@@ -1,98 +1,85 @@
 # Implementation status
 
-Status date: 2026-09-01. Project version: `0.4.0` plus unreleased real-QEMU
-qualification work.
+Status date: 2026-09-01. The functional headless native stack is accepted on
+this host. Accepted means the documented E2E gates pass; it does not mean
+production operations or a zero-copy encoder have been completed.
 
-## Implemented and executable
+## Implemented and qualified
 
 | Area | State | Evidence |
-|---|---|---|
-| D-Bus connection | Implemented | message-bus address and inherited peer-FD paths compile and run |
-| `Console.RegisterListener` | Implemented | real socket-FD handoff and peer D-Bus handshake in tests |
-| Inline framebuffer | Implemented | `Scanout` + `Update` cross-process E2E |
-| Shared CPU framebuffer | Implemented | `memfd` + `ScanoutMap` + `UpdateMap` E2E |
-| Pixel validation/conversion | Implemented | eight 32-bit pixman layouts, bounds/stride/map checks, BGRA conversion |
-| Video back-pressure | Implemented | queue depth one; stale complete frames are superseded |
-| Resolution request | Implemented | `Console.SetUIInfo` observed by the fake QEMU process |
-| Keyboard | Implemented | `Press`/`Release` observed cross-process |
-| Mouse | Implemented | absolute, relative and button calls observed cross-process |
-| Cursor metadata | Implemented | shape, hotspot, position and visibility received |
-| QEMU audio output | Implemented | listener lifecycle and PCM-to-float integration test |
-| Audio back-pressure | Implemented | callbacks enqueue into bounded 50 ms FIFO; encoder work is off the D-Bus thread |
-| CPU diagnostic sink | Implemented | deterministic checksums and PPM snapshots |
-| Software H.264 diagnostic sink | Implemented | FFmpeg/libx264 MKV segments without GPU |
-| Resize during stream | Implemented in vertical slice | 640×360 → 854×480 creates a second encoder segment and IDR boundary |
-| Real QEMU CPU transport | Implemented | TCG/SeaBIOS VGA fixture → private D-Bus → `RegisterListener` → inline CPU capture → H.264/`ffprobe` |
-| Stale geometry damage | Implemented | incompatible old-mode update is acknowledged, counted and never copied into the current surface |
-| Alpine reference guest | Passed | real Alpine 3.24.1 guest, `virtio-vga`, USB tablet, inline CPU capture and H.264 |
-| Sunshine CPU display patch | Compiled and qualified | pinned Sunshine source selects `qemu_dbus`, receives real QEMU frames and passes its software/libx264 probe |
-| Sanitizers | Passing | ASan + UBSan, including D-Bus FD passing and FFmpeg subprocess path |
+| --- | --- | --- |
+| QEMU Display1 transport | Implemented | private D-Bus, RegisterListener FD handoff, inline/map callbacks, cursor metadata, input, resize and audio listener tests |
+| CPU capture baseline | Implemented | validated pixman layouts, mapped/inline lifetimes, bounded latest-frame mailbox and software H.264 tests |
+| DMA-BUF capture | Implemented with CPU readback | single-plane ScanoutDMABUF/UpdateDMABUF imports on GBM/EGL, BGRX readback, bounds/FD/failure counters |
+| Sunshine integration | Implemented | pinned upstream patches 0001..0006, clean replay on upstream 4f39fc1, QEMU capture/input/audio source |
+| Headless deployment profile | Qualified | complete ldd deny gate rejects X11, Wayland, PulseAudio and ALSA; no host desktop/audio service is used |
+| Moonlight video/input | Native KVM/VirGL passed | private pairing, HTTPS, RTSP/RTP, H.264 decode, fullscreen/windowed presentation and raw guest evdev key/mouse evidence |
+| Resolution | Native guest passed | SetUIInfo(1280x720), a new QEMU scanout, and ordered H.264 1280x800 -> 1280x720 evidence |
+| Guest audio | Native KVM passed | QEMU AudioOutListener -> Sunshine Opus -> non-silent Moonlight-decoded 48 kHz stereo PCM |
+| QSF clipboard/files | Native guest desktop passed | token-authenticated virtio-serial bridge, actual Weston wl-copy/wl-paste, bidirectional hashes, constrained upload/download |
+| QSF mTLS gateway | Protocol test passed | TLS 1.3 mutual authentication and local-token non-disclosure; production session binding remains deployer-owned |
 
-## Test layers
+The QEMU DMA-BUF route is deliberately not called zero-copy: it imports into
+headless EGL then synchronously reads CPU BGRX for Sunshine's libx264 software
+encoder. The guest's VirGL renderer is native on the NVIDIA render node;
+Sunshine does not currently use NVIDIA encoding.
 
-1. Core unit tests: FD RAII, latest-frame mailbox, resize coalescing, audio FIFO,
-   session state machine.
-2. In-process QEMU peer test: real sd-bus, Unix FD passing, shared map, input,
-   cursor, audio and resize.
-3. No-GPU H.264 self-test: fake QEMU → D-Bus → CPU frames → `libx264`.
-4. Cross-process message-bus test with shared memory.
-5. Cross-process message-bus test with inline frame payloads.
-6. Real-QEMU TCG E2E with a project-owned boot sector/floppy and retained
-   H.264 trace.
-7. Alpine reference-guest E2E with real guest HID selecting an absolute tablet.
-8. Patched upstream Sunshine → real QEMU → software/libx264 encoder-probe
-   E2E.
+## Native E2E evidence
 
-## Implemented as an integration contract
+| Gate | Fresh retained result | Required proof |
+| --- | --- | --- |
+| Moonlight fullscreen | artifacts/validation/moonlight-sunshine-virgl-e2e/run.vCQmck/trace.txt | 1280x720 at (0,0), non-black decode, KVM/VirGL, guest key/mouse and mode transition |
+| Moonlight windowed | artifacts/validation/moonlight-sunshine-virgl-e2e/run.gNCula/trace.txt | 1280x720 client window in 1600x900 root with the same video/input/mode assertions |
+| Decoded guest audio | artifacts/validation/moonlight-sunshine-qemu-audio-e2e/run.gki7t0/ | AUDIO_TONE_ON, 13.909 s non-silent 48 kHz stereo decoded client PCM |
+| Combined video/input/desktop data | vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.KEqkVc/trace.txt | Moonlight hook, Weston clipboard both directions, files both directions, ordered live resize, actual installed guest packages |
+| Combined Moonlight hook | run.KEqkVc/moonlight-sunshine-hook.480Wca/trace.txt | final no-X Sunshine binary, fullscreen H.264, guest KEY_A + absolute pointer + button |
 
-| Area | State |
-|---|---|
-| Sunshine `platf::display_t` backend | pinned opt-in CPU patch compiled and qualified against real QEMU; see `SUNSHINE_QEMU_INTEGRATION.md` |
-| Sunshine `platf::mic_t`/audio integration | QEMU listener and FIFO work; Sunshine object adapter remains |
-| Per-VM packaging | configuration and launch model prepared; production service template remains |
-| Real QEMU execution | inline CPU lane passed against QEMU 8.2 under TCG; see `REAL_QEMU_E2E.md` |
+The evidence directories are intentionally ignored because they contain
+ephemeral pairing material and/or QSF capability tokens. They are local
+verification artifacts, not release assets.
 
-## Not implemented yet
+## Current topology
 
-- an actual Sunshine/Moonlight network session from the QEMU capture source;
-- QEMU `ScanoutDMABUF`/`UpdateDMABUF` fast path;
-- automatic reconnect to a restarted real QEMU process;
-- pressed-key/button tracking with release-all on abnormal disconnect;
-- QEMU clipboard bridge;
-- Moonlight-Qt live-resize, clipboard and local-cursor side channel;
-- multi-console and multi-VM broker;
-- guest-agent features such as DPI, IME and file transfer.
+    Moonlight client (client-side SDL/Xvfb only)
+      -> Sunshine qemu_dbus, software H.264 / Opus
+      -> private QEMU Display1 D-Bus
+      -> KVM Q35, virtio-vga-gl, virtio input, virtio serial
+      -> Alpine: VirGL + Weston DRM + QSF agent/clipboard bridge
 
-## Current vertical slice
+    QSF local or mTLS companion
+      -> local 0600 token-protected broker
+      -> QEMU virtio serial
+      -> guest text state / files / Weston wl-copy and wl-paste
 
-```text
-fake QEMU process
-  → real message-bus D-Bus
-  → RegisterListener socket FD
-  → real peer-to-peer D-Bus
-  → inline bytes or memfd framebuffer
-  → latest-frame mailbox
-  → CPU frame sink or FFmpeg/libx264
+The Xvfb process in the native Moonlight harness belongs to the client only.
+The Sunshine process has neither DISPLAY nor WAYLAND_DISPLAY, and the final
+resolver closure has no X11/Wayland/PulseAudio/ALSA dependency.
 
-real QEMU under TCG
-  → patched Sunshine `qemu_dbus` `display_t`
-  → Sunshine software/libx264 encoder probe
+## Deliberate boundaries
 
-QEMU AudioOutListener
-  → PCM conversion
-  → bounded AudioFifo
-  → independent audio consumer thread
-```
+- Stock GameStream/Moonlight carries video, audio and input; it does not carry
+  interoperable clipboard or file-transfer messages. QSF is a separate
+  authenticated companion.
+- Guest-to-client clipboard is currently safe broker event plus explicit
+  clipboard-get pull/poll, not an unsolicited remote push protocol.
+- QSF text is non-NUL UTF-8 up to 1 MiB; files are separate binary payloads
+  up to 2 MiB with safe basenames.
+- Weston 12 does not automatically reselect the requested virtio-gpu mode
+  while live. The gate explicitly restarts Weston DRM after the resize and
+  records the resulting scanout; it does not claim automatic hotplug.
+- The remote mTLS code is protocol-tested, but end-to-end remote authorization,
+  certificate lifecycle, user consent and per-VM session binding remain
+  deployment work.
 
-The same `QemuDbusDisplay` class is used by `qemu-display-probe`; replacing the
-fake service with `qemu-system-* -display dbus` does not change the listener
-implementation.
+## Not complete for a production service
 
-QEMU 8.2 on Linux selects the inline `Scanout`/`Update` lane. Its Unix
-shared-map transport is not available, so `ScanoutMap`/`UpdateMap` remain
-protocol-tested with the fake service until qualification on QEMU 9.2 or newer.
+- GPU-native conversion/encoding, ScanoutDMABUF2, modifier coverage and
+  measured latency/throughput targets;
+- reconnect/release-all failure matrix, long soak, multi-VM supervision,
+  systemd packaging and host-reboot recovery;
+- Windows/UEFI/login coverage, microphone return, rich clipboard MIME,
+  drag-and-drop, large/resumable files and consent UI;
+- a public remote deployment security review, NAT traversal and key rotation.
 
-The Sunshine patch deliberately advertises no shared-map capability and requires
-`capture=qemu_dbus`, `encoder=software`, and QEMU `gl=off`. Its real gate proves
-the capture/encoder boundary, not a Moonlight session, input, audio, or
-reconnect.
+The lower-level fake-QEMU, CPU/TCG, sanitiser and cross-process tests remain
+part of the regression suite; see VALIDATION.md for the final command matrix.

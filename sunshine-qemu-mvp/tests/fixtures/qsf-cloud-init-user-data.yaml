@@ -1,0 +1,62 @@
+#cloud-config
+#
+# The runner places this NoCloud configuration and the statically linked QSF
+# guest agent on separate CDs.  Keeping the NoCloud volume conventional lets
+# Alpine reliably discover it; the labelled payload CD keeps the qualification
+# independent from guest network access, package repositories, SSH, or a
+# desktop session.
+runcmd:
+  - |
+      #!/bin/sh
+      set -eu
+
+      seed=/mnt/qsf-payload
+      state=/var/lib/qsf
+      serial=/dev/ttyS0
+      port=/dev/virtio-ports/org.qsunshine.agent
+
+      report() {
+        printf '%s\n' "$*" >"$serial" 2>/dev/null || true
+      }
+
+      fail() {
+        report "QSF_GUEST_E2E_FAILED=$*"
+        exit 1
+      }
+
+      mkdir -p "$seed" "$state/outgoing" "$state/incoming"
+      mount -o ro /dev/disk/by-label/qsfpayload "$seed" || fail cannot_mount_payload
+      test -x "$seed/qsf-guest-agent" || fail agent_missing
+      test -c "$port" || fail virtio_port_missing
+
+      install -m 0755 "$seed/qsf-guest-agent" /usr/local/sbin/qsf-guest-agent
+      cp "$seed/qsf-guest-download.txt" "$state/outgoing/guest-download.txt"
+      : >"$state/qsf-clipboard.txt"
+
+      /usr/local/sbin/qsf-guest-agent --device "$port" --state-dir "$state" \
+        >"$serial" 2>&1 &
+      report QSF_GUEST_AGENT_STARTED
+
+      # Each independent marker is written by the actual guest filesystem,
+      # not inferred from the host bridge's JSON reply.
+      (
+        while ! cmp -s "$state/qsf-clipboard.txt" "$seed/qsf-client-clipboard.txt"; do
+          sleep 1
+        done
+        report "QSF_GUEST_CLIENT_CLIPBOARD_SHA256=$(sha256sum "$state/qsf-clipboard.txt" | awk '{print $1}')"
+
+        cp "$seed/qsf-guest-clipboard.txt" "$state/qsf-clipboard.txt"
+        report "QSF_GUEST_REPLY_CLIPBOARD_SHA256=$(sha256sum "$state/qsf-clipboard.txt" | awk '{print $1}')"
+
+        while [ ! -f "$state/incoming/client-upload.txt" ]; do
+          sleep 1
+        done
+        report "QSF_GUEST_UPLOAD_SHA256=$(sha256sum "$state/incoming/client-upload.txt" | awk '{print $1}')"
+
+        while ! cmp -s "$state/resolution" "$seed/qsf-resize-expected.txt"; do
+          sleep 1
+        done
+        report "QSF_GUEST_RESIZE=$(tr -d '\n' < "$state/resolution")"
+      ) &
+
+      report "QSF_GUEST_DOWNLOAD_SHA256=$(sha256sum "$state/outgoing/guest-download.txt" | awk '{print $1}')"

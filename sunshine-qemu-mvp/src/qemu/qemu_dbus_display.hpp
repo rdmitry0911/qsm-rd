@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <memory>
 #include <mutex>
 #include <span>
 #include <string>
@@ -18,6 +19,10 @@
 #include "core/unix_fd.hpp"
 
 namespace qmdp {
+
+#ifdef QMDP_HAS_GBM
+class DmaBufReadback;
+#endif
 
 struct QemuDbusOptions {
     // Exactly one main transport is used:
@@ -38,7 +43,9 @@ struct QemuDbusOptions {
 // The implemented capture paths are deliberately GPU-independent:
 //   - org.qemu.Display1.Listener.Scanout / Update
 //   - org.qemu.Display1.Listener.Unix.Map.ScanoutMap / UpdateMap
-// DMA-BUF messages are recognized and reported as not implemented yet.
+// When built with GBM/libdrm, ScanoutDMABUF/UpdateDMABUF are imported through
+// a bounded CPU readback boundary.  This keeps the software encoder path and
+// avoids any X11/Wayland runtime dependency.
 class QemuDbusDisplay final : public IQemuDisplay {
 public:
     explicit QemuDbusDisplay(QemuDbusOptions options);
@@ -66,6 +73,9 @@ public:
         std::uint64_t stale_geometry_update_drops {};
         std::uint64_t cursor_definitions {};
         std::uint64_t cursor_moves {};
+        std::uint64_t dmabuf_scanouts {};
+        std::uint64_t dmabuf_updates {};
+        std::uint64_t dmabuf_readback_failures {};
         std::uint64_t unsupported_dmabuf_messages {};
         std::uint64_t audio_inits {};
         std::uint64_t audio_writes {};
@@ -136,6 +146,9 @@ private:
     dbus::Bus peer_bus_;
     dbus::Slot peer_filter_slot_;
     std::thread peer_thread_;
+#ifdef QMDP_HAS_GBM
+    std::unique_ptr<DmaBufReadback> dmabuf_readback_;
+#endif
     dbus::Bus audio_bus_;
     dbus::Slot audio_filter_slot_;
     std::thread audio_thread_;
@@ -153,6 +166,9 @@ private:
     std::uint64_t stale_geometry_update_drops_ {};
     std::uint64_t cursor_definitions_ {};
     std::uint64_t cursor_moves_ {};
+    std::uint64_t dmabuf_scanouts_ {};
+    std::uint64_t dmabuf_updates_ {};
+    std::uint64_t dmabuf_readback_failures_ {};
     std::uint64_t unsupported_dmabuf_messages_ {};
     std::uint64_t audio_inits_ {};
     std::uint64_t audio_writes_ {};
