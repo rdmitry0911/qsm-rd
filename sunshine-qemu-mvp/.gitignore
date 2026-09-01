@@ -1,0 +1,17 @@
+/build/
+/build-*/
+/cmake-build-*/
+/vm/
+/.upstream/
+/artifacts/validation/real-qemu/
+/artifacts/validation/alpine-reference-e2e/
+/artifacts/validation/upstream-sunshine-qemu-e2e/
+/.reference-vm-e2e/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.log
+.DS_Store

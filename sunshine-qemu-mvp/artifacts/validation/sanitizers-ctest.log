@@ -1,0 +1,99 @@
+Internal ctest changing into directory: /mnt/data/sunshine-qemu-mvp/build-sanitize
+UpdateCTestConfiguration  from :/mnt/data/sunshine-qemu-mvp/build-sanitize/DartConfiguration.tcl
+Parse Config file:/mnt/data/sunshine-qemu-mvp/build-sanitize/DartConfiguration.tcl
+UpdateCTestConfiguration  from :/mnt/data/sunshine-qemu-mvp/build-sanitize/DartConfiguration.tcl
+Parse Config file:/mnt/data/sunshine-qemu-mvp/build-sanitize/DartConfiguration.tcl
+Test project /mnt/data/sunshine-qemu-mvp/build-sanitize
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+    Start 1: qmdp_core_tests
+
+1: Test command: /mnt/data/sunshine-qemu-mvp/build-sanitize/qmdp_core_tests
+1: Working Directory: /mnt/data/sunshine-qemu-mvp/build-sanitize
+1: Test timeout computed to be: 1500
+1: all qmdp core tests passed
+1/5 Test #1: qmdp_core_tests ..................   Passed    0.01 sec
+test 2
+    Start 2: qmdp_dbus_integration_tests
+
+2: Test command: /mnt/data/sunshine-qemu-mvp/build-sanitize/qmdp_dbus_integration_tests
+2: Working Directory: /mnt/data/sunshine-qemu-mvp/build-sanitize
+2: Test timeout computed to be: 15
+2: QEMU D-Bus CPU integration
+2:   frames published/encoded/dropped: 44/19/24
+2:   map scanouts/updates: 2/42
+2:   final mode: 426x242
+2:   input keyboard/mouse: 2/4
+2:   audio writes/frames: 72/34560
+2:   snapshot: "/mnt/data/sunshine-qemu-mvp/build-sanitize/dbus-integration-last.ppm"
+2: all QEMU D-Bus CPU integration checks passed
+2/5 Test #2: qmdp_dbus_integration_tests ......   Passed    0.76 sec
+test 3
+    Start 3: qmdp_no_gpu_ffmpeg_selftest
+
+3: Test command: /mnt/data/sunshine-qemu-mvp/build-sanitize/qmdp_dbus_selftest "--output" "/mnt/data/sunshine-qemu-mvp/build-sanitize/ctest-selftest" "--duration-ms" "800"
+3: Working Directory: /mnt/data/sunshine-qemu-mvp/build-sanitize
+3: Test timeout computed to be: 20
+3: QMDP no-GPU vertical slice
+3:   encoded frames: 23
+3:   output segments: 2
+3:   final mode: 854x480
+3:   shared-map scanouts/updates: 2/27
+3:   mailbox dropped: 5
+3:   audio callbacks/frames: 93/44640
+3:   ffmpeg exit status: 0
+3:   display audio registered/failures/writes: 1/0/93
+3:   mock audio listeners/writes/frames: 1/93/44640
+3:   session errors: 0
+3:   mock last error: <none>
+3:   output directory: "/mnt/data/sunshine-qemu-mvp/build-sanitize/ctest-selftest"
+3/5 Test #3: qmdp_no_gpu_ffmpeg_selftest ......   Passed    0.99 sec
+test 4
+    Start 4: qmdp_message_bus_map_e2e
+
+4: Test command: /mnt/data/sunshine-qemu-mvp/tests/run_message_bus_e2e.sh "/mnt/data/sunshine-qemu-mvp/build-sanitize/qmdp-fake-qemu" "/mnt/data/sunshine-qemu-mvp/build-sanitize/qemu-display-probe" "/mnt/data/sunshine-qemu-mvp/build-sanitize/message-bus-map-e2e" "map"
+4: Working Directory: /mnt/data/sunshine-qemu-mvp/build-sanitize
+4: Test timeout computed to be: 20
+4: dbus-daemon[16822]: [session uid=0 pid=16822 pidfd=4] org.freedesktop.DBus.Error.AccessDenied: Failed to set fd limit to 65536: Operation not permitted
+4: FAKE_QEMU_READY name=org.qemu path=/org/qemu/Display1/Console_0
+4: FAKE_QEMU_RESULT frames=30 ui_info=1 keyboard=2 mouse=4 requested=320x180 listener=1 peer_completed=1
+4: QEMU_DISPLAY_PROBE_RESULT
+4:   frames published/encoded/dropped: 30/30/0
+4:   adapter frames/audio frames: 30/0
+4:   scanout inline/map: 0/1
+4:   updates inline/map: 0/29
+4:   cursor definitions/moves: 1/1
+4:   audio init/writes/frames: 0/0/0
+4:   audio registration failures: 0
+4:   ffmpeg exit status: 0
+4:   session errors: 0
+4/5 Test #4: qmdp_message_bus_map_e2e .........   Passed    1.32 sec
+test 5
+    Start 5: qmdp_message_bus_inline_e2e
+
+5: Test command: /mnt/data/sunshine-qemu-mvp/tests/run_message_bus_e2e.sh "/mnt/data/sunshine-qemu-mvp/build-sanitize/qmdp-fake-qemu" "/mnt/data/sunshine-qemu-mvp/build-sanitize/qemu-display-probe" "/mnt/data/sunshine-qemu-mvp/build-sanitize/message-bus-inline-e2e" "inline"
+5: Working Directory: /mnt/data/sunshine-qemu-mvp/build-sanitize
+5: Test timeout computed to be: 20
+5: dbus-daemon[16851]: [session uid=0 pid=16851 pidfd=4] org.freedesktop.DBus.Error.AccessDenied: Failed to set fd limit to 65536: Operation not permitted
+5: FAKE_QEMU_READY name=org.qemu path=/org/qemu/Display1/Console_0
+5: FAKE_QEMU_RESULT frames=30 ui_info=1 keyboard=2 mouse=4 requested=320x180 listener=1 peer_completed=1
+5: QEMU_DISPLAY_PROBE_RESULT
+5:   frames published/encoded/dropped: 30/30/0
+5:   adapter frames/audio frames: 30/0
+5:   scanout inline/map: 1/0
+5:   updates inline/map: 29/0
+5:   cursor definitions/moves: 1/1
+5:   audio init/writes/frames: 0/0/0
+5:   audio registration failures: 0
+5:   ffmpeg exit status: 0
+5:   session errors: 0
+5/5 Test #5: qmdp_message_bus_inline_e2e ......   Passed    1.33 sec
+
+100% tests passed, 0 tests failed out of 5
+
+Total Test time (real) =   4.41 sec

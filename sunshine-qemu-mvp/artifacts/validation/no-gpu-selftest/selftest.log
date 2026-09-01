@@ -1,0 +1,13 @@
+QMDP no-GPU vertical slice
+  encoded frames: 36
+  output segments: 2
+  final mode: 854x480
+  shared-map scanouts/updates: 2/39
+  mailbox dropped: 5
+  audio callbacks/frames: 132/63360
+  ffmpeg exit status: 0
+  display audio registered/failures/writes: 1/0/132
+  mock audio listeners/writes/frames: 1/132/63360
+  session errors: 0
+  mock last error: <none>
+  output directory: "/mnt/data/sunshine-qemu-mvp/artifacts/validation/no-gpu-selftest/encoded"

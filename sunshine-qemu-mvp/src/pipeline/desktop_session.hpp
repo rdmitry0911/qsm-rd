@@ -1,0 +1,93 @@
+#pragma once
+
+#include "core/audio_fifo.hpp"
+#include "core/latest_frame_mailbox.hpp"
+#include "interfaces/qemu_display.hpp"
+#include "interfaces/sunshine_adapter.hpp"
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <cstdint>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+
+namespace qmdp {
+
+struct DesktopSessionOptions {
+    std::chrono::milliseconds frame_wait {50};
+    std::uint32_t audio_sample_rate {48000U};
+    std::uint16_t audio_channels {2U};
+    std::chrono::milliseconds audio_buffer {50};
+    std::chrono::milliseconds audio_chunk {10};
+};
+
+// One-QEMU-console to one-Sunshine-worker bridge. Display and audio callbacks
+// never wait for the encoder. Video uses a one-slot latest-frame mailbox;
+// audio uses a bounded FIFO which drops the oldest PCM on overflow.
+class DesktopSession {
+public:
+    DesktopSession(IQemuDisplay& display,
+                   ISunshineAdapter& sunshine,
+                   DesktopSessionOptions options = {});
+    ~DesktopSession();
+
+    DesktopSession(const DesktopSession&) = delete;
+    DesktopSession& operator=(const DesktopSession&) = delete;
+
+    void start();
+    void stop() noexcept;
+
+    void set_ui_info(const ViewportRequest& request);
+    void key(std::uint32_t qemu_key_number, bool pressed);
+    void button(std::uint8_t qemu_button, bool pressed);
+    [[nodiscard]] bool is_absolute_pointer();
+    void absolute_pointer(std::uint32_t x, std::uint32_t y);
+    void relative_pointer(std::int32_t dx, std::int32_t dy);
+
+    struct Stats {
+        LatestFrameMailbox::Stats mailbox;
+        AudioFifo::Stats audio_fifo;
+        std::uint64_t encoded_frames {};
+        std::uint64_t audio_callbacks {};
+        std::uint64_t audio_submissions {};
+        std::uint64_t rejected_audio_callbacks {};
+        std::uint64_t idr_requests {};
+        std::uint64_t errors {};
+        bool running {};
+        std::vector<std::string> recent_errors;
+    };
+
+    [[nodiscard]] Stats stats() const;
+
+private:
+    static std::size_t milliseconds_to_frames(
+        std::uint32_t sample_rate,
+        std::chrono::milliseconds duration);
+    void encoder_loop() noexcept;
+    void audio_loop() noexcept;
+    void record_error(std::string message) noexcept;
+
+    IQemuDisplay& display_;
+    ISunshineAdapter& sunshine_;
+    DesktopSessionOptions options_;
+    LatestFrameMailbox mailbox_;
+    AudioFifo audio_fifo_;
+    std::condition_variable audio_cv_;
+    std::mutex audio_wait_mutex_;
+    std::thread encoder_thread_;
+    std::thread audio_thread_;
+    std::atomic<bool> running_ {false};
+    std::atomic<std::uint64_t> encoded_frames_ {};
+    std::atomic<std::uint64_t> audio_callbacks_ {};
+    std::atomic<std::uint64_t> audio_submissions_ {};
+    std::atomic<std::uint64_t> rejected_audio_callbacks_ {};
+    std::atomic<std::uint64_t> idr_requests_ {};
+    std::atomic<std::uint64_t> errors_ {};
+    mutable std::mutex errors_mutex_;
+    std::vector<std::string> recent_errors_;
+};
+
+}  // namespace qmdp

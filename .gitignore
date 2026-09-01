@@ -1,0 +1,4 @@
+# User-created probe image without a reproducibility sidecar.
+/qemu-probe-last.ppm
+
+.DS_Store

@@ -1,0 +1,44 @@
+# Configuration consumed by a future per-VM launcher/orchestrator.
+[vm]
+id = "vm42"
+console = 0
+qemu_pid_file = "/run/qmdp/vm42/qemu.pid"
+
+[dbus]
+# Private per-VM Unix bus. Never expose this over TCP.
+address_file = "/run/qmdp/vm42/dbus.address"
+socket_mode = "0600"
+
+[sunshine]
+instance_name = "vm42"
+config_dir = "/var/lib/qmdp/vm42/sunshine"
+port_base = 48900
+capture_backend = "qemu_dbus"
+input_backend = "qemu_dbus"
+audio_backend = "qemu_dbus"
+
+[video]
+console = 0
+prefer_dmabuf = true
+allow_cpu_fallback = true
+require_same_gpu = true
+max_width = 7680
+max_height = 4320
+mailbox_depth = 1
+
+[audio]
+sample_rate = 48000
+channels = 2
+max_buffer_ms = 50
+overflow_policy = "drop_oldest"
+
+[resize]
+policy = "match_on_connect"
+debounce_ms = 250
+width_alignment = 2
+height_alignment = 2
+
+[security]
+clipboard = "off"
+file_transfer = false
+microphone = false

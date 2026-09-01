@@ -1,0 +1,310 @@
+# Инженерный план Sunshine–QEMU Desktop
+
+## 1. Цель
+
+Создать удалённую консоль ВМ с UX уровня RDP и медиатрактом уровня Moonlight:
+
+- доступ от firmware/boot до desktop;
+- оконный и fullscreen режимы;
+- разрешение, соответствующее viewport клиента;
+- низкая input-to-photon latency;
+- аппаратное кодирование на GPU хоста;
+- прямой ввод в конкретную ВМ без зависимости от focus хостового окна;
+- индивидуальный звук ВМ;
+- затем live resize, clipboard и local cursor.
+
+Основной сценарий MVP:
+
+```text
+Linux host + QEMU/KVM + virtio-vga-gl/VirGL
+       → QEMU D-Bus ScanoutDMABUF
+       → Sunshine host-native encoder
+       → stock Moonlight client
+```
+
+## 2. Архитектурные решения
+
+### ADR-001 — Sunshine находится на хосте
+
+Видеокадр, созданный VirGL/virglrenderer на host GPU, не возвращается в гость для повторного захвата. QEMU отдаёт scanout внешнему listener, а Sunshine импортирует его в существующий GPU capture/encode тракт.
+
+### ADR-002 — один Sunshine-процесс на одну ВМ в MVP
+
+Причины:
+
+- существующие пути ввода и аудио Sunshine во многом предполагают один platform context;
+- отдельные процессы дают естественную изоляцию FD, D-Bus, портов и сертификатов;
+- отказ одной ВМ не останавливает остальные;
+- не требуется сразу проектировать multi-tenant scheduler внутри Sunshine.
+
+Ограничение MVP: одна активная управляющая Moonlight-сессия на ВМ. Несколько view-only клиентов — отдельная задача.
+
+### ADR-003 — private D-Bus на одну ВМ
+
+QEMU и соответствующий Sunshine instance работают на отдельном Unix D-Bus address. Сокет доступен только сервисному пользователю ВМ. D-Bus никогда не публикуется в TCP-сеть.
+
+### ADR-004 — latest frame wins
+
+Очередь capture→encoder имеет глубину один. Новый кадр заменяет старый, если encoder ещё занят. В интерактивной сессии предпочтительнее потерять устаревший кадр, чем накопить задержку.
+
+### ADR-005 — damage используется как сигнал пробуждения, а не как partial-video update
+
+Moonlight передаёт видеокадры, поэтому MVP кодирует актуальную полную поверхность. Damage rectangles нужны для cadence control и будущих оптимизаций, но не формируют очередь прямоугольников.
+
+### ADR-006 — QEMU D-Bus заменяет custom guest agent в MVP-0
+
+Для первого среза QEMU предоставляет display, cursor, keyboard/mouse, SetUIInfo, PCM audio и clipboard broker. Custom agent не входит в критический путь. Он понадобится позднее для гарантированного DPI, IME/Unicode, file transfer и OS session semantics.
+
+### ADR-007 — клиентское расширение не блокирует MVP-0
+
+Первый поток должен работать с обычным Moonlight. Live resize и clipboard добавляются в MVP-1 через небольшой versioned side-channel и fork Moonlight-Qt. При отсутствии расширения остаётся обычный GameStream flow.
+
+## 3. Границы MVP
+
+### MVP-0: производительный удалённый QEMU console
+
+Входит:
+
+- Linux host;
+- одна QEMU console;
+- `virtio-vga-gl`/VirGL;
+- single-plane RGB DMA-BUF (`XRGB8888`/`ARGB8888`/`BGRX8888` после проверки драйверов);
+- один Sunshine process на ВМ;
+- H.264 и HEVC через уже поддержанный Sunshine encoder;
+- stock Moonlight на Windows/Linux/macOS;
+- клавиатура, absolute/relative mouse, кнопки и wheel;
+- stereo 48 kHz guest audio;
+- установка UI size один раз при старте сессии;
+- fallback CPU/shared-map для диагностики;
+- BIOS/UEFI/boot screen;
+- systemd template unit и health metrics.
+
+Не входит:
+
+- несколько scanout/мониторов;
+- VFIO GPU scanout;
+- cross-GPU zero-copy;
+- HDR;
+- микрофон клиент→ВМ;
+- file transfer;
+- полноценный Unicode IME;
+- isolated user sessions;
+- seamless apps;
+- WAN relay/NAT traversal сверх штатного Sunshine.
+
+### MVP-1: desktop UX
+
+Добавляются:
+
+- Moonlight-Qt fork;
+- capability negotiation;
+- live resize с debounce и ACK;
+- двусторонний `text/plain; charset=utf-8` clipboard;
+- local cursor shape/position;
+- reconnect token и сохранение desktop session;
+- toolbar с fixed/match/follow-window/follow-monitor;
+- clipboard permissions и лимиты.
+
+## 4. Рабочие потоки
+
+### WP0 — воспроизводимая среда
+
+**WP0.1.** Зафиксировать версии QEMU, Sunshine, Moonlight-Qt, Mesa, libdrm, EGL и GPU driver.
+
+**WP0.2.** Создать одну контрольную Linux-гостевую ВМ и одну Windows-гостевую ВМ с `virtio-vga-gl`, USB tablet и HDA audio.
+
+**WP0.3.** Создать private D-Bus launcher и systemd template:
+
+```text
+qemu-vm@<id>.service
+sunshine-qemu@<id>.service
+```
+
+**Выход:** повторяемый boot, известный D-Bus address, console 0 видна внешнему listener.
+
+**Трудоёмкость:** 2–4 инженерных дня.
+
+### WP1 — QEMU D-Bus probe
+
+Создать отдельную утилиту `qemu-display-probe` до модификации Sunshine.
+
+Она должна:
+
+- найти `/org/qemu/Display1/Console_0`;
+- зарегистрировать Display Listener;
+- вывести параметры `ScanoutDMABUF` и `UpdateDMABUF`;
+- корректно принять/закрыть Unix FD;
+- получить cursor shape/position;
+- отправить key/mouse события;
+- вызвать `SetUIInfo`;
+- принять AudioOut PCM;
+- пережить reset/reboot QEMU.
+
+Сначала допустим shared-map/CPU dump в PNG или raw; затем EGL import smoke test.
+
+**Gate WP1:** 30 минут непрерывной работы без роста FD/RSS и без блокировки QEMU main loop.
+
+**Трудоёмкость:** 4–7 инженерных дней.
+
+### WP2 — Sunshine QEMU capture backend
+
+Добавить backend `qemu_dbus` в Linux platform layer.
+
+Предлагаемые файлы:
+
+```text
+src/platform/linux/qemu_dbus.h
+src/platform/linux/qemu_dbus.cpp
+src/platform/linux/qemu_audio.h
+src/platform/linux/qemu_audio.cpp
+src/platform/linux/qemu_input.h
+src/platform/linux/qemu_input.cpp
+```
+
+Backend должен:
+
+1. получить persistent DMA-BUF surface;
+2. дублировать/владеть FD по чётким RAII-правилам;
+3. заполнить существующий Sunshine EGL surface descriptor;
+4. вернуть frame descriptor capture pipeline;
+5. при смене geometry/fourcc/modifier вернуть `capture_e::reinit`;
+6. не ждать encoder в D-Bus callback;
+7. иметь CPU fallback и метрику fallback reason.
+
+**Gate WP2-A:** stock Moonlight показывает guest console через software/shared-map path.
+
+**Gate WP2-B:** GPU DMA-BUF path работает без полного readback кадра в CPU RAM.
+
+**Трудоёмкость:** 8–15 инженерных дней; основной риск — modifiers/import/encoder interop.
+
+### WP3 — QEMU input sink
+
+Преобразовать Moonlight input в QEMU D-Bus:
+
+- key down/up → QEMU key number;
+- absolute pointer → `SetAbsPosition`;
+- relative pointer → `RelMotion`;
+- button down/up → `Press`/`Release`;
+- wheel → короткие button pulses;
+- release-all при disconnect/focus loss.
+
+Использовать mapping из QEMU remote viewer как справочную реализацию, но оформить отдельную тестируемую таблицу.
+
+**Gate WP3:** input работает в UEFI, bootloader, Linux console, Windows login; ни одно событие не попадает в host desktop.
+
+**Трудоёмкость:** 4–7 инженерных дней.
+
+### WP4 — индивидуальный звук ВМ
+
+Реализовать adapter QEMU AudioOut → Sunshine `mic_t`/audio encoder:
+
+- конверсия QEMU PCM в interleaved float32;
+- resample только при необходимости;
+- MVP output: 48 kHz, stereo;
+- bounded FIFO 30–50 ms;
+- overflow: drop oldest;
+- underflow: тишина, счётчик события;
+- reset буфера при guest audio restart.
+
+**Gate WP4:** 8-часовой playback без drift/накопления latency; звук одной ВМ не смешивается со звуком хоста или другой ВМ.
+
+**Трудоёмкость:** 4–7 инженерных дней.
+
+### WP5 — initial resolution match
+
+При GameStream launch Sunshine уже знает требуемые width/height/FPS. QEMU backend вызывает `SetUIInfo`:
+
+```text
+width/height = requested stream mode
+width_mm/height_mm = derived from requested DPI or a conservative 96-DPI default
+```
+
+Если guest меняет mode, новый scanout вызывает converter/encoder reinit и IDR. Если guest не реагирует, Sunshine масштабирует текущий scanout.
+
+**Gate WP5:** подключение 1920×1080 и 2560×1440 приводит к соответствующему guest mode там, где guest stack поддерживает resize; fallback не создаёт black screen.
+
+**Трудоёмкость:** 2–4 инженерных дня.
+
+### WP6 — packaging и эксплуатация
+
+- systemd template instance на ВМ;
+- отдельные Sunshine data/config directories;
+- уникальный hostname и port base;
+- private D-Bus socket;
+- readiness после регистрации Console_0;
+- watchdog;
+- Prometheus/structured metrics;
+- graceful restart при QEMU reconnect;
+- конфигурация encode GPU per VM.
+
+**Gate WP6:** reboot хоста автоматически восстанавливает все объявленные VM endpoints; остановка одной ВМ не затрагивает соседние.
+
+**Трудоёмкость:** 4–6 инженерных дней.
+
+### WP7 — Moonlight-Qt desktop extension
+
+Отдельная ветвь после MVP-0:
+
+- `DesktopSessionController`;
+- `QmdpClient` WebSocket/TLS;
+- viewport events и debounce 250 ms;
+- clipboard bridge;
+- local cursor;
+- toolbar/policies;
+- reconnect.
+
+**Gate WP7:** 100 последовательных resize, двусторонний text clipboard и reconnect без перезапуска гостевой ВМ.
+
+**Трудоёмкость:** 10–18 инженерных дней.
+
+## 5. Порядок реализации
+
+```text
+WP0 → WP1 → WP2-A → WP3 → WP4 → WP5 → WP2-B → WP6 → MVP-0
+                                                   ↓
+                                             WP7 → MVP-1
+```
+
+Почему GPU path идёт после working CPU path: сначала нужно доказать корректность D-Bus lifetime, input, audio и session recovery. Затем меняется только frame transport, а не весь вертикальный срез одновременно.
+
+## 6. Минимальная команда
+
+- один senior C++/Linux graphics engineer: QEMU D-Bus, DMA-BUF/EGL, Sunshine backend;
+- один C++/Qt engineer: Moonlight-Qt extension и desktop UX;
+- part-time QA/DevOps: VM matrix, systemd, soak/failure testing.
+
+Один сильный C++/graphics инженер способен сделать MVP-0 последовательно, но клиентская ветвь будет конкурировать за внимание с GPU hardening.
+
+## 7. Критические риски
+
+### R1 — DMA-BUF modifier несовместим с encoder path
+
+**Снижение риска:** импорт в EGL/Vulkan и GPU blit в собственную linear/encoder-compatible surface; CPU fallback только как диагностический режим; same-GPU requirement в MVP.
+
+### R2 — implicit synchronization недостаточна
+
+**Снижение риска:** сначала implicit DMA-BUF sync; измерять tearing/stale frames; затем добавить explicit fences, если QEMU/driver interface их позволит.
+
+### R3 — guest игнорирует SetUIInfo
+
+**Снижение риска:** fixed resolution fallback; позднее небольшой guest agent для принудительного mode/DPI.
+
+### R4 — глобальное platform state Sunshine
+
+**Снижение риска:** один process на ВМ в MVP. Multi-VM broker допускается только после выделения per-session input/audio/capture contexts.
+
+### R5 — keyboard layout/IME
+
+**Снижение риска:** scancode-first для shortcuts/firmware; text clipboard в MVP-1; Unicode guest agent позже.
+
+### R6 — encoder session limits
+
+**Снижение риска:** обнаружение лимита при startup, admission control и GPU assignment; не обещать больше одновременных потоков, чем подтверждено на конкретном драйвере.
+
+### R7 — clipboard leakage
+
+**Снижение риска:** clipboard выключен по умолчанию, направления и лимиты на paired client, foreground-session binding, очистка metadata при disconnect.
+
+## 8. Definition of Done
+
+MVP-0 считается готовым только после прохождения всех обязательных критериев из `MVP_ACCEPTANCE.md`; демонстрация одного удачного подключения без latency/soak/failure evidence не считается завершением.

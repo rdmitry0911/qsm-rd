@@ -1,0 +1,6 @@
+os=Debian GNU/Linux 13 (trixie)
+architecture=amd64
+qemu_system_x86_64=absent
+network=external DNS and TCP unavailable in execution container
+apt_source=http://deb.debian.org/debian trixie main
+install_result=blocked_by_runtime_network_policy
