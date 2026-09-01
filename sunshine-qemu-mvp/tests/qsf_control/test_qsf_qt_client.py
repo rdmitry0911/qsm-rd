@@ -61,23 +61,30 @@ class QsfQtClientE2ETest(QsfTlsGatewayTest):
                 "--upload-source", str(upload_source), "--upload-name", "qt-client.bin",
                 "--download-name", "guest.txt",
                 "--download-destination", str(download_destination),
+                "--optimized-resolution", "2560x1440",
+                "--optimized-fps", "60",
+                "--optimized-bitrate", "28000",
+                "--optimized-codec", "H.264",
                 "--resize", "1280x720",
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             env=environment,
-            timeout=40,
+            timeout=110,
         )
         self.assertEqual(
             result.returncode, 0,
             f"Qt QSF driver failed: stdout={result.stdout} stderr={result.stderr}",
         )
+        self.assertIn("QSF_QT_CLIENT_HOST_OPTIMIZATION_OK", result.stdout)
         self.assertIn("QSF_QT_CLIENT_E2E_OK", result.stdout)
         self.assertEqual(self.agent.clipboard, client_clipboard)
         self.assertEqual(self.agent.incoming["qt-client.bin"], upload_bytes)
         self.assertEqual(download_destination.read_bytes(), b"guest-to-client\n")
         self.assertEqual(self.agent.received_resize, (1280, 720))
+        self.assertTrue(self.agent.optimization_requested)
+        self.assertEqual(self.agent.received_pair_capabilities, (2560, 1440, 60, 28000, "H264"))
 
 
 if __name__ == "__main__":

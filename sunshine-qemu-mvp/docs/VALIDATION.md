@@ -7,12 +7,12 @@ Validation date: 2026-09-01 UTC.
 The final acceptance artifact is
 .upstream/build-sunshine-qemu-no-x11/sunshine with SHA-256:
 
-    80d22a83a552f65cbbfa594b2a4ce2a02180ba13571a43558797e8ec83e9a920
+    45fae7ee7c56ab0770d7dabbcbf4f9ce3aab66b7f1c097648ca836b260f8708c
 
 It was built from Sunshine v2026.830.223700 base commit
 4f39fc116294abf8241bcd30e1b1e23d371e6e7b. A clean detached replay applied
-patches 0001 through 0006 and produced replay commit 5c179ad. The build helper
-reported:
+patches 0001 through 0007, including ordered listener transport retirement.
+The clean detached replay succeeded, and the build helper reported:
 
     SUNSHINE_QEMU_BUILD_OK ... desktop_runtime=none host_audio=none vaapi=off
 
@@ -43,7 +43,8 @@ because the pinned static FFmpeg needs them even with VAAPI disabled.
 | DMA-BUF-disabled fallback build | cmake --build .build-no-dmabuf; ctest --test-dir .build-no-dmabuf --output-on-failure | 10/10 passed |
 | QSF protocol | local token control, production C guest PTY, TLS gateway | included in both CTest matrices; all passed |
 | Static checks | bash -n scripts/tests, Python bytecode compile, strict C11 guest agent/watcher compile, diff check | passed |
-| Sunshine replay | clean upstream git am 0001..0006 plus strict headless dependency build | passed |
+| Sunshine replay | clean upstream git am 0001..0007 plus strict headless dependency build | passed |
+| Sunshine listener retirement | real QEMU listener lifecycle after bounded Sunshine termination | passed; zero `UnknownMethod` callbacks to removed Display1 listeners |
 | Headless dynamic closure | full ldd deny gate on final artifact | passed |
 | Native video/input | fullscreen and windowed Moonlight -> Sunshine -> QEMU -> VirGL | passed |
 | Native audio | QEMU guest tone -> Sunshine Opus -> decoded Moonlight PCM | passed |

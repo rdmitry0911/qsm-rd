@@ -30,6 +30,9 @@ class MoonlightController final : public QObject
     Q_PROPERTY(QString profileAppName READ profileAppName NOTIFY profileChanged)
     Q_PROPERTY(QString profileResolution READ profileResolution NOTIFY profileChanged)
     Q_PROPERTY(QString profileDisplayMode READ profileDisplayMode NOTIFY profileChanged)
+    Q_PROPERTY(int profileFps READ profileFps NOTIFY profileChanged)
+    Q_PROPERTY(int profileBitrateKbps READ profileBitrateKbps NOTIFY profileChanged)
+    Q_PROPERTY(QString profileVideoCodec READ profileVideoCodec NOTIFY profileChanged)
     Q_PROPERTY(QString videoDecoder READ videoDecoder WRITE setVideoDecoder NOTIFY videoDecoderChanged)
 
 public:
@@ -49,6 +52,9 @@ public:
     QString profileAppName() const;
     QString profileResolution() const;
     QString profileDisplayMode() const;
+    int profileFps() const;
+    int profileBitrateKbps() const;
+    QString profileVideoCodec() const;
     QString videoDecoder() const;
 
     void setBinaryPath(const QString& binaryPath);
@@ -63,6 +69,8 @@ public:
     Q_INVOKABLE void startStream(const QString& host, const QString& appName,
                                  const QString& resolution, const QString& displayMode);
     Q_INVOKABLE void stopStream();
+    bool applyNegotiatedProfile(int width, int height, int fps, int bitrateKbps,
+                                const QString& videoCodec);
 
 signals:
     void binaryPathChanged();
@@ -85,24 +93,41 @@ signals:
     void streamFinished();
 
 private:
+    friend class ProfileNegotiationCoordinator;
+
     struct StreamRequest {
         QString host;
         QString appName;
         QString resolution;
         QString displayMode;
+        int fps = 0;
+        int bitrateKbps = 0;
+        QString videoCodec;
     };
 
     bool validateStreamRequest(const StreamRequest& request, QString* error) const;
     bool validateExecutable(QString* error) const;
+    bool applyNegotiatedProfileForHandoff(int width, int height, int fps, int bitrateKbps,
+                                          const QString& videoCodec);
+    // Only the coordinator can enter or release this guard. Keeping its
+    // mutator private prevents an arbitrary in-process caller from reopening
+    // normal Moonlight admission during a remote guest transaction.
+    void setProfileHandoffStartBlocked(bool blocked);
     static bool validProfileId(const QString& profileId, QString* error);
     QString profileSettingsGroup(const QString& profileId) const;
     void loadProfile(const QString& profileId);
     void writeProfileIndex() const;
     void writeCurrentProfile() const;
+    void startValidatedStreamRequest(const StreamRequest& request);
     void launchStream(const StreamRequest& request);
     void appendOutput(const QByteArray& output);
     void appendRedactedOutput(const QByteArray& output);
     void flushOutputFragment();
+    // A profile handoff has already selected an encoder/guest profile against
+    // the current desktop configuration.  Reject public configuration changes
+    // until its remote transaction is terminal, rather than letting a caller
+    // mutate the later Moonlight launch target underneath the coordinator.
+    bool profileHandoffBlocksConfigurationChange(const QString& operation);
     void setStatus(const QString& status);
     void setLastError(const QString& error);
     void setRunning(bool running);
@@ -123,6 +148,9 @@ private:
     QString m_ProfileAppName;
     QString m_ProfileResolution;
     QString m_ProfileDisplayMode;
+    int m_ProfileFps;
+    int m_ProfileBitrateKbps;
+    QString m_ProfileVideoCodec;
     QString m_VideoDecoder;
     QProcess* m_StreamProcess;
     QProcess* m_PairProcess;
@@ -130,6 +158,7 @@ private:
     StreamRequest m_PendingRestart;
     bool m_HasPendingRestart;
     bool m_StopRequested;
+    bool m_ProfileHandoffStartBlocked;
     bool m_PairCancelRequested;
     quint64 m_PairGeneration;
     quint64 m_RestartGeneration;

@@ -57,6 +57,23 @@ QEMU `Console.SetUIInfo`.  The guest display stack remains authoritative: a
 guest that cannot switch modes retains its current scanout and the Moonlight
 renderer scales it, rather than producing a black stream.
 
+## Negotiated client-to-VirGL geometry
+
+The production Qt button and both companion CLIs expose the safer
+`optimize-connection --resolution WIDTHxHEIGHT` transaction.  `WIDTHxHEIGHT`
+is the size the user selected on the client, and becomes the requested VirGL
+guest scanout; it is not a host-display or NVIDIA-device guess.  The broker
+intersects client decoder, live Sunshine encoder codec evidence, a configured
+tested host throughput envelope, and the guest display ceiling.  It preserves
+aspect ratio only when an actual pair limit requires a smaller mode.
+
+Unlike the legacy standalone `resize`, this transaction returns only after
+QEMU has accepted `SetUIInfo` **and** the guest compositor adapter has
+published the exact generation-bound `connection-profile-applied` record.  A
+client can therefore controlled-reconnect Moonlight without racing an old
+scanout.  See [`QSF_STREAM_NEGOTIATION.md`](../../docs/QSF_STREAM_NEGOTIATION.md)
+for the v2 protocol, guest adapter, serverinfo codec probe, and operator caps.
+
 ## Remote Moonlight companion
 
 GameStream/Moonlight has no interoperable clipboard or file-transfer packet.

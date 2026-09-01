@@ -19,8 +19,8 @@
 По состоянию на 2026-09-01 первоначальный standalone CPU-first срез расширен
 до функционального native E2E. Завершены:
 
-- pinned Sunshine patches 0001..0006, включая direct QEMU input, guest audio
-  и headless EGL DMA-BUF CPU readback;
+- pinned Sunshine patches 0001..0007, включая direct QEMU input, guest audio,
+  headless EGL DMA-BUF CPU readback и ordered listener transport teardown;
 - actual Moonlight pairing/HTTPS/RTSP/RTP, fullscreen/windowed decode and
   guest evdev input through KVM + virtio-vga-gl + VirGL (NVIDIA);
 - QSF companion with strict UTF-8 clipboard, constrained files, Weston DRM

@@ -1,0 +1,32 @@
+[Unit]
+Description=q-sunshine QSF local broker for Proxmox guest %i
+Documentation=file:/usr/share/doc/q-sunshine-pve/README.Debian
+After=q-sunshine@%i.service
+Requires=q-sunshine@%i.service
+BindsTo=q-sunshine@%i.service
+ConditionPathExists=/etc/q-sunshine/instances.d/%i.conf
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/q-sunshine/instances.d/%i.conf
+# This path is intentionally created only by the QSF broker.  The QEMU
+# virtio-serial endpoint remains a separately configured private socket.
+RuntimeDirectory=q-sunshine/qsf-%i
+RuntimeDirectoryMode=0750
+UMask=0077
+ExecStart=/usr/bin/q-sunshine-qsf-control --agent-socket=${QSUNSHINE_QSF_AGENT_SOCKET} --control-socket=/run/q-sunshine/qsf-%i/control.sock --token-file=/run/q-sunshine/qsf-%i/control.token
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=full
+# The broker's normal traffic is AF_UNIX only.  AF_INET/AF_INET6 remain
+# available solely for the explicitly configured loopback Sunshine
+# /serverinfo capability query, which is part of the documented negotiated
+# profile flow.  The URL validator itself rejects non-loopback peers.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

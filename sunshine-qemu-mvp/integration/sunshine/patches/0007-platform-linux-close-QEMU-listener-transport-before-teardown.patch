@@ -1,0 +1,128 @@
+From fabcda030533944d7198d6bc3bb78b44b482d95f Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Tue, 1 Sep 2026 22:17:32 +0000
+Subject: [PATCH] platform/linux: close QEMU listener transport before teardown
+
+---
+ src/platform/linux/qemu_dbus.cpp | 49 ++++++++++++++++++++++++++++++++
+ 1 file changed, 49 insertions(+)
+
+diff --git a/src/platform/linux/qemu_dbus.cpp b/src/platform/linux/qemu_dbus.cpp
+index 1999a47..7358e43 100644
+--- a/src/platform/linux/qemu_dbus.cpp
++++ b/src/platform/linux/qemu_dbus.cpp
+@@ -7,6 +7,7 @@
+ #include <algorithm>
+ #include <array>
+ #include <bit>
++#include <cerrno>
+ #include <cmath>
+ #include <chrono>
+ #include <condition_variable>
+@@ -26,6 +27,7 @@
+ #include <vector>
+ 
+ // system includes
++#include <fcntl.h>
+ #include <sys/socket.h>
+ #include <unistd.h>
+ 
+@@ -193,6 +195,22 @@ namespace platf {
+       }
+     }
+ 
++    // QEMU keeps a Display1 listener registered until its peer socket is
++    // closed.  GDBus object registration owns no transport lifetime, so
++    // unregistering that object before closing the peer makes QEMU continue
++    // to send Scanout/Update calls to a live connection and report
++    // UnknownMethod.  Keep a duplicate of the client endpoint solely for an
++    // unambiguous, ordered shutdown during capture retirement.
++    void shutdown_listener_transport(int &transport_fd) noexcept {
++      if (transport_fd < 0) {
++        return;
++      }
++      while (::shutdown(transport_fd, SHUT_RDWR) < 0 && errno == EINTR) {
++      }
++      (void) ::close(transport_fd);
++      transport_fd = -1;
++    }
++
+ #ifdef SUNSHINE_BUILD_QEMU_DBUS_DMABUF
+     [[nodiscard]] int take_unix_fd(GDBusMethodInvocation *invocation, gint fd_index) {
+       if (fd_index < 0) {
+@@ -1115,6 +1133,17 @@ namespace platf {
+           return false;
+         }
+ 
++        peer_transport_shutdown_fd_ = ::fcntl(client_fd, F_DUPFD_CLOEXEC, 3);
++        if (peer_transport_shutdown_fd_ < 0) {
++          const int duplicate_error = errno;
++          ::close(client_fd);
++          ::close(qemu_fd);
++          g_object_unref(fd_list);
++          BOOST_LOG(error) << "[qemu-dbus] duplicate QEMU AudioOutListener socket: "sv
++                           << std::strerror(duplicate_error);
++          return false;
++        }
++
+         // QEMU 8.2 opens the audio peer synchronously from its
+         // RegisterOutListener method handler.  Calling that method
+         // synchronously before opening our end produces a circular wait:
+@@ -1301,6 +1330,10 @@ namespace platf {
+           fifo_.clear();
+         }
+         fifo_ready_.notify_all();
++        // Retire QEMU's peer before unregistering the exported object.  The
++        // duplicate is necessary because GDBus can keep its stream alive
++        // while callback/context references are unwound.
++        shutdown_listener_transport(peer_transport_shutdown_fd_);
+         if (peer_loop_ != nullptr) {
+           g_main_loop_quit(peer_loop_);
+         }
+@@ -1694,6 +1727,7 @@ namespace platf {
+       std::string destination_;
+       GDBusConnection *main_bus_ {};
+       GDBusConnection *peer_bus_ {};
++      int peer_transport_shutdown_fd_ {-1};
+       GDBusNodeInfo *listener_introspection_ {};
+       GMainContext *peer_context_ {};
+       GMainLoop *peer_loop_ {};
+@@ -1925,6 +1959,15 @@ namespace platf {
+         }
+         g_variant_unref(reply);
+ 
++        peer_transport_shutdown_fd_ = ::fcntl(client_fd, F_DUPFD_CLOEXEC, 3);
++        if (peer_transport_shutdown_fd_ < 0) {
++          const int duplicate_error = errno;
++          ::close(client_fd);
++          BOOST_LOG(error) << "[qemu-dbus] duplicate QEMU Display1 listener socket: "sv
++                           << std::strerror(duplicate_error);
++          return false;
++        }
++
+         // RegisterListener hands its peer end to QEMU.  It must happen before
+         // opening the synchronous client connection, otherwise both peers can
+         // wait indefinitely for the other side's authentication handshake.
+@@ -2475,6 +2518,11 @@ namespace platf {
+           shutting_down_ = true;
+         }
+         frame_ready_.notify_all();
++        // Close the peer while its listener object is still registered.  QEMU
++        // will retire the Display1 listener from its connection-closed signal;
++        // unregistering first instead produces a high-rate UnknownMethod
++        // storm while QEMU is rendering.
++        shutdown_listener_transport(peer_transport_shutdown_fd_);
+         if (peer_loop_ != nullptr) {
+           g_main_loop_quit(peer_loop_);
+         }
+@@ -2535,6 +2583,7 @@ namespace platf {
+       std::uint32_t requested_height_ {};
+       GDBusConnection *main_bus_ {};
+       GDBusConnection *peer_bus_ {};
++      int peer_transport_shutdown_fd_ {-1};
+       GDBusNodeInfo *listener_introspection_ {};
+       GMainContext *peer_context_ {};
+       GMainLoop *peer_loop_ {};
+-- 
+2.43.0
+

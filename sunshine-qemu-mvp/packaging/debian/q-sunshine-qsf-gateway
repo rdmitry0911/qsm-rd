@@ -1,0 +1,3 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+exec /usr/bin/python3 /usr/lib/q-sunshine/qsf/qsf_tls_gateway.py "$@"

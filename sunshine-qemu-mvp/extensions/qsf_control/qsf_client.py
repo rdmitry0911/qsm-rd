@@ -13,13 +13,17 @@ from typing import Any
 
 
 MAX_REPLY = 4 * 1024 * 1024
+SUPPORTED_CODECS = frozenset({"H264", "HEVC", "AV1"})
+PROFILE_APPLY_TIMEOUT_SECONDS = 40
 
 
 def request(socket_path: Path, token_file: Path, payload: dict[str, Any]) -> dict[str, Any]:
     token = token_file.read_text(encoding="ascii").strip()
     payload["token"] = token
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.settimeout(12)
+        # A negotiated profile waits for a bounded guest compositor restart
+        # and an actual scanout acknowledgement.
+        client.settimeout(PROFILE_APPLY_TIMEOUT_SECONDS)
         client.connect(str(socket_path))
         client.sendall(json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n")
         response = bytearray()
@@ -36,12 +40,41 @@ def request(socket_path: Path, token_file: Path, payload: dict[str, Any]) -> dic
     return decoded["result"]
 
 
+def connection_optimize_payload(resolution: str, max_fps: int, decoder_codecs: str) -> dict[str, Any]:
+    try:
+        width_text, height_text = resolution.split("x", 1)
+        if not width_text.isdecimal() or not height_text.isdecimal():
+            raise ValueError
+        width, height = int(width_text), int(height_text)
+    except ValueError as error:
+        raise RuntimeError("--resolution must be WIDTHxHEIGHT") from error
+    if not 64 <= width <= 16384 or not 64 <= height <= 16384:
+        raise RuntimeError("--resolution dimensions must be in 64..16384")
+    if not 10 <= max_fps <= 240:
+        raise RuntimeError("--max-fps must be in 10..240")
+    codecs = decoder_codecs.split(",")
+    if not 1 <= len(codecs) <= 3 or any(codec not in SUPPORTED_CODECS for codec in codecs) or \
+            len(set(codecs)) != len(codecs):
+        raise RuntimeError("--decoder-codecs must be unique H264,HEVC,AV1 names")
+    return {"op": "connection_optimize", "client": {
+        "requested_width": width,
+        "requested_height": height,
+        "max_fps": max_fps,
+        "decoder_codecs": codecs,
+    }}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--socket", required=True, help="QSF control Unix socket")
     parser.add_argument("--token-file", required=True, help="per-session QSF token")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status")
+    optimize = commands.add_parser("optimize-connection")
+    optimize.add_argument("--resolution", required=True, help="client-selected WIDTHxHEIGHT")
+    optimize.add_argument("--max-fps", type=int, default=60, help="client decoder/display FPS ceiling")
+    optimize.add_argument("--decoder-codecs", default="H264",
+                         help="comma-separated verified decoder codecs (default: H264)")
     commands.add_parser("clipboard-get")
     commands.add_parser("clipboard-set")
     upload = commands.add_parser("upload")
@@ -58,6 +91,11 @@ def main() -> int:
     try:
         if arguments.command == "status":
             result = request(Path(arguments.socket), Path(arguments.token_file), {"op": "status"})
+            print(json.dumps(result, sort_keys=True))
+        elif arguments.command == "optimize-connection":
+            result = request(Path(arguments.socket), Path(arguments.token_file),
+                             connection_optimize_payload(arguments.resolution, arguments.max_fps,
+                                                         arguments.decoder_codecs))
             print(json.dumps(result, sort_keys=True))
         elif arguments.command == "clipboard-get":
             result = request(Path(arguments.socket), Path(arguments.token_file), {"op": "clipboard_get"})

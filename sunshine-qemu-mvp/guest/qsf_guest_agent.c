@@ -14,6 +14,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <poll.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -29,6 +30,19 @@ enum {
   max_clipboard_bytes = 1024 * 1024,
   max_file_bytes = 2 * 1024 * 1024,
   max_wire_bytes = 4 * 1024 * 1024,
+  capability_protocol_version = 2,
+};
+
+/* A generation makes a compositor acknowledgement unambiguously belong to
+ * the profile the host has just committed.  In particular, a stale
+ * acknowledgement for the same WxH must not release a later reconnect. */
+struct connection_profile {
+  uint64_t generation;
+  long width;
+  long height;
+  long fps;
+  long bitrate_kbps;
+  const char *codec;
 };
 
 struct agent_state {
@@ -40,6 +54,16 @@ struct agent_state {
   struct timespec clipboard_mtime;
   off_t clipboard_size;
   bool clipboard_stamp_valid;
+  long maximum_display_width;
+  long maximum_display_height;
+  long maximum_display_fps;
+  bool require_profile_apply_ack;
+  long profile_apply_timeout_ms;
+  uint64_t next_profile_generation;
+  struct connection_profile pending_profile;
+  char pending_profile_codec[5];
+  bool pending_profile_valid;
+  bool pending_profile_committed;
 };
 
 static const char base64_chars[] =
@@ -302,6 +326,155 @@ static int write_file_atomic(const char *path, const uint8_t *data, size_t size)
   return 0;
 }
 
+/* The capability exchange intentionally uses a short fixed-field ASCII
+ * message instead of unbounded JSON. This keeps the guest endpoint usable in
+ * a minimal initramfs and makes every received limit explicit. */
+static bool parse_bounded_decimal(const char *value, long minimum, long maximum, long *parsed) {
+  if (value == NULL || value[0] == '\0' || parsed == NULL) {
+    return false;
+  }
+  for (const unsigned char *cursor = (const unsigned char *) value; *cursor; ++cursor) {
+    if (!isdigit(*cursor)) {
+      return false;
+    }
+  }
+  errno = 0;
+  char *end = NULL;
+  const long number = strtol(value, &end, 10);
+  if (errno != 0 || end == value || *end != '\0' || number < minimum || number > maximum) {
+    return false;
+  }
+  *parsed = number;
+  return true;
+}
+
+static bool parse_profile_generation(const char *value, uint64_t *parsed) {
+  if (value == NULL || value[0] == '\0' || parsed == NULL) {
+    return false;
+  }
+  for (const unsigned char *cursor = (const unsigned char *) value; *cursor; ++cursor) {
+    if (!isdigit(*cursor)) {
+      return false;
+    }
+  }
+  errno = 0;
+  char *end = NULL;
+  const unsigned long long number = strtoull(value, &end, 10);
+  if (errno != 0 || end == value || *end != '\0' || number == 0U) {
+    return false;
+  }
+  *parsed = (uint64_t) number;
+  return true;
+}
+
+static bool supported_video_codec(const char *codec) {
+  return codec != NULL &&
+    (strcmp(codec, "H264") == 0 || strcmp(codec, "HEVC") == 0 || strcmp(codec, "AV1") == 0);
+}
+
+static bool connection_profile_text(const struct connection_profile *profile,
+                                    char *text, size_t text_size) {
+  return profile != NULL && text != NULL &&
+    snprintf(text, text_size,
+             "version=%d\ngeneration=%" PRIu64 "\nresolution=%ldx%ld\nfps=%ld\nbitrate_kbps=%ld\nvideo_codec=%s\n",
+             capability_protocol_version, profile->generation, profile->width,
+             profile->height, profile->fps, profile->bitrate_kbps,
+             profile->codec) < (int) text_size;
+}
+
+static bool connection_profile_reply(const struct connection_profile *profile,
+                                     char *reply, size_t reply_size) {
+  return profile != NULL && reply != NULL &&
+    snprintf(reply, reply_size, "%d %" PRIu64 " %ld %ld %ld %ld %s",
+             capability_protocol_version, profile->generation, profile->width,
+             profile->height, profile->fps, profile->bitrate_kbps,
+             profile->codec) < (int) reply_size;
+}
+
+static bool equal_connection_profiles(const struct connection_profile *first,
+                                      const struct connection_profile *second) {
+  return first != NULL && second != NULL && first->generation == second->generation &&
+    first->width == second->width && first->height == second->height &&
+    first->fps == second->fps && first->bitrate_kbps == second->bitrate_kbps &&
+    first->codec != NULL && second->codec != NULL && strcmp(first->codec, second->codec) == 0;
+}
+
+static bool write_connection_profile(struct agent_state *state,
+                                     const struct connection_profile *profile) {
+  char profile_path[768];
+  char resolution_path[768];
+  char profile_text[256];
+  char resolution_text[64];
+  if (snprintf(profile_path, sizeof(profile_path), "%s/connection-profile", state->state_dir) >= (int) sizeof(profile_path) ||
+      snprintf(resolution_path, sizeof(resolution_path), "%s/resolution", state->state_dir) >= (int) sizeof(resolution_path) ||
+      !connection_profile_text(profile, profile_text, sizeof(profile_text)) ||
+      snprintf(resolution_text, sizeof(resolution_text), "%ldx%ld\n", profile->width, profile->height) >= (int) sizeof(resolution_text)) {
+    return false;
+  }
+  /* Keep the previous acknowledgement in place until the desktop adapter
+   * atomically replaces it with an acknowledgement for this generation.
+   * Removing it before publishing the new profile creates a visible
+   * old-profile/no-ack state: an adapter watching both files can then restart
+   * the compositor once for the artificial gap and once more for the actual
+   * requested profile.  Generation makes a retained acknowledgement unable
+   * to satisfy AWAIT_CONNECTION_PROFILE for the new profile. */
+  return write_file_atomic(profile_path, (const uint8_t *) profile_text, strlen(profile_text)) == 0 &&
+    write_file_atomic(resolution_path, (const uint8_t *) resolution_text, strlen(resolution_text)) == 0;
+}
+
+static bool profile_is_applied(const struct agent_state *state,
+                               const struct connection_profile *profile) {
+  char applied_path[768];
+  char expected[256];
+  uint8_t *actual = NULL;
+  size_t actual_size = 0U;
+  if (snprintf(applied_path, sizeof(applied_path), "%s/connection-profile-applied", state->state_dir) >= (int) sizeof(applied_path) ||
+      !connection_profile_text(profile, expected, sizeof(expected)) ||
+      read_file(applied_path, &actual, &actual_size, sizeof(expected)) != 0) {
+    return false;
+  }
+  const bool matches = actual_size == strlen(expected) &&
+    memcmp(actual, expected, actual_size) == 0;
+  free(actual);
+  return matches;
+}
+
+static bool await_profile_applied(const struct agent_state *state,
+                                  const struct connection_profile *profile) {
+  if (!state->require_profile_apply_ack) {
+    return true;
+  }
+  struct timespec started;
+  if (clock_gettime(CLOCK_MONOTONIC, &started) != 0) {
+    return false;
+  }
+  const struct timespec pause = {.tv_sec = 0, .tv_nsec = 50L * 1000L * 1000L};
+  for (;;) {
+    if (profile_is_applied(state, profile)) {
+      return true;
+    }
+    struct timespec current;
+    if (clock_gettime(CLOCK_MONOTONIC, &current) != 0) {
+      return false;
+    }
+    const long long elapsed_ms = ((long long) current.tv_sec - (long long) started.tv_sec) * 1000LL +
+      ((long long) current.tv_nsec - (long long) started.tv_nsec) / 1000000LL;
+    if (elapsed_ms >= state->profile_apply_timeout_ms) {
+      return false;
+    }
+    (void) nanosleep(&pause, NULL);
+  }
+}
+
+static uint64_t next_profile_generation(struct agent_state *state) {
+  if (state->next_profile_generation == UINT64_MAX) {
+    state->next_profile_generation = 1U;
+  } else {
+    ++state->next_profile_generation;
+  }
+  return state->next_profile_generation;
+}
+
 static bool update_clipboard_stamp(struct agent_state *state) {
   struct stat metadata;
   if (stat(state->clipboard_path, &metadata) == 0) {
@@ -444,6 +617,153 @@ static void handle_command(struct agent_state *state, char *line) {
     free(encoded);
     return;
   }
+  if (strcmp(command, "CONNECTION_OPTIMIZE") == 0) {
+    if (strtok_r(NULL, " ", &save) != NULL) {
+      write_line(state->fd, "ERR ", "BAD_CONNECTION_OPTIMIZE");
+      return;
+    }
+    /* The VirGL guest asks for the pair configuration only after declaring
+     * its display envelope. It owns scanout geometry; it is not a GameStream
+     * video decoder endpoint. */
+    char reply[128];
+    if (snprintf(reply, sizeof(reply), "%d %ld %ld %ld", capability_protocol_version, state->maximum_display_width,
+                 state->maximum_display_height, state->maximum_display_fps) >= (int) sizeof(reply)) {
+      write_line(state->fd, "ERR ", "GUEST_CAPABILITIES_REPLY");
+      return;
+    }
+    write_line(state->fd, "GUEST_CAPABILITIES_REQUEST ", reply);
+    return;
+  }
+  if (strcmp(command, "PAIR_CAPABILITIES") == 0) {
+    char *version = strtok_r(NULL, " ", &save);
+    char *width = strtok_r(NULL, " ", &save);
+    char *height = strtok_r(NULL, " ", &save);
+    char *fps = strtok_r(NULL, " ", &save);
+    char *bitrate_kbps = strtok_r(NULL, " ", &save);
+    char *codec = strtok_r(NULL, " ", &save);
+    long parsed_version = 0L;
+    long parsed_width = 0L;
+    long parsed_height = 0L;
+    long parsed_fps = 0L;
+    long parsed_bitrate_kbps = 0L;
+    if (version == NULL || width == NULL || height == NULL || fps == NULL ||
+        bitrate_kbps == NULL || codec == NULL || strtok_r(NULL, " ", &save) != NULL ||
+        !parse_bounded_decimal(version, capability_protocol_version, capability_protocol_version, &parsed_version) ||
+        !parse_bounded_decimal(width, 64L, state->maximum_display_width, &parsed_width) ||
+        !parse_bounded_decimal(height, 64L, state->maximum_display_height, &parsed_height) ||
+        !parse_bounded_decimal(fps, 10L, state->maximum_display_fps, &parsed_fps) ||
+        !parse_bounded_decimal(bitrate_kbps, 500L, 500000L, &parsed_bitrate_kbps) ||
+        !supported_video_codec(codec)) {
+      write_line(state->fd, "ERR ", "BAD_PAIR_CAPABILITIES");
+      return;
+    }
+    (void) parsed_version;
+    const struct connection_profile profile = {
+      .generation = next_profile_generation(state),
+      .width = parsed_width,
+      .height = parsed_height,
+      .fps = parsed_fps,
+      .bitrate_kbps = parsed_bitrate_kbps,
+      .codec = codec,
+    };
+    if (strlen(codec) >= sizeof(state->pending_profile_codec)) {
+      write_line(state->fd, "ERR ", "BAD_PAIR_CAPABILITIES");
+      return;
+    }
+    (void) strcpy(state->pending_profile_codec, codec);
+    state->pending_profile = profile;
+    state->pending_profile.codec = state->pending_profile_codec;
+    state->pending_profile_valid = true;
+    state->pending_profile_committed = false;
+    char reply[128];
+    if (!connection_profile_reply(&state->pending_profile, reply, sizeof(reply))) {
+      write_line(state->fd, "ERR ", "PROFILE_REPLY");
+      return;
+    }
+    /* Do not write state yet.  The host must successfully request QEMU's
+     * virtual mode first; COMMIT_CONNECTION_PROFILE starts the guest desktop
+     * reconfiguration only after that happens. */
+    write_line(state->fd, "CONNECTION_PROFILE_ACCEPTED ", reply);
+    return;
+  }
+  if (strcmp(command, "COMMIT_CONNECTION_PROFILE") == 0 ||
+      strcmp(command, "AWAIT_CONNECTION_PROFILE") == 0) {
+    const bool await = strcmp(command, "AWAIT_CONNECTION_PROFILE") == 0;
+    char *version = strtok_r(NULL, " ", &save);
+    char *generation = strtok_r(NULL, " ", &save);
+    char *width = strtok_r(NULL, " ", &save);
+    char *height = strtok_r(NULL, " ", &save);
+    char *fps = strtok_r(NULL, " ", &save);
+    char *bitrate_kbps = strtok_r(NULL, " ", &save);
+    char *codec = strtok_r(NULL, " ", &save);
+    long parsed_version = 0L;
+    long parsed_width = 0L;
+    long parsed_height = 0L;
+    long parsed_fps = 0L;
+    long parsed_bitrate_kbps = 0L;
+    uint64_t parsed_generation = 0U;
+    const struct connection_profile requested = {
+      .generation = 0U,
+      .width = 0L,
+      .height = 0L,
+      .fps = 0L,
+      .bitrate_kbps = 0L,
+      .codec = codec,
+    };
+    if (version == NULL || generation == NULL || width == NULL || height == NULL ||
+        fps == NULL || bitrate_kbps == NULL || codec == NULL || strtok_r(NULL, " ", &save) != NULL ||
+        !parse_bounded_decimal(version, capability_protocol_version, capability_protocol_version, &parsed_version) ||
+        !parse_profile_generation(generation, &parsed_generation) ||
+        !parse_bounded_decimal(width, 64L, state->maximum_display_width, &parsed_width) ||
+        !parse_bounded_decimal(height, 64L, state->maximum_display_height, &parsed_height) ||
+        !parse_bounded_decimal(fps, 10L, state->maximum_display_fps, &parsed_fps) ||
+        !parse_bounded_decimal(bitrate_kbps, 500L, 500000L, &parsed_bitrate_kbps) ||
+        !supported_video_codec(codec)) {
+      write_line(state->fd, "ERR ", await ? "BAD_AWAIT_CONNECTION_PROFILE" : "BAD_COMMIT_CONNECTION_PROFILE");
+      return;
+    }
+    (void) parsed_version;
+    struct connection_profile expected = requested;
+    expected.generation = parsed_generation;
+    expected.width = parsed_width;
+    expected.height = parsed_height;
+    expected.fps = parsed_fps;
+    expected.bitrate_kbps = parsed_bitrate_kbps;
+    if (!state->pending_profile_valid || (await && !state->pending_profile_committed) ||
+        !equal_connection_profiles(&expected, &state->pending_profile)) {
+      write_line(state->fd, "ERR ", await ? "NO_PENDING_CONNECTION_PROFILE" : "BAD_CONNECTION_PROFILE_COMMIT");
+      return;
+    }
+    if (!await) {
+      if (!write_connection_profile(state, &state->pending_profile)) {
+        write_line(state->fd, "ERR ", "PROFILE_STATE");
+        return;
+      }
+      state->pending_profile_committed = true;
+      char reply[128];
+      if (!connection_profile_reply(&state->pending_profile, reply, sizeof(reply))) {
+        write_line(state->fd, "ERR ", "PROFILE_REPLY");
+        return;
+      }
+      write_line(state->fd, "CONNECTION_PROFILE_PENDING ", reply);
+      return;
+    }
+    if (!await_profile_applied(state, &state->pending_profile)) {
+      state->pending_profile_valid = false;
+      state->pending_profile_committed = false;
+      write_line(state->fd, "ERR ", "PROFILE_NOT_APPLIED");
+      return;
+    }
+    char reply[128];
+    if (!connection_profile_reply(&state->pending_profile, reply, sizeof(reply))) {
+      write_line(state->fd, "ERR ", "PROFILE_REPLY");
+      return;
+    }
+    state->pending_profile_valid = false;
+    state->pending_profile_committed = false;
+    write_line(state->fd, "CONNECTION_PROFILE ", reply);
+    return;
+  }
   if (strcmp(command, "RESIZE") == 0) {
     char *width = strtok_r(NULL, " ", &save);
     char *height = strtok_r(NULL, " ", &save);
@@ -482,6 +802,41 @@ static int initialize_state(struct agent_state *state, const char *device, const
     return -1;
   }
   strcpy(state->state_dir, state_dir);
+  state->maximum_display_width = 16384L;
+  state->maximum_display_height = 16384L;
+  state->maximum_display_fps = 240L;
+  state->require_profile_apply_ack = true;
+  state->profile_apply_timeout_ms = 30000L;
+  const char *maximum_width = getenv("QSUNSHINE_QSF_GUEST_MAX_WIDTH");
+  const char *maximum_height = getenv("QSUNSHINE_QSF_GUEST_MAX_HEIGHT");
+  const char *maximum_fps = getenv("QSUNSHINE_QSF_GUEST_MAX_FPS");
+  const char *require_profile_apply_ack = getenv("QSUNSHINE_QSF_GUEST_REQUIRE_PROFILE_APPLY_ACK");
+  const char *profile_apply_timeout_ms = getenv("QSUNSHINE_QSF_GUEST_PROFILE_APPLY_TIMEOUT_MS");
+  long require_apply_ack = 1L;
+  if ((maximum_width != NULL &&
+       !parse_bounded_decimal(maximum_width, 64L, 16384L, &state->maximum_display_width)) ||
+      (maximum_height != NULL &&
+       !parse_bounded_decimal(maximum_height, 64L, 16384L, &state->maximum_display_height)) ||
+      (maximum_fps != NULL &&
+       !parse_bounded_decimal(maximum_fps, 10L, 240L, &state->maximum_display_fps)) ||
+      (require_profile_apply_ack != NULL &&
+       !parse_bounded_decimal(require_profile_apply_ack, 0L, 1L, &require_apply_ack)) ||
+      (profile_apply_timeout_ms != NULL &&
+       !parse_bounded_decimal(profile_apply_timeout_ms, 1000L, 60000L,
+                              &state->profile_apply_timeout_ms))) {
+    errno = EINVAL;
+    return -1;
+  }
+  state->require_profile_apply_ack = require_apply_ack != 0L;
+  struct timespec generation_clock;
+  if (clock_gettime(CLOCK_REALTIME, &generation_clock) != 0) {
+    return -1;
+  }
+  state->next_profile_generation = ((uint64_t) generation_clock.tv_sec << 32U) ^
+    (uint64_t) generation_clock.tv_nsec ^ (uint64_t) getpid();
+  if (state->next_profile_generation == UINT64_MAX) {
+    state->next_profile_generation = 0U;
+  }
   if (ensure_directory(state->state_dir) != 0 || ensure_directory(state->incoming_dir) != 0 || ensure_directory(state->outgoing_dir) != 0) {
     return -1;
   }

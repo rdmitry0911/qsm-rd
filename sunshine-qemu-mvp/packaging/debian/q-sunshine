@@ -1,0 +1,42 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Launch the deliberately headless q-sunshine runtime.
+set -eu
+
+readonly binary=/usr/lib/q-sunshine/bin/sunshine
+
+if [ ! -x "$binary" ]; then
+    echo "q-sunshine: missing runtime binary: $binary" >&2
+    exit 127
+fi
+
+# The qemu_dbus capture path never consumes a desktop session.  Clearing these
+# avoids accidentally inheriting a Proxmox shell's graphical environment.
+if [ "${QSUNSHINE_KEEP_DISPLAY_ENV:-0}" != "1" ]; then
+    unset DISPLAY WAYLAND_DISPLAY WAYLAND_SOCKET XDG_SESSION_TYPE QT_QPA_PLATFORM
+fi
+
+# A concise alias is useful in manually managed per-VM units, but the upstream
+# backend retains its explicit name as the source of truth.
+if [ -n "${QSUNSHINE_DBUS_ADDRESS:-}" ] && [ -z "${SUNSHINE_QEMU_DBUS_ADDRESS:-}" ]; then
+    export SUNSHINE_QEMU_DBUS_ADDRESS=$QSUNSHINE_DBUS_ADDRESS
+fi
+
+if [ -n "${QSUNSHINE_ENCODER:-}" ]; then
+    # This is an explicit operator choice, not a device-node heuristic.  With
+    # it unset Sunshine runs its own encoder probe and selects the first real
+    # encoder it can initialize (for example NVENC on a correctly provisioned
+    # NVIDIA host).  Keep the permitted values aligned with Sunshine's public
+    # encoder setting so an EnvironmentFile cannot become an argument escape.
+    case "$QSUNSHINE_ENCODER" in
+        nvenc|quicksync|amdvce|vaapi|vulkan|software)
+            set -- "$@" "encoder=$QSUNSHINE_ENCODER"
+            ;;
+        *)
+            echo "q-sunshine: unsupported QSUNSHINE_ENCODER value" >&2
+            exit 2
+            ;;
+    esac
+fi
+
+exec "$binary" "$@"

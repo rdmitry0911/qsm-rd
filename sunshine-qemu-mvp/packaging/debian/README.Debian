@@ -1,0 +1,93 @@
+q-sunshine-pve for Proxmox VE 9
+===============================
+
+This is a headless Sunshine build for the private QEMU Display1 D-Bus route.
+It does not modify a VM configuration, create a public D-Bus socket, open a
+firewall port, or enable a service during installation.
+
+Before enabling an instance, arrange for the target QEMU process to use the
+Display1 D-Bus backend and a private, root-only D-Bus socket.  The supported
+VirGL shape is equivalent to:
+
+    -device virtio-vga-gl -display dbus,gl=on
+
+Use a distinct socket and a distinct Sunshine port for every guest.  Never
+point SUNSHINE_QEMU_DBUS_ADDRESS at a shared session/system bus.
+
+1. Check the host and the packaged runtime:
+
+    sudo q-sunshine-preflight --virgl
+
+2. Create a root-only per-VM configuration:
+
+    sudo install -d -o root -g root -m 0750 /etc/q-sunshine/instances.d
+    sudo install -o root -g root -m 0600 \
+      /usr/share/doc/q-sunshine-pve/example-instance.conf \
+      /etc/q-sunshine/instances.d/100.conf
+    sudoedit /etc/q-sunshine/instances.d/100.conf
+
+3. Only after QEMU's private D-Bus endpoint exists, enable the matching
+   service:
+
+    sudo systemctl enable --now q-sunshine@100
+    sudo systemctl status q-sunshine@100
+
+The unit pins `capture=qemu_dbus`, but leaves encoder selection to Sunshine's
+own live probe.  It deliberately does not treat an NVIDIA device node as proof
+of NVENC.  Set `QSUNSHINE_ENCODER=nvenc` only after a real Sunshine probe has
+verified that encoder; supported explicit values are `nvenc`, `quicksync`,
+`amdvce`, `vaapi`, `vulkan`, and `software`.  `stream_audio` remains at
+Sunshine's enabled default so the QEMU guest-audio backend is usable.  The
+wrapper clears DISPLAY and Wayland environment variables.  Every
+q-sunshine@VMID has isolated persistent pairing and configuration state below
+/var/lib/q-sunshine/VMID/sunshine/; no state is shared between guests.
+
+## Optional QSF companion
+
+Clipboard, file transfer and a guest geometry request are not GameStream
+messages.  They use the separate QSF companion.  It is intentionally not
+enabled at package installation: first attach a private QEMU virtio-serial
+server socket for the guest qsf-guest-agent, then add its path as
+QSUNSHINE_QSF_AGENT_SOCKET to the same instance configuration.  The QEMU
+process must create that socket before the broker starts.
+
+Enable the local broker only after the guest agent and QEMU socket are ready:
+
+    sudo systemctl enable --now q-sunshine-qsf-control@100
+    sudo systemctl status q-sunshine-qsf-control@100
+
+It creates a VM-scoped mode-0600 Unix control socket and token below
+/run/q-sunshine/qsf-100/.  The token must never be copied to a client or
+exposed through TCP.  q-sunshine-qsf-control maps the instance's private
+Display1 D-Bus address to busctl for QEMU Console.SetUIInfo, so resize reaches
+both the guest agent and QEMU without using a host session bus.
+
+For a remote Qt client, create separate mTLS server/key/client-CA material per
+VM, set the three QSUNSHINE_QSF_* TLS paths and deliberate bind/port in the
+instance file, then enable the gateway:
+
+    sudo systemctl enable --now q-sunshine-qsf-gateway@100
+    sudo systemctl status q-sunshine-qsf-gateway@100
+
+The gateway enforces TLS 1.3 and a client certificate.  Give the Qt client
+only its client certificate/key and server CA; never give it the local broker
+token.  Guest agent sources are installed in /usr/share/q-sunshine/guest/ and
+the complete QSF protocol/CLI reference is /usr/share/doc/q-sunshine-pve/QSF.md.
+Neither QSF unit edits a VM configuration, creates credentials, or opens a
+listener until explicitly enabled.
+
+For a user-selected client size, install the guest agent together with the
+generation-bound VirGL display adapter source
+`qsf_virgl_display_adapter.sh`. Its trusted guest-local apply helper must
+restart/reconfigure the desktop and verify the actual scanout before it writes
+`connection-profile-applied`; without that acknowledgement the broker safely
+refuses to reconnect Moonlight. Set the host's tested encoder envelope in the
+same instance file (`QSUNSHINE_QSF_HOST_MAX_*` and
+`QSUNSHINE_QSF_HOST_ENCODER_CODECS`). Optionally configure loopback
+`QSUNSHINE_QSF_SUNSHINE_SERVERINFO_URL` to intersect codec claims with the
+live Sunshine probe. Full details and the exact v2 profile schema are in
+`QSF_STREAM_NEGOTIATION.md` beside this README after installation.
+
+Guest source examples are in /usr/share/q-sunshine/guest/.  Consult the
+installed /usr/share/doc/q-sunshine-pve/SUNSHINE_QEMU_INTEGRATION.md for the
+full Display1 protocol and security model.

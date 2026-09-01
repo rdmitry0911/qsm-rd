@@ -42,6 +42,12 @@ class GuestAgentPtyTest(unittest.TestCase):
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
+            env={
+                **os.environ,
+                "QSUNSHINE_QSF_GUEST_MAX_WIDTH": "2560",
+                "QSUNSHINE_QSF_GUEST_MAX_HEIGHT": "1440",
+                "QSUNSHINE_QSF_GUEST_MAX_FPS": "60",
+            },
         )
         self.assertEqual(self._line(), "READY QSF1")
 
@@ -165,6 +171,84 @@ class GuestAgentPtyTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(self._command("CLIP_SET " + self._wire(payload)), "OK CLIP_SET")
                 self.assertEqual((self.state / "qsf-clipboard.txt").read_bytes(), payload)
+
+    def test_guest_applies_only_pair_configuration_within_its_display_capabilities(self) -> None:
+        self.assertEqual(self._command("CONNECTION_OPTIMIZE"),
+                         "GUEST_CAPABILITIES_REQUEST 2 2560 1440 60")
+        accepted = self._command("PAIR_CAPABILITIES 2 2560 1440 60 30000 H264").split(" ")
+        self.assertEqual(accepted[0], "CONNECTION_PROFILE_ACCEPTED")
+        self.assertEqual(accepted[1], "2")
+        self.assertEqual(accepted[3:], ["2560", "1440", "60", "30000", "H264"])
+        generation = accepted[2]
+        command_tail = f"2 {generation} 2560 1440 60 30000 H264"
+        self.assertEqual(
+            self._command("COMMIT_CONNECTION_PROFILE " + command_tail),
+            "CONNECTION_PROFILE_PENDING " + command_tail,
+        )
+        self.assertEqual(
+            (self.state / "connection-profile").read_text(encoding="ascii"),
+            "version=2\ngeneration=" + generation + "\nresolution=2560x1440\n"
+            "fps=60\nbitrate_kbps=30000\nvideo_codec=H264\n",
+        )
+        self.assertEqual((self.state / "resolution").read_text(encoding="ascii"), "2560x1440\n")
+        # The strict default must not release a reconnect merely because the
+        # profile state exists.  A desktop adapter writes the exact canonical
+        # acknowledgement only after it has observed the new scanout.
+        os.write(self.master, ("AWAIT_CONNECTION_PROFILE " + command_tail + "\n").encode("ascii"))
+        self._assert_no_line(0.2)
+        (self.state / "connection-profile-applied").write_text(
+            "version=2\ngeneration=1\nresolution=2560x1440\n"
+            "fps=60\nbitrate_kbps=30000\nvideo_codec=H264\n",
+            encoding="ascii",
+        )
+        self._assert_no_line(0.2)
+        expected_profile = (self.state / "connection-profile").read_text(encoding="ascii")
+        temporary = self.state / "connection-profile-applied.new"
+        temporary.write_text(expected_profile, encoding="ascii")
+        os.replace(temporary, self.state / "connection-profile-applied")
+        self.assertEqual(self._line(timeout=3), "CONNECTION_PROFILE " + command_tail)
+        self.assertEqual(self._command("PAIR_CAPABILITIES 2 3840 2160 60 30000 H264"),
+                         "ERR BAD_PAIR_CAPABILITIES")
+        self.assertEqual(self._command("PAIR_CAPABILITIES 2 1920 1080 60 18000 H265"),
+                         "ERR BAD_PAIR_CAPABILITIES")
+
+    def test_commit_keeps_previous_ack_until_adapter_publishes_new_generation(self) -> None:
+        def pair_and_commit(width: int, height: int, bitrate_kbps: int) -> tuple[str, str]:
+            accepted = self._command(
+                f"PAIR_CAPABILITIES 2 {width} {height} 60 {bitrate_kbps} H264"
+            ).split(" ")
+            self.assertEqual(accepted[0], "CONNECTION_PROFILE_ACCEPTED")
+            command_tail = f"2 {accepted[2]} {width} {height} 60 {bitrate_kbps} H264"
+            self.assertEqual(
+                self._command("COMMIT_CONNECTION_PROFILE " + command_tail),
+                "CONNECTION_PROFILE_PENDING " + command_tail,
+            )
+            return command_tail, (self.state / "connection-profile").read_text(encoding="ascii")
+
+        first_tail, first_profile = pair_and_commit(1280, 720, 8000)
+        first_ack_temporary = self.state / "connection-profile-applied.first.new"
+        first_ack_temporary.write_text(first_profile, encoding="ascii")
+        os.replace(first_ack_temporary, self.state / "connection-profile-applied")
+        self.assertEqual(
+            self._command("AWAIT_CONNECTION_PROFILE " + first_tail),
+            "CONNECTION_PROFILE " + first_tail,
+        )
+
+        second_tail, second_profile = pair_and_commit(1920, 1080, 18000)
+        # An adapter sees either the fully acknowledged previous profile or
+        # the atomically published new profile.  The guest must never create
+        # a transient absence of this ACK while committing a new generation.
+        self.assertEqual(
+            (self.state / "connection-profile-applied").read_text(encoding="ascii"),
+            first_profile,
+        )
+        os.write(self.master, ("AWAIT_CONNECTION_PROFILE " + second_tail + "\n").encode("ascii"))
+        self._assert_no_line(0.2)
+
+        second_ack_temporary = self.state / "connection-profile-applied.second.new"
+        second_ack_temporary.write_text(second_profile, encoding="ascii")
+        os.replace(second_ack_temporary, self.state / "connection-profile-applied")
+        self.assertEqual(self._line(timeout=3), "CONNECTION_PROFILE " + second_tail)
 
 
 if __name__ == "__main__":

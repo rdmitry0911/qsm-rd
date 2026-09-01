@@ -19,10 +19,22 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from qsf_control import ControlError, MAX_CONTROL_LINE, read_existing_token
+from qsf_control import (ControlError, MAX_CONTROL_LINE,
+                         PROFILE_TRANSACTION_TIMEOUT_SECONDS,
+                         read_existing_token)
 
 
-REQUEST_TIMEOUT_SECONDS = 12.0
+# A TLS peer has a short bounded period to complete the transport setup and
+# send its one request.  Once accepted, connection_optimize may legitimately
+# wait for the guest compositor to restart and prove a new VirGL scanout.
+# Keep this ingress bound separate from the profile-transaction budget.
+TLS_REQUEST_READ_TIMEOUT_SECONDS = 12.0
+TLS_HANDSHAKE_TIMEOUT_SECONDS = 12.0
+# The local hop must cover the whole transaction plus a small scheduling
+# margin.  In particular, it must not time out while the guest is still within
+# its documented profile-apply window.
+LOCAL_CONTROL_RESPONSE_TIMEOUT_SECONDS = max(
+    80.0, PROFILE_TRANSACTION_TIMEOUT_SECONDS + 5.0)
 
 
 def read_line(connection: socket.socket, limit: int) -> bytes:
@@ -57,7 +69,11 @@ class LocalControlForwarder:
         local_payload = dict(payload)
         local_payload["token"] = token
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as local:
-            local.settimeout(REQUEST_TIMEOUT_SECONDS)
+            # This must outlive the broker's bounded guest profile-apply
+            # window.  Otherwise a healthy Weston restart gets reported to
+            # the Qt client as a transport timeout before the authoritative
+            # connection-profile acknowledgement can arrive.
+            local.settimeout(LOCAL_CONTROL_RESPONSE_TIMEOUT_SECONDS)
             local.connect(str(self._control_socket))
             local.sendall(encode_response(local_payload))
             response = read_line(local, MAX_CONTROL_LINE)
@@ -76,8 +92,15 @@ class GatewayRequestHandler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         server = self.server
         assert isinstance(server, GatewayServer)
-        self.request.settimeout(REQUEST_TIMEOUT_SECONDS)
         try:
+            # GatewayServer deliberately accepts a plain TCP connection and
+            # lets this worker perform the TLS handshake.  Calling
+            # SSLContext.wrap_socket() on the listening socket instead would
+            # make TCPServer.accept() synchronously wait on a peer that never
+            # speaks TLS, starving every other QSF companion request.
+            self.request.settimeout(TLS_HANDSHAKE_TIMEOUT_SECONDS)
+            self.request.do_handshake()
+            self.request.settimeout(TLS_REQUEST_READ_TIMEOUT_SECONDS)
             raw = read_line(self.request, MAX_CONTROL_LINE)
             payload = json.loads(raw.decode("utf-8"))
             if not isinstance(payload, dict):
@@ -92,6 +115,8 @@ class GatewayRequestHandler(socketserver.BaseRequestHandler):
 
 
 class GatewayServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    """TCP acceptor that defers each bounded TLS handshake to a worker."""
+
     allow_reuse_address = True
     daemon_threads = True
     request_queue_size = 8
@@ -99,8 +124,21 @@ class GatewayServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     def __init__(self, address: tuple[str, int], forwarder: LocalControlForwarder,
                  context: ssl.SSLContext) -> None:
         self.forwarder = forwarder
+        self._context = context
         super().__init__(address, GatewayRequestHandler)
-        self.socket = context.wrap_socket(self.socket, server_side=True)
+
+    def get_request(self) -> tuple[ssl.SSLSocket, tuple[str, int]]:
+        """Accept quickly; never conduct a peer TLS handshake on this loop."""
+        raw, address = self.socket.accept()
+        try:
+            # do_handshake_on_connect=False is essential: ThreadingMixIn only
+            # creates the worker after get_request() returns.
+            connection = self._context.wrap_socket(
+                raw, server_side=True, do_handshake_on_connect=False)
+        except Exception:
+            raw.close()
+            raise
+        return connection, address
 
 
 def tls_server_context(arguments: argparse.Namespace) -> ssl.SSLContext:

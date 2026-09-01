@@ -61,7 +61,7 @@ available beside the test binary.
 git clone --recurse-submodules https://github.com/LizardByte/Sunshine.git .upstream/Sunshine
 git -C .upstream/Sunshine checkout --detach 4f39fc116294abf8241bcd30e1b1e23d371e6e7b
 git -C .upstream/Sunshine submodule update --init --recursive
-git -C .upstream/Sunshine am ../../integration/sunshine/patches/000{1,2,3,4,5,6}-*.patch
+git -C .upstream/Sunshine am ../../integration/sunshine/patches/000{1,2,3,4,5,6,7}-*.patch
 
 ./scripts/build-isolated-libva-2.21.sh
 

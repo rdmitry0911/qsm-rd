@@ -82,6 +82,39 @@ secrecy boundary.
    authentication completed, and the shell does not use brittle log parsing as
    a security authority.  Stopping or reconnecting Moonlight immediately
    cancels every in-flight QSF operation.
+5. To make the VirGL desktop match a size selected in the client, use **Choose
+   optimal stream profile** while the current video is visible and normal QSF
+   is verified. The coordinator ends normal QSF (cancelling clipboard, files,
+   and standalone resize), stops Moonlight, and waits for the old Sunshine
+   capture to retire. It then opens a temporary **profile-only** mTLS lease.
+   That lease accepts only `connection_optimize`: the client supplies the
+   selected `WIDTHxHEIGHT`, decoder capability, and refresh ceiling; Sunshine
+   supplies an encoder envelope; the QEMU/VirGL guest supplies its display
+   envelope and later its actual scanout acknowledgement. After QEMU
+   `Console.SetUIInfo` and the exact generation-bound guest acknowledgement,
+   the temporary lease closes and a new stock Moonlight process starts with the
+   resolved profile. Activate normal QSF again only after that new video is
+   visibly verified. `fullscreen` remains a client presentation mode; it does
+   not replace the selected guest scanout size.
+
+   Once the `connection_optimize` request bytes have entered the encrypted
+   socket, **Cancel profile handoff** does not abort that socket or unlock a
+   reconnect: the gateway may already be executing QEMU/guest work. It marks
+   cancellation and waits for the authoritative terminal reply, then closes
+   the profile-only lease without launching replacement Moonlight. If the
+   response path fails after dispatch, the shell closes its local lease but
+   keeps the UI locked for a conservative 90-second remote-settlement window
+   before allowing a manual reconnect.
+
+   Before the profile bytes enter `QSslSocket`, the coordinator synchronously
+   writes a durable recovery marker scoped to the current Moonlight desktop
+   profile. If the GUI exits or crashes in the small interval where a gateway
+   worker may continue independently, a fresh shell restores that marker
+   before QML is loaded and blocks both normal Moonlight start and normal QSF
+   activation for its bounded 180-second crash-recovery window. A terminal
+   profile reply, a proven in-process settlement, or an expired marker releases
+   the corresponding profile; unrelated saved desktop profiles retain their
+   own state.
 
 QSF endpoint and credential fields are locked while the companion is active.
 Deactivate it before selecting another endpoint or credential set.
@@ -111,11 +144,16 @@ misrepresented as GameStream packets.
 - Files use QSF only, have safe ASCII basenames, and are limited to 2 MiB.
   Upload reads guest `inbox`; download reads guest `outbox`; local downloads are
   written atomically.
-- A resize request reaches guest state and QEMU `Console.SetUIInfo`.  A gateway
-  reply confirms only that request (or that SetUIInfo is disabled); it is not
-  evidence that a guest compositor selected the new mode or that Moonlight has
-  displayed a new scanout.  Verify that separately in the retained VirGL/video
-  trace.
+- The advanced standalone resize control remains a diagnostic request: its
+  reply confirms guest state plus QEMU `Console.SetUIInfo`, not a compositor
+  mode change.  The **Choose optimal stream profile** path is the production
+  route for client-selected guest geometry. Its profile-only QSF lease rejects
+  clipboard, file, and standalone-resize operations, so no companion traffic
+  can race the scanout transition. It returns only after the guest copied a
+  generation-bound `connection-profile-applied` record after checking its
+  actual scanout; a fresh Moonlight launch follows only after the lease closes.
+  The full wire contract is in
+  [`QSF_STREAM_NEGOTIATION.md`](QSF_STREAM_NEGOTIATION.md).
 
 ## Security boundary
 
@@ -145,13 +183,24 @@ POSIX-only process or window embedding dependency.
 `qsunshine_qt_qsf_mtls_e2e` drives the production `QsfClient` under the Qt
 offscreen platform through the real Python TLS gateway and local QSF broker.
 It asserts TLS 1.3 mTLS status, guest-to-client clipboard, client-to-guest
-clipboard, upload, download, and resize:
+clipboard, upload, download, and negotiated client-to-VirGL geometry:
 
 ```bash
 ctest --test-dir .build-qt-client \
   -R '^(qsunshine_moonlight_controller|qsunshine_qt_qsf_mtls_e2e)$' \
   --output-on-failure
 ```
+
+`qsunshine_qt_profile_cancel_regression` uses the same real mTLS gateway,
+broker, guest fixture, `QsfClient`, and process controller. It delays the
+authoritative guest profile ACK after `CONNECTION_OPTIMIZE`, requests Cancel,
+and proves that the handoff remains busy and launches no replacement Moonlight
+process until that terminal reply arrives.
+
+`qsunshine_qt_profile_settlement_recovery` seeds the durable per-profile
+recovery record before the coordinator exists and proves that startup blocks
+both normal Moonlight/QSF admission paths, then verifies synchronous cleanup
+of an expired record without waiting for the production crash window.
 
 ## Retained Qt/Moonlight/VirGL E2E gate
 
@@ -211,19 +260,23 @@ The run proves all of the following together:
   stock Moonlight/GameStream/Sunshine/QEMU path in both the windowed stream
   and, behind a distinct `KEY_B` phase barrier, after the fullscreen reconnect;
 - TLS 1.3 mTLS Qt QSF clipboard in both directions, byte-for-byte upload and
-  download, and QSF `1280x720` resize with guest Weston restart and QEMU
-  `SetUIInfo` acknowledgement; the byte-for-byte guest download is repeated
-  after fullscreen QSF reactivation, rather than treating a ready signal as a
-  usable post-reconnect data channel. The fullscreen reconnect itself is held
-  behind the independently observed Weston-restart marker, so it does not
-  race a disappearing pre-resize scanout;
+  download, then two client-selected profiles (`1280x720` and `1600x900`). For
+  each profile the driver first stops the visible stream, waits for capture
+  retirement, proves a profile-only mTLS QSF ready phase, receives QEMU
+  `SetUIInfo` plus an exact guest Weston/VirGL scanout acknowledgement, closes
+  that lease, and starts a replacement Moonlight process. The byte-for-byte
+  guest download is repeated only after fullscreen video and normal QSF have
+  both been reactivated, rather than treating a ready signal as a usable
+  post-reconnect data channel;
 - retained Display1 H.264 evidence in the ordered geometry sequence
   `1280x800 -> 1280x720`.
 
-The physical fullscreen stream size and the guest QSF resize are intentionally
-different assertions: the former is `1600x900`, matching the disposable client
-root exactly, while the latter asks the guest for `1280x720` and proves its
-Weston DRM restart plus `SetUIInfo`. The real-E2E driver selects
+Fullscreen presentation and guest scanout remain distinct assertions. In the
+recorded safe handoff, the client root and final fullscreen stream are
+`1600x900`, and the guest separately acknowledges first `1280x720` and then
+a separately selected `1600x900` guest profile used for fullscreen; neither
+assertion is inferred merely from the other or from host GPU hardware.
+The real-E2E driver selects
 `--video-decoder software` only for this disposable `xwd` capture lane, since
 an NVIDIA VDPAU surface is not reliably readable by `xwd`; normal
 `qsunshine-client` launches retain the `auto` default described above.
@@ -236,9 +289,10 @@ QEMU Display1 through the private D-Bus bus.
 The native graphics/VirGL qualification remains documented in
 [`MOONLIGHT_SUNSHINE_VIRGL_E2E.md`](MOONLIGHT_SUNSHINE_VIRGL_E2E.md) and
 [`VIRGL_QSF_WAYLAND_CLIPBOARD_E2E.md`](VIRGL_QSF_WAYLAND_CLIPBOARD_E2E.md).
-The Qt shell passed its target-runtime composite twice on 2026-09-01:
-`vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.FMrGhL/trace.txt` and independent
-repeat `vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.jxqPBO/trace.txt`. Each
-has a nested `qsunshine-qt-moonlight-hook/trace.txt` with the stock-Moonlight
-window/input/QSF evidence. These ignored run directories contain ephemeral
-pairing and QSF credentials and are local verification artifacts only.
+The safe lifecycle described above passed on 2026-09-01 in
+`vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.Jcmdij/trace.txt`, whose outer
+hook emits `QSUNSHINE_QT_MOONLIGHT_VIRGL_QSF_HOOK_OK`. Its nested
+`qsunshine-qt-moonlight-hook/trace.txt` contains the stock-Moonlight
+window/input/QSF evidence and ordered profile-only/normal-QSF phase markers.
+These ignored run directories contain ephemeral pairing and QSF credentials
+and are local verification artifacts only.

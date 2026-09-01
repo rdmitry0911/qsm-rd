@@ -97,6 +97,18 @@ int main() {
         std::this_thread::sleep_for(500ms);
 
         session.stop();
+
+        // Keep the mock QEMU peer alive after the client stops.  A teardown
+        // that removes the listener handler before closing its socket makes
+        // the peer observe an unexpected UnknownMethod rather than a normal
+        // disconnect while it is still producing display updates.
+        CHECK(wait_until(2s, [&] {
+            const auto stats = qemu_server.stats();
+            return !stats.listener_connected &&
+                   !stats.audio_listener_connected;
+        }));
+        const auto stopped_server_stats = qemu_server.stats();
+        CHECK(stopped_server_stats.last_error.empty());
         qemu_server.stop();
 
         const auto session_stats = session.stats();

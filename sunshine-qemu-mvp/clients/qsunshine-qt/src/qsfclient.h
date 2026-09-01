@@ -10,8 +10,10 @@
 #include <QString>
 
 class QClipboard;
+class ProfileNegotiationCoordinator;
 class QSslSocket;
 class QTimer;
+class QsfClientTestAccess;
 
 class QsfClient final : public QObject
 {
@@ -93,9 +95,22 @@ signals:
     void clipboardReceivedFromGuest();
     void clipboardSentToGuest();
     void resizeApplied(int width, int height, bool qemuApplied);
+    // Direct slots run synchronously here, before the encrypted request bytes
+    // enter QSslSocket. The coordinator persists its crash-recovery guard at
+    // this exact admission boundary.
+    void connectionProfileRequestAboutToDispatch();
+    // Emitted only after the profile request bytes have been accepted by the
+    // encrypted socket.  From this point the gateway may already be carrying
+    // out SetUIInfo/guest work even if the desktop later loses its transport.
+    void connectionProfileRequestDispatched();
+    void connectionProfileReceived(int width, int height, int fps, int bitrateKbps,
+                                   const QString& videoCodec, bool qemuApplied);
     void fileTransferFinished(QString description);
 
 private:
+    friend class ProfileNegotiationCoordinator;
+    friend class QsfClientTestAccess;
+
     struct Request {
         QString operation;
         QJsonObject payload;
@@ -120,7 +135,32 @@ private:
     void cancelAllRequests();
     void cancelClipboardRequests();
     bool prepareSslSocket(QSslSocket* socket, QString* error) const;
-    bool canOperateSession(QString* error) const;
+    void activateSession(bool displayNegotiationOnly);
+    // Only the profile coordinator can acquire this narrow lease. It is never
+    // exposed as a QML action alongside normal QSF activation.
+    void activateForDisplayNegotiation();
+    // Likewise, only the coordinator can abort its profile-only lease while
+    // the guard is live. A public sessionActive=false must not discard the
+    // authoritative response after connection_optimize was dispatched.
+    void deactivateForProfileHandoff();
+    // Only the profile coordinator may initiate the mutating QEMU/guest
+    // transaction. It is intentionally not a QML-invokable data control.
+    void optimizeConnectionForDisplay(const QString& requestedResolution,
+                                      const QString& decoderPreference);
+    // Kept in lockstep with ProfileNegotiationCoordinator::busy(). It blocks
+    // normal QSF activation through the writable QML property while a remote
+    // scanout transaction or durable restart-recovery guard owns the session.
+    // Its mutator remains coordinator-private so another C++ caller cannot
+    // release the guard behind an in-flight remote profile transaction.
+    void setProfileHandoffOperationsBlocked(bool blocked);
+    // Public QSF controls must not replace/cancel the coordinator's narrow
+    // profile-only lease or mutate its endpoint while a guest transaction is
+    // live. Keep expected refusals off lastError for the same reason as the
+    // Moonlight controller guard.
+    bool profileHandoffBlocksPublicOperation(const QString& operation);
+    void deactivateSession();
+    bool canOperateSession(QString* error,
+                           bool allowDisplayNegotiationOnly = false) const;
     void setStatus(const QString& status);
     void setLastError(const QString& error);
     void setLastResult(const QString& result);
@@ -150,6 +190,8 @@ private:
     QString m_ClientCertificateFile;
     QString m_ClientKeyFile;
     bool m_SessionActive;
+    bool m_DisplayNegotiationOnly;
+    bool m_ProfileHandoffOperationsBlocked;
     bool m_Ready;
     bool m_ClipboardSyncEnabled;
     QString m_InitialClipboardDirection;

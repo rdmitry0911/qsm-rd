@@ -98,6 +98,22 @@ UniqueFd duplicate_cloexec(int fd) {
     return UniqueFd(copy);
 }
 
+// A filter slot owns a reference to the sd-bus object.  `sd_bus_close()` moves
+// the bus to its closed state, but a live slot can delay final destruction of
+// the externally supplied transport.  QEMU keeps rendering into a registered
+// Display1 listener until it observes the socket close, so explicitly shut
+// down our duplicate first while the handler is still installed.  This turns
+// an in-flight frame into a normal disconnect instead of an UnknownMethod
+// reply from a listener whose filter has already gone away.
+void shutdown_listener_transport(UniqueFd& transport) noexcept {
+    if (!transport) {
+        return;
+    }
+    while (::shutdown(transport.get(), SHUT_RDWR) < 0 && errno == EINTR) {
+    }
+    transport.reset();
+}
+
 int append_interfaces_variant(
     sd_bus_message *reply,
     std::span<const std::string_view> interfaces) {
@@ -269,6 +285,7 @@ void QemuDbusDisplay::start(QemuDisplayCallbacks callbacks) {
         dbus::check(result, "QEMU RegisterListener", error.get());
         qemu_fd.reset();
 
+        peer_transport_shutdown_fd_ = duplicate_cloexec(client_fd.get());
         peer_bus_ = dbus::Bus::p2p_client_fd(std::move(client_fd));
         dbus::check(sd_bus_add_filter(peer_bus_.get(),
                                       peer_filter_slot_.put(),
@@ -285,8 +302,9 @@ void QemuDbusDisplay::start(QemuDisplayCallbacks callbacks) {
                     std::lock_guard lock(stats_mutex_);
                     ++audio_registration_failures_;
                 }
-                audio_filter_slot_.reset();
+                shutdown_listener_transport(audio_transport_shutdown_fd_);
                 audio_bus_.close();
+                audio_filter_slot_.reset();
                 {
                     std::lock_guard lock(stats_mutex_);
                     audio_listener_active_ = false;
@@ -303,10 +321,12 @@ void QemuDbusDisplay::start(QemuDisplayCallbacks callbacks) {
             audio_thread_ = std::thread(&QemuDbusDisplay::audio_loop, this);
         }
     } catch (...) {
-        audio_filter_slot_.reset();
+        shutdown_listener_transport(audio_transport_shutdown_fd_);
         audio_bus_.close();
-        peer_filter_slot_.reset();
+        audio_filter_slot_.reset();
+        shutdown_listener_transport(peer_transport_shutdown_fd_);
         peer_bus_.close();
+        peer_filter_slot_.reset();
         main_bus_.close();
         callbacks_ = {};
         started_ = false;
@@ -330,11 +350,23 @@ void QemuDbusDisplay::stop() noexcept {
     }
 
     lifecycle_lock.lock();
+    // The QEMU Display1 peer can keep scheduling asynchronous frame updates
+    // until it observes its end of the socket has gone away.  Keep the filter
+    // installed until the client endpoint is explicitly shut down: removing
+    // it first leaves a live D-Bus connection with no object at listener_path,
+    // and turns that small teardown window into a burst of UnknownMethod
+    // replies from QEMU.  A slot retains an sd-bus reference, hence the
+    // explicit shutdown duplicate rather than relying on final bus unref.
+    shutdown_listener_transport(peer_transport_shutdown_fd_);
+    peer_bus_.close();
+    peer_filter_slot_.reset();
+
 #ifdef QMDP_HAS_GBM
     dmabuf_readback_.reset();
 #endif
-    audio_filter_slot_.reset();
+    shutdown_listener_transport(audio_transport_shutdown_fd_);
     audio_bus_.close();
+    audio_filter_slot_.reset();
     {
         std::lock_guard audio_lock(audio_state_mutex_);
         audio_streams_.clear();
@@ -343,8 +375,6 @@ void QemuDbusDisplay::stop() noexcept {
         std::lock_guard stats_lock(stats_mutex_);
         audio_listener_active_ = false;
     }
-    peer_filter_slot_.reset();
-    peer_bus_.close();
     {
         std::lock_guard main_lock(main_bus_mutex_);
         main_bus_.close();
@@ -988,6 +1018,7 @@ void QemuDbusDisplay::register_audio_listener() {
     dbus::check(result, "QEMU RegisterOutListener", error.get());
     qemu_fd.reset();
 
+    audio_transport_shutdown_fd_ = duplicate_cloexec(client_fd.get());
     audio_bus_ = dbus::Bus::p2p_client_fd(std::move(client_fd));
     dbus::check(sd_bus_add_filter(audio_bus_.get(),
                                   audio_filter_slot_.put(),

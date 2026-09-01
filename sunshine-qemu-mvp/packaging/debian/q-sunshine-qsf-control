@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# qsf-control uses busctl --user for Console.SetUIInfo.  Reuse exactly the
+# private Display1 D-Bus address used by the paired Sunshine instance; never
+# let it fall back to a host session bus.
+if [ -z "${SUNSHINE_QEMU_DBUS_ADDRESS:-}" ] && [ -n "${QSUNSHINE_DBUS_ADDRESS:-}" ]; then
+    SUNSHINE_QEMU_DBUS_ADDRESS=$QSUNSHINE_DBUS_ADDRESS
+    export SUNSHINE_QEMU_DBUS_ADDRESS
+fi
+if [ -n "${SUNSHINE_QEMU_DBUS_ADDRESS:-}" ] && [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+    DBUS_SESSION_BUS_ADDRESS=$SUNSHINE_QEMU_DBUS_ADDRESS
+    export DBUS_SESSION_BUS_ADDRESS
+fi
+
+exec /usr/bin/python3 /usr/lib/q-sunshine/qsf/qsf_control.py "$@"

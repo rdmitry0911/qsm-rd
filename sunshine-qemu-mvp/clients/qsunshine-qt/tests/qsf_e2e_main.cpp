@@ -12,6 +12,21 @@
 #include <QTextStream>
 #include <QTimer>
 
+// The production API keeps connection_optimize coordinator-only so QML cannot
+// submit a scanout transaction beneath a visible stream. This fixture needs to
+// exercise QsfClient's wire validation in isolation, so it is the one narrow
+// test friend declared by qsfclient.h.
+class QsfClientTestAccess
+{
+public:
+    static void optimizeConnectionForDisplay(QsfClient& client,
+                                             const QString& requestedResolution,
+                                             const QString& decoderPreference)
+    {
+        client.optimizeConnectionForDisplay(requestedResolution, decoderPreference);
+    }
+};
+
 namespace {
 
 struct Arguments {
@@ -27,6 +42,11 @@ struct Arguments {
     QString uploadName;
     QString downloadName;
     QString downloadDestination;
+    int optimizedWidth = 0;
+    int optimizedHeight = 0;
+    int optimizedFps = 0;
+    int optimizedBitrateKbps = 0;
+    QString optimizedCodec;
     int resizeWidth = 0;
     int resizeHeight = 0;
 };
@@ -62,15 +82,40 @@ public:
           m_Clipboard(QGuiApplication::clipboard())
     {
         m_Timeout.setSingleShot(true);
-        m_Timeout.setInterval(30000);
+        // The tested client permits one full 85-second profile request; the
+        // whole driver must not reject a valid delayed guest ACK first.
+        m_Timeout.setInterval(100000);
         connect(&m_Timeout, &QTimer::timeout, this, [this]() {
             fail(QStringLiteral("timed out waiting for QSF desktop-client operations"));
         });
         connect(&m_Client, &QsfClient::readyChanged, this, [this]() {
             if (m_Client.ready() && m_Phase == Phase::WaitingForGateway) {
-                m_Phase = Phase::WaitingForGuestClipboard;
+                m_Phase = Phase::WaitingForOptimization;
+                QsfClientTestAccess::optimizeConnectionForDisplay(m_Client,
+                    QStringLiteral("%1x%2").arg(m_Arguments.optimizedWidth)
+                                             .arg(m_Arguments.optimizedHeight),
+                    QStringLiteral("auto"));
             }
         });
+        connect(&m_Client, &QsfClient::connectionProfileReceived, this,
+                [this](int width, int height, int fps, int bitrateKbps,
+                       const QString& videoCodec, bool qemuApplied) {
+                    if (m_Phase != Phase::WaitingForOptimization ||
+                        width != m_Arguments.optimizedWidth ||
+                        height != m_Arguments.optimizedHeight ||
+                        fps != m_Arguments.optimizedFps ||
+                        bitrateKbps != m_Arguments.optimizedBitrateKbps ||
+                        videoCodec != m_Arguments.optimizedCodec || qemuApplied) {
+                        fail(QStringLiteral("QSF host capability selection returned an unexpected profile"));
+                        return;
+                    }
+                    m_OptimizationFinished = true;
+                    m_Phase = Phase::WaitingForGuestClipboard;
+                    // Keep guest-to-client ordering deterministic: activate
+                    // clipboard synchronization only after the guest has
+                    // requested and selected the host capability envelope.
+                    m_Client.setClipboardSyncEnabled(true);
+                });
         connect(&m_Client, &QsfClient::clipboardReceivedFromGuest, this, [this]() {
             onClipboardReceived();
         });
@@ -119,7 +164,7 @@ public:
         // This test intentionally begins with guest-to-client propagation;
         // production defaults to client-first and exposes the policy in UI.
         m_Client.setInitialClipboardDirection(QStringLiteral("guest"));
-        m_Client.setClipboardSyncEnabled(true);
+        m_Client.setClipboardSyncEnabled(false);
         m_Phase = Phase::WaitingForGateway;
         m_Timeout.start();
         m_Client.setSessionActive(true);
@@ -128,6 +173,7 @@ public:
 private:
     enum class Phase {
         WaitingForGateway,
+        WaitingForOptimization,
         WaitingForGuestClipboard,
         WaitingForClientClipboard,
         WaitingForOperations,
@@ -179,14 +225,15 @@ private:
 
     void completeIfReady()
     {
-        if (m_Phase != Phase::WaitingForOperations || !m_UploadFinished ||
-            !m_DownloadFinished || !m_ResizeFinished) {
+        if (m_Phase != Phase::WaitingForOperations || !m_OptimizationFinished ||
+            !m_UploadFinished || !m_DownloadFinished || !m_ResizeFinished) {
             return;
         }
         m_Phase = Phase::Complete;
         m_Timeout.stop();
         m_Client.setSessionActive(false);
-        QTextStream(stdout) << "QSF_QT_CLIENT_E2E_OK\n" << Qt::flush;
+        QTextStream(stdout) << "QSF_QT_CLIENT_HOST_OPTIMIZATION_OK\n"
+                            << "QSF_QT_CLIENT_E2E_OK\n" << Qt::flush;
         QTimer::singleShot(0, &m_Application, [this]() {
             m_Application.exit(0);
         });
@@ -215,6 +262,7 @@ private:
     bool m_UploadFinished = false;
     bool m_DownloadFinished = false;
     bool m_ResizeFinished = false;
+    bool m_OptimizationFinished = false;
 };
 
 } // namespace
@@ -242,6 +290,10 @@ int main(int argc, char* argv[])
     parser.addOption({QStringLiteral("upload-name"), QStringLiteral("guest upload basename"), QStringLiteral("name")});
     parser.addOption({QStringLiteral("download-name"), QStringLiteral("guest download basename"), QStringLiteral("name")});
     parser.addOption({QStringLiteral("download-destination"), QStringLiteral("local download destination"), QStringLiteral("path")});
+    parser.addOption({QStringLiteral("optimized-resolution"), QStringLiteral("expected guest-selected WIDTHxHEIGHT profile"), QStringLiteral("resolution")});
+    parser.addOption({QStringLiteral("optimized-fps"), QStringLiteral("expected guest-selected FPS"), QStringLiteral("fps")});
+    parser.addOption({QStringLiteral("optimized-bitrate"), QStringLiteral("expected guest-selected bitrate in Kbps"), QStringLiteral("kbps")});
+    parser.addOption({QStringLiteral("optimized-codec"), QStringLiteral("expected guest-selected codec"), QStringLiteral("codec")});
     parser.addOption({QStringLiteral("resize"), QStringLiteral("guest resize WIDTHxHEIGHT"), QStringLiteral("resolution")});
     parser.process(application);
 
@@ -251,6 +303,8 @@ int main(int argc, char* argv[])
         QStringLiteral("expected-guest-clipboard"), QStringLiteral("client-clipboard"),
         QStringLiteral("upload-source"), QStringLiteral("upload-name"),
         QStringLiteral("download-name"), QStringLiteral("download-destination"),
+        QStringLiteral("optimized-resolution"), QStringLiteral("optimized-fps"),
+        QStringLiteral("optimized-bitrate"), QStringLiteral("optimized-codec"),
         QStringLiteral("resize"),
     };
     for (const QString& option : required) {
@@ -275,10 +329,22 @@ int main(int argc, char* argv[])
     arguments.uploadName = parser.value(QStringLiteral("upload-name"));
     arguments.downloadName = parser.value(QStringLiteral("download-name"));
     arguments.downloadDestination = parser.value(QStringLiteral("download-destination"));
-    if (!portOk || port < 1 || port > 65535 ||
+    bool optimizedFpsOk = false;
+    bool optimizedBitrateOk = false;
+    arguments.optimizedFps = parser.value(QStringLiteral("optimized-fps")).toInt(&optimizedFpsOk);
+    arguments.optimizedBitrateKbps = parser.value(QStringLiteral("optimized-bitrate")).toInt(&optimizedBitrateOk);
+    arguments.optimizedCodec = parser.value(QStringLiteral("optimized-codec"));
+    if (!portOk || port < 1 || port > 65535 || !optimizedFpsOk ||
+        !optimizedBitrateOk || arguments.optimizedFps < 10 || arguments.optimizedFps > 240 ||
+        arguments.optimizedBitrateKbps < 500 || arguments.optimizedBitrateKbps > 500000 ||
+        (arguments.optimizedCodec != QStringLiteral("H.264") &&
+         arguments.optimizedCodec != QStringLiteral("HEVC") &&
+         arguments.optimizedCodec != QStringLiteral("AV1")) ||
+        !parseResolution(parser.value(QStringLiteral("optimized-resolution")),
+                         &arguments.optimizedWidth, &arguments.optimizedHeight) ||
         !parseResolution(parser.value(QStringLiteral("resize")), &arguments.resizeWidth,
                          &arguments.resizeHeight)) {
-        QTextStream(stderr) << "invalid --port or --resize argument\n";
+        QTextStream(stderr) << "invalid QSF connection-profile or resize argument\n";
         return 2;
     }
 

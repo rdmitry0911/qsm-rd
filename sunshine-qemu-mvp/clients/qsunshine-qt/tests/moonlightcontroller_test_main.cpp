@@ -8,6 +8,7 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QSaveFile>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QThread>
@@ -94,6 +95,9 @@ int main(int argc, char* argv[])
     QCoreApplication::setOrganizationDomain(QStringLiteral("q-sunshine.local"));
     QCoreApplication::setApplicationName(QStringLiteral("qsunshine-controller-test"));
     QCoreApplication application(argc, argv);
+    QSettings settings;
+    settings.clear();
+    settings.sync();
 
     QTemporaryDir directory;
     if (!require(directory.isValid(), QStringLiteral("temporary directory could not be created"))) {
@@ -236,8 +240,63 @@ int main(int argc, char* argv[])
         return 2;
     }
 
+    // A QSF connection profile changes QEMU's scanout and must be applied
+    // only after its previous Moonlight/Sunshine capture has retired.  The
+    // production ProfileNegotiationCoordinator performs this stop; retain the
+    // controller contract explicitly here rather than allowing an unsafe
+    // active-stream restart.
+    if (!require(!controller.applyNegotiatedProfile(2560, 1440, 60, 28000,
+                                                    QStringLiteral("H.264")) &&
+                     controller.lastError().contains(QStringLiteral("stop")),
+                 QStringLiteral("negotiated profile was accepted while a stream was active"))) {
+        return 2;
+    }
     controller.stopStream();
-    if (!require(teardownCount == 2, QStringLiteral("manual disconnect did not announce teardown")) ||
+    if (!require(teardownCount == 2, QStringLiteral("pre-profile stop did not announce teardown")) ||
+        !require(waitUntil([&controller]() { return !controller.streamBusy(); }, 6000),
+                 QStringLiteral("pre-profile Moonlight stop did not finish")) ||
+        !require(controller.applyNegotiatedProfile(2560, 1440, 60, 28000,
+                                                   QStringLiteral("H.264")),
+                 QStringLiteral("host-selected profile was rejected after stream retirement")) ||
+        !require(waitUntil([&controller, &logPath]() {
+                     QFile profileLog(logPath);
+                     if (!profileLog.open(QIODevice::ReadOnly)) {
+                         return false;
+                     }
+                     return controller.running() &&
+                            loggedStreamCount(QString::fromUtf8(profileLog.readAll())) >= 3;
+                 }, 8000),
+                 QStringLiteral("host-selected profile did not launch after stream retirement"))) {
+        return 2;
+    }
+    if (!require(controller.profileResolution() == QStringLiteral("2560x1440") &&
+                 controller.profileFps() == 60 && controller.profileBitrateKbps() == 28000 &&
+                 controller.profileVideoCodec() == QStringLiteral("H.264"),
+                 QStringLiteral("host-selected profile was not retained by the controller"))) {
+        return 2;
+    }
+    log.close();
+    if (!require(log.open(QIODevice::ReadOnly), QStringLiteral("Moonlight argv log cannot be reopened"))) {
+        return 2;
+    }
+    const QStringList optimizedLines = QString::fromUtf8(log.readAll()).split(
+        QLatin1Char('\n'), Qt::SkipEmptyParts);
+    QString thirdStream;
+    for (const QString& line : optimizedLines) {
+        if (line.startsWith(QStringLiteral("stream "))) {
+            thirdStream = line;
+        }
+    }
+    if (!require(thirdStream.contains(QStringLiteral("--resolution 2560x1440")) &&
+                 thirdStream.contains(QStringLiteral("--fps 60")) &&
+                 thirdStream.contains(QStringLiteral("--bitrate 28000")) &&
+                 thirdStream.contains(QStringLiteral("--video-codec H.264")) &&
+                 thirdStream.contains(QStringLiteral("-- 127.0.0.1 Desktop")),
+                 QStringLiteral("host-selected Moonlight arguments are incomplete or unsafe"))) {
+        return 2;
+    }
+    controller.stopStream();
+    if (!require(teardownCount == 3, QStringLiteral("manual disconnect did not announce teardown")) ||
         !require(waitUntil([&controller]() { return !controller.streamBusy(); }, 6000),
                  QStringLiteral("manual Moonlight disconnect did not finish")) ||
         !require(controller.lastError().isEmpty(),
@@ -299,8 +358,10 @@ int main(int argc, char* argv[])
     MoonlightController reloaded;
     if (!require(reloaded.currentProfileId() == QStringLiteral("controller-e2e") &&
                  reloaded.profileHost() == QStringLiteral("127.0.0.1") &&
-                 reloaded.profileResolution() == QStringLiteral("1920x1080") &&
-                 reloaded.profileDisplayMode() == QStringLiteral("fullscreen"),
+                 reloaded.profileResolution() == QStringLiteral("2560x1440") &&
+                 reloaded.profileDisplayMode() == QStringLiteral("fullscreen") &&
+                 reloaded.profileFps() == 60 && reloaded.profileBitrateKbps() == 28000 &&
+                 reloaded.profileVideoCodec() == QStringLiteral("H.264"),
                  QStringLiteral("saved desktop profile was not reloaded"))) {
         return 2;
     }

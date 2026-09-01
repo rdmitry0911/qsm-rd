@@ -157,6 +157,15 @@ if [[ "$sunshine_status" != "124" ]]; then
   echo "Sunshine must remain alive until the bounded test shutdown; status=$sunshine_status" >&2
   exit 1
 fi
+# A Display1 peer must be disconnected before its exported listener object is
+# removed.  Otherwise QEMU retains the listener and turns the following
+# rendering callbacks into an unbounded UnknownMethod storm during teardown.
+# Connection-closed diagnostics are normal here; only a live peer with a
+# missing listener object is a failure.
+if grep -E 'Unknown(Method| method).*org/qemu/Display1/(Listener|AudioOutListener)' "$qemu_log"; then
+  echo "QEMU sent Display1 callbacks to a listener removed before transport close" >&2
+  exit 1
+fi
 
 {
   echo "QMDP_UPSTREAM_SUNSHINE_QEMU_E2E"

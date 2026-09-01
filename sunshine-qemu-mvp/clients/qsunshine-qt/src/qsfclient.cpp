@@ -8,9 +8,12 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QLibrary>
 #include <QRegularExpression>
+#include <QScreen>
 #include <QSaveFile>
 #include <QSettings>
 #include <QSslCertificate>
@@ -19,6 +22,7 @@
 #include <QSslSocket>
 #include <QStringList>
 #include <QTimer>
+#include <QtMath>
 
 #include <cmath>
 
@@ -31,7 +35,14 @@ constexpr int kMaxQueuedRequests = 8;
 constexpr int kClipboardPollIntervalMs = 1500;
 constexpr int kClipboardRetryInitialMs = 500;
 constexpr int kClipboardRetryMaximumMs = 8000;
-constexpr int kRequestTimeoutMs = 15000;
+// A connection-profile response is intentionally delayed until the guest
+// compositor has observed the requested VirGL scanout.  It may include a
+// bounded Weston/desktop restart, unlike ordinary clipboard operations.
+// A profile transaction has one 75 s broker-side deadline because the guest
+// may legitimately spend up to 60 s restarting its compositor.  The mTLS
+// gateway adds a bounded forwarding margin, so retain five more seconds at
+// this client boundary instead of treating a valid VirGL ACK as a timeout.
+constexpr int kRequestTimeoutMs = 85000;
 
 const QRegularExpression kSafeFileName(
     QStringLiteral("\\A[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\z"));
@@ -111,12 +122,126 @@ bool parseResolution(const QString& value, int* width, int* height)
     return true;
 }
 
+bool isSupportedStreamCodec(const QString& value)
+{
+    return value == QStringLiteral("H.264") || value == QStringLiteral("HEVC") ||
+           value == QStringLiteral("AV1");
+}
+
+bool parseConfiguredDecoderCodecs(QStringList* codecs, QString* error)
+{
+    const QByteArray configured = qgetenv("QSUNSHINE_CLIENT_DECODER_CODECS");
+    if (configured.isEmpty()) {
+        return false;
+    }
+    const QStringList values = QString::fromLatin1(configured).split(QLatin1Char(','), Qt::KeepEmptyParts);
+    if (values.isEmpty() || values.size() > 3) {
+        *error = QStringLiteral("Client decoder codec override must list one to three codecs");
+        return true;
+    }
+    for (const QString& value : values) {
+        const QString codec = value.trimmed();
+        const QString normalized = codec == QStringLiteral("H.264") ? QStringLiteral("H264") : codec;
+        if ((normalized != QStringLiteral("H264") && normalized != QStringLiteral("HEVC") &&
+             normalized != QStringLiteral("AV1")) || codecs->contains(normalized)) {
+            *error = QStringLiteral("Client decoder codec override contains an invalid codec");
+            return true;
+        }
+        codecs->append(normalized);
+    }
+    return true;
+}
+
+#ifdef Q_OS_MACOS
+QStringList macVerifiedHardwareDecoderCodecs()
+{
+    // Keep the client buildable with the Command Line Tools-only macOS SDK
+    // used for the Tahoe package.  Resolving this public VideoToolbox symbol
+    // at runtime is a real platform decoder-capability query, not a GPU-model
+    // heuristic, and does not require embedding or modifying Moonlight.
+    using HardwareDecodeSupported = bool (*)(quint32 codecType);
+    static QLibrary videoToolbox(
+        QStringLiteral("/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox"));
+    static HardwareDecodeSupported supported = []() -> HardwareDecodeSupported {
+        if (!videoToolbox.load()) {
+            return nullptr;
+        }
+        return reinterpret_cast<HardwareDecodeSupported>(
+            videoToolbox.resolve("VTIsHardwareDecodeSupported"));
+    }();
+    if (supported == nullptr) {
+        return {};
+    }
+    struct CodecProbe {
+        const char* name;
+        quint32 type;
+    };
+    // kCMVideoCodecType_* are FourCC values.  Keeping the values here avoids
+    // a compile-time VideoToolbox SDK dependency; the loaded symbol is still
+    // the platform's authority for actual hardware support.
+    const CodecProbe candidates[] = {
+        {"AV1", 0x61763031U},   // 'av01'
+        {"HEVC", 0x68766331U},  // 'hvc1'
+        {"H264", 0x61766331U},  // 'avc1'
+    };
+    QStringList codecs;
+    for (const CodecProbe& candidate : candidates) {
+        if (supported(candidate.type)) {
+            codecs.append(QString::fromLatin1(candidate.name));
+        }
+    }
+    return codecs;
+}
+#endif
+
+QStringList clientDecoderCodecs(const QString& preference, QString* error)
+{
+    if (preference != QStringLiteral("auto") && preference != QStringLiteral("software") &&
+        preference != QStringLiteral("hardware")) {
+        *error = QStringLiteral("Moonlight decoder preference is invalid");
+        return {};
+    }
+    QStringList codecs;
+    if (parseConfiguredDecoderCodecs(&codecs, error)) {
+        return error->isEmpty() ? codecs : QStringList();
+    }
+    if (preference != QStringLiteral("software")) {
+#ifdef Q_OS_MACOS
+        codecs = macVerifiedHardwareDecoderCodecs();
+        if (!codecs.isEmpty()) {
+            return codecs;
+        }
+#endif
+        if (preference == QStringLiteral("hardware")) {
+            *error = QStringLiteral("No platform-verified hardware decoder codec is available; choose auto or software");
+            return {};
+        }
+    }
+    // Do not infer hardware decode from an OS name, a GPU node, or a driver
+    // string. The stock Moonlight child remains the per-stream authority for
+    // its final decoder instance and the selected WxH/FPS. H.264 is the
+    // interoperable software-safe fallback on platforms without a direct
+    // verified capability API; a deployment can supply an explicit, tested
+    // QSUNSHINE_CLIENT_DECODER_CODECS override.
+    return {QStringLiteral("H264")};
+}
+
+int clientDisplayMaximumFps()
+{
+    const QScreen* screen = QGuiApplication::primaryScreen();
+    const qreal refreshRate = screen == nullptr ? 60.0 : screen->refreshRate();
+    const int rounded = qRound(refreshRate);
+    return qBound(10, rounded > 0 ? rounded : 60, 240);
+}
+
 } // namespace
 
 QsfClient::QsfClient(QObject* parent)
     : QObject(parent),
       m_Port(0),
       m_SessionActive(false),
+      m_DisplayNegotiationOnly(false),
+      m_ProfileHandoffOperationsBlocked(false),
       m_Ready(false),
       m_ClipboardSyncEnabled(false),
       m_InitialClipboardDirection(QStringLiteral("client")),
@@ -149,7 +274,7 @@ QsfClient::QsfClient(QObject* parent)
     m_ClipboardRetryTimer->setSingleShot(true);
     connect(m_ClipboardRetryTimer, &QTimer::timeout, this, [this]() {
         if (m_ClipboardRetryEpoch != m_ActivationEpoch || !m_HasPendingLocalClipboard ||
-            !m_ClipboardSyncEnabled || !m_SessionActive || !m_Ready ||
+            !m_ClipboardSyncEnabled || m_DisplayNegotiationOnly || !m_SessionActive || !m_Ready ||
             m_ClipboardSetInFlight || m_ClipboardSetQueued) {
             return;
         }
@@ -161,7 +286,7 @@ QsfClient::QsfClient(QObject* parent)
     m_RequestTimeoutTimer->setInterval(kRequestTimeoutMs);
     connect(m_RequestTimeoutTimer, &QTimer::timeout, this, [this]() {
         if (m_HasActiveRequest) {
-            failActiveRequest(QStringLiteral("QSF gateway request timed out after 15 seconds"));
+            failActiveRequest(QStringLiteral("QSF gateway request timed out after 85 seconds"));
         }
     });
 
@@ -299,6 +424,9 @@ void QsfClient::selectProfile(const QString& profileId)
     if (normalized == m_ProfileId) {
         return;
     }
+    if (profileHandoffBlocksPublicOperation(QStringLiteral("profile selection"))) {
+        return;
+    }
 
     setSessionActive(false);
     ++m_ActivationEpoch;
@@ -324,6 +452,9 @@ bool QsfClient::applyConfiguration(const QString& host,
                                    const QString& clientCertificateFile,
                                    const QString& clientKeyFile)
 {
+    if (profileHandoffBlocksPublicOperation(QStringLiteral("endpoint configuration"))) {
+        return false;
+    }
     if (m_SessionActive) {
         setLastError(QStringLiteral("Deactivate the QSF companion before changing its endpoint or credentials"));
         return false;
@@ -364,6 +495,9 @@ bool QsfClient::applyConfigurationText(const QString& host,
                                        const QString& clientCertificateFile,
                                        const QString& clientKeyFile)
 {
+    if (profileHandoffBlocksPublicOperation(QStringLiteral("endpoint configuration"))) {
+        return false;
+    }
     const QString portText = port.trimmed();
     static const QRegularExpression portPattern(QStringLiteral("\\A[0-9]{1,5}\\z"));
     bool portOk = false;
@@ -380,26 +514,76 @@ bool QsfClient::applyConfigurationText(const QString& host,
 void QsfClient::setSessionActive(bool active)
 {
     if (!active) {
-        ++m_ActivationEpoch;
-        cancelAllRequests();
-        m_ClipboardPollTimer->stop();
-        m_RemoteClipboardHash.clear();
-        clearPendingClipboard();
-        m_DesiredResizeWidth = 0;
-        m_DesiredResizeHeight = 0;
-        m_LastResizeWidth = 0;
-        m_LastResizeHeight = 0;
-        m_ResizeInFlight = false;
-        setReady(false);
-        if (m_SessionActive) {
-            m_SessionActive = false;
-            emit sessionActiveChanged();
+        if (profileHandoffBlocksPublicOperation(QStringLiteral("deactivation"))) {
+            return;
         }
-        setStatus(QStringLiteral("QSF inactive: no clipboard, file, or resize request is in flight"));
+        deactivateSession();
         return;
     }
 
+    if (profileHandoffBlocksPublicOperation(QStringLiteral("activation"))) {
+        return;
+    }
+
+    activateSession(false);
+}
+
+void QsfClient::setProfileHandoffOperationsBlocked(bool blocked)
+{
+    m_ProfileHandoffOperationsBlocked = blocked;
+}
+
+bool QsfClient::profileHandoffBlocksPublicOperation(const QString& operation)
+{
+    if (!m_ProfileHandoffOperationsBlocked) {
+        return false;
+    }
+
+    // This is an expected admission refusal, not a TLS/process failure.
+    // ProfileNegotiationCoordinator treats lastErrorChanged() as a genuine
+    // handoff fault, so an API-level lock must report through status instead.
+    setStatus(QStringLiteral("The display-profile handoff owns QSF %1 until the guest transaction is terminal")
+                  .arg(operation));
+    return true;
+}
+
+void QsfClient::activateForDisplayNegotiation()
+{
+    activateSession(true);
+}
+
+void QsfClient::deactivateForProfileHandoff()
+{
+    deactivateSession();
+}
+
+void QsfClient::deactivateSession()
+{
+    m_DisplayNegotiationOnly = false;
+    ++m_ActivationEpoch;
+    cancelAllRequests();
+    m_ClipboardPollTimer->stop();
+    m_RemoteClipboardHash.clear();
+    clearPendingClipboard();
+    m_DesiredResizeWidth = 0;
+    m_DesiredResizeHeight = 0;
+    m_LastResizeWidth = 0;
+    m_LastResizeHeight = 0;
+    m_ResizeInFlight = false;
+    setReady(false);
     if (m_SessionActive) {
+        m_SessionActive = false;
+        emit sessionActiveChanged();
+    }
+    setStatus(QStringLiteral("QSF inactive: no clipboard, file, or resize request is in flight"));
+}
+
+void QsfClient::activateSession(bool displayNegotiationOnly)
+{
+    if (m_SessionActive) {
+        if (m_DisplayNegotiationOnly != displayNegotiationOnly) {
+            setLastError(QStringLiteral("Deactivate the current QSF lease before changing its purpose"));
+        }
         return;
     }
 
@@ -419,16 +603,22 @@ void QsfClient::setSessionActive(bool active)
     m_LastResizeWidth = 0;
     m_LastResizeHeight = 0;
     m_ResizeInFlight = false;
+    m_DisplayNegotiationOnly = displayNegotiationOnly;
     m_SessionActive = true;
     setReady(false);
     emit sessionActiveChanged();
     setLastError(QString());
-    setStatus(QStringLiteral("Verifying QSF gateway for the active stream"));
+    setStatus(m_DisplayNegotiationOnly
+                  ? QStringLiteral("Verifying QSF gateway for display-profile negotiation")
+                  : QStringLiteral("Verifying QSF gateway for the active stream"));
     enqueue(QStringLiteral("status"), QJsonObject(), QStringLiteral("activation"), true, false);
 }
 
 void QsfClient::setClipboardSyncEnabled(bool enabled)
 {
+    if (profileHandoffBlocksPublicOperation(QStringLiteral("clipboard configuration"))) {
+        return;
+    }
     if (m_ClipboardSyncEnabled == enabled) {
         return;
     }
@@ -446,6 +636,9 @@ void QsfClient::setClipboardSyncEnabled(bool enabled)
 
 void QsfClient::setInitialClipboardDirection(const QString& direction)
 {
+    if (profileHandoffBlocksPublicOperation(QStringLiteral("clipboard configuration"))) {
+        return;
+    }
     const QString normalized = direction.trimmed().toLower();
     if (normalized != QStringLiteral("client") && normalized != QStringLiteral("guest")) {
         setLastError(QStringLiteral("Initial clipboard direction must be client or guest"));
@@ -465,10 +658,51 @@ void QsfClient::setInitialClipboardDirection(const QString& direction)
 
 void QsfClient::testConnection()
 {
+    if (profileHandoffBlocksPublicOperation(QStringLiteral("gateway operations"))) {
+        return;
+    }
     enqueue(QStringLiteral("status"), QJsonObject(), QStringLiteral("test"), false, false);
 }
 
-bool QsfClient::canOperateSession(QString* error) const
+void QsfClient::optimizeConnectionForDisplay(const QString& requestedResolution,
+                                             const QString& decoderPreference)
+{
+    QString error;
+    if (!canOperateSession(&error, true)) {
+        setLastError(error);
+        return;
+    }
+    int width = 0;
+    int height = 0;
+    if (!parseResolution(requestedResolution, &width, &height)) {
+        setLastError(QStringLiteral("The requested client stream size must be WIDTHxHEIGHT within 64..16384"));
+        return;
+    }
+    const QStringList codecs = clientDecoderCodecs(decoderPreference.trimmed(), &error);
+    if (!error.isEmpty() || codecs.isEmpty()) {
+        setLastError(error.isEmpty() ? QStringLiteral("No supported client decoder codec was found") : error);
+        return;
+    }
+    if ((m_HasActiveRequest && m_ActiveRequest.operation == QStringLiteral("connection_optimize")) ||
+        hasQueuedOperation(QStringLiteral("connection_optimize"))) {
+        setLastError(QStringLiteral("A host capability selection is already in progress"));
+        return;
+    }
+    QJsonArray codecArray;
+    for (const QString& codec : codecs) {
+        codecArray.append(codec);
+    }
+    QJsonObject client;
+    client.insert(QStringLiteral("requested_width"), width);
+    client.insert(QStringLiteral("requested_height"), height);
+    client.insert(QStringLiteral("max_fps"), clientDisplayMaximumFps());
+    client.insert(QStringLiteral("decoder_codecs"), codecArray);
+    enqueue(QStringLiteral("connection_optimize"), QJsonObject{
+        {QStringLiteral("client"), client},
+    });
+}
+
+bool QsfClient::canOperateSession(QString* error, bool allowDisplayNegotiationOnly) const
 {
     if (!configured()) {
         *error = QStringLiteral("Configure the QSF mTLS endpoint first");
@@ -482,11 +716,18 @@ bool QsfClient::canOperateSession(QString* error) const
         *error = QStringLiteral("QSF gateway has not completed its stream activation check");
         return false;
     }
+    if (m_DisplayNegotiationOnly && !allowDisplayNegotiationOnly) {
+        *error = QStringLiteral("QSF is temporarily reserved for display-profile negotiation; wait for the new Moonlight video before activating data controls");
+        return false;
+    }
     return true;
 }
 
 void QsfClient::requestResize(int width, int height)
 {
+    if (profileHandoffBlocksPublicOperation(QStringLiteral("resize operations"))) {
+        return;
+    }
     QString error;
     if (!canOperateSession(&error)) {
         setLastError(error);
@@ -503,6 +744,9 @@ void QsfClient::requestResize(int width, int height)
 
 void QsfClient::requestResizeText(const QString& resolution)
 {
+    if (profileHandoffBlocksPublicOperation(QStringLiteral("resize operations"))) {
+        return;
+    }
     int width = 0;
     int height = 0;
     if (!parseResolution(resolution, &width, &height)) {
@@ -514,6 +758,9 @@ void QsfClient::requestResizeText(const QString& resolution)
 
 void QsfClient::uploadFile(const QString& sourcePath, const QString& guestName)
 {
+    if (profileHandoffBlocksPublicOperation(QStringLiteral("file transfers"))) {
+        return;
+    }
     QString error;
     if (!canOperateSession(&error)) {
         setLastError(error);
@@ -554,6 +801,9 @@ void QsfClient::uploadFile(const QString& sourcePath, const QString& guestName)
 
 void QsfClient::downloadFile(const QString& guestName, const QString& destinationPath)
 {
+    if (profileHandoffBlocksPublicOperation(QStringLiteral("file transfers"))) {
+        return;
+    }
     QString error;
     if (!canOperateSession(&error)) {
         setLastError(error);
@@ -596,7 +846,7 @@ bool QsfClient::validFileName(const QString& name)
 
 void QsfClient::updateClipboardPolling()
 {
-    if (m_ClipboardSyncEnabled && m_SessionActive && m_Ready) {
+    if (m_ClipboardSyncEnabled && !m_DisplayNegotiationOnly && m_SessionActive && m_Ready) {
         m_ClipboardPollTimer->start();
     }
     else {
@@ -607,7 +857,7 @@ void QsfClient::updateClipboardPolling()
 void QsfClient::startClipboardSynchronization()
 {
     updateClipboardPolling();
-    if (!m_ClipboardSyncEnabled || !m_SessionActive || !m_Ready) {
+    if (!m_ClipboardSyncEnabled || m_DisplayNegotiationOnly || !m_SessionActive || !m_Ready) {
         return;
     }
     if (m_InitialClipboardDirection == QStringLiteral("client") && m_Clipboard != nullptr) {
@@ -623,7 +873,8 @@ void QsfClient::startClipboardSynchronization()
 
 void QsfClient::handleClipboardChanged()
 {
-    if (!m_ClipboardSyncEnabled || !m_SessionActive || !m_Ready || m_Clipboard == nullptr) {
+    if (!m_ClipboardSyncEnabled || m_DisplayNegotiationOnly || !m_SessionActive || !m_Ready ||
+        m_Clipboard == nullptr) {
         return;
     }
     const QString text = m_Clipboard->text(QClipboard::Clipboard);
@@ -635,7 +886,7 @@ void QsfClient::handleClipboardChanged()
 
 void QsfClient::queueClipboardGet()
 {
-    if (!m_ClipboardSyncEnabled || !m_SessionActive || !m_Ready ||
+    if (!m_ClipboardSyncEnabled || m_DisplayNegotiationOnly || !m_SessionActive || !m_Ready ||
         m_Clipboard == nullptr || m_ClipboardGetQueued || m_HasPendingLocalClipboard) {
         return;
     }
@@ -695,7 +946,7 @@ void QsfClient::queueClipboardSet(const QString& text)
 
 void QsfClient::scheduleClipboardRetry()
 {
-    if (!m_HasPendingLocalClipboard || !m_ClipboardSyncEnabled ||
+    if (!m_HasPendingLocalClipboard || !m_ClipboardSyncEnabled || m_DisplayNegotiationOnly ||
         !m_SessionActive || !m_Ready || m_ClipboardSetInFlight ||
         m_ClipboardSetQueued || m_ClipboardRetryTimer->isActive()) {
         return;
@@ -858,7 +1109,33 @@ void QsfClient::startNextRequest()
             }
             const QByteArray request = QJsonDocument(m_ActiveRequest.payload)
                                            .toJson(QJsonDocument::Compact) + '\n';
-            socket->write(request);
+            const bool isConnectionProfile =
+                m_ActiveRequest.operation == QStringLiteral("connection_optimize");
+            if (isConnectionProfile) {
+                // The coordinator's direct connection persists a durable
+                // crash-recovery marker before this write can make the broker
+                // transaction observable outside this process.
+                emit connectionProfileRequestAboutToDispatch();
+            }
+            // The direct admission slot may have rejected this operation
+            // (for example because its crash-recovery marker could not be
+            // synchronously persisted) and deliberately deactivated QSF.
+            // Never write after that rejection.
+            if (socket != m_Socket || !m_HasActiveRequest) {
+                return;
+            }
+            const qint64 queuedBytes = socket->write(request);
+            if (queuedBytes != request.size()) {
+                failActiveRequest(QStringLiteral("QSF could not queue the complete gateway request"));
+                return;
+            }
+            if (isConnectionProfile) {
+                // The local socket now owns bytes for a potentially mutating
+                // broker transaction.  A UI cancellation must therefore wait
+                // for its terminal response (or a bounded uncertainty guard)
+                // instead of aborting this connection and racing the broker.
+                emit connectionProfileRequestDispatched();
+            }
         });
         connect(socket, &QSslSocket::readyRead, this, [this, socket]() { drainResponse(socket); });
         connect(socket, &QSslSocket::sslErrors, this,
@@ -1052,6 +1329,39 @@ void QsfClient::finishActiveRequest(const QJsonObject& response)
                           .arg(width).arg(height).arg(qemuResult.toString()));
         emit resizeApplied(width, height, qemuApplied);
     }
+    else if (completed.operation == QStringLiteral("connection_optimize")) {
+        int version = 0;
+        int width = 0;
+        int height = 0;
+        int fps = 0;
+        int bitrateKbps = 0;
+        const QJsonValue codecValue = result.value(QStringLiteral("video_codec"));
+        const QJsonValue generationValue = result.value(QStringLiteral("guest_profile_generation"));
+        const QJsonValue qemuResult = result.value(QStringLiteral("qemu_set_ui_info"));
+        static const QRegularExpression generationPattern(QStringLiteral("\\A[1-9][0-9]{0,19}\\z"));
+        if (!exactInteger(result.value(QStringLiteral("version")), 2, 2, &version) ||
+            !exactInteger(result.value(QStringLiteral("width")), 64, 16384, &width) ||
+            !exactInteger(result.value(QStringLiteral("height")), 64, 16384, &height) ||
+            !exactInteger(result.value(QStringLiteral("fps")), 10, 240, &fps) ||
+            !exactInteger(result.value(QStringLiteral("bitrate_kbps")), 500, 500000,
+                          &bitrateKbps) ||
+            !codecValue.isString() || !isSupportedStreamCodec(codecValue.toString()) ||
+            !generationValue.isString() || !generationPattern.match(generationValue.toString()).hasMatch() ||
+            !qemuResult.isString() ||
+            (qemuResult.toString() != QStringLiteral("applied") &&
+             qemuResult.toString() != QStringLiteral("disabled"))) {
+            failActiveRequest(QStringLiteral("QSF returned an invalid negotiated connection profile"));
+            return;
+        }
+        const bool qemuApplied = qemuResult.toString() == QStringLiteral("applied");
+        setStatus(QStringLiteral("VirGL guest scanout confirmed; reconnecting Moonlight with the negotiated profile"));
+        setLastResult(QStringLiteral("Pair-selected applied guest profile #%1: %2x%3, %4 FPS, %5 Kbps (%6; QEMU %7)")
+                          .arg(generationValue.toString())
+                          .arg(width).arg(height).arg(fps).arg(bitrateKbps)
+                          .arg(codecValue.toString()).arg(qemuResult.toString()));
+        emit connectionProfileReceived(width, height, fps, bitrateKbps,
+                                       codecValue.toString(), qemuApplied);
+    }
     else if (completed.operation == QStringLiteral("upload")) {
         int bytes = 0;
         const QJsonValue name = result.value(QStringLiteral("name"));
@@ -1100,6 +1410,7 @@ void QsfClient::finishActiveRequest(const QJsonObject& response)
     if (completed.operation == QStringLiteral("upload") ||
         completed.operation == QStringLiteral("download") ||
         completed.operation == QStringLiteral("resize") ||
+        completed.operation == QStringLiteral("connection_optimize") ||
         (completed.operation == QStringLiteral("status") &&
          (completed.context == QStringLiteral("activation") ||
           completed.context == QStringLiteral("test")))) {

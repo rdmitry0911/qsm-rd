@@ -46,12 +46,17 @@ WINDOWED_RESOLUTION="${QSUNSHINE_QT_WINDOWED_RESOLUTION:-1280x800}"
 QSF_RESOLUTION="${QSUNSHINE_QT_QSF_RESOLUTION:-1280x720}"
 CLIENT_ROOT_WIDTH="${QSUNSHINE_QT_CLIENT_ROOT_WIDTH:-1600}"
 CLIENT_ROOT_HEIGHT="${QSUNSHINE_QT_CLIENT_ROOT_HEIGHT:-900}"
-# A real fullscreen presentation must occupy the entire disposable client
-# output.  Keep its default tied to the Xvfb root instead of requesting an
-# arbitrary smaller stream size: unlike a desktop compositor, bare Xvfb has
-# no display-mode switcher that would make (say) 1280x720 physically fill a
-# 1600x900 root.  Guest-side QSF resize is deliberately independent below.
+# Fullscreen has its own client-selected physical size. Before entering it,
+# the driver performs a second QSF negotiation and waits for a fresh guest
+# scanout ACK at this resolution; a presentation-mode switch never gets to
+# silently outrun the virtual desktop.
 FULLSCREEN_RESOLUTION="${QSUNSHINE_QT_FULLSCREEN_RESOLUTION:-${CLIENT_ROOT_WIDTH}x${CLIENT_ROOT_HEIGHT}}"
+NEGOTIATED_FPS="${QSUNSHINE_QT_NEGOTIATED_FPS:-60}"
+NEGOTIATED_BITRATE_KBPS="${QSUNSHINE_QT_NEGOTIATED_BITRATE_KBPS:-8000}"
+NEGOTIATED_VIDEO_CODEC="${QSUNSHINE_QT_NEGOTIATED_VIDEO_CODEC:-H.264}"
+FULLSCREEN_FPS="${QSUNSHINE_QT_FULLSCREEN_FPS:-60}"
+FULLSCREEN_BITRATE_KBPS="${QSUNSHINE_QT_FULLSCREEN_BITRATE_KBPS:-12000}"
+FULLSCREEN_VIDEO_CODEC="${QSUNSHINE_QT_FULLSCREEN_VIDEO_CODEC:-H.264}"
 PHASE_TIMEOUT_SECONDS="${QSUNSHINE_QT_E2E_PHASE_TIMEOUT_SECONDS:-170}"
 PAIR_DIALOG_TIMEOUT_SECONDS="${QSUNSHINE_QT_E2E_PAIR_DIALOG_TIMEOUT_SECONDS:-35}"
 VISUAL_TIMEOUT_SECONDS="${QSUNSHINE_QT_E2E_VISUAL_TIMEOUT_SECONDS:-30}"
@@ -108,6 +113,8 @@ CLIENT_RUNTIME_DIR=''
 MOONLIGHT_PORTABLE_DIR=''
 SUNSHINE_CONFIG_DIR=''
 SUNSHINE_PIN_FIFO=''
+sunshine_pin_keepalive_fd=''
+sunshine_pin_write_fd=''
 sunshine_log=''
 driver_log=''
 moonlight_log=''
@@ -269,6 +276,13 @@ cleanup() {
   [[ -n "$CLIENT_RUNTIME_DIR" ]] && rm -rf -- "$CLIENT_RUNTIME_DIR" 2>/dev/null || true
   [[ -n "$MOONLIGHT_PORTABLE_DIR" ]] && rm -rf -- "$MOONLIGHT_PORTABLE_DIR" 2>/dev/null || true
   [[ -n "$SUNSHINE_CONFIG_DIR" ]] && rm -rf -- "$SUNSHINE_CONFIG_DIR" 2>/dev/null || true
+  # The two FIFO descriptors below are intentionally separate.  Closing a
+  # dynamic descriptor that was never opened is harmless, but only expand an
+  # actual numeric descriptor so cleanup remains safe under `set -u`.
+  [[ "$sunshine_pin_keepalive_fd" =~ ^[0-9]+$ ]] && \
+    exec {sunshine_pin_keepalive_fd}>&- 2>/dev/null || true
+  [[ "$sunshine_pin_write_fd" =~ ^[0-9]+$ ]] && \
+    exec {sunshine_pin_write_fd}>&- 2>/dev/null || true
   [[ -n "$SUNSHINE_PIN_FIFO" ]] && rm -f -- "$SUNSHINE_PIN_FIFO" 2>/dev/null || true
 }
 
@@ -333,6 +347,20 @@ wait_for_guest_marker() {
   die "guest did not report $label within ${GUEST_TIMEOUT_SECONDS}s"
 }
 
+wait_for_guest_pattern() {
+  local pattern=$1 label=$2 iterations=$((GUEST_TIMEOUT_SECONDS * 10))
+  for _ in $(seq 1 "$iterations"); do
+    grep -Eq "$pattern" "$GUEST_TELEMETRY" 2>/dev/null && return 0
+    if grep -Fq 'QSF_VIRGL_WAYLAND_GUEST_E2E_FAILED=' "$GUEST_TELEMETRY" 2>/dev/null; then
+      die "guest reported failure while waiting for $label"
+    fi
+    qemu_is_alive
+    driver_is_alive
+    sleep 0.1
+  done
+  die "guest did not report $label within ${GUEST_TIMEOUT_SECONDS}s"
+}
+
 wait_for_xvfb() {
   for _ in $(seq 1 160); do
     DISPLAY="$DISPLAY_NUMBER" xdpyinfo >/dev/null 2>&1 && return 0
@@ -379,6 +407,22 @@ wait_for_sunshine_stream() {
     sleep 0.1
   done
   die 'Sunshine did not record a GameStream session after Moonlight video became visible'
+}
+
+wait_for_sunshine_session_count() {
+  local expected=$1 label=$2 count=0
+  [[ "$expected" =~ ^[1-9][0-9]*$ ]] || die 'internal invalid Sunshine session count'
+  for _ in $(seq 1 $((VISUAL_TIMEOUT_SECONDS * 10))); do
+    count="$(grep -Fc 'New streaming session started' "$sunshine_log" 2>/dev/null || true)"
+    if [[ "$count" =~ ^[0-9]+$ ]] && (( count >= expected )); then
+      return 0
+    fi
+    kill -0 "$sunshine_pid" 2>/dev/null || die 'Sunshine exited before the expected GameStream reconnect'
+    driver_is_alive
+    qemu_is_alive
+    sleep 0.1
+  done
+  die "Sunshine did not record ${expected} GameStream sessions for ${label}"
 }
 
 wait_for_gateway() {
@@ -470,6 +514,13 @@ find_visible_moonlight_window() {
           return 0
         fi
         ;;
+      negotiated)
+        if [[ "$width" == "$QSF_WIDTH" && "$height" == "$QSF_HEIGHT" &&
+              ( "$width" != "$CLIENT_ROOT_WIDTH" || "$height" != "$CLIENT_ROOT_HEIGHT" ) ]]; then
+          printf '%s\n' "$window"
+          return 0
+        fi
+        ;;
       fullscreen)
         if [[ "$x" == 0 && "$y" == 0 && "$width" == "$CLIENT_ROOT_WIDTH" &&
               "$height" == "$CLIENT_ROOT_HEIGHT" ]]; then
@@ -535,6 +586,7 @@ attest_nonblack_window() {
 
 record_stream_command() {
   local window=$1 label=$2 expected_mode=$3 expected_resolution=$4
+  local expected_fps=${5:-} expected_bitrate=${6:-} expected_codec=${7:-}
   local process='' command_file="$HOOK_OUTPUT_DIR/${label}-moonlight-command.txt"
   process="$(DISPLAY="$DISPLAY_NUMBER" xdotool getwindowpid "$window" 2>/dev/null || true)"
   [[ "$process" =~ ^[1-9][0-9]*$ && -r "/proc/$process/cmdline" ]] || \
@@ -549,6 +601,18 @@ record_stream_command() {
   grep -Fxq -- '--absolute-mouse' "$command_file" || die "$label Moonlight command lacks absolute-mouse"
   grep -Fxq -- '--video-decoder' "$command_file" || die "$label Moonlight command lacks the visual-attestation decoder choice"
   grep -Fxq -- 'software' "$command_file" || die "$label Moonlight command does not force software decoding for Xvfb capture"
+  if [[ -n "$expected_fps" ]]; then
+    grep -Fxq -- '--fps' "$command_file" || die "$label Moonlight command lacks negotiated FPS"
+    grep -Fxq -- "$expected_fps" "$command_file" || die "$label Moonlight FPS differs from negotiated profile"
+  fi
+  if [[ -n "$expected_bitrate" ]]; then
+    grep -Fxq -- '--bitrate' "$command_file" || die "$label Moonlight command lacks negotiated bitrate"
+    grep -Fxq -- "$expected_bitrate" "$command_file" || die "$label Moonlight bitrate differs from negotiated profile"
+  fi
+  if [[ -n "$expected_codec" ]]; then
+    grep -Fxq -- '--video-codec' "$command_file" || die "$label Moonlight command lacks negotiated codec"
+    grep -Fxq -- "$expected_codec" "$command_file" || die "$label Moonlight codec differs from negotiated profile"
+  fi
 }
 
 inject_stream_input() {
@@ -716,6 +780,20 @@ done
   'probe setup and attestation budget must be positive'
 [[ "$DRIVER_TIMEOUT_MS" =~ ^[0-9]{5,6}$ ]] && (( DRIVER_TIMEOUT_MS >= 60000 && DRIVER_TIMEOUT_MS <= 900000 )) || \
   die 'Qt real-E2E driver timeout must be 60000..900000 milliseconds'
+[[ "$NEGOTIATED_FPS" =~ ^[1-9][0-9]*$ ]] && (( NEGOTIATED_FPS >= 10 && NEGOTIATED_FPS <= 240 )) || \
+  die 'expected negotiated FPS must be 10..240'
+[[ "$NEGOTIATED_BITRATE_KBPS" =~ ^[1-9][0-9]*$ ]] && \
+  (( NEGOTIATED_BITRATE_KBPS >= 500 && NEGOTIATED_BITRATE_KBPS <= 500000 )) || \
+  die 'expected negotiated bitrate must be 500..500000 Kbps'
+[[ "$NEGOTIATED_VIDEO_CODEC" == H.264 || "$NEGOTIATED_VIDEO_CODEC" == HEVC || \
+   "$NEGOTIATED_VIDEO_CODEC" == AV1 ]] || die 'expected negotiated codec must be H.264, HEVC, or AV1'
+[[ "$FULLSCREEN_FPS" =~ ^[1-9][0-9]*$ ]] && (( FULLSCREEN_FPS >= 10 && FULLSCREEN_FPS <= 240 )) || \
+  die 'expected fullscreen FPS must be 10..240'
+[[ "$FULLSCREEN_BITRATE_KBPS" =~ ^[1-9][0-9]*$ ]] && \
+  (( FULLSCREEN_BITRATE_KBPS >= 500 && FULLSCREEN_BITRATE_KBPS <= 500000 )) || \
+  die 'expected fullscreen bitrate must be 500..500000 Kbps'
+[[ "$FULLSCREEN_VIDEO_CODEC" == H.264 || "$FULLSCREEN_VIDEO_CODEC" == HEVC || \
+   "$FULLSCREEN_VIDEO_CODEC" == AV1 ]] || die 'expected fullscreen codec must be H.264, HEVC, or AV1'
 [[ "$OUTER_LIVE_PROBE_DURATION_MS" =~ ^[1-9][0-9]*$ ]] || die \
   "qt mode requires a live Display1 probe duration >= ${MINIMUM_PROBE_DURATION_MS}"
 (( OUTER_LIVE_PROBE_DURATION_MS >= MINIMUM_PROBE_DURATION_MS )) || die \
@@ -786,12 +864,13 @@ mkdir -p "$PHASE_DIR" "$CLIENT_CONFIG_DIR" "$CLIENT_DATA_DIR" "$CLIENT_CACHE_DIR
 chmod 700 "$PHASE_DIR" "$CLIENT_CONFIG_DIR" "$CLIENT_DATA_DIR" "$CLIENT_CACHE_DIR" \
   "$CLIENT_RUNTIME_DIR" "$MOONLIGHT_PORTABLE_DIR" "$SUNSHINE_CONFIG_DIR"
 # Sunshine consumes the pairing PIN only after Moonlight reaches its
-# getservercert request. Keep a private FIFO open across daemon startup and
-# write the value precisely at that request, rather than relying on a closed
-# early pipe to remain readable later.
+# getservercert request.  Bootstrap its stdin with a temporary O_RDWR
+# keepalive, then replace that with a parent *write-only* endpoint before the
+# Qt process starts.  An O_RDWR descriptor inherited by Sunshine or its
+# children leaves an extra readable endpoint available to a descendant, which
+# makes the secret channel needlessly ambiguous.
 SUNSHINE_PIN_FIFO="$HOOK_OUTPUT_DIR/sunshine-pair-pin.fifo"
 mkfifo -m 600 "$SUNSHINE_PIN_FIFO"
-exec {sunshine_pin_fd}<>"$SUNSHINE_PIN_FIFO"
 # Moonlight Qt uses its current directory as the portable QSettings root when
 # this sentinel exists.  Pair, independent list verification, and both stream
 # children must therefore share this private cwd; XDG isolation alone is not
@@ -817,6 +896,9 @@ __EGL_VENDOR_LIBRARY_FILENAMES="$MESA_EGL_VENDOR" LIBGL_ALWAYS_SOFTWARE=1 \
 xvfb_pid=$!
 wait_for_xvfb
 
+# Do not let Xvfb inherit the temporary O_RDWR FIFO descriptor.  It exists
+# only to let Sunshine's stdin open before the dedicated parent writer below.
+exec {sunshine_pin_keepalive_fd}<>"$SUNSHINE_PIN_FIFO"
 env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET -u XDG_SESSION_TYPE \
   -u QT_QPA_PLATFORM -u SDL_VIDEODRIVER -u SDL_AUDIODRIVER \
   "XDG_CONFIG_HOME=$SUNSHINE_CONFIG_DIR" \
@@ -826,21 +908,32 @@ env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET -u XDG_SESSION_TYPE \
   "$SUNSHINE_BINARY" -0 \
     capture=qemu_dbus encoder=software stream_audio=false system_tray=false \
     bind_address=127.0.0.1 port="$SUNSHINE_PORT" \
-    <"$SUNSHINE_PIN_FIFO" >"$sunshine_log" 2>&1 &
+    <"$SUNSHINE_PIN_FIFO" {sunshine_pin_keepalive_fd}>&- >"$sunshine_log" 2>&1 &
 sunshine_pid=$!
 wait_for_sunshine_http
+# Sunshine's stdin reader is now open.  Open the sole parent writer while the
+# temporary keepalive is still present, then retire the keepalive without an
+# EOF gap.  Do this before launching the gateway/driver so neither inherits a
+# readable endpoint for the private pairing FIFO.
+exec {sunshine_pin_write_fd}>"$SUNSHINE_PIN_FIFO"
+exec {sunshine_pin_keepalive_fd}>&-
+sunshine_pin_keepalive_fd=''
 
 make_tls_material
 python3 "$QSF_TLS_GATEWAY" \
   --control-socket "$CONTROL_SOCKET" --token-file "$TOKEN_FILE" \
   --server-cert "$TLS_DIR/server.crt" --server-key "$TLS_DIR/server.key" \
   --client-ca "$TLS_DIR/ca.crt" --listen-host 127.0.0.1 --listen-port 0 \
-  >"$gateway_log" 2>&1 &
+  {sunshine_pin_write_fd}>&- >"$gateway_log" 2>&1 &
 gateway_pid=$!
 QSF_GATEWAY_PORT=0
 wait_for_gateway
 
 (
+  # The client driver and its stock Moonlight child never need access to the
+  # host PIN writer.  Closing it here preserves the one-reader/one-writer
+  # contract until the scripted dispatch below.
+  exec {sunshine_pin_write_fd}>&-
   cd -- "$MOONLIGHT_PORTABLE_DIR"
   exec_with_client_environment "$QSUNSHINE_REAL_E2E_DRIVER" \
     --moonlight-binary "$STOCK_MOONLIGHT_QT_BINARY" \
@@ -855,6 +948,12 @@ wait_for_gateway
     --download-name guest-download.txt --download-destination "$OUTER_DOWNLOADED_FILE" \
     --fullscreen-download-destination "$FULLSCREEN_DOWNLOADED_FILE" \
     --expected-download-source "$GUEST_DOWNLOAD" --resize "$QSF_RESOLUTION" \
+    --expected-negotiated-fps "$NEGOTIATED_FPS" \
+    --expected-negotiated-bitrate-kbps "$NEGOTIATED_BITRATE_KBPS" \
+    --expected-negotiated-video-codec "$NEGOTIATED_VIDEO_CODEC" \
+    --expected-fullscreen-fps "$FULLSCREEN_FPS" \
+    --expected-fullscreen-bitrate-kbps "$FULLSCREEN_BITRATE_KBPS" \
+    --expected-fullscreen-video-codec "$FULLSCREEN_VIDEO_CODEC" \
     --timeout-ms "$DRIVER_TIMEOUT_MS" \
     --phase-dir "$PHASE_DIR" --moonlight-log "$moonlight_log" \
     --moonlight-pair-log "$moonlight_pair_log"
@@ -864,8 +963,9 @@ driver_pid=$!
 wait_for_phase driver-ready 'driver-ready'
 wait_for_phase pair-process-started 'stock Moonlight pair process launch'
 wait_for_sunshine_pair_prompt
-printf '%s\n' "$MOONLIGHT_PIN" >&"$sunshine_pin_fd"
-exec {sunshine_pin_fd}>&-
+printf '%s\n' "$MOONLIGHT_PIN" >&"$sunshine_pin_write_fd"
+exec {sunshine_pin_write_fd}>&-
+sunshine_pin_write_fd=''
 dismiss_pair_dialog_until_finished
 wait_for_phase pair-process-finished 'stock Moonlight pair process completion'
 # Retain only redacted pairing diagnostics.  The driver does its own redaction,
@@ -879,7 +979,14 @@ if ! (
   with_client_environment timeout --signal=TERM --kill-after=5s 35s \
     "$STOCK_MOONLIGHT_QT_BINARY" list -- "$MOONLIGHT_HOST"
 ) >"$moonlight_list_log" 2>&1; then
-  die 'stock Moonlight list failed after the Qt-controlled pairing flow'
+  # A `pair` QProcess exit status is not a proof of pairing: upstream
+  # Moonlight also exits zero after its error acknowledgement dialog.  Make
+  # the primary protocol failure explicit when its sanitized diagnostic is
+  # available, rather than reporting only the downstream list symptom.
+  if grep -Fq 'Incorrect PIN' "$moonlight_pair_log" 2>/dev/null; then
+    die 'stock Moonlight pairing protocol rejected the host/client PIN exchange; independent list verification confirms no pairing'
+  fi
+  die 'stock Moonlight list did not verify the Qt-controlled pairing flow'
 fi
 grep -Fxq "$SUNSHINE_APP" "$moonlight_list_log" || die \
   'stock Moonlight list did not independently return the Sunshine Desktop application'
@@ -928,6 +1035,15 @@ wait_for_guest_marker "QSF_VIRGL_WAYLAND_GUEST_WAYLAND_TO_QSF_STATE_SHA256=$gues
 cmp -s "$GUEST_CLIPBOARD" "$OUTER_RECEIVED_CLIPBOARD" || die \
   'retained Qt clipboard result differs from the guest fixture'
 wait_for_phase windowed-qsf-operations-complete 'Qt QSF clipboard/file/resize completion'
+# The profile request must not be sent until the previous graphics process
+ # and its Sunshine capture have retired.  Check this before accepting any
+ # guest reconfiguration marker, not merely as a post-hoc trace condition.
+wait_for_phase qsf-deactivated-for-negotiated-profile \
+  'QSF data-channel deactivation before negotiated scanout handoff'
+wait_for_phase windowed-stream-quiesced \
+  'windowed Moonlight/Sunshine capture retirement before negotiated scanout handoff'
+wait_for_phase qsf-negotiated-profile-ready \
+  'profile-only QSF lease after windowed capture retirement'
 wait_for_guest_marker "QSF_VIRGL_WAYLAND_GUEST_UPLOAD_SHA256=$client_upload_hash" \
   'Qt upload received by guest'
 wait_for_guest_marker "QSF_VIRGL_WAYLAND_GUEST_QSF_DOWNLOAD_SHA256=$guest_download_hash" \
@@ -940,22 +1056,68 @@ wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_RESIZE_WESTON_RESTARTED' \
   'guest Weston restart after QSF resize'
 wait_for_guest_marker "QSF_VIRGL_WAYLAND_GUEST_RESIZE=${QSF_RESOLUTION}" \
   'guest QSF resize state'
-# Do not reconnect a graphics client into the interval where the guest fixture
-# has accepted SetUIInfo but is still retiring/restarting Weston DRM.  The
-# driver accepts this request only after the independently observed restart.
-write_phase_request begin-fullscreen-reconnect
-wait_for_phase fullscreen-reconnect-accepted 'guest-stable fullscreen reconnect accepted by Qt driver'
-wait_for_phase qsf-deactivated-for-reconnect 'QSF teardown before controlled Moonlight reconnect'
-
+wait_for_guest_pattern "^QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_APPLIED=version=2,generation=[1-9][0-9]*,resolution=${QSF_RESOLUTION},fps=[1-9][0-9]*,bitrate_kbps=[1-9][0-9]*,video_codec=(H264|HEVC|AV1)$" \
+  'canonical negotiated profile after actual Weston scanout'
+wait_for_guest_pattern "^QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_ACK_OBSERVED=generation=[1-9][0-9]*,resolution=${QSF_RESOLUTION}$" \
+  'independent guest coordinator observation of the scanout acknowledgement'
+# The production coordinator first retires the visible windowed stream, then
+# obtains the QEMU+guest-confirmed profile through a profile-only QSF lease.
+# These phase barriers make a stale Sunshine capture unable to race the new
+# SetUIInfo writer. Attest the second *windowed* stream before asking for
+# fullscreen: it proves the client actually used the guest's new scanout.
+wait_for_phase negotiated-profile-confirmed 'guest-confirmed QSF connection profile accepted by Qt'
+wait_for_phase negotiated-process-started 'negotiated stock Moonlight reconnect process'
+negotiated_window="$(wait_for_moonlight_window negotiated negotiated)"
+wait_for_sunshine_session_count 2 'negotiated guest-profile reconnect'
+negotiated_attestation="$(attest_nonblack_window "$negotiated_window" negotiated)"
+IFS=: read -r negotiated_window negotiated_yavg negotiated_ymax <<<"$negotiated_attestation"
+[[ "$negotiated_window" =~ ^[1-9][0-9]*$ && "$negotiated_yavg" =~ ^[0-9]+([.][0-9]+)?$ && \
+   "$negotiated_ymax" =~ ^[0-9]+([.][0-9]+)?$ ]] || die \
+  'negotiated visual attestation returned invalid evidence'
+negotiated_luma="$negotiated_yavg:$negotiated_ymax"
+DISPLAY="$DISPLAY_NUMBER" xwininfo -id "$negotiated_window" >"$HOOK_OUTPUT_DIR/negotiated-window.xwininfo"
+record_stream_command "$negotiated_window" negotiated windowed "$QSF_RESOLUTION" \
+  "$NEGOTIATED_FPS" "$NEGOTIATED_BITRATE_KBPS" "$NEGOTIATED_VIDEO_CODEC"
+write_phase_request negotiated-video-verified
+wait_for_phase negotiated-video-verification-accepted \
+  'Qt acceptance of the visible negotiated Moonlight stream'
+# Model the user reactivating the QSF companion only after the first negotiated
+# video is visible. The fullscreen profile action is intentionally unavailable
+# until that normal visible-stream lease has completed its mTLS check.
+write_phase_request activate-negotiated-qsf
+wait_for_phase negotiated-qsf-activation-accepted \
+  'Qt acceptance of negotiated-stream QSF activation'
+wait_for_phase qsf-negotiated-ready \
+  'QSF mTLS readiness for the visible negotiated stream'
+# Now select the physical fullscreen size. The driver saves that future
+# Moonlight profile, retires the current capture, then obtains a second
+# generation-bound VirGL ACK before it starts the fullscreen graphics process.
+write_phase_request activate-fullscreen-profile
+wait_for_phase fullscreen-profile-activation-accepted \
+  'Qt acceptance of selected fullscreen profile'
+wait_for_phase qsf-deactivated-for-fullscreen-profile \
+  'QSF data-channel deactivation before fullscreen scanout handoff'
+wait_for_phase negotiated-stream-quiesced \
+  'negotiated Moonlight/Sunshine capture retirement before fullscreen scanout handoff'
+wait_for_phase qsf-fullscreen-profile-ready \
+  'profile-only QSF mTLS readiness after capture retirement'
+wait_for_guest_pattern "^QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_APPLIED=version=2,generation=[1-9][0-9]*,resolution=${FULLSCREEN_RESOLUTION},fps=${FULLSCREEN_FPS},bitrate_kbps=${FULLSCREEN_BITRATE_KBPS},video_codec=(H264|HEVC|AV1)$" \
+  'canonical fullscreen profile after actual Weston/VirGL scanout'
+wait_for_guest_pattern "^QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_ACK_OBSERVED=generation=[1-9][0-9]*,resolution=${FULLSCREEN_RESOLUTION}$" \
+  'independent guest coordinator observation of fullscreen scanout acknowledgement'
+wait_for_phase fullscreen-profile-confirmed \
+  'guest-confirmed fullscreen QSF profile accepted by Qt'
 wait_for_phase fullscreen-process-started 'fullscreen stock Moonlight reconnect process'
 fullscreen_window="$(wait_for_moonlight_window fullscreen fullscreen)"
+wait_for_sunshine_session_count 3 'fullscreen presentation reconnect'
 fullscreen_attestation="$(attest_nonblack_window "$fullscreen_window" fullscreen)"
 IFS=: read -r fullscreen_window fullscreen_yavg fullscreen_ymax <<<"$fullscreen_attestation"
 [[ "$fullscreen_window" =~ ^[1-9][0-9]*$ && "$fullscreen_yavg" =~ ^[0-9]+([.][0-9]+)?$ && \
    "$fullscreen_ymax" =~ ^[0-9]+([.][0-9]+)?$ ]] || die 'fullscreen visual attestation returned invalid evidence'
 fullscreen_luma="$fullscreen_yavg:$fullscreen_ymax"
 DISPLAY="$DISPLAY_NUMBER" xwininfo -id "$fullscreen_window" >"$HOOK_OUTPUT_DIR/fullscreen-window.xwininfo"
-record_stream_command "$fullscreen_window" fullscreen fullscreen "$FULLSCREEN_RESOLUTION"
+record_stream_command "$fullscreen_window" fullscreen fullscreen "$FULLSCREEN_RESOLUTION" \
+  "$FULLSCREEN_FPS" "$FULLSCREEN_BITRATE_KBPS" "$FULLSCREEN_VIDEO_CODEC"
 # KEY_B is a phase barrier in the guest watcher.  The watcher counts its
 # pointer and button only after B, so a delayed windowed event cannot satisfy
 # the fullscreen-reconnect proof.
@@ -1004,15 +1166,21 @@ grep -Fq '[qemu-dbus] imported QEMU ScanoutDMABUF' "$sunshine_log" || die \
   'Sunshine reported a QEMU listener callback failure'
 grep -Eq 'DMA-BUF scanouts/updates/failures: [1-9][0-9]*/[0-9]+/0' "$sunshine_log" || die \
   'Sunshine did not report nonzero zero-failure DMA-BUF scanouts'
-[[ -s "$HOOK_OUTPUT_DIR/windowed-client.png" && -s "$HOOK_OUTPUT_DIR/fullscreen-client.png" ]] || die \
+[[ -s "$HOOK_OUTPUT_DIR/windowed-client.png" && -s "$HOOK_OUTPUT_DIR/negotiated-client.png" && \
+   -s "$HOOK_OUTPUT_DIR/fullscreen-client.png" ]] || die \
   'retained stock Moonlight client screenshots are absent'
 ffprobe -v error -show_entries stream=codec_name,width,height -of default=noprint_wrappers=1 \
   "$HOOK_OUTPUT_DIR/windowed-client.png" >"$HOOK_OUTPUT_DIR/windowed-client.ffprobe"
+ffprobe -v error -show_entries stream=codec_name,width,height -of default=noprint_wrappers=1 \
+  "$HOOK_OUTPUT_DIR/negotiated-client.png" >"$HOOK_OUTPUT_DIR/negotiated-client.ffprobe"
 ffprobe -v error -show_entries stream=codec_name,width,height -of default=noprint_wrappers=1 \
   "$HOOK_OUTPUT_DIR/fullscreen-client.png" >"$HOOK_OUTPUT_DIR/fullscreen-client.ffprobe"
 grep -Fqx 'codec_name=png' "$HOOK_OUTPUT_DIR/windowed-client.ffprobe"
 grep -Fqx "width=$WINDOWED_WIDTH" "$HOOK_OUTPUT_DIR/windowed-client.ffprobe"
 grep -Fqx "height=$WINDOWED_HEIGHT" "$HOOK_OUTPUT_DIR/windowed-client.ffprobe"
+grep -Fqx 'codec_name=png' "$HOOK_OUTPUT_DIR/negotiated-client.ffprobe"
+grep -Fqx "width=$QSF_WIDTH" "$HOOK_OUTPUT_DIR/negotiated-client.ffprobe"
+grep -Fqx "height=$QSF_HEIGHT" "$HOOK_OUTPUT_DIR/negotiated-client.ffprobe"
 grep -Fqx 'codec_name=png' "$HOOK_OUTPUT_DIR/fullscreen-client.ffprobe"
 grep -Fqx "width=$CLIENT_ROOT_WIDTH" "$HOOK_OUTPUT_DIR/fullscreen-client.ffprobe"
 grep -Fqx "height=$CLIENT_ROOT_HEIGHT" "$HOOK_OUTPUT_DIR/fullscreen-client.ffprobe"
@@ -1040,13 +1208,19 @@ stock_binary_sha256="$(sha256sum "$STOCK_MOONLIGHT_QT_BINARY" | awk '{print $1}'
   printf 'pairing=Qt MoonlightController pair + stock Moonlight list Desktop verification\n'
   printf 'windowed_presentation=%sx%s luma=YAVG:%s YMAX:%s\n' \
     "$WINDOWED_WIDTH" "$WINDOWED_HEIGHT" "${windowed_luma%%:*}" "${windowed_luma##*:}"
-  printf 'fullscreen_presentation=%sx%s@(0,0) luma=YAVG:%s YMAX:%s\n' \
-    "$CLIENT_ROOT_WIDTH" "$CLIENT_ROOT_HEIGHT" "${fullscreen_luma%%:*}" "${fullscreen_luma##*:}"
-  printf 'controlled_reconnect=windowed->fullscreen only after guest Weston DRM restart; QSF deactivated before reconnect\n'
+  printf 'negotiated_presentation=%s fps=%s bitrate_kbps=%s codec=%s luma=YAVG:%s YMAX:%s\n' \
+    "$QSF_RESOLUTION" "$NEGOTIATED_FPS" "$NEGOTIATED_BITRATE_KBPS" "$NEGOTIATED_VIDEO_CODEC" \
+    "${negotiated_luma%%:*}" "${negotiated_luma##*:}"
+  printf 'fullscreen_presentation=%sx%s@(0,0) stream=%s fps=%s bitrate_kbps=%s codec=%s luma=YAVG:%s YMAX:%s\n' \
+    "$CLIENT_ROOT_WIDTH" "$CLIENT_ROOT_HEIGHT" "$FULLSCREEN_RESOLUTION" "$FULLSCREEN_FPS" \
+    "$FULLSCREEN_BITRATE_KBPS" "$FULLSCREEN_VIDEO_CODEC" \
+    "${fullscreen_luma%%:*}" "${fullscreen_luma##*:}"
+  printf 'controlled_reconnect=windowed->quiesced->guest-confirmed %s->negotiated-quiesced->guest-confirmed fullscreen %s; profile-only QSF lease follows each capture retirement\n' \
+    "$QSF_RESOLUTION" "$FULLSCREEN_RESOLUTION"
   printf 'input=KEY_A + absolute pointer + button observed by guest evdev in windowed phase; KEY_B + fresh absolute pointer + button observed after fullscreen reconnect\n'
   printf 'clipboard=Qt client-first then independent guest native Wayland fixture\n'
   printf 'file_transfer=Qt upload+download fixtures verified byte-for-byte; download repeated after fullscreen reconnect\n'
-  printf 'resize=Qt QSF %s + guest Weston DRM restart + QEMU SetUIInfo acknowledgement\n' "$QSF_RESOLUTION"
+  printf 'resize=Qt negotiated QSF %s + QEMU SetUIInfo + canonical guest scanout acknowledgement\n' "$QSF_RESOLUTION"
   printf 'client_clipboard_sha256=%s\n' "$client_clipboard_hash"
   printf 'guest_clipboard_sha256=%s\n' "$guest_clipboard_hash"
   printf 'upload_sha256=%s\n' "$client_upload_hash"
@@ -1055,8 +1229,16 @@ stock_binary_sha256="$(sha256sum "$STOCK_MOONLIGHT_QT_BINARY" | awk '{print $1}'
   for phase in driver-ready pair-process-started pair-process-finished pair-verified \
       pair-verification-accepted windowed-process-started windowed-activation-accepted \
       qsf-windowed-ready client-clipboard-sent guest-clipboard-received \
-      windowed-qsf-operations-complete fullscreen-reconnect-accepted \
-      qsf-deactivated-for-reconnect fullscreen-process-started \
+      windowed-qsf-operations-complete qsf-deactivated-for-negotiated-profile \
+      windowed-stream-quiesced qsf-negotiated-profile-ready \
+      negotiated-profile-confirmed negotiated-process-started \
+      negotiated-video-verification-accepted activate-negotiated-qsf \
+      negotiated-qsf-activation-accepted qsf-negotiated-ready \
+      activate-fullscreen-profile \
+      fullscreen-profile-activation-accepted qsf-deactivated-for-fullscreen-profile \
+      negotiated-stream-quiesced qsf-fullscreen-profile-ready \
+      fullscreen-profile-confirmed \
+      fullscreen-process-started \
       fullscreen-activation-accepted qsf-fullscreen-ready \
       fullscreen-download-received qsf-deactivated-for-stop complete; do
     printf '%s\n' "$phase"
@@ -1070,6 +1252,8 @@ stock_binary_sha256="$(sha256sum "$STOCK_MOONLIGHT_QT_BINARY" | awk '{print $1}'
     -e "QSF_VIRGL_WAYLAND_GUEST_QSF_DOWNLOAD_SHA256=$guest_download_hash" \
     -e "QSF_VIRGL_WAYLAND_GUEST_RESIZE=$QSF_RESOLUTION" \
     -e 'QSF_VIRGL_WAYLAND_GUEST_RESIZE_WESTON_RESTARTED' \
+    -e 'QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_APPLIED=' \
+    -e 'QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_ACK_OBSERVED=' \
     -e 'QSF_VIRGL_WAYLAND_GUEST_INPUT_E2E_OK' \
     -e 'QSF_VIRGL_WAYLAND_GUEST_FULLSCREEN_INPUT_E2E_OK' "$GUEST_TELEMETRY"
   printf '\n[Sunshine]\n'
@@ -1091,6 +1275,8 @@ summary_temporary="$(mktemp "$OUTER_OUTPUT_DIR/.qsunshine-qt-e2e-summary.XXXXXX"
   printf 'QSUNSHINE_QT_QSF_DOWNLOAD_SHA256=%s\n' "$guest_download_hash"
   printf 'QSUNSHINE_QT_QSF_RESIZE=%s\n' "$QSF_RESOLUTION"
   printf '%s\n' 'QSUNSHINE_QT_QSF_QEMU_SET_UI_INFO=applied'
+  printf '%s\n' 'QSUNSHINE_QT_QSF_GUEST_SCANOUT_ACK=observed'
+  printf '%s\n' 'QSUNSHINE_QT_QSF_FULLSCREEN_GUEST_SCANOUT_ACK=observed'
   printf '%s\n' 'QSUNSHINE_QT_MOONLIGHT_WINDOWED_AND_FULLSCREEN_OK=1'
   printf '%s\n' 'QSUNSHINE_QT_MOONLIGHT_INPUT_E2E_OK=1'
   printf '%s\n' 'QSUNSHINE_QT_MOONLIGHT_FULLSCREEN_INPUT_E2E_OK=1'

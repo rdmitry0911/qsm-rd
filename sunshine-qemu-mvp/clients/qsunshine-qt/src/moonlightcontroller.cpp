@@ -2,7 +2,9 @@
 
 #include "moonlightcontroller.h"
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QDir>
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QSettings>
@@ -50,6 +52,12 @@ bool isSupportedVideoDecoder(const QString& value)
            value == QStringLiteral("hardware");
 }
 
+bool isSupportedStreamVideoCodec(const QString& value)
+{
+    return value == QStringLiteral("auto") || value == QStringLiteral("H.264") ||
+           value == QStringLiteral("HEVC") || value == QStringLiteral("AV1");
+}
+
 bool isSupportedResolution(const QString& value)
 {
     static const QRegularExpression pattern(QStringLiteral("\\A([0-9]{2,5})x([0-9]{2,5})\\z"));
@@ -81,6 +89,27 @@ QString redactMoonlightOutput(QString output)
     return output;
 }
 
+QString defaultMoonlightBinary()
+{
+#ifdef Q_OS_MACOS
+    // The macOS distribution embeds an unmodified Moonlight.app next to this
+    // launcher. Prefer it over PATH so the desktop client remains portable.
+    const QDir moonlightDirectory(
+        QDir(QCoreApplication::applicationDirPath())
+            .absoluteFilePath("../Resources/Moonlight.app/Contents/MacOS"));
+    for (const QString& candidate : {QStringLiteral("moonlight"),
+                                     QStringLiteral("Moonlight")}) {
+        const QString binary = moonlightDirectory.absoluteFilePath(candidate);
+        if (QFileInfo(binary).isExecutable()) {
+            return binary;
+        }
+    }
+#endif
+
+    const QString onPath = QStandardPaths::findExecutable(QStringLiteral("moonlight"));
+    return onPath.isEmpty() ? QStringLiteral("moonlight") : onPath;
+}
+
 } // namespace
 
 MoonlightController::MoonlightController(QObject* parent)
@@ -94,6 +123,7 @@ MoonlightController::MoonlightController(QObject* parent)
       m_StopTimer(new QTimer(this)),
       m_HasPendingRestart(false),
       m_StopRequested(false),
+      m_ProfileHandoffStartBlocked(false),
       m_PairCancelRequested(false),
       m_PairGeneration(0),
       m_RestartGeneration(0),
@@ -102,10 +132,7 @@ MoonlightController::MoonlightController(QObject* parent)
     QSettings settings;
     m_BinaryPath = settings.value(QStringLiteral("q-sunshine/client/moonlightBinary")).toString().trimmed();
     if (m_BinaryPath.isEmpty()) {
-        m_BinaryPath = QStandardPaths::findExecutable(QStringLiteral("moonlight"));
-        if (m_BinaryPath.isEmpty()) {
-            m_BinaryPath = QStringLiteral("moonlight");
-        }
+        m_BinaryPath = defaultMoonlightBinary();
     }
     m_VideoDecoder = settings.value(QStringLiteral("q-sunshine/client/videoDecoder"),
                                     QStringLiteral("auto")).toString().trimmed();
@@ -278,6 +305,21 @@ QString MoonlightController::profileDisplayMode() const
     return m_ProfileDisplayMode;
 }
 
+int MoonlightController::profileFps() const
+{
+    return m_ProfileFps;
+}
+
+int MoonlightController::profileBitrateKbps() const
+{
+    return m_ProfileBitrateKbps;
+}
+
+QString MoonlightController::profileVideoCodec() const
+{
+    return m_ProfileVideoCodec;
+}
+
 QString MoonlightController::videoDecoder() const
 {
     return m_VideoDecoder;
@@ -285,6 +327,9 @@ QString MoonlightController::videoDecoder() const
 
 void MoonlightController::setBinaryPath(const QString& binaryPath)
 {
+    if (profileHandoffBlocksConfigurationChange(QStringLiteral("executable configuration"))) {
+        return;
+    }
     const QString normalized = binaryPath.trimmed();
     if (normalized.isEmpty()) {
         setLastError(QStringLiteral("Moonlight executable path must not be empty"));
@@ -305,6 +350,9 @@ void MoonlightController::setBinaryPath(const QString& binaryPath)
 
 void MoonlightController::setVideoDecoder(const QString& videoDecoder)
 {
+    if (profileHandoffBlocksConfigurationChange(QStringLiteral("decoder configuration"))) {
+        return;
+    }
     const QString normalized = videoDecoder.trimmed();
     if (!isSupportedVideoDecoder(normalized)) {
         setLastError(QStringLiteral("Moonlight video decoder must be auto, software, or hardware"));
@@ -355,6 +403,10 @@ void MoonlightController::loadProfile(const QString& profileId)
                                          QStringLiteral("1920x1080")).toString().trimmed();
     m_ProfileDisplayMode = settings.value(QStringLiteral("displayMode"),
                                           QStringLiteral("windowed")).toString().trimmed();
+    m_ProfileFps = settings.value(QStringLiteral("fps"), 0).toInt();
+    m_ProfileBitrateKbps = settings.value(QStringLiteral("bitrateKbps"), 0).toInt();
+    m_ProfileVideoCodec = settings.value(QStringLiteral("videoCodec"),
+                                         QStringLiteral("auto")).toString().trimmed();
     settings.endGroup();
 
     if (m_ProfileAppName.isEmpty() || m_ProfileAppName.size() > 256 ||
@@ -366,6 +418,16 @@ void MoonlightController::loadProfile(const QString& profileId)
     }
     if (!isSupportedDisplayMode(m_ProfileDisplayMode)) {
         m_ProfileDisplayMode = QStringLiteral("windowed");
+    }
+    if (m_ProfileFps != 0 && (m_ProfileFps < 10 || m_ProfileFps > 240)) {
+        m_ProfileFps = 0;
+    }
+    if (m_ProfileBitrateKbps != 0 &&
+        (m_ProfileBitrateKbps < 500 || m_ProfileBitrateKbps > 500000)) {
+        m_ProfileBitrateKbps = 0;
+    }
+    if (!isSupportedStreamVideoCodec(m_ProfileVideoCodec)) {
+        m_ProfileVideoCodec = QStringLiteral("auto");
     }
 }
 
@@ -385,11 +447,17 @@ void MoonlightController::writeCurrentProfile() const
     settings.setValue(QStringLiteral("appName"), m_ProfileAppName);
     settings.setValue(QStringLiteral("resolution"), m_ProfileResolution);
     settings.setValue(QStringLiteral("displayMode"), m_ProfileDisplayMode);
+    settings.setValue(QStringLiteral("fps"), m_ProfileFps);
+    settings.setValue(QStringLiteral("bitrateKbps"), m_ProfileBitrateKbps);
+    settings.setValue(QStringLiteral("videoCodec"), m_ProfileVideoCodec);
     settings.endGroup();
 }
 
 bool MoonlightController::selectProfile(const QString& profileId)
 {
+    if (profileHandoffBlocksConfigurationChange(QStringLiteral("desktop profile selection"))) {
+        return false;
+    }
     const QString normalized = normalizedProfileId(profileId);
     QString error;
     if (!validProfileId(normalized, &error)) {
@@ -420,9 +488,13 @@ bool MoonlightController::saveProfile(const QString& profileId, const QString& h
                                       const QString& appName, const QString& resolution,
                                       const QString& displayMode)
 {
+    if (profileHandoffBlocksConfigurationChange(QStringLiteral("desktop profile changes"))) {
+        return false;
+    }
     const QString profileKey = normalizedProfileId(profileId);
     const StreamRequest request {host.trimmed(), appName.trimmed(), resolution.trimmed(),
-                                 displayMode.trimmed()};
+                                 displayMode.trimmed(), m_ProfileFps,
+                                 m_ProfileBitrateKbps, m_ProfileVideoCodec};
     QString error;
     if (!validProfileId(profileKey, &error)) {
         setLastError(error);
@@ -444,7 +516,11 @@ bool MoonlightController::saveProfile(const QString& profileId, const QString& h
         return false;
     }
     if (!isSupportedResolution(request.resolution) ||
-        !isSupportedDisplayMode(request.displayMode)) {
+        !isSupportedDisplayMode(request.displayMode) ||
+        (request.fps != 0 && (request.fps < 10 || request.fps > 240)) ||
+        (request.bitrateKbps != 0 &&
+         (request.bitrateKbps < 500 || request.bitrateKbps > 500000)) ||
+        !isSupportedStreamVideoCodec(request.videoCodec)) {
         setLastError(QStringLiteral("Provide a supported resolution and presentation mode"));
         return false;
     }
@@ -458,6 +534,9 @@ bool MoonlightController::saveProfile(const QString& profileId, const QString& h
     m_ProfileAppName = request.appName;
     m_ProfileResolution = request.resolution;
     m_ProfileDisplayMode = request.displayMode;
+    m_ProfileFps = request.fps;
+    m_ProfileBitrateKbps = request.bitrateKbps;
+    m_ProfileVideoCodec = request.videoCodec;
     writeCurrentProfile();
     writeProfileIndex();
     setLastError(QString());
@@ -504,11 +583,27 @@ bool MoonlightController::validateStreamRequest(const StreamRequest& request, QS
         *error = QStringLiteral("Display mode must be fullscreen, windowed, or borderless");
         return false;
     }
+    if (request.fps != 0 && (request.fps < 10 || request.fps > 240)) {
+        *error = QStringLiteral("Stream FPS must be automatic or within 10..240");
+        return false;
+    }
+    if (request.bitrateKbps != 0 &&
+        (request.bitrateKbps < 500 || request.bitrateKbps > 500000)) {
+        *error = QStringLiteral("Stream bitrate must be automatic or within 500..500000 Kbps");
+        return false;
+    }
+    if (!isSupportedStreamVideoCodec(request.videoCodec)) {
+        *error = QStringLiteral("Stream video codec must be auto, H.264, HEVC, or AV1");
+        return false;
+    }
     return validateExecutable(error);
 }
 
 void MoonlightController::pair(const QString& host, const QString& pin)
 {
+    if (profileHandoffBlocksConfigurationChange(QStringLiteral("pairing"))) {
+        return;
+    }
     QString error;
     if (streamBusy()) {
         setLastError(QStringLiteral("Stop the active stream before starting pairing"));
@@ -565,7 +660,16 @@ void MoonlightController::cancelPairing()
 void MoonlightController::startStream(const QString& host, const QString& appName,
                                       const QString& resolution, const QString& displayMode)
 {
-    StreamRequest request {host.trimmed(), appName.trimmed(), resolution.trimmed(), displayMode.trimmed()};
+    if (m_ProfileHandoffStartBlocked) {
+        // This is an expected admission refusal, not a Moonlight process
+        // failure.  In particular, ProfileNegotiationCoordinator observes
+        // lastErrorChanged() as a real handoff fault, so keep this feedback
+        // on the non-fatal status channel and leave the remote request alive.
+        setStatus(QStringLiteral("The display-profile handoff owns Moonlight start until the guest transaction is terminal"));
+        return;
+    }
+    StreamRequest request {host.trimmed(), appName.trimmed(), resolution.trimmed(), displayMode.trimmed(),
+                           m_ProfileFps, m_ProfileBitrateKbps, m_ProfileVideoCodec};
     QString error;
     if (!validateStreamRequest(request, &error)) {
         setLastError(error);
@@ -575,11 +679,77 @@ void MoonlightController::startStream(const QString& host, const QString& appNam
         setLastError(QStringLiteral("Wait for Moonlight pairing to finish before connecting"));
         return;
     }
+    startValidatedStreamRequest(request);
+}
+
+bool MoonlightController::applyNegotiatedProfile(int width, int height, int fps,
+                                                  int bitrateKbps, const QString& videoCodec)
+{
+    if (m_ProfileHandoffStartBlocked) {
+        setStatus(QStringLiteral("The display-profile handoff owns Moonlight start until the guest transaction is terminal"));
+        return false;
+    }
+    return applyNegotiatedProfileForHandoff(width, height, fps, bitrateKbps, videoCodec);
+}
+
+bool MoonlightController::applyNegotiatedProfileForHandoff(int width, int height, int fps,
+                                                            int bitrateKbps,
+                                                            const QString& videoCodec)
+{
+    const QString resolution = QStringLiteral("%1x%2").arg(width).arg(height);
+    StreamRequest request {m_ProfileHost, m_ProfileAppName, resolution, m_ProfileDisplayMode,
+                           fps, bitrateKbps, videoCodec};
+    QString error;
+    // A connection profile owns QEMU SetUIInfo and the guest scanout.  It is
+    // therefore valid only after the coordinator has retired the old
+    // Moonlight/Sunshine capture.  Restarting an active stream here would
+    // leave its old capture free to overwrite the new scanout geometry.
+    if (m_Running || m_StopRequested || m_HasPendingRestart ||
+        m_StreamProcess->state() != QProcess::NotRunning) {
+        setLastError(QStringLiteral("Wait for the current Moonlight stream to stop before launching a negotiated profile"));
+        return false;
+    }
+    if (m_Pairing || m_PairProcess->state() != QProcess::NotRunning) {
+        setLastError(QStringLiteral("Wait for Moonlight pairing to finish before applying a negotiated profile"));
+        return false;
+    }
+    if (!validateStreamRequest(request, &error)) {
+        setLastError(error);
+        return false;
+    }
+    startValidatedStreamRequest(request);
+    return true;
+}
+
+void MoonlightController::setProfileHandoffStartBlocked(bool blocked)
+{
+    m_ProfileHandoffStartBlocked = blocked;
+}
+
+bool MoonlightController::profileHandoffBlocksConfigurationChange(const QString& operation)
+{
+    if (!m_ProfileHandoffStartBlocked) {
+        return false;
+    }
+
+    // Do not use lastError here: ProfileNegotiationCoordinator observes that
+    // signal as a genuine remote-handoff failure.  This is an expected public
+    // API admission refusal while it owns the launch configuration.
+    setStatus(QStringLiteral("The display-profile handoff owns Moonlight %1 until the guest transaction is terminal")
+                  .arg(operation));
+    return true;
+}
+
+void MoonlightController::startValidatedStreamRequest(const StreamRequest& request)
+{
     const quint64 requestGeneration = ++m_RestartGeneration;
     m_ProfileHost = request.host;
     m_ProfileAppName = request.appName;
     m_ProfileResolution = request.resolution;
     m_ProfileDisplayMode = request.displayMode;
+    m_ProfileFps = request.fps;
+    m_ProfileBitrateKbps = request.bitrateKbps;
+    m_ProfileVideoCodec = request.videoCodec;
     writeCurrentProfile();
     writeProfileIndex();
     emit profileChanged();
@@ -619,6 +789,15 @@ void MoonlightController::launchStream(const StreamRequest& request)
     // explicit values are constrained enum choices, not arbitrary CLI text.
     if (m_VideoDecoder != QStringLiteral("auto")) {
         arguments << QStringLiteral("--video-decoder") << m_VideoDecoder;
+    }
+    if (request.fps != 0) {
+        arguments << QStringLiteral("--fps") << QString::number(request.fps);
+    }
+    if (request.bitrateKbps != 0) {
+        arguments << QStringLiteral("--bitrate") << QString::number(request.bitrateKbps);
+    }
+    if (request.videoCodec != QStringLiteral("auto")) {
+        arguments << QStringLiteral("--video-codec") << request.videoCodec;
     }
     // Host and app are positional data, not an extension point for Moonlight
     // CLI options.

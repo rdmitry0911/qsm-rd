@@ -1,0 +1,28 @@
+[Unit]
+Description=q-sunshine Sunshine instance for Proxmox guest %i
+Documentation=file:/usr/share/doc/q-sunshine-pve/README.Debian
+After=network-online.target pve-guests.service
+Wants=network-online.target
+ConditionPathExists=/etc/q-sunshine/instances.d/%i.conf
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/q-sunshine/instances.d/%i.conf
+Environment=QSUNSHINE_BIND_ADDRESS=127.0.0.1
+Environment=QSUNSHINE_PORT=47989
+# Keep credentials, pairing state and configuration isolated per guest.  The
+# XDG location is intentionally writable while ProtectHome keeps /root hidden.
+StateDirectory=q-sunshine/%i
+StateDirectoryMode=0750
+Environment=XDG_CONFIG_HOME=/var/lib/q-sunshine/%i
+UMask=0077
+ExecStart=/usr/bin/q-sunshine capture=qemu_dbus system_tray=false bind_address=${QSUNSHINE_BIND_ADDRESS} port=${QSUNSHINE_PORT}
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

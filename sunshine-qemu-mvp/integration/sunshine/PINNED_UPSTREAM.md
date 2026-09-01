@@ -20,6 +20,8 @@ patches:
     SHA-256: edc8a9580d40505c076a95ee9e2300cccc24802f5de1a5f3692e61668d6e52ec
   - patches/0006-platform-linux-add-QEMU-guest-audio-only-build.patch
     SHA-256: 91439272fc8c8f7713a560cd3071a279af873748f4c7e82f2623ac254ca76ffc
+  - patches/0007-platform-linux-close-QEMU-listener-transport-before-teardown.patch
+    SHA-256: bdef88093a2b2f00b51c7e3a06533e7e62ef8fb00d2eaa8c52b718a14f8b107b
 ```
 
 The patch is an opt-in Linux build feature: configure upstream with
@@ -44,7 +46,7 @@ REPLAY=$(mktemp -d)
 git clone --recurse-submodules https://github.com/LizardByte/Sunshine.git "$REPLAY"
 git -C "$REPLAY" checkout --detach 4f39fc116294abf8241bcd30e1b1e23d371e6e7b
 git -C "$REPLAY" submodule update --init --recursive
-git -C "$REPLAY" am "$PROJECT_ROOT"/integration/sunshine/patches/000{1,2,3,4,5,6}-*.patch
+git -C "$REPLAY" am "$PROJECT_ROOT"/integration/sunshine/patches/000{1,2,3,4,5,6,7}-*.patch
 
 # Then run the strict software/QEMU build gate against "$REPLAY".
 SUNSHINE_SOURCE_DIR="$REPLAY" \

@@ -210,7 +210,7 @@ if [[ "${1:-}" != '--inside-private-bus' ]]; then
   wayland_packages=(
     mesa-dri-gallium mesa-egl mesa-utils
     weston weston-backend-drm weston-shell-desktop weston-clients
-    wl-clipboard seatd eudev gnu-libiconv
+    wl-clipboard wayland-utils seatd eudev gnu-libiconv
   )
   wayland_package_markers=()
   for package in "${wayland_packages[@]}"; do
@@ -237,7 +237,15 @@ if [[ "${1:-}" != '--inside-private-bus' ]]; then
   grep -Fqx 'QSF_VIRGL_WAYLAND_GUEST_RESIZE_RECONFIGURE=weston-drm-restart' "$telemetry"
   grep -Fqx 'QSF_VIRGL_WAYLAND_GUEST_RESIZE_WESTON_RESTARTED' "$telemetry"
   grep -Fqx 'QSF_VIRGL_WAYLAND_GUEST_RESIZE=1280x720' "$telemetry"
+  grep -Eq '^QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_APPLIED=version=2,generation=[1-9][0-9]*,resolution=1280x720,fps=[1-9][0-9]*,bitrate_kbps=[1-9][0-9]*,video_codec=(H264|HEVC|AV1)$' \
+    "$telemetry" || die 'guest did not acknowledge a canonical negotiated profile after its Weston scanout'
+  grep -Eq '^QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_ACK_OBSERVED=generation=[1-9][0-9]*,resolution=1280x720$' \
+    "$telemetry" || die 'guest coordinator did not independently observe the exact scanout acknowledgement'
   if [[ "$QT_QSF_OWNER" == qt ]]; then
+    grep -Eq '^QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_APPLIED=version=2,generation=[1-9][0-9]*,resolution=1600x900,fps=60,bitrate_kbps=12000,video_codec=H264$' \
+      "$telemetry" || die 'guest did not acknowledge the requested fullscreen scanout after Weston restart'
+    grep -Eq '^QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_ACK_OBSERVED=generation=[1-9][0-9]*,resolution=1600x900$' \
+      "$telemetry" || die 'guest coordinator did not observe the exact fullscreen scanout acknowledgement'
     qt_summary="$OUTPUT_DIR/qsunshine-qt-e2e-summary.txt"
     [[ -f "$qt_summary" ]] || die 'Qt QSF owner did not produce its atomic success summary'
     grep -Fqx 'QSUNSHINE_QT_E2E_SUMMARY_VERSION=1' "$qt_summary"
@@ -248,12 +256,16 @@ if [[ "${1:-}" != '--inside-private-bus' ]]; then
     grep -Fqx "QSUNSHINE_QT_QSF_DOWNLOAD_SHA256=$guest_download_hash" "$qt_summary"
     grep -Fqx 'QSUNSHINE_QT_QSF_RESIZE=1280x720' "$qt_summary"
     grep -Fqx 'QSUNSHINE_QT_QSF_QEMU_SET_UI_INFO=applied' "$qt_summary"
+    grep -Fqx 'QSUNSHINE_QT_QSF_GUEST_SCANOUT_ACK=observed' "$qt_summary"
+    grep -Fqx 'QSUNSHINE_QT_QSF_FULLSCREEN_GUEST_SCANOUT_ACK=observed' "$qt_summary"
     grep -Fqx 'QSUNSHINE_QT_MOONLIGHT_WINDOWED_AND_FULLSCREEN_OK=1' "$qt_summary"
     grep -Fqx 'QSUNSHINE_QT_MOONLIGHT_INPUT_E2E_OK=1' "$qt_summary"
     grep -Fqx 'QSUNSHINE_QT_MOONLIGHT_FULLSCREEN_INPUT_E2E_OK=1' "$qt_summary"
     grep -Fqx 'QSUNSHINE_QT_QSF_FULLSCREEN_DOWNLOAD_OK=1' "$qt_summary"
   else
-    grep -Fq '"qemu_set_ui_info": "applied"' "$OUTPUT_DIR/qsf-resize.json"
+    [[ -f "$OUTPUT_DIR/qsf-connection-optimize.json" ]] || die \
+      'native QSF profile negotiation did not retain its result'
+    grep -Fq '"qemu_set_ui_info": "applied"' "$OUTPUT_DIR/qsf-connection-optimize.json"
   fi
   grep -Fqx 'codec_name=h264' "$OUTPUT_DIR/prehook-ffprobe.txt" || die 'pre-hook Display1 output is not H.264'
   grep -Fqx 'width=1280' "$OUTPUT_DIR/prehook-ffprobe.txt"
@@ -284,8 +296,9 @@ if [[ "${1:-}" != '--inside-private-bus' ]]; then
     printf 'clipboard_wayland_to_client_sha256=%s\n' "$guest_clipboard_hash"
     printf 'file_client_to_guest_sha256=%s\n' "$client_upload_hash"
     printf 'file_guest_to_client_sha256=%s\n' "$guest_download_hash"
-    printf 'resize_request=1280x720\n'
-    printf 'qemu_set_ui_info=applied\n'
+    printf 'requested_guest_scanout=1280x720\n'
+    printf 'qemu_set_ui_info=applied before guest profile commit\n'
+    printf 'guest_scanout_ack=canonical connection-profile-applied after Weston current-mode check\n'
     printf 'qsf_operation_owner=%s\n' "$QT_QSF_OWNER"
     printf 'post_agent_ready_hook=%s\n' "${POST_AGENT_READY_HOOK:+executed}"
     if [[ -n "$POST_AGENT_READY_HOOK" ]]; then
@@ -303,8 +316,8 @@ if [[ "${1:-}" != '--inside-private-bus' ]]; then
       printf '\n[qt-moonlight-hook]\n'
       cat "$OUTPUT_DIR/qsunshine-qt-moonlight-hook/trace.txt"
     else
-      printf '\n[qsf-resize]\n'
-      cat "$OUTPUT_DIR/qsf-resize.json"
+      printf '\n[qsf-connection-optimize]\n'
+      cat "$OUTPUT_DIR/qsf-connection-optimize.json"
     fi
     printf '\n[display1-probe]\n'
     cat "$OUTPUT_DIR/probe.log"
@@ -351,6 +364,21 @@ qemu_pid=''
 qemu_launcher_pid=''
 control_pid=''
 probe_pid=''
+
+read_qemu_pidfile() {
+  # QEMU intentionally writes its pidfile 0600. When this private test runs
+  # QEMU under a different permitted account (for example root solely to
+  # reach /dev/kvm), the orchestration user cannot read it directly. Ask the
+  # same account for this one already-created private path; never relax the
+  # pidfile mode or make the control endpoint public.
+  if [[ -r "$qemu_pidfile" ]]; then
+    cat -- "$qemu_pidfile"
+  elif [[ "$QEMU_USE_SUDO" == 1 ]]; then
+    sudo -n -u "$QEMU_RUN_AS" cat -- "$qemu_pidfile" 2>/dev/null
+  else
+    return 1
+  fi
+}
 
 show_logs() {
   printf '%s\n' '--- QEMU log ---' >&2
@@ -447,7 +475,10 @@ else
 fi
 qemu_launcher_pid=$!
 for _ in $(seq 1 200); do
-  [[ -s "$qemu_pidfile" ]] && { qemu_pid="$(<"$qemu_pidfile")"; break; }
+  if [[ -s "$qemu_pidfile" ]]; then
+    qemu_pid="$(read_qemu_pidfile || true)"
+    [[ "$qemu_pid" =~ ^[1-9][0-9]*$ ]] && break
+  fi
   kill -0 "$qemu_launcher_pid" 2>/dev/null || { show_logs; die 'QEMU exited before writing PID'; }
   sleep 0.05
 done
@@ -480,8 +511,20 @@ wait_marker() {
 }
 
 wait_marker 'QSF_VIRGL_WAYLAND_GUEST_AGENT_STARTED' 'verified static QSF agent startup'
-"$PYTHON_BINARY" "$QSF_CONTROL" --agent-socket "$agent_socket" --control-socket "$control_socket" \
-  --token-file "$token_file" >"$control_log" 2>&1 &
+# This disposable suite launches Sunshine with its constrained software H.264
+# encoder below.  Declare the separately tested encoder envelope explicitly
+# to qsf-control instead of treating the KVM or VirGL device nodes as a host
+# capability probe. Clear an inherited /serverinfo URL because Sunshine is
+# intentionally started later by the optional client hook.
+env -u QSUNSHINE_QSF_SUNSHINE_SERVERINFO_URL \
+  -u QSUNSHINE_QSF_SUNSHINE_SERVERINFO_CA_FILE \
+  QSUNSHINE_QSF_HOST_MAX_WIDTH=1920 \
+  QSUNSHINE_QSF_HOST_MAX_HEIGHT=1080 \
+  QSUNSHINE_QSF_HOST_MAX_FPS=60 \
+  QSUNSHINE_QSF_HOST_MAX_BITRATE_KBPS=18000 \
+  QSUNSHINE_QSF_HOST_ENCODER_CODECS=H264 \
+  "$PYTHON_BINARY" "$QSF_CONTROL" --agent-socket "$agent_socket" \
+  --control-socket "$control_socket" --token-file "$token_file" >"$control_log" 2>&1 &
 control_pid=$!
 for _ in $(seq 1 100); do
   [[ -S "$control_socket" && -f "$token_file" ]] && break
@@ -592,6 +635,10 @@ if [[ "$QT_QSF_OWNER" == qt ]]; then
     || { show_logs; die 'Qt QSF hook summary resize differs'; }
   grep -Fqx 'QSUNSHINE_QT_QSF_QEMU_SET_UI_INFO=applied' "$qt_summary" \
     || { show_logs; die 'Qt QSF hook summary lacks QEMU SetUIInfo acknowledgement'; }
+  grep -Fqx 'QSUNSHINE_QT_QSF_GUEST_SCANOUT_ACK=observed' "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary lacks guest compositor scanout acknowledgement'; }
+  grep -Fqx 'QSUNSHINE_QT_QSF_FULLSCREEN_GUEST_SCANOUT_ACK=observed' "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary lacks fullscreen guest compositor scanout acknowledgement'; }
   grep -Fqx 'QSUNSHINE_QT_MOONLIGHT_WINDOWED_AND_FULLSCREEN_OK=1' "$qt_summary" \
     || { show_logs; die 'Qt QSF hook summary lacks windowed/fullscreen attestation'; }
   grep -Fqx 'QSUNSHINE_QT_MOONLIGHT_INPUT_E2E_OK=1' "$qt_summary" \
@@ -610,8 +657,38 @@ else
   wait_marker "QSF_VIRGL_WAYLAND_GUEST_UPLOAD_SHA256=$client_upload_hash" 'client-to-guest upload hash'
   qsf_client download guest-download.txt "$output_dir/client-downloaded-guest-file.txt" >"$output_dir/qsf-download.json"
   wait_marker "QSF_VIRGL_WAYLAND_GUEST_QSF_DOWNLOAD_SHA256=$guest_download_hash" 'guest-to-client download hash'
-  qsf_client resize 1280 720 >"$output_dir/qsf-resize.json"
-  wait_marker 'QSF_VIRGL_WAYLAND_GUEST_RESIZE=1280x720' 'guest QSF resize state'
+  # The client-selected geometry is a request for the VirGL scanout.  This
+  # transaction is deliberately not the legacy RESIZE shortcut: qsf-control
+  # first resolves client decoder / host encoder / guest display limits, asks
+  # QEMU for the virtual mode, then waits for the guest's canonical scanout
+  # acknowledgement before returning to a reconnecting client.
+  qsf_client optimize-connection --resolution 1280x720 --max-fps 60 --decoder-codecs H264 \
+    >"$output_dir/qsf-connection-optimize.json"
+  "$PYTHON_BINARY" - "$output_dir/qsf-connection-optimize.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    profile = json.load(source)
+expected = {
+    "version": 2,
+    "requested_width": 1280,
+    "requested_height": 720,
+    "width": 1280,
+    "height": 720,
+    "fps": 60,
+    "bitrate_kbps": 8000,
+    "video_codec": "H.264",
+    "qemu_set_ui_info": "applied",
+}
+for name, value in expected.items():
+    if profile.get(name) != value:
+        raise SystemExit(f"unexpected negotiated {name}: {profile.get(name)!r}")
+generation = profile.get("guest_profile_generation")
+if not isinstance(generation, str) or not generation.isdecimal() or int(generation) < 1:
+    raise SystemExit(f"invalid guest profile generation: {generation!r}")
+PY
+  wait_marker 'QSF_VIRGL_WAYLAND_GUEST_RESIZE=1280x720' 'guest negotiated scanout state'
 fi
 wait_marker 'QSF_VIRGL_WAYLAND_GUEST_VIRGL_OK' 'Weston VirGL workload start'
 set +e
@@ -629,6 +706,7 @@ shopt -u nullglob
 : > "$output_dir/ffprobe.txt"
 saw_live_1280x800=0
 saw_ordered_1280x720=0
+saw_ordered_1600x900=0
 for segment in "${segments[@]}"; do
   [[ -s "$segment" ]] || continue
   printf '[%s]\n' "$(basename "$segment")" >> "$output_dir/ffprobe.txt"
@@ -643,7 +721,19 @@ for segment in "${segments[@]}"; do
       saw_ordered_1280x720=1
     fi
   fi
+  if [[ "$QT_QSF_OWNER" == qt && "$saw_ordered_1280x720" == 1 ]] && \
+      grep -Fqx 'codec_name=h264' <<<"$segment_probe" && \
+      grep -Fqx 'width=1600' <<<"$segment_probe" && \
+      grep -Fqx 'height=900' <<<"$segment_probe"; then
+    saw_ordered_1600x900=1
+  fi
 done
 [[ "$saw_live_1280x800" == 1 ]] || die 'live Display1 trace did not contain H.264 1280x800 before resize'
 [[ "$saw_ordered_1280x720" == 1 ]] || die 'live Display1 trace did not contain ordered H.264 1280x800 then 1280x720 segments'
-printf '%s\n' '1280x800->1280x720' > "$output_dir/live-h264-geometry-order.txt"
+if [[ "$QT_QSF_OWNER" == qt ]]; then
+  [[ "$saw_ordered_1600x900" == 1 ]] || die \
+    'live Display1 trace did not contain ordered H.264 1280x800 then 1280x720 then 1600x900 segments'
+  printf '%s\n' '1280x800->1280x720->1600x900' > "$output_dir/live-h264-geometry-order.txt"
+else
+  printf '%s\n' '1280x800->1280x720' > "$output_dir/live-h264-geometry-order.txt"
+fi

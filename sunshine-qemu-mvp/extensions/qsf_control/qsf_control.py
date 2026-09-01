@@ -25,11 +25,16 @@ import re
 import secrets
 import socket
 import socketserver
+import ssl
 import stat
 import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as xml_etree
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -39,12 +44,50 @@ MAX_CLIPBOARD_BYTES = 1024 * 1024
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_CONTROL_LINE = 4 * 1024 * 1024
 MAX_AGENT_LINE = 4 * 1024 * 1024
-REQUEST_TIMEOUT_SECONDS = 8.0
+# A normal command on the guest virtio-serial channel has its own bounded
+# response window.  Keep the historical public name for callers such as the
+# local control service, but do not use it as the budget for a multi-step
+# display-profile transaction below.
+AGENT_REQUEST_TIMEOUT_SECONDS = 35.0
+REQUEST_TIMEOUT_SECONDS = AGENT_REQUEST_TIMEOUT_SECONDS
+# The guest may spend as long as 60 seconds restarting its compositor and
+# proving a new VirGL scanout.  connection_optimize consists of several agent
+# round trips plus an optional Sunshine probe and QEMU SetUIInfo call, so all
+# of them share one absolute deadline with a small scheduling margin.  Giving
+# every hop a fresh 35-second timer would otherwise permit an unbounded chain
+# and let an older profile race a newer one.
+PROFILE_TRANSACTION_TIMEOUT_SECONDS = 75.0
+QEMU_SET_UI_INFO_TIMEOUT_SECONDS = 5.0
 SAFE_FILE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+CAPABILITY_PROTOCOL_VERSION = 2
+MIN_CAPABILITY_WIDTH = 64
+MAX_CAPABILITY_WIDTH = 16384
+MIN_CAPABILITY_HEIGHT = 64
+MAX_CAPABILITY_HEIGHT = 16384
+MIN_CAPABILITY_FPS = 10
+MAX_CAPABILITY_FPS = 240
+MIN_CAPABILITY_BITRATE_KBPS = 500
+MAX_CAPABILITY_BITRATE_KBPS = 500000
+SUPPORTED_VIDEO_CODECS = frozenset({"H264", "HEVC", "AV1"})
+SUNSHINE_SERVERINFO_MAX_BYTES = 256 * 1024
+SUNSHINE_SERVERINFO_TIMEOUT_SECONDS = 3
 
 
 class ControlError(RuntimeError):
     """A request rejected by the QSF control boundary."""
+
+
+def audit_connection_profile(stage: str, **fields: object) -> None:
+    """Emit bounded, non-secret negotiation evidence for an operator trace.
+
+    Clipboard text, file names/data, the local token, TLS material, and QEMU
+    replies are deliberately excluded. A selected virtual scanout and codec
+    are necessary to diagnose a user-requested profile transition, including
+    the fullscreen handoff, and are not credentials.
+    """
+    rendered = " ".join(f"{key}={value}" for key, value in fields.items())
+    print(f"qsf-control: connection-profile stage={stage} {rendered}",
+          file=sys.stderr, flush=True)
 
 
 def decode_b64(value: Any, limit: int, label: str) -> bytes:
@@ -87,6 +130,219 @@ def require_file_name(value: Any) -> str:
     if value in {".", ".."} or ".." in value:
         raise ControlError("file name may not contain traversal")
     return value
+
+
+def _bounded_environment_int(name: str, minimum: int, maximum: int, default: int) -> int:
+    """Read an intentional operator cap, never a free-form capability value."""
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return default
+    if not value.isascii() or not value.isdecimal():
+        raise ControlError(f"{name} must be a decimal integer in {minimum}..{maximum}")
+    parsed = int(value, 10)
+    if not minimum <= parsed <= maximum:
+        raise ControlError(f"{name} must be in {minimum}..{maximum}")
+    return parsed
+
+
+def _codec_list(value: Any, label: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or not 1 <= len(value) <= len(SUPPORTED_VIDEO_CODECS):
+        raise ControlError(f"{label} must contain one to three codec names")
+    codecs: list[str] = []
+    for codec in value:
+        if not isinstance(codec, str) or codec not in SUPPORTED_VIDEO_CODECS or codec in codecs:
+            raise ControlError(f"{label} contains an unsupported or duplicate codec")
+        codecs.append(codec)
+    return tuple(codecs)
+
+
+def _codec_list_environment(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    value = os.environ.get(name)
+    if value is None or value == "":
+        return default
+    if not value.isascii():
+        raise ControlError(f"{name} must be comma-separated ASCII codec names")
+    return _codec_list(value.split(","), name)
+
+
+def _require_bounded_object_integer(payload: dict[str, Any], name: str,
+                                    minimum: int, maximum: int) -> int:
+    value = payload.get(name)
+    if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+        raise ControlError(f"{name} must be an integer in {minimum}..{maximum}")
+    return value
+
+
+def client_stream_capabilities(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate the bounded receiver information supplied by the Qt client."""
+    client = payload.get("client")
+    if not isinstance(client, dict):
+        raise ControlError("connection_optimize requires a client capability object")
+    return {
+        # This is the size explicitly selected in the client UI. It is an
+        # upper bound for the virtual guest scanout, not a host guess.
+        "requested_width": _require_bounded_object_integer(
+            client, "requested_width", MIN_CAPABILITY_WIDTH, MAX_CAPABILITY_WIDTH),
+        "requested_height": _require_bounded_object_integer(
+            client, "requested_height", MIN_CAPABILITY_HEIGHT, MAX_CAPABILITY_HEIGHT),
+        "max_fps": _require_bounded_object_integer(
+            client, "max_fps", MIN_CAPABILITY_FPS, MAX_CAPABILITY_FPS),
+        # Codec names are a capability claim only; no OS/GPU model, driver,
+        # screen identifier, or raw display inventory crosses this boundary.
+        "decoder_codecs": _codec_list(client.get("decoder_codecs"), "client.decoder_codecs"),
+    }
+
+
+def _serverinfo_codec_mask(xml_payload: bytes) -> int:
+    """Extract Sunshine's published, actual encoder codec mask from XML."""
+    try:
+        root = xml_etree.fromstring(xml_payload)
+    except xml_etree.ParseError as error:
+        raise ControlError("Sunshine /serverinfo returned invalid XML") from error
+    for element in root.iter():
+        if element.tag.rsplit("}", 1)[-1] != "ServerCodecModeSupport":
+            continue
+        value = (element.text or "").strip()
+        if not value.isascii() or not value.isdecimal():
+            break
+        return int(value, 10)
+    raise ControlError("Sunshine /serverinfo did not publish ServerCodecModeSupport")
+
+
+def _local_serverinfo_url() -> str | None:
+    """Accept only a root-configured loopback /serverinfo endpoint.
+
+    The broker never follows a client-supplied URL.  Keeping this request on
+    loopback also avoids turning an optimisation click into a generic SSRF
+    primitive when an operator makes a typo in the instance environment.
+    """
+    value = os.environ.get("QSUNSHINE_QSF_SUNSHINE_SERVERINFO_URL", "").strip()
+    if not value:
+        return None
+    parsed = urllib.parse.urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or parsed.username or parsed.password or \
+            parsed.query or parsed.fragment or parsed.path != "/serverinfo" or \
+            parsed.hostname not in {"127.0.0.1", "::1", "localhost"}:
+        raise ControlError(
+            "QSUNSHINE_QSF_SUNSHINE_SERVERINFO_URL must be a loopback http(s) /serverinfo URL")
+    return value
+
+
+def _remaining_deadline_seconds(deadline: float, error: str) -> float:
+    """Return the remaining monotonic budget or fail before starting work."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise ControlError(error)
+    return remaining
+
+
+def _sunshine_serverinfo_encoder_codecs(
+        *, deadline: float | None = None) -> tuple[str, ...] | None:
+    """Query only Sunshine's proven codec mask, never throughput guesses."""
+    url = _local_serverinfo_url()
+    if url is None:
+        return None
+    context: ssl.SSLContext | None = None
+    if url.startswith("https:"):
+        ca_file = os.environ.get("QSUNSHINE_QSF_SUNSHINE_SERVERINFO_CA_FILE", "").strip()
+        if not ca_file:
+            raise ControlError(
+                "QSUNSHINE_QSF_SUNSHINE_SERVERINFO_CA_FILE is required for an HTTPS /serverinfo probe")
+        try:
+            context = ssl.create_default_context(cafile=ca_file)
+        except (OSError, ssl.SSLError) as error:
+            raise ControlError("cannot load the Sunshine /serverinfo CA file") from error
+    timeout = SUNSHINE_SERVERINFO_TIMEOUT_SECONDS
+    if deadline is not None:
+        timeout = min(timeout, _remaining_deadline_seconds(
+            deadline, "connection profile transaction timed out"))
+    try:
+        with urllib.request.urlopen(url, timeout=timeout, context=context) as response:
+            payload = response.read(SUNSHINE_SERVERINFO_MAX_BYTES + 1)
+    except (OSError, urllib.error.URLError, ssl.SSLError) as error:
+        raise ControlError("cannot query Sunshine /serverinfo encoder capabilities") from error
+    if len(payload) > SUNSHINE_SERVERINFO_MAX_BYTES:
+        raise ControlError("Sunshine /serverinfo response exceeds its size limit")
+    mode_support = _serverinfo_codec_mask(payload)
+    codecs: list[str] = []
+    # These constants are the public moonlight-common ServerCodecModeSupport
+    # bits. They indicate codecs Sunshine actually accepted in its encoder
+    # probe; they do not state a maximum resolution, FPS, or bitrate.
+    if mode_support & 0x00000001:
+        codecs.append("H264")
+    if mode_support & 0x00000100:
+        codecs.append("HEVC")
+    if mode_support & (0x00010000 | 0x00020000):
+        codecs.append("AV1")
+    if not codecs:
+        raise ControlError("Sunshine /serverinfo reported no usable encoder codec")
+    return tuple(codecs)
+
+
+def detected_host_encoder_capabilities(
+        *, deadline: float | None = None) -> dict[str, Any]:
+    """Read the verified per-VM Sunshine encoder envelope.
+
+    Presence of /dev/nvidia*, a render node, CPU count, or KVM says nothing
+    about the encoder that Sunshine actually probed.  This service therefore
+    never turns a device node into a codec claim.  The envelope must be
+    supplied from a tested Sunshine/ServerCodecModeSupport deployment; the
+    H.264 software-safe default is intentionally conservative.
+    """
+    envelope = {
+        "max_width": _bounded_environment_int("QSUNSHINE_QSF_HOST_MAX_WIDTH",
+                                               MIN_CAPABILITY_WIDTH, MAX_CAPABILITY_WIDTH,
+                                               1920),
+        "max_height": _bounded_environment_int("QSUNSHINE_QSF_HOST_MAX_HEIGHT",
+                                                MIN_CAPABILITY_HEIGHT, MAX_CAPABILITY_HEIGHT,
+                                                1080),
+        "max_fps": _bounded_environment_int("QSUNSHINE_QSF_HOST_MAX_FPS",
+                                             MIN_CAPABILITY_FPS, MAX_CAPABILITY_FPS, 60),
+        "max_bitrate_kbps": _bounded_environment_int(
+            "QSUNSHINE_QSF_HOST_MAX_BITRATE_KBPS", MIN_CAPABILITY_BITRATE_KBPS,
+            MAX_CAPABILITY_BITRATE_KBPS, 18000),
+        "encoder_codecs": _codec_list_environment(
+            "QSUNSHINE_QSF_HOST_ENCODER_CODECS", ("H264",)),
+    }
+    probed_codecs = _sunshine_serverinfo_encoder_codecs(deadline=deadline)
+    if probed_codecs is not None:
+        envelope["encoder_codecs"] = tuple(
+            codec for codec in envelope["encoder_codecs"] if codec in probed_codecs)
+        if not envelope["encoder_codecs"]:
+            raise ControlError(
+                "the tested host encoder envelope and Sunshine /serverinfo have no common codec")
+    return envelope
+
+
+def _recommended_bitrate_kbps(width: int, height: int, fps: int, maximum: int) -> int:
+    """Choose a bounded quality target from the resolved stream geometry."""
+    pixels_per_second = width * height * fps
+    if pixels_per_second >= 3840 * 2160 * 50:
+        preferred = 45000
+    elif pixels_per_second >= 2560 * 1440 * 50:
+        preferred = 28000
+    elif pixels_per_second >= 1920 * 1080 * 50:
+        preferred = 18000
+    elif pixels_per_second >= 1600 * 900 * 50:
+        preferred = 12000
+    else:
+        preferred = 8000
+    return max(MIN_CAPABILITY_BITRATE_KBPS, min(maximum, preferred))
+
+
+def _fit_resolution(width: int, height: int, maximum_width: int,
+                    maximum_height: int) -> tuple[int, int]:
+    """Preserve the user-selected aspect ratio when a pair has a lower cap."""
+    scale = min(1.0, maximum_width / width, maximum_height / height)
+    fitted_width = max(MIN_CAPABILITY_WIDTH, int(width * scale))
+    fitted_height = max(MIN_CAPABILITY_HEIGHT, int(height * scale))
+    # Every GameStream codec we advertise needs even luma dimensions. Keep
+    # them inside the negotiated bounds after rounding down.
+    fitted_width = min(maximum_width, fitted_width - (fitted_width % 2))
+    fitted_height = min(maximum_height, fitted_height - (fitted_height % 2))
+    if fitted_width < MIN_CAPABILITY_WIDTH or fitted_height < MIN_CAPABILITY_HEIGHT:
+        raise ControlError("the host/guest display envelope cannot represent the requested stream size")
+    return fitted_width, fitted_height
 
 
 class AgentChannel:
@@ -158,17 +414,33 @@ class AgentChannel:
             with self._condition:
                 self._condition.notify_all()
 
-    def request(self, command: str, expected_prefix: str) -> str:
+    def request(self, command: str, expected_prefix: str,
+                *, deadline: float | None = None) -> str:
+        """Send one serialized command before an optional absolute deadline.
+
+        A profile transaction deliberately passes the same monotonic deadline
+        to every command.  Acquiring this channel's ordinary request lock is
+        part of that budget too: a busy clipboard poll must not extend a
+        display reconfiguration past the lifetime reported to the client.
+        """
         if "\n" in command or "\r" in command:
             raise ControlError("invalid agent command")
-        with self._request_lock:
+        if deadline is None:
+            deadline = time.monotonic() + AGENT_REQUEST_TIMEOUT_SECONDS
+            timeout_error = "timed out waiting for guest agent"
+        else:
+            timeout_error = "connection profile transaction timed out"
+        lock_wait = _remaining_deadline_seconds(deadline, timeout_error)
+        if not self._request_lock.acquire(timeout=lock_wait):
+            raise ControlError(timeout_error)
+        try:
             if self._closed.is_set():
                 raise ControlError("guest agent transport is closed")
+            _remaining_deadline_seconds(deadline, timeout_error)
             try:
                 self._socket.sendall(command.encode("ascii") + b"\n")
             except OSError as error:
                 raise ControlError("cannot write to guest agent") from error
-            deadline = time.monotonic() + REQUEST_TIMEOUT_SECONDS
             with self._condition:
                 while True:
                     if self._responses:
@@ -182,8 +454,10 @@ class AgentChannel:
                         continue
                     remaining = deadline - time.monotonic()
                     if remaining <= 0 or self._closed.is_set():
-                        raise ControlError("timed out waiting for guest agent")
+                        raise ControlError(timeout_error)
                     self._condition.wait(remaining)
+        finally:
+            self._request_lock.release()
 
 
 class Broker:
@@ -195,6 +469,13 @@ class Broker:
         self._clipboard_generation = 0
         self._agent = AgentChannel(agent_socket, self._set_guest_clipboard)
         self._enable_qemu_resize = enable_qemu_resize
+        # AgentChannel only serializes an individual virtio-serial request.
+        # A display change is a larger state transition (guest capabilities,
+        # QEMU scanout, commit, and compositor acknowledgement), so protect
+        # it with one independent lock.  This also prevents legacy resize
+        # requests from replacing the scanout in the middle of a negotiated
+        # connection profile.
+        self._display_transaction_lock = threading.Lock()
 
     def close(self) -> None:
         self._agent.close()
@@ -218,7 +499,8 @@ class Broker:
     def _mm_for_pixels(pixels: int) -> int:
         return max(1, min(65535, round(pixels * 25.4 / 96.0)))
 
-    def _set_qemu_ui_info(self, width: int, height: int) -> str:
+    def _set_qemu_ui_info(self, width: int, height: int,
+                          *, deadline: float | None = None) -> str:
         if not self._enable_qemu_resize:
             return "disabled"
         command = [
@@ -228,6 +510,10 @@ class Broker:
             str(self._mm_for_pixels(width)), str(self._mm_for_pixels(height)),
             "0", "0", str(width), str(height),
         ]
+        timeout = QEMU_SET_UI_INFO_TIMEOUT_SECONDS
+        if deadline is not None:
+            timeout = min(timeout, _remaining_deadline_seconds(
+                deadline, "connection profile transaction timed out"))
         try:
             result = subprocess.run(
                 command,
@@ -235,7 +521,7 @@ class Broker:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                timeout=5,
+                timeout=timeout,
                 env=os.environ.copy(),
             )
         except (OSError, subprocess.TimeoutExpired) as error:
@@ -244,6 +530,177 @@ class Broker:
             detail = result.stdout.strip().replace("\n", " ")[:300]
             raise ControlError(f"QEMU SetUIInfo failed: {detail}")
         return "applied"
+
+    @staticmethod
+    def _guest_display_capabilities(response: str) -> dict[str, int]:
+        fields = response.split(" ")
+        if len(fields) != 5 or fields[0] != "GUEST_CAPABILITIES_REQUEST" or \
+                fields[1] != str(CAPABILITY_PROTOCOL_VERSION):
+            raise ControlError("guest agent returned malformed display capabilities")
+        try:
+            if any(not value.isascii() or not value.isdecimal() for value in fields[2:]):
+                raise ValueError
+            width, height, fps = (int(fields[2], 10), int(fields[3], 10), int(fields[4], 10))
+        except ValueError as error:
+            raise ControlError("guest agent returned non-numeric display capabilities") from error
+        if not (MIN_CAPABILITY_WIDTH <= width <= MAX_CAPABILITY_WIDTH and
+                MIN_CAPABILITY_HEIGHT <= height <= MAX_CAPABILITY_HEIGHT and
+                MIN_CAPABILITY_FPS <= fps <= MAX_CAPABILITY_FPS):
+            raise ControlError("guest agent returned display capabilities outside the protocol range")
+        return {"max_width": width, "max_height": height, "max_fps": fps}
+
+    @staticmethod
+    def _connection_profile(response: str, prefix: str,
+                            pair_capabilities: dict[str, Any]) -> dict[str, Any]:
+        fields = response.split(" ")
+        if len(fields) != 8 or fields[0] != prefix:
+            raise ControlError("guest agent returned a malformed connection profile")
+        version, generation_text, width_text, height_text, fps_text, bitrate_text, codec = fields[1:]
+        if version != str(CAPABILITY_PROTOCOL_VERSION) or codec not in SUPPORTED_VIDEO_CODECS:
+            raise ControlError("guest agent returned an unsupported connection profile")
+        try:
+            if any(not value.isascii() or not value.isdecimal()
+                   for value in (generation_text, width_text, height_text, fps_text, bitrate_text)):
+                raise ValueError
+            generation, width, height, fps, bitrate_kbps = (
+                int(generation_text, 10), int(width_text, 10), int(height_text, 10),
+                int(fps_text, 10), int(bitrate_text, 10)
+            )
+        except ValueError as error:
+            raise ControlError("guest agent returned non-numeric connection profile limits") from error
+        if not (1 <= generation <= (2 ** 64 - 1) and
+                width == pair_capabilities["max_width"] and
+                height == pair_capabilities["max_height"] and
+                fps == pair_capabilities["max_fps"] and
+                bitrate_kbps == pair_capabilities["max_bitrate_kbps"] and
+                codec == pair_capabilities["video_codec"]):
+            raise ControlError("guest agent returned a profile outside the negotiated pair capability")
+        return {
+            "version": CAPABILITY_PROTOCOL_VERSION,
+            "generation": generation,
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "bitrate_kbps": bitrate_kbps,
+            # The public JSON spelling is exactly what stock Moonlight expects.
+            "video_codec": "H.264" if codec == "H264" else codec,
+        }
+
+    @staticmethod
+    def _profile_command(command: str, profile: dict[str, Any]) -> str:
+        """Build an exact bounded command from an already validated profile."""
+        codec = "H264" if profile["video_codec"] == "H.264" else profile["video_codec"]
+        return (
+            f"{command} {CAPABILITY_PROTOCOL_VERSION} {profile['generation']} "
+            f"{profile['width']} {profile['height']} {profile['fps']} "
+            f"{profile['bitrate_kbps']} {codec}"
+        )
+
+    def _acquire_display_transaction(self) -> None:
+        """Fail fast instead of allowing two display generations to overlap."""
+        if not self._display_transaction_lock.acquire(blocking=False):
+            raise ControlError("another display profile transaction is already in progress")
+
+    def optimize_connection(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Resolve client decoder, host encoder, and VirGL scanout constraints.
+
+        The lock spans every display-affecting operation.  In particular, the
+        previous AgentChannel lock was released between PAIR, SetUIInfo,
+        COMMIT, and AWAIT, which allowed another optimize or legacy resize to
+        replace the exact guest profile being acknowledged.
+        """
+        client = client_stream_capabilities(payload)
+        self._acquire_display_transaction()
+        deadline = time.monotonic() + PROFILE_TRANSACTION_TIMEOUT_SECONDS
+        try:
+            audit_connection_profile(
+                "requested",
+                requested=f"{client['requested_width']}x{client['requested_height']}",
+                max_fps=client["max_fps"], codecs=",".join(client["decoder_codecs"]),
+            )
+            request = self._agent.request(
+                "CONNECTION_OPTIMIZE", "GUEST_CAPABILITIES_REQUEST ", deadline=deadline)
+            guest = self._guest_display_capabilities(request)
+            host = detected_host_encoder_capabilities(deadline=deadline)
+            common_codecs = set(client["decoder_codecs"]).intersection(host["encoder_codecs"])
+            codec = next((candidate for candidate in ("AV1", "HEVC", "H264")
+                          if candidate in common_codecs), None)
+            if codec is None:
+                raise ControlError("client decoder and Sunshine encoder have no common codec")
+            width, height = _fit_resolution(
+                client["requested_width"], client["requested_height"],
+                min(host["max_width"], guest["max_width"]),
+                min(host["max_height"], guest["max_height"]),
+            )
+            pair_capabilities = {
+                "max_width": width,
+                "max_height": height,
+                "max_fps": min(client["max_fps"], host["max_fps"], guest["max_fps"]),
+                "max_bitrate_kbps": 0,
+                "video_codec": codec,
+            }
+            pair_capabilities["max_bitrate_kbps"] = _recommended_bitrate_kbps(
+                width, height, pair_capabilities["max_fps"], host["max_bitrate_kbps"])
+            accepted_response = self._agent.request(
+                "PAIR_CAPABILITIES "
+                f"{CAPABILITY_PROTOCOL_VERSION} {pair_capabilities['max_width']} "
+                f"{pair_capabilities['max_height']} {pair_capabilities['max_fps']} "
+                f"{pair_capabilities['max_bitrate_kbps']} {pair_capabilities['video_codec']}",
+                "CONNECTION_PROFILE_ACCEPTED ", deadline=deadline,
+            )
+            accepted = self._connection_profile(
+                accepted_response, "CONNECTION_PROFILE_ACCEPTED", pair_capabilities)
+            audit_connection_profile(
+                "accepted",
+                generation=accepted["generation"],
+                resolution=f"{accepted['width']}x{accepted['height']}",
+                fps=accepted["fps"], bitrate_kbps=accepted["bitrate_kbps"],
+                codec=accepted["video_codec"],
+            )
+            # SetUIInfo is advisory to QEMU, but it must be requested before
+            # the guest desktop starts applying the profile.  The following
+            # explicit acknowledgement is authoritative: it comes only after
+            # the guest's actual VirGL scanout/compositor adapter completed.
+            qemu_set_ui_info = self._set_qemu_ui_info(
+                accepted["width"], accepted["height"], deadline=deadline)
+            audit_connection_profile(
+                "qemu-requested",
+                generation=accepted["generation"],
+                resolution=f"{accepted['width']}x{accepted['height']}",
+                qemu_set_ui_info=qemu_set_ui_info,
+            )
+            pending_response = self._agent.request(
+                self._profile_command("COMMIT_CONNECTION_PROFILE", accepted),
+                "CONNECTION_PROFILE_PENDING ", deadline=deadline,
+            )
+            pending = self._connection_profile(
+                pending_response, "CONNECTION_PROFILE_PENDING", pair_capabilities)
+            if pending != accepted:
+                raise ControlError("guest agent changed a profile between acceptance and commit")
+            applied_response = self._agent.request(
+                self._profile_command("AWAIT_CONNECTION_PROFILE", accepted),
+                "CONNECTION_PROFILE ", deadline=deadline,
+            )
+            profile = self._connection_profile(
+                applied_response, "CONNECTION_PROFILE", pair_capabilities)
+            if profile != accepted:
+                raise ControlError("guest agent acknowledged a different applied profile")
+            audit_connection_profile(
+                "guest-applied",
+                generation=profile["generation"],
+                resolution=f"{profile['width']}x{profile['height']}",
+                fps=profile["fps"], bitrate_kbps=profile["bitrate_kbps"],
+                codec=profile["video_codec"],
+            )
+            profile["requested_width"] = client["requested_width"]
+            profile["requested_height"] = client["requested_height"]
+            # JSON numbers cannot represent every uint64_t exactly in Qt/JS.
+            # Keep the transaction identifier textual at the public boundary.
+            profile["guest_profile_generation"] = str(profile.pop("generation"))
+            profile["qemu_set_ui_info"] = qemu_set_ui_info
+            return profile
+        finally:
+            self._display_transaction_lock.release()
 
     def dispatch(self, payload: dict[str, Any]) -> dict[str, Any]:
         operation = payload.get("op")
@@ -278,9 +735,15 @@ class Broker:
             return {"name": name, "data_b64": encode_b64(data), "bytes": len(data)}
         if operation == "resize":
             width, height = self._dimensions(payload)
-            self._agent.request(f"RESIZE {width} {height}", "OK RESIZE")
-            qemu = self._set_qemu_ui_info(width, height)
-            return {"width": width, "height": height, "qemu_set_ui_info": qemu}
+            self._acquire_display_transaction()
+            try:
+                self._agent.request(f"RESIZE {width} {height}", "OK RESIZE")
+                qemu = self._set_qemu_ui_info(width, height)
+                return {"width": width, "height": height, "qemu_set_ui_info": qemu}
+            finally:
+                self._display_transaction_lock.release()
+        if operation == "connection_optimize":
+            return self.optimize_connection(payload)
         raise ControlError("unknown operation")
 
 

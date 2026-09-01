@@ -8,6 +8,7 @@
 // video QSF activation boundary while making it automatable.
 
 #include "moonlightcontroller.h"
+#include "profilenegotiationcoordinator.h"
 #include "qsfclient.h"
 
 #include <QClipboard>
@@ -53,6 +54,12 @@ struct Arguments {
     QString receivedClipboardDestination;
     int resizeWidth = 0;
     int resizeHeight = 0;
+    int expectedNegotiatedFps = 0;
+    int expectedNegotiatedBitrateKbps = 0;
+    QString expectedNegotiatedVideoCodec;
+    int expectedFullscreenFps = 0;
+    int expectedFullscreenBitrateKbps = 0;
+    QString expectedFullscreenVideoCodec;
     int timeoutMs = 300000;
     QString phaseDirectory;
     QString moonlightLog;
@@ -127,6 +134,7 @@ public:
           m_Arguments(std::move(arguments)),
           m_Qsf(this),
           m_Moonlight(this),
+          m_ProfileNegotiation(&m_Qsf, &m_Moonlight, this),
           m_Clipboard(QGuiApplication::clipboard())
     {
         m_PhasePoll.setInterval(100);
@@ -147,11 +155,13 @@ public:
         connect(&m_Moonlight, &MoonlightController::streamTeardownStarted,
                 this, [this]() {
                     m_Qsf.setSessionActive(false);
-                    const QString marker = m_Phase == Phase::ReconnectingFullscreen
-                        ? QStringLiteral("qsf-deactivated-for-reconnect")
-                        : (m_Phase == Phase::Stopping
-                               ? QStringLiteral("qsf-deactivated-for-stop")
-                               : QStringLiteral("qsf-deactivated"));
+                    const QString marker = m_Phase == Phase::QuiescingNegotiated
+                        ? QStringLiteral("qsf-deactivated-for-negotiated-profile")
+                        : (m_Phase == Phase::QuiescingFullscreen
+                               ? QStringLiteral("qsf-deactivated-for-fullscreen-profile")
+                               : (m_Phase == Phase::Stopping
+                                      ? QStringLiteral("qsf-deactivated-for-stop")
+                                      : QStringLiteral("qsf-deactivated")));
                     if (!writePhase(marker)) {
                         return;
                     }
@@ -177,15 +187,24 @@ public:
                 this, [this]() { onClipboardSent(); });
         connect(&m_Qsf, &QsfClient::fileTransferFinished,
                 this, [this](const QString& description) { onFileTransfer(description); });
-        connect(&m_Qsf, &QsfClient::resizeApplied,
-                this, [this](int width, int height, bool qemuApplied) {
-                    onResizeApplied(width, height, qemuApplied);
+        connect(&m_Qsf, &QsfClient::connectionProfileReceived,
+                this, [this](int width, int height, int fps, int bitrateKbps,
+                             const QString& videoCodec, bool qemuApplied) {
+                    onConnectionProfileReceived(width, height, fps, bitrateKbps,
+                                                videoCodec, qemuApplied);
                 });
         connect(&m_Qsf, &QsfClient::lastErrorChanged, this, [this]() {
             if (!m_Qsf.lastError().isEmpty()) {
                 fail(QStringLiteral("QSF client: %1").arg(m_Qsf.lastError()));
             }
         });
+        connect(&m_ProfileNegotiation, &ProfileNegotiationCoordinator::lastErrorChanged,
+                this, [this]() {
+                    if (!m_ProfileNegotiation.lastError().isEmpty()) {
+                        fail(QStringLiteral("profile coordinator: %1")
+                                 .arg(m_ProfileNegotiation.lastError()));
+                    }
+                });
         connect(&m_Application, &QGuiApplication::aboutToQuit, this, [this]() {
             m_Qsf.setSessionActive(false);
             m_Moonlight.cancelPairing();
@@ -242,6 +261,9 @@ public:
             return;
         }
         for (const QString& marker : {QStringLiteral("activate-windowed"),
+                                      QStringLiteral("negotiated-video-verified"),
+                                      QStringLiteral("activate-negotiated-qsf"),
+                                      QStringLiteral("activate-fullscreen-profile"),
                                       QStringLiteral("activate-fullscreen")}) {
             if (phaseRequested(marker)) {
                 fail(QStringLiteral("stale harness marker exists: %1").arg(marker));
@@ -305,8 +327,18 @@ private:
         AwaitInitialClientClipboardAck,
         AwaitGuestClipboard,
         AwaitDataOperations,
-        AwaitFullscreenReconnectGate,
-        ReconnectingFullscreen,
+        QuiescingNegotiated,
+        AwaitNegotiatedProfileQsfReady,
+        AwaitNegotiatedProfile,
+        LaunchingNegotiated,
+        AwaitNegotiatedVerification,
+        AwaitNegotiatedQsfActivation,
+        AwaitNegotiatedQsfReady,
+        AwaitFullscreenProfileActivation,
+        QuiescingFullscreen,
+        AwaitFullscreenProfileQsfReady,
+        AwaitFullscreenProfile,
+        LaunchingFullscreen,
         AwaitFullscreenVerification,
         AwaitFullscreenQsfReady,
         AwaitFullscreenDownload,
@@ -377,6 +409,24 @@ private:
             m_Phase = Phase::AwaitWindowedQsfReady;
             m_Qsf.setSessionActive(true);
         }
+        else if (m_Phase == Phase::AwaitNegotiatedVerification &&
+                 phaseRequested(QStringLiteral("negotiated-video-verified"))) {
+            if (!writePhase(QStringLiteral("negotiated-video-verification-accepted"))) {
+                return;
+            }
+            // The replacement video is now visible, so model the explicit
+            // product boundary again: activate QSF for this visible stream
+            // before asking it to change the next fullscreen scanout.
+            m_Phase = Phase::AwaitNegotiatedQsfActivation;
+        }
+        else if (m_Phase == Phase::AwaitNegotiatedQsfActivation &&
+                 phaseRequested(QStringLiteral("activate-negotiated-qsf"))) {
+            if (!writePhase(QStringLiteral("negotiated-qsf-activation-accepted"))) {
+                return;
+            }
+            m_Phase = Phase::AwaitNegotiatedQsfReady;
+            m_Qsf.setSessionActive(true);
+        }
         else if (m_Phase == Phase::AwaitFullscreenVerification &&
             phaseRequested(QStringLiteral("activate-fullscreen"))) {
             if (!writePhase(QStringLiteral("fullscreen-activation-accepted"))) {
@@ -385,19 +435,28 @@ private:
             m_Phase = Phase::AwaitFullscreenQsfReady;
             m_Qsf.setSessionActive(true);
         }
-        else if (m_Phase == Phase::AwaitFullscreenReconnectGate &&
-                 phaseRequested(QStringLiteral("begin-fullscreen-reconnect"))) {
-            if (!writePhase(QStringLiteral("fullscreen-reconnect-accepted"))) {
+        else if (m_Phase == Phase::AwaitFullscreenProfileActivation &&
+                 phaseRequested(QStringLiteral("activate-fullscreen-profile"))) {
+            // This mirrors Save profile in the production Qt UI. It records
+            // the future fullscreen presentation, then the coordinator
+            // retires the currently visible stream before QSF changes the
+            // guest scanout.
+            if (!m_Moonlight.saveProfile(m_Moonlight.currentProfileId(),
+                                         m_Arguments.host, m_Arguments.appName,
+                                         m_Arguments.fullscreenResolution,
+                                         QStringLiteral("fullscreen"))) {
+                fail(QStringLiteral("could not select the requested fullscreen stream profile"));
                 return;
             }
-            // QSF resize acknowledgement only proves SetUIInfo reached QEMU.
-            // The outer guest fixture writes this request after its Weston DRM
-            // restart is independently complete, so reconnect never races a
-            // disappearing pre-resize scanout.
-            m_Phase = Phase::ReconnectingFullscreen;
-            m_Moonlight.startStream(m_Arguments.host, m_Arguments.appName,
-                                    m_Arguments.fullscreenResolution,
-                                    QStringLiteral("fullscreen"));
+            if (!writePhase(QStringLiteral("fullscreen-profile-activation-accepted"))) {
+                return;
+            }
+            m_Phase = Phase::QuiescingFullscreen;
+            if (!m_ProfileNegotiation.negotiate(m_Arguments.fullscreenResolution,
+                                                QStringLiteral("software"))) {
+                fail(QStringLiteral("could not begin safe fullscreen profile negotiation: %1")
+                         .arg(m_ProfileNegotiation.lastError()));
+            }
         }
     }
 
@@ -435,7 +494,14 @@ private:
             m_Phase = Phase::AwaitWindowedVerification;
             return;
         }
-        if (m_StreamStarts == 2 && m_Phase == Phase::ReconnectingFullscreen) {
+        if (m_StreamStarts == 2 && m_Phase == Phase::LaunchingNegotiated) {
+            if (!writePhase(QStringLiteral("negotiated-process-started"))) {
+                return;
+            }
+            m_Phase = Phase::AwaitNegotiatedVerification;
+            return;
+        }
+        if (m_StreamStarts == 3 && m_Phase == Phase::LaunchingFullscreen) {
             if (!writePhase(QStringLiteral("fullscreen-process-started"))) {
                 return;
             }
@@ -447,10 +513,18 @@ private:
 
     void onStreamFinished()
     {
-        if (m_Phase == Phase::ReconnectingFullscreen ||
-            m_Phase == Phase::AwaitFullscreenVerification ||
-            m_Phase == Phase::AwaitFullscreenQsfReady) {
-            // This is the first child exiting during controlled reconnect.
+        if (m_Phase == Phase::QuiescingNegotiated) {
+            if (!writePhase(QStringLiteral("windowed-stream-quiesced"))) {
+                return;
+            }
+            m_Phase = Phase::AwaitNegotiatedProfileQsfReady;
+            return;
+        }
+        if (m_Phase == Phase::QuiescingFullscreen) {
+            if (!writePhase(QStringLiteral("negotiated-stream-quiesced"))) {
+                return;
+            }
+            m_Phase = Phase::AwaitFullscreenProfileQsfReady;
             return;
         }
         if (m_Phase == Phase::Stopping) {
@@ -479,6 +553,27 @@ private:
                 return;
             }
             m_Phase = Phase::AwaitInitialClientClipboardAck;
+        }
+        else if (m_Phase == Phase::AwaitNegotiatedProfileQsfReady) {
+            if (!writePhase(QStringLiteral("qsf-negotiated-profile-ready"))) {
+                return;
+            }
+            // ProfileNegotiationCoordinator receives readyChanged first and
+            // queues the only permitted operation for this temporary lease.
+            m_Phase = Phase::AwaitNegotiatedProfile;
+        }
+        else if (m_Phase == Phase::AwaitNegotiatedQsfReady) {
+            if (!writePhase(QStringLiteral("qsf-negotiated-ready"))) {
+                return;
+            }
+            m_Phase = Phase::AwaitFullscreenProfileActivation;
+        }
+        else if (m_Phase == Phase::AwaitFullscreenProfileQsfReady) {
+            if (!writePhase(QStringLiteral("qsf-fullscreen-profile-ready"))) {
+                return;
+            }
+            // As above, the production coordinator owns the actual request.
+            m_Phase = Phase::AwaitFullscreenProfile;
         }
         else if (m_Phase == Phase::AwaitFullscreenQsfReady) {
             if (!writePhase(QStringLiteral("qsf-fullscreen-ready"))) {
@@ -513,7 +608,6 @@ private:
         m_Phase = Phase::AwaitDataOperations;
         m_Qsf.uploadFile(m_Arguments.uploadSource, m_Arguments.uploadName);
         m_Qsf.downloadFile(m_Arguments.downloadName, m_Arguments.downloadDestination);
-        m_Qsf.requestResize(m_Arguments.resizeWidth, m_Arguments.resizeHeight);
     }
 
     void onClipboardSent()
@@ -564,30 +658,64 @@ private:
         completeDataOperationsIfReady();
     }
 
-    void onResizeApplied(int width, int height, bool qemuApplied)
-    {
-        if (m_Phase != Phase::AwaitDataOperations) {
-            return;
-        }
-        if (width != m_Arguments.resizeWidth || height != m_Arguments.resizeHeight ||
-            !qemuApplied) {
-            fail(QStringLiteral("real QSF resize was not accepted by QEMU SetUIInfo"));
-            return;
-        }
-        m_ResizeFinished = true;
-        completeDataOperationsIfReady();
-    }
-
     void completeDataOperationsIfReady()
     {
         if (m_Phase != Phase::AwaitDataOperations || !m_UploadFinished ||
-            !m_DownloadFinished || !m_ResizeFinished) {
+            !m_DownloadFinished) {
             return;
         }
         if (!writePhase(QStringLiteral("windowed-qsf-operations-complete"))) {
             return;
         }
-        m_Phase = Phase::AwaitFullscreenReconnectGate;
+        m_Phase = Phase::QuiescingNegotiated;
+        if (!m_ProfileNegotiation.negotiate(
+                QStringLiteral("%1x%2").arg(m_Arguments.resizeWidth)
+                                          .arg(m_Arguments.resizeHeight),
+                QStringLiteral("software"))) {
+            fail(QStringLiteral("could not begin safe windowed profile negotiation: %1")
+                     .arg(m_ProfileNegotiation.lastError()));
+        }
+    }
+
+    void onConnectionProfileReceived(int width, int height, int fps, int bitrateKbps,
+                                     const QString& videoCodec, bool qemuApplied)
+    {
+        if (m_Phase == Phase::AwaitNegotiatedProfile) {
+            if (width != m_Arguments.resizeWidth || height != m_Arguments.resizeHeight ||
+                fps != m_Arguments.expectedNegotiatedFps ||
+                bitrateKbps != m_Arguments.expectedNegotiatedBitrateKbps ||
+                videoCodec != m_Arguments.expectedNegotiatedVideoCodec || !qemuApplied) {
+                fail(QStringLiteral("QSF did not return the expected windowed guest-confirmed connection profile"));
+                return;
+            }
+            if (!writePhase(QStringLiteral("negotiated-profile-confirmed"))) {
+                return;
+            }
+            // The production coordinator has already ended its profile-only
+            // lease and queues the stopped-stream launch on the next event
+            // turn. Set this phase before that launch can be observed.
+            m_Phase = Phase::LaunchingNegotiated;
+            return;
+        }
+        if (m_Phase == Phase::AwaitFullscreenProfile) {
+            int expectedWidth = 0;
+            int expectedHeight = 0;
+            if (!parseResolution(m_Arguments.fullscreenResolution, &expectedWidth, &expectedHeight) ||
+                width != expectedWidth || height != expectedHeight ||
+                fps != m_Arguments.expectedFullscreenFps ||
+                bitrateKbps != m_Arguments.expectedFullscreenBitrateKbps ||
+                videoCodec != m_Arguments.expectedFullscreenVideoCodec || !qemuApplied) {
+                fail(QStringLiteral("QSF did not return the expected fullscreen guest-confirmed connection profile"));
+                return;
+            }
+            if (!writePhase(QStringLiteral("fullscreen-profile-confirmed"))) {
+                return;
+            }
+            // The fullscreen presentation was saved before the old stream
+            // stopped. The coordinator has independently received the guest
+            // ACK and is now permitted to launch this presentation.
+            m_Phase = Phase::LaunchingFullscreen;
+        }
     }
 
     void fail(const QString& detail)
@@ -609,6 +737,7 @@ private:
     Arguments m_Arguments;
     QsfClient m_Qsf;
     MoonlightController m_Moonlight;
+    ProfileNegotiationCoordinator m_ProfileNegotiation;
     QClipboard* m_Clipboard;
     QTimer m_PhasePoll;
     QTimer m_Timeout;
@@ -616,7 +745,6 @@ private:
     int m_StreamStarts = 0;
     bool m_UploadFinished = false;
     bool m_DownloadFinished = false;
-    bool m_ResizeFinished = false;
     bool m_PairProcessStarted = false;
 };
 
@@ -656,7 +784,24 @@ int main(int argc, char* argv[])
                       QStringLiteral("path")});
     parser.addOption({QStringLiteral("expected-download-source"), QStringLiteral("host fixture expected from the guest outbox"), QStringLiteral("path")});
     parser.addOption({QStringLiteral("received-clipboard-destination"), QStringLiteral("retained Qt clipboard result path"), QStringLiteral("path")});
-    parser.addOption({QStringLiteral("resize"), QStringLiteral("QSF guest resize WIDTHxHEIGHT"), QStringLiteral("resolution")});
+    parser.addOption({QStringLiteral("resize"), QStringLiteral("client-selected QSF guest scanout WIDTHxHEIGHT"), QStringLiteral("resolution")});
+    parser.addOption({QStringLiteral("expected-negotiated-fps"),
+                      QStringLiteral("expected resolved stream FPS"), QStringLiteral("fps")});
+    parser.addOption({QStringLiteral("expected-negotiated-bitrate-kbps"),
+                      QStringLiteral("expected resolved stream bitrate in Kbps"),
+                      QStringLiteral("kbps")});
+    parser.addOption({QStringLiteral("expected-negotiated-video-codec"),
+                      QStringLiteral("expected resolved public Moonlight codec"),
+                      QStringLiteral("codec")});
+    parser.addOption({QStringLiteral("expected-fullscreen-fps"),
+                      QStringLiteral("expected resolved fullscreen stream FPS"),
+                      QStringLiteral("fps")});
+    parser.addOption({QStringLiteral("expected-fullscreen-bitrate-kbps"),
+                      QStringLiteral("expected resolved fullscreen stream bitrate in Kbps"),
+                      QStringLiteral("kbps")});
+    parser.addOption({QStringLiteral("expected-fullscreen-video-codec"),
+                      QStringLiteral("expected resolved fullscreen public Moonlight codec"),
+                      QStringLiteral("codec")});
     parser.addOption({QStringLiteral("timeout-ms"),
                       QStringLiteral("whole real-E2E timeout in milliseconds"),
                       QStringLiteral("milliseconds"), QStringLiteral("300000")});
@@ -676,7 +821,12 @@ int main(int argc, char* argv[])
         QStringLiteral("fullscreen-download-destination"),
         QStringLiteral("expected-download-source"),
         QStringLiteral("received-clipboard-destination"),
-        QStringLiteral("resize"), QStringLiteral("phase-dir"),
+        QStringLiteral("resize"), QStringLiteral("expected-negotiated-fps"),
+        QStringLiteral("expected-negotiated-bitrate-kbps"),
+        QStringLiteral("expected-negotiated-video-codec"),
+        QStringLiteral("expected-fullscreen-fps"),
+        QStringLiteral("expected-fullscreen-bitrate-kbps"),
+        QStringLiteral("expected-fullscreen-video-codec"), QStringLiteral("phase-dir"),
     };
     for (const QString& option : required) {
         if (!parser.isSet(option)) {
@@ -718,17 +868,48 @@ int main(int argc, char* argv[])
     int ignoredHeight = 0;
     static const QRegularExpression pinPattern(QStringLiteral("\\A[0-9]{4}\\z"));
     bool timeoutOk = false;
+    bool expectedFpsOk = false;
+    bool expectedBitrateOk = false;
+    bool expectedFullscreenFpsOk = false;
+    bool expectedFullscreenBitrateOk = false;
     arguments.timeoutMs = parser.value(QStringLiteral("timeout-ms")).toInt(&timeoutOk);
+    arguments.expectedNegotiatedFps =
+        parser.value(QStringLiteral("expected-negotiated-fps")).toInt(&expectedFpsOk);
+    arguments.expectedNegotiatedBitrateKbps =
+        parser.value(QStringLiteral("expected-negotiated-bitrate-kbps")).toInt(&expectedBitrateOk);
+    arguments.expectedNegotiatedVideoCodec =
+        parser.value(QStringLiteral("expected-negotiated-video-codec")).trimmed();
+    arguments.expectedFullscreenFps =
+        parser.value(QStringLiteral("expected-fullscreen-fps")).toInt(&expectedFullscreenFpsOk);
+    arguments.expectedFullscreenBitrateKbps =
+        parser.value(QStringLiteral("expected-fullscreen-bitrate-kbps"))
+            .toInt(&expectedFullscreenBitrateOk);
+    arguments.expectedFullscreenVideoCodec =
+        parser.value(QStringLiteral("expected-fullscreen-video-codec")).trimmed();
     if (!portPattern.match(parser.value(QStringLiteral("qsf-port")).trimmed()).hasMatch() ||
         !pinPattern.match(arguments.pairPin).hasMatch() ||
         !timeoutPattern.match(parser.value(QStringLiteral("timeout-ms")).trimmed()).hasMatch() ||
         !portOk || arguments.qsfPort < 1 || arguments.qsfPort > 65535 ||
         !timeoutOk || arguments.timeoutMs < 60000 || arguments.timeoutMs > 900000 ||
+        !expectedFpsOk || arguments.expectedNegotiatedFps < 10 ||
+        arguments.expectedNegotiatedFps > 240 || !expectedBitrateOk ||
+        arguments.expectedNegotiatedBitrateKbps < 500 ||
+        arguments.expectedNegotiatedBitrateKbps > 500000 ||
+        (arguments.expectedNegotiatedVideoCodec != QStringLiteral("H.264") &&
+         arguments.expectedNegotiatedVideoCodec != QStringLiteral("HEVC") &&
+         arguments.expectedNegotiatedVideoCodec != QStringLiteral("AV1")) ||
+        !expectedFullscreenFpsOk || arguments.expectedFullscreenFps < 10 ||
+        arguments.expectedFullscreenFps > 240 || !expectedFullscreenBitrateOk ||
+        arguments.expectedFullscreenBitrateKbps < 500 ||
+        arguments.expectedFullscreenBitrateKbps > 500000 ||
+        (arguments.expectedFullscreenVideoCodec != QStringLiteral("H.264") &&
+         arguments.expectedFullscreenVideoCodec != QStringLiteral("HEVC") &&
+         arguments.expectedFullscreenVideoCodec != QStringLiteral("AV1")) ||
         !parseResolution(arguments.initialResolution, &ignoredWidth, &ignoredHeight) ||
         !parseResolution(arguments.fullscreenResolution, &ignoredWidth, &ignoredHeight) ||
         !parseResolution(parser.value(QStringLiteral("resize")), &arguments.resizeWidth,
                          &arguments.resizeHeight)) {
-        QTextStream(stderr) << "invalid port, timeout, or resolution argument\n";
+        QTextStream(stderr) << "invalid endpoint, negotiated-profile, timeout, or resolution argument\n";
         return 2;
     }
 

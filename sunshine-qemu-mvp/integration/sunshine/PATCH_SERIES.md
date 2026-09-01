@@ -90,3 +90,13 @@ documented in `ISOLATED_LIBVA.md`.
 - non-QEMU capture intentionally has no audio in this deployment;
 - the reproducible builder rejects PulseAudio, ALSA, X11, and Wayland across
   the complete `ldd` dependency closure.
+
+## 8. `0007-platform-linux-close-QEMU-listener-transport-before-teardown.patch` — implemented
+
+- retain a CLOEXEC duplicate of each private Display1 and AudioOutListener
+  peer socket;
+- force `shutdown(SHUT_RDWR)` before quitting the peer loop or unregistering
+  the exported D-Bus object;
+- prevent QEMU from retaining a live listener connection after its object was
+  removed, which otherwise produces repeated `UnknownMethod` display updates
+  during capture retirement.

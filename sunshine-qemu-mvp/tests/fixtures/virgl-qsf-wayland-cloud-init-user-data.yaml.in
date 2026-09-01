@@ -26,6 +26,7 @@ write_files:
       bridge_pid=''
       workload_pid=''
       input_watcher_pid=''
+      connection_profile_adapter_pid=''
 
       report() {
         printf '%s\n' "$*" >"$serial" 2>/dev/null || true
@@ -40,6 +41,188 @@ write_files:
           kill "$process" 2>/dev/null || true
           wait "$process" 2>/dev/null || true
         fi
+      }
+
+      # `connection-profile` is written by the constrained QSF agent only
+      # after the host has successfully issued Display1.SetUIInfo. It is
+      # deliberately *not* an acknowledgement: this fixture emits the applied
+      # file only after a freshly started Weston DRM compositor has reported
+      # the exact current output mode and a fresh VirGL workload is alive. The
+      # host broker then
+      # waits for this exact canonical file before it lets the Qt client
+      # reconnect its GameStream video process.
+      read_connection_profile() {
+        connection_profile_file=$state/connection-profile
+        test -f "$connection_profile_file" || return 1
+        test "$(sed -n '$=' "$connection_profile_file")" = 6 || return 1
+        connection_profile_version=$(sed -n '1s/^version=//p' "$connection_profile_file")
+        connection_profile_generation=$(sed -n '2s/^generation=//p' "$connection_profile_file")
+        connection_profile_resolution=$(sed -n '3s/^resolution=//p' "$connection_profile_file")
+        connection_profile_fps=$(sed -n '4s/^fps=//p' "$connection_profile_file")
+        connection_profile_bitrate=$(sed -n '5s/^bitrate_kbps=//p' "$connection_profile_file")
+        connection_profile_codec=$(sed -n '6s/^video_codec=//p' "$connection_profile_file")
+        test "$connection_profile_version" = 2 || return 1
+        case "$connection_profile_resolution" in
+          *x*x*|x*|*x) return 1 ;;
+        esac
+        connection_profile_width=${connection_profile_resolution%x*}
+        connection_profile_height=${connection_profile_resolution#*x}
+        for decimal in "$connection_profile_generation" "$connection_profile_width" "$connection_profile_height" \
+            "$connection_profile_fps" "$connection_profile_bitrate"; do
+          case "$decimal" in
+            ''|0*|*[!0-9]*) return 1 ;;
+          esac
+        done
+        test "$connection_profile_width" -ge 64 && test "$connection_profile_width" -le 16384 || return 1
+        test "$connection_profile_height" -ge 64 && test "$connection_profile_height" -le 16384 || return 1
+        test "$connection_profile_fps" -ge 10 && test "$connection_profile_fps" -le 240 || return 1
+        test "$connection_profile_bitrate" -ge 500 && test "$connection_profile_bitrate" -le 500000 || return 1
+        case "$connection_profile_codec" in
+          H264|HEVC|AV1) ;;
+          *) return 1 ;;
+        esac
+        connection_profile_canonical=$state/.connection-profile-canonical.$$
+        {
+          printf 'version=2\n'
+          printf 'generation=%s\n' "$connection_profile_generation"
+          printf 'resolution=%sx%s\n' "$connection_profile_width" "$connection_profile_height"
+          printf 'fps=%s\n' "$connection_profile_fps"
+          printf 'bitrate_kbps=%s\n' "$connection_profile_bitrate"
+          printf 'video_codec=%s\n' "$connection_profile_codec"
+        } >"$connection_profile_canonical" || return 1
+        if ! cmp -s "$connection_profile_file" "$connection_profile_canonical"; then
+          rm -f "$connection_profile_canonical"
+          return 1
+        fi
+        rm -f "$connection_profile_canonical"
+        return 0
+      }
+
+      # wayland-info reports modes in structured wl_output records. Match both
+      # dimensions and the `current` flag, rather than treating a supported
+      # connector mode or a successful SetUIInfo D-Bus reply as a scanout.
+      wayland_current_mode_matches() {
+        expected_width=$1
+        expected_height=$2
+        mode_log=$3
+        timeout 2 wayland-info >"$mode_log" 2>&1 || return 1
+        awk -v expected_width="$expected_width" -v expected_height="$expected_height" '
+          function value_after(label, line, value) {
+            value = line
+            sub("^.*" label "[[:space:]]*", "", value)
+            sub("[^0-9].*$", "", value)
+            return value
+          }
+          {
+            if ($0 ~ /width:[[:space:]]*[0-9]+/) width = value_after("width:", $0)
+            if ($0 ~ /height:[[:space:]]*[0-9]+/) height = value_after("height:", $0)
+            if ($0 ~ /flags:.*current/ && width == expected_width && height == expected_height) found = 1
+            if (index($0, expected_width "x" expected_height) && $0 ~ /current/) found = 1
+          }
+          END { exit found ? 0 : 1 }
+        ' "$mode_log"
+      }
+
+      start_weston_for_connection_profile() {
+        profile_mode_log=/tmp/qsf-virgl-wayland-weston-profile-mode.info
+        profile_mode_ready=0
+        report 'QSF_VIRGL_WAYLAND_GUEST_RESIZE_RECONFIGURE=weston-drm-restart'
+        stop_process "$workload_pid"
+        workload_pid=''
+        stop_process "$bridge_pid"
+        bridge_pid=''
+        stop_process "$weston_pid"
+        weston_pid=''
+        # libseat/seatd releases its active DRM client asynchronously after
+        # Weston exits. A socket disappearance alone is too early: without
+        # this bounded release barrier the fresh compositor can race and be
+        # rejected as a second active seat client.
+        sleep 1
+        rm -f "$runtime/wayland-0" "$runtime/wayland-0.lock" "$state/wayland-clipboard-bridge.ready" \
+          /tmp/qsf-virgl-wayland-weston-resize.log "$profile_mode_log"
+
+        # A successful SetUIInfo reply can still precede propagation through
+        # the guest connector. Restart until the compositor itself reports the
+        # new current mode; this closes that otherwise real race.
+        for profile_restart_attempt in $(seq 1 80); do
+          rm -f "$runtime/wayland-0" "$runtime/wayland-0.lock" \
+            /tmp/qsf-virgl-wayland-weston-resize.log "$profile_mode_log"
+          weston --backend=drm-backend.so --socket=wayland-0 \
+            --log=/tmp/qsf-virgl-wayland-weston-resize.log --idle-time=0 --no-config \
+            >"$serial" 2>&1 &
+          weston_pid=$!
+          for _ in $(seq 1 120); do
+            test -S "$runtime/wayland-0" && break
+            kill -0 "$weston_pid" 2>/dev/null || break
+            sleep 0.1
+          done
+          test -S "$runtime/wayland-0" || fail connection_profile_weston_socket_not_created
+          kill -0 "$weston_pid" 2>/dev/null || fail connection_profile_weston_exited
+          renderer_ready=0
+          for _ in $(seq 1 40); do
+            if grep -qiE 'using /dev/dri/card0|drm-backend' /tmp/qsf-virgl-wayland-weston-resize.log && \
+                grep -qi 'GL renderer: virgl' /tmp/qsf-virgl-wayland-weston-resize.log; then
+              renderer_ready=1
+              break
+            fi
+            sleep 0.1
+          done
+          test "$renderer_ready" = 1 || fail connection_profile_weston_is_not_fresh_virgl_drm
+          if wayland_current_mode_matches "$connection_profile_width" "$connection_profile_height" \
+              "$profile_mode_log"; then
+            profile_mode_ready=1
+            report "QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_CURRENT_MODE=generation=$connection_profile_generation,resolution=$connection_profile_resolution,attempt=$profile_restart_attempt"
+            break
+          fi
+          # Keep a small, non-sensitive diagnostic trail for a real mode
+          # transition. It distinguishes a delayed guest connector from a
+          # stale SetUIInfo race without treating either as an ACK. Do not
+          # write every retry: Weston can need many attempts while libseat
+          # releases DRM, and serial telemetry must remain bounded.
+          if test "$profile_restart_attempt" -le 3 || \
+              test $((profile_restart_attempt % 10)) -eq 0 || \
+              test "$profile_restart_attempt" -eq 80; then
+            profile_current_modes=$(awk '
+              function value_after(label, line, value) {
+                value = line
+                sub("^.*" label "[[:space:]]*", "", value)
+                sub("[^0-9].*$", "", value)
+                return value
+              }
+              {
+                if ($0 ~ /width:[[:space:]]*[0-9]+/) width = value_after("width:", $0)
+                if ($0 ~ /height:[[:space:]]*[0-9]+/) height = value_after("height:", $0)
+                if ($0 ~ /flags:.*current/ && width != "" && height != "") {
+                  printf "%sx%s,", width, height
+                }
+              }
+            ' "$profile_mode_log" | tr -d '\n' | sed 's/,$//')
+            case "$profile_current_modes" in
+              ''|*[!0-9x,]*) profile_current_modes=none ;;
+            esac
+            report "QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_MODE_RETRY=generation=$connection_profile_generation,requested=$connection_profile_resolution,attempt=$profile_restart_attempt,current=$profile_current_modes"
+          fi
+          stop_process "$weston_pid"
+          weston_pid=''
+          rm -f "$runtime/wayland-0" "$runtime/wayland-0.lock"
+          sleep 0.2
+        done
+        test "$profile_mode_ready" = 1 || fail connection_profile_weston_did_not_report_requested_current_mode
+
+        /usr/local/sbin/qsf-wayland-clipboard-bridge --state-dir "$state" \
+          --telemetry "$telemetry" --runtime-dir "$runtime" >"$serial" 2>&1 &
+        bridge_pid=$!
+        for _ in $(seq 1 100); do
+          test -f "$state/wayland-clipboard-bridge.ready" && break
+          kill -0 "$bridge_pid" 2>/dev/null || break
+          sleep 0.1
+        done
+        test -f "$state/wayland-clipboard-bridge.ready" || fail connection_profile_bridge_not_ready
+        kill -0 "$bridge_pid" 2>/dev/null || fail connection_profile_bridge_exited
+        timeout 40 weston-simple-egl >/tmp/qsf-virgl-wayland-simple-egl-resize.log 2>&1 &
+        workload_pid=$!
+        sleep 1
+        kill -0 "$workload_pid" 2>/dev/null || fail connection_profile_workload_exited_early
       }
 
       fail() {
@@ -59,6 +242,7 @@ write_files:
         stop_process "$weston_pid"
         stop_process "$seatd_pid"
         stop_process "$input_watcher_pid"
+        stop_process "$connection_profile_adapter_pid"
         sync
         exit 1
       }
@@ -126,6 +310,7 @@ write_files:
       cp "$payload/qsf-guest-download.txt" "$state/outgoing/guest-download.txt" \
         || fail cannot_seed_guest_download
 
+      QSUNSHINE_QSF_GUEST_REQUIRE_PROFILE_APPLY_ACK=1 \
       /usr/local/sbin/qsf-guest-agent --device "$qsf_port" --state-dir "$state" \
         >"$serial" 2>&1 &
       qsf_agent_pid=$!
@@ -143,7 +328,7 @@ write_files:
       fi
       apk add --no-cache mesa-dri-gallium mesa-egl mesa-utils \
         weston weston-backend-drm weston-shell-desktop weston-clients \
-        wl-clipboard seatd eudev gnu-libiconv \
+        wl-clipboard wayland-utils seatd eudev gnu-libiconv \
         >/tmp/qsf-virgl-wayland-apk.log 2>&1 || {
           sed -n '1,180p' /tmp/qsf-virgl-wayland-apk.log >"$serial" 2>/dev/null || true
           fail cannot_install_wayland_virgl_packages
@@ -160,9 +345,10 @@ write_files:
       }
       for package in mesa-dri-gallium mesa-egl mesa-utils \
           weston weston-backend-drm weston-shell-desktop weston-clients \
-          wl-clipboard seatd eudev gnu-libiconv; do
+          wl-clipboard wayland-utils seatd eudev gnu-libiconv; do
         record_wayland_package_version "$package"
       done
+      command -v wayland-info >/dev/null 2>&1 || fail wayland_info_client_missing
 
       test -c /dev/dri/card0 || fail guest_card0_missing
       test -c /dev/dri/renderD128 || fail guest_renderD128_missing
@@ -262,6 +448,70 @@ write_files:
       report 'guest_wayland_visual_workload=weston-simple-egl'
       report QSF_VIRGL_WAYLAND_GUEST_VIRGL_READY
 
+      # This is the guest compositor adapter for negotiated stream profiles.
+      # It intentionally runs alongside the clipboard/file coordinator below:
+      # a strict PAIR_CAPABILITIES transaction must be able to reconfigure the
+      # desktop before the client continues with any companion data transfer.
+      # A legacy RESIZE command never creates connection-profile and therefore
+      # leaves this watcher idle.
+      (
+        invalid_profile_observations=0
+        # A user can first select a windowed client size and later select the
+        # physical fullscreen size. Keep this fixture adapter alive for both
+        # independently committed profiles. It never treats an old ACK as
+        # proof for a newer generation: the guest agent removes the ACK before
+        # every commit, and the exact canonical bytes must match before this
+        # loop skips an already-applied profile.
+        for _ in $(seq 1 3600); do
+          if ! read_connection_profile; then
+            if test -f "$state/connection-profile"; then
+              invalid_profile_observations=$((invalid_profile_observations + 1))
+              if test "$invalid_profile_observations" -ge 100; then
+                fail connection_profile_not_canonical
+              fi
+            fi
+            sleep 0.1
+            continue
+          fi
+          invalid_profile_observations=0
+          if cmp -s "$connection_profile_file" "$state/connection-profile-applied"; then
+            sleep 0.1
+            continue
+          fi
+
+          profile_applied=0
+          for _ in $(seq 1 12); do
+            profile_generation_to_apply=$connection_profile_generation
+            report "QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_APPLY_STARTED=generation=$connection_profile_generation,resolution=$connection_profile_resolution"
+            start_weston_for_connection_profile
+            # A new transaction may replace the profile while Weston is being
+            # restarted. Never acknowledge the old generation or a stale byte
+            # sequence; restart again for the newest complete profile instead.
+            if ! read_connection_profile || \
+                test "$connection_profile_generation" != "$profile_generation_to_apply"; then
+              continue
+            fi
+            connection_profile_ack_tmp=$state/.connection-profile-applied.$$
+            rm -f "$connection_profile_ack_tmp"
+            cp "$connection_profile_file" "$connection_profile_ack_tmp" \
+              || fail connection_profile_ack_copy_failed
+            chmod 600 "$connection_profile_ack_tmp" || fail connection_profile_ack_mode_failed
+            cmp -s "$connection_profile_file" "$connection_profile_ack_tmp" \
+              || fail connection_profile_ack_bytes_changed
+            mv -f "$connection_profile_ack_tmp" "$state/connection-profile-applied" \
+              || fail connection_profile_ack_publish_failed
+            report 'QSF_VIRGL_WAYLAND_GUEST_RESIZE_WESTON_RESTARTED'
+            report "QSF_VIRGL_WAYLAND_GUEST_RESIZE=$connection_profile_resolution"
+            report "QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_APPLIED=version=2,generation=$connection_profile_generation,resolution=$connection_profile_resolution,fps=$connection_profile_fps,bitrate_kbps=$connection_profile_bitrate,video_codec=$connection_profile_codec"
+            profile_applied=1
+            break
+          done
+          test "$profile_applied" = 1 || fail connection_profile_changed_during_apply
+          sleep 0.1
+        done
+      ) &
+      connection_profile_adapter_pid=$!
+
       # The host sends qsf-client-clipboard.txt only after the readiness
       # marker. The first half of this coordinator proves that the bridge
       # actually published it to Wayland by reading wl-paste independently.
@@ -330,51 +580,107 @@ write_files:
           sleep 0.1
         done
         [ "$resize_seen" = 1 ] || fail qsf_resize_state_not_received
-        # SetUIInfo first updates virtio-gpu's requested EDID mode. Weston 12
-        # does not automatically reselect that preferred mode while its DRM
-        # backend is live, so reconfigure this minimal desktop explicitly.
-        # QSF state remains intact; the restarted bridge reseeds the native
-        # Wayland selection from it before accepting new guest changes.
-        sleep 2
-        report 'QSF_VIRGL_WAYLAND_GUEST_RESIZE_RECONFIGURE=weston-drm-restart'
-        stop_process "$workload_pid"
-        workload_pid=''
-        stop_process "$bridge_pid"
-        bridge_pid=''
-        stop_process "$weston_pid"
-        weston_pid=''
-        sleep 1
-        rm -f "$runtime/wayland-0" "$runtime/wayland-0.lock" "$state/wayland-clipboard-bridge.ready" \
-          /tmp/qsf-virgl-wayland-weston-resize.log
-        weston --backend=drm-backend.so --socket=wayland-0 \
-          --log=/tmp/qsf-virgl-wayland-weston-resize.log --idle-time=0 --no-config \
-          >"$serial" 2>&1 &
-        weston_pid=$!
-        for _ in $(seq 1 450); do
-          test -S "$runtime/wayland-0" && break
-          kill -0 "$weston_pid" 2>/dev/null || break
+        # A negotiated profile is a two-step transaction. The compositor
+        # adapter owns its restart and only publishes an exact applied record
+        # after a current Weston output mode check. Do not restart a second
+        # time here: that would turn the profile acknowledgement back into a
+        # timing hint rather than an acknowledgement of the actual scanout.
+        profile_request_seen=0
+        for _ in $(seq 1 20); do
+          if test -f "$state/connection-profile"; then
+            profile_request_seen=1
+            break
+          fi
           sleep 0.1
         done
-        test -S "$runtime/wayland-0" || fail weston_resize_restart_socket_not_created
-        kill -0 "$weston_pid" 2>/dev/null || fail weston_resize_restart_exited
-        grep -qi 'GL renderer: virgl' /tmp/qsf-virgl-wayland-weston-resize.log \
-          || fail weston_resize_restart_renderer_is_not_virgl
-        /usr/local/sbin/qsf-wayland-clipboard-bridge --state-dir "$state" \
-          --telemetry "$telemetry" --runtime-dir "$runtime" >"$serial" 2>&1 &
-        bridge_pid=$!
-        for _ in $(seq 1 100); do
-          test -f "$state/wayland-clipboard-bridge.ready" && break
-          kill -0 "$bridge_pid" 2>/dev/null || break
-          sleep 0.1
-        done
-        test -f "$state/wayland-clipboard-bridge.ready" || fail wayland_bridge_resize_restart_not_ready
-        kill -0 "$bridge_pid" 2>/dev/null || fail wayland_bridge_resize_restart_exited
-        timeout 40 weston-simple-egl >/tmp/qsf-virgl-wayland-simple-egl-resize.log 2>&1 &
-        workload_pid=$!
-        sleep 1
-        kill -0 "$workload_pid" 2>/dev/null || fail weston_simple_egl_resize_restart_exited_early
-        report 'QSF_VIRGL_WAYLAND_GUEST_RESIZE_WESTON_RESTARTED'
-        report "QSF_VIRGL_WAYLAND_GUEST_RESIZE=$(tr -d '\n' < "$state/resolution")"
+        if test "$profile_request_seen" = 1; then
+          read_connection_profile || fail qsf_connection_profile_not_canonical
+          expected_resolution=$(tr -d '\n' < "$payload/qsf-resize-expected.txt")
+          test "$connection_profile_resolution" = "$expected_resolution" \
+            || fail qsf_connection_profile_resolution_differs_from_fixture
+          profile_ack_seen=0
+          for _ in $(seq 1 900); do
+            if cmp -s "$state/connection-profile" "$state/connection-profile-applied"; then
+              profile_ack_seen=1
+              break
+            fi
+            sleep 0.1
+          done
+          test "$profile_ack_seen" = 1 || fail qsf_connection_profile_scanout_ack_not_received
+          read_connection_profile || fail qsf_connection_profile_changed_after_scanout_ack
+          test "$connection_profile_resolution" = "$expected_resolution" \
+            || fail qsf_connection_profile_ack_resolution_differs_from_fixture
+          report "QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_ACK_OBSERVED=generation=$connection_profile_generation,resolution=$connection_profile_resolution"
+          # The first observation proves the original windowed request. Keep
+          # this independent coordinator alive for a later user-selected
+          # fullscreen transaction too; the compositor adapter and this
+          # observer are separate processes, so a copied ACK alone cannot
+          # satisfy the test. Each marker is emitted only after two canonical
+          # reads agree on the newly applied generation and its exact bytes.
+          observed_profile_generation=$connection_profile_generation
+          for _ in $(seq 1 1800); do
+            if read_connection_profile && \
+                test "$connection_profile_generation" != "$observed_profile_generation" && \
+                cmp -s "$connection_profile_file" "$state/connection-profile-applied"; then
+              observed_candidate_generation=$connection_profile_generation
+              observed_candidate_resolution=$connection_profile_resolution
+              if read_connection_profile && \
+                  test "$connection_profile_generation" = "$observed_candidate_generation" && \
+                  test "$connection_profile_resolution" = "$observed_candidate_resolution" && \
+                  cmp -s "$connection_profile_file" "$state/connection-profile-applied"; then
+                report "QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_ACK_OBSERVED=generation=$connection_profile_generation,resolution=$connection_profile_resolution"
+                observed_profile_generation=$connection_profile_generation
+              fi
+            fi
+            sleep 0.1
+          done
+        else
+          # Legacy RESIZE remains as a narrow compatibility diagnostic. It has
+          # no negotiated profile, so it cannot claim the strict profile ACK.
+          # SetUIInfo first updates virtio-gpu's requested EDID mode. Weston
+          # 12 does not automatically reselect that preferred mode while its
+          # DRM backend is live, so reconfigure this minimal desktop explicitly.
+          sleep 2
+          report 'QSF_VIRGL_WAYLAND_GUEST_RESIZE_RECONFIGURE=weston-drm-restart'
+          stop_process "$workload_pid"
+          workload_pid=''
+          stop_process "$bridge_pid"
+          bridge_pid=''
+          stop_process "$weston_pid"
+          weston_pid=''
+          sleep 1
+          rm -f "$runtime/wayland-0" "$runtime/wayland-0.lock" "$state/wayland-clipboard-bridge.ready" \
+            /tmp/qsf-virgl-wayland-weston-resize.log
+          weston --backend=drm-backend.so --socket=wayland-0 \
+            --log=/tmp/qsf-virgl-wayland-weston-resize.log --idle-time=0 --no-config \
+            >"$serial" 2>&1 &
+          weston_pid=$!
+          for _ in $(seq 1 450); do
+            test -S "$runtime/wayland-0" && break
+            kill -0 "$weston_pid" 2>/dev/null || break
+            sleep 0.1
+          done
+          test -S "$runtime/wayland-0" || fail weston_resize_restart_socket_not_created
+          kill -0 "$weston_pid" 2>/dev/null || fail weston_resize_restart_exited
+          grep -qi 'GL renderer: virgl' /tmp/qsf-virgl-wayland-weston-resize.log \
+            || fail weston_resize_restart_renderer_is_not_virgl
+          /usr/local/sbin/qsf-wayland-clipboard-bridge --state-dir "$state" \
+            --telemetry "$telemetry" --runtime-dir "$runtime" >"$serial" 2>&1 &
+          bridge_pid=$!
+          for _ in $(seq 1 100); do
+            test -f "$state/wayland-clipboard-bridge.ready" && break
+            kill -0 "$bridge_pid" 2>/dev/null || break
+            sleep 0.1
+          done
+          test -f "$state/wayland-clipboard-bridge.ready" || fail wayland_bridge_resize_restart_not_ready
+          kill -0 "$bridge_pid" 2>/dev/null || fail wayland_bridge_resize_restart_exited
+          timeout 40 weston-simple-egl >/tmp/qsf-virgl-wayland-simple-egl-resize.log 2>&1 &
+          workload_pid=$!
+          sleep 1
+          kill -0 "$workload_pid" 2>/dev/null || fail weston_simple_egl_resize_restart_exited_early
+          report 'QSF_VIRGL_WAYLAND_GUEST_RESIZE_WESTON_RESTARTED'
+          report "QSF_VIRGL_WAYLAND_GUEST_RESIZE=$(tr -d '\n' < "$state/resolution")"
+        fi
       ) &
 
       report QSF_VIRGL_WAYLAND_GUEST_VIRGL_OK

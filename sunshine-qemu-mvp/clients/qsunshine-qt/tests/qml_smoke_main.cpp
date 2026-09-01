@@ -2,6 +2,7 @@
 // Load the shipped QML with the same context objects as qsunshine-client.
 
 #include "moonlightcontroller.h"
+#include "profilenegotiationcoordinator.h"
 #include "qsfclient.h"
 
 #include <QGuiApplication>
@@ -24,9 +25,12 @@ int main(int argc, char* argv[])
 
     QsfClient qsfClient(&application);
     MoonlightController moonlight(&application);
+    ProfileNegotiationCoordinator profileNegotiation(&qsfClient, &moonlight, &application);
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("qsfClient"), &qsfClient);
     engine.rootContext()->setContextProperty(QStringLiteral("moonlight"), &moonlight);
+    engine.rootContext()->setContextProperty(QStringLiteral("profileNegotiation"),
+                                             &profileNegotiation);
     engine.load(QUrl(QStringLiteral("qrc:/Main.qml")));
     if (engine.rootObjects().isEmpty()) {
         return 1;

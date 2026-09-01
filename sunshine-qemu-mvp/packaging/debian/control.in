@@ -1,0 +1,16 @@
+Package: q-sunshine-pve
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: q-sunshine contributors <q-sunshine@localhost>
+Homepage: https://github.com/LizardByte/Sunshine
+Depends: @DEPENDS@
+Description: headless QEMU Display1 Sunshine backend for Proxmox VE 9
+ This package contains the q-sunshine Sunshine build for the QEMU Display1
+ D-Bus capture route, its QSF TLS companion utilities, a conservative
+ per-guest systemd template, and the guest-side QSF sources.
+ .
+ It intentionally contains no X11, Wayland, PulseAudio, or ALSA host runtime
+ dependency. It is designed for Proxmox VE 9 on Debian 13 (Trixie), with a
+ QEMU instance exposing the Display1 D-Bus backend.

@@ -20,7 +20,7 @@ Alpine virtio-gpu / VirGL / Weston DRM
 The deployment host path has no X11, Wayland, GTK, Xvfb, or desktop-session
 dependency. The only graphical stack in this standalone guest gate is inside
 the guest: `weston`, `weston-backend-drm`, `weston-clients`, `wl-clipboard`,
-`seatd`, `eudev`, and `gnu-libiconv`. The optional Qt/Moonlight composite
+`wayland-utils`, `seatd`, `eudev`, and `gnu-libiconv`. The optional Qt/Moonlight composite
 below deliberately starts a short-lived **client-only** Xvfb for visual
 attestation; Sunshine, QEMU, the Display1 observer, and the guest remain
 headless on the host.
@@ -67,7 +67,7 @@ The Alpine cloud image is pinned, while its guest-only Wayland packages are
 resolved from the configured `v3.20` repositories at boot. Rather than claim a
 fixed package version, every trace records the post-install APK database
 version as `guest_wayland_package_<name>=<name>-<version>` for Mesa, Weston,
-`wl-clipboard`, `seatd`, `eudev`, and `gnu-libiconv`. An offline or fully
+`wl-clipboard`, `wayland-utils`, `seatd`, `eudev`, and `gnu-libiconv`. An offline or fully
 package-reproducible deployment must provide a pinned APK mirror/cache.
 
 The runner independently asserts:
@@ -78,22 +78,43 @@ The runner independently asserts:
   the bridge writes constrained QSF state, the agent emits its change, and a
   real QSF client `clipboard-get` receives exactly those bytes.
 - QSF upload/download fixtures have independent guest-side SHA-256 evidence.
-- QSF `resize 1280 720` reaches agent state and QEMU `Console.SetUIInfo`.
+- A client-selected `1280x720` is resolved through `connection_optimize` as a
+  bounded client-decoder / Sunshine-encoder / VirGL-display profile.  The
+  broker requests QEMU `Console.SetUIInfo` before it commits that profile to
+  the guest; a successful D-Bus reply alone is never treated as a resize.
+- The guest compositor adapter writes `connection-profile-applied` only after
+  a newly started Weston DRM instance reports the exact **current** `wl_output`
+  mode through `wayland-info`, confirms fresh DRM + VirGL logs, restarts its
+  Wayland bridge, and keeps a new `weston-simple-egl` workload alive.  It
+  copies the exact six-line canonical record (`version=2`, `generation`,
+  `resolution`, `fps`, `bitrate_kbps`, `video_codec`); the agent rejects a
+  stale or merely similar acknowledgement.
 - The real desktop reconfigures: a short pre-hook Display1 H.264 capture is
   `1280x800`; the runner requires ordered live H.264 `1280x800` then
-  `1280x720` segments.
+  `1280x720` segments.  Thus the guest-side current-mode acknowledgement and
+  the independent QEMU Display1 video trace jointly prove the scanout rather
+  than a state-file write.
 - Native Display1 DMA-BUF CPU readback has zero failures and zero session
   errors.
 
 Weston 12 does not automatically select a new preferred virtio-gpu mode while
 its DRM backend is already live. Therefore this fixture deliberately performs
-and records `weston-drm-restart` after QSF state observes the resize. The
-restart re-reads QEMU's requested connector mode, restarts the bridge (which
-reseeds the persistent QSF selection), and starts a new `weston-simple-egl`
-workload. This is an explicit desktop reconfiguration fallback, not a claim of
-automatic hotplug handling.
+and records `weston-drm-restart` after the committed profile becomes visible.
+The restart re-reads QEMU's requested connector mode, verifies the compositor's
+current mode, restarts the bridge (which reseeds the persistent QSF selection),
+and starts a new `weston-simple-egl` workload before publishing the generation-
+bound acknowledgement. This is an explicit desktop reconfiguration fallback,
+not a claim of automatic hotplug handling.
 
 ## Recorded standalone result
+
+The v2 negotiated-profile transaction passed on 2026-09-01 at
+`vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.bi1FPD/trace.txt`. Its client
+requested `1280x720`; the resolved H.264 profile was 60 FPS / 8000 Kbit/s with
+generation `7680650639916349473`. The trace records both the exact guest
+`CONNECTION_PROFILE_APPLIED` and independent ACK-observed markers, then
+retains ordered Display1 H.264 `1280x800` → `1280x720` segments, DMA-BUF
+scanouts/updates/failures `10638/10640/0`, and zero session errors.
 
 `vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.rEvqnH/trace.txt` passed on
 2026-09-01 with:
@@ -146,6 +167,20 @@ The hook is trusted session-launcher code: it receives local capability paths
 and must neither log nor forward the token. An ordinary Moonlight client never
 receives those paths.
 
+Before the Qt hook asks its `MoonlightController` to make a controlled
+reconnect, it requires both guest markers below. The first is emitted by the
+Weston/VirGL adapter after it atomically publishes the exact profile; the
+second is an independent fixture-coordinator readback of that same file.
+
+```text
+QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_APPLIED=version=2,generation=...,resolution=1280x720,...
+QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_ACK_OBSERVED=generation=...,resolution=1280x720
+```
+
+The outer trace also requires ordered H.264 Display1 geometry evidence. A
+profile transaction is therefore not complete merely because `SetUIInfo`
+returned `applied` or because `state/resolution` changed.
+
 The guest starts a static evdev watcher before `VIRGL_READY`. Its telemetry
 file is `$QSF_WAYLAND_OUTPUT_DIR/guest-telemetry.log`; it first emits
 `QSF_VIRGL_WAYLAND_GUEST_INPUT_WATCH_READY`. A strict hook must inject real
@@ -182,27 +217,49 @@ Moonlight/Sunshine result and must not be used as one.
 `scripts/run-qsunshine-qt-moonlight-virgl-qsf-wayland-hook.sh` is different
 from the older Embedded-Moonlight hook: it drives the production Qt
 `MoonlightController` and `QsfClient`, including pair/list verification,
-windowed→fullscreen reconnect, clipboard, files, and resize.  Set
+windowed→fullscreen reconnect, clipboard, files, and resize. Set
 `VIRGL_QSF_WAYLAND_QT_QSF_OWNER=qt` with that hook.  The outer runner then
 skips its legacy mutating Python QSF block and verifies the Qt hook's atomic
 summary instead; using both QSF owners would race the same guest state.
-The Qt summary additionally requires independent guest `KEY_B` + absolute
-pointer + button evidence after the fullscreen reconnect and a second,
-byte-for-byte QSF download after reactivation. The older Embedded-Moonlight
-result in the next section is therefore not a Qt shell qualification. This
-gate has now passed twice, independently:
 
-- `vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.FMrGhL/trace.txt`;
-- `vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.jxqPBO/trace.txt`.
+For every client-selected guest size, the production path is deliberately
+serialized:
 
-Each outer trace has `QSUNSHINE_QT_MOONLIGHT_VIRGL_QSF_HOOK_OK`, its atomic
-`qsunshine-qt-e2e-summary.txt`, and a nested
-`qsunshine-qt-moonlight-hook/trace.txt`. The nested evidence proves a
-non-black `1280x800` windowed surface, a physical `1600x900@(0,0)` fullscreen
-surface after controlled reconnect, both guest input barriers, and the mTLS
-QSF operations. The driver selects Moonlight's `software` decoder only in
-this disposable Xvfb/`xwd` capture lane; production Qt clients default to
-Moonlight's `auto` decoder selection.
+1. normal QSF is deactivated and its clipboard/file/diagnostic-resize work is
+   cancelled;
+2. the visible stock Moonlight stream is stopped, then the driver waits for its
+   host capture to retire;
+3. a temporary TLS 1.3 mTLS **profile-only** QSF lease proves ready and permits
+   only `connection_optimize`;
+4. the broker combines client decoder, Sunshine host encoder, and VirGL guest
+   display capabilities, performs QEMU `Console.SetUIInfo`, and waits for the
+   exact generation-bound guest scanout acknowledgement;
+5. the temporary lease closes, a fresh Moonlight process starts with the
+   resolved profile, and normal QSF is reactivated only after that video is
+   verified.
+
+This prevents an old Sunshine capture or a clipboard/file request from racing
+the Weston restart. `fullscreen` still controls the Moonlight client window;
+it does not itself prove or select a guest scanout.
+
+The current safe-handoff gate passed on 2026-09-01 at
+`vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.Jcmdij/trace.txt`. Its outer hook
+contains `QSUNSHINE_QT_MOONLIGHT_VIRGL_QSF_HOOK_OK`; the nested trace records:
+
+- a non-black `1280x800` windowed surface;
+- a quiesced windowed stream, profile-only QSF, and an exact guest
+  `1280x720` acknowledgement before the negotiated Moonlight process starts;
+- normal QSF reactivation after that video is verified, followed by a quiesced
+  negotiated stream, another profile-only lease, and an exact guest
+  `1600x900` acknowledgement before the fullscreen process starts;
+- a non-black physical `1600x900@(0,0)` fullscreen surface, both guest input
+  barriers, bidirectional mTLS clipboard evidence, and byte-for-byte QSF
+  upload/download with a second download after normal QSF reactivation.
+
+The driver selects Moonlight's `software` decoder only in this disposable
+Xvfb/`xwd` capture lane; production Qt clients default to Moonlight's `auto`
+decoder selection. The older Embedded-Moonlight result in the next section is
+not a Qt shell qualification.
 
 The exact build and invocation are in
 [`QT_DESKTOP_CLIENT.md`](QT_DESKTOP_CLIENT.md#retained-qtmoonlightvirgl-e2e-gate).

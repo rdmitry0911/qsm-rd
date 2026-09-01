@@ -144,12 +144,17 @@ private:
     mutable std::mutex main_bus_mutex_;
     dbus::Bus main_bus_;
     dbus::Bus peer_bus_;
+    // `sd_bus_slot` keeps a reference to its bus.  Retain a separate duplicate
+    // of the registered listener transport solely so teardown can force the
+    // peer endpoint down before releasing the filter slot.
+    UniqueFd peer_transport_shutdown_fd_;
     dbus::Slot peer_filter_slot_;
     std::thread peer_thread_;
 #ifdef QMDP_HAS_GBM
     std::unique_ptr<DmaBufReadback> dmabuf_readback_;
 #endif
     dbus::Bus audio_bus_;
+    UniqueFd audio_transport_shutdown_fd_;
     dbus::Slot audio_filter_slot_;
     std::thread audio_thread_;
     mutable std::mutex audio_state_mutex_;

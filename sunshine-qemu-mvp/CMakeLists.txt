@@ -178,6 +178,14 @@ if(BUILD_TESTING)
         )
         set_tests_properties(qsf_guest_agent_pty PROPERTIES TIMEOUT 20)
 
+        add_test(
+            NAME qsf_virgl_profile_fixture_contract
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/qsf_control/test_virgl_qsf_profile_fixture.py
+                -v
+        )
+        set_tests_properties(qsf_virgl_profile_fixture_contract PROPERTIES TIMEOUT 10)
+
         find_program(QMDP_OPENSSL_EXECUTABLE openssl)
         if(QMDP_OPENSSL_EXECUTABLE)
             add_test(

@@ -82,6 +82,9 @@ ApplicationWindow {
         target: qsfClient
         function onProfileChanged() { root.loadQsfFields() }
         function onConfigurationChanged() { root.loadQsfFields() }
+        function onConnectionProfileReceived(width, height, fps, bitrateKbps, videoCodec, qemuApplied) {
+            guestResolution.editText = String(width) + "x" + String(height)
+        }
     }
 
     header: ToolBar {
@@ -102,8 +105,9 @@ ApplicationWindow {
                 Layout.fillWidth: true
             }
             Label {
-                text: qsfClient.ready ? qsTr("QSF ready") :
-                      (qsfClient.sessionActive ? qsTr("QSF verifying") : qsTr("QSF inactive"))
+                text: profileNegotiation.busy ? qsTr("Applying display profile") :
+                      (qsfClient.ready ? qsTr("QSF ready") :
+                       (qsfClient.sessionActive ? qsTr("QSF verifying") : qsTr("QSF inactive")))
                 color: qsfClient.ready ? Material.accent : "#ffb74d"
             }
         }
@@ -157,7 +161,7 @@ ApplicationWindow {
                                 ComboBox {
                                     id: profileSelector
                                     Layout.preferredWidth: 210
-                                    enabled: !moonlight.streamBusy && !moonlight.pairing
+                                    enabled: !profileNegotiation.busy && !moonlight.streamBusy && !moonlight.pairing
                                     model: moonlight.profileIds
                                     currentIndex: {
                                         var index = moonlight.profileIds.indexOf(moonlight.currentProfileId)
@@ -176,13 +180,13 @@ ApplicationWindow {
                                 TextField {
                                     id: profileNameField
                                     Layout.fillWidth: true
-                                    enabled: !moonlight.streamBusy && !moonlight.pairing
+                                    enabled: !profileNegotiation.busy && !moonlight.streamBusy && !moonlight.pairing
                                     placeholderText: qsTr("Profile name; saving a new name creates a profile")
                                     maximumLength: 64
                                 }
                                 Button {
                                     text: qsTr("Save profile")
-                                    enabled: !moonlight.streamBusy && !moonlight.pairing
+                                    enabled: !profileNegotiation.busy && !moonlight.streamBusy && !moonlight.pairing
                                     onClicked: root.saveDesktopProfile()
                                 }
                             }
@@ -191,7 +195,7 @@ ApplicationWindow {
                             TextField {
                                 id: hostField
                                 Layout.fillWidth: true
-                                enabled: !moonlight.streamBusy && !moonlight.pairing
+                                enabled: !profileNegotiation.busy && !moonlight.streamBusy && !moonlight.pairing
                                 placeholderText: "192.168.64.25"
                             }
 
@@ -199,7 +203,7 @@ ApplicationWindow {
                             TextField {
                                 id: appField
                                 Layout.fillWidth: true
-                                enabled: !moonlight.pairing && (moonlight.running || !moonlight.streamBusy)
+                                enabled: !profileNegotiation.busy && !moonlight.pairing && (moonlight.running || !moonlight.streamBusy)
                                 // App, stream size, and presentation deliberately remain editable
                                 // during a session: Connect performs a controlled reconnect.
                             }
@@ -208,7 +212,7 @@ ApplicationWindow {
                             ComboBox {
                                 id: initialResolution
                                 Layout.fillWidth: true
-                                enabled: !moonlight.pairing && (moonlight.running || !moonlight.streamBusy)
+                                enabled: !profileNegotiation.busy && !moonlight.pairing && (moonlight.running || !moonlight.streamBusy)
                                 editable: true
                                 model: ["1280x720", "1600x900", "1920x1080", "2560x1440", "3840x2160"]
                             }
@@ -217,7 +221,7 @@ ApplicationWindow {
                             ComboBox {
                                 id: displayMode
                                 Layout.fillWidth: true
-                                enabled: !moonlight.pairing && (moonlight.running || !moonlight.streamBusy)
+                                enabled: !profileNegotiation.busy && !moonlight.pairing && (moonlight.running || !moonlight.streamBusy)
                                 model: ["windowed", "fullscreen", "borderless"]
                             }
 
@@ -225,7 +229,7 @@ ApplicationWindow {
                             ComboBox {
                                 id: videoDecoder
                                 Layout.fillWidth: true
-                                enabled: !moonlight.streamBusy && !moonlight.pairing
+                                enabled: !profileNegotiation.busy && !moonlight.streamBusy && !moonlight.pairing
                                 model: ["auto", "software", "hardware"]
                                 onActivated: {
                                     moonlight.videoDecoder = currentValue
@@ -237,7 +241,7 @@ ApplicationWindow {
                             TextField {
                                 id: moonlightPathField
                                 Layout.fillWidth: true
-                                enabled: !moonlight.streamBusy && !moonlight.pairing
+                                enabled: !profileNegotiation.busy && !moonlight.streamBusy && !moonlight.pairing
                                 text: moonlight.binaryPath
                                 onEditingFinished: {
                                     moonlight.binaryPath = text
@@ -259,14 +263,14 @@ ApplicationWindow {
                             TextField {
                                 id: pinField
                                 Layout.preferredWidth: 130
-                                enabled: !moonlight.streamBusy && !moonlight.pairing
+                                enabled: !profileNegotiation.busy && !moonlight.streamBusy && !moonlight.pairing
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 maximumLength: 4
                                 echoMode: TextInput.Password
                             }
                             Button {
                                 text: qsTr("Pair")
-                                enabled: !moonlight.streamBusy && !moonlight.pairing
+                                enabled: !profileNegotiation.busy && !moonlight.streamBusy && !moonlight.pairing
                                 onClicked: {
                                     if (!root.saveDesktopProfile())
                                         return
@@ -278,7 +282,7 @@ ApplicationWindow {
                             Button {
                                 text: qsTr("Cancel pairing")
                                 visible: moonlight.pairing
-                                enabled: moonlight.pairing
+                                enabled: moonlight.pairing && !profileNegotiation.busy
                                 onClicked: moonlight.cancelPairing()
                             }
                             Item { Layout.fillWidth: true }
@@ -298,7 +302,7 @@ ApplicationWindow {
                             text: moonlight.running ? qsTr("Reconnect with these settings") :
                                   (moonlight.streamBusy ? qsTr("Starting desktop") : qsTr("Connect desktop"))
                             highlighted: true
-                            enabled: !moonlight.pairing && (moonlight.running || !moonlight.streamBusy)
+                            enabled: !profileNegotiation.busy && !moonlight.pairing && (moonlight.running || !moonlight.streamBusy)
                             onClicked: {
                                 if (!root.saveDesktopProfile())
                                     return
@@ -310,12 +314,20 @@ ApplicationWindow {
                         }
                         Button {
                             text: qsTr("Disconnect")
-                            enabled: moonlight.streamBusy
+                            enabled: !profileNegotiation.busy && moonlight.streamBusy
                             onClicked: moonlight.stopStream()
+                        }
+                        Button {
+                            text: qsTr("Cancel profile handoff")
+                            visible: profileNegotiation.busy
+                            enabled: profileNegotiation.busy
+                            onClicked: profileNegotiation.cancel()
                         }
                         Item { Layout.fillWidth: true }
                         Label {
-                            text: qsTr("Changing the app, presentation, or initial stream size while connected performs a controlled graphics-stream reconnect. Guest resize is separate in the companion tab.")
+                            text: profileNegotiation.busy
+                                  ? qsTr("The guest scanout handoff owns this session. A cancellation waits for any in-flight guest transaction to reach a safe terminal state before another connection change.")
+                                  : qsTr("Changing the app, presentation, or initial stream size while connected performs a controlled graphics-stream reconnect. Guest resize is separate in the companion tab.")
                             Layout.maximumWidth: 510
                             wrapMode: Text.Wrap
                             opacity: 0.75
@@ -366,7 +378,7 @@ ApplicationWindow {
                             GridLayout {
                                 columns: 2
                                 Layout.fillWidth: true
-                                enabled: !qsfClient.sessionActive
+                                enabled: !profileNegotiation.busy && !qsfClient.sessionActive
                                 columnSpacing: 12
                                 rowSpacing: 8
 
@@ -387,12 +399,12 @@ ApplicationWindow {
                             RowLayout {
                                 Button {
                                     text: qsTr("Save")
-                                    enabled: !qsfClient.sessionActive
+                                    enabled: !profileNegotiation.busy && !qsfClient.sessionActive
                                     onClicked: root.saveQsfFields()
                                 }
                                 Button {
                                     text: qsTr("Test gateway")
-                                    enabled: !qsfClient.sessionActive
+                                    enabled: !profileNegotiation.busy && !qsfClient.sessionActive
                                     onClicked: {
                                         if (root.saveQsfFields())
                                             qsfClient.testConnection()
@@ -420,7 +432,9 @@ ApplicationWindow {
                             RowLayout {
                                 Button {
                                     text: qsfClient.sessionActive ? qsTr("Deactivate QSF companion") : qsTr("Activate QSF for visible stream")
-                                    enabled: (moonlight.running && !moonlight.streamStopping) || qsfClient.sessionActive
+                                    enabled: !profileNegotiation.busy &&
+                                             ((moonlight.running && !moonlight.streamStopping) ||
+                                              qsfClient.sessionActive)
                                     onClicked: qsfClient.sessionActive = !qsfClient.sessionActive
                                 }
                                 Label {
@@ -443,9 +457,41 @@ ApplicationWindow {
                             anchors.fill: parent
                             spacing: 10
 
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Button {
+                                    text: qsTr("Choose optimal stream profile")
+                                    highlighted: true
+                                    enabled: qsfClient.ready && moonlight.running &&
+                                             !moonlight.streamStopping && !profileNegotiation.busy
+                                    onClicked: {
+                                        if (root.saveDesktopProfile())
+                                            profileNegotiation.negotiate(
+                                                        moonlight.profileResolution,
+                                                        moonlight.videoDecoder)
+                                    }
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    wrapMode: Text.Wrap
+                                    opacity: 0.75
+                                    text: qsTr("The size selected in this client is the requested VirGL guest scanout. The client decoder, Sunshine encoder, and guest display envelope negotiate FPS, bitrate, and codec. The current Moonlight stream is stopped first; only after QEMU and the guest confirm the new scanout does Moonlight launch again. Activate QSF again after the new video is visibly shown.")
+                                }
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                visible: moonlight.profileFps > 0
+                                text: qsTr("Current stream profile: %1 · %2 FPS · %3 Kbps · %4")
+                                      .arg(moonlight.profileResolution)
+                                      .arg(moonlight.profileFps)
+                                      .arg(moonlight.profileBitrateKbps)
+                                      .arg(moonlight.profileVideoCodec)
+                                opacity: 0.75
+                            }
+
                             Switch {
                                 text: qsTr("Synchronize plain-text clipboard while this stream is active")
-                                enabled: qsfClient.ready
+                                enabled: !profileNegotiation.busy && qsfClient.ready
                                 checked: qsfClient.clipboardSyncEnabled
                                 onToggled: qsfClient.clipboardSyncEnabled = checked
                             }
@@ -455,7 +501,7 @@ ApplicationWindow {
                                 ComboBox {
                                     id: initialClipboardDirection
                                     Layout.preferredWidth: 170
-                                    enabled: !qsfClient.sessionActive
+                                    enabled: !profileNegotiation.busy && !qsfClient.sessionActive
                                     textRole: "text"
                                     valueRole: "value"
                                     model: [
@@ -478,13 +524,14 @@ ApplicationWindow {
                                 ComboBox {
                                     id: guestResolution
                                     Layout.preferredWidth: 150
+                                    enabled: !profileNegotiation.busy
                                     editable: true
                                     model: ["1280x720", "1600x900", "1920x1080", "2560x1440", "3840x2160"]
                                     currentIndex: 2
                                 }
                                 Button {
                                     text: qsTr("Request resize")
-                                    enabled: qsfClient.ready
+                                    enabled: !profileNegotiation.busy && qsfClient.ready
                                     onClicked: {
                                         qsfClient.requestResizeText(guestResolution.editText)
                                     }
@@ -521,30 +568,43 @@ ApplicationWindow {
                                 rowSpacing: 8
 
                                 Label { text: qsTr("Local upload path") }
-                                TextField { id: uploadPath; Layout.fillWidth: true; placeholderText: "/local/path/file.txt" }
+                                TextField { id: uploadPath; Layout.fillWidth: true; enabled: !profileNegotiation.busy; placeholderText: "/local/path/file.txt" }
                                 Button {
                                     text: qsTr("Upload")
-                                    enabled: qsfClient.ready
+                                    enabled: !profileNegotiation.busy && qsfClient.ready
                                     onClicked: qsfClient.uploadFile(uploadPath.text, uploadName.text)
                                 }
                                 Label { text: qsTr("Guest upload name") }
-                                TextField { id: uploadName; Layout.fillWidth: true; placeholderText: qsTr("Optional basename") }
+                                TextField { id: uploadName; Layout.fillWidth: true; enabled: !profileNegotiation.busy; placeholderText: qsTr("Optional basename") }
                                 Item { }
 
                                 Label { text: qsTr("Guest outbox name") }
-                                TextField { id: downloadName; Layout.fillWidth: true; placeholderText: "guest-download.txt" }
+                                TextField { id: downloadName; Layout.fillWidth: true; enabled: !profileNegotiation.busy; placeholderText: "guest-download.txt" }
                                 Button {
                                     text: qsTr("Download")
-                                    enabled: qsfClient.ready
+                                    enabled: !profileNegotiation.busy && qsfClient.ready
                                     onClicked: qsfClient.downloadFile(downloadName.text, downloadPath.text)
                                 }
                                 Label { text: qsTr("Local download path") }
-                                TextField { id: downloadPath; Layout.fillWidth: true; placeholderText: "/local/path/download.txt" }
+                                TextField { id: downloadPath; Layout.fillWidth: true; enabled: !profileNegotiation.busy; placeholderText: "/local/path/download.txt" }
                                 Item { }
                             }
                         }
                     }
 
+                    Label {
+                        Layout.fillWidth: true
+                        visible: profileNegotiation.lastError.length > 0
+                        text: profileNegotiation.lastError
+                        color: "#ef9a9a"
+                        wrapMode: Text.Wrap
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        visible: profileNegotiation.busy
+                        text: profileNegotiation.status
+                        wrapMode: Text.Wrap
+                    }
                     Label {
                         Layout.fillWidth: true
                         visible: qsfClient.lastError.length > 0

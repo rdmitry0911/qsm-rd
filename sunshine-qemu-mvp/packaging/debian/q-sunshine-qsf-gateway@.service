@@ -1,0 +1,26 @@
+[Unit]
+Description=q-sunshine QSF mTLS gateway for Proxmox guest %i
+Documentation=file:/usr/share/doc/q-sunshine-pve/README.Debian
+After=q-sunshine-qsf-control@%i.service
+Requires=q-sunshine-qsf-control@%i.service
+BindsTo=q-sunshine-qsf-control@%i.service
+ConditionPathExists=/etc/q-sunshine/instances.d/%i.conf
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/q-sunshine/instances.d/%i.conf
+Environment=QSUNSHINE_QSF_GATEWAY_HOST=127.0.0.1
+Environment=QSUNSHINE_QSF_GATEWAY_PORT=48122
+UMask=0077
+ExecStart=/usr/bin/q-sunshine-qsf-gateway --control-socket=/run/q-sunshine/qsf-%i/control.sock --token-file=/run/q-sunshine/qsf-%i/control.token --server-cert=${QSUNSHINE_QSF_SERVER_CERT} --server-key=${QSUNSHINE_QSF_SERVER_KEY} --client-ca=${QSUNSHINE_QSF_CLIENT_CA} --listen-host=${QSUNSHINE_QSF_GATEWAY_HOST} --listen-port=${QSUNSHINE_QSF_GATEWAY_PORT}
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=full
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

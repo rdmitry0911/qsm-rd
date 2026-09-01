@@ -12,7 +12,7 @@ operations or a zero-copy encoder have been completed.
 | QEMU Display1 transport | Implemented | private D-Bus, RegisterListener FD handoff, inline/map callbacks, cursor metadata, input, resize and audio listener tests |
 | CPU capture baseline | Implemented | validated pixman layouts, mapped/inline lifetimes, bounded latest-frame mailbox and software H.264 tests |
 | DMA-BUF capture | Implemented with CPU readback | single-plane ScanoutDMABUF/UpdateDMABUF imports on GBM/EGL, BGRX readback, bounds/FD/failure counters |
-| Sunshine integration | Implemented | pinned upstream patches 0001..0006, clean replay on upstream 4f39fc1, QEMU capture/input/audio source |
+| Sunshine integration | Implemented | pinned upstream patches 0001..0007, clean replay on upstream 4f39fc1, QEMU capture/input/audio source with ordered listener retirement |
 | Headless deployment profile | Qualified | complete ldd deny gate rejects X11, Wayland, PulseAudio and ALSA; no host desktop/audio service is used |
 | Moonlight video/input | Native KVM/VirGL passed | private pairing, HTTPS, RTSP/RTP, H.264 decode, fullscreen/windowed presentation and raw guest evdev key/mouse evidence |
 | Resolution | Native guest passed | SetUIInfo(1280x720), a new QEMU scanout, and ordered H.264 1280x800 -> 1280x720 evidence |
@@ -86,8 +86,10 @@ X11/Wayland/PulseAudio/ALSA dependency.
 
 - GPU-native conversion/encoding, ScanoutDMABUF2, modifier coverage and
   measured latency/throughput targets;
-- reconnect/release-all failure matrix, long soak, multi-VM supervision,
-  systemd packaging and host-reboot recovery;
+- reconnect/release-all failure matrix, long soak, audited multi-VM
+  supervision and host-reboot recovery.  The Proxmox package provides
+  conservative per-VM systemd templates, but deliberately does not create a
+  QEMU endpoint or mutate VM configuration;
 - Windows/UEFI/login coverage, microphone return, rich clipboard MIME,
   drag-and-drop, large/resumable files and consent UI;
 - a public remote deployment security review, NAT traversal and key rotation.
