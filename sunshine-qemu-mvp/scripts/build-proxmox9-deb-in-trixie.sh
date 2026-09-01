@@ -17,7 +17,7 @@ die() {
     exit 1
 }
 
-for required in sudo debootstrap tar mktemp find; do
+for required in sudo debootstrap tar mktemp find mount umount mountpoint; do
     command -v "$required" >/dev/null 2>&1 || die "missing required command: $required"
 done
 sudo -n true || die "passwordless sudo is required"
@@ -86,6 +86,30 @@ mapfile -t artifacts < <(find "$CHROOT_DIR/work/out" -maxdepth 1 -type f -name '
 artifact_in_chroot="${artifacts[0]#"$CHROOT_DIR"}"
 [[ "$artifact_in_chroot" == /work/out/q-sunshine-pve_*_amd64.deb ]] ||
     die "package artifact is outside the expected chroot output directory"
+
+# The package intentionally uses a private $ORIGIN-relative libva.  A bare
+# debootstrap tree has no procfs, which makes its loader behavior differ from
+# a real Proxmox host and falsely rejects that private runtime path.  Mount it
+# only for the install smoke and always tear it down, including on failure.
+proc_mount_active=0
+cleanup_proc_mount() {
+    local status=$?
+    trap - EXIT
+    if [[ "$proc_mount_active" -eq 1 ]]; then
+        if ! sudo umount "$CHROOT_DIR/proc"; then
+            echo "q-sunshine Trixie package driver: could not unmount $CHROOT_DIR/proc" >&2
+            if [[ "$status" -eq 0 ]]; then
+                status=1
+            fi
+        fi
+    fi
+    exit "$status"
+}
+trap cleanup_proc_mount EXIT
+[[ -d "$CHROOT_DIR/proc" ]] || die "debootstrap did not create $CHROOT_DIR/proc"
+mountpoint -q "$CHROOT_DIR/proc" && die "$CHROOT_DIR/proc is already mounted"
+sudo mount -t proc proc "$CHROOT_DIR/proc"
+proc_mount_active=1
 sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive \
     /bin/bash -ec "apt-get install -y --no-install-recommends '$artifact_in_chroot' && q-sunshine --version"
 
