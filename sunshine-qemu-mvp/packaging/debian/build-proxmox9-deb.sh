@@ -292,10 +292,14 @@ done
 
 install -d "$stage_dir/DEBIAN" "$deb_control_dir"
 # dpkg-shlibdeps requires a debian/control file in its working directory even
-# when emitting substitutions to stdout. Its result is generated in Trixie,
-# so dependencies refer to the Proxmox 9 base userspace, not the build host.
-sed -e "s|@VERSION@|$package_version|" -e 's|@DEPENDS@|${shlibs:Depends}|' \
-    "$PACKAGE_DIR/control.in" > "$deb_control_dir/control"
+# when emitting substitutions to stdout.  Trixie dpkg also requires that file
+# to start with a Source stanza, although the final binary package control
+# must contain only the generated binary stanza below.
+{
+    printf 'Source: %s\n\n' "$package_name"
+    sed -e "s|@VERSION@|$package_version|" -e 's|@DEPENDS@|${shlibs:Depends}|' \
+        "$PACKAGE_DIR/control.in"
+} > "$deb_control_dir/control"
 # libva-drm is a separately shipped, loadable platform library.  Inspect it
 # as well as the executable so its libdrm ABI requirement is represented in
 # Depends even when the software-only Sunshine link drops it under --as-needed.
