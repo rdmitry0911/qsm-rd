@@ -47,7 +47,7 @@ if [[ "${QSUNSHINE_DEB_ALLOW_NONTRIXIE:-0}" != "1" ]]; then
 fi
 
 for required in cmake ninja meson git dpkg dpkg-deb dpkg-shlibdeps patchelf readelf ldd \
-                strip strings sed grep awk find sort install cp curl sha256sum tar; do
+                strip strings sed grep awk find sort install cp curl gzip sha256sum tar; do
     require_command "$required"
 done
 
@@ -65,7 +65,8 @@ done
 for required_package_file in control.in q-sunshine q-sunshine-preflight q-sunshine@.service \
                              q-sunshine-qsf-control q-sunshine-qsf-client q-sunshine-qsf-gateway \
                              q-sunshine-qsf-control@.service q-sunshine-qsf-gateway@.service \
-                             postinst postrm README.Debian example-instance.conf copyright; do
+                             postinst postrm README.Debian example-instance.conf copyright \
+                             changelog.in lintian-overrides; do
     require_file "$PACKAGE_DIR/$required_package_file"
 done
 for required_qsf_file in qsf_control.py qsf_client.py qsf_tls_client.py qsf_tls_gateway.py; do
@@ -203,6 +204,8 @@ libva_drm_real="$(readlink -f "$libva_staged_prefix/lib/libva-drm.so.2")"
 [[ -f "$libva_drm_real" ]] || die "cannot resolve built libva-drm.so.2"
 install -m 0644 "$libva_drm_real" "$package_root/lib/$(basename "$libva_drm_real")"
 ln -s "$(basename "$libva_drm_real")" "$package_root/lib/libva-drm.so.2"
+strip --strip-unneeded "$package_root/lib/$(basename "$libva_real")"
+strip --strip-unneeded "$package_root/lib/$(basename "$libva_drm_real")"
 # libva-drm is a separately loadable VA platform library.  Its dependency on
 # libva must resolve to this adjacent private ABI rather than a host copy;
 # Sunshine's RUNPATH is intentionally not inherited by indirect dependencies.
@@ -236,6 +239,11 @@ install -Dm644 "$ROOT_DIR/docs/SUNSHINE_QEMU_INTEGRATION.md" \
 install -Dm644 "$PACKAGE_DIR/example-instance.conf" \
     "$stage_dir/usr/share/doc/$package_name/example-instance.conf"
 install -Dm644 "$PACKAGE_DIR/copyright" "$stage_dir/usr/share/doc/$package_name/copyright"
+sed "s|@VERSION@|$package_version|" "$PACKAGE_DIR/changelog.in" \
+    > "$stage_dir/usr/share/doc/$package_name/changelog"
+gzip -n -9 "$stage_dir/usr/share/doc/$package_name/changelog"
+install -Dm644 "$PACKAGE_DIR/lintian-overrides" \
+    "$stage_dir/usr/share/lintian/overrides/$package_name"
 
 staged_binary="$package_root/bin/sunshine"
 patchelf --set-rpath '$ORIGIN/../lib' "$staged_binary"

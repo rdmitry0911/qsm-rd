@@ -3,7 +3,7 @@ Version: @VERSION@
 Section: net
 Priority: optional
 Architecture: amd64
-Maintainer: q-sunshine contributors <q-sunshine@localhost>
+Maintainer: q-sunshine contributors <q-sunshine@users.noreply.github.com>
 Homepage: https://github.com/LizardByte/Sunshine
 Depends: @DEPENDS@
 Description: headless QEMU Display1 Sunshine backend for Proxmox VE 9
