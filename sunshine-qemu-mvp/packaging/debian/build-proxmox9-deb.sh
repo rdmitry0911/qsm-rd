@@ -87,7 +87,14 @@ listener_patch_path="$ROOT_DIR/$SUNSHINE_LISTENER_TEARDOWN_PATCH"
 listener_patch_sha256="$(sha256sum "$listener_patch_path" | awk '{print $1}')"
 [[ "$listener_patch_sha256" == "$SUNSHINE_LISTENER_TEARDOWN_PATCH_SHA256" ]] ||
     die "Sunshine listener-retirement patch digest mismatch"
-git apply --reverse --check --directory="$SUNSHINE_SOURCE_DIR" "$listener_patch_path" \
+# git apply's --directory is a prefix relative to its current directory; an
+# absolute prefix is rejected in a source export without a Git worktree. Run
+# it from the source parent and use its basename so the provenance gate works
+# both in the clean archive and with a caller-supplied SUNSHINE_SOURCE_DIR.
+sunshine_patch_parent="$(cd -- "$SUNSHINE_SOURCE_DIR/.." && pwd)"
+sunshine_patch_directory="$(basename -- "$SUNSHINE_SOURCE_DIR")"
+git -C "$sunshine_patch_parent" apply --reverse --check \
+    --directory="$sunshine_patch_directory" "$listener_patch_path" \
     >/dev/null 2>&1 ||
     die "Sunshine source does not contain the required listener-retirement patch"
 
