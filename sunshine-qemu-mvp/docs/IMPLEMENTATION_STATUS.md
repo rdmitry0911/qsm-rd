@@ -1,8 +1,9 @@
 # Implementation status
 
-Status date: 2026-09-01. The functional headless native stack is accepted on
-this host. Accepted means the documented E2E gates pass; it does not mean
-production operations or a zero-copy encoder have been completed.
+Status date: 2026-09-01. The functional headless native stack, including the
+standalone Qt desktop client and stock Moonlight Qt child, is accepted on this
+host. Accepted means the documented E2E gates pass; it does not mean production
+operations or a zero-copy encoder have been completed.
 
 ## Implemented and qualified
 
@@ -18,6 +19,7 @@ production operations or a zero-copy encoder have been completed.
 | Guest audio | Native KVM passed | QEMU AudioOutListener -> Sunshine Opus -> non-silent Moonlight-decoded 48 kHz stereo PCM |
 | QSF clipboard/files | Native guest desktop passed | token-authenticated virtio-serial bridge, actual Weston wl-copy/wl-paste, bidirectional hashes, constrained upload/download |
 | QSF mTLS gateway | Protocol test passed | TLS 1.3 mutual authentication and local-token non-disclosure; production session binding remains deployer-owned |
+| Qt desktop shell | Native KVM/VirGL passed twice | standalone Qt/QML profile shell launches clean stock Moonlight Qt; two fresh composite traces prove pairing/list, windowed/fullscreen visible frames, controlled reconnect, guest input, mTLS QSF clipboard/files/resize and post-reconnect download |
 
 The QEMU DMA-BUF route is deliberately not called zero-copy: it imports into
 headless EGL then synchronously reads CPU BGRX for Sunshine's libx264 software
@@ -33,6 +35,8 @@ Sunshine does not currently use NVIDIA encoding.
 | Decoded guest audio | artifacts/validation/moonlight-sunshine-qemu-audio-e2e/run.gki7t0/ | AUDIO_TONE_ON, 13.909 s non-silent 48 kHz stereo decoded client PCM |
 | Combined video/input/desktop data | vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.KEqkVc/trace.txt | Moonlight hook, Weston clipboard both directions, files both directions, ordered live resize, actual installed guest packages |
 | Combined Moonlight hook | run.KEqkVc/moonlight-sunshine-hook.480Wca/trace.txt | final no-X Sunshine binary, fullscreen H.264, guest KEY_A + absolute pointer + button |
+| Qt/Moonlight composite, pass 1 | vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.FMrGhL/trace.txt | stock Moonlight Qt pair/list; 1280x800 windowed + 1600x900 physical fullscreen; KEY_A then post-reconnect KEY_B; QSF mTLS clipboard/files/resize |
+| Qt/Moonlight composite, pass 2 | vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.jxqPBO/trace.txt | independent repeat of the same complete gate; nested `qsunshine-qt-moonlight-hook/trace.txt` records non-black frames and input barriers |
 
 The evidence directories are intentionally ignored because they contain
 ephemeral pairing material and/or QSF capability tokens. They are local
@@ -40,7 +44,7 @@ verification artifacts, not release assets.
 
 ## Current topology
 
-    Moonlight client (client-side SDL/Xvfb only)
+    Qt desktop shell -> clean stock Moonlight Qt (client side only)
       -> Sunshine qemu_dbus, software H.264 / Opus
       -> private QEMU Display1 D-Bus
       -> KVM Q35, virtio-vga-gl, virtio input, virtio serial
@@ -51,9 +55,10 @@ verification artifacts, not release assets.
       -> QEMU virtio serial
       -> guest text state / files / Weston wl-copy and wl-paste
 
-The Xvfb process in the native Moonlight harness belongs to the client only.
-The Sunshine process has neither DISPLAY nor WAYLAND_DISPLAY, and the final
-resolver closure has no X11/Wayland/PulseAudio/ALSA dependency.
+The disposable Xvfb process in native harnesses, including the Qt visual gate,
+belongs to the client only. The Sunshine process has neither DISPLAY nor
+WAYLAND_DISPLAY, and the final resolver closure has no
+X11/Wayland/PulseAudio/ALSA dependency.
 
 ## Deliberate boundaries
 
@@ -70,6 +75,12 @@ resolver closure has no X11/Wayland/PulseAudio/ALSA dependency.
 - The remote mTLS code is protocol-tested, but end-to-end remote authorization,
   certificate lifecycle, user consent and per-VM session binding remain
   deployment work.
+- The Qt shell is included in the accepted native trace above: two independent
+  clean-stock-Moonlight composites prove pairing/list, windowed and physical
+  fullscreen visible-frame proof, controlled reconnect, real mTLS QSF, and
+  the existing KVM/VirGL/Weston guest in one run each. Its visual gate selects
+  Moonlight's software decoder only because `xwd` cannot read an NVIDIA VDPAU
+  overlay on the disposable Xvfb; the normal client default remains `auto`.
 
 ## Not complete for a production service
 

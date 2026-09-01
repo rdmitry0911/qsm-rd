@@ -33,7 +33,7 @@ because the pinned static FFmpeg needs them even with VAAPI disabled.
 | Guest desktop | Alpine 3.20.10 cloud image, Weston 12 DRM, seatd/eudev, wl-clipboard |
 | Sunshine video | QEMU DMA-BUF -> headless GBM/EGL CPU BGRX readback -> libx264 |
 | Sunshine audio | QEMU AudioOutListener -> bounded FIFO -> Opus |
-| Moonlight harness | Moonlight Embedded SDL/FFmpeg; Xvfb is disposable client-side only |
+| Moonlight harness | legacy Moonlight Embedded SDL/FFmpeg plus standalone Qt shell -> clean stock Moonlight Qt; any Xvfb is disposable client-side only |
 
 ## Regression matrix
 
@@ -48,6 +48,8 @@ because the pinned static FFmpeg needs them even with VAAPI disabled.
 | Native video/input | fullscreen and windowed Moonlight -> Sunshine -> QEMU -> VirGL | passed |
 | Native audio | QEMU guest tone -> Sunshine Opus -> decoded Moonlight PCM | passed |
 | Native desktop companion | Moonlight plus QSF/Weston clipboard/files/resize in one VM | passed |
+| Qt client CTest | `.build-qt-client`, Qt/QML/controller/QSF mTLS tests | 11/11 passed |
+| Qt/Moonlight composite | clean stock Moonlight Qt -> Sunshine -> KVM/QEMU -> VirGL/Weston + Qt QSF, repeated in two fresh VMs | passed twice |
 
 The CTest matrix includes core state-machine tests, in-process and
 cross-process D-Bus/FD tests, CPU H.264 self-test, inline/map message-bus E2E,
@@ -142,6 +144,39 @@ The failed run.tmazza is a deliberately excluded diagnostic trace from an
 earlier package-version parser; it did not pass the runner and is not used as
 evidence. The final run uses the corrected parser against Alpine's installed
 package database.
+
+## Qt desktop shell composite, repeated twice
+
+The standalone Qt client qualification uses the production `MoonlightController`
+and `QsfClient` classes, a clean unmodified Moonlight Qt child, the final
+no-X Sunshine binary, KVM QEMU, and the same Alpine VirGL/Weston guest. It
+passed twice in independent fresh outer runs:
+
+    vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.FMrGhL/trace.txt
+    vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.jxqPBO/trace.txt
+
+Each has a nested `qsunshine-qt-moonlight-hook/trace.txt` and an atomic
+`qsunshine-qt-e2e-summary.txt`. The summary requires all of:
+
+- clean stock-Moonlight Qt pair flow followed by independent `moonlight list`
+  confirmation of `Desktop`;
+- a non-black `1280x800` windowed client frame, then a controlled reconnect to
+  a non-black physical `1600x900@(0,0)` fullscreen frame;
+- raw guest evdev `KEY_A`, absolute pointer, and button in the windowed phase,
+  followed by fresh `KEY_B`, pointer, and button evidence after fullscreen
+  reconnect;
+- TLS 1.3 mTLS Qt QSF clipboard in both directions, byte-for-byte upload and
+  download, `1280x720` QSF resize, guest Weston DRM restart, QEMU `SetUIInfo`,
+  and a second byte-for-byte download after QSF reactivation;
+- ordered Display1 H.264 geometry `1280x800->1280x720`, nonzero DMA-BUF
+  traffic with zero failures, and zero observer session errors.
+
+The two client screenshots have the asserted dimensions `1280x800` and
+`1600x900`. The disposable visual driver forces Moonlight's `software` decoder
+only because `xwd` cannot reliably capture an NVIDIA VDPAU presentation
+surface; the normal Qt client default is `auto` and omits that Moonlight CLI
+option. Xvfb belongs solely to this client-side visual lane: the Sunshine
+deployment artifact, QEMU, Display1 observer, and guest do not use a host GUI.
 
 ## Scope and evidence handling
 

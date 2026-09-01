@@ -4,7 +4,7 @@ This repository implements and qualifies a headless QEMU Display1 capture
 backend for a pinned Sunshine build. The accepted native route is:
 
 ```text
-Moonlight Embedded client
+Qt desktop shell -> clean stock Moonlight Qt
   -> Sunshine GameStream (private pairing, HTTPS, RTSP/RTP)
   -> QEMU Display1 D-Bus capture/input/audio
   -> KVM Q35 + virtio-vga-gl
@@ -12,9 +12,16 @@ Moonlight Embedded client
 ```
 
 The deployment-side Sunshine binary is deliberately free of X11, Wayland,
-PulseAudio, and ALSA dependencies. The short-lived Xvfb instance used by the
-Moonlight Embedded test client is a **client harness only**; it is never part
-of the q-sunshine host runtime.
+PulseAudio, and ALSA dependencies. Any short-lived Xvfb instance used by an
+Embedded-Moonlight or Qt/Moonlight visual test is a **client harness only**;
+it is never part of the q-sunshine host runtime.
+
+An optional [`Qt desktop client`](docs/QT_DESKTOP_CLIENT.md) now provides a
+portable Remmina/RDP-style client-side shell. It launches stock Moonlight Qt
+as a separate process for GameStream video/audio/input and owns saved profiles,
+the QSF mTLS companion, clipboard, constrained files, and presentation
+reconnects. It is off by default; enable it with `-DQMDP_BUILD_QT_CLIENT=ON`.
+It likewise adds no X11/Wayland dependency to the Sunshine host.
 
 ## Accepted functionality
 
@@ -23,34 +30,35 @@ NVIDIA RTX 3080 render node:
 
 | Capability | What is exercised end to end |
 | --- | --- |
-| Video | Moonlight pairing, HTTPS launch, RTSP/RTP, H.264 encode/decode, QEMU `ScanoutDMABUF`/`UpdateDMABUF`, KVM, `virtio_gpu`, VirGL and a non-black client image |
-| Fullscreen and windowed client modes | Moonlight's `1280x720` fullscreen presentation at `(0,0)` and a `1280x720` window inside a `1600x900` root |
+| Video | Qt-controlled clean stock Moonlight pairing/list, HTTPS launch, RTSP/RTP, H.264 encode/decode, QEMU `ScanoutDMABUF`/`UpdateDMABUF`, KVM, `virtio_gpu`, VirGL and non-black client images |
+| Fullscreen and windowed client modes | Qt-controlled stock Moonlight `1280x800` windowed presentation and a physical `1600x900` fullscreen presentation at `(0,0)`, proven in two independent runs |
 | Resolution | Sunshine/QSF `Console.SetUIInfo(1280x720)`, a new guest scanout, and independently encoded `1280x800 -> 1280x720` H.264 segments |
-| Keyboard and mouse | A real Moonlight SDL key, relative/absolute motion and click, observed as raw guest evdev `KEY_A`, absolute pointer and `BTN_LEFT` events |
+| Keyboard and mouse | Real stock-Moonlight keys, absolute motion and clicks observed as raw guest evdev `KEY_A` in windowed mode and fresh `KEY_B` + pointer/button evidence after fullscreen reconnect |
 | Guest audio | QEMU D-Bus `AudioOutListener` -> Sunshine Opus -> Moonlight decoded non-silent 48 kHz stereo PCM, without a host sound server |
 | Clipboard | QSF companion text reaches real guest Weston `wl-paste`; a guest `wl-copy` reaches the client side, with independent hashes |
 | Files | QSF upload and download through QEMU virtio-serial, with independent guest/client SHA-256 assertions |
 
-The strongest combined evidence is the one-VM native composite in
-`vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.KEqkVc/` (ignored because it
-contains ephemeral credentials). It ran the final no-desktop-dependency
-Sunshine binary, Moonlight input, a real Weston DRM clipboard bridge, files,
-and the mode transition together.
+The strongest combined evidence is the twice-repeated Qt/Moonlight composite
+in `vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.FMrGhL/` and independent
+`run.jxqPBO/` (ignored because they contain ephemeral credentials). Each ran
+the final no-desktop-dependency Sunshine binary, clean stock Moonlight Qt,
+real Weston DRM clipboard bridge, files, resize, and controlled fullscreen
+reconnect together.
 
 ## Runtime topology
 
 ```text
-                 client side only                         headless host
-Moonlight SDL/Xvfb ── GameStream ──> Sunshine qemu_dbus ── private D-Bus ──> QEMU
-       │                                    │                                     │
-       │                                    ├─ QEMU AudioOutListener               ├─ KVM/Q35
-       │                                    ├─ ScanoutDMABUF                       ├─ virtio-vga-gl
-       │                                    └─ Keyboard/Mouse/SetUIInfo            └─ virtio-serial
-       │                                                                          │
-       └── QSF mTLS/local companion ───────── QSF control ───────────────────────┘
-                                                                                  │
-                                                                       Alpine + VirGL + Weston DRM
-                                                                       wl-copy / wl-paste + QSF agent
+                    client side only                         headless host
+Qt shell -> stock Moonlight Qt ── GameStream ──> Sunshine qemu_dbus ── private D-Bus ──> QEMU
+       │                                             │                                     │
+       │                                             ├─ QEMU AudioOutListener               ├─ KVM/Q35
+       │                                             ├─ ScanoutDMABUF                       ├─ virtio-vga-gl
+       │                                             └─ Keyboard/Mouse/SetUIInfo            └─ virtio-serial
+       │                                                                                   │
+       └── QSF TLS 1.3 mTLS ─────────────────────── QSF gateway ─────────────────────────┘
+                                                                                           │
+                                                                                Alpine + VirGL + Weston DRM
+                                                                                wl-copy / wl-paste + QSF agent
 ```
 
 The QSF route is intentionally a separate authenticated companion protocol.
@@ -104,14 +112,14 @@ QEMU_ACCEL=kvm MOONLIGHT_WINDOW_MODE=windowed STREAM_SECONDS=12 \
   ./scripts/run-moonlight-sunshine-virgl-e2e.sh
 ```
 
-For the full Moonlight + Weston clipboard/file/resize composite, do not run a
-second GameStream test concurrently:
+For the accepted Qt/Moonlight + Weston clipboard/file/resize composite, do not
+run a second GameStream test concurrently:
 
 ```bash
-SUNSHINE_BINARY="$PWD/.upstream/build-sunshine-qemu-no-x11/sunshine" \
+VIRGL_QSF_WAYLAND_QT_QSF_OWNER=qt \
+VIRGL_QSF_WAYLAND_PROBE_DURATION_MS=390000 \
 VIRGL_QSF_WAYLAND_POST_AGENT_READY_HOOK=\
-  "$PWD/scripts/run-moonlight-sunshine-virgl-qsf-wayland-hook.sh" \
-VIRGL_QSF_WAYLAND_PROBE_DURATION_MS=60000 \
+  "$PWD/scripts/run-qsunshine-qt-moonlight-virgl-qsf-wayland-hook.sh" \
   ./scripts/run-virgl-qsf-wayland-clipboard-e2e.sh
 ```
 
@@ -122,10 +130,12 @@ for prerequisites and assertions.
 
 ## Resolution behavior
 
-Fullscreen is a Moonlight client-presentation mode. Sunshine also requests
-the stream geometry through `Console.SetUIInfo`; a successful reply alone is
-not treated as a completed mode switch. The native tests require a new QEMU
-scanout and H.264 evidence of the requested `1280x720` mode.
+Fullscreen is a Moonlight client-presentation mode. In the Qt composite it
+occupies the full disposable `1600x900` client root; independently, QSF asks
+the guest for `1280x720` through `Console.SetUIInfo`. A successful reply alone
+is not treated as a completed guest mode switch: the gate requires a new QEMU
+scanout, Weston DRM restart, and H.264 evidence of the `1280x800 -> 1280x720`
+guest transition.
 
 The guest's Weston 12 DRM backend does not automatically reselect a new
 preferred virtio-gpu mode after it is running. The QSF/Wayland gate therefore
@@ -143,6 +153,9 @@ is a documented guest-desktop fallback, not a claim of automatic hotplug.
   traversal, Windows-login coverage, or a long-term remote security review.
 - The host is headless, but Moonlight itself remains a graphical client and
   needs its normal SDL platform on the client machine.
+- QSF is not cryptographically bound to a GameStream session. The Qt shell
+  requires manual activation after the video is visible and cancels QSF on
+  Moonlight teardown; use only a trusted, per-VM gateway.
 
 ## Documentation map
 
@@ -152,6 +165,7 @@ is a documented guest-desktop fallback, not a claim of automatic hotplug.
 - [`docs/MOONLIGHT_AUDIO_E2E.md`](docs/MOONLIGHT_AUDIO_E2E.md) — decoded client-audio gate.
 - [`docs/VIRGL_QSF_WAYLAND_CLIPBOARD_E2E.md`](docs/VIRGL_QSF_WAYLAND_CLIPBOARD_E2E.md) — real guest desktop clipboard, files and resize.
 - [`extensions/qsf_control/README.md`](extensions/qsf_control/README.md) — local and mTLS QSF companion operation.
+- [`docs/QT_DESKTOP_CLIENT.md`](docs/QT_DESKTOP_CLIENT.md) — portable Qt client shell, build, security and its QSF E2E gate.
 
 ## License
 

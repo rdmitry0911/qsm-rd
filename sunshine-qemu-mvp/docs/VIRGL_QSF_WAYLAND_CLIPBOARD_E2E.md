@@ -17,9 +17,13 @@ Alpine virtio-gpu / VirGL / Weston DRM
   -> headless GBM or headless-EGL CPU readback -> H.264 probe
 ```
 
-The host has no X11, Wayland, GTK, Xvfb, or desktop-session dependency. The
-only graphical stack is inside the guest: `weston`, `weston-backend-drm`,
-`weston-clients`, `wl-clipboard`, `seatd`, `eudev`, and `gnu-libiconv`.
+The deployment host path has no X11, Wayland, GTK, Xvfb, or desktop-session
+dependency. The only graphical stack in this standalone guest gate is inside
+the guest: `weston`, `weston-backend-drm`, `weston-clients`, `wl-clipboard`,
+`seatd`, `eudev`, and `gnu-libiconv`. The optional Qt/Moonlight composite
+below deliberately starts a short-lived **client-only** Xvfb for visual
+attestation; Sunshine, QEMU, the Display1 observer, and the guest remain
+headless on the host.
 
 ## Run
 
@@ -173,7 +177,37 @@ VIRGL_QSF_WAYLAND_POST_AGENT_READY_HOOK=\
 That diagnostic can validate the guest evdev watcher, but it is not a
 Moonlight/Sunshine result and must not be used as one.
 
-## Final composite result
+### Qt shell composite mode
+
+`scripts/run-qsunshine-qt-moonlight-virgl-qsf-wayland-hook.sh` is different
+from the older Embedded-Moonlight hook: it drives the production Qt
+`MoonlightController` and `QsfClient`, including pair/list verification,
+windowed→fullscreen reconnect, clipboard, files, and resize.  Set
+`VIRGL_QSF_WAYLAND_QT_QSF_OWNER=qt` with that hook.  The outer runner then
+skips its legacy mutating Python QSF block and verifies the Qt hook's atomic
+summary instead; using both QSF owners would race the same guest state.
+The Qt summary additionally requires independent guest `KEY_B` + absolute
+pointer + button evidence after the fullscreen reconnect and a second,
+byte-for-byte QSF download after reactivation. The older Embedded-Moonlight
+result in the next section is therefore not a Qt shell qualification. This
+gate has now passed twice, independently:
+
+- `vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.FMrGhL/trace.txt`;
+- `vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.jxqPBO/trace.txt`.
+
+Each outer trace has `QSUNSHINE_QT_MOONLIGHT_VIRGL_QSF_HOOK_OK`, its atomic
+`qsunshine-qt-e2e-summary.txt`, and a nested
+`qsunshine-qt-moonlight-hook/trace.txt`. The nested evidence proves a
+non-black `1280x800` windowed surface, a physical `1600x900@(0,0)` fullscreen
+surface after controlled reconnect, both guest input barriers, and the mTLS
+QSF operations. The driver selects Moonlight's `software` decoder only in
+this disposable Xvfb/`xwd` capture lane; production Qt clients default to
+Moonlight's `auto` decoder selection.
+
+The exact build and invocation are in
+[`QT_DESKTOP_CLIENT.md`](QT_DESKTOP_CLIENT.md#retained-qtmoonlightvirgl-e2e-gate).
+
+## Legacy Embedded-Moonlight composite result
 
 The fresh strict composite passed on 2026-09-01 at
 `vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.KEqkVc/trace.txt`; its nested

@@ -74,12 +74,18 @@ Host kernel/GPU driver и QEMU/Sunshine worker входят в trusted computing
 
 ### Side-channel
 
-- TLS;
-- аутентификация paired client certificate;
-- короткоживущий token, связанный с активным GameStream session id;
-- replay protection через monotonic sequence/request id;
-- rate limits на resize/clipboard;
-- major-version mismatch отключает extension, но не ослабляет base auth.
+- TLS 1.3 и обязательный client certificate у удалённого QSF gateway;
+- host-local token остаётся в `0600` file и читается gateway; он не уходит к
+  Qt/Moonlight client;
+- endpoint/certificate settings изолированы по сохранённому desktop profile и
+  блокируются на время активного QSF companion;
+- Qt client требует явного включения QSF только после визуального подтверждения
+  Moonlight stream и сразу отменяет операции при teardown/reconnect;
+- **текущее ограничение:** QSF request не имеет криптографической привязки к
+  GameStream session id. Gateway должен быть доверенным и выделенным для одной
+  VM; не следует подменять это свойство TLS-аутентификацией;
+- session-id binding, replay sequence/request id и rate limits — требования
+  следующей версии протокола, а не свойства текущего QSF gateway.
 
 ## 4. Не включать в MVP
 

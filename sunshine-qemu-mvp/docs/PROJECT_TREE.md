@@ -23,6 +23,19 @@ sunshine-qemu-mvp/
 ├── config/
 │   ├── qemu-vm.cpu.example.toml
 │   └── qemu-vm.example.toml
+├── clients/
+│   └── qsunshine-qt/
+│       ├── CMakeLists.txt
+│       ├── qml/Main.qml
+│       ├── src/
+│       │   ├── main.cpp
+│       │   ├── moonlightcontroller.cpp/.h
+│       │   └── qsfclient.cpp/.h
+│       └── tests/
+│           ├── moonlightcontroller_test_main.cpp
+│           ├── qsf_e2e_main.cpp
+│           ├── qml_smoke_main.cpp
+│           └── real_e2e_main.cpp
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── BUILD_AND_RUN.md
@@ -31,6 +44,7 @@ sunshine-qemu-mvp/
 │   ├── INTEGRATION_MAP.md
 │   ├── MVP_ACCEPTANCE.md
 │   ├── PROJECT_TREE.md
+│   ├── QT_DESKTOP_CLIENT.md
 │   ├── REAL_QEMU_E2E.md
 │   ├── REFERENCE_VM.md
 │   ├── SUNSHINE_QEMU_INTEGRATION.md
@@ -65,6 +79,8 @@ sunshine-qemu-mvp/
 │   ├── run-no-gpu-selftest.sh
 │   ├── run-qemu-display-probe.sh
 │   ├── run-real-qemu-selftest.sh
+│   ├── run-virgl-qsf-wayland-clipboard-e2e.sh
+│   ├── run-qsunshine-qt-moonlight-virgl-qsf-wayland-hook.sh
 │   ├── run-sanitizers.sh
 │   └── run-upstream-sunshine-qemu-e2e.sh
 ├── src/
@@ -128,3 +144,12 @@ sunshine-qemu-mvp/
   later input/audio/shared-map work.
 - `scripts/run-upstream-sunshine-qemu-e2e.sh`: real QEMU → patched Sunshine
   `display_t` → software/libx264 encoder-probe gate.
+- `clients/qsunshine-qt`: optional, standalone Qt desktop shell. It keeps
+  Moonlight Qt as a child media/input process and implements profile-scoped
+  QSF TLS controls without embedding an SDL surface in a Qt event loop.
+- `scripts/run-qsunshine-qt-moonlight-virgl-qsf-wayland-hook.sh`: retained
+  composite Qt-shell/stock-Moonlight/Sunshine/QEMU/VirGL qualification hook;
+  it owns the disposable client display and transfers QSF operation ownership
+  from the legacy outer runner to the production Qt client classes. It proves
+  windowed and physical-fullscreen presentations, controlled reconnect, input,
+  mTLS clipboard/files, and guest resize in the same powered-on VM.

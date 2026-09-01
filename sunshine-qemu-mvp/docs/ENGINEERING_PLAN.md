@@ -26,6 +26,9 @@
 - QSF companion with strict UTF-8 clipboard, constrained files, Weston DRM
   wl-copy/wl-paste and observed 1280x800 -> 1280x720 resize;
 - no-X11/no-Wayland/no-Pulse/no-ALSA Sunshine deployment artifact.
+- standalone Qt/QML desktop shell -> clean stock Moonlight Qt child, qualified
+  twice against the native KVM/VirGL/Weston guest with controlled
+  windowed-to-physical-fullscreen reconnect and mTLS QSF operations.
 
 Точные результаты проверок и оставшиеся границы приведены в
 `VALIDATION.md`; последующие разделы сохраняют исходный инженерный план и
@@ -108,12 +111,15 @@ virtio-serial, который уже покрывает constrained files и str
 clipboard. Более широкие DPI, IME/Unicode и OS session semantics остаются
 отдельной работой.
 
-### ADR-007 — клиентское расширение не блокирует MVP-0
+### ADR-007 — Qt shell отделён от Moonlight media process
 
-Первый поток работает с обычным Moonlight. Реализованные resize, clipboard и
-files идут через отдельный QSF companion и не меняют GameStream. Версионируемый
-QMDP side-channel и fork Moonlight-Qt остаются будущим предложением; при его
-отсутствии сохраняется обычный GameStream flow.
+Первый поток работает с обычным Moonlight. Resize, clipboard и files идут
+через отдельный QSF companion и не меняют GameStream. Реализованный
+`clients/qsunshine-qt` не встраивает SDL drawable и не патчит Moonlight-Qt:
+Qt shell запускает stock Moonlight как child process для media/input, а сам
+владеет profile/QSF UX. Это исключает конфликт Qt/SDL event loops на macOS и
+Wayland. Версионируемый QMDP side-channel остаётся будущим предложением, но
+его отсутствие не нарушает обычный GameStream flow.
 
 ## 3. Границы MVP
 
@@ -167,7 +173,7 @@ Sunshine/Moonlight на машине без GPU. При медленном softw
 
 Добавляются:
 
-- Moonlight-Qt fork;
+- standalone Qt desktop shell that launches stock Moonlight Qt as a child;
 - capability negotiation;
 - live resize с debounce и ACK;
 - двусторонний `text/plain; charset=utf-8` clipboard;
@@ -318,19 +324,26 @@ width_mm/height_mm = derived from requested DPI or a conservative 96-DPI default
 
 **Сложность:** 5 points.
 
-### WP7 — Moonlight-Qt desktop extension
+### WP7 — Qt desktop shell
 
-Отдельная ветвь после MVP-0:
+Реализованный и дважды квалифицированный на target runtime client-side слой
+после MVP-0:
 
-- `DesktopSessionController`;
-- `QmdpClient` WebSocket/TLS;
-- viewport events и debounce 250 ms;
-- clipboard bridge;
-- local cursor;
-- toolbar/policies;
-- reconnect.
+- standalone `MoonlightController` с профилями и controlled reconnect;
+- windowed/fullscreen/borderless CLI presentation;
+- QSF TLS 1.3 mTLS lifecycle, clipboard bridge и constrained files;
+- явная post-video activation, чтобы child-process startup не выдавался за
+  подтверждённую GameStream session;
+- профильный toolbar/policies и diagnostics;
+- coalesced QSF resize request.
 
-**Gate WP7:** 100 последовательных resize, двусторонний text clipboard и reconnect без перезапуска гостевой ВМ.
+**Закрытый functional gate WP7:** две независимые реальные трассы stock
+Moonlight Qt -> Sunshine -> QEMU -> VirGL/Weston подтверждают pair/list,
+windowed `1280x800`, physical fullscreen `1600x900`, контролируемый reconnect,
+ввод в обеих фазах, mTLS QSF clipboard/files и resize `1280x720` с restart
+Weston DRM. **Незакрытый production gate:** 100 последовательных resize и
+длительный reconnect/soak без перезапуска гостевой ВМ; session binding
+QSF↔GameStream, cursor и IME остаются отдельными задачами.
 
 **Сложность:** 13 points.
 
@@ -347,7 +360,7 @@ WP0 → WP1 → WP2-A → WP3 → WP4 → WP5 → WP2-B → WP6 → MVP-0
 ## 6. Минимальная команда
 
 - один senior C++/Linux graphics engineer: QEMU D-Bus, DMA-BUF/EGL, Sunshine backend;
-- один C++/Qt engineer: Moonlight-Qt extension и desktop UX;
+- один C++/Qt engineer: standalone Qt desktop UX и lifecycle stock Moonlight;
 - part-time QA/DevOps: VM matrix, systemd, soak/failure testing.
 
 Один сильный C++/graphics инженер способен сделать MVP-0 последовательно, но клиентская ветвь будет конкурировать за внимание с GPU hardening.

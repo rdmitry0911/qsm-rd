@@ -141,6 +141,14 @@ int main(int argc, char **argv) {
     bool mouse_abs = false;
     bool mouse_button = false;
     bool complete = false;
+    // The composite Qt/Moonlight qualification sends a second, distinct
+    // gesture only after the controlled fullscreen reconnect.  Do not reuse
+    // the first gesture's flags: that would turn a retained windowed event
+    // into a false claim about the new GameStream presentation.
+    bool fullscreen_key_b = false;
+    bool fullscreen_mouse_abs = false;
+    bool fullscreen_mouse_button = false;
+    bool fullscreen_complete = false;
     for (;;) {
         const int ready = poll(descriptors, (nfds_t) input_count, -1);
         if (ready < 0 && errno == EINTR) {
@@ -175,6 +183,30 @@ int main(int argc, char **argv) {
                     if (!complete && key_a && mouse_abs && mouse_button) {
                         complete = true;
                         report(telemetry_path, "QSF_VIRGL_WAYLAND_GUEST_INPUT_E2E_OK");
+                    }
+                    if (complete && !fullscreen_key_b && event.type == EV_KEY && event.code == KEY_B &&
+                        event.value == 1) {
+                        fullscreen_key_b = true;
+                        report(telemetry_path,
+                               "QSF_VIRGL_WAYLAND_GUEST_FULLSCREEN_INPUT_KEY_B=observed");
+                    }
+                    if (fullscreen_key_b && !fullscreen_mouse_abs && event.type == EV_ABS &&
+                        (event.code == ABS_X || event.code == ABS_Y)) {
+                        fullscreen_mouse_abs = true;
+                        report(telemetry_path,
+                               "QSF_VIRGL_WAYLAND_GUEST_FULLSCREEN_INPUT_MOUSE_ABS=observed");
+                    }
+                    if (fullscreen_key_b && !fullscreen_mouse_button && event.type == EV_KEY &&
+                        event.value == 1 && event.code >= BTN_LEFT && event.code <= BTN_TASK) {
+                        fullscreen_mouse_button = true;
+                        report(telemetry_path,
+                               "QSF_VIRGL_WAYLAND_GUEST_FULLSCREEN_INPUT_MOUSE_BTN=observed");
+                    }
+                    if (!fullscreen_complete && fullscreen_key_b && fullscreen_mouse_abs &&
+                        fullscreen_mouse_button) {
+                        fullscreen_complete = true;
+                        report(telemetry_path,
+                               "QSF_VIRGL_WAYLAND_GUEST_FULLSCREEN_INPUT_E2E_OK");
                     }
                     continue;
                 }

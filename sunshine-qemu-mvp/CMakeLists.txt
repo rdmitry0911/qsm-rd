@@ -14,6 +14,9 @@ option(QMDP_ENABLE_REAL_QEMU_E2E
 option(QMDP_ENABLE_DMABUF_READBACK
        "Enable optional GBM DMA-BUF to CPU readback for QEMU Display1"
        ON)
+option(QMDP_BUILD_QT_CLIENT
+       "Build the standalone Qt q-sunshine desktop shell (requires Qt 6)"
+       OFF)
 
 include(CTest)
 find_package(Threads REQUIRED)
@@ -27,6 +30,10 @@ if(QMDP_ENABLE_SANITIZERS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         -fsanitize=address,undefined
         -fno-omit-frame-pointer
     )
+endif()
+
+if(QMDP_BUILD_QT_CLIENT)
+    add_subdirectory(clients/qsunshine-qt)
 endif()
 
 function(qmdp_target_defaults target)

@@ -43,6 +43,13 @@ BOOT_TIMEOUT_SECONDS="${VIRGL_QSF_WAYLAND_BOOT_TIMEOUT_SECONDS:-210}"
 PREHOOK_PROBE_DURATION_MS="${VIRGL_QSF_WAYLAND_PREHOOK_PROBE_DURATION_MS:-4000}"
 PROBE_DURATION_MS="${VIRGL_QSF_WAYLAND_PROBE_DURATION_MS:-60000}"
 POST_AGENT_READY_HOOK="${VIRGL_QSF_WAYLAND_POST_AGENT_READY_HOOK:-}"
+# In the default mode this runner owns the local QSF socket directly.  The
+# Qt composite mode transfers that ownership to the post-ready hook so a real
+# QsfClient, rather than this legacy Python helper, performs clipboard, files
+# and resize against the same guest.  It is deliberately a two-value switch:
+# any typo fails before a VM is created.
+QT_QSF_OWNER="${VIRGL_QSF_WAYLAND_QT_QSF_OWNER:-outer}"
+export QT_QSF_OWNER
 DBUS_DESTINATION=org.qemu
 
 die() {
@@ -69,8 +76,13 @@ if [[ "${1:-}" != '--inside-private-bus' ]]; then
   [[ "$BOOT_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || die 'VIRGL_QSF_WAYLAND_BOOT_TIMEOUT_SECONDS must be positive'
   [[ "$PREHOOK_PROBE_DURATION_MS" =~ ^[1-9][0-9]*$ ]] || die 'VIRGL_QSF_WAYLAND_PREHOOK_PROBE_DURATION_MS must be positive'
   [[ "$PROBE_DURATION_MS" =~ ^[1-9][0-9]*$ ]] || die 'VIRGL_QSF_WAYLAND_PROBE_DURATION_MS must be positive'
+  [[ "$QT_QSF_OWNER" == outer || "$QT_QSF_OWNER" == qt ]] || \
+    die 'VIRGL_QSF_WAYLAND_QT_QSF_OWNER must be outer or qt'
   if [[ -n "$POST_AGENT_READY_HOOK" && ! -x "$POST_AGENT_READY_HOOK" ]]; then
     die "VIRGL_QSF_WAYLAND_POST_AGENT_READY_HOOK is not an executable: $POST_AGENT_READY_HOOK"
+  fi
+  if [[ "$QT_QSF_OWNER" == qt && -z "$POST_AGENT_READY_HOOK" ]]; then
+    die 'Qt QSF ownership requires VIRGL_QSF_WAYLAND_POST_AGENT_READY_HOOK'
   fi
   if [[ "$QEMU_USE_SUDO" == 1 ]]; then
     command -v sudo >/dev/null || die 'VIRGL_QEMU_USE_SUDO=1 requires sudo'
@@ -111,6 +123,22 @@ if [[ "${1:-}" != '--inside-private-bus' ]]; then
   overlay="$OUTPUT_DIR/guest-overlay.qcow2"
   socket_dir="$(mktemp -d /tmp/virgl-qsf-wayland.XXXXXX)"
   chmod 700 "$socket_dir"
+  # The inner runner owns the live sockets and must finish its process cleanup
+  # before this directory disappears.  On a normal success/error return this
+  # EXIT trap removes the private directory; on a signal while the child is
+  # still active it deliberately leaves it alone rather than unlinking a live
+  # QEMU chardev socket underneath that child.
+  inner_runner_active=0
+  cleanup_socket_dir() {
+    [[ "${inner_runner_active:-0}" == 0 ]] || return 0
+    case "${socket_dir:-}" in
+      /tmp/virgl-qsf-wayland.*) ;;
+      *) return 0 ;;
+    esac
+    [[ -d "$socket_dir" ]] || return 0
+    rm -rf -- "$socket_dir"
+  }
+  trap cleanup_socket_dir EXIT
   mkdir -p "$payload_dir"
   chmod 700 "$payload_dir"
 
@@ -150,9 +178,15 @@ if [[ "${1:-}" != '--inside-private-bus' ]]; then
   "$QEMU_IMG_BINARY" create -q -f qcow2 -F qcow2 -b "$BASE_IMAGE" "$overlay" 2G
   printf 'VirGL QSF Wayland E2E evidence=%s\n' "$OUTPUT_DIR"
 
+  inner_runner_active=1
+  set +e
   dbus-run-session -- "$SCRIPT_PATH" --inside-private-bus "$OUTPUT_DIR" "$overlay" "$seed_iso" \
     "$payload_iso" "$agent_sha256" "$bridge_sha256" "$manifest_sha256" "$ACCEL" \
     "$BOOT_TIMEOUT_SECONDS" "$PREHOOK_PROBE_DURATION_MS" "$PROBE_DURATION_MS" "$socket_dir"
+  inner_runner_status=$?
+  set -e
+  inner_runner_active=0
+  [[ "$inner_runner_status" == 0 ]] || exit "$inner_runner_status"
 
   telemetry="$OUTPUT_DIR/guest-telemetry.log"
   client_clipboard_hash="$(sha256sum "$CLIENT_CLIPBOARD" | awk '{print $1}')"
@@ -203,7 +237,24 @@ if [[ "${1:-}" != '--inside-private-bus' ]]; then
   grep -Fqx 'QSF_VIRGL_WAYLAND_GUEST_RESIZE_RECONFIGURE=weston-drm-restart' "$telemetry"
   grep -Fqx 'QSF_VIRGL_WAYLAND_GUEST_RESIZE_WESTON_RESTARTED' "$telemetry"
   grep -Fqx 'QSF_VIRGL_WAYLAND_GUEST_RESIZE=1280x720' "$telemetry"
-  grep -Fq '"qemu_set_ui_info": "applied"' "$OUTPUT_DIR/qsf-resize.json"
+  if [[ "$QT_QSF_OWNER" == qt ]]; then
+    qt_summary="$OUTPUT_DIR/qsunshine-qt-e2e-summary.txt"
+    [[ -f "$qt_summary" ]] || die 'Qt QSF owner did not produce its atomic success summary'
+    grep -Fqx 'QSUNSHINE_QT_E2E_SUMMARY_VERSION=1' "$qt_summary"
+    grep -Fqx 'QSUNSHINE_QT_QSF_OPERATIONS_OK=1' "$qt_summary"
+    grep -Fqx "QSUNSHINE_QT_QSF_CLIENT_CLIPBOARD_SHA256=$client_clipboard_hash" "$qt_summary"
+    grep -Fqx "QSUNSHINE_QT_QSF_GUEST_CLIPBOARD_SHA256=$guest_clipboard_hash" "$qt_summary"
+    grep -Fqx "QSUNSHINE_QT_QSF_UPLOAD_SHA256=$client_upload_hash" "$qt_summary"
+    grep -Fqx "QSUNSHINE_QT_QSF_DOWNLOAD_SHA256=$guest_download_hash" "$qt_summary"
+    grep -Fqx 'QSUNSHINE_QT_QSF_RESIZE=1280x720' "$qt_summary"
+    grep -Fqx 'QSUNSHINE_QT_QSF_QEMU_SET_UI_INFO=applied' "$qt_summary"
+    grep -Fqx 'QSUNSHINE_QT_MOONLIGHT_WINDOWED_AND_FULLSCREEN_OK=1' "$qt_summary"
+    grep -Fqx 'QSUNSHINE_QT_MOONLIGHT_INPUT_E2E_OK=1' "$qt_summary"
+    grep -Fqx 'QSUNSHINE_QT_MOONLIGHT_FULLSCREEN_INPUT_E2E_OK=1' "$qt_summary"
+    grep -Fqx 'QSUNSHINE_QT_QSF_FULLSCREEN_DOWNLOAD_OK=1' "$qt_summary"
+  else
+    grep -Fq '"qemu_set_ui_info": "applied"' "$OUTPUT_DIR/qsf-resize.json"
+  fi
   grep -Fqx 'codec_name=h264' "$OUTPUT_DIR/prehook-ffprobe.txt" || die 'pre-hook Display1 output is not H.264'
   grep -Fqx 'width=1280' "$OUTPUT_DIR/prehook-ffprobe.txt"
   grep -Fqx 'height=800' "$OUTPUT_DIR/prehook-ffprobe.txt" || die 'pre-hook capture did not establish 1280x800'
@@ -235,14 +286,26 @@ if [[ "${1:-}" != '--inside-private-bus' ]]; then
     printf 'file_guest_to_client_sha256=%s\n' "$guest_download_hash"
     printf 'resize_request=1280x720\n'
     printf 'qemu_set_ui_info=applied\n'
+    printf 'qsf_operation_owner=%s\n' "$QT_QSF_OWNER"
     printf 'post_agent_ready_hook=%s\n' "${POST_AGENT_READY_HOOK:+executed}"
     if [[ -n "$POST_AGENT_READY_HOOK" ]]; then
       printf 'post_hook_input=KEY_A+ABS+BTN observed by guest evdev\n'
     fi
+    if [[ "$QT_QSF_OWNER" == qt ]]; then
+      printf 'post_fullscreen_input=KEY_B+ABS+BTN observed by guest evdev after reconnect\n'
+      printf 'post_fullscreen_qsf=authenticated guest-download.txt byte-for-byte verification\n'
+    fi
     printf '\n[guest-telemetry]\n'
     cat "$telemetry"
-    printf '\n[qsf-resize]\n'
-    cat "$OUTPUT_DIR/qsf-resize.json"
+    if [[ "$QT_QSF_OWNER" == qt ]]; then
+      printf '\n[qt-qsf-summary]\n'
+      cat "$OUTPUT_DIR/qsunshine-qt-e2e-summary.txt"
+      printf '\n[qt-moonlight-hook]\n'
+      cat "$OUTPUT_DIR/qsunshine-qt-moonlight-hook/trace.txt"
+    else
+      printf '\n[qsf-resize]\n'
+      cat "$OUTPUT_DIR/qsf-resize.json"
+    fi
     printf '\n[display1-probe]\n'
     cat "$OUTPUT_DIR/probe.log"
     printf '\n[prehook-display1-probe]\n'
@@ -306,12 +369,43 @@ show_logs() {
   cat "$hook_log" >&2 2>/dev/null || true
 }
 cleanup() {
-  if [[ -n "$probe_pid" ]] && kill -0 "$probe_pid" 2>/dev/null; then kill "$probe_pid" 2>/dev/null || true; fi
-  if [[ -n "$control_pid" ]] && kill -0 "$control_pid" 2>/dev/null; then kill "$control_pid" 2>/dev/null || true; fi
-  if [[ -n "$qemu_pid" ]] && kill -0 "$qemu_pid" 2>/dev/null; then kill "$qemu_pid" 2>/dev/null || true; fi
-  if [[ -n "$qemu_launcher_pid" ]] && kill -0 "$qemu_launcher_pid" 2>/dev/null; then kill "$qemu_launcher_pid" 2>/dev/null || true; fi
+  stop_owned_pid "$probe_pid"
+  stop_owned_pid "$control_pid"
+  stop_owned_pid "$qemu_pid"
+  stop_owned_pid "$qemu_launcher_pid"
 }
-trap cleanup EXIT INT TERM
+stop_owned_pid() {
+  local pid=${1:-}
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 0
+  if ! kill -0 "$pid" 2>/dev/null; then
+    wait "$pid" 2>/dev/null || true
+    return 0
+  fi
+  kill "$pid" 2>/dev/null || true
+  # Let QEMU close its Display1/chardev sockets before the outer private
+  # directory is removed.  The forced kill is only a bounded fallback.
+  for _ in $(seq 1 200); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.05
+  done
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+  wait "$pid" 2>/dev/null || true
+}
+on_signal() {
+  local signal=$1 status=$2
+  # Do not resume the E2E sequence after its owned QEMU/probe/control
+  # processes were cleaned up by a signal.  An EXIT handler alone remains for
+  # ordinary success and error exits.
+  trap - EXIT INT TERM
+  cleanup
+  printf 'VirGL QSF Wayland E2E: received %s; cleaned up owned processes\n' "$signal" >&2
+  exit "$status"
+}
+trap cleanup EXIT
+trap 'on_signal INT 130' INT
+trap 'on_signal TERM 143' TERM
 
 [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ]] || die 'inner runner requires dbus-run-session'
 mkdir -p "$encoded_dir" "$prehook_encoded_dir"
@@ -443,6 +537,10 @@ probe_pid=$!
 sleep 1
 if [[ -n "$POST_AGENT_READY_HOOK" ]]; then
   wait_marker 'QSF_VIRGL_WAYLAND_GUEST_INPUT_WATCH_READY' 'guest input watcher readiness'
+  raw_qsf_skipped=0
+  if [[ "$QT_QSF_OWNER" == qt ]]; then
+    raw_qsf_skipped=1
+  fi
   QSF_WAYLAND_OUTPUT_DIR="$output_dir" \
   QSF_WAYLAND_QEMU_PID="$qemu_pid" \
   QSF_WAYLAND_QEMU_PIDFILE="$qemu_pidfile" \
@@ -451,28 +549,70 @@ if [[ -n "$POST_AGENT_READY_HOOK" ]]; then
   QSF_WAYLAND_TOKEN_FILE="$token_file" \
   QSF_WAYLAND_DBUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS" \
   QSF_WAYLAND_DBUS_DESTINATION="$DBUS_DESTINATION" \
+  QSF_WAYLAND_QT_E2E_OUTER_QSF_OWNER="$QT_QSF_OWNER" \
+  QSF_WAYLAND_QT_E2E_OUTER_RAW_QSF_SKIPPED="$raw_qsf_skipped" \
+  QSF_WAYLAND_QT_E2E_LIVE_PROBE_DURATION_MS="$probe_duration_ms" \
   "$POST_AGENT_READY_HOOK" >"$hook_log" 2>&1 || { show_logs; die 'post-agent-ready hook failed'; }
   wait_marker 'QSF_VIRGL_WAYLAND_GUEST_INPUT_KEY_A=observed' 'post-hook keyboard input evidence'
   wait_marker 'QSF_VIRGL_WAYLAND_GUEST_INPUT_MOUSE_ABS=observed' 'post-hook absolute mouse evidence'
   wait_marker 'QSF_VIRGL_WAYLAND_GUEST_INPUT_MOUSE_BTN=observed' 'post-hook mouse button evidence'
   wait_marker 'QSF_VIRGL_WAYLAND_GUEST_INPUT_E2E_OK' 'post-hook guest input completion'
+  if [[ "$QT_QSF_OWNER" == qt ]]; then
+    wait_marker 'QSF_VIRGL_WAYLAND_GUEST_FULLSCREEN_INPUT_KEY_B=observed' \
+      'post-fullscreen keyboard input evidence'
+    wait_marker 'QSF_VIRGL_WAYLAND_GUEST_FULLSCREEN_INPUT_MOUSE_ABS=observed' \
+      'post-fullscreen absolute mouse evidence'
+    wait_marker 'QSF_VIRGL_WAYLAND_GUEST_FULLSCREEN_INPUT_MOUSE_BTN=observed' \
+      'post-fullscreen mouse button evidence'
+    wait_marker 'QSF_VIRGL_WAYLAND_GUEST_FULLSCREEN_INPUT_E2E_OK' \
+      'post-fullscreen guest input completion'
+  fi
 fi
 
-qsf_client clipboard-set < "$CLIENT_CLIPBOARD" >"$output_dir/qsf-clipboard-set.json"
 client_clipboard_hash="$(sha256sum "$CLIENT_CLIPBOARD" | awk '{print $1}')"
 guest_clipboard_hash="$(sha256sum "$GUEST_CLIPBOARD" | awk '{print $1}')"
-wait_marker "QSF_VIRGL_WAYLAND_GUEST_CLIENT_TO_WAYLAND_STATE_SHA256=$client_clipboard_hash" 'client-to-guest QSF state'
-wait_marker "QSF_VIRGL_WAYLAND_GUEST_CLIENT_TO_WAYLAND_WL_PASTE_SHA256=$client_clipboard_hash" 'client clipboard in Wayland'
-wait_marker "QSF_VIRGL_WAYLAND_GUEST_WAYLAND_TO_QSF_STATE_SHA256=$guest_clipboard_hash" 'guest native Wayland clipboard in QSF state'
-qsf_client clipboard-get >"$output_dir/client-received-clipboard.txt"
-qsf_client upload "$CLIENT_UPLOAD" --name client-upload.txt >"$output_dir/qsf-upload.json"
 client_upload_hash="$(sha256sum "$CLIENT_UPLOAD" | awk '{print $1}')"
-wait_marker "QSF_VIRGL_WAYLAND_GUEST_UPLOAD_SHA256=$client_upload_hash" 'client-to-guest upload hash'
-qsf_client download guest-download.txt "$output_dir/client-downloaded-guest-file.txt" >"$output_dir/qsf-download.json"
 guest_download_hash="$(sha256sum "$GUEST_DOWNLOAD" | awk '{print $1}')"
-wait_marker "QSF_VIRGL_WAYLAND_GUEST_QSF_DOWNLOAD_SHA256=$guest_download_hash" 'guest-to-client download hash'
-qsf_client resize 1280 720 >"$output_dir/qsf-resize.json"
-wait_marker 'QSF_VIRGL_WAYLAND_GUEST_RESIZE=1280x720' 'guest QSF resize state'
+if [[ "$QT_QSF_OWNER" == qt ]]; then
+  qt_summary="$output_dir/qsunshine-qt-e2e-summary.txt"
+  [[ -f "$qt_summary" ]] || { show_logs; die 'Qt QSF hook did not produce its success summary'; }
+  grep -Fqx 'QSUNSHINE_QT_E2E_SUMMARY_VERSION=1' "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary has an unsupported version'; }
+  grep -Fqx 'QSUNSHINE_QT_QSF_OPERATIONS_OK=1' "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary does not attest its operations'; }
+  grep -Fqx "QSUNSHINE_QT_QSF_CLIENT_CLIPBOARD_SHA256=$client_clipboard_hash" "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary client clipboard hash differs'; }
+  grep -Fqx "QSUNSHINE_QT_QSF_GUEST_CLIPBOARD_SHA256=$guest_clipboard_hash" "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary guest clipboard hash differs'; }
+  grep -Fqx "QSUNSHINE_QT_QSF_UPLOAD_SHA256=$client_upload_hash" "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary upload hash differs'; }
+  grep -Fqx "QSUNSHINE_QT_QSF_DOWNLOAD_SHA256=$guest_download_hash" "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary download hash differs'; }
+  grep -Fqx 'QSUNSHINE_QT_QSF_RESIZE=1280x720' "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary resize differs'; }
+  grep -Fqx 'QSUNSHINE_QT_QSF_QEMU_SET_UI_INFO=applied' "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary lacks QEMU SetUIInfo acknowledgement'; }
+  grep -Fqx 'QSUNSHINE_QT_MOONLIGHT_WINDOWED_AND_FULLSCREEN_OK=1' "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary lacks windowed/fullscreen attestation'; }
+  grep -Fqx 'QSUNSHINE_QT_MOONLIGHT_INPUT_E2E_OK=1' "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary lacks input attestation'; }
+  grep -Fqx 'QSUNSHINE_QT_MOONLIGHT_FULLSCREEN_INPUT_E2E_OK=1' "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary lacks fullscreen input attestation'; }
+  grep -Fqx 'QSUNSHINE_QT_QSF_FULLSCREEN_DOWNLOAD_OK=1' "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary lacks post-fullscreen file-transfer attestation'; }
+else
+  qsf_client clipboard-set < "$CLIENT_CLIPBOARD" >"$output_dir/qsf-clipboard-set.json"
+  wait_marker "QSF_VIRGL_WAYLAND_GUEST_CLIENT_TO_WAYLAND_STATE_SHA256=$client_clipboard_hash" 'client-to-guest QSF state'
+  wait_marker "QSF_VIRGL_WAYLAND_GUEST_CLIENT_TO_WAYLAND_WL_PASTE_SHA256=$client_clipboard_hash" 'client clipboard in Wayland'
+  wait_marker "QSF_VIRGL_WAYLAND_GUEST_WAYLAND_TO_QSF_STATE_SHA256=$guest_clipboard_hash" 'guest native Wayland clipboard in QSF state'
+  qsf_client clipboard-get >"$output_dir/client-received-clipboard.txt"
+  qsf_client upload "$CLIENT_UPLOAD" --name client-upload.txt >"$output_dir/qsf-upload.json"
+  wait_marker "QSF_VIRGL_WAYLAND_GUEST_UPLOAD_SHA256=$client_upload_hash" 'client-to-guest upload hash'
+  qsf_client download guest-download.txt "$output_dir/client-downloaded-guest-file.txt" >"$output_dir/qsf-download.json"
+  wait_marker "QSF_VIRGL_WAYLAND_GUEST_QSF_DOWNLOAD_SHA256=$guest_download_hash" 'guest-to-client download hash'
+  qsf_client resize 1280 720 >"$output_dir/qsf-resize.json"
+  wait_marker 'QSF_VIRGL_WAYLAND_GUEST_RESIZE=1280x720' 'guest QSF resize state'
+fi
 wait_marker 'QSF_VIRGL_WAYLAND_GUEST_VIRGL_OK' 'Weston VirGL workload start'
 set +e
 wait "$probe_pid"

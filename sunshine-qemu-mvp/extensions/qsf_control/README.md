@@ -89,3 +89,11 @@ TLS 1.3 with a required client certificate is enforced.  Start one gateway
 per VM/session and stop it with that session; a client certificate trusted by
 that gateway can operate only the attached VM's QSF control socket.  This
 transport is headless and has no X11 or Wayland dependency.
+
+The current protocol does **not** cryptographically bind a QSF TLS request to
+the corresponding GameStream/Moonlight session.  Treat the gateway endpoint as
+part of the VM trust boundary: use separate certificate material per VM and do
+not direct a client at an untrusted gateway.  The optional Qt desktop shell
+therefore requires an explicit post-video activation and immediately tears the
+companion down when its Moonlight child stops or reconnects; see
+[`docs/QT_DESKTOP_CLIENT.md`](../../docs/QT_DESKTOP_CLIENT.md).
