@@ -269,10 +269,19 @@ done
 ldd_output="$(ldd "$staged_binary")"
 printf '%s\n' "$ldd_output" | grep -F 'not found' >/dev/null &&
     die "package binary has an unresolved runtime library"
-printf '%s\n' "$ldd_output" | grep -Fq "$package_root/lib/libva.so.2" ||
+# ldd preserves the launcher's $ORIGIN/../lib spelling, which can contain an
+# intentional bin/../ component. Compare canonical paths instead of treating
+# that equivalent spelling as a host-libva fallback.
+ldd_libva_path="$(printf '%s\n' "$ldd_output" | awk '$1 == "libva.so.2" && $2 == "=>" { print $3; exit }')"
+[[ -n "$ldd_libva_path" && "$ldd_libva_path" != "not" ]] ||
+    die "package binary has no resolved libva"
+[[ "$(readlink -f "$ldd_libva_path")" == "$(readlink -f "$package_root/lib/libva.so.2")" ]] ||
     die "package binary does not resolve the bundled private libva"
-if printf '%s\n' "$ldd_output" | grep -Fq 'libva-drm.so.2 =>'; then
-    printf '%s\n' "$ldd_output" | grep -Fq "$package_root/lib/libva-drm.so.2" ||
+ldd_libva_drm_path="$(printf '%s\n' "$ldd_output" | awk '$1 == "libva-drm.so.2" && $2 == "=>" { print $3; exit }')"
+if [[ -n "$ldd_libva_drm_path" ]]; then
+    [[ "$ldd_libva_drm_path" != "not" ]] ||
+        die "package binary has an unresolved libva-drm"
+    [[ "$(readlink -f "$ldd_libva_drm_path")" == "$(readlink -f "$package_root/lib/libva-drm.so.2")" ]] ||
         die "package binary mixes the private libva with a system libva-drm"
 fi
 for forbidden_runtime in libX11 libXtst libXi libXext libXrender libXrandr libwayland libpulse libasound; do
