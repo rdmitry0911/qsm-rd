@@ -1,18 +1,32 @@
 # Validation
 
-Validation date: 2026-09-01 UTC.
+Validation date: 2026-09-02 UTC.
 
 ## Result
 
-The final acceptance artifact is
-.upstream/build-sunshine-qemu-no-x11/sunshine with SHA-256:
+The current full native system-auth acceptance run is:
+
+    vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.qAMtPU/
+
+Its trace records
+`.upstream/build-sunshine-qemu/sunshine`, patched Moonlight Qt, and a host GUI
+of `none`; the disposable Xvfb exists solely in the client visual lane. It
+proves TLS/PAM login, a RAM-only ticket, patched Moonlight's native CSR/mTLS
+lease, an explicit `--qsm-system-auth` child command, and a successful native
+GameStream media session without PIN pairing.
+
+Sunshine was rebuilt from v2026.830.223700 base commit
+`4f39fc116294abf8241bcd30e1b1e23d371e6e7b`. A fresh detached replay applied
+patches `0001` through `0008`, including ordered listener transport retirement,
+native media lease enforcement, and request-log secret redaction; reverse
+replay left no diff. The build succeeded. The separately recorded
+`build-sunshine-qemu-no-x11` SHA-256 below is a 2026-09-01 legacy deployment
+artifact and must be rebuilt from the `0008` series before it is used as a
+native-system-auth release artifact:
 
     45fae7ee7c56ab0770d7dabbcbf4f9ce3aab66b7f1c097648ca836b260f8708c
 
-It was built from Sunshine v2026.830.223700 base commit
-4f39fc116294abf8241bcd30e1b1e23d371e6e7b. A clean detached replay applied
-patches 0001 through 0007, including ordered listener transport retirement.
-The clean detached replay succeeded, and the build helper reported:
+The earlier artifact's helper reported:
 
     SUNSHINE_QEMU_BUILD_OK ... desktop_runtime=none host_audio=none vaapi=off
 
@@ -33,7 +47,7 @@ because the pinned static FFmpeg needs them even with VAAPI disabled.
 | Guest desktop | Alpine 3.20.10 cloud image, Weston 12 DRM, seatd/eudev, wl-clipboard |
 | Sunshine video | QEMU DMA-BUF -> headless GBM/EGL CPU BGRX readback -> libx264 |
 | Sunshine audio | QEMU AudioOutListener -> bounded FIFO -> Opus |
-| Moonlight harness | legacy Moonlight Embedded SDL/FFmpeg plus standalone Qt shell -> clean stock Moonlight Qt; any Xvfb is disposable client-side only |
+| Moonlight harness | current standalone Qt shell -> patched Moonlight Qt with native system-auth; legacy Embedded/stock Moonlight lanes are historical diagnostics; any Xvfb is disposable client-side only |
 
 ## Regression matrix
 
@@ -43,21 +57,26 @@ because the pinned static FFmpeg needs them even with VAAPI disabled.
 | DMA-BUF-disabled fallback build | cmake --build .build-no-dmabuf; ctest --test-dir .build-no-dmabuf --output-on-failure | 10/10 passed |
 | QSF protocol | local token control, production C guest PTY, TLS gateway | included in both CTest matrices; all passed |
 | Static checks | bash -n scripts/tests, Python bytecode compile, strict C11 guest agent/watcher compile, diff check | passed |
-| Sunshine replay | clean upstream git am 0001..0007 plus strict headless dependency build | passed |
+| Sunshine replay | clean upstream git am 0001..0008, reverse replay, strict headless dependency build, and request-log redaction probe | passed |
 | Sunshine listener retirement | real QEMU listener lifecycle after bounded Sunshine termination | passed; zero `UnknownMethod` callbacks to removed Display1 listeners |
 | Headless dynamic closure | full ldd deny gate on final artifact | passed |
 | Native video/input | fullscreen and windowed Moonlight -> Sunshine -> QEMU -> VirGL | passed |
 | Native audio | QEMU guest tone -> Sunshine Opus -> decoded Moonlight PCM | passed |
 | Native desktop companion | Moonlight plus QSF/Weston clipboard/files/resize in one VM | passed |
-| Qt client CTest | `.build-qt-client`, Qt/QML/controller/QSF mTLS tests | 11/11 passed |
-| Qt/Moonlight composite | clean stock Moonlight Qt -> Sunshine -> KVM/QEMU -> VirGL/Weston + Qt QSF, repeated in two fresh VMs | passed twice |
+| Qt client CTest | `.build-qt-client`, Qt/QML/controller/system-auth/QSF focused tests | passed |
+| Qt/Moonlight composite | patched Moonlight Qt -> TLS/PAM/authd lease -> Sunshine -> KVM/QEMU -> VirGL/Weston + ticket QSF | passed: `run.qAMtPU` |
 
 The CTest matrix includes core state-machine tests, in-process and
 cross-process D-Bus/FD tests, CPU H.264 self-test, inline/map message-bus E2E,
 real-QEMU relative/absolute input tests, the QSF local protocol, strict
 guest-agent UTF-8 PTY tests, and mTLS gateway tests.
 
-## Native video and input
+## Historical legacy-pairing video and input
+
+The two direct Embedded-Moonlight traces in this section predate the native
+system-auth media route. They remain useful for codec/input regression work,
+but their private pairing is not current authentication evidence. The current
+accepted media route is the `run.qAMtPU` Qt composite below.
 
 The direct fullscreen test is retained at:
 
@@ -67,7 +86,7 @@ The direct windowed test is retained at:
 
     artifacts/validation/moonlight-sunshine-virgl-e2e/run.gNCula/trace.txt
 
-Both use the final no-X Sunshine artifact and require all of:
+Both use the historical no-X Sunshine artifact and require all of:
 
 - private Moonlight pairing, HTTPS application launch, RTSP and RTP;
 - Moonlight FFmpeg H.264 decode and a non-black client screenshot;
@@ -108,9 +127,13 @@ This is decoded client-side audio evidence, not merely a guest write count or
 Sunshine callback counter. No host sound server or hardware audio device is an
 input to this test.
 
-## Combined Moonlight, QSF and Weston desktop
+## Historical legacy-pairing Moonlight, QSF and Weston desktop
 
-The final composite outer trace is:
+This retained Embedded-Moonlight composite is a historical compatibility
+trace. It used private pairing and independent QSF controls, so it is not
+evidence for the current TLS/PAM-to-native-lease route.
+
+The retained composite outer trace is:
 
     vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.KEqkVc/trace.txt
 
@@ -146,43 +169,60 @@ earlier package-version parser; it did not pass the runner and is not used as
 evidence. The final run uses the corrected parser against Alpine's installed
 package database.
 
-## Qt desktop shell composite, repeated twice
+## Current Qt desktop shell native system-auth composite
 
 The standalone Qt client qualification uses the production `MoonlightController`
-and `QsfClient` classes, a clean unmodified Moonlight Qt child, the final
-no-X Sunshine binary, KVM QEMU, and the same Alpine VirGL/Weston guest. It
-passed twice in independent fresh outer runs:
+and `QsfClient` classes, the patched Moonlight Qt child, current Sunshine
+native-lease enforcement, KVM QEMU, and the Alpine VirGL/Weston guest. The
+current full run passed at:
 
-    vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.FMrGhL/trace.txt
-    vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.jxqPBO/trace.txt
+    vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.qAMtPU/trace.txt
 
-Each has a nested `qsunshine-qt-moonlight-hook/trace.txt` and an atomic
+It has a nested `qsunshine-qt-moonlight-hook/trace.txt` and an atomic
 `qsunshine-qt-e2e-summary.txt`. The summary requires all of:
 
-- clean stock-Moonlight Qt pair flow followed by independent `moonlight list`
-  confirmation of `Desktop`;
+- TLS 1.3/PAM fixture login, a VM-audience RAM-only `qsa1` ticket, and a
+  patched Moonlight child launched with `--qsm-system-auth`; the ticket is
+  supplied only through its managed FD rather than argv, environment, or disk;
+- the child-owned CSR/mTLS lease and pinned Sunshine certificate, followed by
+  HTTPS launch, RTSP/RTP, and H.264 media. The summary's
+  `QSUNSHINE_QT_SYSTEM_AUTH_GAMESTREAM_LEASE_OK=1` proves that route;
+- disabled legacy pairing: the retained `GET /pair?uniqueid=native-e2e`
+  request has no request body, leaves Sunshine pairing state unchanged, and
+  receives the exact GameStream protocol response
+  `<root status_code="404"/>`. GameStream encodes this semantic 404 in an
+  HTTP 200 envelope; transport status alone is intentionally not used as the
+  assertion. The summary's `QSUNSHINE_QT_SYSTEM_AUTH_NO_PIN_FALLBACK_OK=1`
+  records the complete no-PIN check;
 - a non-black `1280x800` windowed client frame, then a controlled reconnect to
   a non-black physical `1600x900@(0,0)` fullscreen frame;
 - raw guest evdev `KEY_A`, absolute pointer, and button in the windowed phase,
   followed by fresh `KEY_B`, pointer, and button evidence after fullscreen
   reconnect;
-- TLS 1.3 mTLS Qt QSF clipboard in both directions, byte-for-byte upload and
-  download, `1280x720` QSF resize, guest Weston DRM restart, QEMU `SetUIInfo`,
-  and a second byte-for-byte download after QSF reactivation;
+- TLS 1.3 ticket-authenticated Qt QSF clipboard in both directions,
+  byte-for-byte upload and download, `1280x720` QSF resize, guest Weston DRM
+  restart, QEMU `SetUIInfo`, and a second byte-for-byte download after QSF
+  reactivation;
 - ordered Display1 H.264 geometry `1280x800->1280x720`, nonzero DMA-BUF
   traffic with zero failures, and zero observer session errors.
 
-The two client screenshots have the asserted dimensions `1280x800` and
+The current client screenshots have the asserted dimensions `1280x800` and
 `1600x900`. The disposable visual driver forces Moonlight's `software` decoder
 only because `xwd` cannot reliably capture an NVIDIA VDPAU presentation
 surface; the normal Qt client default is `auto` and omits that Moonlight CLI
 option. Xvfb belongs solely to this client-side visual lane: the Sunshine
 deployment artifact, QEMU, Display1 observer, and guest do not use a host GUI.
 
+`run.FMrGhL`, `run.jxqPBO`, `run.Jcmdij`, and the Embedded-Moonlight traces
+above are retained historical stock/pairing or legacy-mTLS diagnostics. They
+must not be cited as proof that the current native system-auth media route
+works.
+
 ## Scope and evidence handling
 
-All run directories are ignored by Git because pairing keys and QSF tokens are
-ephemeral capability material. Do not publish them unchanged.
+All run directories are ignored by Git because tickets, lease material,
+historical pairing keys, and QSF tokens are ephemeral capability material. Do
+not publish them unchanged.
 
 The test suite does not claim:
 
@@ -194,5 +234,5 @@ The test suite does not claim:
   after the accepted resize;
 - GPU-native encoding, zero-copy capture, multi-plane DMA-BUF2, latency
   targets, reconnect/soak behavior, or production service supervision;
-- remote deployment authorization/session binding beyond the protocol-tested
-  TLS 1.3 mTLS gateway.
+- remote deployment authorization/session binding beyond the current
+  per-VM TLS/PAM ticket and native lease contract.

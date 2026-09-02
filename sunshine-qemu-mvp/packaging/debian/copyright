@@ -5,11 +5,14 @@ Source: locally built q-sunshine integration tree; Sunshine upstream is https://
 Comment:
  The packaged Sunshine executable is built from Sunshine revision
  v2026.830.223700 base 4f39fc116294abf8241bcd30e1b1e23d371e6e7b with the
- q-sunshine ordered QEMU Display1 patch series 0001 through 0007. Patch 0007
- closes the QEMU listener transport before teardown and is pinned as SHA-256
- bdef88093a2b2f00b51c7e3a06533e7e62ef8fb00d2eaa8c52b718a14f8b107b. Build
- provenance also pins the LizardByte build-deps release v2026.724.203728 and
- the archive digest
+ q-sunshine ordered QEMU Display1 patch series 0001 through 0008, plus the
+ nested Simple-Web-Server request-TLS-handle patch. Patch 0008 replaces PIN
+ pairing with system-auth media-lease admission and is pinned as SHA-256
+ 35603f17e961809391d96ea155741d333b3f9d8d47d53bde4035f880c597e9ef; its
+ nested dependency is pinned as SHA-256
+ 7c978eaa72a3077fa46f03dc322abd26ac0db0e17cd8be525227cc0976cff2e9.
+ Build provenance also pins the LizardByte build-deps release v2026.724.203728
+ and the archive digest
  2c27d4694b4ed0e734f497d4bd62f1b3662cbbc4ded2a69f2dc4b703441eebb3.
  Corresponding source is the q-sunshine source tree, the stated Sunshine base
  and patch series, and the upstream build-deps release. The binary's third-party

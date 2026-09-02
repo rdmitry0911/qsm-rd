@@ -1,0 +1,1130 @@
+From 9ea1c3f59b92441b5357f66d2920d922d466b142 Mon Sep 17 00:00:00 2001
+From: q-sunshine contributors <q-sunshine@local>
+Date: Wed, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH] nvhttp: require system-auth media leases instead of PIN pairing
+
+Add an opt-in, fail-closed GameStream admission mode for q-sunshine.  It
+accepts only short-lived mTLS client certificates issued after system login,
+binds them to the configured VM audience, removes the HTTPS and Web UI PIN
+routes, and preserves the legacy paired-certificate path only when the mode is
+off.
+
+The trust anchor is loaded once from a root-owned, non-writable, regular file
+without following symlinks.  Sensitive HTTPS requests reconstruct the client
+identity from the active TLS socket rather than retaining a process-global
+callback result.  Native launches require encrypted RTSP possession proof of
+the launch key and reject leases that expire before admission; established
+media is intentionally not interrupted merely because its short lease expires.
+Native request diagnostics redact `rikey`, `rikeyid`, and case-insensitive
+token/auth/cookie query or header values before they reach debug logs.
+
+This patch requires the accompanying Simple-Web-Server request socket-handle
+patch, applied inside Sunshine's nested third-party worktree.
+
+---
+diff --git a/src/config.cpp b/src/config.cpp
+index de3979ee4a9c3afee298c8ddaad27d00865352e0..5a699ed0b607984c4850e906d6d7569cd950f612 100644
+--- a/src/config.cpp
++++ b/src/config.cpp
+@@ -831,6 +831,9 @@ namespace config {
+     platf::get_host_name(),  // sunshine_name,
+     "sunshine_state.json"s,  // file_state
+     {},  // external_ip
++    false,  // qsm_system_auth_mode
++    {},  // qsm_system_auth_ca
++    {},  // qsm_system_auth_audience
+   };
+ 
+   /**
+@@ -1699,6 +1702,9 @@ namespace config {
+     path_f(vars, "credentials_file", config::sunshine.credentials_file);
+ 
+     string_f(vars, "external_ip", nvhttp.external_ip);
++    bool_f(vars, "qsm_system_auth_mode", nvhttp.qsm_system_auth_mode);
++    path_f(vars, "qsm_system_auth_ca", nvhttp.qsm_system_auth_ca);
++    string_f(vars, "qsm_system_auth_audience", nvhttp.qsm_system_auth_audience);
+     list_prep_cmd_f(vars, "global_prep_cmd", config::sunshine.prep_cmds);
+ 
+     string_f(vars, "audio_sink", audio.sink);
+diff --git a/src/config.h b/src/config.h
+index adc4e84219a66b822f1030b7be4d002fa87adf7e..81bd1c48eb37a48609520ddf3e0b5543d10e5bc1 100644
+--- a/src/config.h
++++ b/src/config.h
+@@ -263,6 +263,15 @@ namespace config {
+     std::string file_state;  ///< Path to the persisted Sunshine state file.
+ 
+     std::string external_ip;  ///< External address advertised to clients when configured.
++
++    // q-sunshine's PIN-free GameStream mode is deliberately opt-in.  When it
++    // is enabled, the HTTPS server accepts only a short-lived client-auth
++    // certificate issued by this VM's system-auth lease CA.  The legacy
++    // paired-certificate store and /pair endpoint are not a fallback in this
++    // mode.
++    bool qsm_system_auth_mode;  ///< Require q-sunshine system-auth mTLS leases for GameStream HTTPS.
++    std::string qsm_system_auth_ca;  ///< PEM CA certificate used to verify per-VM media leases.
++    std::string qsm_system_auth_audience;  ///< Exact VM audience encoded in a media-lease URI SAN.
+   };
+ 
+   /**
+diff --git a/src/confighttp.cpp b/src/confighttp.cpp
+index 82da940b229a847099c7a0f531250ac175f2e2ae..a5d1a3070e76861bc3336ddc98c28036c4c01aed 100644
+--- a/src/confighttp.cpp
++++ b/src/confighttp.cpp
+@@ -1718,6 +1718,12 @@ namespace confighttp {
+    * @api_examples{/api/pin| POST| {"pin":"1234","name":"My PC"}}
+    */
+   void savePin(const resp_https_t &response, const req_https_t &request) {
++    if (config::nvhttp.qsm_system_auth_mode) {
++      response->write(SimpleWeb::StatusCode::client_error_forbidden,
++                      "PIN pairing is disabled while q-sunshine system authentication is required");
++      response->close_connection_after_response = true;
++      return;
++    }
+     if (!check_content_type(response, request, "application/json")) {
+       return;
+     }
+@@ -2196,7 +2202,9 @@ namespace confighttp {
+     server.resource["^/featured/?$"]["GET"] = page_handler("featured.html");
+     server.resource["^/logout/?$"]["GET"] = page_handler("logout.html", false);
+     server.resource["^/password/?$"]["GET"] = page_handler("password.html");
+-    server.resource["^/pin/?$"]["GET"] = page_handler("pin.html");
++    if (!config::nvhttp.qsm_system_auth_mode) {
++      server.resource["^/pin/?$"]["GET"] = page_handler("pin.html");
++    }
+     server.resource["^/troubleshooting/?$"]["GET"] = page_handler("troubleshooting.html");
+     server.resource["^/welcome/?$"]["GET"] = page_handler("welcome.html", false, true);
+ 
+@@ -2217,7 +2225,9 @@ namespace confighttp {
+     server.resource["^/api/covers/upload$"]["POST"] = uploadCover;
+     server.resource["^/api/csrf-token$"]["GET"] = getCSRFToken;
+     server.resource["^/api/password$"]["POST"] = savePassword;
+-    server.resource["^/api/pin$"]["POST"] = savePin;
++    if (!config::nvhttp.qsm_system_auth_mode) {
++      server.resource["^/api/pin$"]["POST"] = savePin;
++    }
+     server.resource["^/api/logs$"]["GET"] = getLogs;
+     server.resource["^/api/reset-display-device-persistence$"]["POST"] = resetDisplayDevicePersistence;
+     server.resource["^/api/restart$"]["POST"] = restart;
+diff --git a/src/nvhttp.cpp b/src/nvhttp.cpp
+index a33ac63225cee97bf93bf523af09211c50b23387..86db828532009d6073bd50bb8dbcf9b146c5d9fb 100644
+--- a/src/nvhttp.cpp
++++ b/src/nvhttp.cpp
+@@ -6,17 +6,33 @@
+ #define BOOST_BIND_GLOBAL_PLACEHOLDERS
+ 
+ // standard includes
++#include <array>
++#include <chrono>
++#include <cctype>
++#include <ctime>
+ #include <filesystem>
+ #include <format>
++#include <memory>
++#include <optional>
++#include <stdexcept>
+ #include <string>
++#include <string_view>
++#include <type_traits>
+ #include <utility>
+ 
++#if !defined(_WIN32)
++  #include <fcntl.h>
++  #include <sys/stat.h>
++  #include <unistd.h>
++#endif
++
+ // lib includes
+ #include <boost/asio/ssl/context.hpp>
+ #include <boost/asio/ssl/context_base.hpp>
+ #include <boost/property_tree/json_parser.hpp>
+ #include <boost/property_tree/ptree.hpp>
+ #include <boost/property_tree/xml_parser.hpp>
++#include <openssl/x509v3.h>
+ #include <Simple-Web-Server/server_http.hpp>
+ 
+ // local includes
+@@ -71,6 +87,22 @@ namespace nvhttp {
+     std::function<int(SSL *)> verify;  ///< Callback that validates a client's TLS certificate after handshake.
+     std::function<void(std::shared_ptr<Response>, std::shared_ptr<Request>)> on_verify_failed;  ///< Handler used to return the pairing challenge when client verification fails.
+ 
++    /**
++     * @brief Configure the listener for the q-sunshine system-auth media CA.
++     *
++     * The ordinary GameStream compatibility mode preserves its upstream TLS
++     * range. The lease mode has a patched client and may require TLS 1.3.
++     *
++     * @param ca PEM certificate for this VM's media-lease issuing CA.
++     */
++    void enable_system_auth_lease_mode(X509 *ca) {
++      X509_STORE *const trust_store = SSL_CTX_get_cert_store(context.native_handle());
++      if (ca == nullptr || trust_store == nullptr || X509_STORE_add_cert(trust_store, ca) != 1) {
++        throw std::runtime_error {"cannot install q-sunshine system-auth media CA"};
++      }
++      context.set_options(boost::asio::ssl::context::no_tlsv1_2);
++    }
++
+   protected:
+     boost::asio::ssl::context context;  ///< TLS server context configured with Sunshine's certificate and protocol policy.
+ 
+@@ -174,9 +206,359 @@ namespace nvhttp {
+   client_t client_root;  ///< In-memory representation of the paired-client database.
+   std::atomic<uint32_t> session_id_counter;  ///< Monotonic counter used to allocate GameStream session IDs.
+ 
+-  // Set by TLS verify callback, read by launch/resume handler (single-threaded HTTPS server)
+-  std::string last_verified_client_cert;  ///< Last client certificate accepted by the TLS verify callback.  // NOSONAR(cpp:S5421): intentionally mutable global
+-  std::string last_verified_client_name;  ///< Friendly name of last client certificate accepted by the TLS verify callback. // NOSONAR(cpp:S5421): intentionally mutable global
++  /**
++   * @brief Request-local GameStream client identity.
++   *
++   * It is reconstructed from the TLS socket for every sensitive request;
++   * retaining it in a process-global callback result would let independent
++   * connections race their launch identity.
++   */
++  struct authenticated_client_t {
++    std::string certificate;  ///< PEM leaf certificate presented by the client.
++    std::string name;  ///< Paired-device name or PAM subject for diagnostics/input identity.
++    bool has_system_auth_lease {};  ///< Whether this is a q-sunshine system-auth media lease.
++    std::chrono::system_clock::time_point system_auth_expires_at {};  ///< Absolute lease expiry when lease mode is active.
++  };
++
++  /**
++   * @brief Read a public media CA without following a replaceable path.
++   *
++   * Sunshine normally runs with elevated privileges.  Loading a CA through an
++   * unchecked pathname would let a writable or symlinked file become a media
++   * trust anchor.  Keep the descriptor open while reading, require the final
++   * object to be a root-owned regular file, and never reopen the pathname for
++   * OpenSSL.
++   *
++   * @param path Absolute path to the public per-VM CA certificate.
++   * @return Exact PEM bytes held by the opened descriptor.
++   * @throws std::runtime_error when the path cannot be used as a trust anchor.
++   */
++  std::string read_system_auth_ca_file(const std::string &path) {
++#if !defined(_WIN32) && defined(O_NOFOLLOW)
++    constexpr off_t max_ca_size = 1024 * 1024;
++    if (path.empty() || !fs::path {path}.is_absolute()) {
++      throw std::runtime_error {"q-sunshine system-auth CA path must be absolute"};
++    }
++
++    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
++    if (fd < 0) {
++      throw std::runtime_error {"cannot open q-sunshine system-auth CA"};
++    }
++    auto close_fd = util::fail_guard([fd]() {
++      ::close(fd);
++    });
++
++    struct stat metadata {};
++    if (::fstat(fd, &metadata) != 0 || !S_ISREG(metadata.st_mode) || metadata.st_uid != 0 ||
++        (metadata.st_mode & (S_IWGRP | S_IWOTH)) != 0 || metadata.st_size <= 0 ||
++        metadata.st_size > max_ca_size) {
++      throw std::runtime_error {"q-sunshine system-auth CA must be a root-owned non-writable regular file"};
++    }
++
++    std::string contents(static_cast<std::size_t>(metadata.st_size), '\0');
++    std::size_t offset {};
++    while (offset < contents.size()) {
++      const ssize_t read_count = ::read(fd, contents.data() + offset, contents.size() - offset);
++      if (read_count <= 0) {
++        throw std::runtime_error {"cannot read q-sunshine system-auth CA"};
++      }
++      offset += static_cast<std::size_t>(read_count);
++    }
++    return contents;
++#else
++    (void) path;
++    throw std::runtime_error {"q-sunshine system-auth CA requires O_NOFOLLOW support"};
++#endif
++  }
++
++  /**
++   * @brief Validate a short-lived q-sunshine GameStream client certificate.
++   */
++  class system_auth_lease_verifier_t {
++  public:
++    /**
++     * @brief Load one VM's lease CA and expected SAN audience.
++     *
++     * @param ca_path Path to the PEM CA certificate.
++     * @param audience Exact VM audience encoded in issued leaf certificates.
++     */
++    system_auth_lease_verifier_t(const std::string &ca_path, const std::string &audience):
++        ca_{crypto::x509(read_system_auth_ca_file(ca_path))},
++        store_{X509_STORE_new()},
++        expected_audience_uri_{"urn:q-sunshine:aud:"s + audience} {
++      if (!ca_ || !store_ || !valid_audience(audience) || !verify_ca_profile(ca_.get()) ||
++          X509_STORE_add_cert(store_.get(), ca_.get()) != 1) {
++        throw std::runtime_error {"invalid q-sunshine system-auth media CA configuration"};
++      }
++      X509_STORE_set_flags(store_.get(), X509_V_FLAG_X509_STRICT);
++    }
++
++    /**
++     * @brief Return the already-validated trust anchor for the TLS context.
++     *
++     * The caller must not reload the configured path: this certificate came
++     * from the checked descriptor used by the verifier above.
++     */
++    X509 *ca_certificate() noexcept {
++      return ca_.get();
++    }
++
++    /**
++     * @brief Verify a TLS peer and return its bounded media identity.
++     *
++     * @param ssl Native OpenSSL connection for the active HTTPS request.
++     * @return Identity only for a valid, unexpired, audience-bound leaf.
++     */
++    std::optional<authenticated_client_t> verify(SSL *ssl) const {
++      if (ssl == nullptr) {
++        return std::nullopt;
++      }
++      crypto::x509_t certificate {
++#if OPENSSL_VERSION_MAJOR >= 3
++        SSL_get1_peer_certificate(ssl)
++#else
++        SSL_get_peer_certificate(ssl)
++#endif
++      };
++      if (!certificate || !verify_certificate(certificate.get())) {
++        return std::nullopt;
++      }
++
++      auto expires_at = certificate_expiry(certificate.get());
++      auto subject = certificate_subject(certificate.get());
++      if (!expires_at || !subject) {
++        return std::nullopt;
++      }
++      return authenticated_client_t {
++        crypto::pem(certificate),
++        std::move(*subject),
++        true,
++        *expires_at,
++      };
++    }
++
++  private:
++    /**
++     * @brief Return whether an instance audience is safe for a URI SAN match.
++     *
++     * @param audience Configured VM audience text.
++     * @return True when the conservative protocol alphabet accepts it.
++     */
++    static bool valid_audience(const std::string_view audience) {
++      if (audience.empty() || audience.size() > 127 ||
++          !std::isalnum(static_cast<unsigned char>(audience.front()))) {
++        return false;
++      }
++      for (const char character : audience) {
++        if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_' &&
++            character != '.' && character != ':' && character != '-') {
++          return false;
++        }
++      }
++      return true;
++    }
++
++    /**
++     * @brief Return whether a PAM subject copied into a leaf CN is safe.
++     *
++     * @param subject Common-name bytes from the issued leaf.
++     * @return True only for the login protocol's conservative username grammar.
++     */
++    static bool valid_subject(const std::string_view subject) {
++      if (subject.empty() || subject.size() > 64 ||
++          !std::isalnum(static_cast<unsigned char>(subject.front()))) {
++        return false;
++      }
++      for (const char character : subject) {
++        if (!std::isalnum(static_cast<unsigned char>(character)) && character != '_' &&
++            character != '.' && character != '@' && character != '-') {
++          return false;
++        }
++      }
++      return true;
++    }
++
++    /**
++     * @brief Check that an X.509 extension exists and is marked critical.
++     *
++     * @param certificate Leaf certificate to inspect.
++     * @param nid OpenSSL extension identifier.
++     * @return True only when the extension is present and critical.
++     */
++    static bool has_exactly_one_critical_extension(X509 *certificate, const int nid) {
++      const int index = X509_get_ext_by_NID(certificate, nid, -1);
++      if (index < 0) {
++        return false;
++      }
++      const X509_EXTENSION *extension = X509_get_ext(certificate, index);
++      return extension != nullptr && X509_EXTENSION_get_critical(extension) == 1 &&
++             X509_get_ext_by_NID(certificate, nid, index) == -1;
++    }
++
++    /**
++     * @brief Check that the configured trust anchor is a current, constrained VM CA.
++     *
++     * The CA is configured by a root-owned unit, but treating an arbitrary leaf
++     * as an anchor here would turn a configuration mistake into a media-auth
++     * bypass.  Keep this profile aligned with q_sunshine_lease_issuer.
++     *
++     * @param certificate Candidate per-VM issuer certificate.
++     * @return True only for a currently valid CA:TRUE/keyCertSign certificate.
++     */
++    static bool verify_ca_profile(X509 *certificate) {
++      const ASN1_TIME *const not_before = certificate == nullptr ? nullptr : X509_get0_notBefore(certificate);
++      const ASN1_TIME *const not_after = certificate == nullptr ? nullptr : X509_get0_notAfter(certificate);
++      if (certificate == nullptr || X509_get_version(certificate) != 2 || not_before == nullptr ||
++          not_after == nullptr || X509_cmp_current_time(not_before) > 0 ||
++          X509_cmp_current_time(not_after) <= 0 ||
++          X509_check_ca(certificate) != 1) {
++        return false;
++      }
++
++      BASIC_CONSTRAINTS *constraints = static_cast<BASIC_CONSTRAINTS *>(
++          X509_get_ext_d2i(certificate, NID_basic_constraints, nullptr, nullptr));
++      auto constraints_guard = util::safe_ptr<BASIC_CONSTRAINTS, BASIC_CONSTRAINTS_free> {constraints};
++      if (!constraints_guard || !constraints_guard->ca ||
++          !has_exactly_one_critical_extension(certificate, NID_basic_constraints)) {
++        return false;
++      }
++
++      ASN1_BIT_STRING *key_usage = static_cast<ASN1_BIT_STRING *>(
++          X509_get_ext_d2i(certificate, NID_key_usage, nullptr, nullptr));
++      auto key_usage_guard = util::safe_ptr<ASN1_BIT_STRING, ASN1_BIT_STRING_free> {key_usage};
++      return key_usage_guard && has_exactly_one_critical_extension(certificate, NID_key_usage) &&
++             ASN1_BIT_STRING_get_bit(key_usage_guard.get(), 5) == 1;
++    }
++
++    /**
++     * @brief Validate the exact issuing-profile extensions on one lease leaf.
++     *
++     * @param certificate Parsed client leaf certificate.
++     * @return True only for the fixed CA:false/clientAuth/URI-SAN profile.
++     */
++    bool verify_leaf_profile(X509 *certificate) const {
++      BASIC_CONSTRAINTS *constraints = static_cast<BASIC_CONSTRAINTS *>(
++          X509_get_ext_d2i(certificate, NID_basic_constraints, nullptr, nullptr));
++      auto constraints_guard = util::safe_ptr<BASIC_CONSTRAINTS, BASIC_CONSTRAINTS_free> {constraints};
++      if (X509_get_version(certificate) != 2 || !constraints_guard || constraints_guard->ca ||
++          !has_exactly_one_critical_extension(certificate, NID_basic_constraints)) {
++        return false;
++      }
++
++      ASN1_BIT_STRING *key_usage = static_cast<ASN1_BIT_STRING *>(
++          X509_get_ext_d2i(certificate, NID_key_usage, nullptr, nullptr));
++      auto key_usage_guard = util::safe_ptr<ASN1_BIT_STRING, ASN1_BIT_STRING_free> {key_usage};
++      if (!key_usage_guard || !has_exactly_one_critical_extension(certificate, NID_key_usage) ||
++          ASN1_BIT_STRING_get_bit(key_usage_guard.get(), 0) != 1 ||
++          ASN1_BIT_STRING_get_bit(key_usage_guard.get(), 2) != 1 ||
++          ASN1_BIT_STRING_get_bit(key_usage_guard.get(), 1) != 0 ||
++          ASN1_BIT_STRING_get_bit(key_usage_guard.get(), 3) != 0 ||
++          ASN1_BIT_STRING_get_bit(key_usage_guard.get(), 4) != 0 ||
++          ASN1_BIT_STRING_get_bit(key_usage_guard.get(), 5) != 0 ||
++          ASN1_BIT_STRING_get_bit(key_usage_guard.get(), 6) != 0 ||
++          ASN1_BIT_STRING_get_bit(key_usage_guard.get(), 7) != 0 ||
++          ASN1_BIT_STRING_get_bit(key_usage_guard.get(), 8) != 0) {
++        return false;
++      }
++
++      EXTENDED_KEY_USAGE *extended_usage = static_cast<EXTENDED_KEY_USAGE *>(
++          X509_get_ext_d2i(certificate, NID_ext_key_usage, nullptr, nullptr));
++      auto extended_usage_guard = util::safe_ptr<EXTENDED_KEY_USAGE, EXTENDED_KEY_USAGE_free> {extended_usage};
++      if (!extended_usage_guard || !has_exactly_one_critical_extension(certificate, NID_ext_key_usage) ||
++          sk_ASN1_OBJECT_num(extended_usage_guard.get()) != 1 ||
++          OBJ_obj2nid(sk_ASN1_OBJECT_value(extended_usage_guard.get(), 0)) != NID_client_auth) {
++        return false;
++      }
++
++      GENERAL_NAMES *names = static_cast<GENERAL_NAMES *>(
++          X509_get_ext_d2i(certificate, NID_subject_alt_name, nullptr, nullptr));
++      auto names_guard = util::safe_ptr<GENERAL_NAMES, GENERAL_NAMES_free> {names};
++      if (!names_guard || !has_exactly_one_critical_extension(certificate, NID_subject_alt_name) ||
++          sk_GENERAL_NAME_num(names_guard.get()) != 1) {
++        return false;
++      }
++      const GENERAL_NAME *name = sk_GENERAL_NAME_value(names_guard.get(), 0);
++      if (name == nullptr || name->type != GEN_URI) {
++        return false;
++      }
++      const ASN1_IA5STRING *uri = name->d.uniformResourceIdentifier;
++      return uri != nullptr && static_cast<std::size_t>(ASN1_STRING_length(uri)) == expected_audience_uri_.size() &&
++             CRYPTO_memcmp(ASN1_STRING_get0_data(uri), expected_audience_uri_.data(),
++                           expected_audience_uri_.size()) == 0;
++    }
++
++    /**
++     * @brief Convert a leaf's not-after value to an absolute UTC clock point.
++     *
++     * @param certificate Parsed certificate whose expiry is read.
++     * @return Empty when OpenSSL cannot safely convert the encoded timestamp.
++     */
++    static std::optional<std::chrono::system_clock::time_point> certificate_expiry(X509 *certificate) {
++      std::tm value {};
++      if (X509_get0_notAfter(certificate) == nullptr ||
++          ASN1_TIME_to_tm(X509_get0_notAfter(certificate), &value) != 1) {
++        return std::nullopt;
++      }
++#if defined(_WIN32)
++      const std::time_t seconds = _mkgmtime(&value);
++#else
++      const std::time_t seconds = timegm(&value);
++#endif
++      if (seconds == static_cast<std::time_t>(-1)) {
++        return std::nullopt;
++      }
++      return std::chrono::system_clock::from_time_t(seconds);
++    }
++
++    /**
++     * @brief Extract the conservative PAM subject from a signed leaf CN.
++     *
++     * @param certificate Parsed client certificate.
++     * @return Safe subject text, or empty if the issuer profile was not met.
++     */
++    static std::optional<std::string> certificate_subject(X509 *certificate) {
++      std::array<char, 65> buffer {};
++      const int length = X509_NAME_get_text_by_NID(X509_get_subject_name(certificate),
++                                                   NID_commonName, buffer.data(),
++                                                   static_cast<int>(buffer.size()));
++      if (length < 1 || length >= static_cast<int>(buffer.size())) {
++        return std::nullopt;
++      }
++      constexpr std::string_view prefix {"q-sunshine user "};
++      std::string subject {buffer.data(), static_cast<std::size_t>(length)};
++      if (!subject.starts_with(prefix)) {
++        return std::nullopt;
++      }
++      subject.erase(0, prefix.size());
++      return valid_subject(subject) ? std::optional<std::string> {std::move(subject)}
++                                    : std::nullopt;
++    }
++
++    /**
++     * @brief Verify CA chain, validity interval, purpose, and fixed leaf profile.
++     *
++     * @param certificate Parsed client certificate.
++     * @return True only for an unexpired direct leaf issued by this VM's CA.
++     */
++    bool verify_certificate(X509 *certificate) const {
++      if (!verify_leaf_profile(certificate)) {
++        return false;
++      }
++      crypto::x509_store_ctx_t context {X509_STORE_CTX_new()};
++      if (!context || X509_STORE_CTX_init(context.get(), store_.get(), certificate, nullptr) != 1 ||
++          X509_STORE_CTX_set_purpose(context.get(), X509_PURPOSE_SSL_CLIENT) != 1) {
++        return false;
++      }
++      X509_STORE_CTX_set_flags(context.get(), X509_V_FLAG_X509_STRICT);
++      return X509_verify_cert(context.get()) == 1;
++    }
++
++    crypto::x509_t ca_;  ///< Per-VM trust anchor retained for the verifier lifetime.
++    mutable crypto::x509_store_t store_;  ///< Strict direct-issuer store for short-lived client leaves.
++    std::string expected_audience_uri_;  ///< Exact critical URI SAN expected from every lease.
++  };
++
++  std::shared_ptr<system_auth_lease_verifier_t> system_auth_lease_verifier;  ///< Immutable verifier enabled only for system-auth media mode.
+ 
+   /**
+    * @brief Case-insensitive map used for HTTP headers and query parameters.
+@@ -199,6 +581,35 @@ namespace nvhttp {
+    */
+   using req_http_t = std::shared_ptr<typename SimpleWeb::ServerBase<SimpleWeb::HTTP>::Request>;
+ 
++  /**
++   * @brief Verify the client identity attached to an active HTTPS socket.
++   *
++   * @param ssl Native TLS handle for the connection.
++   * @return Request identity when its legacy pairing or system-auth lease is valid.
++   */
++  std::optional<authenticated_client_t> authenticated_client_for_ssl(SSL *ssl);
++  /**
++   * @brief Reconstruct the client identity for one HTTPS request.
++   *
++   * @param request HTTPS request whose connection owns the TLS handle.
++   * @return Request identity when its client credential is still valid.
++   */
++  std::optional<authenticated_client_t> authenticated_client_for_request(const req_https_t &request);
++
++  /**
++   * @brief Require a still-current lease for a sensitive HTTPS handler.
++   *
++   * A TLS handshake can outlive a deliberately short lease, therefore the
++   * system-auth routes reconstruct the peer identity for every request.
++   * Compatibility pairing retains the upstream handshake-only behavior.
++   *
++   * @param request HTTPS request to examine.
++   * @return False only when system-auth mode is enabled and the lease failed.
++   */
++  bool request_has_current_system_auth_lease(const req_https_t &request) {
++    return !config::nvhttp.qsm_system_auth_mode || authenticated_client_for_request(request).has_value();
++  }
++
+   /**
+    * @brief Certificate operations supported by the pairing API.
+    */
+@@ -227,6 +638,60 @@ namespace nvhttp {
+     return it->second;
+   }
+ 
++  /**
++   * @brief Require a possession proof for the RTSP secret carried by a native lease launch.
++   *
++   * The system-auth certificate authenticates HTTPS.  Its launch response
++   * contains @c rikey, so a native client must also use encrypted RTSP
++   * (@c corever >= 1) and prove possession of that 128-bit key before RTSP
++   * commands can be dispatched.  Do this before constructing a pending
++   * session: util::from_hex_vec deliberately accepts non-hex decoration for
++   * legacy compatibility and is not a security-boundary validator.
++   *
++   * @param args Parsed launch or resume query parameters.
++   * @return True only for a positive decimal core version and 16-byte hex key.
++   */
++  bool has_system_auth_rtsp_key_proof(const args_t &args) {
++    const std::string corever = get_arg(args, "corever", "");
++    if (corever.empty() || corever.size() > 9) {
++      return false;
++    }
++    bool positive_corever {};
++    for (const unsigned char character : corever) {
++      if (character < '0' || character > '9') {
++        return false;
++      }
++      positive_corever = positive_corever || character != '0';
++    }
++    if (!positive_corever) {
++      return false;
++    }
++
++    const std::string rikey = get_arg(args, "rikey", "");
++    if (rikey.size() != 32) {
++      return false;
++    }
++    for (const unsigned char character : rikey) {
++      if (!((character >= '0' && character <= '9') ||
++            (character >= 'a' && character <= 'f') ||
++            (character >= 'A' && character <= 'F'))) {
++        return false;
++      }
++    }
++    return util::from_hex_vec(rikey, true).size() == 16;
++  }
++
++  /**
++   * @brief Return whether a native media lease remains usable for admission.
++   *
++   * Established media is deliberately not hard-stopped at lease expiry, but
++   * no application process or pending RTSP session may be admitted after it.
++   */
++  bool system_auth_lease_is_current(const authenticated_client_t &client) {
++    return !client.has_system_auth_lease ||
++           std::chrono::system_clock::now() < client.system_auth_expires_at;
++  }
++
+   /**
+    * @brief Persist the current state to its backing store.
+    */
+@@ -361,7 +826,8 @@ namespace nvhttp {
+    * @param args Arguments forwarded to the callable or parser.
+    * @return Constructed launch session object.
+    */
+-  std::shared_ptr<rtsp_stream::launch_session_t> make_launch_session(bool host_audio, const args_t &args) {
++  std::shared_ptr<rtsp_stream::launch_session_t> make_launch_session(bool host_audio, const args_t &args,
++                                                                      const authenticated_client_t &client) {
+     auto launch_session = std::make_shared<rtsp_stream::launch_session_t>();
+ 
+     launch_session->id = ++session_id_counter;
+@@ -405,8 +871,10 @@ namespace nvhttp {
+       launch_session->rtsp_iv_counter = 0;
+     }
+     launch_session->rtsp_url_scheme = launch_session->rtsp_cipher ? "rtspenc://"s : "rtsp://"s;
+-    launch_session->client_cert = last_verified_client_cert;
+-    launch_session->client_name = last_verified_client_name;
++    launch_session->client_cert = client.certificate;
++    launch_session->client_name = client.name;
++    launch_session->has_system_auth_lease = client.has_system_auth_lease;
++    launch_session->system_auth_expires_at = client.system_auth_expires_at;
+ 
+     // Generate the unique identifiers for this connection that we will send later during RTSP handshake
+     unsigned char raw_payload[8];
+@@ -633,6 +1101,42 @@ namespace nvhttp {
+     static auto constexpr to_string = "NONE"sv;  ///< To string.
+   };
+ 
++  /**
++   * @brief Return whether a request field's value must never reach debug logs.
++   *
++   * GameStream puts its launch key in `rikey`/`rikeyid`, while clients and
++   * intermediaries commonly carry credentials in token, authorization, or
++   * cookie fields. Header and query names are case-insensitive, so normalize
++   * before matching and redact every variant rather than relying on callers to
++   * preserve a particular spelling.
++   *
++   * @param name Header or decoded query-field name.
++   * @return True when the corresponding value is sensitive.
++   */
++  bool request_log_value_is_sensitive(const std::string_view name) {
++    std::string normalized_name;
++    normalized_name.reserve(name.size());
++    for (const char character : name) {
++      normalized_name.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(character))));
++    }
++
++    return normalized_name == "rikey" || normalized_name == "rikeyid" ||
++           normalized_name.find("token") != std::string::npos ||
++           normalized_name.find("auth") != std::string::npos ||
++           normalized_name.find("cookie") != std::string::npos;
++  }
++
++  /**
++   * @brief Log one request field without exposing sensitive values.
++   *
++   * @param name Header or decoded query-field name.
++   * @param value Header or decoded query-field value.
++   */
++  void log_request_field(const std::string_view name, const std::string_view value) {
++    BOOST_LOG(debug) << name << " -- "sv
++                     << (request_log_value_is_sensitive(name) ? "<redacted>"sv : value);
++  }
++
+   /**
+    * @brief Write req details to the log.
+    *
+@@ -645,14 +1149,14 @@ namespace nvhttp {
+     BOOST_LOG(debug) << "METHOD :: "sv << request->method;
+     BOOST_LOG(debug) << "DESTINATION :: "sv << request->path;
+ 
+-    for (auto &[name, val] : request->header) {
+-      BOOST_LOG(debug) << name << " -- " << val;
++    for (const auto &[name, value] : request->header) {
++      log_request_field(name, value);
+     }
+ 
+     BOOST_LOG(debug) << " [--] "sv;
+ 
+-    for (auto &[name, val] : request->parse_query_string()) {
+-      BOOST_LOG(debug) << name << " -- " << val;
++    for (const auto &[name, value] : request->parse_query_string()) {
++      log_request_field(name, value);
+     }
+ 
+     BOOST_LOG(debug) << " [--] "sv;
+@@ -871,10 +1375,20 @@ namespace nvhttp {
+ 
+     int pair_status = 0;
+     if constexpr (std::is_same_v<SunshineHTTPS, T>) {
++      if (config::nvhttp.qsm_system_auth_mode && !authenticated_client_for_request(request)) {
++        pt::ptree rejected;
++        rejected.put("root.<xmlattr>.status_code", 401);
++        rejected.put("root.<xmlattr>.status_message", "The system-auth media lease is expired or invalid");
++        std::ostringstream data;
++        pt::write_xml(data, rejected);
++        response->write(SimpleWeb::StatusCode::client_error_unauthorized, data.str());
++        response->close_connection_after_response = true;
++        return;
++      }
+       auto args = request->parse_query_string();
+       auto clientID = args.find("uniqueid"s);
+ 
+-      if (clientID != std::end(args)) {
++      if (config::nvhttp.qsm_system_auth_mode || clientID != std::end(args)) {
+         pair_status = 1;
+       }
+     }
+@@ -968,6 +1482,12 @@ namespace nvhttp {
+       response->close_connection_after_response = true;
+     });
+ 
++    if (!request_has_current_system_auth_lease(request)) {
++      tree.put("root.<xmlattr>.status_code", 401);
++      tree.put("root.<xmlattr>.status_message", "The system-auth media lease is expired or invalid");
++      return;
++    }
++
+     auto &apps = tree.add_child("root", pt::ptree {});
+ 
+     apps.put("<xmlattr>.status_code", 200);
+@@ -1011,6 +1531,14 @@ namespace nvhttp {
+       }
+     });
+ 
++    const auto client = authenticated_client_for_request(request);
++    if (!client) {
++      tree.put("root.launch", 0);
++      tree.put("root.<xmlattr>.status_code", 401);
++      tree.put("root.<xmlattr>.status_message", "The client is not authorized");
++      return;
++    }
++
+     auto args = request->parse_query_string();
+     if (
+       args.find("rikey"s) == std::end(args) ||
+@@ -1025,6 +1553,13 @@ namespace nvhttp {
+       return;
+     }
+ 
++    if (config::nvhttp.qsm_system_auth_mode && !has_system_auth_rtsp_key_proof(args)) {
++      tree.put("root.launch", 0);
++      tree.put("root.<xmlattr>.status_code", 400);
++      tree.put("root.<xmlattr>.status_message", "System-auth media requires encrypted RTSP with a valid rikey");
++      return;
++    }
++
+     auto appid = util::from_view(get_arg(args, "appid"));
+ 
+     auto current_appid = proc::proc.running();
+@@ -1037,7 +1572,7 @@ namespace nvhttp {
+     }
+ 
+     host_audio = util::from_view(get_arg(args, "localAudioPlayMode"));
+-    auto launch_session = make_launch_session(host_audio, args);
++    auto launch_session = make_launch_session(host_audio, args, *client);
+ 
+     if (rtsp_stream::session_count() == 0) {
+       // The display should be restored in case something fails as there are no other sessions.
+@@ -1072,6 +1607,17 @@ namespace nvhttp {
+       return;
+     }
+ 
++    // Display setup and encoder probing may take long enough for a short
++    // lease to expire after HTTPS admission.  Re-check immediately before
++    // side-effecting process startup.
++    if (!system_auth_lease_is_current(*client)) {
++      tree.put("root.launch", 0);
++      tree.put("root.<xmlattr>.status_code", 401);
++      tree.put("root.<xmlattr>.status_message", "The system-auth media lease expired before launch");
++      tree.put("root.gamesession", 0);
++      return;
++    }
++
+     if (appid > 0) {
+       auto err = proc::proc.execute((int) appid, launch_session);
+       if (err) {
+@@ -1083,6 +1629,20 @@ namespace nvhttp {
+       }
+     }
+ 
++    // Do not expose a pending RTSP session if the lease elapsed while the
++    // selected application was starting.  The process was just created by
++    // this request, so tear it down before the fail guard restores display.
++    if (!system_auth_lease_is_current(*client)) {
++      if (appid > 0) {
++        proc::proc.terminate();
++      }
++      tree.put("root.launch", 0);
++      tree.put("root.<xmlattr>.status_code", 401);
++      tree.put("root.<xmlattr>.status_message", "The system-auth media lease expired before RTSP admission");
++      tree.put("root.gamesession", 0);
++      return;
++    }
++
+     tree.put("root.<xmlattr>.status_code", 200);
+     tree.put(
+       "root.sessionUrl0",
+@@ -1124,6 +1684,14 @@ namespace nvhttp {
+       response->close_connection_after_response = true;
+     });
+ 
++    const auto client = authenticated_client_for_request(request);
++    if (!client) {
++      tree.put("root.resume", 0);
++      tree.put("root.<xmlattr>.status_code", 401);
++      tree.put("root.<xmlattr>.status_message", "The client is not authorized");
++      return;
++    }
++
+     auto current_appid = proc::proc.running();
+     if (current_appid == 0) {
+       tree.put("root.resume", 0);
+@@ -1145,6 +1713,13 @@ namespace nvhttp {
+       return;
+     }
+ 
++    if (config::nvhttp.qsm_system_auth_mode && !has_system_auth_rtsp_key_proof(args)) {
++      tree.put("root.resume", 0);
++      tree.put("root.<xmlattr>.status_code", 400);
++      tree.put("root.<xmlattr>.status_message", "System-auth media requires encrypted RTSP with a valid rikey");
++      return;
++    }
++
+     // Newer Moonlight clients send localAudioPlayMode on /resume too,
+     // so we should use it if it's present in the args and there are
+     // no active sessions we could be interfering with.
+@@ -1152,7 +1727,7 @@ namespace nvhttp {
+     if (no_active_sessions && args.find("localAudioPlayMode"s) != std::end(args)) {
+       host_audio = util::from_view(get_arg(args, "localAudioPlayMode"));
+     }
+-    const auto launch_session = make_launch_session(host_audio, args);
++    const auto launch_session = make_launch_session(host_audio, args, *client);
+ 
+     if (no_active_sessions) {
+       // We want to prepare display only if there are no active sessions at
+@@ -1184,6 +1759,16 @@ namespace nvhttp {
+       return;
+     }
+ 
++    if (!system_auth_lease_is_current(*client)) {
++      if (no_active_sessions) {
++        display_device::revert_configuration();
++      }
++      tree.put("root.resume", 0);
++      tree.put("root.<xmlattr>.status_code", 401);
++      tree.put("root.<xmlattr>.status_message", "The system-auth media lease expired before RTSP admission");
++      return;
++    }
++
+     tree.put("root.<xmlattr>.status_code", 200);
+     tree.put(
+       "root.sessionUrl0",
+@@ -1217,6 +1802,13 @@ namespace nvhttp {
+       response->close_connection_after_response = true;
+     });
+ 
++    if (!request_has_current_system_auth_lease(request)) {
++      tree.put("root.cancel", 0);
++      tree.put("root.<xmlattr>.status_code", 401);
++      tree.put("root.<xmlattr>.status_message", "The system-auth media lease is expired or invalid");
++      return;
++    }
++
+     tree.put("root.cancel", 1);
+     tree.put("root.<xmlattr>.status_code", 200);
+ 
+@@ -1239,6 +1831,13 @@ namespace nvhttp {
+   void appasset(resp_https_t response, req_https_t request) {
+     print_req<SunshineHTTPS>(request);
+ 
++    if (!request_has_current_system_auth_lease(request)) {
++      response->write(SimpleWeb::StatusCode::client_error_unauthorized,
++                      "The system-auth media lease is expired or invalid");
++      response->close_connection_after_response = true;
++      return;
++    }
++
+     auto args = request->parse_query_string();
+     auto app_image = proc::proc.get_app_image((int) util::from_view(get_arg(args, "appid")));
+ 
+@@ -1288,62 +1887,43 @@ namespace nvhttp {
+     bool host_audio {};
+ 
+     https_server_t https_server {config::nvhttp.cert, config::nvhttp.pkey};
++    try {
++      if (config::nvhttp.qsm_system_auth_mode) {
++        system_auth_lease_verifier = std::make_shared<system_auth_lease_verifier_t>(
++            config::nvhttp.qsm_system_auth_ca,
++            config::nvhttp.qsm_system_auth_audience);
++        https_server.enable_system_auth_lease_mode(system_auth_lease_verifier->ca_certificate());
++      } else {
++        system_auth_lease_verifier.reset();
++      }
++    } catch (const std::exception &error) {
++      BOOST_LOG(fatal) << "Invalid q-sunshine system-auth media configuration: "sv << error.what();
++      shutdown_event->raise(true);
++      return;
++    }
+     http_server_t http_server;
+ 
+     // Verify certificates after establishing connection
+     https_server.verify = [add_cert](SSL *ssl) {
+-      crypto::x509_t x509 {
+-#if OPENSSL_VERSION_MAJOR >= 3
+-        SSL_get1_peer_certificate(ssl)
+-#else
+-        SSL_get_peer_certificate(ssl)
+-#endif
+-      };
+-      if (!x509) {
+-        BOOST_LOG(info) << "unknown -- denied"sv;
+-        return 0;
+-      }
+-
+-      int verified = 0;
+-
+-      auto fg = util::fail_guard([&]() {
+-        char subject_name[256];
+-
+-        X509_NAME_oneline(X509_get_subject_name(x509.get()), subject_name, sizeof(subject_name));
+-
+-        BOOST_LOG(debug) << subject_name << " -- "sv << (verified ? "verified"sv : "denied"sv);
+-      });
+-
+-      while (add_cert->peek()) {
+-        char subject_name[256];
+-
+-        auto cert = add_cert->pop();
+-        X509_NAME_oneline(X509_get_subject_name(cert.get()), subject_name, sizeof(subject_name));
+-
+-        BOOST_LOG(debug) << "Added cert ["sv << subject_name << ']';
+-        cert_chain.add(std::move(cert));
+-      }
+-
+-      auto err_str = cert_chain.verify(x509.get());
+-      if (err_str) {
+-        BOOST_LOG(warning) << "SSL Verification error :: "sv << err_str;
+-
+-        return verified;
++      // Pairing adds a certificate asynchronously.  The system-auth mode has
++      // no pairing route and deliberately never reads this compatibility queue.
++      if (!config::nvhttp.qsm_system_auth_mode) {
++        while (add_cert->peek()) {
++          auto certificate = add_cert->pop();
++          char subject_name[256] {};
++          X509_NAME_oneline(X509_get_subject_name(certificate.get()), subject_name, sizeof(subject_name));
++          BOOST_LOG(debug) << "Added cert ["sv << subject_name << ']';
++          cert_chain.add(std::move(certificate));
++        }
+       }
+ 
+-      // Check if this client is enabled
+-      auto pem = crypto::pem(x509);
+-      auto [enabled, client_name] = get_client_status(pem);
+-      if (!enabled) {
+-        BOOST_LOG(info) << "Client is disabled -- denied"sv;
+-        return verified;
++      const auto client = authenticated_client_for_ssl(ssl);
++      if (!client) {
++        BOOST_LOG(info) << "GameStream TLS client denied"sv;
++        return 0;
+       }
+-
+-      last_verified_client_cert = pem;
+-      last_verified_client_name = client_name;
+-      verified = 1;
+-
+-      return verified;
++      BOOST_LOG(debug) << client->name << " -- verified"sv;
++      return 1;
+     };
+ 
+     https_server.on_verify_failed = [](resp_https_t resp, req_https_t req) {
+@@ -1358,14 +1938,18 @@ namespace nvhttp {
+ 
+       tree.put("root.<xmlattr>.status_code"s, 401);
+       tree.put("root.<xmlattr>.query"s, req->path);
+-      tree.put("root.<xmlattr>.status_message"s, "The client is not authorized. Certificate verification failed."s);
++      tree.put("root.<xmlattr>.status_message"s,
++               config::nvhttp.qsm_system_auth_mode ? "System-auth media lease verification failed."s
++                                                   : "The client is not authorized. Certificate verification failed."s);
+     };
+ 
+     https_server.default_resource["GET"] = not_found<SunshineHTTPS>;
+     https_server.resource["^/serverinfo$"]["GET"] = serverinfo<SunshineHTTPS>;
+-    https_server.resource["^/pair$"]["GET"] = [&add_cert](auto resp, auto req) {
+-      pair<SunshineHTTPS>(add_cert, resp, req);
+-    };
++    if (!config::nvhttp.qsm_system_auth_mode) {
++      https_server.resource["^/pair$"]["GET"] = [&add_cert](auto resp, auto req) {
++        pair<SunshineHTTPS>(add_cert, resp, req);
++      };
++    }
+     https_server.resource["^/applist$"]["GET"] = applist;
+     https_server.resource["^/appasset$"]["GET"] = appasset;
+     https_server.resource["^/launch$"]["GET"] = [&host_audio](auto resp, auto req) {
+@@ -1382,9 +1966,11 @@ namespace nvhttp {
+ 
+     http_server.default_resource["GET"] = not_found<SimpleWeb::HTTP>;
+     http_server.resource["^/serverinfo$"]["GET"] = serverinfo<SimpleWeb::HTTP>;
+-    http_server.resource["^/pair$"]["GET"] = [&add_cert](auto resp, auto req) {
+-      pair<SimpleWeb::HTTP>(add_cert, resp, req);
+-    };
++    if (!config::nvhttp.qsm_system_auth_mode) {
++      http_server.resource["^/pair$"]["GET"] = [&add_cert](auto resp, auto req) {
++        pair<SimpleWeb::HTTP>(add_cert, resp, req);
++      };
++    }
+ 
+     http_server.config.reuse_address = true;
+     http_server.config.address = net::get_bind_address(address_family);
+@@ -1479,4 +2065,44 @@ namespace nvhttp {
+     }
+     return {true, {}};
+   }
++
++  std::optional<authenticated_client_t> authenticated_client_for_ssl(SSL *ssl) {
++    if (ssl == nullptr) {
++      return std::nullopt;
++    }
++
++    if (config::nvhttp.qsm_system_auth_mode) {
++      return system_auth_lease_verifier ? system_auth_lease_verifier->verify(ssl) : std::nullopt;
++    }
++
++    crypto::x509_t certificate {
++#if OPENSSL_VERSION_MAJOR >= 3
++      SSL_get1_peer_certificate(ssl)
++#else
++      SSL_get_peer_certificate(ssl)
++#endif
++    };
++    if (!certificate) {
++      return std::nullopt;
++    }
++    if (const auto error = cert_chain.verify(certificate.get())) {
++      BOOST_LOG(warning) << "SSL Verification error :: "sv << error;
++      return std::nullopt;
++    }
++
++    auto pem = crypto::pem(certificate);
++    auto [enabled, client_name] = get_client_status(pem);
++    if (!enabled) {
++      BOOST_LOG(info) << "Client is disabled -- denied"sv;
++      return std::nullopt;
++    }
++    return authenticated_client_t {std::move(pem), std::move(client_name), false, {}};
++  }
++
++  std::optional<authenticated_client_t> authenticated_client_for_request(const req_https_t &request) {
++    if (!request) {
++      return std::nullopt;
++    }
++    return authenticated_client_for_ssl(static_cast<SSL *>(request->socket_native_handle()));
++  }
+ }  // namespace nvhttp
+diff --git a/src/rtsp.cpp b/src/rtsp.cpp
+index 423df9d4c0d9a6a90ae1b7b31060cd852c153524..2b40abbe836f30752ba2d3e7d14b73652ddf5e3b 100644
+--- a/src/rtsp.cpp
++++ b/src/rtsp.cpp
+@@ -554,9 +554,17 @@ namespace rtsp_stream {
+ 
+       auto launch_session {launch_event.view(0s)};
+       if (launch_session) {
+-        // Associate the current RTSP session with this socket and start reading
+-        socket->session = launch_session;
+-        socket->read();
++        if (launch_session->has_system_auth_lease &&
++            std::chrono::system_clock::now() >= launch_session->system_auth_expires_at) {
++          BOOST_LOG(info) << "Rejected expired system-auth media lease before RTSP setup"sv;
++          launch_event.pop(0s);
++          boost::system::error_code close_ec;
++          socket->sock.close(close_ec);
++        } else {
++          // Associate the current RTSP session with this socket and start reading
++          socket->session = launch_session;
++          socket->read();
++        }
+       } else {
+         // This can happen due to normal things like port scanning, so let's not make these visible by default
+         BOOST_LOG(debug) << "No pending session for incoming RTSP connection"sv;
+diff --git a/src/rtsp.h b/src/rtsp.h
+index 8fa8dd6f5d824e93bd054015156ccbc6f0cb0346..a47c2e900ce4fd2877d23c11c7766f69b40c199c 100644
+--- a/src/rtsp.h
++++ b/src/rtsp.h
+@@ -6,6 +6,7 @@
+ 
+ // standard includes
+ #include <atomic>
++#include <chrono>
+ 
+ // local includes
+ #include "crypto.h"
+@@ -44,6 +45,8 @@ namespace rtsp_stream {
+     std::string rtsp_url_scheme;  ///< URL scheme selected by the RTSP SETUP flow.
+     uint32_t rtsp_iv_counter;  ///< Counter value mixed into encrypted RTSP IVs.
+     std::string client_cert;  ///< PEM certificate for the paired Moonlight client.
++    bool has_system_auth_lease {};  ///< Whether a short-lived system-auth lease authorized this pending RTSP admission.
++    std::chrono::system_clock::time_point system_auth_expires_at {};  ///< Absolute expiry checked before RTSP admission, not during an established media session.
+   };
+ 
+   /**

@@ -48,6 +48,8 @@ operational work.
 
 - [`sunshine/PINNED_UPSTREAM.md`](sunshine/PINNED_UPSTREAM.md) — exact upstream base and replay.
 - [`sunshine/PATCH_SERIES.md`](sunshine/PATCH_SERIES.md) — six patch layers and constraints.
+- [`moonlight/PINNED_UPSTREAM.md`](moonlight/PINNED_UPSTREAM.md) — pinned native
+  PIN-free GameStream lease client and replay.
 - [`sunshine/QEMU_INPUT_AND_DATA_SCOPE.md`](sunshine/QEMU_INPUT_AND_DATA_SCOPE.md) — input and companion protocol boundary.
 - [`../docs/SUNSHINE_QEMU_INTEGRATION.md`](../docs/SUNSHINE_QEMU_INTEGRATION.md) — build profile.
 - [`../docs/MOONLIGHT_SUNSHINE_VIRGL_E2E.md`](../docs/MOONLIGHT_SUNSHINE_VIRGL_E2E.md) — native video/input gate.

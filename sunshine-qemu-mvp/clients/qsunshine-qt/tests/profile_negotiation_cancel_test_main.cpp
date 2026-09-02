@@ -70,6 +70,9 @@ public:
           m_Moonlight(this),
           m_Coordinator(&m_Qsf, &m_Moonlight, this)
     {
+        // This fixture covers cancellation after the legacy stream has been
+        // admitted by the production system-auth composition root.
+        m_Moonlight.setSystemAuthAdmission(true);
         m_Timeout.setSingleShot(true);
         m_Timeout.setInterval(15000);
         connect(&m_Timeout, &QTimer::timeout, this, [this]() {
@@ -137,7 +140,11 @@ public:
             fail(QStringLiteral("could not create the fake Moonlight executable"));
             return;
         }
-        m_Moonlight.setBinaryPath(m_Directory.filePath(QStringLiteral("fake-moonlight.sh")));
+        if (!m_Moonlight.setTestMoonlightBinary(
+                m_Directory.filePath(QStringLiteral("fake-moonlight.sh")))) {
+            fail(QStringLiteral("could not select the fake Moonlight test child"));
+            return;
+        }
         if (!m_Moonlight.saveProfile(QStringLiteral("profile-cancel-regression"),
                                      QStringLiteral("127.0.0.1"), QStringLiteral("Desktop"),
                                      QStringLiteral("1024x768"), QStringLiteral("windowed"))) {

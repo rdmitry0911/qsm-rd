@@ -19,27 +19,34 @@ umask 077
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# The default is the deliberately no-X11 Sunshine build.  Xvfb below belongs
-# exclusively to the disposable Qt/Moonlight client lane.
-SUNSHINE_BINARY="${SUNSHINE_BINARY:-$ROOT/.upstream/build-sunshine-qemu-no-x11/sunshine}"
+# The default is the deliberately no-X11 native-system-auth Sunshine build.
+# Xvfb below belongs exclusively to the disposable Qt/Moonlight client lane.
+SUNSHINE_BINARY="${SUNSHINE_BINARY:-$ROOT/.upstream/build-sunshine-qemu/sunshine}"
 QSUNSHINE_REAL_E2E_DRIVER="${QSUNSHINE_REAL_E2E_DRIVER:-$ROOT/.build-qt-client/clients/qsunshine-qt/qsunshine-real-e2e-driver}"
-# The clean clone is intentionally separate from the older experimental tree.
-# A package-installed clean Moonlight is also acceptable when supplied here.
-STOCK_MOONLIGHT_QT_BINARY="${QSUNSHINE_STOCK_MOONLIGHT_QT_BINARY:-$ROOT/.upstream/moonlight-qt-clean/app/moonlight}"
+# Native system-auth requires the coordinated Moonlight patch: the process
+# consumes an in-memory ticket from fd 0, obtains an ephemeral mTLS lease from
+# authd, and rejects a missing explicit --qsm-system-auth marker.  A
+# package-installed patched binary may be supplied here for qualification.
+MOONLIGHT_QT_BINARY="${QSUNSHINE_MOONLIGHT_QT_BINARY:-$ROOT/.upstream/moonlight-qt-clean/app/moonlight}"
 QSF_TLS_GATEWAY="$ROOT/extensions/qsf_control/qsf_tls_gateway.py"
+SYSTEM_AUTH_GATEWAY="$ROOT/extensions/system_auth/q_sunshine_auth_gateway.py"
+SYSTEM_AUTH_PAM_FIXTURE="$ROOT/tests/system_auth/e2e_fake_pam_helper.py"
+GAMESTREAM_LEASE_ISSUER_SOURCE="$ROOT/extensions/gamestream_auth/q_sunshine_lease_issuer.c"
 
 RENDER_NODE="${VIRGL_RENDER_NODE:-/dev/dri/renderD128}"
 SUNSHINE_PORT="${SUNSHINE_PORT:-48189}"
 MOONLIGHT_HOST="${QSUNSHINE_MOONLIGHT_HOST:-127.0.0.1:${SUNSHINE_PORT}}"
-MOONLIGHT_PIN="${QSUNSHINE_MOONLIGHT_PIN:-4242}"
 SUNSHINE_APP="${QSUNSHINE_SUNSHINE_APP:-Desktop}"
+SYSTEM_AUTH_AUDIENCE="${QSUNSHINE_SYSTEM_AUTH_AUDIENCE:-vm-100}"
+# These are fixed fake-PAM fixture credentials. The password enters the Qt
+# driver over an anonymous stdin pipe below; it is intentionally neither an
+# environment variable nor a command-line argument.
+SYSTEM_AUTH_USERNAME='alice'
+SYSTEM_AUTH_TEST_PASSWORD='e2e-system-password'
 DISPLAY_NUMBER="${QSUNSHINE_QT_MOONLIGHT_DISPLAY:-:96}"
-# The pair QML window and the SDL streaming window have different WM_CLASS
-# values.  Neither can safely be found via WM_NAME in a no-WM Xvfb server:
-# their visible X titles may instead be _NET_WM_NAME. Keep their discovery
-# rules deliberately separate and based on the stock client class names.
+# The SDL stream surface is inspected through its public Moonlight WM_CLASS.
+# No pairing QML surface exists in the native system-auth route.
 MOONLIGHT_STREAM_WINDOW_CLASS="${QSUNSHINE_MOONLIGHT_STREAM_WINDOW_CLASS:-^com[.]moonlight_stream[.]Moonlight$}"
-MOONLIGHT_PAIR_WINDOW_CLASS="${QSUNSHINE_MOONLIGHT_PAIR_WINDOW_CLASS:-^moonlight$}"
 MESA_EGL_VENDOR="${MESA_EGL_VENDOR:-/usr/share/glvnd/egl_vendor.d/50_mesa.json}"
 
 WINDOWED_RESOLUTION="${QSUNSHINE_QT_WINDOWED_RESOLUTION:-1280x800}"
@@ -58,7 +65,6 @@ FULLSCREEN_FPS="${QSUNSHINE_QT_FULLSCREEN_FPS:-60}"
 FULLSCREEN_BITRATE_KBPS="${QSUNSHINE_QT_FULLSCREEN_BITRATE_KBPS:-12000}"
 FULLSCREEN_VIDEO_CODEC="${QSUNSHINE_QT_FULLSCREEN_VIDEO_CODEC:-H.264}"
 PHASE_TIMEOUT_SECONDS="${QSUNSHINE_QT_E2E_PHASE_TIMEOUT_SECONDS:-170}"
-PAIR_DIALOG_TIMEOUT_SECONDS="${QSUNSHINE_QT_E2E_PAIR_DIALOG_TIMEOUT_SECONDS:-35}"
 VISUAL_TIMEOUT_SECONDS="${QSUNSHINE_QT_E2E_VISUAL_TIMEOUT_SECONDS:-30}"
 GUEST_TIMEOUT_SECONDS="${QSUNSHINE_QT_E2E_GUEST_TIMEOUT_SECONDS:-100}"
 # The outer Display1 listener starts before this hook creates Xvfb, Sunshine,
@@ -112,20 +118,19 @@ CLIENT_CACHE_DIR=''
 CLIENT_RUNTIME_DIR=''
 MOONLIGHT_PORTABLE_DIR=''
 SUNSHINE_CONFIG_DIR=''
-SUNSHINE_PIN_FIFO=''
-sunshine_pin_keepalive_fd=''
-sunshine_pin_write_fd=''
 sunshine_log=''
 driver_log=''
 moonlight_log=''
-moonlight_pair_log=''
-moonlight_list_log=''
 gateway_log=''
+auth_gateway_log=''
 xvfb_log=''
 gateway_pid=''
+auth_gateway_pid=''
 sunshine_pid=''
 driver_pid=''
 xvfb_pid=''
+GAMESTREAM_LEASE_ISSUER=''
+SYSTEM_AUTH_PORT=0
 logs_shown=0
 handling_error=0
 
@@ -136,8 +141,8 @@ print_outer_integration_patch() {
   printf '%s\n' \
     '# Qt/Moonlight composite invocation:' \
     '' \
-    '# A clean stock Moonlight Qt binary and Qt driver must already be built.' \
-    '# The long live Display1 probe covers pairing, both video presentations,' \
+    '# A patched native-system-auth Moonlight Qt binary and Qt driver must already be built.' \
+    '# The long live Display1 probe covers system login, both video presentations,' \
     '# QSF clipboard/files/resize, and the controlled reconnect.' \
     'VIRGL_QSF_WAYLAND_QT_QSF_OWNER=qt \' \
     'VIRGL_QSF_WAYLAND_PROBE_DURATION_MS=390000 \' \
@@ -157,9 +162,10 @@ fi
 redacted_tail() {
   local path=$1 lines=${2:-120}
   [[ -n "$path" && -f "$path" ]] || return 0
-  # The short-lived test PIN may be rendered by upstream's pair QML; do not
-  # reflect it into the outer runner's captured hook log on failure.
-  tail -n "$lines" "$path" 2>/dev/null | sed "s/${MOONLIGHT_PIN}/[redacted]/g" >&2 || true
+  # No PIN/password/ticket is ever intentionally logged by the native path.
+  # Keep a bounded diagnostic tail for protocol failures without synthesizing
+  # a secret-bearing command line or pair-dialog transcript.
+  tail -n "$lines" "$path" 2>/dev/null >&2 || true
 }
 
 show_logs() {
@@ -172,6 +178,8 @@ show_logs() {
   redacted_tail "$driver_log" 180
   printf '%s\n' '--- Sunshine ---' >&2
   redacted_tail "$sunshine_log" 180
+  printf '%s\n' '--- system-auth gateway ---' >&2
+  redacted_tail "$auth_gateway_log" 120
   printf '%s\n' '--- QSF TLS gateway ---' >&2
   redacted_tail "$gateway_log" 120
   printf '%s\n' '--- guest telemetry ---' >&2
@@ -256,18 +264,21 @@ stop_process_tree() {
 cleanup() {
   # These are all processes/files created below.  QEMU, qsf-control and its
   # local capability token belong to the outer runner and are never touched.
-  # The Qt driver owns a stock Moonlight QProcess.  If the hook itself is
+  # The Qt driver owns a patched Moonlight QProcess.  If the hook itself is
   # signalled, Qt destructors do not necessarily get a chance to terminate
   # that child, so stop its known owned descendant tree before the driver.
   stop_process_tree "$driver_pid"
   stop_pid "$gateway_pid"
+  stop_pid "$auth_gateway_pid"
   stop_pid "$sunshine_pid"
   stop_pid "$xvfb_pid"
   if [[ -n "$TLS_DIR" ]]; then
-    rm -f -- "$TLS_DIR/ca.key" "$TLS_DIR/server.key" "$TLS_DIR/client.key" \
-      "$TLS_DIR/server.csr" "$TLS_DIR/client.csr" "$TLS_DIR/ca.srl" 2>/dev/null || true
+    rm -f -- "$TLS_DIR/auth-ca.key" "$TLS_DIR/auth-server.key" \
+      "$TLS_DIR/auth-server.csr" "$TLS_DIR/auth-ca.srl" \
+      "$TLS_DIR/lease-ca.key" "$TLS_DIR/sunshine.key" \
+      "$TLS_DIR/sunshine.csr" "$TLS_DIR/ticket.key" 2>/dev/null || true
   fi
-  # Moonlight portable state and Sunshine's temporary pairing database live
+  # Moonlight's disposable state and Sunshine's temporary runtime state live
   # below deliberately fresh roots. Retain sanitized evidence in
   # HOOK_OUTPUT_DIR, not credentials.
   [[ -n "$CLIENT_CONFIG_DIR" ]] && rm -rf -- "$CLIENT_CONFIG_DIR" 2>/dev/null || true
@@ -276,14 +287,6 @@ cleanup() {
   [[ -n "$CLIENT_RUNTIME_DIR" ]] && rm -rf -- "$CLIENT_RUNTIME_DIR" 2>/dev/null || true
   [[ -n "$MOONLIGHT_PORTABLE_DIR" ]] && rm -rf -- "$MOONLIGHT_PORTABLE_DIR" 2>/dev/null || true
   [[ -n "$SUNSHINE_CONFIG_DIR" ]] && rm -rf -- "$SUNSHINE_CONFIG_DIR" 2>/dev/null || true
-  # The two FIFO descriptors below are intentionally separate.  Closing a
-  # dynamic descriptor that was never opened is harmless, but only expand an
-  # actual numeric descriptor so cleanup remains safe under `set -u`.
-  [[ "$sunshine_pin_keepalive_fd" =~ ^[0-9]+$ ]] && \
-    exec {sunshine_pin_keepalive_fd}>&- 2>/dev/null || true
-  [[ "$sunshine_pin_write_fd" =~ ^[0-9]+$ ]] && \
-    exec {sunshine_pin_write_fd}>&- 2>/dev/null || true
-  [[ -n "$SUNSHINE_PIN_FIFO" ]] && rm -f -- "$SUNSHINE_PIN_FIFO" 2>/dev/null || true
 }
 
 qemu_is_alive() {
@@ -384,20 +387,6 @@ wait_for_sunshine_http() {
   die 'Sunshine HTTP endpoint did not become ready'
 }
 
-wait_for_sunshine_pair_prompt() {
-  # Sunshine's -0 option calls getline() only after Moonlight reaches its
-  # getservercert pairing request. Do not pre-fill a short-lived pipe at
-  # daemon startup: a closed early writer can leave this later read at EOF.
-  for _ in $(seq 1 $((PAIR_DIALOG_TIMEOUT_SECONDS * 10))); do
-    grep -Fq 'Please insert pin:' "$sunshine_log" && return 0
-    kill -0 "$sunshine_pid" 2>/dev/null || die 'Sunshine exited before requesting its private pairing PIN'
-    driver_is_alive
-    qemu_is_alive
-    sleep 0.1
-  done
-  die 'Sunshine did not request its private pairing PIN after Moonlight pairing started'
-}
-
 wait_for_sunshine_stream() {
   for _ in $(seq 1 $((VISUAL_TIMEOUT_SECONDS * 10))); do
     grep -Fq 'New streaming session started' "$sunshine_log" && return 0
@@ -407,6 +396,22 @@ wait_for_sunshine_stream() {
     sleep 0.1
   done
   die 'Sunshine did not record a GameStream session after Moonlight video became visible'
+}
+
+wait_for_system_auth_gateway() {
+  local ready_line=''
+  for _ in $(seq 1 160); do
+    ready_line="$(grep -E '^Q_SUNSHINE_SYSTEM_AUTH_READY host=127[.]0[.]0[.]1 port=[0-9]+ audience=[A-Za-z0-9_.:-]+$' "$auth_gateway_log" 2>/dev/null | tail -n1 || true)"
+    if [[ -n "$ready_line" ]]; then
+      SYSTEM_AUTH_PORT="$(sed -n 's/^.* port=\([0-9][0-9]*\) audience=.*$/\1/p' <<<"$ready_line")"
+      [[ "$SYSTEM_AUTH_PORT" =~ ^[1-9][0-9]*$ ]] && (( SYSTEM_AUTH_PORT <= 65535 )) && return 0
+      die 'system-auth gateway announced an invalid ephemeral port'
+    fi
+    kill -0 "$auth_gateway_pid" 2>/dev/null || die 'system-auth gateway exited before readiness'
+    qemu_is_alive
+    sleep 0.05
+  done
+  die 'system-auth gateway did not announce readiness'
 }
 
 wait_for_sunshine_session_count() {
@@ -543,7 +548,7 @@ wait_for_moonlight_window() {
     sleep 0.1
   done
   DISPLAY="$DISPLAY_NUMBER" xwininfo -root -tree >"$HOOK_OUTPUT_DIR/${label}-window-tree.xwininfo" 2>&1 || true
-  die "stock Moonlight did not create the expected $label X11 window"
+  die "patched Moonlight did not create the expected $label X11 window"
 }
 
 attest_nonblack_window() {
@@ -581,18 +586,21 @@ attest_nonblack_window() {
     qemu_is_alive
     sleep 0.2
   done
-  die "stock Moonlight $label presentation remained black or never became drawable"
+  die "patched Moonlight $label presentation remained black or never became drawable"
 }
 
 record_stream_command() {
   local window=$1 label=$2 expected_mode=$3 expected_resolution=$4
   local expected_fps=${5:-} expected_bitrate=${6:-} expected_codec=${7:-}
   local process='' command_file="$HOOK_OUTPUT_DIR/${label}-moonlight-command.txt"
+  local environment_file="$HOOK_OUTPUT_DIR/${label}-moonlight-native-environment.txt"
   process="$(DISPLAY="$DISPLAY_NUMBER" xdotool getwindowpid "$window" 2>/dev/null || true)"
   [[ "$process" =~ ^[1-9][0-9]*$ && -r "/proc/$process/cmdline" ]] || \
-    die "could not resolve the stock Moonlight process for $label presentation"
+    die "could not resolve the patched Moonlight process for $label presentation"
   tr '\0' '\n' <"/proc/$process/cmdline" >"$command_file"
   grep -Fxq -- 'stream' "$command_file" || die "$label Moonlight child is not a stream command"
+  grep -Fxq -- '--qsm-system-auth' "$command_file" || die \
+    "$label Moonlight child lacks the fail-closed native system-auth marker"
   grep -Fxq -- '--display-mode' "$command_file" || die "$label Moonlight command lacks display-mode"
   grep -Fxq -- "$expected_mode" "$command_file" || die "$label Moonlight display mode differs from requested mode"
   grep -Fxq -- '--resolution' "$command_file" || die "$label Moonlight command lacks resolution"
@@ -613,6 +621,23 @@ record_stream_command() {
     grep -Fxq -- '--video-codec' "$command_file" || die "$label Moonlight command lacks negotiated codec"
     grep -Fxq -- "$expected_codec" "$command_file" || die "$label Moonlight codec differs from negotiated profile"
   fi
+  # Retain only the non-secret routing contract. A qsa1 ticket must arrive on
+  # the distinct inherited fd, never in argv/environment; this check happens
+  # while the real patched child is alive for every reconnect.
+  tr '\0' '\n' <"/proc/$process/environ" >"$environment_file"
+  ! grep -Eq 'qsa1[.][A-Za-z0-9_-]+' "$environment_file" || die \
+    "$label Moonlight environment exposed a system-auth bearer ticket"
+  grep -Fqx -- 'QSM_GAMESTREAM_TICKET_FD=0' "$environment_file" || die \
+    "$label Moonlight child lacks the managed ticket descriptor contract"
+  grep -Fqx -- "QSM_GAMESTREAM_AUDIENCE=$SYSTEM_AUTH_AUDIENCE" "$environment_file" || die \
+    "$label Moonlight child has the wrong system-auth audience"
+  grep -Fqx -- "QSM_GAMESTREAM_HOST=127.0.0.1" "$environment_file" || die \
+    "$label Moonlight child has the wrong lease-bound GameStream host"
+  grep -Fqx -- "QSM_GAMESTREAM_HTTPS_PORT=$((SUNSHINE_PORT - 5))" "$environment_file" || die \
+    "$label Moonlight child has the wrong lease-bound HTTPS port"
+  grep -E '^(QSM_GAMESTREAM_(AUTH_HOST|AUTH_PORT|AUTH_SNI|AUTH_CA_FILE|AUDIENCE|TICKET_FD|HOST|HTTPS_PORT))=' \
+    "$environment_file" >"$environment_file.filtered"
+  mv -f -- "$environment_file.filtered" "$environment_file"
 }
 
 inject_stream_input() {
@@ -643,85 +668,65 @@ inject_stream_input() {
     "$key" "$first_x" "$first_y" "$second_x" "$second_y" >"$HOOK_OUTPUT_DIR/${label}-input-injected.txt"
 }
 
-find_pairing_moonlight_window() {
-  local window geometry x y width height
-  local -a windows=()
-  # There is intentionally no window manager on the disposable Xvfb server.
-  # Upstream Moonlight's mapped QML surface has an empty WM_NAME in this
-  # configuration, while its WM_CLASS is ("moonlight", "Moonlight").  A
-  # title lookup finds only Qt's hidden 1x1 helper window and cannot dismiss
-  # the real acknowledgement dialog.  Class plus visibility locates the
-  # actual mapped application surface without relying on a window manager.
-  mapfile -t windows < <(DISPLAY="$DISPLAY_NUMBER" xdotool search --onlyvisible --class "$MOONLIGHT_PAIR_WINDOW_CLASS" 2>/dev/null || true)
-  for window in "${windows[@]}"; do
-    [[ "$window" =~ ^[1-9][0-9]*$ ]] || continue
-    geometry="$(window_geometry "$window" || true)"
-    [[ -n "$geometry" ]] || continue
-    IFS=: read -r x y width height <<<"$geometry"
-    # Prefer the actual Qt pairing view/dialog, never the tiny selection-owner
-    # surface created by Qt for clipboard ownership.
-    if (( width >= 100 && height >= 100 )); then
-      printf '%s\n' "$window"
-      return 0
-    fi
-  done
-  return 1
-}
-
-dismiss_pair_dialog_until_finished() {
-  local window='' sent_return=0
-  for _ in $(seq 1 $((PAIR_DIALOG_TIMEOUT_SECONDS * 4))); do
-    [[ -f "$PHASE_DIR/pair-process-finished" ]] && return 0
-    if [[ -f "$PHASE_DIR/failed" ]]; then
-      die 'Qt driver reported pairing failure before its pairing dialog completed'
-    fi
-    window="$(find_pairing_moonlight_window || true)"
-    if [[ -n "$window" ]]; then
-      DISPLAY="$DISPLAY_NUMBER" xwininfo -id "$window" >"$HOOK_OUTPUT_DIR/pair-dialog.xwininfo" 2>&1 || true
-      # `key --window` does not require a window manager focus operation.
-      # Repeated bounded attempts are safe while CliPair.qml transitions from
-      # progress to its acknowledgement dialog.
-      DISPLAY="$DISPLAY_NUMBER" xdotool key --window "$window" Return 2>/dev/null || true
-      sent_return=1
-    fi
-    driver_is_alive
-    qemu_is_alive
-    sleep 0.25
-  done
-  (( sent_return )) || die 'stock Moonlight pairing window never became addressable on Xvfb'
-  die 'stock Moonlight pairing dialog did not complete after bounded Return attempts'
-}
-
 make_tls_material() {
-  TLS_DIR="$HOOK_OUTPUT_DIR/qsf-tls"
+  TLS_DIR="$HOOK_OUTPUT_DIR/system-auth"
   mkdir -p "$TLS_DIR"
   chmod 700 "$TLS_DIR"
   printf '%s\n' \
     'basicConstraints=critical,CA:FALSE' \
     'keyUsage=critical,digitalSignature,keyEncipherment' \
     'extendedKeyUsage=serverAuth' \
-    'subjectAltName=DNS:localhost' >"$TLS_DIR/server-extensions.cnf"
-  printf '%s\n' \
-    'basicConstraints=critical,CA:FALSE' \
-    'keyUsage=critical,digitalSignature,keyEncipherment' \
-    'extendedKeyUsage=clientAuth' >"$TLS_DIR/client-extensions.cnf"
+    'subjectAltName=DNS:localhost' >"$TLS_DIR/auth-server-extensions.cnf"
   openssl req -x509 -newkey rsa:2048 -nodes -days 1 -sha256 \
-    -subj '/CN=qsunshine-qt-e2e-ca' \
-    -keyout "$TLS_DIR/ca.key" -out "$TLS_DIR/ca.crt" \
+    -subj '/CN=qsunshine-qt-e2e-auth-ca' \
+    -keyout "$TLS_DIR/auth-ca.key" -out "$TLS_DIR/auth-ca.crt" \
     -addext 'basicConstraints=critical,CA:TRUE' \
     -addext 'keyUsage=critical,keyCertSign' >/dev/null 2>&1
-  for identity in server client; do
-    local subject="/CN=localhost"
-    [[ "$identity" == client ]] && subject='/CN=qsunshine-qt-e2e-client'
-    openssl req -newkey rsa:2048 -nodes -subj "$subject" \
-      -keyout "$TLS_DIR/${identity}.key" -out "$TLS_DIR/${identity}.csr" >/dev/null 2>&1
-    openssl x509 -req -days 1 -sha256 \
-      -in "$TLS_DIR/${identity}.csr" \
-      -CA "$TLS_DIR/ca.crt" -CAkey "$TLS_DIR/ca.key" -CAcreateserial \
-      -out "$TLS_DIR/${identity}.crt" \
-      -extfile "$TLS_DIR/${identity}-extensions.cnf" >/dev/null 2>&1
-  done
-  chmod 600 "$TLS_DIR"/*.key "$TLS_DIR"/*.crt "$TLS_DIR"/*.cnf
+  openssl req -newkey rsa:2048 -nodes -subj '/CN=localhost' \
+    -keyout "$TLS_DIR/auth-server.key" -out "$TLS_DIR/auth-server.csr" >/dev/null 2>&1
+  openssl x509 -req -days 1 -sha256 \
+    -in "$TLS_DIR/auth-server.csr" \
+    -CA "$TLS_DIR/auth-ca.crt" -CAkey "$TLS_DIR/auth-ca.key" -CAcreateserial \
+    -out "$TLS_DIR/auth-server.crt" \
+    -extfile "$TLS_DIR/auth-server-extensions.cnf" >/dev/null 2>&1
+
+  # This per-run CA signs only GameStream client leaves. It is distinct from
+  # the authd/QSF TLS CA and the Sunshine server leaf. Sunshine's native
+  # verifier intentionally refuses a user-owned or writable trust anchor, so
+  # make this one public CA root-owned before it is passed on the command line.
+  openssl req -x509 -newkey rsa:3072 -nodes -days 1 -sha256 \
+    -subj "/CN=q-sunshine native E2E lease CA ${SYSTEM_AUTH_AUDIENCE}" \
+    -keyout "$TLS_DIR/lease-ca.key" -out "$TLS_DIR/lease-ca.crt" \
+    -addext 'basicConstraints=critical,CA:TRUE,pathlen:0' \
+    -addext 'keyUsage=critical,keyCertSign,cRLSign' >/dev/null 2>&1
+  # authd returns this exact leaf to the patched Moonlight client as its
+  # bootstrap pin. It is not a CA and does not share a key with authd.
+  openssl req -x509 -newkey rsa:2048 -nodes -days 1 -sha256 \
+    -subj '/CN=qsunshine-native-e2e-sunshine' \
+    -keyout "$TLS_DIR/sunshine.key" -out "$TLS_DIR/sunshine.crt" \
+    -addext 'basicConstraints=critical,CA:FALSE' \
+    -addext 'keyUsage=critical,digitalSignature,keyEncipherment' \
+    -addext 'extendedKeyUsage=serverAuth' \
+    -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' >/dev/null 2>&1
+  head -c 32 /dev/urandom >"$TLS_DIR/ticket.key"
+  chmod 600 "$TLS_DIR"/*.key "$TLS_DIR"/*.csr "$TLS_DIR"/ticket.key \
+    "$TLS_DIR"/*.cnf
+  chmod 644 "$TLS_DIR"/*.crt
+  if [[ "$(id -u)" == 0 ]]; then
+    chown root:root -- "$TLS_DIR/lease-ca.crt"
+  else
+    sudo -n chown root:root -- "$TLS_DIR/lease-ca.crt" || \
+      die 'native Sunshine verification requires passwordless sudo to root-own the disposable lease CA'
+  fi
+}
+
+build_gamestream_lease_issuer() {
+  GAMESTREAM_LEASE_ISSUER="$HOOK_OUTPUT_DIR/q-sunshine-lease-issuer"
+  cc -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -D_FORTIFY_SOURCE=2 \
+    -fstack-protector-strong -fPIE -Wall -Wextra -Werror -Wformat=2 \
+    -Werror=format-security "$GAMESTREAM_LEASE_ISSUER_SOURCE" \
+    -o "$GAMESTREAM_LEASE_ISSUER" -pie -Wl,-z,relro,-z,now -lssl -lcrypto
+  chmod 700 "$GAMESTREAM_LEASE_ISSUER"
 }
 
 validate_resolution() {
@@ -752,28 +757,31 @@ trap 'on_signal TERM 143' TERM
 [[ -z "$GUEST_TELEMETRY" ]] && GUEST_TELEMETRY="$OUTER_OUTPUT_DIR/guest-telemetry.log"
 [[ -f "$GUEST_TELEMETRY" ]] || die 'guest telemetry is absent'
 
-for required in "$SUNSHINE_BINARY" "$QSUNSHINE_REAL_E2E_DRIVER" "$STOCK_MOONLIGHT_QT_BINARY" \
-                "$QSF_TLS_GATEWAY" "$CLIENT_CLIPBOARD" "$GUEST_CLIPBOARD" "$CLIENT_UPLOAD" \
+for required in "$SUNSHINE_BINARY" "$QSUNSHINE_REAL_E2E_DRIVER" "$MOONLIGHT_QT_BINARY" \
+                "$QSF_TLS_GATEWAY" "$SYSTEM_AUTH_GATEWAY" "$SYSTEM_AUTH_PAM_FIXTURE" \
+                "$GAMESTREAM_LEASE_ISSUER_SOURCE" "$CLIENT_CLIPBOARD" "$GUEST_CLIPBOARD" "$CLIENT_UPLOAD" \
                 "$GUEST_DOWNLOAD" busctl curl ffmpeg ffprobe openssl python3 Xvfb xdpyinfo \
                 xdotool xwd xwininfo timeout awk sed grep head tail tr sha256sum cmp mkdir mktemp \
-                chmod mv rm kill sleep seq readlink stat date touch mkfifo; do
+                chmod chown mv rm kill sleep seq readlink stat date touch cc id sudo strings; do
   require "$required"
 done
 [[ -x "$SUNSHINE_BINARY" ]] || die "Sunshine binary is not executable: $SUNSHINE_BINARY"
 [[ -x "$QSUNSHINE_REAL_E2E_DRIVER" ]] || die "Qt real-E2E driver is not executable: $QSUNSHINE_REAL_E2E_DRIVER"
-[[ -x "$STOCK_MOONLIGHT_QT_BINARY" ]] || die "stock Moonlight Qt binary is not executable: $STOCK_MOONLIGHT_QT_BINARY"
+[[ -x "$MOONLIGHT_QT_BINARY" ]] || die "patched Moonlight Qt binary is not executable: $MOONLIGHT_QT_BINARY"
+[[ -x "$SYSTEM_AUTH_PAM_FIXTURE" ]] || die "native E2E PAM fixture is not executable: $SYSTEM_AUTH_PAM_FIXTURE"
 [[ -f "$(dirname -- "$SUNSHINE_BINARY")/assets/apps.json" ]] || die 'Sunshine assets are missing beside the executable'
 [[ -f "$MESA_EGL_VENDOR" ]] || die "Mesa EGL vendor file is absent: $MESA_EGL_VENDOR"
 [[ -c "$RENDER_NODE" && -r "$RENDER_NODE" && -w "$RENDER_NODE" ]] || \
   die "Sunshine native DMA-BUF import requires readable/writable $RENDER_NODE"
 [[ "$SUNSHINE_PORT" =~ ^[1-9][0-9]*$ ]] && (( SUNSHINE_PORT >= 1029 && SUNSHINE_PORT <= 65500 )) || \
   die 'SUNSHINE_PORT is outside Sunshine safe base-port range'
-[[ "$MOONLIGHT_PIN" =~ ^[0-9]{4}$ ]] || die 'QSUNSHINE_MOONLIGHT_PIN must have exactly four digits'
+[[ "$SYSTEM_AUTH_AUDIENCE" =~ ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$ ]] || \
+  die 'QSUNSHINE_SYSTEM_AUTH_AUDIENCE is invalid'
 [[ "$DISPLAY_NUMBER" =~ ^:[0-9]+$ ]] || die 'QSUNSHINE_QT_MOONLIGHT_DISPLAY must be a private X display such as :96'
 [[ "$CLIENT_ROOT_WIDTH" =~ ^[1-9][0-9]*$ && "$CLIENT_ROOT_HEIGHT" =~ ^[1-9][0-9]*$ ]] || \
   die 'client root dimensions must be positive integers'
-[[ "$PHASE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ && "$PAIR_DIALOG_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ &&
-   "$VISUAL_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ && "$GUEST_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || \
+[[ "$PHASE_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ && "$VISUAL_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ &&
+   "$GUEST_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || \
   die 'Qt hook timeouts must be positive integers'
 [[ "$MINIMUM_PROBE_DURATION_MS" =~ ^[1-9][0-9]*$ ]] || die 'minimum probe duration must be positive'
 [[ "$PROBE_SETUP_AND_ATTESTATION_BUDGET_MS" =~ ^[1-9][0-9]*$ ]] || die \
@@ -812,25 +820,18 @@ validate_resolution "$QSF_RESOLUTION" QSF_WIDTH QSF_HEIGHT
   die 'windowed resolution must differ from Xvfb root so windowed/fullscreen presentation is distinguishable'
 
 embedded_binary="$(readlink -f -- "$ROOT/.upstream/build-moonlight-embedded/moonlight" 2>/dev/null || true)"
-stock_binary="$(readlink -f -- "$STOCK_MOONLIGHT_QT_BINARY")"
-[[ "$stock_binary" != "$embedded_binary" ]] || die \
-  'QSUNSHINE_STOCK_MOONLIGHT_QT_BINARY must name clean upstream Moonlight Qt, not Moonlight Embedded'
-STOCK_MOONLIGHT_QT_BINARY="$stock_binary"
-stock_source_revision='external-or-unverified'
-clean_stock_binary="$(readlink -f -- "$ROOT/.upstream/moonlight-qt-clean/app/moonlight" 2>/dev/null || true)"
-if [[ -n "$clean_stock_binary" && "$STOCK_MOONLIGHT_QT_BINARY" == "$clean_stock_binary" ]]; then
-  # The default E2E binary comes from the separate clean upstream tree.  A
-  # development build can create ignored qmake artifacts there, but no tracked
-  # Moonlight source or index change is acceptable for a "stock" assertion.
-  require git
-  git -C "$ROOT/.upstream/moonlight-qt-clean" rev-parse --is-inside-work-tree >/dev/null \
-    || die 'the clean Moonlight Qt source directory is not a Git worktree'
-  git -C "$ROOT/.upstream/moonlight-qt-clean" diff --quiet \
-    || die 'the clean Moonlight Qt worktree has tracked source modifications'
-  git -C "$ROOT/.upstream/moonlight-qt-clean" diff --cached --quiet \
-    || die 'the clean Moonlight Qt worktree has staged source modifications'
-  stock_source_revision="$(git -C "$ROOT/.upstream/moonlight-qt-clean" rev-parse HEAD)"
-fi
+moonlight_binary="$(readlink -f -- "$MOONLIGHT_QT_BINARY")"
+[[ "$moonlight_binary" != "$embedded_binary" ]] || die \
+  'QSUNSHINE_MOONLIGHT_QT_BINARY must name the patched Qt client, not Moonlight Embedded'
+MOONLIGHT_QT_BINARY="$moonlight_binary"
+# The stream command below checks the explicit marker in /proc too. This
+# static preflight gives a useful early error if an unpatched package happens
+# to have been selected; actual protocol admission remains the authority.
+# Do not use grep -q here: with pipefail it closes the large strings stream
+# early, turns strings' expected SIGPIPE into status 141, and falsely rejects
+# the patched binary.  Plain grep consumes the whole stream.
+strings "$MOONLIGHT_QT_BINARY" 2>/dev/null | grep -F 'q-sunshine system-auth lease' >/dev/null || \
+  die 'Moonlight binary does not contain the required q-sunshine system-auth lease support'
 
 qemu_is_alive
 wait_for_qemu_destination
@@ -863,26 +864,14 @@ mkdir -p "$PHASE_DIR" "$CLIENT_CONFIG_DIR" "$CLIENT_DATA_DIR" "$CLIENT_CACHE_DIR
   "$CLIENT_RUNTIME_DIR" "$MOONLIGHT_PORTABLE_DIR" "$SUNSHINE_CONFIG_DIR"
 chmod 700 "$PHASE_DIR" "$CLIENT_CONFIG_DIR" "$CLIENT_DATA_DIR" "$CLIENT_CACHE_DIR" \
   "$CLIENT_RUNTIME_DIR" "$MOONLIGHT_PORTABLE_DIR" "$SUNSHINE_CONFIG_DIR"
-# Sunshine consumes the pairing PIN only after Moonlight reaches its
-# getservercert request.  Bootstrap its stdin with a temporary O_RDWR
-# keepalive, then replace that with a parent *write-only* endpoint before the
-# Qt process starts.  An O_RDWR descriptor inherited by Sunshine or its
-# children leaves an extra readable endpoint available to a descendant, which
-# makes the secret channel needlessly ambiguous.
-SUNSHINE_PIN_FIFO="$HOOK_OUTPUT_DIR/sunshine-pair-pin.fifo"
-mkfifo -m 600 "$SUNSHINE_PIN_FIFO"
-# Moonlight Qt uses its current directory as the portable QSettings root when
-# this sentinel exists.  Pair, independent list verification, and both stream
-# children must therefore share this private cwd; XDG isolation alone is not
-# sufficient for the upstream portable path.
-touch "$MOONLIGHT_PORTABLE_DIR/portable.dat"
-chmod 600 "$MOONLIGHT_PORTABLE_DIR/portable.dat"
+# The native route has no Sunshine stdin PIN channel and no Moonlight pairing
+# database. Keep a private cwd/XDG tree only for disposable GUI state and
+# diagnostics; credentials themselves remain in process memory/pipes.
 sunshine_log="$HOOK_OUTPUT_DIR/sunshine.log"
 driver_log="$HOOK_OUTPUT_DIR/qt-real-e2e.log"
 moonlight_log="$HOOK_OUTPUT_DIR/moonlight-stream-redacted.log"
-moonlight_pair_log="$HOOK_OUTPUT_DIR/moonlight-pair-redacted.log"
-moonlight_list_log="$HOOK_OUTPUT_DIR/moonlight-list.log"
 gateway_log="$HOOK_OUTPUT_DIR/qsf-tls-gateway.log"
+auth_gateway_log="$HOOK_OUTPUT_DIR/system-auth-gateway.log"
 xvfb_log="$HOOK_OUTPUT_DIR/xvfb.log"
 FULLSCREEN_DOWNLOADED_FILE="$HOOK_OUTPUT_DIR/client-downloaded-guest-file-fullscreen.txt"
 
@@ -896,51 +885,71 @@ __EGL_VENDOR_LIBRARY_FILENAMES="$MESA_EGL_VENDOR" LIBGL_ALWAYS_SOFTWARE=1 \
 xvfb_pid=$!
 wait_for_xvfb
 
-# Do not let Xvfb inherit the temporary O_RDWR FIFO descriptor.  It exists
-# only to let Sunshine's stdin open before the dedicated parent writer below.
-exec {sunshine_pin_keepalive_fd}<>"$SUNSHINE_PIN_FIFO"
+make_tls_material
+build_gamestream_lease_issuer
+
+# Sunshine receives an exact, disposable server leaf whose public half is
+# returned by authd to Moonlight.  Its native verifier receives only the
+# root-owned per-VM client-lease CA/audience and has no PIN/paired-client
+# fallback configured.
 env -u DISPLAY -u WAYLAND_DISPLAY -u WAYLAND_SOCKET -u XDG_SESSION_TYPE \
   -u QT_QPA_PLATFORM -u SDL_VIDEODRIVER -u SDL_AUDIODRIVER \
   "XDG_CONFIG_HOME=$SUNSHINE_CONFIG_DIR" \
   "SUNSHINE_QEMU_DBUS_ADDRESS=$DBUS_ADDRESS" \
   "SUNSHINE_QEMU_DBUS_DESTINATION=$DBUS_DESTINATION" \
   "SUNSHINE_QEMU_DBUS_RENDER_NODE=$RENDER_NODE" \
-  "$SUNSHINE_BINARY" -0 \
+  "$SUNSHINE_BINARY" \
     capture=qemu_dbus encoder=software stream_audio=false system_tray=false \
     bind_address=127.0.0.1 port="$SUNSHINE_PORT" \
-    <"$SUNSHINE_PIN_FIFO" {sunshine_pin_keepalive_fd}>&- >"$sunshine_log" 2>&1 &
+    "pkey=$TLS_DIR/sunshine.key" "cert=$TLS_DIR/sunshine.crt" \
+    qsm_system_auth_mode=enabled "qsm_system_auth_ca=$TLS_DIR/lease-ca.crt" \
+    "qsm_system_auth_audience=$SYSTEM_AUTH_AUDIENCE" >"$sunshine_log" 2>&1 &
 sunshine_pid=$!
 wait_for_sunshine_http
-# Sunshine's stdin reader is now open.  Open the sole parent writer while the
-# temporary keepalive is still present, then retire the keepalive without an
-# EOF gap.  Do this before launching the gateway/driver so neither inherits a
-# readable endpoint for the private pairing FIFO.
-exec {sunshine_pin_write_fd}>"$SUNSHINE_PIN_FIFO"
-exec {sunshine_pin_keepalive_fd}>&-
-sunshine_pin_keepalive_fd=''
 
-make_tls_material
+# One TLS/PAM gateway issues the qsa1 ticket used independently by the QSF
+# gateway and the patched Moonlight lease request. It has only a fake PAM
+# helper in this disposable test; production uses the host PAM service.
+python3 "$SYSTEM_AUTH_GATEWAY" \
+  --server-cert "$TLS_DIR/auth-server.crt" --server-key "$TLS_DIR/auth-server.key" \
+  --ticket-key "$TLS_DIR/ticket.key" --audience "$SYSTEM_AUTH_AUDIENCE" \
+  --pam-helper "$SYSTEM_AUTH_PAM_FIXTURE" --pam-service q-sunshine-native-e2e \
+  --allow-user "$SYSTEM_AUTH_USERNAME" --ticket-ttl-seconds 600 \
+  --gamestream-lease-issuer "$GAMESTREAM_LEASE_ISSUER" \
+  --gamestream-lease-ca-cert "$TLS_DIR/lease-ca.crt" \
+  --gamestream-lease-ca-key "$TLS_DIR/lease-ca.key" \
+  --gamestream-lease-sunshine-server-cert "$TLS_DIR/sunshine.crt" \
+  --gamestream-lease-ttl-seconds 300 \
+  --listen-host 127.0.0.1 --listen-port 0 >"$auth_gateway_log" 2>&1 &
+auth_gateway_pid=$!
+wait_for_system_auth_gateway
+
 python3 "$QSF_TLS_GATEWAY" \
   --control-socket "$CONTROL_SOCKET" --token-file "$TOKEN_FILE" \
-  --server-cert "$TLS_DIR/server.crt" --server-key "$TLS_DIR/server.key" \
-  --client-ca "$TLS_DIR/ca.crt" --listen-host 127.0.0.1 --listen-port 0 \
-  {sunshine_pin_write_fd}>&- >"$gateway_log" 2>&1 &
+  --server-cert "$TLS_DIR/auth-server.crt" --server-key "$TLS_DIR/auth-server.key" \
+  --system-auth-ticket-key "$TLS_DIR/ticket.key" \
+  --system-auth-audience "$SYSTEM_AUTH_AUDIENCE" \
+  --listen-host 127.0.0.1 --listen-port 0 >"$gateway_log" 2>&1 &
 gateway_pid=$!
 QSF_GATEWAY_PORT=0
 wait_for_gateway
 
 (
-  # The client driver and its stock Moonlight child never need access to the
-  # host PIN writer.  Closing it here preserves the one-reader/one-writer
-  # contract until the scripted dispatch below.
-  exec {sunshine_pin_write_fd}>&-
   cd -- "$MOONLIGHT_PORTABLE_DIR"
-  exec_with_client_environment "$QSUNSHINE_REAL_E2E_DRIVER" \
-    --moonlight-binary "$STOCK_MOONLIGHT_QT_BINARY" \
-    --host "$MOONLIGHT_HOST" --app "$SUNSHINE_APP" --pair-pin "$MOONLIGHT_PIN" \
+  # Password input is a one-line anonymous pipe into SystemAuthClient. The
+  # patched Moonlight child later gets a different managed stdin pipe carrying
+  # only its qsa1 ticket; neither value appears in argv or environment.
+  printf '%s\n' "$SYSTEM_AUTH_TEST_PASSWORD" | \
+    exec_with_client_environment "$QSUNSHINE_REAL_E2E_DRIVER" \
+    --moonlight-binary "$MOONLIGHT_QT_BINARY" \
+    --host "$MOONLIGHT_HOST" --app "$SUNSHINE_APP" \
     --initial-resolution "$WINDOWED_RESOLUTION" --fullscreen-resolution "$FULLSCREEN_RESOLUTION" \
+    --system-auth-host 127.0.0.1 --system-auth-port "$SYSTEM_AUTH_PORT" \
+    --system-auth-server-name localhost --system-auth-ca-file "$TLS_DIR/auth-ca.crt" \
+    --system-auth-audience "$SYSTEM_AUTH_AUDIENCE" --system-auth-username "$SYSTEM_AUTH_USERNAME" \
+    --system-auth-password-stdin \
     --qsf-host 127.0.0.1 --qsf-port "$QSF_GATEWAY_PORT" --qsf-server-name localhost \
-    --ca-file "$TLS_DIR/ca.crt" --cert-file "$TLS_DIR/client.crt" --key-file "$TLS_DIR/client.key" \
+    --qsf-ca-file "$TLS_DIR/auth-ca.crt" \
     --expected-guest-clipboard-file "$GUEST_CLIPBOARD" \
     --client-clipboard-file "$CLIENT_CLIPBOARD" \
     --received-clipboard-destination "$OUTER_RECEIVED_CLIPBOARD" \
@@ -955,45 +964,15 @@ wait_for_gateway
     --expected-fullscreen-bitrate-kbps "$FULLSCREEN_BITRATE_KBPS" \
     --expected-fullscreen-video-codec "$FULLSCREEN_VIDEO_CODEC" \
     --timeout-ms "$DRIVER_TIMEOUT_MS" \
-    --phase-dir "$PHASE_DIR" --moonlight-log "$moonlight_log" \
-    --moonlight-pair-log "$moonlight_pair_log"
+    --phase-dir "$PHASE_DIR" --moonlight-log "$moonlight_log"
 ) >"$driver_log" 2>&1 &
 driver_pid=$!
 
 wait_for_phase driver-ready 'driver-ready'
-wait_for_phase pair-process-started 'stock Moonlight pair process launch'
-wait_for_sunshine_pair_prompt
-printf '%s\n' "$MOONLIGHT_PIN" >&"$sunshine_pin_write_fd"
-exec {sunshine_pin_write_fd}>&-
-sunshine_pin_write_fd=''
-dismiss_pair_dialog_until_finished
-wait_for_phase pair-process-finished 'stock Moonlight pair process completion'
-# Retain only redacted pairing diagnostics.  The driver does its own redaction,
-# but upstream's QML may render a literal test PIN in a log line it forwards.
-if [[ -f "$moonlight_pair_log" ]]; then
-  sed "s/${MOONLIGHT_PIN}/[redacted]/g" "$moonlight_pair_log" >"$moonlight_pair_log.tmp"
-  mv -f -- "$moonlight_pair_log.tmp" "$moonlight_pair_log"
-fi
-if ! (
-  cd -- "$MOONLIGHT_PORTABLE_DIR"
-  with_client_environment timeout --signal=TERM --kill-after=5s 35s \
-    "$STOCK_MOONLIGHT_QT_BINARY" list -- "$MOONLIGHT_HOST"
-) >"$moonlight_list_log" 2>&1; then
-  # A `pair` QProcess exit status is not a proof of pairing: upstream
-  # Moonlight also exits zero after its error acknowledgement dialog.  Make
-  # the primary protocol failure explicit when its sanitized diagnostic is
-  # available, rather than reporting only the downstream list symptom.
-  if grep -Fq 'Incorrect PIN' "$moonlight_pair_log" 2>/dev/null; then
-    die 'stock Moonlight pairing protocol rejected the host/client PIN exchange; independent list verification confirms no pairing'
-  fi
-  die 'stock Moonlight list did not verify the Qt-controlled pairing flow'
-fi
-grep -Fxq "$SUNSHINE_APP" "$moonlight_list_log" || die \
-  'stock Moonlight list did not independently return the Sunshine Desktop application'
-write_phase_request pair-verified
-wait_for_phase pair-verification-accepted 'pair verification accepted by Qt driver'
+wait_for_phase system-auth-login-started 'TLS/PAM system login start'
+wait_for_phase system-authenticated 'TLS/PAM ticket admission'
 
-wait_for_phase windowed-process-started 'windowed stock Moonlight stream process'
+wait_for_phase windowed-process-started 'windowed patched Moonlight stream process'
 wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_INPUT_WATCH_READY' 'guest input watcher readiness'
 wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_VIRGL_READY' 'guest Weston/VirGL readiness'
 windowed_window="$(wait_for_moonlight_window windowed windowed)"
@@ -1007,17 +986,17 @@ windowed_luma="$windowed_yavg:$windowed_ymax"
 DISPLAY="$DISPLAY_NUMBER" xwininfo -id "$windowed_window" >"$HOOK_OUTPUT_DIR/windowed-window.xwininfo"
 record_stream_command "$windowed_window" windowed windowed "$WINDOWED_RESOLUTION"
 inject_stream_input "$windowed_window" windowed a
-wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_INPUT_KEY_A=observed' 'guest KEY_A through stock Moonlight'
-wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_INPUT_MOUSE_ABS=observed' 'guest absolute pointer through stock Moonlight'
-wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_INPUT_MOUSE_BTN=observed' 'guest mouse button through stock Moonlight'
+wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_INPUT_KEY_A=observed' 'guest KEY_A through patched Moonlight'
+wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_INPUT_MOUSE_ABS=observed' 'guest absolute pointer through patched Moonlight'
+wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_INPUT_MOUSE_BTN=observed' 'guest mouse button through patched Moonlight'
 wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_INPUT_E2E_OK' 'guest complete input evidence'
 
 # This marker is the explicit product boundary: it is written only after a
-# real stock-Moonlight video window is drawable and non-black, not merely after
+# real patched-Moonlight video window is drawable and non-black, not merely after
 # its QProcess started or an untrusted log string appeared.
 write_phase_request activate-windowed
 wait_for_phase windowed-activation-accepted 'windowed post-video QSF activation accepted'
-wait_for_phase qsf-windowed-ready 'windowed mTLS QSF readiness'
+wait_for_phase qsf-windowed-ready 'windowed ticket-authenticated QSF readiness'
 wait_for_phase client-clipboard-sent 'Qt client-first clipboard acknowledgement'
 client_clipboard_hash="$(sha256sum "$CLIENT_CLIPBOARD" | awk '{print $1}')"
 guest_clipboard_hash="$(sha256sum "$GUEST_CLIPBOARD" | awk '{print $1}')"
@@ -1066,7 +1045,7 @@ wait_for_guest_pattern "^QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_ACK_OBSERVED
 # SetUIInfo writer. Attest the second *windowed* stream before asking for
 # fullscreen: it proves the client actually used the guest's new scanout.
 wait_for_phase negotiated-profile-confirmed 'guest-confirmed QSF connection profile accepted by Qt'
-wait_for_phase negotiated-process-started 'negotiated stock Moonlight reconnect process'
+wait_for_phase negotiated-process-started 'negotiated patched Moonlight reconnect process'
 negotiated_window="$(wait_for_moonlight_window negotiated negotiated)"
 wait_for_sunshine_session_count 2 'negotiated guest-profile reconnect'
 negotiated_attestation="$(attest_nonblack_window "$negotiated_window" negotiated)"
@@ -1083,12 +1062,12 @@ wait_for_phase negotiated-video-verification-accepted \
   'Qt acceptance of the visible negotiated Moonlight stream'
 # Model the user reactivating the QSF companion only after the first negotiated
 # video is visible. The fullscreen profile action is intentionally unavailable
-# until that normal visible-stream lease has completed its mTLS check.
+# until that normal visible-stream lease has completed its ticket check.
 write_phase_request activate-negotiated-qsf
 wait_for_phase negotiated-qsf-activation-accepted \
   'Qt acceptance of negotiated-stream QSF activation'
 wait_for_phase qsf-negotiated-ready \
-  'QSF mTLS readiness for the visible negotiated stream'
+  'ticket-authenticated QSF readiness for the visible negotiated stream'
 # Now select the physical fullscreen size. The driver saves that future
 # Moonlight profile, retires the current capture, then obtains a second
 # generation-bound VirGL ACK before it starts the fullscreen graphics process.
@@ -1100,14 +1079,14 @@ wait_for_phase qsf-deactivated-for-fullscreen-profile \
 wait_for_phase negotiated-stream-quiesced \
   'negotiated Moonlight/Sunshine capture retirement before fullscreen scanout handoff'
 wait_for_phase qsf-fullscreen-profile-ready \
-  'profile-only QSF mTLS readiness after capture retirement'
+  'profile-only ticket-authenticated QSF readiness after capture retirement'
 wait_for_guest_pattern "^QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_APPLIED=version=2,generation=[1-9][0-9]*,resolution=${FULLSCREEN_RESOLUTION},fps=${FULLSCREEN_FPS},bitrate_kbps=${FULLSCREEN_BITRATE_KBPS},video_codec=(H264|HEVC|AV1)$" \
   'canonical fullscreen profile after actual Weston/VirGL scanout'
 wait_for_guest_pattern "^QSF_VIRGL_WAYLAND_GUEST_CONNECTION_PROFILE_ACK_OBSERVED=generation=[1-9][0-9]*,resolution=${FULLSCREEN_RESOLUTION}$" \
   'independent guest coordinator observation of fullscreen scanout acknowledgement'
 wait_for_phase fullscreen-profile-confirmed \
   'guest-confirmed fullscreen QSF profile accepted by Qt'
-wait_for_phase fullscreen-process-started 'fullscreen stock Moonlight reconnect process'
+wait_for_phase fullscreen-process-started 'fullscreen patched Moonlight reconnect process'
 fullscreen_window="$(wait_for_moonlight_window fullscreen fullscreen)"
 wait_for_sunshine_session_count 3 'fullscreen presentation reconnect'
 fullscreen_attestation="$(attest_nonblack_window "$fullscreen_window" fullscreen)"
@@ -1123,16 +1102,16 @@ record_stream_command "$fullscreen_window" fullscreen fullscreen "$FULLSCREEN_RE
 # the fullscreen-reconnect proof.
 inject_stream_input "$fullscreen_window" fullscreen b
 wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_FULLSCREEN_INPUT_KEY_B=observed' \
-  'guest KEY_B through fullscreen stock Moonlight'
+  'guest KEY_B through fullscreen patched Moonlight'
 wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_FULLSCREEN_INPUT_MOUSE_ABS=observed' \
-  'guest fullscreen absolute pointer through stock Moonlight'
+  'guest fullscreen absolute pointer through patched Moonlight'
 wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_FULLSCREEN_INPUT_MOUSE_BTN=observed' \
-  'guest fullscreen mouse button through stock Moonlight'
+  'guest fullscreen mouse button through patched Moonlight'
 wait_for_guest_marker 'QSF_VIRGL_WAYLAND_GUEST_FULLSCREEN_INPUT_E2E_OK' \
   'guest fullscreen complete input evidence'
 write_phase_request activate-fullscreen
 wait_for_phase fullscreen-activation-accepted 'fullscreen post-video QSF activation accepted'
-wait_for_phase qsf-fullscreen-ready 'fullscreen mTLS QSF readiness'
+wait_for_phase qsf-fullscreen-ready 'fullscreen ticket-authenticated QSF readiness'
 wait_for_phase fullscreen-download-received 'post-fullscreen Qt QSF download'
 cmp -s "$GUEST_DOWNLOAD" "$FULLSCREEN_DOWNLOADED_FILE" || die \
   'post-fullscreen Qt QSF download differs from guest fixture'
@@ -1147,6 +1126,78 @@ fi
 driver_pid=''
 [[ "$driver_status" == 0 ]] || die "Qt real-E2E driver exited with status $driver_status"
 grep -Fqx 'QSUNSHINE_QT_REAL_E2E_OK' "$driver_log" || die 'Qt real-E2E driver did not print success marker'
+# These retained diagnostics must never contain the test password or a qsa1
+# bearer. The latter has two legitimate in-memory consumers only: QsfClient's
+# TLS request buffer and Moonlight's one-shot fd, neither of which is logged.
+! grep -Fq "$SYSTEM_AUTH_TEST_PASSWORD" "$driver_log" "$moonlight_log" \
+    "$auth_gateway_log" "$gateway_log" || die 'native E2E diagnostics exposed the system password'
+! grep -Eq 'qsa1[.][A-Za-z0-9_-]+' "$driver_log" "$moonlight_log" \
+    "$auth_gateway_log" "$gateway_log" || die 'native E2E diagnostics exposed a system-auth ticket'
+grep -Fq 'Q_SUNSHINE_SYSTEM_AUTH_READY' "$auth_gateway_log" || die \
+  'system-auth gateway did not record readiness'
+
+# Plain HTTP has no client certificate, so it is also the direct regression
+# check that native Sunshine did not leave its legacy /pair route registered.
+# Retain the exact benign GET trace, response, and persisted pairing-state
+# snapshots: if this assertion trips, reviewers can distinguish a genuinely
+# reachable endpoint from a handler that merely reports a protocol-level
+# failure in a HTTP 200 envelope. This probe carries neither a PIN nor a
+# certificate, ticket, cookie, or request body.
+pair_probe_url="http://127.0.0.1:${SUNSHINE_PORT}/pair?uniqueid=native-e2e"
+pair_probe_trace="$HOOK_OUTPUT_DIR/legacy-pair-http.trace"
+pair_probe_headers="$HOOK_OUTPUT_DIR/legacy-pair-http.headers"
+pair_probe_body="$HOOK_OUTPUT_DIR/legacy-pair-http.body"
+pair_state_file="$SUNSHINE_CONFIG_DIR/sunshine/sunshine_state.json"
+pair_state_before="$HOOK_OUTPUT_DIR/legacy-pair-state-before.txt"
+pair_state_after="$HOOK_OUTPUT_DIR/legacy-pair-state-after.txt"
+{
+  printf '%s\n' 'method=GET'
+  printf 'url=%s\n' "$pair_probe_url"
+  printf '%s\n' 'request_body=empty'
+} >"$HOOK_OUTPUT_DIR/legacy-pair-request.txt"
+if [[ -f "$pair_state_file" ]]; then
+  sha256sum "$pair_state_file" >"$pair_state_before"
+else
+  printf '%s\n' 'absent' >"$pair_state_before"
+fi
+pair_http_status="$(curl --silent --show-error --http1.1 --request GET --max-time 3 \
+  --trace-time --trace-ascii "$pair_probe_trace" --dump-header "$pair_probe_headers" \
+  --output "$pair_probe_body" --write-out '%{http_code}' "$pair_probe_url" || true)"
+if [[ -f "$pair_state_file" ]]; then
+  sha256sum "$pair_state_file" >"$pair_state_after"
+else
+  printf '%s\n' 'absent' >"$pair_state_after"
+fi
+pair_response_sha256='unavailable'
+if [[ -f "$pair_probe_body" ]]; then
+  pair_response_sha256="$(sha256sum "$pair_probe_body" | awk '{print $1}')"
+fi
+printf 'http_status=%s\nresponse_sha256=%s\n' "$pair_http_status" \
+  "$pair_response_sha256" >>"$HOOK_OUTPUT_DIR/legacy-pair-request.txt"
+# GameStream's shared HTTP not-found serializer deliberately puts its route
+# status inside XML while retaining the compatibility transport envelope
+# (normally HTTP 200).  Therefore validate the *entire* XML payload rather
+# than curl's transport code: it must be only `<root status_code="404"/>`,
+# with no pairing phase/result or persisted pairing-state mutation.
+if ! python3 - "$pair_probe_body" <<'PY'
+import sys
+import xml.etree.ElementTree as element_tree
+
+try:
+    root = element_tree.parse(sys.argv[1]).getroot()
+except (OSError, element_tree.ParseError):
+    raise SystemExit(1)
+
+if root.tag != "root" or root.attrib != {"status_code": "404"}:
+    raise SystemExit(1)
+if list(root) or (root.text or "").strip() or (root.tail or "").strip():
+    raise SystemExit(1)
+PY
+then
+  die "native Sunshine did not return the required no-pairing GameStream XML status (transport=$pair_http_status)"
+fi
+cmp -s "$pair_state_before" "$pair_state_after" || die \
+  'native Sunshine pairing probe mutated persisted pairing state'
 
 # Session/DMA-BUF counters are finalized by Sunshine as it tears its capture
 # object down. Stop only this hook-owned server now, before reading the trace;
@@ -1158,6 +1209,8 @@ grep -Fq 'Screencasting with QEMU Display1 D-Bus' "$sunshine_log" || die \
   'Sunshine did not select the QEMU Display1 capture backend'
 grep -Fq 'New streaming session started' "$sunshine_log" || die \
   'Sunshine did not record a GameStream session'
+! grep -Fq 'Please insert pin:' "$sunshine_log" || die \
+  'native Sunshine unexpectedly requested a pairing PIN'
 grep -Fq '[qemu-dbus] QEMU input ready: keyboard=yes mouse=absolute' "$sunshine_log" || die \
   'Sunshine did not discover QEMU absolute input'
 grep -Fq '[qemu-dbus] imported QEMU ScanoutDMABUF' "$sunshine_log" || die \
@@ -1168,7 +1221,7 @@ grep -Eq 'DMA-BUF scanouts/updates/failures: [1-9][0-9]*/[0-9]+/0' "$sunshine_lo
   'Sunshine did not report nonzero zero-failure DMA-BUF scanouts'
 [[ -s "$HOOK_OUTPUT_DIR/windowed-client.png" && -s "$HOOK_OUTPUT_DIR/negotiated-client.png" && \
    -s "$HOOK_OUTPUT_DIR/fullscreen-client.png" ]] || die \
-  'retained stock Moonlight client screenshots are absent'
+  'retained patched Moonlight client screenshots are absent'
 ffprobe -v error -show_entries stream=codec_name,width,height -of default=noprint_wrappers=1 \
   "$HOOK_OUTPUT_DIR/windowed-client.png" >"$HOOK_OUTPUT_DIR/windowed-client.ffprobe"
 ffprobe -v error -show_entries stream=codec_name,width,height -of default=noprint_wrappers=1 \
@@ -1185,12 +1238,12 @@ grep -Fqx 'codec_name=png' "$HOOK_OUTPUT_DIR/fullscreen-client.ffprobe"
 grep -Fqx "width=$CLIENT_ROOT_WIDTH" "$HOOK_OUTPUT_DIR/fullscreen-client.ffprobe"
 grep -Fqx "height=$CLIENT_ROOT_HEIGHT" "$HOOK_OUTPUT_DIR/fullscreen-client.ffprobe"
 
-stock_version="$({
+moonlight_version="$({
   cd -- "$MOONLIGHT_PORTABLE_DIR"
   with_client_environment timeout --signal=TERM --kill-after=2s 5s \
-    "$STOCK_MOONLIGHT_QT_BINARY" --version 2>&1 || true
+    "$MOONLIGHT_QT_BINARY" --version 2>&1 || true
 } | head -n1)"
-stock_binary_sha256="$(sha256sum "$STOCK_MOONLIGHT_QT_BINARY" | awk '{print $1}')"
+moonlight_binary_sha256="$(sha256sum "$MOONLIGHT_QT_BINARY" | awk '{print $1}')"
 {
   printf '%s\n' 'QSUNSHINE_QT_MOONLIGHT_VIRGL_QSF_HOOK'
   printf 'timestamp_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -1198,14 +1251,13 @@ stock_binary_sha256="$(sha256sum "$STOCK_MOONLIGHT_QT_BINARY" | awk '{print $1}'
   printf 'qemu_pid=%s\n' "$QEMU_PID"
   printf 'qemu_dbus_destination=%s\n' "$DBUS_DESTINATION"
   printf 'sunshine_binary=%s\n' "$SUNSHINE_BINARY"
-  printf 'stock_moonlight_binary=%s\n' "$STOCK_MOONLIGHT_QT_BINARY"
-  printf 'stock_moonlight_version=%s\n' "$stock_version"
-  printf 'stock_moonlight_sha256=%s\n' "$stock_binary_sha256"
-  printf 'stock_moonlight_source_revision=%s\n' "$stock_source_revision"
+  printf 'patched_moonlight_binary=%s\n' "$MOONLIGHT_QT_BINARY"
+  printf 'patched_moonlight_version=%s\n' "$moonlight_version"
+  printf 'patched_moonlight_sha256=%s\n' "$moonlight_binary_sha256"
   printf 'qt_driver=%s\n' "$QSUNSHINE_REAL_E2E_DRIVER"
   printf 'host_gui=none (Xvfb is Qt/Moonlight-client-only)\n'
-  printf 'qsf_transport=TLS1.3 mTLS loopback gateway; local broker token not exported\n'
-  printf 'pairing=Qt MoonlightController pair + stock Moonlight list Desktop verification\n'
+  printf 'system_auth=TLS1.3 PAM fixture -> RAM-only qsa1 ticket -> native Moonlight CSR/mTLS lease; no PIN/pairing fallback\n'
+  printf 'qsf_transport=TLS1.3 ticket-authenticated loopback gateway; local broker token not exported\n'
   printf 'windowed_presentation=%sx%s luma=YAVG:%s YMAX:%s\n' \
     "$WINDOWED_WIDTH" "$WINDOWED_HEIGHT" "${windowed_luma%%:*}" "${windowed_luma##*:}"
   printf 'negotiated_presentation=%s fps=%s bitrate_kbps=%s codec=%s luma=YAVG:%s YMAX:%s\n' \
@@ -1226,8 +1278,8 @@ stock_binary_sha256="$(sha256sum "$STOCK_MOONLIGHT_QT_BINARY" | awk '{print $1}'
   printf 'upload_sha256=%s\n' "$client_upload_hash"
   printf 'download_sha256=%s\n' "$guest_download_hash"
   printf '\n[Qt phases]\n'
-  for phase in driver-ready pair-process-started pair-process-finished pair-verified \
-      pair-verification-accepted windowed-process-started windowed-activation-accepted \
+  for phase in driver-ready system-auth-login-started system-authenticated \
+      windowed-process-started windowed-activation-accepted \
       qsf-windowed-ready client-clipboard-sent guest-clipboard-received \
       windowed-qsf-operations-complete qsf-deactivated-for-negotiated-profile \
       windowed-stream-quiesced qsf-negotiated-profile-ready \
@@ -1277,6 +1329,8 @@ summary_temporary="$(mktemp "$OUTER_OUTPUT_DIR/.qsunshine-qt-e2e-summary.XXXXXX"
   printf '%s\n' 'QSUNSHINE_QT_QSF_QEMU_SET_UI_INFO=applied'
   printf '%s\n' 'QSUNSHINE_QT_QSF_GUEST_SCANOUT_ACK=observed'
   printf '%s\n' 'QSUNSHINE_QT_QSF_FULLSCREEN_GUEST_SCANOUT_ACK=observed'
+  printf '%s\n' 'QSUNSHINE_QT_SYSTEM_AUTH_GAMESTREAM_LEASE_OK=1'
+  printf '%s\n' 'QSUNSHINE_QT_SYSTEM_AUTH_NO_PIN_FALLBACK_OK=1'
   printf '%s\n' 'QSUNSHINE_QT_MOONLIGHT_WINDOWED_AND_FULLSCREEN_OK=1'
   printf '%s\n' 'QSUNSHINE_QT_MOONLIGHT_INPUT_E2E_OK=1'
   printf '%s\n' 'QSUNSHINE_QT_MOONLIGHT_FULLSCREEN_INPUT_E2E_OK=1'

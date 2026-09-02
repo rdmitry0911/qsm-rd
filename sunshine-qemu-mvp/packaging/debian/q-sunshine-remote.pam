@@ -1,0 +1,19 @@
+# Install manually as /etc/pam.d/q-sunshine-remote (mode 0644).
+#
+# Delegate to the host's normal Debian PAM policy instead of bypassing it with
+# a direct pam_unix rule. This retains locally configured SSSD/LDAP, faillock,
+# access-time, and account-expiry policy in common-auth/common-account.
+#
+# The q-sunshine TLS protocol supplies exactly one username/password pair. Its
+# helper sets PAM_RHOST from the kernel-observed remote IP but rejects a second
+# interactive PAM prompt (OTP/challenge/password-change); do not enable an
+# interactive-MFA module here unless it has a compatible non-interactive mode.
+# The q-sunshine-auth@VMID service additionally requires its own explicit
+# QSUNSHINE_AUTH_ALLOWED_USERS allowlist, so PAM success alone never grants
+# access to every VM.
+#
+# On a non-Debian layout, replace these includes with the site's equivalent
+# auth/account policy. Do not add a broad bypass rule just for q-sunshine.
+
+@include common-auth
+@include common-account

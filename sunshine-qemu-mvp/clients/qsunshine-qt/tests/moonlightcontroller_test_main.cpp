@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Process-level checks for the shell's stock Moonlight CLI boundary.
+// Process-level checks for the shell's Moonlight CLI boundary.
 
 #include "moonlightcontroller.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
@@ -46,7 +48,7 @@ bool writeExecutable(const QString& path)
     if (!file.open(QIODevice::WriteOnly)) {
         return false;
     }
-    const QByteArray script = R"SH(#!/bin/sh
+const QByteArray script = R"SH(#!/bin/sh
 printf '%s\n' "$*" >> "$QSUNSHINE_CONTROLLER_TEST_LOG"
 if [ "$1" = pair ]; then
   if [ "$5" = slow-pair ]; then
@@ -57,11 +59,32 @@ if [ "$1" = pair ]; then
   fi
   exit 0
 fi
+if [ "$1" = stream ] && [ "$2" = --qsm-system-auth ]; then
+  # The media ticket must arrive only through the inherited one-shot stdin
+  # pipe. Deliberately do not log it: the test below proves it cannot leak
+  # into argv or the checked environment diagnostics.
+  IFS= read -r _qsm_ticket || true
+  if [ -n "$_qsm_ticket" ]; then
+    printf '%s\n' NATIVE_TICKET_PIPE_OK >> "$QSUNSHINE_CONTROLLER_TEST_LOG"
+  fi
+  printf 'NATIVE_ENV auth=%s:%s sni=%s ca=%s audience=%s fd=%s host=%s https=%s\n' \
+    "$QSM_GAMESTREAM_AUTH_HOST" "$QSM_GAMESTREAM_AUTH_PORT" \
+    "$QSM_GAMESTREAM_AUTH_SNI" "$QSM_GAMESTREAM_AUTH_CA_FILE" \
+    "$QSM_GAMESTREAM_AUDIENCE" "$QSM_GAMESTREAM_TICKET_FD" \
+    "$QSM_GAMESTREAM_HOST" "$QSM_GAMESTREAM_HTTPS_PORT" \
+    >> "$QSUNSHINE_CONTROLLER_TEST_LOG"
+fi
 printf '?token=split'
 sleep 0.1
 printf 'secret\n'
 printf 'Authorization: Bearer diagnostics-secret\n'
 printf '%s\n' '--pin 9876'
+# Keep this split across process-output chunks too: an arbitrary child that
+# echoes the bearer syntax must not disclose a valid-looking qsa1 ticket in
+# the shell diagnostics pane.
+printf 'system-ticket=qsa1.eyJhdWQiOiJ2bS0xMDAiLCJzdWIiOiJh'
+sleep 0.1
+printf 'bGljZSJ9.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno123456\n'
 trap 'exit 0' TERM INT
 while :; do
   sleep 1
@@ -111,11 +134,24 @@ int main(int argc, char* argv[])
     qputenv("QSUNSHINE_CONTROLLER_TEST_LOG", logPath.toUtf8());
 
     MoonlightController controller;
-    controller.setBinaryPath(executable);
-    controller.setBinaryPath(QString());
-    if (!require(controller.binaryPath() == executable &&
-                     controller.lastError().contains(QStringLiteral("must not be empty")),
-                 QStringLiteral("empty Moonlight executable path was accepted or hidden"))) {
+    if (!require(!controller.canStartStream(),
+                 QStringLiteral("a fresh controller unexpectedly bypassed system-auth admission"))) {
+        return 2;
+    }
+    // The process-contract fixture deliberately models a verified in-memory
+    // system session. Real GUI composition obtains this only from
+    // SystemAuthClient after a TLS/PAM login.
+    controller.setSystemAuthAdmission(true);
+    if (!require(controller.canStartStream(),
+                 QStringLiteral("test system-auth admission did not unlock the controller"))) {
+        return 2;
+    }
+    if (!require(controller.setTestMoonlightBinary(executable),
+                 QStringLiteral("test Moonlight executable override was rejected")) ||
+        !require(!controller.setTestMoonlightBinary(QString()) &&
+                     controller.binaryPath() == executable &&
+                     controller.lastError().contains(QStringLiteral("absolute and non-empty")),
+                 QStringLiteral("empty test Moonlight executable override was accepted or hidden"))) {
         return 2;
     }
     controller.setVideoDecoder(QStringLiteral("software"));
@@ -158,10 +194,39 @@ int main(int argc, char* argv[])
 
     int teardownCount = 0;
     int pairProcessStartCount = 0;
+    int authorizationScopeChangeCount = 0;
     QObject::connect(&controller, &MoonlightController::streamTeardownStarted,
                      &application, [&teardownCount]() { ++teardownCount; });
     QObject::connect(&controller, &MoonlightController::pairProcessStarted,
                      &application, [&pairProcessStartCount]() { ++pairProcessStartCount; });
+    QObject::connect(&controller, &MoonlightController::streamAuthorizationScopeChanged,
+                     &application, [&authorizationScopeChangeCount]() {
+                         ++authorizationScopeChangeCount;
+                     });
+
+    // A direct caller cannot turn a live system-auth admission into a launch
+    // for an arbitrary host. It must first save the route, which emits the
+    // composition-root revocation signal.
+    controller.startStream(QStringLiteral("127.0.0.2"), controller.profileAppName(),
+                           controller.profileResolution(), controller.profileDisplayMode());
+    if (!require(!controller.running() &&
+                     controller.lastError().contains(QStringLiteral("Save the requested Sunshine host")),
+                 QStringLiteral("direct stream launch bypassed the saved authorization route"))) {
+        return 2;
+    }
+    const int scopeChangesBeforeHostRewrite = authorizationScopeChangeCount;
+    if (!require(controller.saveProfile(controller.currentProfileId(), QStringLiteral("127.0.0.2"),
+                                        controller.profileAppName(), controller.profileResolution(),
+                                        controller.profileDisplayMode()) &&
+                     authorizationScopeChangeCount == scopeChangesBeforeHostRewrite + 1,
+                 QStringLiteral("changing a saved Sunshine host did not announce an authorization-scope change")) ||
+        !require(controller.saveProfile(controller.currentProfileId(), QStringLiteral("127.0.0.1"),
+                                        controller.profileAppName(), controller.profileResolution(),
+                                        controller.profileDisplayMode()) &&
+                     authorizationScopeChangeCount == scopeChangesBeforeHostRewrite + 2,
+                 QStringLiteral("restoring a saved Sunshine host did not announce an authorization-scope change"))) {
+        return 2;
+    }
 
     controller.startStream(controller.profileHost(), controller.profileAppName(),
                            controller.profileResolution(), controller.profileDisplayMode());
@@ -180,14 +245,20 @@ int main(int argc, char* argv[])
     if (!require(waitUntil([&controller]() {
                      return controller.recentOutput().contains(QStringLiteral("?token=[redacted]")) &&
                             controller.recentOutput().contains(QStringLiteral("Authorization: [redacted]")) &&
-                            controller.recentOutput().contains(QStringLiteral("--pin [redacted]"));
+                            controller.recentOutput().contains(QStringLiteral("--pin [redacted]")) &&
+                            controller.recentOutput().contains(
+                                QStringLiteral("system-ticket=[redacted]"));
                  }, 2000),
                  QStringLiteral("split Moonlight diagnostic secret was not redacted")) ||
         !require(!controller.recentOutput().contains(QStringLiteral("splitsecret")) &&
                      !controller.recentOutput().contains(QStringLiteral("diagnostics-secret")) &&
                      !controller.recentOutput().contains(QStringLiteral("9876")) &&
+                     !controller.recentOutput().contains(
+                         QStringLiteral("qsa1.eyJhdWQiOiJ2bS0xMDAiLCJzdWIiOiJhbGljZSJ9.")) &&
                      controller.recentOutput().contains(QStringLiteral("Authorization: [redacted]")) &&
-                     controller.recentOutput().contains(QStringLiteral("--pin [redacted]")),
+                     controller.recentOutput().contains(QStringLiteral("--pin [redacted]")) &&
+                     controller.recentOutput().contains(
+                         QStringLiteral("system-ticket=[redacted]")),
                  QStringLiteral("Moonlight diagnostic secret reached the UI"))) {
         return 2;
     }
@@ -355,6 +426,28 @@ int main(int argc, char* argv[])
         return 2;
     }
 
+    // The shell intentionally has only two user-facing presentation modes.
+    // Do not let a stale third Moonlight CLI mode re-enter a newly saved
+    // profile, while keeping profiles written by older q-sunshine versions
+    // launchable after upgrade.
+    if (!require(!controller.saveProfile(QStringLiteral("controller-e2e"),
+                                         QStringLiteral("127.0.0.1"),
+                                         QStringLiteral("Desktop"),
+                                         QStringLiteral("2560x1440"),
+                                         QStringLiteral("borderless")) &&
+                     controller.lastError().contains(
+                         QStringLiteral("windowed or fullscreen")),
+                 QStringLiteral("legacy third presentation mode was accepted"))) {
+        return 2;
+    }
+    const QString profileId = QStringLiteral("controller-e2e");
+    const QString profileHash = QString::fromLatin1(
+        QCryptographicHash::hash(profileId.toUtf8(), QCryptographicHash::Sha256).toHex());
+    settings.beginGroup(QStringLiteral("q-sunshine/client/profiles/") + profileHash);
+    settings.setValue(QStringLiteral("displayMode"), QStringLiteral("borderless"));
+    settings.endGroup();
+    settings.sync();
+
     MoonlightController reloaded;
     if (!require(reloaded.currentProfileId() == QStringLiteral("controller-e2e") &&
                  reloaded.profileHost() == QStringLiteral("127.0.0.1") &&
@@ -363,6 +456,71 @@ int main(int argc, char* argv[])
                  reloaded.profileFps() == 60 && reloaded.profileBitrateKbps() == 28000 &&
                  reloaded.profileVideoCodec() == QStringLiteral("H.264"),
                  QStringLiteral("saved desktop profile was not reloaded"))) {
+        return 2;
+    }
+
+    // Production composition permanently selects the lease-aware Moonlight
+    // path. Verify that its marker, public routing metadata, and one-shot
+    // stdin ticket pipe reach the child while the ticket itself reaches
+    // neither argv nor the child environment diagnostics.
+    controller.requireSystemAuthGameStreamLease();
+    controller.pair(QStringLiteral("127.0.0.1"), QStringLiteral("4242"));
+    if (!require(!controller.pairing() &&
+                 controller.lastError().contains(QStringLiteral("PIN pairing is disabled")),
+                 QStringLiteral("native controller unexpectedly retained a PIN pairing fallback"))) {
+        return 2;
+    }
+    const QByteArray nativeTicket("qsa1.controller-native-ticket");
+    controller.setSystemAuthGameStreamLease(QStringLiteral("auth.vm.example"), 48123,
+                                             QStringLiteral("auth.vm.example"),
+                                             QStringLiteral("/tmp/auth-ca.pem"),
+                                             QStringLiteral("vm-100"), nativeTicket,
+                                             QDateTime::currentMSecsSinceEpoch() + 60000);
+    if (!require(controller.canStartStream(),
+                 QStringLiteral("current native system-auth lease did not admit a stream"))) {
+        return 2;
+    }
+    controller.startStream(controller.profileHost(), controller.profileAppName(),
+                           controller.profileResolution(), controller.profileDisplayMode());
+    if (!require(waitUntil([&controller, &logPath]() {
+                     QFile nativeLog(logPath);
+                     if (!nativeLog.open(QIODevice::ReadOnly)) {
+                         return false;
+                     }
+                     const QString output = QString::fromUtf8(nativeLog.readAll());
+                     return controller.running() && output.contains(QStringLiteral("NATIVE_TICKET_PIPE_OK")) &&
+                            output.contains(QStringLiteral("NATIVE_ENV auth=auth.vm.example:48123"));
+                 }, 5000),
+                 QStringLiteral("native Moonlight launch did not receive its system-auth ticket pipe"))) {
+        return 2;
+    }
+    QFile nativeLog(logPath);
+    if (!require(nativeLog.open(QIODevice::ReadOnly),
+                 QStringLiteral("native Moonlight log cannot be read"))) {
+        return 2;
+    }
+    const QString nativeOutput = QString::fromUtf8(nativeLog.readAll());
+    if (!require(nativeOutput.contains(QStringLiteral("stream --qsm-system-auth")) &&
+                 nativeOutput.contains(
+                     QStringLiteral("NATIVE_ENV auth=auth.vm.example:48123 sni=auth.vm.example "
+                                    "ca=/tmp/auth-ca.pem audience=vm-100 fd=0 host=127.0.0.1 https=47984")) &&
+                 !nativeOutput.contains(QString::fromUtf8(nativeTicket)),
+                 QStringLiteral("native Moonlight launch leaked its ticket or lost trusted lease metadata"))) {
+        return 2;
+    }
+    // A system-auth ticket is launch admission only.  Model its expiry by
+    // withdrawing both controller admission and the one-shot ticket while
+    // the child is alive: neither action may interrupt the mTLS media lease
+    // that native Sunshine has already accepted.
+    controller.setSystemAuthAdmission(false);
+    controller.clearSystemAuthGameStreamLease();
+    if (!require(!controller.canStartStream() && controller.running() && controller.streamBusy(),
+                 QStringLiteral("ticket expiry incorrectly interrupted an established native stream"))) {
+        return 2;
+    }
+    controller.stopStream();
+    if (!require(waitUntil([&controller]() { return !controller.streamBusy(); }, 6000),
+                 QStringLiteral("native Moonlight child did not stop"))) {
         return 2;
     }
     QTextStream(stdout) << "MOONLIGHT_CONTROLLER_TEST_OK\n" << Qt::flush;

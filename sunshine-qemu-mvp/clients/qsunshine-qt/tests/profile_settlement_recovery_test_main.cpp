@@ -127,7 +127,10 @@ int main(int argc, char* argv[])
         // writes a marker as a previous process would have done immediately
         // before dispatching connection_optimize.
         MoonlightController bootstrap;
-        bootstrap.setBinaryPath(fakeMoonlight);
+        if (!require(bootstrap.setTestMoonlightBinary(fakeMoonlight),
+                     QStringLiteral("fake Moonlight test child could not be selected"))) {
+            return 2;
+        }
         if (!require(bootstrap.saveProfile(profileId, QStringLiteral("127.0.0.1"),
                                            QStringLiteral("Desktop"),
                                            QStringLiteral("1280x720"),
@@ -163,6 +166,7 @@ int main(int argc, char* argv[])
 
     {
         MoonlightController moonlight;
+        moonlight.setSystemAuthAdmission(true);
         QsfClient qsf;
         qsf.selectProfile(moonlight.currentProfileId());
         ProfileNegotiationCoordinator coordinator(&qsf, &moonlight);
@@ -222,7 +226,7 @@ int main(int argc, char* argv[])
                      QStringLiteral("restored guard allowed changing the decoder"))) {
             return 2;
         }
-        moonlight.setBinaryPath(QStringLiteral("/tmp/unsafe-moonlight"));
+        moonlight.setTestMoonlightBinary(QStringLiteral("/tmp/unsafe-moonlight"));
         if (!require(moonlight.binaryPath() == originalBinary &&
                          moonlight.status().contains(QStringLiteral("handoff owns Moonlight executable configuration")),
                      QStringLiteral("restored guard allowed changing the Moonlight executable"))) {
@@ -274,6 +278,7 @@ int main(int argc, char* argv[])
     // profile-switch/save calls above must not provide a persistent bypass.
     {
         MoonlightController moonlight;
+        moonlight.setSystemAuthAdmission(true);
         QsfClient qsf;
         qsf.selectProfile(moonlight.currentProfileId());
         ProfileNegotiationCoordinator coordinator(&qsf, &moonlight);
@@ -291,6 +296,11 @@ int main(int argc, char* argv[])
     setDeadline(profileId, utcNowMs() - 1);
     {
         MoonlightController moonlight;
+        if (!require(moonlight.setTestMoonlightBinary(fakeMoonlight),
+                     QStringLiteral("fake Moonlight test child could not be selected after recovery"))) {
+            return 2;
+        }
+        moonlight.setSystemAuthAdmission(true);
         QsfClient qsf;
         qsf.selectProfile(moonlight.currentProfileId());
         ProfileNegotiationCoordinator coordinator(&qsf, &moonlight);

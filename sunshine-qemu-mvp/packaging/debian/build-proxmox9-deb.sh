@@ -22,6 +22,10 @@ readonly FFMPEG_ARCHIVE_SHA256=2c27d4694b4ed0e734f497d4bd62f1b3662cbbc4ded2a69f2
 readonly FFMPEG_ARCHIVE_URL="https://github.com/LizardByte/build-deps/releases/download/${FFMPEG_BUILD_DEPS_TAG}/Linux-x86_64-ffmpeg.tar.gz"
 readonly SUNSHINE_LISTENER_TEARDOWN_PATCH=integration/sunshine/patches/0007-platform-linux-close-QEMU-listener-transport-before-teardown.patch
 readonly SUNSHINE_LISTENER_TEARDOWN_PATCH_SHA256=bdef88093a2b2f00b51c7e3a06533e7e62ef8fb00d2eaa8c52b718a14f8b107b
+readonly SUNSHINE_SYSTEM_AUTH_PATCH=integration/sunshine/patches/0008-nvhttp-require-system-auth-media-leases.patch
+readonly SUNSHINE_SYSTEM_AUTH_PATCH_SHA256=35603f17e961809391d96ea155741d333b3f9d8d47d53bde4035f880c597e9ef
+readonly SIMPLE_WEB_SERVER_SYSTEM_AUTH_PATCH=integration/sunshine/simple-web-server/0001-server-http-expose-request-tls-native-handle.patch
+readonly SIMPLE_WEB_SERVER_SYSTEM_AUTH_PATCH_SHA256=7c978eaa72a3077fa46f03dc322abd26ac0db0e17cd8be525227cc0976cff2e9
 
 die() {
     echo "q-sunshine Debian package: $*" >&2
@@ -36,6 +40,42 @@ require_command() {
     command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
 }
 
+verify_patch_digest() {
+    local patch_path="$1"
+    local expected_sha256="$2"
+    local label="$3"
+    local actual_sha256
+
+    require_file "$patch_path"
+    actual_sha256="$(sha256sum "$patch_path" | awk '{print $1}')"
+    [[ "$actual_sha256" == "$expected_sha256" ]] ||
+        die "$label patch digest mismatch"
+}
+
+# Verify that an exported source tree contains an exact patch, then exercise
+# its reverse and forward application without mutating the caller's worktree.
+# This catches both a stale source export and a malformed canonical patch.
+replay_patch_roundtrip() {
+    local source_dir="$1"
+    local patch_path="$2"
+    local label="$3"
+
+    git -C "$source_dir" apply --no-index --reverse --check "$patch_path" >/dev/null 2>&1 ||
+        die "$label is absent from the Sunshine source export"
+    git -C "$source_dir" apply --no-index --reverse "$patch_path" ||
+        die "cannot reverse $label in the Sunshine source export"
+    if ! git -C "$source_dir" apply --no-index --check "$patch_path" >/dev/null 2>&1; then
+        git -C "$source_dir" apply --no-index "$patch_path" ||
+            die "cannot restore the Sunshine source export after checking $label"
+        die "$label does not apply cleanly to its declared base"
+    fi
+    git -C "$source_dir" apply --no-index "$patch_path" ||
+        die "cannot restore $label after forward application check"
+    git -C "$source_dir" apply --no-index --reverse --check "$patch_path" >/dev/null 2>&1 ||
+        die "$label was not restored after the replay check"
+    echo "Q_SUNSHINE_PATCH_REPLAY_OK patch=$label"
+}
+
 [[ "$(dpkg --print-architecture)" == "amd64" ]] ||
     die "this package recipe currently supports amd64 only"
 [[ "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] || die "QSUNSHINE_DEB_JOBS must be a positive integer"
@@ -46,7 +86,7 @@ if [[ "${QSUNSHINE_DEB_ALLOW_NONTRIXIE:-0}" != "1" ]]; then
         die "refusing to build outside Debian 13/Trixie; use the clean-chroot driver"
 fi
 
-for required in cmake ninja meson git dpkg dpkg-deb dpkg-shlibdeps patchelf readelf ldd \
+for required in cc cmake ninja meson git dpkg dpkg-deb dpkg-shlibdeps patchelf readelf ldd \
                 strip strings sed grep awk find sort install cp curl gzip sha256sum tar; do
     require_command "$required"
 done
@@ -54,6 +94,8 @@ done
 require_file "$SUNSHINE_SOURCE_DIR/CMakeLists.txt"
 require_file "$LIBVA_SOURCE_DIR/meson.build"
 require_file "$ROOT_DIR/$SUNSHINE_LISTENER_TEARDOWN_PATCH"
+require_file "$ROOT_DIR/$SUNSHINE_SYSTEM_AUTH_PATCH"
+require_file "$ROOT_DIR/$SIMPLE_WEB_SERVER_SYSTEM_AUTH_PATCH"
 for required_submodule_file in \
     third-party/moonlight-common-c/enet/CMakeLists.txt \
     third-party/Simple-Web-Server/CMakeLists.txt \
@@ -64,10 +106,19 @@ for required_submodule_file in \
 done
 for required_package_file in control.in q-sunshine q-sunshine-preflight q-sunshine@.service \
                              q-sunshine-qsf-control q-sunshine-qsf-client q-sunshine-qsf-gateway \
+                             q-sunshine-qsf-system-auth-gateway \
                              q-sunshine-qsf-control@.service q-sunshine-qsf-gateway@.service \
+                             q-sunshine-qsf-system-auth-gateway@.service \
+                             q-sunshine-auth q-sunshine-auth@.service q-sunshine-remote.pam \
                              postinst postrm README.Debian example-instance.conf copyright \
                              changelog.in lintian-overrides; do
     require_file "$PACKAGE_DIR/$required_package_file"
+done
+for required_auth_file in q_sunshine_auth.py q_sunshine_auth_gateway.py pam_auth_helper.c; do
+    require_file "$ROOT_DIR/extensions/system_auth/$required_auth_file"
+done
+for required_gamestream_auth_file in q_sunshine_gamestream_lease.py q_sunshine_lease_issuer.c; do
+    require_file "$ROOT_DIR/extensions/gamestream_auth/$required_gamestream_auth_file"
 done
 for required_qsf_file in qsf_control.py qsf_client.py qsf_tls_client.py qsf_tls_gateway.py; do
     require_file "$ROOT_DIR/extensions/qsf_control/$required_qsf_file"
@@ -75,29 +126,26 @@ done
 require_file "$ROOT_DIR/extensions/qsf_control/README.md"
 require_file "$ROOT_DIR/docs/QSF_STREAM_NEGOTIATION.md"
 require_file "$ROOT_DIR/docs/SUNSHINE_QEMU_INTEGRATION.md"
+require_file "$ROOT_DIR/docs/SYSTEM_AUTH.md"
+require_file "$ROOT_DIR/docs/GAMESTREAM_LEASE_AUTH.md"
 for required_guest_file in qsf_guest_agent.c qsf_input_watcher.c qsf_wayland_clipboard_bridge.sh \
                            qsf_virgl_display_adapter.sh; do
     require_file "$ROOT_DIR/guest/$required_guest_file"
 done
 
 # The package is built from the QEMU Display1 replay, not a stock Sunshine
-# tag.  Verify the exact listener-retirement patch by digest and then use a
-# reverse dry-run against the source tree so a stale replay cannot revive
-# callbacks to an already destroyed QEMU Display1 listener.
+# tag.  Pin the listener-retirement and native system-auth patches before
+# exporting the source; the latter are replayed below from the export rather
+# than trusting the caller's mutable Sunshine worktree.
 listener_patch_path="$ROOT_DIR/$SUNSHINE_LISTENER_TEARDOWN_PATCH"
-listener_patch_sha256="$(sha256sum "$listener_patch_path" | awk '{print $1}')"
-[[ "$listener_patch_sha256" == "$SUNSHINE_LISTENER_TEARDOWN_PATCH_SHA256" ]] ||
-    die "Sunshine listener-retirement patch digest mismatch"
-# git apply's --directory is a prefix relative to its current directory; an
-# absolute prefix is rejected in a source export without a Git worktree. Run
-# it from the source parent and use its basename so the provenance gate works
-# both in the clean archive and with a caller-supplied SUNSHINE_SOURCE_DIR.
-sunshine_patch_parent="$(cd -- "$SUNSHINE_SOURCE_DIR/.." && pwd)"
-sunshine_patch_directory="$(basename -- "$SUNSHINE_SOURCE_DIR")"
-git -C "$sunshine_patch_parent" apply --reverse --check \
-    --directory="$sunshine_patch_directory" "$listener_patch_path" \
-    >/dev/null 2>&1 ||
-    die "Sunshine source does not contain the required listener-retirement patch"
+system_auth_patch_path="$ROOT_DIR/$SUNSHINE_SYSTEM_AUTH_PATCH"
+simple_web_server_system_auth_patch_path="$ROOT_DIR/$SIMPLE_WEB_SERVER_SYSTEM_AUTH_PATCH"
+verify_patch_digest "$listener_patch_path" "$SUNSHINE_LISTENER_TEARDOWN_PATCH_SHA256" \
+    "Sunshine listener-retirement"
+verify_patch_digest "$system_auth_patch_path" "$SUNSHINE_SYSTEM_AUTH_PATCH_SHA256" \
+    "Sunshine system-auth"
+verify_patch_digest "$simple_web_server_system_auth_patch_path" \
+    "$SIMPLE_WEB_SERVER_SYSTEM_AUTH_PATCH_SHA256" "Simple-Web-Server system-auth"
 
 project_version="$(sed -n 's/^project(sunshine_qemu_mvp VERSION \([^ ]*\).*/\1/p' "$ROOT_DIR/CMakeLists.txt" | head -n 1)"
 [[ -n "$project_version" ]] || die "could not determine project version"
@@ -113,6 +161,7 @@ sunshine_build_version="${QSUNSHINE_SUNSHINE_BUILD_VERSION:-$(git -C "$SUNSHINE_
 mkdir -p "$WORK_ROOT" "$OUTPUT_DIR"
 build_dir="$(mktemp -d "$WORK_ROOT/build.XXXXXX")"
 stage_dir="$(mktemp -d "$WORK_ROOT/stage.XXXXXX")"
+sunshine_source_export_dir="$build_dir/sunshine-source-export"
 libva_build_dir="$build_dir/libva"
 libva_runtime_prefix=/usr/lib/q-sunshine
 libva_stage_dir="$build_dir/libva-stage"
@@ -121,6 +170,27 @@ sunshine_build_dir="$build_dir/sunshine"
 deb_control_dir="$build_dir/debian"
 package_name=q-sunshine-pve
 package_root="$stage_dir/usr/lib/q-sunshine"
+
+# Build only from a VCS-free copy.  Apart from making the package independent
+# from ambient Git metadata, this lets the gate prove that both nested patch
+# series entries reverse, apply, and reverse-check against exactly the source
+# bytes about to be compiled.
+mkdir -p "$sunshine_source_export_dir"
+tar --create --exclude-vcs --file - --directory "$SUNSHINE_SOURCE_DIR" . |
+    tar --extract --file - --directory "$sunshine_source_export_dir"
+for required_export_file in \
+    CMakeLists.txt \
+    third-party/Simple-Web-Server/CMakeLists.txt \
+    third-party/Simple-Web-Server/server_http.hpp; do
+    require_file "$sunshine_source_export_dir/$required_export_file"
+done
+git -C "$sunshine_source_export_dir" apply --no-index --reverse --check "$listener_patch_path" \
+    >/dev/null 2>&1 ||
+    die "Sunshine source export does not contain the required listener-retirement patch"
+replay_patch_roundtrip "$sunshine_source_export_dir" "$system_auth_patch_path" \
+    "Sunshine system-auth patch"
+replay_patch_roundtrip "$sunshine_source_export_dir/third-party/Simple-Web-Server" \
+    "$simple_web_server_system_auth_patch_path" "Simple-Web-Server system-auth patch"
 
 ffmpeg_prepared_binaries="${QSUNSHINE_FFMPEG_PREPARED_BINARIES:-$build_dir/ffmpeg}"
 if [[ -z "${QSUNSHINE_FFMPEG_PREPARED_BINARIES:-}" ]]; then
@@ -156,7 +226,7 @@ done
 # both disposable roots to relative prefixes so neither those diagnostics nor
 # DWARF-style file metadata disclose the source or build chroot.
 BRANCH=q-sunshine BUILD_VERSION="$sunshine_build_version" COMMIT="$sunshine_revision" \
-cmake -S "$SUNSHINE_SOURCE_DIR" -B "$sunshine_build_dir" -G Ninja \
+cmake -S "$sunshine_source_export_dir" -B "$sunshine_build_dir" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr/lib/q-sunshine \
     -DSUNSHINE_ASSETS_DIR=assets \
@@ -191,6 +261,30 @@ install -d "$package_root/bin" "$package_root/lib" "$package_root/assets"
 install -m 0755 "$sunshine_binary" "$package_root/bin/sunshine"
 strip --strip-unneeded "$package_root/bin/sunshine"
 
+# PAM itself stays a normal Debian runtime dependency. Keep this tiny
+# conversation helper separate from Sunshine so the media binary remains
+# headless and has no PAM linkage. It receives password bytes only on stdin.
+auth_helper_binary="$build_dir/q-sunshine-pam-auth"
+cc -std=c11 -O2 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE \
+    -Wall -Wextra -Werror -Wformat=2 -Werror=format-security \
+    "$ROOT_DIR/extensions/system_auth/pam_auth_helper.c" -o "$auth_helper_binary" \
+    -pie -Wl,-z,relro,-z,now -lpam
+
+# The optional prepared GameStream lease issuer has its own narrow OpenSSL
+# boundary. It is not linked into Sunshine and never receives a client private
+# key; authd invokes it only after a valid qsa1 ticket/CSR request.
+lease_issuer_binary="$build_dir/q-sunshine-lease-issuer"
+cc -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -D_FORTIFY_SOURCE=2 \
+    -fstack-protector-strong -fPIE -Wall -Wextra -Werror -Wformat=2 \
+    -Werror=format-security \
+    "$ROOT_DIR/extensions/gamestream_auth/q_sunshine_lease_issuer.c" \
+    -o "$lease_issuer_binary" -pie -Wl,-z,relro,-z,now -lssl -lcrypto
+
+# These package-owned release helpers are ELF executables just like Sunshine.
+# Strip local debug sections before lintian verifies the staged package.
+strip --strip-unneeded "$auth_helper_binary"
+strip --strip-unneeded "$lease_issuer_binary"
+
 # The build tree's shader directory is normally a symlink into the source
 # tree. Dereference it so the package never contains a build-machine path.
 cp -aL "$sunshine_build_dir/assets/." "$package_root/assets/"
@@ -217,9 +311,20 @@ for qsf_tool in qsf_control qsf_client qsf_tls_client qsf_tls_gateway; do
     install -Dm644 "$ROOT_DIR/extensions/qsf_control/$qsf_tool.py" \
         "$package_root/qsf/$qsf_tool.py"
 done
+for auth_module in q_sunshine_auth q_sunshine_auth_gateway; do
+    install -Dm644 "$ROOT_DIR/extensions/system_auth/$auth_module.py" \
+        "$package_root/system_auth/$auth_module.py"
+done
+install -Dm644 "$ROOT_DIR/extensions/gamestream_auth/q_sunshine_gamestream_lease.py" \
+    "$package_root/system_auth/q_sunshine_gamestream_lease.py"
+install -Dm755 "$auth_helper_binary" "$package_root/bin/q-sunshine-pam-auth"
+install -Dm755 "$lease_issuer_binary" "$package_root/bin/q-sunshine-lease-issuer"
+install -Dm755 "$PACKAGE_DIR/q-sunshine-auth" "$stage_dir/usr/bin/q-sunshine-auth"
 install -Dm755 "$PACKAGE_DIR/q-sunshine-qsf-control" "$stage_dir/usr/bin/q-sunshine-qsf-control"
 install -Dm755 "$PACKAGE_DIR/q-sunshine-qsf-client" "$stage_dir/usr/bin/q-sunshine-qsf-client"
 install -Dm755 "$PACKAGE_DIR/q-sunshine-qsf-gateway" "$stage_dir/usr/bin/q-sunshine-qsf-gateway"
+install -Dm755 "$PACKAGE_DIR/q-sunshine-qsf-system-auth-gateway" \
+    "$stage_dir/usr/bin/q-sunshine-qsf-system-auth-gateway"
 for guest_file in qsf_guest_agent.c qsf_input_watcher.c qsf_wayland_clipboard_bridge.sh; do
     install -Dm644 "$ROOT_DIR/guest/$guest_file" "$stage_dir/usr/share/q-sunshine/guest/$guest_file"
 done
@@ -230,12 +335,22 @@ install -Dm644 "$PACKAGE_DIR/q-sunshine-qsf-control@.service" \
     "$stage_dir/usr/lib/systemd/system/q-sunshine-qsf-control@.service"
 install -Dm644 "$PACKAGE_DIR/q-sunshine-qsf-gateway@.service" \
     "$stage_dir/usr/lib/systemd/system/q-sunshine-qsf-gateway@.service"
+install -Dm644 "$PACKAGE_DIR/q-sunshine-qsf-system-auth-gateway@.service" \
+    "$stage_dir/usr/lib/systemd/system/q-sunshine-qsf-system-auth-gateway@.service"
+install -Dm644 "$PACKAGE_DIR/q-sunshine-auth@.service" \
+    "$stage_dir/usr/lib/systemd/system/q-sunshine-auth@.service"
 install -Dm644 "$PACKAGE_DIR/README.Debian" "$stage_dir/usr/share/doc/$package_name/README.Debian"
 install -Dm644 "$ROOT_DIR/extensions/qsf_control/README.md" "$stage_dir/usr/share/doc/$package_name/QSF.md"
 install -Dm644 "$ROOT_DIR/docs/QSF_STREAM_NEGOTIATION.md" \
     "$stage_dir/usr/share/doc/$package_name/QSF_STREAM_NEGOTIATION.md"
 install -Dm644 "$ROOT_DIR/docs/SUNSHINE_QEMU_INTEGRATION.md" \
     "$stage_dir/usr/share/doc/$package_name/SUNSHINE_QEMU_INTEGRATION.md"
+install -Dm644 "$ROOT_DIR/docs/SYSTEM_AUTH.md" \
+    "$stage_dir/usr/share/doc/$package_name/SYSTEM_AUTH.md"
+install -Dm644 "$ROOT_DIR/docs/GAMESTREAM_LEASE_AUTH.md" \
+    "$stage_dir/usr/share/doc/$package_name/GAMESTREAM_LEASE_AUTH.md"
+install -Dm644 "$PACKAGE_DIR/q-sunshine-remote.pam" \
+    "$stage_dir/usr/share/doc/$package_name/q-sunshine-remote.pam"
 install -Dm644 "$PACKAGE_DIR/example-instance.conf" \
     "$stage_dir/usr/share/doc/$package_name/example-instance.conf"
 install -Dm644 "$PACKAGE_DIR/copyright" "$stage_dir/usr/share/doc/$package_name/copyright"
@@ -313,6 +428,8 @@ install -d "$stage_dir/DEBIAN" "$deb_control_dir"
 # Depends even when the software-only Sunshine link drops it under --as-needed.
 shlib_depends="$(cd "$build_dir" && dpkg-shlibdeps -O --ignore-missing-info \
     -l"$package_root/lib" "$staged_binary" \
+    "$package_root/bin/q-sunshine-pam-auth" \
+    "$package_root/bin/q-sunshine-lease-issuer" \
     "$package_root/lib/$(basename "$libva_drm_real")" | sed -n 's/^shlibs:Depends=//p')"
 depends='python3 (>= 3.11)'
 if [[ -n "$shlib_depends" ]]; then

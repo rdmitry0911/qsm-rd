@@ -1,4 +1,11 @@
-# Native Moonlight → Sunshine → VirGL E2E
+# Historical Embedded-Moonlight → Sunshine → VirGL E2E
+
+> **Historical compatibility diagnostic.** This runner uses legacy private
+> pairing and Embedded Moonlight. It is retained for codec/input regression
+> work only; it is not evidence for the current PIN-free system-auth media
+> route. Use the patched-Moonlight Qt composite documented in
+> [`QT_DESKTOP_CLIENT.md`](QT_DESKTOP_CLIENT.md#native-qtmoonlightvirgl-e2e-gate),
+> with final evidence in `run.qAMtPU`, for current acceptance.
 
 `scripts/run-moonlight-sunshine-virgl-e2e.sh` is the strict native graphics
 gate for the complete video and input route:
@@ -97,7 +104,7 @@ useful files are `trace.txt`, `sunshine.log`, `moonlight-*.log`, client/root
 PNG screenshots and signal statistics, `guest-telemetry.log`, and the
 parallel `display1-observer.log` plus H.264 segments.
 
-## Final deployment evidence
+## Historical deployment evidence
 
 Fresh runs made with the exact no-X binary above passed on 2026-09-01:
 

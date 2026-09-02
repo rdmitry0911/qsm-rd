@@ -1,5 +1,12 @@
 # Moonlight/Sunshine post-agent hook for the VirGL QSF Wayland gate
 
+> **Historical compatibility hook.** This Embedded-Moonlight hook uses private
+> pairing and the legacy outer QSF owner. Its `run.KEqkVc` evidence is retained
+> for regression diagnosis only. The current accepted composite is the
+> patched-Moonlight, TLS/PAM-to-native-lease Qt route in
+> [`QT_DESKTOP_CLIENT.md`](QT_DESKTOP_CLIENT.md#native-qtmoonlightvirgl-e2e-gate),
+> with final evidence `run.qAMtPU`.
+
 `scripts/run-moonlight-sunshine-virgl-qsf-wayland-hook.sh` is an executable
 post-agent hook for the already-running native
 `run-virgl-qsf-wayland-clipboard-e2e.sh` guest.  It adds a real Moonlight

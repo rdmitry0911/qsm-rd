@@ -191,10 +191,39 @@ if(BUILD_TESTING)
             add_test(
                 NAME qsf_tls_gateway
                 COMMAND ${Python3_EXECUTABLE}
-                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/qsf_control/test_qsf_tls_gateway.py
-                    -v
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/qsf_control/test_qsf_tls_gateway.py
+                -v
             )
             set_tests_properties(qsf_tls_gateway PROPERTIES TIMEOUT 45)
+
+            add_test(
+                NAME qsunshine_system_auth_protocol
+                COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/system_auth/test_system_auth.py
+                    -v
+            )
+            set_tests_properties(qsunshine_system_auth_protocol PROPERTIES TIMEOUT 55)
+
+            # These use real OpenSSL material and a disposable TLS/PAM fixture:
+            # login -> VM-bound qsa ticket -> client-owned CSR -> short-lived
+            # GameStream client-auth lease.  They intentionally run before a
+            # hardware/QEMU E2E gate so a packaging or auth regression has a
+            # small, deterministic failure surface.
+            add_test(
+                NAME qsunshine_gamestream_lease_issuer
+                COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/gamestream_auth/test_gamestream_lease.py
+                    -v
+            )
+            set_tests_properties(qsunshine_gamestream_lease_issuer PROPERTIES TIMEOUT 60)
+
+            add_test(
+                NAME qsunshine_gamestream_authd_lease
+                COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/gamestream_auth/test_authd_lease_endpoint.py
+                    -v
+            )
+            set_tests_properties(qsunshine_gamestream_authd_lease PROPERTIES TIMEOUT 75)
         endif()
 
     endif()

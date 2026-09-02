@@ -62,19 +62,22 @@ exposed through TCP.  q-sunshine-qsf-control maps the instance's private
 Display1 D-Bus address to busctl for QEMU Console.SetUIInfo, so resize reaches
 both the guest agent and QEMU without using a host session bus.
 
-For a remote Qt client, create separate mTLS server/key/client-CA material per
-VM, set the three QSUNSHINE_QSF_* TLS paths and deliberate bind/port in the
-instance file, then enable the gateway:
+For the retained CLI/test mTLS QSF route (not the Qt desktop UI), create
+separate mTLS server/key/client-CA material per VM, set the three
+QSUNSHINE_QSF_* TLS paths and deliberate bind/port in the instance file, then
+enable the gateway:
 
     sudo systemctl enable --now q-sunshine-qsf-gateway@100
     sudo systemctl status q-sunshine-qsf-gateway@100
 
-The gateway enforces TLS 1.3 and a client certificate.  Give the Qt client
-only its client certificate/key and server CA; never give it the local broker
-token.  Guest agent sources are installed in /usr/share/q-sunshine/guest/ and
-the complete QSF protocol/CLI reference is /usr/share/doc/q-sunshine-pve/QSF.md.
-Neither QSF unit edits a VM configuration, creates credentials, or opens a
-listener until explicitly enabled.
+The gateway enforces TLS 1.3 and a client certificate. Give that legacy mTLS
+client only its client certificate/key and server CA; never give it the local
+broker token. The Qt desktop UI has no certificate/key fields and instead uses
+the ticket-only gateway described below. Guest agent sources are installed in
+/usr/share/q-sunshine/guest/ and the complete QSF protocol/CLI reference is
+/usr/share/doc/q-sunshine-pve/QSF.md. Neither QSF unit edits a VM
+configuration, creates credentials, or opens a listener until explicitly
+enabled.
 
 For a user-selected client size, install the guest agent together with the
 generation-bound VirGL display adapter source
@@ -91,3 +94,49 @@ live Sunshine probe. Full details and the exact v2 profile schema are in
 Guest source examples are in /usr/share/q-sunshine/guest/.  Consult the
 installed /usr/share/doc/q-sunshine-pve/SUNSHINE_QEMU_INTEGRATION.md for the
 full Display1 protocol and security model.
+
+## Optional TLS/PAM system authentication
+
+The package also includes `q-sunshine-auth@VMID`, a TLS 1.3 gateway that
+authenticates a system account through PAM and issues a short-lived,
+VM-audience-scoped in-memory ticket. It is disabled by default and requires
+an explicit user allowlist as well as root-owned server TLS/ticket material.
+Install the supplied PAM policy only after review:
+
+    sudo install -o root -g root -m 0644 \
+      /usr/share/doc/q-sunshine-pve/q-sunshine-remote.pam \
+      /etc/pam.d/q-sunshine-remote
+
+Then follow `/usr/share/doc/q-sunshine-pve/SYSTEM_AUTH.md` to provision the
+per-VM key/certificates, set `QSUNSHINE_AUTH_*` values, configure the Qt
+profile's matching non-secret expected VM audience, and enable
+`q-sunshine-auth@100`. With the same ticket key/audience, enable the dedicated
+`q-sunshine-qsf-system-auth-gateway@100` to accept the short-lived ticket;
+the existing `q-sunshine-qsf-gateway@100` remains legacy client mTLS only.
+The two gateway units intentionally conflict because their default listener is
+the same: stop/disable the legacy unit before enabling ticket mode, and never
+enable both for one VM. The shipped PAM sample includes Debian's
+`common-auth`/`common-account`, retaining the site's SSSD, faillock, access,
+and account policy instead of hard-coding `pam_unix`. It passes the numeric TLS
+peer IP to PAM as `PAM_RHOST`, but this login protocol contains only one
+username/password exchange and rejects extra interactive OTP/challenge prompts.
+See `SYSTEM_AUTH.md` before enabling an MFA module.
+
+When all `QSUNSHINE_GAMESTREAM_LEASE_*` values and
+`QSUNSHINE_AUTH_AUDIENCE` are supplied, the packaged patched Sunshine enables
+native system-auth, validates only the per-VM lease CA, and disables legacy
+paired-certificate/PIN admission. The trusted macOS DMG embeds the matching
+patched Moonlight child: it receives the system ticket through a one-shot FD,
+obtains its ephemeral mTLS lease, and launches with `--qsm-system-auth`. A
+stock Moonlight client does not have a compatible fallback path.
+
+The CSR-to-short-lived-client-certificate lease issuer is therefore required
+for native GameStream system-auth, but stays disabled unless all
+`QSUNSHINE_GAMESTREAM_LEASE_*` values are configured. Read
+`/usr/share/doc/q-sunshine-pve/GAMESTREAM_LEASE_AUTH.md` before provisioning
+it; do not use it as a PIN bridge. The retained `q-sunshine-qsf-gateway@VMID`
+is optional legacy client mTLS for CLI/compatibility use. The Qt desktop client
+uses `q-sunshine-qsf-system-auth-gateway@VMID` instead.
+
+For the full ordered install/configure/verify/remove procedure, consult the
+source release guide `docs/RELEASE_NOTES.md` alongside the package artifact.

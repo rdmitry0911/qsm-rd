@@ -3,6 +3,35 @@ find_package(Qt6 6.4 REQUIRED COMPONENTS Core Gui Network Quick QuickControls2)
 qt_standard_project_setup()
 include(GNUInstallDirs)
 
+# The production shell launches only this package-owned patched Moonlight
+# child. macOS uses its exact nested .app path at runtime; Linux packages must
+# install the child at this compiled libexec location. A missing child fails
+# closed rather than falling back to PATH.
+set(QSUNSHINE_PACKAGED_MOONLIGHT_PATH
+    "${CMAKE_INSTALL_FULL_LIBDIR}/q-sunshine-client/Moonlight/moonlight")
+
+function(qsunshine_configure_moonlight_controller_target target)
+    set(options)
+    set(one_value_args PACKAGED_MOONLIGHT_PATH)
+    cmake_parse_arguments(QSUNSHINE_CONTROLLER "${options}" "${one_value_args}" "" ${ARGN})
+    if(QSUNSHINE_CONTROLLER_PACKAGED_MOONLIGHT_PATH)
+        set(packaged_moonlight_path "${QSUNSHINE_CONTROLLER_PACKAGED_MOONLIGHT_PATH}")
+    else()
+        set(packaged_moonlight_path "${QSUNSHINE_PACKAGED_MOONLIGHT_PATH}")
+    endif()
+    target_compile_definitions(${target} PRIVATE
+        QSUNSHINE_PACKAGED_MOONLIGHT_PATH="${packaged_moonlight_path}"
+    )
+endfunction()
+
+function(qsunshine_enable_test_moonlight_override target)
+    qsunshine_configure_moonlight_controller_target(${target})
+    # The only writable child selection is compiled into disposable test
+    # fixtures and the explicitly invoked real-E2E driver. Never add this
+    # definition to qsunshine-client or the QML smoke target.
+    target_compile_definitions(${target} PRIVATE QSUNSHINE_TEST_MOONLIGHT_OVERRIDE=1)
+endfunction()
+
 qt_add_executable(qsunshine-client
     src/main.cpp
     src/moonlightcontroller.cpp
@@ -11,6 +40,8 @@ qt_add_executable(qsunshine-client
     src/profilenegotiationcoordinator.h
     src/qsfclient.cpp
     src/qsfclient.h
+    src/systemauthclient.cpp
+    src/systemauthclient.h
 )
 
 target_link_libraries(qsunshine-client PRIVATE
@@ -20,6 +51,7 @@ target_link_libraries(qsunshine-client PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
 )
+qsunshine_configure_moonlight_controller_target(qsunshine-client)
 
 qt_add_resources(qsunshine-client qsunshine_client_qml
     PREFIX "/"
@@ -34,7 +66,7 @@ set_target_properties(qsunshine-client PROPERTIES
 
 if(APPLE)
     # Produce a conventional .app. The Tahoe packaging script then deploys Qt
-    # frameworks and embeds an untouched Moonlight.app in Resources.
+    # frameworks and embeds the pinned patched Moonlight.app in Resources.
     set_target_properties(qsunshine-client PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_BUNDLE_NAME "q-sunshine"
@@ -44,10 +76,11 @@ if(APPLE)
     )
 endif()
 
-# The real-runtime driver links the exact process and QSF classes used by the
-# GUI.  It is intentionally not a CTest: a surrounding harness supplies a
-# disposable Sunshine/QEMU/VirGL system and performs visual attestation before
-# it creates the activation markers accepted by the driver.
+# The real-runtime driver links the exact process, system-auth, and QSF
+# classes used by the GUI.  It is intentionally not a CTest: a surrounding
+# harness supplies a disposable Sunshine/QEMU/VirGL system and performs
+# visual attestation before it creates the activation markers accepted by the
+# driver.
 qt_add_executable(qsunshine-real-e2e-driver
     tests/real_e2e_main.cpp
     src/moonlightcontroller.cpp
@@ -56,6 +89,8 @@ qt_add_executable(qsunshine-real-e2e-driver
     src/profilenegotiationcoordinator.h
     src/qsfclient.cpp
     src/qsfclient.h
+    src/systemauthclient.cpp
+    src/systemauthclient.h
 )
 target_include_directories(qsunshine-real-e2e-driver PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -65,6 +100,7 @@ target_link_libraries(qsunshine-real-e2e-driver PRIVATE
     Qt6::Gui
     Qt6::Network
 )
+qsunshine_enable_test_moonlight_override(qsunshine-real-e2e-driver)
 
 # QML is embedded, but a matching Qt/QML runtime is still needed at install
 # time.  Platform packaging/deployment is handled by the Qt packaging tool on
@@ -83,6 +119,8 @@ if(BUILD_TESTING)
         src/profilenegotiationcoordinator.h
         src/qsfclient.cpp
         src/qsfclient.h
+        src/systemauthclient.cpp
+        src/systemauthclient.h
     )
     target_include_directories(qsunshine-qml-smoke PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -94,6 +132,13 @@ if(BUILD_TESTING)
         Qt6::Quick
         Qt6::QuickControls2
     )
+    # This remains a production-policy controller build: it has no arbitrary
+    # child override.  Its package path is deliberately absent so the smoke
+    # test can prove a launch fails before QProcess creates any child.
+    set(QSUNSHINE_QML_SMOKE_MISSING_MOONLIGHT_PATH
+        "${CMAKE_CURRENT_BINARY_DIR}/q-sunshine-qml-smoke-no-packaged-child/Moonlight/moonlight")
+    qsunshine_configure_moonlight_controller_target(qsunshine-qml-smoke
+        PACKAGED_MOONLIGHT_PATH "${QSUNSHINE_QML_SMOKE_MISSING_MOONLIGHT_PATH}")
     qt_add_resources(qsunshine-qml-smoke qsunshine_qml_smoke_qml
         PREFIX "/"
         BASE "${CMAKE_CURRENT_SOURCE_DIR}/qml"
@@ -123,6 +168,7 @@ if(BUILD_TESTING)
         target_link_libraries(qsunshine-moonlight-controller-test PRIVATE
             Qt6::Core
         )
+        qsunshine_enable_test_moonlight_override(qsunshine-moonlight-controller-test)
         add_test(NAME qsunshine_moonlight_controller
                  COMMAND qsunshine-moonlight-controller-test)
         set_tests_properties(qsunshine_moonlight_controller PROPERTIES TIMEOUT 25)
@@ -137,6 +183,25 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
     )
     target_link_libraries(qsunshine-qsf-e2e PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Network
+    )
+
+    # Login credentials are delivered only on stdin to this integration
+    # driver; the surrounding Python fixture owns the disposable TLS/PAM
+    # gateway and supplies the one-time password without placing it in argv.
+    qt_add_executable(qsunshine-system-auth-client-test
+        tests/systemauthclient_test_main.cpp
+        src/qsfclient.cpp
+        src/qsfclient.h
+        src/systemauthclient.cpp
+        src/systemauthclient.h
+    )
+    target_include_directories(qsunshine-system-auth-client-test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(qsunshine-system-auth-client-test PRIVATE
         Qt6::Core
         Qt6::Gui
         Qt6::Network
@@ -165,6 +230,7 @@ if(BUILD_TESTING)
         Qt6::Gui
         Qt6::Network
     )
+    qsunshine_enable_test_moonlight_override(qsunshine-profile-negotiation-cancel-test)
 
     # A restart can happen after QSslSocket accepted connection_optimize but
     # before its QEMU/guest result reaches the desktop.  This no-network
@@ -189,6 +255,7 @@ if(BUILD_TESTING)
             Qt6::Gui
             Qt6::Network
         )
+        qsunshine_enable_test_moonlight_override(qsunshine-profile-settlement-recovery-test)
         add_test(NAME qsunshine_qt_profile_settlement_recovery
                  COMMAND qsunshine-profile-settlement-recovery-test)
         set_tests_properties(qsunshine_qt_profile_settlement_recovery PROPERTIES
@@ -211,6 +278,17 @@ if(BUILD_TESTING)
         )
         set_tests_properties(qsunshine_qt_qsf_mtls_e2e PROPERTIES
             TIMEOUT 110
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        )
+        add_test(
+            NAME qsunshine_qt_system_auth_client
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/system_auth/test_qt_system_auth_client.py
+                --qt-client $<TARGET_FILE:qsunshine-system-auth-client-test>
+                -v
+        )
+        set_tests_properties(qsunshine_qt_system_auth_client PROPERTIES
+            TIMEOUT 40
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         )
         add_test(

@@ -1,5 +1,12 @@
 # Moonlight → Sunshine → QEMU end-to-end gate
 
+> **Historical compatibility diagnostic.** This Embedded-Moonlight runner uses
+> a disposable legacy PIN/pairing flow. It remains useful for CPU-capture and
+> input regression work, but it is not current authentication evidence. The
+> accepted PIN-free route is the patched-Moonlight Qt system-auth composite in
+> [`QT_DESKTOP_CLIENT.md`](QT_DESKTOP_CLIENT.md#native-qtmoonlightvirgl-e2e-gate),
+> most recently `vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.qAMtPU/`.
+
 ## What this gate proves
 
 `scripts/run-moonlight-sunshine-qemu-e2e.sh` is a disposable, local and

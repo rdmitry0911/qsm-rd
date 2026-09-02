@@ -83,6 +83,7 @@ class QsfTlsGatewayTest(unittest.TestCase):
                 "--server-cert", str(self.path / "server.crt"),
                 "--server-key", str(self.path / "server.key"),
                 "--client-ca", str(self.path / "ca.crt"),
+                "--max-concurrent-requests", "2",
                 "--listen-host", "127.0.0.1", "--listen-port", str(self.port),
             ],
             stdout=subprocess.PIPE,
@@ -174,11 +175,12 @@ class QsfTlsGatewayTest(unittest.TestCase):
             )
 
     def _client(self, *arguments: str, input_data: bytes = b"",
-                timeout: float | None = None) -> subprocess.CompletedProcess[bytes]:
+                timeout: float | None = None,
+                port: int | None = None) -> subprocess.CompletedProcess[bytes]:
         return subprocess.run(
             [
                 sys.executable, str(CLIENT), "--host", "127.0.0.1",
-                "--port", str(self.port), "--server-name", "localhost",
+                "--port", str(self.port if port is None else port), "--server-name", "localhost",
                 "--ca-file", str(self.path / "ca.crt"),
                 "--cert-file", str(self.path / "client.crt"),
                 "--key-file", str(self.path / "client.key"), *arguments,
@@ -262,6 +264,102 @@ class QsfTlsGatewayTest(unittest.TestCase):
             self.assertLess(elapsed, 4.0)
         finally:
             slow_peer.close()
+
+    def test_excess_incomplete_tls_peers_are_closed_at_the_worker_limit(self) -> None:
+        """The gateway rejects excess accepted sockets without spawning workers."""
+        held = [socket.create_connection(("127.0.0.1", self.port), timeout=3)
+                for _ in range(2)]
+        try:
+            # Both request slots now wait for a ClientHello. The third peer is
+            # deliberately refused quickly; it must not wait for the 12-second
+            # handshake deadline or consume another worker.
+            time.sleep(0.4)
+            started = time.monotonic()
+            try:
+                status = self._client("status", timeout=3)
+            except subprocess.TimeoutExpired as error:
+                self.fail(f"excess TLS peer was not rejected promptly: {error}")
+            self.assertNotEqual(status.returncode, 0,
+                                f"excess client unexpectedly succeeded: {status.stdout!r}")
+            self.assertLess(time.monotonic() - started, 2.5)
+        finally:
+            for connection in held:
+                connection.close()
+
+    def test_single_worker_slot_rejects_excess_tls_and_recovers_after_peer_close(self) -> None:
+        """A max=1 listener rejects excess TLS and releases the slot after EOF."""
+        port = free_loopback_port()
+        limited = subprocess.Popen(
+            [
+                sys.executable, str(GATEWAY),
+                "--control-socket", str(self.control_socket),
+                "--token-file", str(self.token_file),
+                "--server-cert", str(self.path / "server.crt"),
+                "--server-key", str(self.path / "server.key"),
+                "--client-ca", str(self.path / "ca.crt"),
+                "--max-concurrent-requests", "1",
+                "--listen-host", "127.0.0.1", "--listen-port", str(port),
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        held: socket.socket | None = None
+        try:
+            assert limited.stdout is not None
+            readable, _, _ = select.select([limited.stdout], [], [], 5)
+            if not readable:
+                self._fail_process("limited TLS gateway did not announce readiness", limited)
+            self.assertIn(f"port={port}", limited.stdout.readline())
+            held = socket.create_connection(("127.0.0.1", port), timeout=3)
+            time.sleep(0.4)
+            started = time.monotonic()
+            try:
+                rejected = self._client("status", timeout=3, port=port)
+            except subprocess.TimeoutExpired as error:
+                self.fail(f"max=1 TLS worker did not reject excess peer: {error}")
+            self.assertNotEqual(rejected.returncode, 0,
+                                f"excess client unexpectedly succeeded: {rejected.stdout!r}")
+            self.assertLess(time.monotonic() - started, 2.5)
+            held.close()
+            held = None
+            time.sleep(0.2)
+            recovered = self._client("status", timeout=4, port=port)
+            self.assertEqual(recovered.returncode, 0, recovered.stderr.decode())
+            self.assertIn(b'"agent": "ready"', recovered.stdout)
+        finally:
+            if held is not None:
+                held.close()
+            limited.terminate()
+            try:
+                limited.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                limited.kill()
+                limited.wait(timeout=3)
+            if limited.stdout is not None:
+                limited.stdout.close()
+            if limited.stderr is not None:
+                limited.stderr.close()
+
+    def test_gateway_fails_closed_for_a_symlinked_server_key(self) -> None:
+        linked_key = self.path / "server-key-link"
+        linked_key.symlink_to(self.path / "server.key")
+        rejected = subprocess.Popen(
+            [
+                sys.executable, str(GATEWAY),
+                "--control-socket", str(self.control_socket),
+                "--token-file", str(self.token_file),
+                "--server-cert", str(self.path / "server.crt"),
+                "--server-key", str(linked_key), "--client-ca", str(self.path / "ca.crt"),
+                "--listen-host", "127.0.0.1", "--listen-port", str(free_loopback_port()),
+            ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        try:
+            stdout, stderr = rejected.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            rejected.kill()
+            stdout, stderr = rejected.communicate(timeout=3)
+            self.fail(f"gateway accepted a symlinked server key: stdout={stdout} stderr={stderr}")
+        self.assertEqual(rejected.returncode, 2, f"stdout={stdout} stderr={stderr}")
+        self.assertNotIn("Traceback", stderr)
+        self.assertIn("cannot load QSF TLS server material", stderr)
 
 
 class QsfTlsClientDeadlineTest(unittest.TestCase):

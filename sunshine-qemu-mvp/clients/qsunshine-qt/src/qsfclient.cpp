@@ -5,6 +5,7 @@
 #include <QAbstractSocket>
 #include <QClipboard>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
@@ -239,6 +240,8 @@ int clientDisplayMaximumFps()
 QsfClient::QsfClient(QObject* parent)
     : QObject(parent),
       m_Port(0),
+      m_EphemeralSystemAuthTicketExpiresAtUtcMs(0),
+      m_UseEphemeralSystemAuthTicket(false),
       m_SessionActive(false),
       m_DisplayNegotiationOnly(false),
       m_ProfileHandoffOperationsBlocked(false),
@@ -333,8 +336,10 @@ QString QsfClient::clientKeyFile() const
 
 bool QsfClient::configured() const
 {
+    const bool legacyMtls = !m_UseEphemeralSystemAuthTicket &&
+                            !m_ClientCertificateFile.isEmpty() && !m_ClientKeyFile.isEmpty();
     return !m_Host.isEmpty() && m_Port >= 1 && m_Port <= 65535 && !m_CaFile.isEmpty() &&
-           !m_ClientCertificateFile.isEmpty() && !m_ClientKeyFile.isEmpty();
+           (legacyMtls || hasValidEphemeralSystemAuthTicket());
 }
 
 bool QsfClient::sessionActive() const
@@ -428,6 +433,12 @@ void QsfClient::selectProfile(const QString& profileId)
         return;
     }
 
+    // A system-auth ticket is audience/profile scoped and intentionally has
+    // no persistent representation. Never carry it onto another desktop VM
+    // profile even if the two endpoint strings happen to look alike.
+    if (m_UseEphemeralSystemAuthTicket) {
+        clearEphemeralSystemAuthTicket();
+    }
     setSessionActive(false);
     ++m_ActivationEpoch;
     cancelAllRequests();
@@ -464,6 +475,17 @@ bool QsfClient::applyConfiguration(const QString& host,
         setLastError(QStringLiteral("QSF endpoint must contain a host and a port in 1..65535"));
         return false;
     }
+    const QString trimmedServerName = serverName.trimmed();
+    const QString trimmedCaFile = caFile.trimmed();
+    // A Save/Test action for the exact same route must not discard a fresh
+    // system-auth ticket. Any actual routing/trust change can target another
+    // VM/audience, so that path always forces a new PAM login.
+    const bool endpointChanged = m_Host != trimmedHost || m_Port != port ||
+                                 m_ServerName != trimmedServerName ||
+                                 m_CaFile != trimmedCaFile;
+    if (m_UseEphemeralSystemAuthTicket && endpointChanged) {
+        clearEphemeralSystemAuthTicket();
+    }
 
     ++m_ActivationEpoch;
     cancelAllRequests();
@@ -477,8 +499,8 @@ bool QsfClient::applyConfiguration(const QString& host,
     setLastResult(QString());
     m_Host = trimmedHost;
     m_Port = port;
-    m_ServerName = serverName.trimmed();
-    m_CaFile = caFile.trimmed();
+    m_ServerName = trimmedServerName;
+    m_CaFile = trimmedCaFile;
     m_ClientCertificateFile = clientCertificateFile.trimmed();
     m_ClientKeyFile = clientKeyFile.trimmed();
     saveProfile();
@@ -509,6 +531,65 @@ bool QsfClient::applyConfigurationText(const QString& host,
     }
     return applyConfiguration(host, parsedPort, serverName, caFile,
                               clientCertificateFile, clientKeyFile);
+}
+
+bool QsfClient::hasValidEphemeralSystemAuthTicket() const
+{
+    return !m_EphemeralSystemAuthTicket.isEmpty() &&
+           m_EphemeralSystemAuthTicketExpiresAtUtcMs > QDateTime::currentMSecsSinceEpoch();
+}
+
+void QsfClient::setEphemeralSystemAuthTicket(const QByteArray& ticket,
+                                             qint64 expiresAtUtcMs)
+{
+    // qsa1 compact tickets contain only this conservative ASCII alphabet.
+    // Validate before retaining one so an accidental caller cannot turn the
+    // request JSON into an arbitrary secret/data channel.
+    static const QRegularExpression ticketPattern(
+        QStringLiteral("\\Aqsa1\\.[A-Za-z0-9_-]{1,1368}\\.[A-Za-z0-9_-]{43}\\z"));
+    const QString ticketText = QString::fromLatin1(ticket);
+    if (ticket.isEmpty() || ticket.size() > 1536 ||
+        !ticketPattern.match(ticketText).hasMatch() ||
+        expiresAtUtcMs <= QDateTime::currentMSecsSinceEpoch()) {
+        clearEphemeralSystemAuthTicket();
+        setLastError(QStringLiteral("System-authentication returned an invalid or expired session ticket"));
+        return;
+    }
+    if (m_EphemeralSystemAuthTicket == ticket &&
+        m_EphemeralSystemAuthTicketExpiresAtUtcMs == expiresAtUtcMs) {
+        return;
+    }
+    // A credential identity may not change under requests already queued for
+    // a VM. End that lease first; a fresh activation proves the new ticket.
+    if (m_SessionActive || m_HasActiveRequest || !m_Queue.isEmpty()) {
+        deactivateSession();
+    }
+    m_EphemeralSystemAuthTicket.fill('\0');
+    m_EphemeralSystemAuthTicket = ticket;
+    m_EphemeralSystemAuthTicketExpiresAtUtcMs = expiresAtUtcMs;
+    m_UseEphemeralSystemAuthTicket = true;
+    setLastError(QString());
+    setStatus(QStringLiteral("QSF system-auth ticket is available in memory; activate it only for a visible stream"));
+    emit configurationChanged();
+}
+
+void QsfClient::clearEphemeralSystemAuthTicket()
+{
+    const bool hadTicket = !m_EphemeralSystemAuthTicket.isEmpty();
+    if (m_SessionActive || m_HasActiveRequest || !m_Queue.isEmpty()) {
+        // This private primitive intentionally bypasses the public handoff
+        // admission wording: ticket expiry/logout is a real security boundary
+        // and must end QSF rather than leave an authenticated lease alive.
+        deactivateSession();
+    }
+    m_EphemeralSystemAuthTicket.fill('\0');
+    m_EphemeralSystemAuthTicket.clear();
+    m_EphemeralSystemAuthTicketExpiresAtUtcMs = 0;
+    m_UseEphemeralSystemAuthTicket = false;
+    if (hadTicket) {
+        setStatus(QStringLiteral("QSF system-auth ticket cleared; no QSF operation remains active"));
+        emit configurationChanged();
+    }
 }
 
 void QsfClient::setSessionActive(bool active)
@@ -705,7 +786,7 @@ void QsfClient::optimizeConnectionForDisplay(const QString& requestedResolution,
 bool QsfClient::canOperateSession(QString* error, bool allowDisplayNegotiationOnly) const
 {
     if (!configured()) {
-        *error = QStringLiteral("Configure the QSF mTLS endpoint first");
+        *error = QStringLiteral("Configure the QSF endpoint and authenticate it first");
         return false;
     }
     if (!m_SessionActive) {
@@ -1005,7 +1086,7 @@ bool QsfClient::enqueue(const QString& operation, const QJsonObject& payload,
                         bool requiresReadySession, const QByteArray& clipboardRevision)
 {
     if (!configured()) {
-        setLastError(QStringLiteral("Configure the QSF mTLS endpoint first"));
+        setLastError(QStringLiteral("Configure the QSF endpoint and authenticate it first"));
         return false;
     }
     if (requiresActiveSession && !m_SessionActive) {
@@ -1038,32 +1119,41 @@ bool QsfClient::enqueue(const QString& operation, const QJsonObject& payload,
 bool QsfClient::prepareSslSocket(QSslSocket* socket, QString* error) const
 {
     QFile caFile(m_CaFile);
-    QFile certificateFile(m_ClientCertificateFile);
-    QFile keyFile(m_ClientKeyFile);
-    if (!caFile.open(QIODevice::ReadOnly) || !certificateFile.open(QIODevice::ReadOnly) ||
-        !keyFile.open(QIODevice::ReadOnly)) {
-        *error = QStringLiteral("Unable to read QSF CA or client credential files");
+    if (!caFile.open(QIODevice::ReadOnly)) {
+        *error = QStringLiteral("Unable to read the QSF CA certificate file");
         return false;
     }
 
     const QList<QSslCertificate> cas = QSslCertificate::fromData(caFile.readAll(), QSsl::Pem);
-    const QList<QSslCertificate> certificates =
-        QSslCertificate::fromData(certificateFile.readAll(), QSsl::Pem);
-    const QByteArray privateKeyBytes = keyFile.readAll();
-    QSslKey privateKey(privateKeyBytes, QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey);
-    if (privateKey.isNull()) {
-        privateKey = QSslKey(privateKeyBytes, QSsl::Ec, QSsl::Pem, QSsl::PrivateKey);
-    }
-    if (cas.isEmpty() || certificates.isEmpty() || privateKey.isNull()) {
-        *error = QStringLiteral("Invalid QSF CA, client certificate, or unencrypted RSA/EC private key");
+    if (cas.isEmpty()) {
+        *error = QStringLiteral("Invalid QSF CA certificate file");
         return false;
     }
 
     QSslConfiguration configuration = QSslConfiguration::defaultConfiguration();
     configuration.setProtocol(QSsl::TlsV1_3OrLater);
     configuration.setCaCertificates(cas);
-    configuration.setLocalCertificateChain(certificates);
-    configuration.setPrivateKey(privateKey);
+    if (!m_UseEphemeralSystemAuthTicket) {
+        QFile certificateFile(m_ClientCertificateFile);
+        QFile keyFile(m_ClientKeyFile);
+        if (!certificateFile.open(QIODevice::ReadOnly) || !keyFile.open(QIODevice::ReadOnly)) {
+            *error = QStringLiteral("Unable to read QSF client credential files");
+            return false;
+        }
+        const QList<QSslCertificate> certificates =
+            QSslCertificate::fromData(certificateFile.readAll(), QSsl::Pem);
+        const QByteArray privateKeyBytes = keyFile.readAll();
+        QSslKey privateKey(privateKeyBytes, QSsl::Rsa, QSsl::Pem, QSsl::PrivateKey);
+        if (privateKey.isNull()) {
+            privateKey = QSslKey(privateKeyBytes, QSsl::Ec, QSsl::Pem, QSsl::PrivateKey);
+        }
+        if (certificates.isEmpty() || privateKey.isNull()) {
+            *error = QStringLiteral("Invalid QSF client certificate or unencrypted RSA/EC private key");
+            return false;
+        }
+        configuration.setLocalCertificateChain(certificates);
+        configuration.setPrivateKey(privateKey);
+    }
     socket->setSslConfiguration(configuration);
     socket->setPeerVerifyMode(QSslSocket::VerifyPeer);
     socket->setPeerVerifyName(m_ServerName.isEmpty() ? m_Host : m_ServerName);
@@ -1107,7 +1197,15 @@ void QsfClient::startNextRequest()
             if (socket != m_Socket || !m_HasActiveRequest) {
                 return;
             }
-            const QByteArray request = QJsonDocument(m_ActiveRequest.payload)
+            QJsonObject requestPayload = m_ActiveRequest.payload;
+            if (hasValidEphemeralSystemAuthTicket()) {
+                requestPayload.insert(QStringLiteral("authorization"), QJsonObject{
+                    {QStringLiteral("scheme"), QStringLiteral("Bearer")},
+                    {QStringLiteral("token"),
+                     QString::fromLatin1(m_EphemeralSystemAuthTicket)},
+                });
+            }
+            const QByteArray request = QJsonDocument(requestPayload)
                                            .toJson(QJsonDocument::Compact) + '\n';
             const bool isConnectionProfile =
                 m_ActiveRequest.operation == QStringLiteral("connection_optimize");

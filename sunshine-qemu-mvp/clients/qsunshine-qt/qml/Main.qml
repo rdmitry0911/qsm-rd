@@ -14,6 +14,14 @@ ApplicationWindow {
     minimumHeight: 620
     title: qsTr("q-sunshine desktop client")
 
+    // Keep every page pinned to the viewport's leading edge.  The previous
+    // centered fixed-width columns acquired a negative x coordinate while a
+    // native window was resized from its left edge, which made controls seem
+    // to slide behind the window border.  At compact desktop widths grids
+    // stack their label/control pairs instead of asking a Layout to overflow.
+    readonly property int pageMargin: 22
+    readonly property bool compactPageLayout: width < 1040
+
     function loadDesktopFields() {
         profileNameField.text = moonlight.currentProfileId
         hostField.text = moonlight.profileHost
@@ -25,19 +33,52 @@ ApplicationWindow {
         videoDecoder.currentIndex = videoDecoder.indexOfValue(moonlight.videoDecoder)
         if (videoDecoder.currentIndex < 0)
             videoDecoder.currentIndex = 0
-        moonlightPathField.text = moonlight.binaryPath
     }
 
     function saveDesktopProfile() {
+        // A profile name is the authorization scope, not merely a cosmetic
+        // label. Reusing it for a different media host must not retain a
+        // system-auth admission that was issued for the previous endpoint.
+        var previousMediaHost = moonlight.profileHost
         var saved = moonlight.saveProfile(profileNameField.text, hostField.text,
                                           appField.text, initialResolution.editText,
                                           displayMode.currentText)
         if (saved) {
+            var mediaHostChanged = moonlight.profileHost !== previousMediaHost
             qsfClient.selectProfile(moonlight.currentProfileId)
+            systemAuth.selectProfile(moonlight.currentProfileId)
+            if (mediaHostChanged && systemAuth.authenticated)
+                systemAuth.logout()
             root.loadDesktopFields()
             root.loadQsfFields()
+            root.loadSystemAuthFields()
         }
         return saved
+    }
+
+    function loadSystemAuthFields() {
+        systemAuthHostField.text = systemAuth.host
+        systemAuthPortField.text = systemAuth.port > 0 ? String(systemAuth.port) : "48123"
+        systemAuthServerNameField.text = systemAuth.serverName
+        systemAuthCaField.text = systemAuth.caFile
+        systemAuthAudienceField.text = systemAuth.expectedAudience
+    }
+
+    function saveSystemAuthFields() {
+        return systemAuth.applyConfigurationText(systemAuthHostField.text,
+                                                  systemAuthPortField.text,
+                                                  systemAuthServerNameField.text,
+                                                  systemAuthCaField.text,
+                                                  systemAuthAudienceField.text)
+    }
+
+    function submitSystemLogin() {
+        if (!root.saveSystemAuthFields())
+            return
+        systemAuth.login(systemUsernameField.text, systemPasswordField.text)
+        // Clear the QML editor immediately after its one use. The backend
+        // keeps its serialized request only until QSslSocket accepts it.
+        systemPasswordField.clear()
     }
 
     function loadQsfFields() {
@@ -45,8 +86,6 @@ ApplicationWindow {
         qsfPortField.text = qsfClient.port > 0 ? String(qsfClient.port) : "48122"
         qsfServerNameField.text = qsfClient.serverName
         qsfCaField.text = qsfClient.caFile
-        qsfCertificateField.text = qsfClient.clientCertificateFile
-        qsfKeyField.text = qsfClient.clientKeyFile
         initialClipboardDirection.currentIndex =
                 initialClipboardDirection.indexOfValue(qsfClient.initialClipboardDirection)
         if (initialClipboardDirection.currentIndex < 0)
@@ -58,14 +97,15 @@ ApplicationWindow {
                                                 qsfPortField.text,
                                                 qsfServerNameField.text,
                                                 qsfCaField.text,
-                                                qsfCertificateField.text,
-                                                qsfKeyField.text)
+                                                "", "")
     }
 
     Component.onCompleted: {
         loadDesktopFields()
         qsfClient.selectProfile(moonlight.currentProfileId)
+        systemAuth.selectProfile(moonlight.currentProfileId)
         loadQsfFields()
+        loadSystemAuthFields()
     }
 
     Connections {
@@ -73,7 +113,9 @@ ApplicationWindow {
         function onProfileChanged() {
             root.loadDesktopFields()
             qsfClient.selectProfile(moonlight.currentProfileId)
+            systemAuth.selectProfile(moonlight.currentProfileId)
             root.loadQsfFields()
+            root.loadSystemAuthFields()
         }
         function onProfilesChanged() { root.loadDesktopFields() }
     }
@@ -85,6 +127,12 @@ ApplicationWindow {
         function onConnectionProfileReceived(width, height, fps, bitrateKbps, videoCodec, qemuApplied) {
             guestResolution.editText = String(width) + "x" + String(height)
         }
+    }
+
+    Connections {
+        target: systemAuth
+        function onProfileChanged() { root.loadSystemAuthFields() }
+        function onConfigurationChanged() { root.loadSystemAuthFields() }
     }
 
     header: ToolBar {
@@ -103,18 +151,32 @@ ApplicationWindow {
                       (moonlight.streamBusy ? qsTr("Starting Moonlight graphics stream") : qsTr("Desktop session manager"))
                 opacity: 0.75
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                elide: Text.ElideRight
             }
             Label {
                 text: profileNegotiation.busy ? qsTr("Applying display profile") :
                       (qsfClient.ready ? qsTr("QSF ready") :
                        (qsfClient.sessionActive ? qsTr("QSF verifying") : qsTr("QSF inactive")))
                 color: qsfClient.ready ? Material.accent : "#ffb74d"
+                Layout.maximumWidth: 140
+                Layout.minimumWidth: 0
+                elide: Text.ElideRight
+            }
+            Label {
+                text: systemAuth.authenticated
+                      ? qsTr("Signed in: %1").arg(systemAuth.subject)
+                      : (systemAuth.authenticating ? qsTr("Signing in") : qsTr("Sign in required"))
+                color: systemAuth.authenticated ? Material.accent : "#ffb74d"
+                Layout.maximumWidth: 210
+                elide: Text.ElideRight
             }
         }
     }
 
     TabBar {
         id: tabs
+        objectName: "mainTabs"
         width: parent.width
         TabButton { text: qsTr("Connection") }
         TabButton { text: qsTr("Clipboard, files & display") }
@@ -130,27 +192,35 @@ ApplicationWindow {
 
         Item {
             ScrollView {
+                id: connectionScroll
+                objectName: "connectionScroll"
                 anchors.fill: parent
                 clip: true
+                contentWidth: width
+                contentHeight: connectionContent.implicitHeight + root.pageMargin * 2
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
                 ColumnLayout {
-                    width: Math.max(760, root.width - 48)
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.margins: 22
+                    id: connectionContent
+                    objectName: "connectionContent"
+                    width: Math.max(0, connectionScroll.availableWidth - root.pageMargin * 2)
+                    x: root.pageMargin
+                    y: root.pageMargin
                     spacing: 16
 
                     Label {
                         Layout.fillWidth: true
                         wrapMode: Text.Wrap
-                        text: qsTr("Moonlight handles only the GameStream video, audio, and input window. This Qt shell owns profiles and the authenticated q-sunshine companion channel.")
+                        text: qsTr("q-sunshine uses a short-lived system sign-in for this desktop profile. The patched Moonlight media process receives an in-memory, VM-bound lease after sign-in; PIN pairing is not available.")
                     }
 
                     GroupBox {
                         title: qsTr("Desktop profile")
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
 
                         GridLayout {
-                            columns: 2
+                            columns: root.compactPageLayout ? 1 : 2
                             anchors.fill: parent
                             columnSpacing: 12
                             rowSpacing: 10
@@ -171,7 +241,9 @@ ApplicationWindow {
                                         if (moonlight.selectProfile(currentText)) {
                                             root.loadDesktopFields()
                                             qsfClient.selectProfile(moonlight.currentProfileId)
+                                            systemAuth.selectProfile(moonlight.currentProfileId)
                                             root.loadQsfFields()
+                                            root.loadSystemAuthFields()
                                         } else {
                                             root.loadDesktopFields()
                                         }
@@ -220,9 +292,10 @@ ApplicationWindow {
                             Label { text: qsTr("Presentation") }
                             ComboBox {
                                 id: displayMode
+                                objectName: "presentationMode"
                                 Layout.fillWidth: true
                                 enabled: !profileNegotiation.busy && !moonlight.pairing && (moonlight.running || !moonlight.streamBusy)
-                                model: ["windowed", "fullscreen", "borderless"]
+                                model: ["windowed", "fullscreen"]
                             }
 
                             Label { text: qsTr("Video decoder") }
@@ -237,59 +310,129 @@ ApplicationWindow {
                                 }
                             }
 
-                            Label { text: qsTr("Moonlight executable") }
-                            TextField {
-                                id: moonlightPathField
-                                Layout.fillWidth: true
-                                enabled: !profileNegotiation.busy && !moonlight.streamBusy && !moonlight.pairing
-                                text: moonlight.binaryPath
-                                onEditingFinished: {
-                                    moonlight.binaryPath = text
-                                    // Restore the persisted value when an empty path was
-                                    // rejected instead of leaving the editor misleading.
-                                    text = moonlight.binaryPath
-                                }
-                            }
                         }
                     }
 
                     GroupBox {
-                        title: qsTr("Pairing")
+                        title: qsTr("System authentication")
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
 
-                        RowLayout {
+                        ColumnLayout {
                             anchors.fill: parent
-                            Label { text: qsTr("Four-digit PIN to enter in Sunshine") }
-                            TextField {
-                                id: pinField
-                                Layout.preferredWidth: 130
-                                enabled: !profileNegotiation.busy && !moonlight.streamBusy && !moonlight.pairing
-                                inputMethodHints: Qt.ImhDigitsOnly
-                                maximumLength: 4
-                                echoMode: TextInput.Password
+                            spacing: 10
+
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                text: qsTr("Sign in with an account authorized for this VM. The password is sent once over verified TLS to the host PAM service; it is never saved in the desktop profile.")
                             }
-                            Button {
-                                text: qsTr("Pair")
-                                enabled: !profileNegotiation.busy && !moonlight.streamBusy && !moonlight.pairing
-                                onClicked: {
-                                    if (!root.saveDesktopProfile())
-                                        return
-                                    moonlight.binaryPath = moonlightPathField.text
-                                    moonlight.pair(moonlight.profileHost, pinField.text)
-                                    pinField.clear()
+
+                            GridLayout {
+                                columns: root.compactPageLayout ? 1 : 2
+                                Layout.fillWidth: true
+                                enabled: !profileNegotiation.busy && !moonlight.streamBusy &&
+                                         !systemAuth.authenticating
+                                columnSpacing: 12
+                                rowSpacing: 8
+
+                                Label { text: qsTr("Auth gateway host") }
+                                TextField {
+                                    id: systemAuthHostField
+                                    Layout.fillWidth: true
+                                    placeholderText: "auth.example"
+                                }
+                                Label { text: qsTr("TCP port") }
+                                TextField {
+                                    id: systemAuthPortField
+                                    Layout.fillWidth: true
+                                    inputMethodHints: Qt.ImhDigitsOnly
+                                }
+                                Label { text: qsTr("TLS server name") }
+                                TextField {
+                                    id: systemAuthServerNameField
+                                    Layout.fillWidth: true
+                                    placeholderText: qsTr("Optional; defaults to gateway host")
+                                }
+                                Label { text: qsTr("Gateway CA PEM") }
+                                TextField {
+                                    id: systemAuthCaField
+                                    Layout.fillWidth: true
+                                    placeholderText: "/path/to/auth-server-ca.crt"
+                                }
+                                Label { text: qsTr("Expected VM audience") }
+                                TextField {
+                                    id: systemAuthAudienceField
+                                    objectName: "systemAuthAudience"
+                                    Layout.fillWidth: true
+                                    maximumLength: 128
+                                    placeholderText: "vm-100"
+                                    inputMethodHints: Qt.ImhNoPredictiveText
+                                }
+                                Label { text: qsTr("System login") }
+                                TextField {
+                                    id: systemUsernameField
+                                    objectName: "systemAuthUsername"
+                                    Layout.fillWidth: true
+                                    maximumLength: 64
+                                    inputMethodHints: Qt.ImhNoPredictiveText
+                                }
+                                Label { text: qsTr("Password") }
+                                TextField {
+                                    id: systemPasswordField
+                                    objectName: "systemAuthPassword"
+                                    Layout.fillWidth: true
+                                    echoMode: TextInput.Password
+                                    inputMethodHints: Qt.ImhSensitiveData | Qt.ImhNoPredictiveText
+                                    onAccepted: root.submitSystemLogin()
                                 }
                             }
-                            Button {
-                                text: qsTr("Cancel pairing")
-                                visible: moonlight.pairing
-                                enabled: moonlight.pairing && !profileNegotiation.busy
-                                onClicked: moonlight.cancelPairing()
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Button {
+                                    text: qsTr("Save endpoint")
+                                    enabled: !profileNegotiation.busy && !moonlight.streamBusy &&
+                                             !systemAuth.authenticating
+                                    onClicked: root.saveSystemAuthFields()
+                                }
+                                Button {
+                                    id: systemLoginButton
+                                    objectName: "systemAuthLogin"
+                                    text: systemAuth.authenticating ? qsTr("Signing in") : qsTr("Sign in")
+                                    highlighted: true
+                                    enabled: !profileNegotiation.busy && !moonlight.streamBusy &&
+                                             !systemAuth.authenticating
+                                    onClicked: root.submitSystemLogin()
+                                }
+                                Button {
+                                    text: qsTr("Sign out")
+                                    enabled: systemAuth.authenticated || systemAuth.authenticating
+                                    onClicked: systemAuth.logout()
+                                }
+                                Item { Layout.fillWidth: true }
+                                Label {
+                                    text: systemAuth.authenticated
+                                          ? qsTr("Session expires at %1 UTC").arg(
+                                                systemAuth.expiresAtUtc.toString("HH:mm:ss"))
+                                          : qsTr("A current sign-in is required before connecting")
+                                    opacity: 0.72
+                                    wrapMode: Text.Wrap
+                                    Layout.maximumWidth: 330
+                                }
                             }
-                            Item { Layout.fillWidth: true }
+
                             Label {
-                                text: qsTr("This client supplies the PIN to Moonlight; enter the same PIN in Sunshine's pairing UI. Moonlight stores the host certificate in its normal local profile.")
-                                opacity: 0.7
-                                Layout.maximumWidth: 420
+                                Layout.fillWidth: true
+                                visible: systemAuth.lastError.length > 0
+                                text: systemAuth.lastError
+                                color: "#ef9a9a"
+                                wrapMode: Text.Wrap
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: systemAuth.status
+                                opacity: 0.75
                                 wrapMode: Text.Wrap
                             }
                         }
@@ -302,11 +445,12 @@ ApplicationWindow {
                             text: moonlight.running ? qsTr("Reconnect with these settings") :
                                   (moonlight.streamBusy ? qsTr("Starting desktop") : qsTr("Connect desktop"))
                             highlighted: true
-                            enabled: !profileNegotiation.busy && !moonlight.pairing && (moonlight.running || !moonlight.streamBusy)
+                            enabled: systemAuth.authenticated && moonlight.canStartStream &&
+                                     !profileNegotiation.busy && !moonlight.pairing &&
+                                     (moonlight.running || !moonlight.streamBusy)
                             onClicked: {
                                 if (!root.saveDesktopProfile())
                                     return
-                                moonlight.binaryPath = moonlightPathField.text
                                 moonlight.startStream(moonlight.profileHost, moonlight.profileAppName,
                                                       moonlight.profileResolution,
                                                       moonlight.profileDisplayMode)
@@ -352,18 +496,26 @@ ApplicationWindow {
 
         Item {
             ScrollView {
+                id: companionScroll
+                objectName: "companionScroll"
                 anchors.fill: parent
                 clip: true
+                contentWidth: width
+                contentHeight: companionContent.implicitHeight + root.pageMargin * 2
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
                 ColumnLayout {
-                    width: Math.max(760, root.width - 48)
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.margins: 22
+                    id: companionContent
+                    objectName: "companionContent"
+                    width: Math.max(0, companionScroll.availableWidth - root.pageMargin * 2)
+                    x: root.pageMargin
+                    y: root.pageMargin
                     spacing: 16
 
                     GroupBox {
                         title: qsTr("QSF TLS 1.3 companion for this desktop profile")
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -372,11 +524,11 @@ ApplicationWindow {
                             Label {
                                 Layout.fillWidth: true
                                 wrapMode: Text.Wrap
-                                text: qsTr("The gateway receives an mTLS client certificate and reads the host-local QSF token itself. The token never crosses the network. Paths are stored per desktop profile; use a private key protected by filesystem permissions.")
+                                text: qsTr("The gateway verifies the current short-lived system-auth ticket and reads the host-local QSF token itself. The host token, user password, and session ticket never persist in this profile.")
                             }
 
                             GridLayout {
-                                columns: 2
+                                columns: root.compactPageLayout ? 1 : 2
                                 Layout.fillWidth: true
                                 enabled: !profileNegotiation.busy && !qsfClient.sessionActive
                                 columnSpacing: 12
@@ -390,10 +542,6 @@ ApplicationWindow {
                                 TextField { id: qsfServerNameField; Layout.fillWidth: true; placeholderText: qsTr("Optional; defaults to gateway host") }
                                 Label { text: qsTr("Gateway CA PEM") }
                                 TextField { id: qsfCaField; Layout.fillWidth: true; placeholderText: "/path/to/qsf-server-ca.crt" }
-                                Label { text: qsTr("Client certificate PEM") }
-                                TextField { id: qsfCertificateField; Layout.fillWidth: true; placeholderText: "/path/to/qsf-client.crt" }
-                                Label { text: qsTr("Client private key PEM") }
-                                TextField { id: qsfKeyField; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: "/path/to/qsf-client.key" }
                             }
 
                             RowLayout {
@@ -404,7 +552,8 @@ ApplicationWindow {
                                 }
                                 Button {
                                     text: qsTr("Test gateway")
-                                    enabled: !profileNegotiation.busy && !qsfClient.sessionActive
+                                    enabled: systemAuth.authenticated && !profileNegotiation.busy &&
+                                             !qsfClient.sessionActive
                                     onClicked: {
                                         if (root.saveQsfFields())
                                             qsfClient.testConnection()
@@ -419,6 +568,7 @@ ApplicationWindow {
                     GroupBox {
                         title: qsTr("Companion session activation")
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -427,12 +577,12 @@ ApplicationWindow {
                             Label {
                                 Layout.fillWidth: true
                                 wrapMode: Text.Wrap
-                                text: qsTr("Activate QSF only after the Moonlight video window visibly shows the selected desktop. A child process starting is not treated as proof of an authenticated GameStream session, and no log parsing is used as an authority signal.")
+                                    text: qsTr("Activate QSF only after the graphics window visibly shows the selected desktop. A child process starting is not treated as proof of a visible session, and no log parsing is used as an authority signal.")
                             }
                             RowLayout {
                                 Button {
                                     text: qsfClient.sessionActive ? qsTr("Deactivate QSF companion") : qsTr("Activate QSF for visible stream")
-                                    enabled: !profileNegotiation.busy &&
+                                    enabled: systemAuth.authenticated && !profileNegotiation.busy &&
                                              ((moonlight.running && !moonlight.streamStopping) ||
                                               qsfClient.sessionActive)
                                     onClicked: qsfClient.sessionActive = !qsfClient.sessionActive
@@ -442,7 +592,7 @@ ApplicationWindow {
                                     wrapMode: Text.Wrap
                                     opacity: 0.75
                                     text: qsfClient.sessionActive
-                                          ? qsTr("The profile is being verified with its mTLS gateway; ending or reconnecting Moonlight cancels every QSF operation.")
+                                          ? qsTr("The profile is being verified with its system-authenticated gateway; ending or reconnecting graphics cancels every QSF operation.")
                                           : qsTr("Inactive profiles cannot send clipboard, resize, upload, or download operations.")
                                 }
                             }
@@ -452,6 +602,7 @@ ApplicationWindow {
                     GroupBox {
                         title: qsTr("Clipboard and display")
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -550,6 +701,7 @@ ApplicationWindow {
                     GroupBox {
                         title: qsTr("Constrained file transfer")
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -562,7 +714,7 @@ ApplicationWindow {
                             }
 
                             GridLayout {
-                                columns: 3
+                                columns: root.compactPageLayout ? 1 : 3
                                 Layout.fillWidth: true
                                 columnSpacing: 10
                                 rowSpacing: 8
@@ -650,7 +802,7 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     wrapMode: Text.Wrap
                     opacity: 0.72
-                    text: qsTr("Security boundary: QSF mTLS authenticates the companion gateway, but the gateway is launched per VM/session by the host. The current protocol does not cryptographically bind GameStream and QSF sessions; do not point a profile at an untrusted gateway.")
+                    text: qsTr("Security boundary: system authentication issues short-lived VM-bound credentials for both QSF and GameStream. The media lease is held only in memory and is passed to the patched Moonlight process through a one-shot pipe; do not point a profile at an untrusted gateway.")
                 }
             }
         }

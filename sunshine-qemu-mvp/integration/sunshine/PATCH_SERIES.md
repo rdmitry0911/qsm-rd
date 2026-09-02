@@ -100,3 +100,30 @@ documented in `ISOLATED_LIBVA.md`.
 - prevent QEMU from retaining a live listener connection after its object was
   removed, which otherwise produces repeated `UnknownMethod` display updates
   during capture retirement.
+
+## 9. `0008-nvhttp-require-system-auth-media-leases.patch` — implemented
+
+- opt-in `qsm_system_auth_mode=enabled` switches GameStream HTTPS admission
+  from Sunshine's paired-certificate/PIN store to a short-lived mTLS media
+  lease issued after system login;
+- requires an exact VM audience URI SAN, a constrained CA:false/clientAuth
+  leaf profile, certificate validity and a conservative login subject before
+  serving a sensitive GameStream endpoint;
+- loads the per-VM public media CA once from an absolute, root-owned,
+  non-group/world-writable regular file using `O_NOFOLLOW`, so a replaceable
+  path cannot become a trust anchor;
+- unregisters HTTPS and plaintext `/pair` routes and the Web UI PIN routes
+  while the mode is active; there is no paired-certificate fallback;
+- derives the client identity from the specific active TLS request instead of
+  a process-global verification callback result;
+- redacts case-insensitive `rikey`, `rikeyid`, token, auth, and cookie query
+  or header values in the GameStream debug-request trace;
+- requires encrypted RTSP possession proof (`corever` and a strict 128-bit
+  `rikey`) for native lease launches, and rejects a lease that expires before
+  pending RTSP admission. A successfully admitted media session is not
+  forcibly cut off merely because its intentionally short lease later expires.
+
+This outer patch depends on the nested
+`simple-web-server/0001-server-http-expose-request-tls-native-handle.patch`.
+Apply that patch inside Sunshine's
+`third-party/Simple-Web-Server` worktree before compiling the replay.

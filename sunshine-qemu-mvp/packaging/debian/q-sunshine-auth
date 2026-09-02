@@ -1,0 +1,51 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# System TLS/PAM gateway. Passwords are accepted only on the TLS connection.
+set -eu
+
+if [ -z "${QSUNSHINE_AUTH_SERVER_CERT:-}" ] || \
+   [ -z "${QSUNSHINE_AUTH_SERVER_KEY:-}" ] || \
+   [ -z "${QSUNSHINE_AUTH_TICKET_KEY:-}" ] || \
+   [ -z "${QSUNSHINE_AUTH_AUDIENCE:-}" ] || \
+   [ -z "${QSUNSHINE_AUTH_ALLOWED_USERS:-}" ]; then
+    echo "q-sunshine-auth: server cert/key, ticket key, audience, and allowed users are required" >&2
+    exit 2
+fi
+
+set -- \
+    --server-cert "$QSUNSHINE_AUTH_SERVER_CERT" \
+    --server-key "$QSUNSHINE_AUTH_SERVER_KEY" \
+    --ticket-key "$QSUNSHINE_AUTH_TICKET_KEY" \
+    --audience "$QSUNSHINE_AUTH_AUDIENCE" \
+    --allowed-users "$QSUNSHINE_AUTH_ALLOWED_USERS" \
+    --pam-service "${QSUNSHINE_AUTH_PAM_SERVICE:-q-sunshine-remote}" \
+    --ticket-ttl-seconds "${QSUNSHINE_AUTH_TICKET_TTL_SECONDS:-600}" \
+    --max-concurrent-requests "${QSUNSHINE_AUTH_MAX_CONCURRENT_REQUESTS:-16}" \
+    --listen-host "${QSUNSHINE_AUTH_GATEWAY_HOST:-127.0.0.1}" \
+    --listen-port "${QSUNSHINE_AUTH_GATEWAY_PORT:-48123}" "$@"
+
+# A client-certificate lease authority is either completely provisioned or not
+# exposed at all. In particular, never start an endpoint with a CA key but no
+# pinned Sunshine leaf, or silently substitute a default path.
+if [ -n "${QSUNSHINE_GAMESTREAM_LEASE_ISSUER:-}" ] || \
+   [ -n "${QSUNSHINE_GAMESTREAM_LEASE_CA_CERT:-}" ] || \
+   [ -n "${QSUNSHINE_GAMESTREAM_LEASE_CA_KEY:-}" ] || \
+   [ -n "${QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_CERT:-}" ] || \
+   [ -n "${QSUNSHINE_GAMESTREAM_LEASE_TTL_SECONDS:-}" ]; then
+    if [ -z "${QSUNSHINE_GAMESTREAM_LEASE_ISSUER:-}" ] || \
+       [ -z "${QSUNSHINE_GAMESTREAM_LEASE_CA_CERT:-}" ] || \
+       [ -z "${QSUNSHINE_GAMESTREAM_LEASE_CA_KEY:-}" ] || \
+       [ -z "${QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_CERT:-}" ] || \
+       [ -z "${QSUNSHINE_GAMESTREAM_LEASE_TTL_SECONDS:-}" ]; then
+        echo "q-sunshine-auth: all QSUNSHINE_GAMESTREAM_LEASE_* values are required together" >&2
+        exit 2
+    fi
+    set -- "$@" \
+        --gamestream-lease-issuer "$QSUNSHINE_GAMESTREAM_LEASE_ISSUER" \
+        --gamestream-lease-ca-cert "$QSUNSHINE_GAMESTREAM_LEASE_CA_CERT" \
+        --gamestream-lease-ca-key "$QSUNSHINE_GAMESTREAM_LEASE_CA_KEY" \
+        --gamestream-lease-sunshine-server-cert "$QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_CERT" \
+        --gamestream-lease-ttl-seconds "$QSUNSHINE_GAMESTREAM_LEASE_TTL_SECONDS"
+fi
+
+exec /usr/bin/python3 /usr/lib/q-sunshine/system_auth/q_sunshine_auth_gateway.py "$@"

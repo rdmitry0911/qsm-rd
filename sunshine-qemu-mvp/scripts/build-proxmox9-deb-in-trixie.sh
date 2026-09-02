@@ -28,8 +28,13 @@ sudo -n true || die "passwordless sudo is required"
 for required_path in \
     "$ROOT_DIR/.upstream/Sunshine/CMakeLists.txt" \
     "$ROOT_DIR/.upstream/libva-2.21.0/meson.build" \
+    "$ROOT_DIR/extensions/gamestream_auth/q_sunshine_gamestream_lease.py" \
+    "$ROOT_DIR/extensions/gamestream_auth/q_sunshine_lease_issuer.c" \
     "$ROOT_DIR/integration/sunshine/patches/0007-platform-linux-close-QEMU-listener-transport-before-teardown.patch" \
-    "$ROOT_DIR/packaging/debian/build-proxmox9-deb.sh"; do
+    "$ROOT_DIR/integration/sunshine/patches/0008-nvhttp-require-system-auth-media-leases.patch" \
+    "$ROOT_DIR/integration/sunshine/simple-web-server/0001-server-http-expose-request-tls-native-handle.patch" \
+    "$ROOT_DIR/packaging/debian/build-proxmox9-deb.sh" \
+    "$ROOT_DIR/docs/GAMESTREAM_LEASE_AUTH.md"; do
     [[ -f "$required_path" ]] || die "missing required source: $required_path"
 done
 
@@ -51,8 +56,9 @@ sudo install -d -m 0755 "$CHROOT_DIR/work/source" "$CHROOT_DIR/work/out" "$CHROO
 tar --create --file "$SOURCE_ARCHIVE" --exclude-vcs --directory "$ROOT_DIR" \
     CMakeLists.txt LICENSE \
     .upstream/Sunshine .upstream/libva-2.21.0 \
-    packaging/debian extensions/qsf_control guest integration/sunshine \
-    docs/QSF_STREAM_NEGOTIATION.md docs/SUNSHINE_QEMU_INTEGRATION.md
+    packaging/debian extensions/qsf_control extensions/system_auth extensions/gamestream_auth guest integration/sunshine \
+    docs/QSF_STREAM_NEGOTIATION.md docs/SUNSHINE_QEMU_INTEGRATION.md docs/SYSTEM_AUTH.md \
+    docs/GAMESTREAM_LEASE_AUTH.md
 sudo tar --extract --file "$SOURCE_ARCHIVE" --directory "$CHROOT_DIR/work/source"
 sudo chmod 0755 "$CHROOT_DIR/work/source/packaging/debian/build-proxmox9-deb.sh"
 
@@ -62,7 +68,7 @@ sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive /bin/bash 
         build-essential binutils ca-certificates cmake curl dpkg-dev git \
         libboost-dev libcap-dev libcurl4-openssl-dev libdrm-dev libevdev-dev \
         libgbm-dev libglib2.0-dev libicu-dev libminiupnpc-dev libnuma-dev \
-        libopus-dev libssl-dev lintian meson ninja-build nlohmann-json3-dev \
+        libopus-dev libpam0g-dev libssl-dev lintian meson ninja-build nlohmann-json3-dev \
         nodejs npm patchelf pkg-config python3 python3-jinja2
 '
 
@@ -117,7 +123,12 @@ mkdir -p "$OUTPUT_DIR"
 artifact_name="$(basename "${artifacts[0]}")"
 sudo install -m 0644 "${artifacts[0]}" "$OUTPUT_DIR/$artifact_name"
 sudo chown "$(id -u):$(id -g)" "$OUTPUT_DIR/$artifact_name"
-sha256sum "$OUTPUT_DIR/$artifact_name" | tee "$OUTPUT_DIR/$artifact_name.sha256"
+# Keep the checksum sidecar portable: a GitHub Release consumer should not
+# need this builder's absolute workspace path for `sha256sum -c` to work.
+(
+    cd "$OUTPUT_DIR"
+    sha256sum "$artifact_name" | tee "$artifact_name.sha256"
+)
 
 echo "Q_SUNSHINE_TRIXIE_BUILD_OK artifact=$OUTPUT_DIR/$artifact_name"
 echo "Q_SUNSHINE_TRIXIE_CHROOT_RETAINED root=$CHROOT_DIR source_archive=$SOURCE_ARCHIVE"

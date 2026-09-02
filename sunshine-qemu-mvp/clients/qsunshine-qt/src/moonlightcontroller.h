@@ -11,16 +11,21 @@
 #include <QtGlobal>
 
 class QTimer;
+class QProcessEnvironment;
 
 class MoonlightController final : public QObject
 {
     Q_OBJECT
 
-    Q_PROPERTY(QString binaryPath READ binaryPath WRITE setBinaryPath NOTIFY binaryPathChanged)
+    // The production child is a package-owned executable.  Expose its path
+    // only as read-only diagnostics; neither QML nor QSettings may select the
+    // process that receives a system-auth ticket on stdin.
+    Q_PROPERTY(QString binaryPath READ binaryPath NOTIFY binaryPathChanged)
     Q_PROPERTY(bool running READ running NOTIFY runningChanged)
     Q_PROPERTY(bool streamBusy READ streamBusy NOTIFY streamBusyChanged)
     Q_PROPERTY(bool streamStopping READ streamStopping NOTIFY streamStoppingChanged)
     Q_PROPERTY(bool pairing READ pairing NOTIFY pairingChanged)
+    Q_PROPERTY(bool canStartStream READ canStartStream NOTIFY canStartStreamChanged)
     Q_PROPERTY(QString status READ status NOTIFY statusChanged)
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(QString recentOutput READ recentOutput NOTIFY recentOutputChanged)
@@ -43,6 +48,7 @@ public:
     bool streamBusy() const;
     bool streamStopping() const;
     bool pairing() const;
+    bool canStartStream() const;
     QString status() const;
     QString lastError() const;
     QString recentOutput() const;
@@ -57,20 +63,45 @@ public:
     QString profileVideoCodec() const;
     QString videoDecoder() const;
 
-    void setBinaryPath(const QString& binaryPath);
+#ifdef QSUNSHINE_TEST_MOONLIGHT_OVERRIDE
+    // This escape hatch exists only in explicitly compiled test/E2E targets.
+    // qsunshine-client is never built with this symbol, so a shipped UI or
+    // tampered per-user settings file cannot redirect the ticket pipe.
+    bool setTestMoonlightBinary(const QString& binaryPath);
+#endif
     Q_INVOKABLE void setVideoDecoder(const QString& videoDecoder);
 
     Q_INVOKABLE bool selectProfile(const QString& profileId);
     Q_INVOKABLE bool saveProfile(const QString& profileId, const QString& host,
                                  const QString& appName, const QString& resolution,
                                  const QString& displayMode);
-    Q_INVOKABLE void pair(const QString& host, const QString& pin);
+    // Kept only for an explicit administrator/test compatibility enrollment.
+    // It is deliberately not Q_INVOKABLE: the shipped desktop UI has no PIN
+    // workflow and ordinary QML must not be able to recreate one.
+    void pair(const QString& host, const QString& pin);
     Q_INVOKABLE void cancelPairing();
     Q_INVOKABLE void startStream(const QString& host, const QString& appName,
                                  const QString& resolution, const QString& displayMode);
     Q_INVOKABLE void stopStream();
     bool applyNegotiatedProfile(int width, int height, int fps, int bitrateKbps,
                                 const QString& videoCodec);
+    // The composition root maps SystemAuthClient's ephemeral session to this
+    // admission gate. It is intentionally a C++ API rather than a QML setter:
+    // user code cannot claim authorization by assigning a writable property.
+    void setSystemAuthAdmission(bool admitted);
+    // The composition root supplies the one-time system-auth ticket to the
+    // patched Moonlight child through an inherited pipe, never through QML,
+    // QSettings, argv, or the child environment. Once this mode is enabled a
+    // stock/paired Moonlight fallback is impossible: every launch carries the
+    // patched client's explicit --qsm-system-auth marker.
+    void requireSystemAuthGameStreamLease();
+    void setSystemAuthGameStreamLease(const QString& authHost, int authPort,
+                                      const QString& authServerName,
+                                      const QString& authCaFile,
+                                      const QString& audience,
+                                      const QByteArray& ticket,
+                                      qint64 expiresAtUtcMs);
+    void clearSystemAuthGameStreamLease();
 
 signals:
     void binaryPathChanged();
@@ -78,11 +109,17 @@ signals:
     void streamBusyChanged();
     void streamStoppingChanged();
     void pairingChanged();
+    void canStartStreamChanged();
     void statusChanged();
     void lastErrorChanged();
     void recentOutputChanged();
     void profilesChanged();
     void profileChanged();
+    // A desktop profile ID and its Sunshine media host together form the
+    // route on which a higher-level system-auth admission is meaningful.
+    // The composition root revokes that admission synchronously when this
+    // signal fires, rather than relying on a particular QML save path.
+    void streamAuthorizationScopeChanged();
     void videoDecoderChanged();
     // Emitted only after the Moonlight pairing child has actually started.
     // `pairingChanged(true)` is deliberately earlier so UI can disable its
@@ -120,6 +157,9 @@ private:
     void writeCurrentProfile() const;
     void startValidatedStreamRequest(const StreamRequest& request);
     void launchStream(const StreamRequest& request);
+    bool prepareSystemAuthGameStreamEnvironment(const StreamRequest& request,
+                                                QProcessEnvironment* environment,
+                                                QString* error) const;
     void appendOutput(const QByteArray& output);
     void appendRedactedOutput(const QByteArray& output);
     void flushOutputFragment();
@@ -159,6 +199,15 @@ private:
     bool m_HasPendingRestart;
     bool m_StopRequested;
     bool m_ProfileHandoffStartBlocked;
+    bool m_SystemAuthAdmission;
+    bool m_SystemAuthGameStreamLeaseRequired;
+    QString m_SystemAuthHost;
+    int m_SystemAuthPort;
+    QString m_SystemAuthServerName;
+    QString m_SystemAuthCaFile;
+    QString m_SystemAuthAudience;
+    QByteArray m_SystemAuthTicket;
+    qint64 m_SystemAuthTicketExpiresAtUtcMs;
     bool m_PairCancelRequested;
     quint64 m_PairGeneration;
     quint64 m_RestartGeneration;

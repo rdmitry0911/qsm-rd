@@ -34,6 +34,8 @@ The build gate does all of the following in the clean Trixie userspace:
 
 - compiles the pinned Sunshine source with QEMU Display1 enabled and all host
   desktop/audio backends disabled;
+- explicitly installs `libssl-dev` and builds the isolated GameStream lease
+  issuer against OpenSSL rather than relying on Sunshine's transitive headers;
 - builds and stages the private libva ABI beneath `/usr/lib/q-sunshine`, checks
   its runtime prefix and relative loader scope, and rejects source/build paths
   in the shipped ELF files;
@@ -46,3 +48,9 @@ then follow the installed
 `/usr/share/doc/q-sunshine-pve/README.Debian`.  Installation does not enable a
 service or alter a VM.  Run `q-sunshine-preflight --virgl` only after the
 private QEMU Display1 socket and the render node have been provisioned.
+
+For the complete release-consumer sequence—artifact verification, Proxmox VE
+9 install, per-VM native system-auth configuration, QEMU/VirGL and guest
+wiring, macOS Tahoe client sign-in, verification, removal, and signing
+caveats—see [`docs/RELEASE_NOTES.md`](../../docs/RELEASE_NOTES.md). The guide
+does not claim that this build has been published or notarized.

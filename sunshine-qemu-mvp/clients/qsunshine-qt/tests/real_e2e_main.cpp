@@ -10,6 +10,7 @@
 #include "moonlightcontroller.h"
 #include "profilenegotiationcoordinator.h"
 #include "qsfclient.h"
+#include "systemauthclient.h"
 
 #include <QClipboard>
 #include <QCommandLineParser>
@@ -24,6 +25,7 @@
 #include <QTextStream>
 #include <QTimer>
 
+#include <cstdio>
 #include <utility>
 
 namespace {
@@ -32,15 +34,22 @@ struct Arguments {
     QString moonlightBinary;
     QString host;
     QString appName;
-    QString pairPin;
     QString initialResolution;
     QString fullscreenResolution;
+    QString systemAuthHost;
+    int systemAuthPort = 0;
+    QString systemAuthServerName;
+    QString systemAuthCaFile;
+    QString systemAuthAudience;
+    QString systemAuthUsername;
+    // The real harness supplies this through stdin, never argv or an
+    // environment variable.  It is moved into SystemAuthClient immediately
+    // before the TLS/PAM login then scrubbed from this driver object.
+    QString systemAuthPassword;
     QString qsfHost;
     int qsfPort = 0;
     QString qsfServerName;
-    QString caFile;
-    QString certificateFile;
-    QString keyFile;
+    QString qsfCaFile;
     QString expectedGuestClipboardFile;
     QString clientClipboardFile;
     QString expectedGuestClipboard;
@@ -63,7 +72,6 @@ struct Arguments {
     int timeoutMs = 300000;
     QString phaseDirectory;
     QString moonlightLog;
-    QString moonlightPairLog;
 };
 
 bool parseResolution(const QString& value, int* width, int* height)
@@ -125,6 +133,41 @@ bool readUtf8ClipboardFile(const QString& path, QString* text)
     return true;
 }
 
+bool readSystemAuthPassword(QString* password)
+{
+    // This executable is a non-interactive harness.  stdin is an anonymous
+    // pipe whose writer is the hook; accepting a single bounded UTF-8 line
+    // avoids a credential in argv, environment, QSettings, or a temporary
+    // pathname.  Moonlight's own stdin is a distinct managed QProcess pipe.
+    constexpr qint64 kMaximumPasswordBytes = 4096;
+    QFile input;
+    if (!input.open(stdin, QIODevice::ReadOnly)) {
+        return false;
+    }
+    QByteArray bytes = input.read(kMaximumPasswordBytes + 2);
+    if (input.error() != QFileDevice::NoError || bytes.size() > kMaximumPasswordBytes + 1 ||
+        (!input.atEnd() && bytes.size() == kMaximumPasswordBytes + 2)) {
+        bytes.fill('\0');
+        return false;
+    }
+    if (bytes.endsWith('\n')) {
+        bytes.chop(1);
+    }
+    if (bytes.endsWith('\r') || bytes.isEmpty() || bytes.contains('\0') ||
+        bytes.contains('\n') || bytes.size() > kMaximumPasswordBytes) {
+        bytes.fill('\0');
+        return false;
+    }
+    const QString decoded = QString::fromUtf8(bytes.constData(), bytes.size());
+    const bool validUtf8 = decoded.toUtf8() == bytes;
+    bytes.fill('\0');
+    if (!validUtf8 || decoded.isEmpty() || decoded.toUtf8().size() > kMaximumPasswordBytes) {
+        return false;
+    }
+    *password = decoded;
+    return true;
+}
+
 class RealE2eDriver final : public QObject
 {
 public:
@@ -134,9 +177,26 @@ public:
           m_Arguments(std::move(arguments)),
           m_Qsf(this),
           m_Moonlight(this),
+          m_SystemAuth(this),
           m_ProfileNegotiation(&m_Qsf, &m_Moonlight, this),
           m_Clipboard(QGuiApplication::clipboard())
     {
+        // This is the same composition as the desktop application's entry
+        // point: one TLS/PAM login supplies the short-lived ticket to the
+        // ticket-mode QSF companion and, through a narrow in-process sink, to
+        // the patched Moonlight child's one-shot lease pipe.  It deliberately
+        // has no pairing/PIN state or legacy GameStream admission fallback.
+        m_Moonlight.requireSystemAuthGameStreamLease();
+        m_SystemAuth.attachQsfClient(&m_Qsf);
+        m_SystemAuth.setGameStreamLeaseSink(
+            [this](const QString& authHost, int authPort, const QString& authServerName,
+                   const QString& authCaFile, const QString& audience,
+                   const QByteArray& ticket, qint64 expiresAtUtcMs) {
+                m_Moonlight.setSystemAuthGameStreamLease(
+                    authHost, authPort, authServerName, authCaFile, audience, ticket,
+                    expiresAtUtcMs);
+            },
+            [this]() { m_Moonlight.clearSystemAuthGameStreamLease(); });
         m_PhasePoll.setInterval(100);
         connect(&m_PhasePoll, &QTimer::timeout, this, [this]() { pollHarnessPhases(); });
 
@@ -148,10 +208,6 @@ public:
 
         connect(&m_Moonlight, &MoonlightController::streamStarted,
                 this, [this]() { onStreamStarted(); });
-        connect(&m_Moonlight, &MoonlightController::pairProcessStarted,
-                this, [this]() { onPairProcessStarted(); });
-        connect(&m_Moonlight, &MoonlightController::pairingChanged,
-                this, [this]() { onPairingChanged(); });
         connect(&m_Moonlight, &MoonlightController::streamTeardownStarted,
                 this, [this]() {
                     m_Qsf.setSessionActive(false);
@@ -205,9 +261,23 @@ public:
                                  .arg(m_ProfileNegotiation.lastError()));
                     }
                 });
+        connect(&m_SystemAuth, &SystemAuthClient::authenticatedChanged, this, [this]() {
+            m_Moonlight.setSystemAuthAdmission(m_SystemAuth.authenticated());
+            if (m_Phase == Phase::Authenticating && m_SystemAuth.authenticated()) {
+                if (!writePhase(QStringLiteral("system-authenticated"))) {
+                    return;
+                }
+                startWindowedStream();
+            }
+        });
+        connect(&m_SystemAuth, &SystemAuthClient::lastErrorChanged, this, [this]() {
+            if (!m_SystemAuth.lastError().isEmpty()) {
+                fail(QStringLiteral("System authentication: %1").arg(m_SystemAuth.lastError()));
+            }
+        });
         connect(&m_Application, &QGuiApplication::aboutToQuit, this, [this]() {
             m_Qsf.setSessionActive(false);
-            m_Moonlight.cancelPairing();
+            m_SystemAuth.logout();
             m_Moonlight.stopStream();
         });
     }
@@ -225,9 +295,8 @@ public:
             !QFileInfo(m_Arguments.expectedGuestClipboardFile).isFile() ||
             !QFileInfo(m_Arguments.clientClipboardFile).isFile() ||
             !QFileInfo(m_Arguments.expectedDownloadSource).isFile() ||
-            !QFileInfo(m_Arguments.caFile).isFile() ||
-            !QFileInfo(m_Arguments.certificateFile).isFile() ||
-            !QFileInfo(m_Arguments.keyFile).isFile()) {
+            !QFileInfo(m_Arguments.systemAuthCaFile).isFile() ||
+            !QFileInfo(m_Arguments.qsfCaFile).isFile()) {
             fail(QStringLiteral("real E2E has a missing phase directory, fixture, or TLS credential"));
             return;
         }
@@ -255,11 +324,6 @@ public:
             fail(QStringLiteral("Moonlight diagnostic log parent does not exist"));
             return;
         }
-        if (!m_Arguments.moonlightPairLog.isEmpty() &&
-            !QFileInfo(m_Arguments.moonlightPairLog).dir().exists()) {
-            fail(QStringLiteral("Moonlight pairing diagnostic log parent does not exist"));
-            return;
-        }
         for (const QString& marker : {QStringLiteral("activate-windowed"),
                                       QStringLiteral("negotiated-video-verified"),
                                       QStringLiteral("activate-negotiated-qsf"),
@@ -271,7 +335,11 @@ public:
             }
         }
 
-        m_Moonlight.setBinaryPath(m_Arguments.moonlightBinary);
+        if (!m_Moonlight.setTestMoonlightBinary(m_Arguments.moonlightBinary)) {
+            fail(QStringLiteral("could not select the real-E2E Moonlight test child: %1")
+                     .arg(m_Moonlight.lastError()));
+            return;
+        }
         // Xvfb cannot read back an NVIDIA VDPAU presentation surface with
         // xwd. Force the production controller's constrained software choice
         // only in this disposable visual-attestation driver, so the non-black
@@ -290,9 +358,19 @@ public:
         }
         m_Qsf.selectProfile(m_Moonlight.currentProfileId());
         if (!m_Qsf.applyConfiguration(m_Arguments.qsfHost, m_Arguments.qsfPort,
-                                      m_Arguments.qsfServerName, m_Arguments.caFile,
-                                      m_Arguments.certificateFile, m_Arguments.keyFile)) {
+                                      m_Arguments.qsfServerName, m_Arguments.qsfCaFile,
+                                      QString(), QString())) {
             fail(QStringLiteral("could not configure QSF: %1").arg(m_Qsf.lastError()));
+            return;
+        }
+        if (!m_SystemAuth.selectProfile(m_Moonlight.currentProfileId()) ||
+            !m_SystemAuth.applyConfiguration(m_Arguments.systemAuthHost,
+                                             m_Arguments.systemAuthPort,
+                                             m_Arguments.systemAuthServerName,
+                                             m_Arguments.systemAuthCaFile,
+                                             m_Arguments.systemAuthAudience)) {
+            fail(QStringLiteral("could not configure system authentication: %1")
+                     .arg(m_SystemAuth.lastError()));
             return;
         }
 
@@ -306,21 +384,25 @@ public:
         if (!writePhase(QStringLiteral("driver-ready"))) {
             return;
         }
-        m_Phase = Phase::Pairing;
+        m_Phase = Phase::Authenticating;
         m_Timeout.start();
         m_PhasePoll.start();
-        // Exercise the production pairing controller too. The isolated shell
-        // harness supplies the matching ephemeral PIN to its headless
-        // Sunshine stdin only after the real getservercert request, then
-        // proves pairing independently with `moonlight list` before it writes
-        // the pair-verified marker accepted below.
-        m_Moonlight.pair(m_Arguments.host, m_Arguments.pairPin);
+        if (!writePhase(QStringLiteral("system-auth-login-started"))) {
+            return;
+        }
+        // SystemAuthClient serializes the TLS/PAM request synchronously, then
+        // retains only its short-lived ticket.  Clear this driver's final
+        // password copy immediately after that hand-off.
+        QString password = std::move(m_Arguments.systemAuthPassword);
+        m_Arguments.systemAuthPassword.fill(QChar::Null);
+        m_Arguments.systemAuthPassword.clear();
+        m_SystemAuth.login(m_Arguments.systemAuthUsername, password);
+        password.fill(QChar::Null);
     }
 
 private:
     enum class Phase {
-        Pairing,
-        AwaitPairVerification,
+        Authenticating,
         StartingWindowed,
         AwaitWindowedVerification,
         AwaitWindowedQsfReady,
@@ -373,17 +455,6 @@ private:
         return true;
     }
 
-    bool writeMoonlightPairLog()
-    {
-        if (!m_Arguments.moonlightPairLog.isEmpty() &&
-            !writeAtomically(m_Arguments.moonlightPairLog,
-                             m_Moonlight.recentOutput().toUtf8())) {
-            fail(QStringLiteral("could not retain redacted Moonlight pairing diagnostics"));
-            return false;
-        }
-        return true;
-    }
-
     void startWindowedStream()
     {
         m_Phase = Phase::StartingWindowed;
@@ -394,14 +465,7 @@ private:
 
     void pollHarnessPhases()
     {
-        if (m_Phase == Phase::AwaitPairVerification &&
-            phaseRequested(QStringLiteral("pair-verified"))) {
-            if (!writePhase(QStringLiteral("pair-verification-accepted"))) {
-                return;
-            }
-            startWindowedStream();
-        }
-        else if (m_Phase == Phase::AwaitWindowedVerification &&
+        if (m_Phase == Phase::AwaitWindowedVerification &&
             phaseRequested(QStringLiteral("activate-windowed"))) {
             if (!writePhase(QStringLiteral("windowed-activation-accepted"))) {
                 return;
@@ -458,30 +522,6 @@ private:
                          .arg(m_ProfileNegotiation.lastError()));
             }
         }
-    }
-
-    void onPairProcessStarted()
-    {
-        if (m_Phase != Phase::Pairing) {
-            return;
-        }
-        m_PairProcessStarted = true;
-        if (!writePhase(QStringLiteral("pair-process-started"))) {
-            return;
-        }
-    }
-
-    void onPairingChanged()
-    {
-        if (m_Moonlight.pairing() || m_Phase != Phase::Pairing ||
-            !m_PairProcessStarted) {
-            return;
-        }
-        if (!writeMoonlightPairLog() ||
-            !writePhase(QStringLiteral("pair-process-finished"))) {
-            return;
-        }
-        m_Phase = Phase::AwaitPairVerification;
     }
 
     void onStreamStarted()
@@ -737,6 +777,7 @@ private:
     Arguments m_Arguments;
     QsfClient m_Qsf;
     MoonlightController m_Moonlight;
+    SystemAuthClient m_SystemAuth;
     ProfileNegotiationCoordinator m_ProfileNegotiation;
     QClipboard* m_Clipboard;
     QTimer m_PhasePoll;
@@ -745,7 +786,6 @@ private:
     int m_StreamStarts = 0;
     bool m_UploadFinished = false;
     bool m_DownloadFinished = false;
-    bool m_PairProcessStarted = false;
 };
 
 } // namespace
@@ -759,20 +799,25 @@ int main(int argc, char* argv[])
     QGuiApplication application(argc, argv);
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("Real Qt shell/Moonlight/QSF E2E driver"));
+    parser.setApplicationDescription(
+        QStringLiteral("Real Qt system-auth/Moonlight/QSF E2E driver"));
     parser.addHelpOption();
-    parser.addOption({QStringLiteral("moonlight-binary"), QStringLiteral("stock Moonlight Qt executable"), QStringLiteral("path")});
+    parser.addOption({QStringLiteral("moonlight-binary"), QStringLiteral("patched Moonlight Qt executable"), QStringLiteral("path")});
     parser.addOption({QStringLiteral("host"), QStringLiteral("Sunshine host or host:base-port"), QStringLiteral("host")});
     parser.addOption({QStringLiteral("app"), QStringLiteral("Sunshine application"), QStringLiteral("name"), QStringLiteral("Desktop")});
-    parser.addOption({QStringLiteral("pair-pin"), QStringLiteral("fresh four-digit Sunshine pairing PIN"), QStringLiteral("pin")});
     parser.addOption({QStringLiteral("initial-resolution"), QStringLiteral("windowed Moonlight resolution"), QStringLiteral("resolution")});
     parser.addOption({QStringLiteral("fullscreen-resolution"), QStringLiteral("fullscreen reconnect resolution"), QStringLiteral("resolution")});
-    parser.addOption({QStringLiteral("qsf-host"), QStringLiteral("QSF mTLS gateway host"), QStringLiteral("host")});
-    parser.addOption({QStringLiteral("qsf-port"), QStringLiteral("QSF mTLS gateway port"), QStringLiteral("port")});
+    parser.addOption({QStringLiteral("system-auth-host"), QStringLiteral("TLS/PAM system-auth gateway host"), QStringLiteral("host")});
+    parser.addOption({QStringLiteral("system-auth-port"), QStringLiteral("TLS/PAM system-auth gateway port"), QStringLiteral("port")});
+    parser.addOption({QStringLiteral("system-auth-server-name"), QStringLiteral("expected system-auth TLS server name"), QStringLiteral("name")});
+    parser.addOption({QStringLiteral("system-auth-ca-file"), QStringLiteral("system-auth gateway CA PEM"), QStringLiteral("path")});
+    parser.addOption({QStringLiteral("system-auth-audience"), QStringLiteral("expected VM system-auth audience"), QStringLiteral("audience")});
+    parser.addOption({QStringLiteral("system-auth-username"), QStringLiteral("system login username"), QStringLiteral("username")});
+    parser.addOption({QStringLiteral("system-auth-password-stdin"), QStringLiteral("read one system login password line from stdin")});
+    parser.addOption({QStringLiteral("qsf-host"), QStringLiteral("ticket-authenticated QSF gateway host"), QStringLiteral("host")});
+    parser.addOption({QStringLiteral("qsf-port"), QStringLiteral("ticket-authenticated QSF gateway port"), QStringLiteral("port")});
     parser.addOption({QStringLiteral("qsf-server-name"), QStringLiteral("expected QSF TLS server name"), QStringLiteral("name")});
-    parser.addOption({QStringLiteral("ca-file"), QStringLiteral("QSF gateway CA PEM"), QStringLiteral("path")});
-    parser.addOption({QStringLiteral("cert-file"), QStringLiteral("QSF client certificate PEM"), QStringLiteral("path")});
-    parser.addOption({QStringLiteral("key-file"), QStringLiteral("QSF client key PEM"), QStringLiteral("path")});
+    parser.addOption({QStringLiteral("qsf-ca-file"), QStringLiteral("QSF gateway CA PEM"), QStringLiteral("path")});
     parser.addOption({QStringLiteral("expected-guest-clipboard-file"), QStringLiteral("UTF-8 guest clipboard fixture"), QStringLiteral("path")});
     parser.addOption({QStringLiteral("client-clipboard-file"), QStringLiteral("UTF-8 client clipboard fixture"), QStringLiteral("path")});
     parser.addOption({QStringLiteral("upload-source"), QStringLiteral("local file uploaded through QSF"), QStringLiteral("path")});
@@ -807,14 +852,16 @@ int main(int argc, char* argv[])
                       QStringLiteral("milliseconds"), QStringLiteral("300000")});
     parser.addOption({QStringLiteral("phase-dir"), QStringLiteral("fresh private harness phase directory"), QStringLiteral("path")});
     parser.addOption({QStringLiteral("moonlight-log"), QStringLiteral("redacted Moonlight diagnostic output"), QStringLiteral("path")});
-    parser.addOption({QStringLiteral("moonlight-pair-log"), QStringLiteral("redacted Moonlight pairing diagnostic output"), QStringLiteral("path")});
     parser.process(application);
 
     const QStringList required = {
-        QStringLiteral("moonlight-binary"), QStringLiteral("host"), QStringLiteral("pair-pin"),
+        QStringLiteral("moonlight-binary"), QStringLiteral("host"),
         QStringLiteral("initial-resolution"), QStringLiteral("fullscreen-resolution"),
+        QStringLiteral("system-auth-host"), QStringLiteral("system-auth-port"),
+        QStringLiteral("system-auth-ca-file"), QStringLiteral("system-auth-audience"),
+        QStringLiteral("system-auth-username"), QStringLiteral("system-auth-password-stdin"),
         QStringLiteral("qsf-host"), QStringLiteral("qsf-port"),
-        QStringLiteral("ca-file"), QStringLiteral("cert-file"), QStringLiteral("key-file"),
+        QStringLiteral("qsf-ca-file"),
         QStringLiteral("expected-guest-clipboard-file"), QStringLiteral("client-clipboard-file"),
         QStringLiteral("upload-source"), QStringLiteral("upload-name"),
         QStringLiteral("download-name"), QStringLiteral("download-destination"),
@@ -835,20 +882,24 @@ int main(int argc, char* argv[])
         }
     }
 
-    bool portOk = false;
+    bool qsfPortOk = false;
+    bool systemAuthPortOk = false;
     Arguments arguments;
     arguments.moonlightBinary = parser.value(QStringLiteral("moonlight-binary"));
     arguments.host = parser.value(QStringLiteral("host"));
     arguments.appName = parser.value(QStringLiteral("app"));
-    arguments.pairPin = parser.value(QStringLiteral("pair-pin"));
     arguments.initialResolution = parser.value(QStringLiteral("initial-resolution"));
     arguments.fullscreenResolution = parser.value(QStringLiteral("fullscreen-resolution"));
+    arguments.systemAuthHost = parser.value(QStringLiteral("system-auth-host"));
+    arguments.systemAuthPort = parser.value(QStringLiteral("system-auth-port")).toInt(&systemAuthPortOk);
+    arguments.systemAuthServerName = parser.value(QStringLiteral("system-auth-server-name"));
+    arguments.systemAuthCaFile = parser.value(QStringLiteral("system-auth-ca-file"));
+    arguments.systemAuthAudience = parser.value(QStringLiteral("system-auth-audience"));
+    arguments.systemAuthUsername = parser.value(QStringLiteral("system-auth-username"));
     arguments.qsfHost = parser.value(QStringLiteral("qsf-host"));
-    arguments.qsfPort = parser.value(QStringLiteral("qsf-port")).toInt(&portOk);
+    arguments.qsfPort = parser.value(QStringLiteral("qsf-port")).toInt(&qsfPortOk);
     arguments.qsfServerName = parser.value(QStringLiteral("qsf-server-name"));
-    arguments.caFile = parser.value(QStringLiteral("ca-file"));
-    arguments.certificateFile = parser.value(QStringLiteral("cert-file"));
-    arguments.keyFile = parser.value(QStringLiteral("key-file"));
+    arguments.qsfCaFile = parser.value(QStringLiteral("qsf-ca-file"));
     arguments.expectedGuestClipboardFile = parser.value(QStringLiteral("expected-guest-clipboard-file"));
     arguments.clientClipboardFile = parser.value(QStringLiteral("client-clipboard-file"));
     arguments.uploadSource = parser.value(QStringLiteral("upload-source"));
@@ -861,12 +912,10 @@ int main(int argc, char* argv[])
     arguments.receivedClipboardDestination = parser.value(QStringLiteral("received-clipboard-destination"));
     arguments.phaseDirectory = parser.value(QStringLiteral("phase-dir"));
     arguments.moonlightLog = parser.value(QStringLiteral("moonlight-log"));
-    arguments.moonlightPairLog = parser.value(QStringLiteral("moonlight-pair-log"));
     static const QRegularExpression portPattern(QStringLiteral("\\A[0-9]{1,5}\\z"));
     static const QRegularExpression timeoutPattern(QStringLiteral("\\A[0-9]{5,6}\\z"));
     int ignoredWidth = 0;
     int ignoredHeight = 0;
-    static const QRegularExpression pinPattern(QStringLiteral("\\A[0-9]{4}\\z"));
     bool timeoutOk = false;
     bool expectedFpsOk = false;
     bool expectedBitrateOk = false;
@@ -887,9 +936,10 @@ int main(int argc, char* argv[])
     arguments.expectedFullscreenVideoCodec =
         parser.value(QStringLiteral("expected-fullscreen-video-codec")).trimmed();
     if (!portPattern.match(parser.value(QStringLiteral("qsf-port")).trimmed()).hasMatch() ||
-        !pinPattern.match(arguments.pairPin).hasMatch() ||
+        !portPattern.match(parser.value(QStringLiteral("system-auth-port")).trimmed()).hasMatch() ||
         !timeoutPattern.match(parser.value(QStringLiteral("timeout-ms")).trimmed()).hasMatch() ||
-        !portOk || arguments.qsfPort < 1 || arguments.qsfPort > 65535 ||
+        !qsfPortOk || arguments.qsfPort < 1 || arguments.qsfPort > 65535 ||
+        !systemAuthPortOk || arguments.systemAuthPort < 1 || arguments.systemAuthPort > 65535 ||
         !timeoutOk || arguments.timeoutMs < 60000 || arguments.timeoutMs > 900000 ||
         !expectedFpsOk || arguments.expectedNegotiatedFps < 10 ||
         arguments.expectedNegotiatedFps > 240 || !expectedBitrateOk ||
@@ -909,7 +959,11 @@ int main(int argc, char* argv[])
         !parseResolution(arguments.fullscreenResolution, &ignoredWidth, &ignoredHeight) ||
         !parseResolution(parser.value(QStringLiteral("resize")), &arguments.resizeWidth,
                          &arguments.resizeHeight)) {
-        QTextStream(stderr) << "invalid endpoint, negotiated-profile, timeout, or resolution argument\n";
+        QTextStream(stderr) << "invalid system-auth/QSF endpoint, negotiated-profile, timeout, or resolution argument\n";
+        return 2;
+    }
+    if (!readSystemAuthPassword(&arguments.systemAuthPassword)) {
+        QTextStream(stderr) << "invalid or missing system-auth password on stdin\n";
         return 2;
     }
 

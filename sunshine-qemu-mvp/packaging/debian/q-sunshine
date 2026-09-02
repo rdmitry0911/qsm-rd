@@ -39,4 +39,41 @@ if [ -n "${QSUNSHINE_ENCODER:-}" ]; then
     esac
 fi
 
+# The native GameStream lease path is a strict all-or-nothing transition. If
+# authd has a configured issuer, Sunshine must receive the same VM CA/audience
+# and must disable its paired-certificate/PIN fallback. A partial Environment-
+# File is a startup error, not a reason to launch legacy pairing accidentally.
+if [ -n "${QSUNSHINE_GAMESTREAM_LEASE_ISSUER:-}" ] || \
+   [ -n "${QSUNSHINE_GAMESTREAM_LEASE_CA_CERT:-}" ] || \
+   [ -n "${QSUNSHINE_GAMESTREAM_LEASE_CA_KEY:-}" ] || \
+   [ -n "${QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_CERT:-}" ] || \
+   [ -n "${QSUNSHINE_GAMESTREAM_LEASE_TTL_SECONDS:-}" ]; then
+    if [ -z "${QSUNSHINE_GAMESTREAM_LEASE_ISSUER:-}" ] || \
+       [ -z "${QSUNSHINE_GAMESTREAM_LEASE_CA_CERT:-}" ] || \
+       [ -z "${QSUNSHINE_GAMESTREAM_LEASE_CA_KEY:-}" ] || \
+       [ -z "${QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_CERT:-}" ] || \
+       [ -z "${QSUNSHINE_GAMESTREAM_LEASE_TTL_SECONDS:-}" ] || \
+       [ -z "${QSUNSHINE_AUTH_AUDIENCE:-}" ]; then
+        echo "q-sunshine: complete GameStream lease config and QSUNSHINE_AUTH_AUDIENCE are required together" >&2
+        exit 2
+    fi
+    case "$QSUNSHINE_GAMESTREAM_LEASE_CA_CERT" in
+        /*) ;;
+        *)
+            echo "q-sunshine: QSUNSHINE_GAMESTREAM_LEASE_CA_CERT must be an absolute path" >&2
+            exit 2
+            ;;
+    esac
+    case "$QSUNSHINE_AUTH_AUDIENCE" in
+        [!A-Za-z0-9]*|*[!A-Za-z0-9_.:-]* )
+            echo "q-sunshine: QSUNSHINE_AUTH_AUDIENCE is invalid" >&2
+            exit 2
+            ;;
+    esac
+    set -- "$@" \
+        qsm_system_auth_mode=enabled \
+        "qsm_system_auth_ca=$QSUNSHINE_GAMESTREAM_LEASE_CA_CERT" \
+        "qsm_system_auth_audience=$QSUNSHINE_AUTH_AUDIENCE"
+fi
+
 exec "$binary" "$@"

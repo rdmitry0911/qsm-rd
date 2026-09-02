@@ -4,12 +4,18 @@
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QSettings>
-#include <QStandardPaths>
 #include <QTimer>
+#include <QUrl>
+
+#ifndef QSUNSHINE_PACKAGED_MOONLIGHT_PATH
+#define QSUNSHINE_PACKAGED_MOONLIGHT_PATH "/usr/lib/q-sunshine-client/Moonlight/moonlight"
+#endif
 
 namespace {
 
@@ -42,8 +48,21 @@ QString normalizedProfileId(QString value)
 
 bool isSupportedDisplayMode(const QString& value)
 {
-    return value == QStringLiteral("fullscreen") || value == QStringLiteral("windowed") ||
-           value == QStringLiteral("borderless");
+    return value == QStringLiteral("fullscreen") || value == QStringLiteral("windowed");
+}
+
+QString normalizeDisplayMode(QString value)
+{
+    // q-sunshine deliberately exposes only the two presentation choices that
+    // have a clear, portable meaning in stock Moonlight.  Older releases
+    // persisted Moonlight's third "borderless" option.  Treat that legacy
+    // value as fullscreen on load so an upgrade neither leaves a profile
+    // unlaunchable nor silently turns an immersive presentation into a
+    // decorated window.
+    if (value == QStringLiteral("borderless")) {
+        return QStringLiteral("fullscreen");
+    }
+    return value;
 }
 
 bool isSupportedVideoDecoder(const QString& value)
@@ -83,31 +102,29 @@ QString redactMoonlightOutput(QString output)
         QStringLiteral("(?i)((?:authorization|proxy-authorization|x-api-key|cookie):)[^\\r\\n]*"));
     static const QRegularExpression pinSecret(
         QStringLiteral("(?i)(--pin(?:=|\\s+)|\\bpin\\s*[:=]\\s*)\\S+"));
+    static const QRegularExpression systemAuthTicket(
+        QStringLiteral("(?<![A-Za-z0-9_-])qsa1\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+(?![A-Za-z0-9_-])"));
     output.replace(querySecret, QStringLiteral("\\1[redacted]"));
     output.replace(headerSecret, QStringLiteral("\\1 [redacted]"));
     output.replace(pinSecret, QStringLiteral("\\1[redacted]"));
+    output.replace(systemAuthTicket, QStringLiteral("[redacted]"));
     return output;
 }
 
-QString defaultMoonlightBinary()
+QString packagedMoonlightBinary()
 {
 #ifdef Q_OS_MACOS
-    // The macOS distribution embeds an unmodified Moonlight.app next to this
-    // launcher. Prefer it over PATH so the desktop client remains portable.
-    const QDir moonlightDirectory(
-        QDir(QCoreApplication::applicationDirPath())
-            .absoluteFilePath("../Resources/Moonlight.app/Contents/MacOS"));
-    for (const QString& candidate : {QStringLiteral("moonlight"),
-                                     QStringLiteral("Moonlight")}) {
-        const QString binary = moonlightDirectory.absoluteFilePath(candidate);
-        if (QFileInfo(binary).isExecutable()) {
-            return binary;
-        }
-    }
+    // The Tahoe bundle creates and signs this exact nested executable. There
+    // is deliberately no lowercase compatibility candidate or PATH fallback:
+    // a stock child must fail closed before it can consume a media ticket.
+    return QDir::cleanPath(QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(
+        QStringLiteral("../Resources/Moonlight.app/Contents/MacOS/Moonlight")));
+#else
+    // Linux desktop packaging installs the pinned patched child at this
+    // compile-time libexec location. A development build without that child
+    // refuses to launch rather than resolving an arbitrary PATH program.
+    return QStringLiteral(QSUNSHINE_PACKAGED_MOONLIGHT_PATH);
 #endif
-
-    const QString onPath = QStandardPaths::findExecutable(QStringLiteral("moonlight"));
-    return onPath.isEmpty() ? QStringLiteral("moonlight") : onPath;
 }
 
 } // namespace
@@ -124,16 +141,20 @@ MoonlightController::MoonlightController(QObject* parent)
       m_HasPendingRestart(false),
       m_StopRequested(false),
       m_ProfileHandoffStartBlocked(false),
+      m_SystemAuthAdmission(false),
+      m_SystemAuthGameStreamLeaseRequired(false),
+      m_SystemAuthPort(0),
+      m_SystemAuthTicketExpiresAtUtcMs(0),
       m_PairCancelRequested(false),
       m_PairGeneration(0),
       m_RestartGeneration(0),
       m_PendingRestartGeneration(0)
 {
     QSettings settings;
-    m_BinaryPath = settings.value(QStringLiteral("q-sunshine/client/moonlightBinary")).toString().trimmed();
-    if (m_BinaryPath.isEmpty()) {
-        m_BinaryPath = defaultMoonlightBinary();
-    }
+    // Do not read the legacy moonlightBinary setting. It is intentionally
+    // inert after upgrade: a per-user setting must never choose the process
+    // that receives the native system-auth bearer ticket.
+    m_BinaryPath = packagedMoonlightBinary();
     m_VideoDecoder = settings.value(QStringLiteral("q-sunshine/client/videoDecoder"),
                                     QStringLiteral("auto")).toString().trimmed();
     if (!isSupportedVideoDecoder(m_VideoDecoder)) {
@@ -161,10 +182,33 @@ MoonlightController::MoonlightController(QObject* parent)
     loadProfile(m_CurrentProfileId);
 
     m_StreamProcess->setProcessChannelMode(QProcess::MergedChannels);
+    // In native system-auth mode fd 0 is a one-shot pipe containing only the
+    // current bearer ticket. The patched Moonlight process consumes and closes
+    // it before it starts its UI; default managed input gives us that pipe
+    // without creating a temporary file or placing the secret in argv/env.
+    m_StreamProcess->setInputChannelMode(QProcess::ManagedInputChannel);
     connect(m_StreamProcess, &QProcess::readyRead, this, [this]() {
         appendOutput(m_StreamProcess->readAll());
     });
     connect(m_StreamProcess, &QProcess::started, this, [this]() {
+        if (m_SystemAuthGameStreamLeaseRequired) {
+            if (m_SystemAuthTicket.isEmpty() ||
+                m_SystemAuthTicketExpiresAtUtcMs <= QDateTime::currentMSecsSinceEpoch()) {
+                setLastError(QStringLiteral("System-auth media ticket expired before Moonlight started"));
+                m_StreamProcess->kill();
+                return;
+            }
+            const qint64 expected = m_SystemAuthTicket.size();
+            const qint64 written = m_StreamProcess->write(m_SystemAuthTicket);
+            // EOF is part of the one-shot FD protocol. It prevents a later
+            // Moonlight component from reading further data from the pipe.
+            m_StreamProcess->closeWriteChannel();
+            if (written != expected) {
+                setLastError(QStringLiteral("Could not provide the in-memory system-auth media ticket to Moonlight"));
+                m_StreamProcess->kill();
+                return;
+            }
+        }
         setRunning(true);
         emit streamBusyChanged();
         setStatus(QStringLiteral("Moonlight process started; wait until its stream window is visible"));
@@ -260,6 +304,14 @@ bool MoonlightController::pairing() const
     return m_Pairing;
 }
 
+bool MoonlightController::canStartStream() const
+{
+    const bool hasCurrentMediaTicket = !m_SystemAuthGameStreamLeaseRequired ||
+        (!m_SystemAuthTicket.isEmpty() &&
+         m_SystemAuthTicketExpiresAtUtcMs > QDateTime::currentMSecsSinceEpoch());
+    return m_SystemAuthAdmission && hasCurrentMediaTicket && !m_ProfileHandoffStartBlocked;
+}
+
 QString MoonlightController::status() const
 {
     return m_Status;
@@ -325,28 +377,29 @@ QString MoonlightController::videoDecoder() const
     return m_VideoDecoder;
 }
 
-void MoonlightController::setBinaryPath(const QString& binaryPath)
+#ifdef QSUNSHINE_TEST_MOONLIGHT_OVERRIDE
+bool MoonlightController::setTestMoonlightBinary(const QString& binaryPath)
 {
     if (profileHandoffBlocksConfigurationChange(QStringLiteral("executable configuration"))) {
-        return;
+        return false;
     }
     const QString normalized = binaryPath.trimmed();
-    if (normalized.isEmpty()) {
-        setLastError(QStringLiteral("Moonlight executable path must not be empty"));
-        return;
+    if (normalized.isEmpty() || !QFileInfo(normalized).isAbsolute()) {
+        setLastError(QStringLiteral("Test Moonlight executable path must be absolute and non-empty"));
+        return false;
     }
     if (normalized == m_BinaryPath) {
-        return;
+        return true;
     }
     if (streamBusy() || m_Pairing) {
-        setLastError(QStringLiteral("Disconnect or cancel pairing before changing the Moonlight executable"));
-        return;
+        setLastError(QStringLiteral("Disconnect or cancel pairing before changing the test Moonlight executable"));
+        return false;
     }
     m_BinaryPath = normalized;
-    QSettings settings;
-    settings.setValue(QStringLiteral("q-sunshine/client/moonlightBinary"), m_BinaryPath);
     emit binaryPathChanged();
+    return true;
 }
+#endif
 
 void MoonlightController::setVideoDecoder(const QString& videoDecoder)
 {
@@ -401,8 +454,9 @@ void MoonlightController::loadProfile(const QString& profileId)
                                       QStringLiteral("Desktop")).toString().trimmed();
     m_ProfileResolution = settings.value(QStringLiteral("resolution"),
                                          QStringLiteral("1920x1080")).toString().trimmed();
-    m_ProfileDisplayMode = settings.value(QStringLiteral("displayMode"),
-                                          QStringLiteral("windowed")).toString().trimmed();
+    m_ProfileDisplayMode = normalizeDisplayMode(
+        settings.value(QStringLiteral("displayMode"),
+                       QStringLiteral("windowed")).toString().trimmed());
     m_ProfileFps = settings.value(QStringLiteral("fps"), 0).toInt();
     m_ProfileBitrateKbps = settings.value(QStringLiteral("bitrateKbps"), 0).toInt();
     m_ProfileVideoCodec = settings.value(QStringLiteral("videoCodec"),
@@ -480,6 +534,7 @@ bool MoonlightController::selectProfile(const QString& profileId)
     writeProfileIndex();
     setLastError(QString());
     setStatus(QStringLiteral("Desktop profile selected: %1").arg(m_CurrentProfileId));
+    emit streamAuthorizationScopeChanged();
     emit profileChanged();
     return true;
 }
@@ -515,8 +570,11 @@ bool MoonlightController::saveProfile(const QString& profileId, const QString& h
         setLastError(QStringLiteral("Provide a valid Sunshine application name"));
         return false;
     }
+    if (!isSupportedDisplayMode(request.displayMode)) {
+        setLastError(QStringLiteral("Display mode must be windowed or fullscreen"));
+        return false;
+    }
     if (!isSupportedResolution(request.resolution) ||
-        !isSupportedDisplayMode(request.displayMode) ||
         (request.fps != 0 && (request.fps < 10 || request.fps > 240)) ||
         (request.bitrateKbps != 0 &&
          (request.bitrateKbps < 500 || request.bitrateKbps > 500000)) ||
@@ -525,6 +583,8 @@ bool MoonlightController::saveProfile(const QString& profileId, const QString& h
         return false;
     }
 
+    const QString previousProfileId = m_CurrentProfileId;
+    const QString previousHost = m_ProfileHost;
     const bool isNewProfile = !m_ProfileIds.contains(profileKey);
     if (isNewProfile) {
         m_ProfileIds.append(profileKey);
@@ -544,22 +604,30 @@ bool MoonlightController::saveProfile(const QString& profileId, const QString& h
     if (isNewProfile) {
         emit profilesChanged();
     }
+    // Do this at the controller boundary, not just in Main.qml. Any direct
+    // in-process caller that changes VM profile or Sunshine host must lose a
+    // system-auth admission issued for the previous route before it can ask
+    // the controller to start a stream.
+    if (previousProfileId != m_CurrentProfileId || previousHost != m_ProfileHost) {
+        emit streamAuthorizationScopeChanged();
+    }
     emit profileChanged();
     return true;
 }
 
 bool MoonlightController::validateExecutable(QString* error) const
 {
-    if (m_BinaryPath.contains(QLatin1Char('/'))) {
-        const QFileInfo binary(m_BinaryPath);
-        if (!binary.isFile() || !binary.isExecutable()) {
-            *error = QStringLiteral("Moonlight binary is not an executable file: %1").arg(m_BinaryPath);
-            return false;
-        }
-        return true;
+#ifndef QSUNSHINE_TEST_MOONLIGHT_OVERRIDE
+    const QString trustedPath = packagedMoonlightBinary();
+    if (m_BinaryPath != trustedPath) {
+        *error = QStringLiteral("Moonlight executable is not the trusted packaged child");
+        return false;
     }
-    if (QStandardPaths::findExecutable(m_BinaryPath).isEmpty()) {
-        *error = QStringLiteral("Moonlight executable was not found in PATH: %1").arg(m_BinaryPath);
+#endif
+    const QFileInfo binary(m_BinaryPath);
+    if (!binary.isFile() || !binary.isExecutable()) {
+        *error = QStringLiteral("Trusted packaged Moonlight executable is unavailable: %1")
+                     .arg(m_BinaryPath);
         return false;
     }
     return true;
@@ -580,7 +648,7 @@ bool MoonlightController::validateStreamRequest(const StreamRequest& request, QS
         return false;
     }
     if (!isSupportedDisplayMode(request.displayMode)) {
-        *error = QStringLiteral("Display mode must be fullscreen, windowed, or borderless");
+        *error = QStringLiteral("Display mode must be windowed or fullscreen");
         return false;
     }
     if (request.fps != 0 && (request.fps < 10 || request.fps > 240)) {
@@ -602,6 +670,17 @@ bool MoonlightController::validateStreamRequest(const StreamRequest& request, QS
 void MoonlightController::pair(const QString& host, const QString& pin)
 {
     if (profileHandoffBlocksConfigurationChange(QStringLiteral("pairing"))) {
+        return;
+    }
+    if (m_SystemAuthGameStreamLeaseRequired) {
+        // Production composition selects this mode before QML is loaded.
+        // Refuse even an accidental in-process caller: native Sunshine has no
+        // pairing endpoint and must never regain a PIN fallback.
+        setLastError(QStringLiteral("PIN pairing is disabled for system-authenticated GameStream"));
+        return;
+    }
+    if (!m_SystemAuthAdmission) {
+        setStatus(QStringLiteral("System authentication is required before a legacy pairing compatibility action"));
         return;
     }
     QString error;
@@ -668,11 +747,24 @@ void MoonlightController::startStream(const QString& host, const QString& appNam
         setStatus(QStringLiteral("The display-profile handoff owns Moonlight start until the guest transaction is terminal"));
         return;
     }
+    if (!m_SystemAuthAdmission) {
+        setStatus(m_SystemAuthGameStreamLeaseRequired
+                      ? QStringLiteral("Sign in with a system account before starting PIN-free GameStream")
+                      : QStringLiteral("Sign in with a system account before starting the legacy GameStream compatibility path"));
+        return;
+    }
     StreamRequest request {host.trimmed(), appName.trimmed(), resolution.trimmed(), displayMode.trimmed(),
                            m_ProfileFps, m_ProfileBitrateKbps, m_ProfileVideoCodec};
     QString error;
     if (!validateStreamRequest(request, &error)) {
         setLastError(error);
+        return;
+    }
+    // The public launch API operates on the selected saved desktop route.
+    // Requiring the caller to save a changed host first makes the controller's
+    // scope-change signal (and therefore system-auth revocation) unavoidable.
+    if (request.host != m_ProfileHost) {
+        setLastError(QStringLiteral("Save the requested Sunshine host in the selected desktop profile before connecting"));
         return;
     }
     if (m_Pairing || m_PairProcess->state() != QProcess::NotRunning) {
@@ -709,6 +801,10 @@ bool MoonlightController::applyNegotiatedProfileForHandoff(int width, int height
         setLastError(QStringLiteral("Wait for the current Moonlight stream to stop before launching a negotiated profile"));
         return false;
     }
+    if (!m_SystemAuthAdmission) {
+        setLastError(QStringLiteral("System authentication is required before launching a negotiated GameStream profile"));
+        return false;
+    }
     if (m_Pairing || m_PairProcess->state() != QProcess::NotRunning) {
         setLastError(QStringLiteral("Wait for Moonlight pairing to finish before applying a negotiated profile"));
         return false;
@@ -723,7 +819,84 @@ bool MoonlightController::applyNegotiatedProfileForHandoff(int width, int height
 
 void MoonlightController::setProfileHandoffStartBlocked(bool blocked)
 {
+    const bool previousCanStart = canStartStream();
     m_ProfileHandoffStartBlocked = blocked;
+    if (previousCanStart != canStartStream()) {
+        emit canStartStreamChanged();
+    }
+}
+
+void MoonlightController::setSystemAuthAdmission(bool admitted)
+{
+    if (m_SystemAuthAdmission == admitted) {
+        return;
+    }
+    m_SystemAuthAdmission = admitted;
+    emit canStartStreamChanged();
+    if (admitted) {
+        setStatus(m_SystemAuthGameStreamLeaseRequired
+                      ? QStringLiteral("System authentication admits a PIN-free GameStream launch")
+                      : QStringLiteral("System authentication admits a legacy GameStream compatibility launch"));
+        return;
+    }
+
+    // This is an admission gate, not a media kill switch. A short-lived
+    // system-auth ticket is consumed to obtain Sunshine's separate mTLS
+    // media lease; expiry must forbid a new launch and erase the ticket while
+    // allowing an already admitted RTP session to finish. The composition
+    // root explicitly calls stopStream() for a user logout or a route change.
+    setStatus(QStringLiteral("System authentication is required before starting a stream"));
+}
+
+void MoonlightController::requireSystemAuthGameStreamLease()
+{
+    if (m_SystemAuthGameStreamLeaseRequired) {
+        return;
+    }
+    const bool previousCanStart = canStartStream();
+    m_SystemAuthGameStreamLeaseRequired = true;
+    if (previousCanStart != canStartStream()) {
+        emit canStartStreamChanged();
+    }
+}
+
+void MoonlightController::setSystemAuthGameStreamLease(const QString& authHost, int authPort,
+                                                        const QString& authServerName,
+                                                        const QString& authCaFile,
+                                                        const QString& audience,
+                                                        const QByteArray& ticket,
+                                                        qint64 expiresAtUtcMs)
+{
+    requireSystemAuthGameStreamLease();
+    const bool previousCanStart = canStartStream();
+    m_SystemAuthTicket.fill('\0');
+    m_SystemAuthTicket.clear();
+    m_SystemAuthHost = authHost.trimmed();
+    m_SystemAuthPort = authPort;
+    m_SystemAuthServerName = authServerName.trimmed();
+    m_SystemAuthCaFile = authCaFile.trimmed();
+    m_SystemAuthAudience = audience.trimmed();
+    m_SystemAuthTicket = ticket;
+    m_SystemAuthTicketExpiresAtUtcMs = expiresAtUtcMs;
+    if (previousCanStart != canStartStream()) {
+        emit canStartStreamChanged();
+    }
+}
+
+void MoonlightController::clearSystemAuthGameStreamLease()
+{
+    const bool previousCanStart = canStartStream();
+    m_SystemAuthTicket.fill('\0');
+    m_SystemAuthTicket.clear();
+    m_SystemAuthHost.clear();
+    m_SystemAuthPort = 0;
+    m_SystemAuthServerName.clear();
+    m_SystemAuthCaFile.clear();
+    m_SystemAuthAudience.clear();
+    m_SystemAuthTicketExpiresAtUtcMs = 0;
+    if (previousCanStart != canStartStream()) {
+        emit canStartStreamChanged();
+    }
 }
 
 bool MoonlightController::profileHandoffBlocksConfigurationChange(const QString& operation)
@@ -768,6 +941,64 @@ void MoonlightController::startValidatedStreamRequest(const StreamRequest& reque
     launchStream(request);
 }
 
+bool MoonlightController::prepareSystemAuthGameStreamEnvironment(
+    const StreamRequest& request, QProcessEnvironment* environment, QString* error) const
+{
+    if (environment == nullptr || error == nullptr) {
+        return false;
+    }
+    static const QStringList leaseEnvironmentNames {
+        QStringLiteral("QSM_GAMESTREAM_AUTH_HOST"),
+        QStringLiteral("QSM_GAMESTREAM_AUTH_PORT"),
+        QStringLiteral("QSM_GAMESTREAM_AUTH_SNI"),
+        QStringLiteral("QSM_GAMESTREAM_AUTH_CA_FILE"),
+        QStringLiteral("QSM_GAMESTREAM_AUDIENCE"),
+        QStringLiteral("QSM_GAMESTREAM_TICKET_FD"),
+        QStringLiteral("QSM_GAMESTREAM_HOST"),
+        QStringLiteral("QSM_GAMESTREAM_HTTPS_PORT"),
+    };
+    // Never inherit a caller's partial or stale lease variables. They would
+    // make an ordinary compatibility launch unexpectedly enter native mode.
+    for (const QString& name : leaseEnvironmentNames) {
+        environment->remove(name);
+    }
+    if (!m_SystemAuthGameStreamLeaseRequired) {
+        return true;
+    }
+    if (m_SystemAuthTicket.isEmpty() ||
+        m_SystemAuthTicketExpiresAtUtcMs <= QDateTime::currentMSecsSinceEpoch() ||
+        m_SystemAuthHost.isEmpty() || m_SystemAuthPort < 1 || m_SystemAuthPort > 65535 ||
+        m_SystemAuthCaFile.isEmpty() || m_SystemAuthAudience.isEmpty()) {
+        *error = QStringLiteral("A current system-auth media lease is required before starting Moonlight");
+        return false;
+    }
+
+    // Moonlight treats a manually supplied port as the GameStream HTTP base
+    // port. Sunshine maps HTTPS at the stable -5 offset (47989 -> 47984), so
+    // pass the exact HTTPS endpoint to the lease-aware NvHTTP path rather than
+    // asking it to trust an unauthenticated /serverinfo discovery response.
+    const QUrl endpoint = QUrl::fromUserInput(QStringLiteral("moonlight://") + request.host);
+    const QString gameStreamHost = endpoint.host();
+    const int httpBasePort = endpoint.port(47989);
+    if (!endpoint.isValid() || gameStreamHost.isEmpty() || httpBasePort <= 5 ||
+        httpBasePort > 65535) {
+        *error = QStringLiteral("PIN-free GameStream requires a concrete Sunshine host and valid base port");
+        return false;
+    }
+    const int httpsPort = httpBasePort - 5;
+    const QString authSni = m_SystemAuthServerName.isEmpty() ? m_SystemAuthHost
+                                                               : m_SystemAuthServerName;
+    environment->insert(QStringLiteral("QSM_GAMESTREAM_AUTH_HOST"), m_SystemAuthHost);
+    environment->insert(QStringLiteral("QSM_GAMESTREAM_AUTH_PORT"), QString::number(m_SystemAuthPort));
+    environment->insert(QStringLiteral("QSM_GAMESTREAM_AUTH_SNI"), authSni);
+    environment->insert(QStringLiteral("QSM_GAMESTREAM_AUTH_CA_FILE"), m_SystemAuthCaFile);
+    environment->insert(QStringLiteral("QSM_GAMESTREAM_AUDIENCE"), m_SystemAuthAudience);
+    environment->insert(QStringLiteral("QSM_GAMESTREAM_TICKET_FD"), QStringLiteral("0"));
+    environment->insert(QStringLiteral("QSM_GAMESTREAM_HOST"), gameStreamHost);
+    environment->insert(QStringLiteral("QSM_GAMESTREAM_HTTPS_PORT"), QString::number(httpsPort));
+    return true;
+}
+
 void MoonlightController::launchStream(const StreamRequest& request)
 {
     m_HasPendingRestart = false;
@@ -779,12 +1010,27 @@ void MoonlightController::launchStream(const StreamRequest& request)
     emit recentOutputChanged();
     setLastError(QString());
     setStatus(QStringLiteral("Starting Moonlight stream"));
-    QStringList arguments {QStringLiteral("stream"), QStringLiteral("--display-mode"),
-                           request.displayMode, QStringLiteral("--resolution"), request.resolution,
-                           // A desktop session is never an application that this
-                           // shell is allowed to terminate on disconnect.
-                           QStringLiteral("--no-quit-after"),
-                           QStringLiteral("--absolute-mouse")};
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    QString environmentError;
+    if (!prepareSystemAuthGameStreamEnvironment(request, &environment, &environmentError)) {
+        setLastError(environmentError);
+        setStatus(QStringLiteral("Moonlight did not start because the system-auth media lease is unavailable"));
+        return;
+    }
+    m_StreamProcess->setProcessEnvironment(environment);
+    QStringList arguments {QStringLiteral("stream")};
+    if (m_SystemAuthGameStreamLeaseRequired) {
+        // Stock Moonlight does not know this switch and exits. It is a
+        // deliberate fail-closed marker that prevents an accidental paired
+        // certificate/PIN fallback when the child is not our patched build.
+        arguments << QStringLiteral("--qsm-system-auth");
+    }
+    arguments << QStringLiteral("--display-mode") << request.displayMode
+              << QStringLiteral("--resolution") << request.resolution
+              // A desktop session is never an application that this shell is
+              // allowed to terminate on disconnect.
+              << QStringLiteral("--no-quit-after")
+              << QStringLiteral("--absolute-mouse");
     // The default preserves stock Moonlight's automatic selection.  The two
     // explicit values are constrained enum choices, not arbitrary CLI text.
     if (m_VideoDecoder != QStringLiteral("auto")) {

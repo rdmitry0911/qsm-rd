@@ -22,6 +22,10 @@ patches:
     SHA-256: 91439272fc8c8f7713a560cd3071a279af873748f4c7e82f2623ac254ca76ffc
   - patches/0007-platform-linux-close-QEMU-listener-transport-before-teardown.patch
     SHA-256: bdef88093a2b2f00b51c7e3a06533e7e62ef8fb00d2eaa8c52b718a14f8b107b
+  - patches/0008-nvhttp-require-system-auth-media-leases.patch
+    SHA-256: 35603f17e961809391d96ea155741d333b3f9d8d47d53bde4035f880c597e9ef
+  - simple-web-server/0001-server-http-expose-request-tls-native-handle.patch
+    SHA-256: 7c978eaa72a3077fa46f03dc322abd26ac0db0e17cd8be525227cc0976cff2e9
 ```
 
 The patch is an opt-in Linux build feature: configure upstream with
@@ -46,7 +50,10 @@ REPLAY=$(mktemp -d)
 git clone --recurse-submodules https://github.com/LizardByte/Sunshine.git "$REPLAY"
 git -C "$REPLAY" checkout --detach 4f39fc116294abf8241bcd30e1b1e23d371e6e7b
 git -C "$REPLAY" submodule update --init --recursive
-git -C "$REPLAY" am "$PROJECT_ROOT"/integration/sunshine/patches/000{1,2,3,4,5,6,7}-*.patch
+git -C "$REPLAY" am "$PROJECT_ROOT"/integration/sunshine/patches/000{1,2,3,4,5,6,7,8}-*.patch
+git -C "$REPLAY/third-party/Simple-Web-Server" am \
+  "$PROJECT_ROOT"/integration/sunshine/simple-web-server/0001-server-http-expose-request-tls-native-handle.patch
+git -C "$REPLAY" diff --check
 
 # Then run the strict software/QEMU build gate against "$REPLAY".
 SUNSHINE_SOURCE_DIR="$REPLAY" \
@@ -65,3 +72,10 @@ requires them; the helper requires `libva.so.2` to resolve from the isolated
 
 This pin is a source-integration checkpoint, not an upstream Sunshine release
 or an endorsement by the Sunshine project.
+
+The final outer patch is deliberately separate from the nested
+Simple-Web-Server patch: Sunshine's parent repository records the latter as a
+gitlink, so a parent-only patch would silently omit the TLS request accessor
+needed by system-auth media admission. The Debian recipe exports the patched
+source without VCS metadata and proves each native patch can reverse, apply,
+and reverse-check before compiling it.

@@ -262,6 +262,8 @@ if [[ "${1:-}" != '--inside-private-bus' ]]; then
     grep -Fqx 'QSUNSHINE_QT_MOONLIGHT_INPUT_E2E_OK=1' "$qt_summary"
     grep -Fqx 'QSUNSHINE_QT_MOONLIGHT_FULLSCREEN_INPUT_E2E_OK=1' "$qt_summary"
     grep -Fqx 'QSUNSHINE_QT_QSF_FULLSCREEN_DOWNLOAD_OK=1' "$qt_summary"
+    grep -Fqx 'QSUNSHINE_QT_SYSTEM_AUTH_GAMESTREAM_LEASE_OK=1' "$qt_summary"
+    grep -Fqx 'QSUNSHINE_QT_SYSTEM_AUTH_NO_PIN_FALLBACK_OK=1' "$qt_summary"
   else
     [[ -f "$OUTPUT_DIR/qsf-connection-optimize.json" ]] || die \
       'native QSF profile negotiation did not retain its result'
@@ -380,6 +382,33 @@ read_qemu_pidfile() {
   fi
 }
 
+# QEMU can intentionally run under a permitted account other than the
+# orchestration account (most notably root when only root can reach /dev/kvm).
+# In that case an ordinary kill(0) from this shell returns EPERM even while
+# QEMU is healthy.  Check and signal the already-owned PID through precisely
+# the same account that launched it; do not mistake a permissions boundary for
+# a crashed VM.
+qemu_process_alive() {
+  local pid=${1:-}
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  if [[ "$QEMU_USE_SUDO" == 1 ]]; then
+    sudo -n -u "$QEMU_RUN_AS" kill -0 "$pid" 2>/dev/null
+  else
+    kill -0 "$pid" 2>/dev/null
+  fi
+}
+
+signal_qemu_process() {
+  local signal=${1:-} pid=${2:-}
+  [[ "$signal" =~ ^(TERM|KILL)$ ]] || return 1
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  if [[ "$QEMU_USE_SUDO" == 1 ]]; then
+    sudo -n -u "$QEMU_RUN_AS" kill "-$signal" "$pid" 2>/dev/null
+  else
+    kill "-$signal" "$pid" 2>/dev/null
+  fi
+}
+
 show_logs() {
   printf '%s\n' '--- QEMU log ---' >&2
   tail -160 "$qemu_log" >&2 2>/dev/null || true
@@ -399,7 +428,7 @@ show_logs() {
 cleanup() {
   stop_owned_pid "$probe_pid"
   stop_owned_pid "$control_pid"
-  stop_owned_pid "$qemu_pid"
+  stop_qemu_pid "$qemu_pid"
   stop_owned_pid "$qemu_launcher_pid"
 }
 stop_owned_pid() {
@@ -418,6 +447,26 @@ stop_owned_pid() {
   done
   if kill -0 "$pid" 2>/dev/null; then
     kill -KILL "$pid" 2>/dev/null || true
+  fi
+  wait "$pid" 2>/dev/null || true
+}
+
+stop_qemu_pid() {
+  local pid=${1:-}
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 0
+  if ! qemu_process_alive "$pid"; then
+    wait "$pid" 2>/dev/null || true
+    return 0
+  fi
+  signal_qemu_process TERM "$pid" || true
+  # Let QEMU close its Display1/chardev sockets before the outer private
+  # directory is removed. The forced kill is only a bounded fallback.
+  for _ in $(seq 1 200); do
+    qemu_process_alive "$pid" || break
+    sleep 0.05
+  done
+  if qemu_process_alive "$pid"; then
+    signal_qemu_process KILL "$pid" || true
   fi
   wait "$pid" 2>/dev/null || true
 }
@@ -485,13 +534,13 @@ done
 [[ -n "$qemu_pid" ]] || { show_logs; die 'QEMU did not write PID'; }
 for _ in $(seq 1 200); do
   busctl --user --no-pager list 2>/dev/null | awk '{print $1}' | grep -Fxq "$DBUS_DESTINATION" && break
-  kill -0 "$qemu_pid" 2>/dev/null || { show_logs; die 'QEMU exited before exposing Display1'; }
+  qemu_process_alive "$qemu_pid" || { show_logs; die 'QEMU exited before exposing Display1'; }
   sleep 0.05
 done
 busctl --user --no-pager list | awk '{print $1}' | grep -Fxq "$DBUS_DESTINATION" || { show_logs; die 'QEMU did not expose Display1'; }
 for _ in $(seq 1 200); do
   [[ -S "$agent_socket" ]] && break
-  kill -0 "$qemu_pid" 2>/dev/null || { show_logs; die 'QEMU exited before QSF socket'; }
+  qemu_process_alive "$qemu_pid" || { show_logs; die 'QEMU exited before QSF socket'; }
   sleep 0.05
 done
 [[ -S "$agent_socket" ]] || die 'QEMU did not create QSF virtio-serial socket'
@@ -503,7 +552,7 @@ wait_marker() {
     if grep -F 'QSF_VIRGL_WAYLAND_GUEST_E2E_FAILED=' "$telemetry_log" 2>/dev/null; then
       show_logs; die "guest reported failure while waiting for $label"
     fi
-    kill -0 "$qemu_pid" 2>/dev/null || { show_logs; die "QEMU exited while waiting for $label"; }
+    qemu_process_alive "$qemu_pid" || { show_logs; die "QEMU exited while waiting for $label"; }
     sleep 0.1
   done
   show_logs
@@ -647,6 +696,10 @@ if [[ "$QT_QSF_OWNER" == qt ]]; then
     || { show_logs; die 'Qt QSF hook summary lacks fullscreen input attestation'; }
   grep -Fqx 'QSUNSHINE_QT_QSF_FULLSCREEN_DOWNLOAD_OK=1' "$qt_summary" \
     || { show_logs; die 'Qt QSF hook summary lacks post-fullscreen file-transfer attestation'; }
+  grep -Fqx 'QSUNSHINE_QT_SYSTEM_AUTH_GAMESTREAM_LEASE_OK=1' "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary lacks the system-auth GameStream lease attestation'; }
+  grep -Fqx 'QSUNSHINE_QT_SYSTEM_AUTH_NO_PIN_FALLBACK_OK=1' "$qt_summary" \
+    || { show_logs; die 'Qt QSF hook summary permits an obsolete PIN fallback'; }
 else
   qsf_client clipboard-set < "$CLIENT_CLIPBOARD" >"$output_dir/qsf-clipboard-set.json"
   wait_marker "QSF_VIRGL_WAYLAND_GUEST_CLIENT_TO_WAYLAND_STATE_SHA256=$client_clipboard_hash" 'client-to-guest QSF state'

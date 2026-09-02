@@ -216,8 +216,9 @@ Moonlight/Sunshine result and must not be used as one.
 
 `scripts/run-qsunshine-qt-moonlight-virgl-qsf-wayland-hook.sh` is different
 from the older Embedded-Moonlight hook: it drives the production Qt
-`MoonlightController` and `QsfClient`, including pair/list verification,
-windowed→fullscreen reconnect, clipboard, files, and resize. Set
+`SystemAuthClient`, `MoonlightController`, and `QsfClient`, including TLS/PAM
+admission, a native patched-Moonlight lease, windowed→fullscreen reconnect,
+clipboard, files, and resize. Set
 `VIRGL_QSF_WAYLAND_QT_QSF_OWNER=qt` with that hook.  The outer runner then
 skips its legacy mutating Python QSF block and verifies the Qt hook's atomic
 summary instead; using both QSF owners would race the same guest state.
@@ -227,10 +228,10 @@ serialized:
 
 1. normal QSF is deactivated and its clipboard/file/diagnostic-resize work is
    cancelled;
-2. the visible stock Moonlight stream is stopped, then the driver waits for its
+2. the visible patched Moonlight stream is stopped, then the driver waits for its
    host capture to retire;
-3. a temporary TLS 1.3 mTLS **profile-only** QSF lease proves ready and permits
-   only `connection_optimize`;
+3. a temporary TLS 1.3 ticket-authenticated **profile-only** QSF lease proves
+   ready and permits only `connection_optimize`;
 4. the broker combines client decoder, Sunshine host encoder, and VirGL guest
    display capabilities, performs QEMU `Console.SetUIInfo`, and waits for the
    exact generation-bound guest scanout acknowledgement;
@@ -242,10 +243,17 @@ This prevents an old Sunshine capture or a clipboard/file request from racing
 the Weston restart. `fullscreen` still controls the Moonlight client window;
 it does not itself prove or select a guest scanout.
 
-The current safe-handoff gate passed on 2026-09-01 at
-`vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.Jcmdij/trace.txt`. Its outer hook
-contains `QSUNSHINE_QT_MOONLIGHT_VIRGL_QSF_HOOK_OK`; the nested trace records:
+The current native system-auth safe-handoff gate passed on 2026-09-02 at
+`vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.qAMtPU/trace.txt`. Its outer hook
+contains `QSUNSHINE_QT_MOONLIGHT_VIRGL_QSF_HOOK_OK`; its atomic summary adds
+`QSUNSHINE_QT_SYSTEM_AUTH_GAMESTREAM_LEASE_OK=1` and
+`QSUNSHINE_QT_SYSTEM_AUTH_NO_PIN_FALLBACK_OK=1`. The nested trace records:
 
+- TLS/PAM fixture login, a RAM-only VM ticket, and each patched Moonlight
+  child launched with explicit `--qsm-system-auth` before its CSR/mTLS lease;
+- a disabled legacy pair route: the semantic GameStream response to the test
+  `/pair` request is exactly `<root status_code="404"/>` with no pairing-state
+  mutation. The legacy protocol carries that semantic 404 in HTTP 200;
 - a non-black `1280x800` windowed surface;
 - a quiesced windowed stream, profile-only QSF, and an exact guest
   `1280x720` acknowledgement before the negotiated Moonlight process starts;
@@ -253,13 +261,13 @@ contains `QSUNSHINE_QT_MOONLIGHT_VIRGL_QSF_HOOK_OK`; the nested trace records:
   negotiated stream, another profile-only lease, and an exact guest
   `1600x900` acknowledgement before the fullscreen process starts;
 - a non-black physical `1600x900@(0,0)` fullscreen surface, both guest input
-  barriers, bidirectional mTLS clipboard evidence, and byte-for-byte QSF
+  barriers, bidirectional ticket-QSF clipboard evidence, and byte-for-byte QSF
   upload/download with a second download after normal QSF reactivation.
 
 The driver selects Moonlight's `software` decoder only in this disposable
 Xvfb/`xwd` capture lane; production Qt clients default to Moonlight's `auto`
 decoder selection. The older Embedded-Moonlight result in the next section is
-not a Qt shell qualification.
+historical legacy-pairing evidence, not a Qt shell or system-auth qualification.
 
 The exact build and invocation are in
 [`QT_DESKTOP_CLIENT.md`](QT_DESKTOP_CLIENT.md#retained-qtmoonlightvirgl-e2e-gate).

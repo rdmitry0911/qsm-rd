@@ -1,0 +1,79 @@
+From 7ec669a64e4d078bc2cae22e816f5c08aecbc98f Mon Sep 17 00:00:00 2001
+From: q-sunshine contributors <q-sunshine@local>
+Date: Wed, 2 Sep 2026 00:00:00 +0000
+Subject: [PATCH] server_http: expose active request TLS native handle
+
+q-sunshine's system-auth media verifier must reconstruct identity from the
+specific TLS connection that issued a sensitive GameStream request.  Preserve
+the opaque native socket handle on Request while its Session owns the
+connection.  Plain sockets intentionally report nullptr.
+
+---
+diff --git a/server_http.hpp b/server_http.hpp
+index baace86b48ad5721af9dc4b2b595dd0cbe2f1817..a7a8a91c4ef96aaf6232817f2e4fa9c04d5c4503 100644
+--- a/server_http.hpp
++++ b/server_http.hpp
+@@ -11,6 +11,7 @@
+ #include <map>
+ #include <sstream>
+ #include <thread>
++#include <type_traits>
+ #include <unordered_set>
+ 
+ // Late 2017 TODO: remove the following checks and always use std::regex
+@@ -36,6 +37,14 @@ namespace SimpleWeb {
+     class Connection;
+     class Session;
+ 
++    template <typename native_handle_type>
++    static void *as_socket_native_handle(native_handle_type native_handle) noexcept {
++      if constexpr(std::is_pointer_v<native_handle_type>)
++        return reinterpret_cast<void *>(native_handle);
++      else
++        return nullptr;
++    }
++
+   public:
+     /// Response class where the content of the response is sent to client when the object is about to be destroyed.
+     class Response : public std::enable_shared_from_this<Response>, public std::ostream {
+@@ -230,6 +239,7 @@ namespace SimpleWeb {
+       std::unique_ptr<asio::streambuf> streambuf;
+       asio::streambuf content_streambuf;
+       std::weak_ptr<Connection> connection;
++      void *socket_native_handle_ = nullptr;
+       std::string optimization = std::to_string(0); // TODO: figure out what goes wrong in gcc optimization without this line
+ 
+       Request(std::size_t max_request_streambuf_size, const std::shared_ptr<Connection> &connection_) noexcept
+@@ -293,6 +303,16 @@ namespace SimpleWeb {
+         return 0;
+       }
+ 
++      /**
++       * Return the native TLS handle associated with this request when the
++       * underlying socket exposes one. Plain TCP sockets return nullptr.
++       * The opaque pointer is valid only while the request connection remains
++       * alive and is intended for narrow server-side authentication adapters.
++       */
++      void *socket_native_handle() const noexcept {
++        return socket_native_handle_;
++      }
++
+       /// Returns query keys with percent-decoded values.
+       CaseInsensitiveMultimap parse_query_string() const noexcept {
+         return SimpleWeb::QueryString::parse(query_string);
+@@ -353,9 +373,13 @@ namespace SimpleWeb {
+     class Session {
+     public:
+       Session(std::size_t max_request_streambuf_size, std::shared_ptr<Connection> connection_) noexcept
+-          : connection(std::move(connection_)), request(new Request(max_request_streambuf_size, connection)) {}
++          : connection(std::move(connection_)), request(new Request(max_request_streambuf_size, connection)) {
++        request->socket_native_handle_ = as_socket_native_handle(connection->socket->native_handle());
++      }
+       Session(std::size_t max_request_streambuf_size, std::shared_ptr<Connection> connection_, std::unique_ptr<asio::streambuf> &&previous_streambuf) noexcept
+-          : connection(std::move(connection_)), request(new Request(max_request_streambuf_size, connection, std::move(previous_streambuf))) {}
++          : connection(std::move(connection_)), request(new Request(max_request_streambuf_size, connection, std::move(previous_streambuf))) {
++        request->socket_native_handle_ = as_socket_native_handle(connection->socket->native_handle());
++      }
+ 
+       std::shared_ptr<Connection> connection;
+       std::shared_ptr<Request> request;

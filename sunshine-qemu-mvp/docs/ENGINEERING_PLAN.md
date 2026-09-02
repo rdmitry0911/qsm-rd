@@ -330,7 +330,7 @@ width_mm/height_mm = derived from requested DPI or a conservative 96-DPI default
 после MVP-0:
 
 - standalone `MoonlightController` с профилями и controlled reconnect;
-- windowed/fullscreen/borderless CLI presentation;
+- two explicit client-presentation modes: windowed and fullscreen;
 - QSF TLS 1.3 mTLS lifecycle, clipboard bridge и constrained files;
 - явная post-video activation, чтобы child-process startup не выдавался за
   подтверждённую GameStream session;

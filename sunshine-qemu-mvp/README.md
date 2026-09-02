@@ -4,8 +4,9 @@ This repository implements and qualifies a headless QEMU Display1 capture
 backend for a pinned Sunshine build. The accepted native route is:
 
 ```text
-Qt desktop shell -> clean stock Moonlight Qt
-  -> Sunshine GameStream (private pairing, HTTPS, RTSP/RTP)
+Qt desktop shell -> patched Moonlight Qt (one-shot system-auth ticket)
+  -> TLS/PAM authd -> ephemeral VM mTLS lease
+  -> Sunshine GameStream (pinned HTTPS, encrypted RTSP/RTP; no pairing)
   -> QEMU Display1 D-Bus capture/input/audio
   -> KVM Q35 + virtio-vga-gl
   -> Alpine guest + VirGL on the host NVIDIA render node
@@ -17,12 +18,21 @@ Embedded-Moonlight or Qt/Moonlight visual test is a **client harness only**;
 it is never part of the q-sunshine host runtime.
 
 An optional [`Qt desktop client`](docs/QT_DESKTOP_CLIENT.md) now provides a
-portable Remmina/RDP-style client-side shell. It launches stock Moonlight Qt
-as a separate process for GameStream video/audio/input and owns saved profiles,
-the QSF mTLS companion, clipboard, constrained files, and safe presentation /
-guest-scanout handoffs. It is off by default; enable it with
+portable Remmina/RDP-style client-side shell. It launches patched Moonlight Qt
+as a separate media process for GameStream video/audio/input and owns saved
+profiles, TLS/PAM sign-in, the system-authenticated QSF companion, clipboard,
+constrained files, and safe presentation / guest-scanout handoffs. The native
+media lease, created from the in-memory ticket by the child, is VM-bound and
+has no PIN/pairing fallback. The retained client-certificate mTLS QSF gateway
+is a separate legacy deployment mode, not a requirement for the desktop login.
+The Qt client is off by default; enable it with
 `-DQMDP_BUILD_QT_CLIENT=ON`.
 It likewise adds no X11/Wayland dependency to the Sunshine host.
+
+For artifact installation, per-VM system-auth setup, guest/QEMU wiring,
+macOS Tahoe first launch, verification, removal, and signing caveats, see
+[`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md). It describes a release
+procedure but does not claim that a package has already been published.
 
 ## Accepted functionality
 
@@ -31,56 +41,64 @@ NVIDIA RTX 3080 render node:
 
 | Capability | What is exercised end to end |
 | --- | --- |
-| Video | Qt-controlled clean stock Moonlight pairing/list, HTTPS launch, RTSP/RTP, H.264 encode/decode, QEMU `ScanoutDMABUF`/`UpdateDMABUF`, KVM, `virtio_gpu`, VirGL and non-black client images |
-| Fullscreen and windowed client modes | Qt-controlled stock Moonlight `1280x800` windowed presentation and a physical `1600x900` fullscreen presentation at `(0,0)`, proven in two independent runs |
-| Resolution | client-selected QSF `1280x720` and `1600x900` profiles: visible Moonlight is quiesced, the prior Sunshine capture is allowed to retire, a profile-only mTLS lease applies QEMU `Console.SetUIInfo` and waits for the exact Weston/VirGL acknowledgement, then a fresh Moonlight stream starts |
-| Keyboard and mouse | Real stock-Moonlight keys, absolute motion and clicks observed as raw guest evdev `KEY_A` in windowed mode and fresh `KEY_B` + pointer/button evidence after fullscreen reconnect |
+| Video | Qt-controlled patched Moonlight native lease, pinned HTTPS launch, encrypted RTSP/RTP, H.264 encode/decode, QEMU `ScanoutDMABUF`/`UpdateDMABUF`, KVM, `virtio_gpu`, VirGL and non-black client images |
+| Fullscreen and windowed client modes | Qt-controlled Moonlight `1280x800` windowed presentation and a physical `1600x900` fullscreen presentation at `(0,0)` |
+| Resolution | client-selected QSF `1280x720` and `1600x900` profiles: visible Moonlight is quiesced, the prior Sunshine capture is allowed to retire, a profile-only authenticated QSF lease applies QEMU `Console.SetUIInfo` and waits for the exact Weston/VirGL acknowledgement, then a fresh Moonlight stream starts |
+| Keyboard and mouse | Real patched-Moonlight keys, absolute motion and clicks observed as raw guest evdev `KEY_A` in windowed mode and fresh `KEY_B` + pointer/button evidence after fullscreen reconnect |
 | Guest audio | QEMU D-Bus `AudioOutListener` -> Sunshine Opus -> Moonlight decoded non-silent 48 kHz stereo PCM, without a host sound server |
 | Clipboard | QSF companion text reaches real guest Weston `wl-paste`; a guest `wl-copy` reaches the client side, with independent hashes |
 | Files | QSF upload and download through QEMU virtio-serial, with independent guest/client SHA-256 assertions |
 
-The strongest combined evidence is the latest Qt/Moonlight composite in
-`vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.Jcmdij/` (with the earlier
-independent `run.FMrGhL/` and `run.jxqPBO/` retained locally; all are ignored
-because they contain ephemeral credentials). The latest run exercised
-the final no-desktop-dependency Sunshine binary, clean stock Moonlight Qt,
-real Weston DRM clipboard bridge, files, resize, and controlled fullscreen
-reconnect together.
+The current acceptance evidence is the native system-auth composite in
+`vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.qAMtPU/`. It exercised the
+patched Moonlight Qt child, TLS/PAM login, RAM-only `qsa1` ticket, native
+CSR/mTLS lease, no-PIN GameStream launch, real Weston DRM clipboard bridge,
+files, resize, and controlled fullscreen reconnect together. Its atomic
+summary contains `QSUNSHINE_QT_SYSTEM_AUTH_GAMESTREAM_LEASE_OK=1` and
+`QSUNSHINE_QT_SYSTEM_AUTH_NO_PIN_FALLBACK_OK=1` alongside the video, input,
+clipboard, file, and guest-scanout assertions.
+
+`run.FMrGhL`, `run.jxqPBO`, and `run.Jcmdij` remain ignored local historical
+stock-Moonlight/legacy-pairing traces. They are useful regression diagnostics,
+but are not evidence for the current system-auth media route.
 
 The current safe profile-handoff trace is
-`vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.Jcmdij/`. Its outer hook emits
-`QSUNSHINE_QT_MOONLIGHT_VIRGL_QSF_HOOK_OK`; its nested trace records the two
-profile-only leases, exact guest acknowledgements for `1280x720` and
-`1600x900`, new Moonlight processes after each acknowledgement, and normal QSF
-reactivation only after the replacement video is verified.
+`vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.qAMtPU/`. Its outer hook emits
+`QSUNSHINE_QT_MOONLIGHT_VIRGL_QSF_HOOK_OK`; its nested trace records the
+TLS/PAM-to-lease admission, two profile-only ticket-authenticated QSF leases,
+exact guest acknowledgements for `1280x720` and `1600x900`, and new patched
+Moonlight processes after each acknowledgement. Normal QSF is reactivated
+only after replacement video is verified.
 
 ## Runtime topology
 
 ```text
                     client side only                         headless host
-Qt shell -> stock Moonlight Qt ── GameStream ──> Sunshine qemu_dbus ── private D-Bus ──> QEMU
-       │                                             │                                     │
-       │                                             ├─ QEMU AudioOutListener               ├─ KVM/Q35
-       │                                             ├─ ScanoutDMABUF                       ├─ virtio-vga-gl
-       │                                             └─ Keyboard/Mouse/SetUIInfo            └─ virtio-serial
-       │                                                                                   │
-       └── QSF TLS 1.3 mTLS ─────────────────────── QSF gateway ─────────────────────────┘
-                                                                                           │
-                                                                                Alpine + VirGL + Weston DRM
-                                                                                wl-copy / wl-paste + QSF agent
+Qt shell -> patched Moonlight Qt ── mTLS GameStream ──> Sunshine qemu_dbus ─ private D-Bus -> QEMU
+       │                  │                                 │                                │
+       ├── TLS 1.3/PAM -> system-auth gateway -> ticket/lease ├─ Audio/Scanout/Input         ├─ KVM/Q35
+       │                                                    │                                ├─ virtio-vga-gl
+       └── TLS 1.3 QSF + ticket ───────────────────────> QSF ticket gateway ───────────────┴─ virtio-serial
+                                                                                               │
+                                                                                   Alpine + VirGL + Weston DRM
+                                                                                   wl-copy / wl-paste + QSF agent
 ```
 
 The QSF route is intentionally a separate authenticated companion protocol.
-Stock Moonlight/GameStream does not standardize bidirectional clipboard or
-file-transfer messages, so those functions are not mislabeled as GameStream
-features.
+GameStream does not standardize bidirectional clipboard or file-transfer
+messages, so those functions are not mislabeled as GameStream features. QSF
+and media are separate authenticated channels. The system ticket is enforced
+by QSF and feeds the child-owned mTLS lease sequence for GameStream; Sunshine
+disables its pairing/PIN endpoints in this mode. See
+[`docs/SYSTEM_AUTH.md`](docs/SYSTEM_AUTH.md) and
+[`docs/GAMESTREAM_LEASE_AUTH.md`](docs/GAMESTREAM_LEASE_AUTH.md).
 
 ## Build the deployment artifact
 
-The reproducible helper applies Sunshine patches `0001` through `0007` to the
-pinned upstream revision, uses an isolated `libva 2.21` prefix only for the
-bundled FFmpeg ABI, and rejects forbidden libraries across the full `ldd`
-closure.
+The reproducible helper applies Sunshine patches `0001` through `0008` plus
+the pinned nested Simple-Web-Server accessor patch to the upstream revision,
+uses an isolated `libva 2.21` prefix only for the bundled FFmpeg ABI, and
+rejects forbidden libraries across the full `ldd` closure.
 
 ```bash
 ./scripts/build-isolated-libva-2.21.sh
@@ -99,10 +117,12 @@ server. Its current renderer path imports a DMA-BUF into headless EGL and
 reads it back to CPU BGRX for Sunshine's `libx264` software encoder. It is a
 functional native VirGL path, **not** zero-copy capture or hardware encoding.
 
-## Re-run the native gates
+## Re-run the gates
 
-Build the project observer with DMA-BUF support and point every Sunshine test
-at the exact deployment artifact:
+Build the project observer with DMA-BUF support. The two direct
+Embedded-Moonlight commands below are retained **historical legacy-pairing**
+codec/input regressions; they are not the accepted native system-auth media
+gate:
 
 ```bash
 cmake -S . -B .build-dmabuf -G Ninja -DQMDP_ENABLE_DMABUF_READBACK=ON
@@ -122,9 +142,15 @@ QEMU_ACCEL=kvm MOONLIGHT_WINDOW_MODE=windowed STREAM_SECONDS=12 \
 ```
 
 For the accepted Qt/Moonlight + Weston clipboard/file/resize composite, do not
-run a second GameStream test concurrently:
+run a second GameStream test concurrently. The QEMU runner must be the user
+that owns the private D-Bus session and has read/write access to both
+`/dev/kvm` and the selected render node; using root solely to bypass KVM
+permissions breaks that user-bus contract.
 
 ```bash
+SUNSHINE_BINARY="$PWD/.upstream/build-sunshine-qemu/sunshine" \
+QSUNSHINE_MOONLIGHT_QT_BINARY="$PWD/.upstream/moonlight-qt-clean/app/moonlight" \
+VIRGL_QEMU_RUN_AS="$(id -un)" \
 VIRGL_QSF_WAYLAND_QT_QSF_OWNER=qt \
 VIRGL_QSF_WAYLAND_PROBE_DURATION_MS=390000 \
 VIRGL_QSF_WAYLAND_POST_AGENT_READY_HOOK=\
@@ -152,12 +178,12 @@ live Moonlight stream. The Qt coordinator follows this sequence:
 1. It ends the normal QSF session, cancelling clipboard, file, and diagnostic
    resize operations, then stops the visible Moonlight process.
 2. It waits for that process and a bounded Sunshine capture-retirement interval
-   before opening a short **profile-only** QSF TLS 1.3 mTLS lease.
+   before opening a short **profile-only** authenticated QSF TLS 1.3 lease.
 3. That lease can issue only `connection_optimize`. The broker resolves the
    three capability envelopes, sends QEMU `Console.SetUIInfo`, commits the
    profile, and waits for the generation-bound Weston/VirGL current-mode
    acknowledgement.
-4. The temporary lease closes before a new stock Moonlight process is launched
+4. The temporary lease closes before a new patched Moonlight process is launched
    with the resolved stream profile. Normal QSF is activated again only after
    the replacement video is visibly verified.
 
@@ -203,20 +229,24 @@ is a documented guest-desktop fallback, not a claim of automatic hotplug.
   Windows-login coverage, or a long-term remote security review.
 - The host is headless, but Moonlight itself remains a graphical client and
   needs its normal SDL platform on the client machine.
-- QSF is not cryptographically bound to a GameStream session. The Qt shell
-  requires manual activation after the video is visible and cancels QSF on
-  Moonlight teardown; the temporary profile-only lease never permits clipboard
-  or file traffic. Use only a trusted, per-VM gateway.
+- QSF is not cryptographically bound to an already-admitted GameStream media
+  session. The Qt shell requires manual activation after video is visible and
+  cancels QSF on Moonlight teardown; the temporary profile-only lease never
+  permits clipboard or file traffic. The native media route itself uses the
+  ticket-to-lease identity rather than a legacy paired certificate. Use only a
+  trusted, per-VM gateway.
 
 ## Documentation map
 
 - [`docs/VALIDATION.md`](docs/VALIDATION.md) — recorded test matrix and exact evidence.
+- [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md) — Proxmox/macOS installation, launch, verification and removal order.
 - [`docs/SUNSHINE_QEMU_INTEGRATION.md`](docs/SUNSHINE_QEMU_INTEGRATION.md) — pinned upstream patch/build contract.
-- [`docs/MOONLIGHT_SUNSHINE_VIRGL_E2E.md`](docs/MOONLIGHT_SUNSHINE_VIRGL_E2E.md) — native video/input/fullscreen gate.
+- [`docs/MOONLIGHT_SUNSHINE_VIRGL_E2E.md`](docs/MOONLIGHT_SUNSHINE_VIRGL_E2E.md) — historical Embedded-Moonlight pairing video/input gate.
 - [`docs/MOONLIGHT_AUDIO_E2E.md`](docs/MOONLIGHT_AUDIO_E2E.md) — decoded client-audio gate.
 - [`docs/VIRGL_QSF_WAYLAND_CLIPBOARD_E2E.md`](docs/VIRGL_QSF_WAYLAND_CLIPBOARD_E2E.md) — real guest desktop clipboard, files and resize.
 - [`docs/QSF_STREAM_NEGOTIATION.md`](docs/QSF_STREAM_NEGOTIATION.md) — client/host/guest capability contract and scanout acknowledgement.
-- [`extensions/qsf_control/README.md`](extensions/qsf_control/README.md) — local and mTLS QSF companion operation.
+- [`extensions/qsf_control/README.md`](extensions/qsf_control/README.md) — local, ticket, and legacy-mTLS QSF companion operation.
+- [`docs/SYSTEM_AUTH.md`](docs/SYSTEM_AUTH.md) — TLS/PAM login, VM-audience tickets, and the current GameStream boundary.
 - [`docs/QT_DESKTOP_CLIENT.md`](docs/QT_DESKTOP_CLIENT.md) — portable Qt client shell, build, security and its QSF E2E gate.
 
 ## License

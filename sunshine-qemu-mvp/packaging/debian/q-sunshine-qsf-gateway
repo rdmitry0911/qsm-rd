@@ -1,3 +1,10 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
-exec /usr/bin/python3 /usr/lib/q-sunshine/qsf/qsf_tls_gateway.py "$@"
+set -eu
+
+if [ -z "${QSUNSHINE_QSF_CLIENT_CA:-}" ]; then
+    echo "q-sunshine-qsf-gateway: QSUNSHINE_QSF_CLIENT_CA is required for legacy mTLS" >&2
+    exit 2
+fi
+exec /usr/bin/python3 /usr/lib/q-sunshine/qsf/qsf_tls_gateway.py "$@" \
+    --client-ca "$QSUNSHINE_QSF_CLIENT_CA"

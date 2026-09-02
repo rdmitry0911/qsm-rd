@@ -79,6 +79,13 @@ public:
     void setSessionActive(bool active);
     void setClipboardSyncEnabled(bool enabled);
     void setInitialClipboardDirection(const QString& direction);
+    // This C++-only API is intentionally not Q_INVOKABLE and never stores a
+    // ticket in QSettings. SystemAuthClient owns the ticket lifecycle and
+    // calls this after a successful TLS/PAM login. A legacy mTLS profile keeps
+    // using its configured certificate/key files unchanged.
+    void setEphemeralSystemAuthTicket(const QByteArray& ticket, qint64 expiresAtUtcMs);
+    void clearEphemeralSystemAuthTicket();
+    bool hasValidEphemeralSystemAuthTicket() const;
 
 signals:
     void profileChanged();
@@ -189,6 +196,9 @@ private:
     QString m_CaFile;
     QString m_ClientCertificateFile;
     QString m_ClientKeyFile;
+    QByteArray m_EphemeralSystemAuthTicket;
+    qint64 m_EphemeralSystemAuthTicketExpiresAtUtcMs;
+    bool m_UseEphemeralSystemAuthTicket;
     bool m_SessionActive;
     bool m_DisplayNegotiationOnly;
     bool m_ProfileHandoffOperationsBlocked;

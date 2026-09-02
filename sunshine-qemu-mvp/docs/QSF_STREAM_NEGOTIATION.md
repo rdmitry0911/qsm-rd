@@ -57,11 +57,13 @@ remove the record; expiry removes it synchronously. The record is keyed by the
 normalized profile identifier's SHA-256, not by a mutable host name or the QSF
 client's startup-default profile.
 While this handoff/recovery gate is live, the client also rejects public
-desktop-profile selection/saving, Moonlight executable and decoder changes,
-and pairing. These are not merely disabled QML buttons: the controller keeps
-the captured launch target immutable so an in-process caller cannot switch to
-a clean profile after a marker was restored or mutate a profile beneath an
-in-flight guest acknowledgement.
+desktop-profile selection/saving, decoder changes, and pairing. The production
+Moonlight executable is fixed by package policy and is never a profile/QML
+setting; only test/E2E binaries compile a temporary child override. These are
+not merely disabled QML buttons: the controller keeps the captured launch
+target immutable so an in-process caller cannot switch to a clean profile
+after a marker was restored or mutate a profile beneath an in-flight guest
+acknowledgement.
 The public writable QSF `sessionActive` property is covered too: both an
 activation and a deactivation are status-only refusals while the guard is
 live. Only the coordinator's private lease teardown can close the mTLS socket,

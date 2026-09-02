@@ -15,9 +15,10 @@ QSF extension:              client ↔ local 0600 socket ↔ qsf-control
 ```
 
 The local control socket has a random 256-bit token in a `0600` file. Do not
-expose that socket or token directly on TCP. A remote companion uses the
-separate TLS 1.3 mTLS gateway described below; the gateway reads the local
-token on the host and never transmits it.
+expose that socket or token directly on TCP. A remote companion uses a separate
+TLS 1.3 gateway which reads the local token on the host and never transmits it.
+It has two explicit, mutually exclusive modes: retained client-certificate
+mTLS or a short-lived TLS/PAM system-auth ticket.
 
 The guest agent accepts and emits only non-NUL UTF-8 clipboard data up to 1
 MiB, including when a guest-local state writer bypasses the host broker; bad
@@ -79,10 +80,11 @@ for the v2 protocol, guest adapter, serverinfo codec probe, and operator caps.
 GameStream/Moonlight has no interoperable clipboard or file-transfer packet.
 For a remote Moonlight-based client, run the optional QSF companion beside the
 Moonlight client rather than pretending these operations are GameStream
-messages.  `qsf_tls_gateway.py` is the server-side bridge from an mTLS
-connection to the local `0600` control socket; `qsf_tls_client.py` is the
-matching client CLI.  The local token remains on the host and is never sent
-over TLS.
+messages. `qsf_tls_gateway.py` is the server-side bridge from either an mTLS
+connection or a TLS/PAM-issued ticket to the local `0600` control socket. The
+local token remains on the host and is never sent over TLS.
+
+### Legacy mTLS mode
 
 The gateway binds to loopback by default.  To expose it to a remote client,
 provide a server certificate/key and a CA that issues the companion client's
@@ -102,15 +104,47 @@ printf 'client to guest' | python3 extensions/qsf_control/qsf_tls_client.py \
   --cert-file client.crt --key-file client.key clipboard-set
 ```
 
-TLS 1.3 with a required client certificate is enforced.  Start one gateway
+TLS 1.3 with a required client certificate is enforced. Start one gateway
 per VM/session and stop it with that session; a client certificate trusted by
 that gateway can operate only the attached VM's QSF control socket.  This
 transport is headless and has no X11 or Wayland dependency.
 
+The gateway opens its server certificate/key only as checked regular
+non-symlink files. A root-run service requires root ownership; neither file
+may be group/world writable and the private key must be mode `0600` (or
+stricter). Restart the gateway after rotating its TLS material.
+
+### System-auth ticket mode
+
+For the Qt client, provision and start `q-sunshine-auth@VMID` and the dedicated
+`q-sunshine-qsf-system-auth-gateway@VMID` unit instead. The Qt shell sends its
+short-lived VM-audience ticket in an `authorization` JSON member over verified
+TLS; the ticket gateway verifies signature, expiry, and exact audience, then
+strips that member before it forwards the request to the local broker. It does
+not accept an mTLS client certificate, and the mTLS/ticket units conflict for
+the same VM so an operator cannot accidentally expose both modes. See
+[`SYSTEM_AUTH.md`](../../docs/SYSTEM_AUTH.md) for provisioning and the
+password/ticket persistence boundary.
+
+The Qt UI is ticket-only: it exposes no mTLS client certificate/key fields.
+The retained mTLS mode above is for deployment, CLI, and test compatibility,
+not a selectable desktop-profile authentication mode.
+
+The Qt profile also stores a non-secret expected VM audience (for example
+`vm-100`) and rejects an otherwise successful PAM reply unless it matches
+exactly. That field is routing/trust metadata, not an additional credential or
+a value inferred from the editable desktop-profile label.
+
+Both TCP gateway modes bound incomplete TLS/profile workers to 16 by default
+(configurable from 1 to 16), use short ingress timeouts, and close excess
+accepted peers before forwarding. This protects service capacity but does not
+replace network filtering or the ticket gateway's per-source login rate limit.
+
 The current protocol does **not** cryptographically bind a QSF TLS request to
-the corresponding GameStream/Moonlight session.  Treat the gateway endpoint as
-part of the VM trust boundary: use separate certificate material per VM and do
-not direct a client at an untrusted gateway.  The optional Qt desktop shell
-therefore requires an explicit post-video activation and immediately tears the
-companion down when its Moonlight child stops or reconnects; see
+the corresponding GameStream/Moonlight session. Treat the gateway endpoint as
+part of the VM trust boundary: use separate certificate material or an exact
+system-auth audience per VM and do not direct a client at an untrusted gateway.
+The optional Qt desktop shell therefore requires an explicit post-video
+activation and immediately tears the companion down when its Moonlight child
+stops or reconnects; see
 [`docs/QT_DESKTOP_CLIENT.md`](../../docs/QT_DESKTOP_CLIENT.md).

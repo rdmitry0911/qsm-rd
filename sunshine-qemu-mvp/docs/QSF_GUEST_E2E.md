@@ -136,12 +136,14 @@ It does not prove any of the following:
 - a remote network/mTLS transport, a combined Moonlight/QSF session binding,
   or a VirGL/DMA-BUF stream path.
 
-Those last desktop/native boundaries are now separately proven by the strict
-one-VM composite in
-`vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.KEqkVc/`; see
-`VIRGL_QSF_WAYLAND_CLIPBOARD_E2E.md`. The mTLS gateway itself is exercised by
-its protocol test, but a production launcher must still bind each certificate
-and gateway lifetime to exactly one authorized session/VM.
+Those last desktop/native boundaries are currently proven by the strict
+patched-Moonlight system-auth composite in
+`vm/alpine-virgl-3.20.10/wayland-qsf-e2e/run.qAMtPU/`; see
+`VIRGL_QSF_WAYLAND_CLIPBOARD_E2E.md`. The older `run.KEqkVc` is an historical
+legacy-pairing/legacy-QSF diagnostic, not current authentication evidence.
+The legacy mTLS gateway itself is exercised by its protocol test, but a
+production launcher must still bind each certificate and gateway lifetime to
+exactly one authorized session/VM.
 
 The deployed q-sunshine host stays headless: Xvfb, SDL, and `xdotool` belong
 only to the separate Moonlight client-test harness.

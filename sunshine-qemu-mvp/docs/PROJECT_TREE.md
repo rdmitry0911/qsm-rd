@@ -147,9 +147,10 @@ sunshine-qemu-mvp/
 - `clients/qsunshine-qt`: optional, standalone Qt desktop shell. It keeps
   Moonlight Qt as a child media/input process and implements profile-scoped
   QSF TLS controls without embedding an SDL surface in a Qt event loop.
-- `scripts/run-qsunshine-qt-moonlight-virgl-qsf-wayland-hook.sh`: retained
-  composite Qt-shell/stock-Moonlight/Sunshine/QEMU/VirGL qualification hook;
-  it owns the disposable client display and transfers QSF operation ownership
-  from the legacy outer runner to the production Qt client classes. It proves
-  windowed and physical-fullscreen presentations, controlled reconnect, input,
-  mTLS clipboard/files, and guest resize in the same powered-on VM.
+- `scripts/run-qsunshine-qt-moonlight-virgl-qsf-wayland-hook.sh`: current
+  composite Qt-shell/patched-Moonlight/Sunshine/QEMU/VirGL qualification hook.
+  It owns the disposable client display, drives TLS/PAM ticket-to-lease media
+  admission, transfers QSF operation ownership from the legacy outer runner to
+  the production Qt client classes, and proves windowed/fullscreen presentation,
+  controlled reconnect, input, ticket-QSF clipboard/files, and guest resize in
+  one powered-on VM. Historical stock/pairing hooks are documented separately.
