@@ -210,7 +210,7 @@ for framework_search_dir in \
     done
 done
 "$macdeployqt" "$moonlight_bundle" "${macdeploy_libpath_args[@]}" \
-    -qmldir="$moonlight_source/app/gui" -appstore-compliant
+    -qmldir="$moonlight_source/app/gui" -appstore-compliant -no-codesign
 
 cmake -S "$ROOT_DIR" -B "$build_dir/qsunshine-build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
@@ -236,7 +236,7 @@ assert_architectures "$launcher_binary"
 # signing pass cover both applications.
 "$macdeployqt" "$app_bundle" "${macdeploy_libpath_args[@]}" \
     -qmldir="$ROOT_DIR/clients/qsunshine-qt/qml" \
-    -always-overwrite
+    -always-overwrite -no-codesign
 info_plist="$app_bundle/Contents/Info.plist"
 [[ -f "$info_plist" ]] || die "q-sunshine bundle has no Info.plist"
 plutil -lint "$info_plist" >/dev/null
