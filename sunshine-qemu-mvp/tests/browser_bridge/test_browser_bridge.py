@@ -45,8 +45,7 @@ from extensions.browser_bridge.qsm_browser_bridge import (
 
 class BrowserBridgeAssemblerTests(unittest.TestCase):
     def test_video_requires_complete_ordered_access_unit_and_recovers_at_first_boundary(self) -> None:
-        clock = iter((1_000_000_000, 1_025_000_000))
-        assembler = _VideoAssembler(60, clock_ns=lambda: next(clock))
+        assembler = _VideoAssembler(60)
         self.assertIsNone(assembler.add(4, 1, PACKET_END, b"late"))
         self.assertIsNone(assembler.add(5, 0, PACKET_FIRST | PACKET_IDR, b"one"))
         unit = assembler.add(5, 1, PACKET_END | PACKET_IDR, b"two")
@@ -55,7 +54,7 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
         self.assertIsNone(assembler.add(7, 1, PACKET_END, b"corrupt"))
         self.assertIsNone(assembler.add(8, 0, PACKET_FIRST, b"fresh"))
         self.assertEqual(assembler.add(8, 1, PACKET_END, b"frame"),
-                         EncodedUnit(b"freshframe", False, 2250))
+                         EncodedUnit(b"freshframe", False, 1500))
 
     def test_audio_requires_configured_duration_and_monotonic_sequence(self) -> None:
         assembler = _AudioAssembler()

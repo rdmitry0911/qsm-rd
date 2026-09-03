@@ -20,11 +20,9 @@ import stat
 import struct
 import sys
 import threading
-import time
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
-from typing import Callable
 
 import av
 from aiortc import (MediaStreamTrack, RTCPeerConnection, RTCSessionDescription,
@@ -79,12 +77,17 @@ class EncodedUnit:
 class _VideoAssembler:
     """Recover only complete ordered access units after local packet loss."""
 
-    def __init__(self, fps: int, *, clock_ns: Callable[[], int] = time.monotonic_ns) -> None:
+    def __init__(self, fps: int) -> None:
         if not 10 <= fps <= 240:
             raise BridgeError("invalid video frame rate")
         self._nominal_duration = 90_000 // fps
-        self._clock_ns = clock_ns
-        self._last_completed_ns: int | None = None
+        # Do not put the producer's update cadence on the RTP clock.  A D-Bus
+        # Display1 surface is damage-driven: after an input event its
+        # next frame can arrive after an arbitrary quiet period.  Giving that
+        # gap to the receiver as an RTP timestamp makes Chromium schedule the
+        # new frame behind the preceding picture.  The encoded stream is
+        # configured for ``fps``, so each access unit belongs to that steady
+        # media clock even when the desktop is idle between updates.
         self._frame: int | None = None
         self._fragment = 0
         self._keyframe = False
@@ -123,22 +126,8 @@ class _VideoAssembler:
         self._keyframe = self._keyframe or bool(flags & PACKET_IDR)
         if not flags & PACKET_END:
             return None
-        # RTP timestamps must describe when encoded frames actually arrive.
-        # Display1 is update-driven, and the latest-frame mailbox can drop a
-        # busy encoder's old frames. Advertising a fixed 60 FPS while packets
-        # arrive every 50--100 ms manufactures jitter at the browser receiver
-        # and makes its playout buffer grow. A local monotonic tap clock keeps
-        # the RTP timeline truthful without disclosing host wall-clock time.
-        completed_ns = self._clock_ns()
-        if self._last_completed_ns is None:
-            duration = self._nominal_duration
-        else:
-            elapsed_ns = max(1, completed_ns - self._last_completed_ns)
-            # Do not let a paused VM create a multi-second RTP timestamp leap.
-            duration = max(1, min(22_500, (elapsed_ns * 90_000 + 500_000_000) // 1_000_000_000))
-        self._last_completed_ns = completed_ns
         result = EncodedUnit(data=b"".join(self._parts), keyframe=self._keyframe,
-                             duration=duration)
+                             duration=self._nominal_duration)
         self._reset()
         return result
 
