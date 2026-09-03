@@ -225,15 +225,20 @@ struct DmaBufReadback::EglReadback final {
         make_current();
         glBindFramebuffer(GL_READ_FRAMEBUFFER, source_framebuffer_);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, destination_framebuffer_);
-        // This is deliberately the same orientation transform as QEMU's
-        // egl-headless listener. glReadPixels emits bottom-up rows; QEMU marks
-        // VirGL DMA-BUFs y0_top=false, while a top-origin producer is flipped.
+        // glReadPixels emits bottom-up rows. Normalise both producer origins
+        // into the top-origin CPU framebuffer without a second CPU row-copy:
+        // for QEMU VirGL (y0_top=false) the destination rectangle must be
+        // inverted. The old path left that case untouched, so every direct
+        // browser console was vertically mirrored while its input coordinates
+        // remained non-mirrored.
         const GLint source_y0 = y0_top ? static_cast<GLint>(height_) : 0;
         const GLint source_y1 = y0_top ? 0 : static_cast<GLint>(height_);
+        const GLint destination_y0 = y0_top ? 0 : static_cast<GLint>(height_);
+        const GLint destination_y1 = y0_top ? static_cast<GLint>(height_) : 0;
         glBlitFramebuffer(0, source_y0,
                           static_cast<GLint>(width_), source_y1,
-                          0, 0,
-                          static_cast<GLint>(width_), static_cast<GLint>(height_),
+                          0, destination_y0,
+                          static_cast<GLint>(width_), destination_y1,
                           GL_COLOR_BUFFER_BIT, GL_NEAREST);
         check_gl("blit DMA-BUF into readback framebuffer");
 
