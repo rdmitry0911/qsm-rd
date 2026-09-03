@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import json
 import os
+import re
 import socket
 import stat
 import struct
@@ -53,8 +55,14 @@ MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024
 MAX_SDP_BYTES = 128 * 1024
 MAX_CONTROL_MESSAGE_BYTES = 1024
 MAX_GUEST_CONTROL_MESSAGE_BYTES = 3 * 1024 * 1024
+MAX_GUEST_FILE_BYTES = 2 * 1024 * 1024
+# Browser WebRTC data channels are commonly negotiated at 64 KiB or below.
+# The JSON/base64 envelope must fit too, so keep every raw upload fragment
+# comfortably below that interoperability floor.
+MAX_GUEST_UPLOAD_CHUNK_BYTES = 32 * 1024
 VIDEO_TIME_BASE = Fraction(1, 90_000)
 AUDIO_TIME_BASE = Fraction(1, 48_000)
+_GUEST_FILE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 # This route is an interactive console, not a recorder.  A browser which is
 # temporarily behind must receive the current encoded picture rather than a
 # small backlog of already obsolete mouse/desktop updates.  Audio can retain a
@@ -75,6 +83,18 @@ class EncodedUnit:
     data: bytes
     keyframe: bool
     duration: int
+
+
+@dataclass
+class _GuestUpload:
+    """One bounded, ordered browser file upload awaiting guest delivery."""
+
+    channel: object
+    request_id: str
+    transfer_id: str
+    name: str
+    size: int
+    data: bytearray
 
 
 class _VideoAssembler:
@@ -728,6 +748,7 @@ class BrowserWebRtcBridge:
         self._control_channel_seen = False
         self._pointer_channel_seen = False
         self._control_channel: object | None = None
+        self._guest_upload: _GuestUpload | None = None
         self._pc.on("datachannel", self._on_datachannel)
 
         @self._pc.on("connectionstatechange")
@@ -796,6 +817,7 @@ class BrowserWebRtcBridge:
             "qsm_guest_clipboard_set": "clipboard_set",
             "qsm_guest_clipboard_get": "clipboard_get",
             "qsm_guest_file_upload": "file_upload",
+            "qsm_guest_file_upload_chunk": "file_upload_chunk",
             "qsm_guest_file_download": "file_download",
             "qsm_guest_status": "status",
         }
@@ -805,22 +827,118 @@ class BrowserWebRtcBridge:
         value["op"] = operation
         return request_id, value
 
+    def _guest_result(self, channel: object, request_id: str, *,
+                      result: dict[str, Any] | None = None) -> None:
+        """Return a deliberately generic result for one browser guest request."""
+        if self._closed or channel is not self._control_channel:
+            return
+        if result is None:
+            self._send_control({
+                "op": "qsm_guest_result", "request_id": request_id, "ok": False,
+                "error": "Guest clipboard or file operation failed.",
+            })
+            return
+        self._send_control({
+            "op": "qsm_guest_result", "request_id": request_id, "ok": True, "result": result,
+        })
+
+    @staticmethod
+    def _upload_chunk_data(value: Any) -> bytes:
+        if not isinstance(value, str) or len(value) > ((MAX_GUEST_UPLOAD_CHUNK_BYTES + 2) // 3) * 4 + 4:
+            raise BridgeError("browser guest upload is invalid")
+        try:
+            data = base64.b64decode(value.encode("ascii"), validate=True)
+        except (UnicodeEncodeError, binascii.Error) as error:
+            raise BridgeError("browser guest upload is invalid") from error
+        if len(data) > MAX_GUEST_UPLOAD_CHUNK_BYTES:
+            raise BridgeError("browser guest upload is invalid")
+        return data
+
+    def _accept_guest_upload_chunk(self, channel: object, request_id: str,
+                                   request: dict[str, Any]) -> None:
+        """Reassemble ordered sub-64KiB browser fragments into one guest request.
+
+        This state belongs to a single authenticated browser bridge, not the
+        VM-wide guest port.  It prevents a browser-specific SCTP message-size
+        limit from silently reducing the documented 2 MiB file-transfer limit.
+        """
+        try:
+            if set(request) != {"op", "transfer_id", "name", "size", "offset", "data_b64"}:
+                raise BridgeError("browser guest upload is invalid")
+            transfer_id, name = request["transfer_id"], request["name"]
+            size, offset = request["size"], request["offset"]
+            if (not isinstance(transfer_id, str) or not 1 <= len(transfer_id) <= 64 or
+                    not transfer_id.isascii() or not transfer_id.replace("-", "").isalnum() or
+                    not isinstance(name, str) or _GUEST_FILE_NAME.fullmatch(name) is None or
+                    type(size) is not int or not 0 <= size <= MAX_GUEST_FILE_BYTES or
+                    type(offset) is not int or not 0 <= offset <= size):
+                raise BridgeError("browser guest upload is invalid")
+            chunk = self._upload_chunk_data(request["data_b64"])
+            pending = self._guest_upload
+            if pending is None:
+                if offset != 0:
+                    raise BridgeError("browser guest upload is invalid")
+                pending = _GuestUpload(channel, request_id, transfer_id, name, size, bytearray())
+                self._guest_upload = pending
+            if (pending.channel is not channel or pending.request_id != request_id or
+                    pending.transfer_id != transfer_id or pending.name != name or
+                    pending.size != size or offset != len(pending.data) or
+                    len(chunk) > size - len(pending.data) or
+                    (not chunk and offset != size)):
+                raise BridgeError("browser guest upload is invalid")
+            pending.data.extend(chunk)
+            if len(pending.data) != size:
+                return
+            self._guest_upload = None
+            guest_request = {
+                "op": "file_upload", "name": name,
+                "data_b64": base64.b64encode(pending.data).decode("ascii"),
+            }
+            asyncio.create_task(self._dispatch_guest_request(channel, request_id, guest_request))
+        except BridgeError:
+            # A file-selection or transmission failure is recoverable. It
+            # must not discard the still-authorized video console or keyboard.
+            self._guest_upload = None
+            self._guest_result(channel, request_id)
+
+    def _guest_download_result(self, channel: object, request_id: str,
+                               result: dict[str, Any]) -> None:
+        """Send a guest file as SCTP-safe browser chunks rather than one blob."""
+        try:
+            if set(result) != {"name", "data_b64", "bytes"} or \
+                    not isinstance(result["name"], str) or \
+                    _GUEST_FILE_NAME.fullmatch(result["name"]) is None or \
+                    type(result["bytes"]) is not int:
+                raise BridgeError("guest file result is invalid")
+            data = base64.b64decode(result["data_b64"].encode("ascii"), validate=True)
+            if len(data) != result["bytes"] or len(data) > MAX_GUEST_FILE_BYTES:
+                raise BridgeError("guest file result is invalid")
+        except (AttributeError, UnicodeEncodeError, binascii.Error, BridgeError):
+            self._guest_result(channel, request_id)
+            return
+        for offset in range(0, max(1, len(data)), MAX_GUEST_UPLOAD_CHUNK_BYTES):
+            chunk = data[offset:offset + MAX_GUEST_UPLOAD_CHUNK_BYTES]
+            self._send_control({
+                "op": "qsm_guest_file_download_chunk", "request_id": request_id,
+                "name": result["name"], "size": len(data), "offset": offset,
+                "data_b64": base64.b64encode(chunk).decode("ascii"),
+            })
+
     async def _dispatch_guest_request(self, channel: object, request_id: str,
                                       request: dict[str, Any]) -> None:
         try:
             if self._guest_dispatch is None:
                 raise BridgeError("guest tools are unavailable")
             result = await asyncio.to_thread(self._guest_dispatch, request)
-            response: dict[str, Any] = {
-                "op": "qsm_guest_result", "request_id": request_id, "ok": True, "result": result,
-            }
         except Exception:
             # The guest-side detail can include a transient agent state. Keep
             # the PVE browser response useful but deliberately non-sensitive.
-            response = {"op": "qsm_guest_result", "request_id": request_id, "ok": False,
-                        "error": "Guest clipboard or file operation failed."}
-        if not self._closed and channel is self._control_channel:
-            self._send_control(response)
+            self._guest_result(channel, request_id)
+        else:
+            if request["op"] == "file_download" and isinstance(result, dict):
+                self._guest_download_result(channel, request_id, result)
+            else:
+                self._guest_result(channel, request_id, result=result)
 
     def _on_datachannel(self, channel: object) -> None:
         # There are exactly two browser-to-guest channels.  qsm-control is
@@ -854,6 +972,8 @@ class BrowserWebRtcBridge:
                     guest = self._guest_request(message)
                     if guest is None:
                         self.input.send_browser_message(message)
+                    elif guest[1]["op"] == "file_upload_chunk":
+                        self._accept_guest_upload_chunk(channel, *guest)
                     else:
                         asyncio.create_task(self._dispatch_guest_request(channel, *guest))
                 else:
@@ -977,6 +1097,7 @@ class BrowserWebRtcBridge:
         if self._closed:
             return
         self._closed = True
+        self._guest_upload = None
         if self._owns_media:
             assert self.ingress is not None
             self.ingress.close()

@@ -146,7 +146,15 @@ def main() -> int:
                         help="run the 1280x800 laboratory hover-popover measurement N times")
     parser.add_argument("--guest-transfer", action="store_true",
                         help="exercise browser-to-guest clipboard and both file directions")
+    parser.add_argument("--guest-file-bytes", type=int, default=22,
+                        help="bytes uploaded during --guest-transfer (0..2097152)")
+    parser.add_argument("--guest-download-bytes", type=int,
+                        help="require this many bytes from the guest download during --guest-transfer")
     arguments = parser.parse_args()
+    if not 0 <= arguments.guest_file_bytes <= 2 * 1024 * 1024:
+        parser.error("--guest-file-bytes must be in 0..2097152")
+    if arguments.guest_download_bytes is not None and not 0 <= arguments.guest_download_bytes <= 2 * 1024 * 1024:
+        parser.error("--guest-download-bytes must be in 0..2097152")
 
     peer = BrowserPeer(arguments)
     started = time.monotonic()
@@ -190,7 +198,9 @@ def main() -> int:
             }}, timeout=15.0)
             if base64.b64decode(get_result.get("text_b64", ""), validate=True) != clipboard:
                 raise RuntimeError("guest clipboard round trip did not preserve UTF-8 bytes")
-            upload = b"\x00browser-direct-file\xff\n"
+            upload_seed = b"\x00browser-direct-file\xff\n"
+            upload = (upload_seed * ((arguments.guest_file_bytes + len(upload_seed) - 1) //
+                                     len(upload_seed)))[:arguments.guest_file_bytes]
             upload_result = peer.request({"op": "guest", "message": {
                 "op": "qsm_guest_file_upload", "name": "browser-direct.bin",
                 "data_b64": base64.b64encode(upload).decode("ascii"),
@@ -203,6 +213,8 @@ def main() -> int:
             downloaded = base64.b64decode(download_result.get("data_b64", ""), validate=True)
             if download_result.get("name") != "guest-download.txt" or not downloaded:
                 raise RuntimeError("guest file download returned no guest data")
+            if arguments.guest_download_bytes is not None and len(downloaded) != arguments.guest_download_bytes:
+                raise RuntimeError("guest file download returned an unexpected byte count")
             result["guestTransfer"] = {
                 "clipboardBytes": len(clipboard), "uploadBytes": len(upload),
                 "downloadBytes": len(downloaded),

@@ -73,6 +73,12 @@ assert.match(source, /requestAnimationFrame\(flushPointer\)/,
     'browser mousemove bursts must be coalesced to the display refresh cadence');
 assert.match(source, /popup\.setTimeout\(dispatch, 150\)/,
     'window dragging must debounce guest resolution changes');
+assert.match(source, /qsm_guest_file_upload_chunk/,
+    'file upload must be fragmented for browser WebRTC SCTP message limits');
+assert.match(source, /const guestUploadChunkBytes = 32 \* 1024/,
+    'each upload fragment must fit beneath the common 64 KiB SCTP ceiling');
+assert.match(source, /qsm_guest_file_download_chunk/,
+    'guest file downloads must be reassembled from SCTP-safe fragments');
 assert.doesNotMatch(source, /Ext\.create\('Ext\.window\.Window'/,
     'the direct console must not be trapped inside the PVE browser page');
 

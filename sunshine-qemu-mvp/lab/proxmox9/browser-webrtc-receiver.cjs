@@ -101,6 +101,7 @@ async function createOffer() {
         window.qsmControl = pc.createDataChannel('qsm-control', { ordered: true });
         window.qsmPointer = pc.createDataChannel('qsm-pointer', { ordered: false, maxRetransmits: 0 });
         window.qsmGuestRequests = new Map();
+        window.qsmGuestDownloads = new Map();
         window.qsmGuestClipboardEvents = [];
         window.qsmControl.addEventListener('message', (event) => {
             if (typeof event.data !== 'string') {
@@ -113,6 +114,52 @@ async function createOffer() {
                     if (pending) {
                         window.qsmGuestRequests.delete(message.request_id);
                         pending.resolve(message);
+                    }
+                } else if (message?.op === 'qsm_guest_file_download_chunk' &&
+                    typeof message.request_id === 'string') {
+                    const pending = window.qsmGuestRequests.get(message.request_id);
+                    const reject = () => {
+                        if (!pending) return;
+                        window.qsmGuestRequests.delete(message.request_id);
+                        window.qsmGuestDownloads.delete(message.request_id);
+                        pending.resolve({ ok: false });
+                    };
+                    if (!pending || typeof message.name !== 'string' || !Number.isInteger(message.size) ||
+                        !Number.isInteger(message.offset) || typeof message.data_b64 !== 'string' ||
+                        message.size < 0 || message.size > 2 * 1024 * 1024 ||
+                        message.offset < 0 || message.offset > message.size) {
+                        reject(); return;
+                    }
+                    let binary;
+                    try { binary = atob(message.data_b64); } catch (_) { reject(); return; }
+                    const bytes = new Uint8Array(binary.length);
+                    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+                    let transfer = window.qsmGuestDownloads.get(message.request_id);
+                    if (!transfer) {
+                        if (message.offset !== 0) { reject(); return; }
+                        transfer = { name: message.name, size: message.size, parts: [], received: 0 };
+                        window.qsmGuestDownloads.set(message.request_id, transfer);
+                    }
+                    if (transfer.name !== message.name || transfer.size !== message.size ||
+                        transfer.received !== message.offset || bytes.length > transfer.size - transfer.received ||
+                        (bytes.length === 0 && transfer.received !== transfer.size)) {
+                        reject(); return;
+                    }
+                    transfer.parts.push(bytes);
+                    transfer.received += bytes.length;
+                    if (transfer.received === transfer.size) {
+                        const merged = new Uint8Array(transfer.size);
+                        let cursor = 0;
+                        for (const part of transfer.parts) { merged.set(part, cursor); cursor += part.length; }
+                        let encoded = '';
+                        for (let index = 0; index < merged.length; index += 0x8000) {
+                            encoded += String.fromCharCode(...merged.subarray(index, index + 0x8000));
+                        }
+                        window.qsmGuestDownloads.delete(message.request_id);
+                        window.qsmGuestRequests.delete(message.request_id);
+                        pending.resolve({ ok: true, result: {
+                            name: transfer.name, bytes: merged.length, data_b64: btoa(encoded),
+                        }});
                     }
                 } else if (message?.op === 'qsm_guest_clipboard') {
                     window.qsmGuestClipboardEvents.push(message.text_b64);
@@ -453,7 +500,33 @@ async function guest(message) {
             window.qsmGuestRequests.set(requestId, {
                 resolve: (result) => { clearTimeout(timer); resolve(result); },
             });
-            window.qsmControl.send(JSON.stringify({ ...payload, request_id: requestId }));
+            if (payload.op === 'qsm_guest_file_upload' &&
+                typeof payload.name === 'string' && typeof payload.data_b64 === 'string') {
+                const binary = atob(payload.data_b64);
+                const bytes = new Uint8Array(binary.length);
+                for (let index = 0; index < binary.length; index += 1) {
+                    bytes[index] = binary.charCodeAt(index);
+                }
+                const transferId = `lab-upload-${Date.now()}`;
+                const chunkBytes = 32 * 1024;
+                const b64 = (chunk) => {
+                    let text = '';
+                    for (let index = 0; index < chunk.length; index += 0x8000) {
+                        text += String.fromCharCode(...chunk.subarray(index, index + 0x8000));
+                    }
+                    return btoa(text);
+                };
+                for (let offset = 0; offset < Math.max(1, bytes.length); offset += chunkBytes) {
+                    const end = Math.min(bytes.length, offset + chunkBytes);
+                    window.qsmControl.send(JSON.stringify({
+                        op: 'qsm_guest_file_upload_chunk', request_id: requestId, transfer_id: transferId,
+                        name: payload.name, size: bytes.length, offset,
+                        data_b64: b64(bytes.subarray(offset, end)),
+                    }));
+                }
+            } else {
+                window.qsmControl.send(JSON.stringify({ ...payload, request_id: requestId }));
+            }
         });
         if (response.ok !== true || !response.result || typeof response.result !== 'object') {
             throw new Error('guest operation failed');

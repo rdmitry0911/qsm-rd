@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 import socket
 import tempfile
@@ -208,6 +209,54 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                         '{"op":"mouse_button","button":1,"down":true}')
             finally:
                 receiver.close()
+                await bridge.close()
+
+    async def test_guest_files_are_chunked_below_browser_sctp_message_limits(self) -> None:
+        calls: list[dict[str, object]] = []
+        replies: list[dict[str, object]] = []
+        download = bytes(index % 251 for index in range(100_003))
+
+        def guest_dispatch(request: dict[str, object]) -> dict[str, object]:
+            calls.append(request)
+            if request["op"] == "file_upload":
+                return {"name": request["name"], "bytes": len(base64.b64decode(request["data_b64"]))}
+            return {
+                "name": "guest.bin", "bytes": len(download),
+                "data_b64": base64.b64encode(download).decode("ascii"),
+            }
+
+        with tempfile.TemporaryDirectory(prefix="qsm-browser-guest-chunks.") as directory:
+            bridge = BrowserWebRtcBridge(Path(directory), fps=60, guest_dispatch=guest_dispatch)
+            channel = object()
+            bridge._control_channel = channel
+            bridge._send_control = replies.append  # type: ignore[method-assign]
+            upload = bytes(index % 241 for index in range(100_001))
+            request_id = "upload-1"
+            try:
+                for offset in range(0, len(upload), 32 * 1024):
+                    chunk = upload[offset:offset + 32 * 1024]
+                    bridge._accept_guest_upload_chunk(channel, request_id, {
+                        "op": "file_upload_chunk", "transfer_id": "transfer-1", "name": "client.bin",
+                        "size": len(upload), "offset": offset,
+                        "data_b64": base64.b64encode(chunk).decode("ascii"),
+                    })
+                deadline = time.monotonic() + 2
+                while not calls and time.monotonic() < deadline:
+                    await asyncio.sleep(0.01)
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(base64.b64decode(calls[0]["data_b64"]), upload)
+                self.assertEqual(replies.pop(), {
+                    "op": "qsm_guest_result", "request_id": request_id, "ok": True,
+                    "result": {"name": "client.bin", "bytes": len(upload)},
+                })
+
+                await bridge._dispatch_guest_request(channel, "download-1", {"op": "file_download"})
+                self.assertGreater(len(replies), 1)
+                self.assertTrue(all(reply["op"] == "qsm_guest_file_download_chunk" for reply in replies))
+                self.assertTrue(all(len(reply["data_b64"]) < 64 * 1024 for reply in replies))
+                restored = b"".join(base64.b64decode(reply["data_b64"]) for reply in replies)
+                self.assertEqual(restored, download)
+            finally:
                 await bridge.close()
 
     async def test_offer_answer_is_h264_opus_only(self) -> None:

@@ -365,6 +365,8 @@
         let toolbarTimer = null;
         let guestRequestNumber = 0;
         const guestRequests = new Map();
+        const guestDownloads = new Map();
+        const guestUploadChunkBytes = 32 * 1024;
         let lastResize = '';
         const revealToolbar = () => {
             if (closed) { return; }
@@ -412,6 +414,30 @@
             guestRequests.set(requestId, { resolve, reject, timer });
             control.send(JSON.stringify({ op, request_id: requestId, ...fields }));
         });
+        const guestUpload = (file, data) => new Promise((resolve, reject) => {
+            if (!control || control.readyState !== 'open') {
+                reject(new Error('guest tools are not connected')); return;
+            }
+            const bytes = new Uint8Array(data);
+            const requestId = `qsm-${Date.now()}-${guestRequestNumber += 1}`;
+            const transferId = `upload-${Date.now()}-${guestRequestNumber}`;
+            const timer = popup.setTimeout(() => {
+                guestRequests.delete(requestId);
+                reject(new Error('guest tools did not respond'));
+            }, 40000);
+            guestRequests.set(requestId, { resolve, reject, timer });
+            // A browser is allowed to negotiate an SCTP max-message-size far
+            // below a file's 2 MiB product limit. Send an ordered sequence
+            // whose JSON/base64 envelope is safely below the 64 KiB baseline.
+            for (let offset = 0; offset < Math.max(1, bytes.length); offset += guestUploadChunkBytes) {
+                const end = Math.min(bytes.length, offset + guestUploadChunkBytes);
+                control.send(JSON.stringify({
+                    op: 'qsm_guest_file_upload_chunk', request_id: requestId, transfer_id: transferId,
+                    name: file.name, size: bytes.length, offset,
+                    data_b64: bytesToB64(bytes.subarray(offset, end)),
+                }));
+            }
+        });
         const copyToBrowser = async (text) => {
             if (!popup.navigator.clipboard || !popup.navigator.clipboard.writeText) {
                 throw new Error('browser clipboard access is unavailable');
@@ -446,9 +472,8 @@
             if (file.size > 2 * 1024 * 1024) {
                 status.textContent = gettext('File transfer is limited to 2 MiB per file.'); return;
             }
-            file.arrayBuffer().then((data) => guestRequest('qsm_guest_file_upload', {
-                name: file.name, data_b64: bytesToB64(data),
-            })).then(() => { status.textContent = gettext('File uploaded to guest exchange folder'); }).catch(() => {
+            file.arrayBuffer().then((data) => guestUpload(file, data)).then(() => {
+                status.textContent = gettext('File uploaded to guest exchange folder'); }).catch(() => {
                 status.textContent = gettext('File upload failed. Install and start QSM Guest Agent.');
             });
         });
@@ -485,6 +510,7 @@
                 request.reject(new Error('console closed'));
             }
             guestRequests.clear();
+            guestDownloads.clear();
         };
         const closeForStoppedVm = () => {
             if (closed) { return; }
@@ -604,6 +630,46 @@
                         request.resolve(message.result);
                     } else {
                         request.reject(new Error('guest operation failed'));
+                    }
+                } else if (message.op === 'qsm_guest_file_download_chunk' &&
+                    typeof message.request_id === 'string') {
+                    const request = guestRequests.get(message.request_id);
+                    const reject = () => {
+                        if (!request) { return; }
+                        guestRequests.delete(message.request_id);
+                        guestDownloads.delete(message.request_id);
+                        popup.clearTimeout(request.timer);
+                        request.reject(new Error('invalid guest file transfer'));
+                    };
+                    if (!request || typeof message.name !== 'string' || !Number.isInteger(message.size) ||
+                        !Number.isInteger(message.offset) || typeof message.data_b64 !== 'string' ||
+                        message.size < 0 || message.size > 2 * 1024 * 1024 ||
+                        message.offset < 0 || message.offset > message.size) {
+                        reject(); return;
+                    }
+                    let chunk;
+                    try { chunk = b64ToBytes(message.data_b64); } catch (_error) { reject(); return; }
+                    let transfer = guestDownloads.get(message.request_id);
+                    if (!transfer) {
+                        if (message.offset !== 0) { reject(); return; }
+                        transfer = { name: message.name, size: message.size, bytes: [], received: 0 };
+                        guestDownloads.set(message.request_id, transfer);
+                    }
+                    if (transfer.name !== message.name || transfer.size !== message.size ||
+                        transfer.received !== message.offset || chunk.length > transfer.size - transfer.received ||
+                        (chunk.length === 0 && transfer.received !== transfer.size)) {
+                        reject(); return;
+                    }
+                    transfer.bytes.push(chunk);
+                    transfer.received += chunk.length;
+                    if (transfer.received === transfer.size) {
+                        const bytes = new Uint8Array(transfer.size);
+                        let cursor = 0;
+                        for (const part of transfer.bytes) { bytes.set(part, cursor); cursor += part.length; }
+                        guestDownloads.delete(message.request_id);
+                        guestRequests.delete(message.request_id);
+                        popup.clearTimeout(request.timer);
+                        request.resolve({ name: transfer.name, data_b64: bytesToB64(bytes), bytes: bytes.length });
                     }
                 } else if (message.op === 'qsm_guest_clipboard' && typeof message.text_b64 === 'string') {
                     try { copyToBrowser(new TextDecoder('utf-8', { fatal: true }).decode(b64ToBytes(message.text_b64))).catch(() => undefined); }
