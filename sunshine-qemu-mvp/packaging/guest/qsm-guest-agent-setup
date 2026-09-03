@@ -13,6 +13,15 @@ case "$user" in
 esac
 id "$user" >/dev/null 2>&1 || { echo "qsm guest setup: user does not exist" >&2; exit 1; }
 usermod -a -G qsm-guest "$user"
+# Read the account's actual home rather than assuming /home/USER. The unit's
+# read-only home sandbox needs this leaf directory to exist before it can bind
+# it back read-write, otherwise systemd rejects the service with NAMESPACE.
+user_home=$(getent passwd "$user" | awk -F: 'NR == 1 { print $6 }')
+case "$user_home" in
+    /*) ;;
+    *) echo "qsm guest setup: user has no absolute home directory" >&2; exit 1 ;;
+esac
+install -d -m 0700 -o "$user" -g "$user" "$user_home/.local/share/qsm-guest-agent"
 # The system unit owns the private virtio port. Enable its concrete user
 # instance now; a missing port merely leaves the unit condition inactive until
 # Display1 is saved and the VM is restarted.

@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class QsmGuestPackageTests(unittest.TestCase):
     def test_setup_enables_the_system_virtio_agent_for_the_selected_user(self) -> None:
         setup = (ROOT / "packaging/guest/qsm-guest-agent-setup").read_text(encoding="utf-8")
+        self.assertIn('install -d -m 0700 -o "$user" -g "$user"', setup)
         self.assertIn('systemctl enable "qsm-guest-agent@${user}.service"', setup)
         self.assertIn('systemctl start "qsm-guest-agent@${user}.service"', setup)
 
