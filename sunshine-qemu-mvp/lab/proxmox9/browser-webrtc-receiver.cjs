@@ -258,6 +258,8 @@ async function measureHover(message) {
         const resetY = integer('resetY', 0, height - 1);
         const targetX = integer('targetX', 0, width - 1);
         const targetY = integer('targetY', 0, height - 1);
+        const probeX = integer('probeX', 0, width - 1);
+        const probeY = integer('probeY', 0, height - 1);
         const timeoutMs = integer('timeoutMs', 50, 10000);
         const video = document.getElementById('remote');
         if (!video || video.videoWidth !== width || video.videoHeight !== height ||
@@ -296,6 +298,15 @@ async function measureHover(message) {
             }
             return maxX < 0 ? null : { minX, minY, maxX, maxY };
         };
+        const popupVisible = () => {
+            // A full 1280x800 canvas readback can cost several browser frames
+            // on a software compositor. The fixture deliberately provides a
+            // known interior pixel; use it in the timing loop, then scan the
+            // whole frame once only after the causal event is observed.
+            context.drawImage(video, 0, 0, width, height);
+            const pixel = context.getImageData(probeX, probeY, 1, 1).data;
+            return pixel[0] > 180 && pixel[1] < 100 && pixel[2] > 180;
+        };
         const sendPosition = (x, y) => window.qsmPointer.send(JSON.stringify({
             op: 'mouse_position', x, y, width, height,
         }));
@@ -316,7 +327,7 @@ async function measureHover(message) {
         // independent of a pointer left over from a prior iteration.
         sendPosition(resetX, resetY);
         const resetDeadline = performance.now() + timeoutMs;
-        while (popupBounds()) {
+        while (popupVisible()) {
             if (performance.now() >= resetDeadline) {
                 throw new Error('hover popup did not clear');
             }
@@ -326,14 +337,18 @@ async function measureHover(message) {
         const started = performance.now();
         sendPosition(targetX, targetY);
         let observedFrames = 0;
-        let bounds = popupBounds();
-        while (!bounds) {
+        let visible = popupVisible();
+        while (!visible) {
             if (performance.now() - started >= timeoutMs) {
                 throw new Error('hover popup was not presented before timeout');
             }
             await awaitFrame(Math.max(1, timeoutMs - (performance.now() - started)));
             observedFrames += 1;
-            bounds = popupBounds();
+            visible = popupVisible();
+        }
+        const bounds = popupBounds();
+        if (!bounds) {
+            throw new Error('hover probe was visible but popup geometry was not present');
         }
         return {
             latencyMs: performance.now() - started,
