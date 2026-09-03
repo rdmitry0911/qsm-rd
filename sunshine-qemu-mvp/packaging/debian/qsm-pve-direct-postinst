@@ -4,6 +4,10 @@ set -e
 restart_pve_api_services() {
     if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then return 0; fi
     systemctl daemon-reload || return 0
+    # An upgrade can change Display1 bus lifecycle code. Restart only an
+    # already active terminal so its long-lived process picks up that code;
+    # first installation still leaves activation to the documented command.
+    systemctl try-restart qsm-pve-direct-terminal.service || true
     systemctl try-restart pvedaemon.service || return 0
     systemctl try-restart pveproxy.service || true
 }
