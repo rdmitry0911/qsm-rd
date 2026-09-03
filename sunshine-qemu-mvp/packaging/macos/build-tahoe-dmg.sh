@@ -52,7 +52,7 @@ fi
 [[ -n "$MOONLIGHT_GIT_URL" ]] || die "QSUNSHINE_MOONLIGHT_GIT_URL is empty"
 [[ -f "$MOONLIGHT_PATCH" ]] || die "missing canonical Moonlight patch: $MOONLIGHT_PATCH"
 
-for required in cmake ninja ditto codesign hdiutil install_name_tool lipo plutil shasum git python3 make strings; do
+for required in cmake ninja ditto codesign hdiutil lipo plutil shasum git python3 make strings; do
     require_command "$required"
 done
 
@@ -93,7 +93,7 @@ macdeploy_extra_framework_paths=()
 # qtbase's normal rpaths.  Resolve their formulae explicitly instead of
 # requiring a global `brew link` (which would mutate the builder).
 if [[ -n "$brew_binary" ]]; then
-    for qt_formula in qtscxml qtvirtualkeyboard; do
+    for qt_formula in qtscxml qtvirtualkeyboard qt; do
         qt_optional_prefix="$("$brew_binary" --prefix "$qt_formula" 2>/dev/null || true)"
         if [[ -d "$qt_optional_prefix/lib" ]]; then
             macdeploy_libpath_args+=("-libpath=$qt_optional_prefix/lib")
@@ -189,12 +189,20 @@ assert_architectures "$embedded_moonlight"
 strings -a "$embedded_moonlight" | grep -F -- "qsm-system-auth" >/dev/null ||
     die "built Moonlight is missing the required q-sunshine system-auth marker"
 
-# macdeployqt follows an executable's LC_RPATH entries when resolving
-# frameworks.  `-libpath` is insufficient for several keg-only Homebrew Qt
-# modules, so add their absolute builder rpaths before deployment; macdeployqt
-# then rewrites the copied frameworks to the bundle-relative locations.
+# On Tahoe, macdeployqt additionally searches the sibling `app/lib` directory
+# but does not consistently honor `-libpath` for keg-only framework bundles.
+# Populate that disposable search directory with links only; macdeployqt
+# copies each resolved framework into Moonlight.app, while this directory is
+# outside the final bundle and never leaks a builder-specific rpath.
+framework_search_dir="$moonlight_build/app/lib"
+mkdir -p "$framework_search_dir"
 for framework_path in "${macdeploy_extra_framework_paths[@]}"; do
-    install_name_tool -add_rpath "$framework_path" "$embedded_moonlight"
+    for framework in "$framework_path"/Qt*.framework; do
+        [[ -d "$framework" ]] || continue
+        framework_link="$framework_search_dir/$(basename "$framework")"
+        [[ -e "$framework_link" || -L "$framework_link" ]] ||
+            ln -s "$framework" "$framework_link"
+    done
 done
 "$macdeployqt" "$moonlight_bundle" "${macdeploy_libpath_args[@]}" \
     -qmldir="$moonlight_source/app/gui" -appstore-compliant
