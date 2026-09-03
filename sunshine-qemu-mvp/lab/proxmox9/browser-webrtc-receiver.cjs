@@ -144,6 +144,8 @@ async function status() {
             videoWidth: video.videoWidth,
             videoHeight: video.videoHeight,
             currentTime: video.currentTime,
+            controlReady: window.qsmControl?.readyState === 'open',
+            pointerReady: window.qsmPointer?.readyState === 'open',
         };
     });
 }

@@ -104,10 +104,12 @@ def wait_for_video(peer: BrowserPeer, timeout: float, *, width: int, height: int
     nudge_sent = False
     while time.monotonic() < deadline:
         last = peer.request({"op": "status"}, timeout=5.0)
-        if (last.get("connectionState") == "connected" and last.get("readyState", 0) >= 2 and
+        if (last.get("connectionState") == "connected" and last.get("pointerReady") is True and
+                last.get("readyState", 0) >= 2 and
                 last.get("videoWidth", 0) > 0 and last.get("videoHeight", 0) > 0):
             return last
-        if last.get("connectionState") == "connected" and not nudge_sent:
+        if (last.get("connectionState") == "connected" and last.get("pointerReady") is True and
+                not nudge_sent):
             # The separate browser VM has already completed DTLS, so data
             # channels are live even if a totally idle guest has not yet
             # painted a second frame. Exercise the real pointer route rather
