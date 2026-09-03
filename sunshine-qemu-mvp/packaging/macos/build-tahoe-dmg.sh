@@ -52,7 +52,7 @@ fi
 [[ -n "$MOONLIGHT_GIT_URL" ]] || die "QSUNSHINE_MOONLIGHT_GIT_URL is empty"
 [[ -f "$MOONLIGHT_PATCH" ]] || die "missing canonical Moonlight patch: $MOONLIGHT_PATCH"
 
-for required in cmake ninja ditto codesign hdiutil lipo plutil shasum git python3 make strings; do
+for required in cmake ninja ditto codesign hdiutil install_name_tool lipo plutil shasum git python3 make strings; do
     require_command "$required"
 done
 
@@ -86,6 +86,7 @@ fi
     die "set QSUNSHINE_QT_PREFIX to a Qt 6 prefix containing bin/macdeployqt"
 macdeployqt="$qt_prefix/bin/macdeployqt"
 macdeploy_libpath_args=("-libpath=$qt_prefix/lib")
+macdeploy_extra_framework_paths=()
 
 # Homebrew splits optional Qt frameworks across formulae.  They can be
 # present as keg-only dependencies, so macdeployqt cannot find them through
@@ -96,6 +97,7 @@ if [[ -n "$brew_binary" ]]; then
         qt_optional_prefix="$("$brew_binary" --prefix "$qt_formula" 2>/dev/null || true)"
         if [[ -d "$qt_optional_prefix/lib" ]]; then
             macdeploy_libpath_args+=("-libpath=$qt_optional_prefix/lib")
+            macdeploy_extra_framework_paths+=("$qt_optional_prefix/lib")
         fi
     done
 fi
@@ -186,6 +188,14 @@ embedded_moonlight="$moonlight_bundle/Contents/MacOS/Moonlight"
 assert_architectures "$embedded_moonlight"
 strings -a "$embedded_moonlight" | grep -F -- "qsm-system-auth" >/dev/null ||
     die "built Moonlight is missing the required q-sunshine system-auth marker"
+
+# macdeployqt follows an executable's LC_RPATH entries when resolving
+# frameworks.  `-libpath` is insufficient for several keg-only Homebrew Qt
+# modules, so add their absolute builder rpaths before deployment; macdeployqt
+# then rewrites the copied frameworks to the bundle-relative locations.
+for framework_path in "${macdeploy_extra_framework_paths[@]}"; do
+    install_name_tool -add_rpath "$framework_path" "$embedded_moonlight"
+done
 "$macdeployqt" "$moonlight_bundle" "${macdeploy_libpath_args[@]}" \
     -qmldir="$moonlight_source/app/gui" -appstore-compliant
 
