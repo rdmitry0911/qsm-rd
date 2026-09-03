@@ -548,7 +548,13 @@ private:
             // The packetizer uses that unambiguous boundary to keep its private
             // socket records frame-aligned; do not rely on encoder-specific
             // slice layouts or on a compatibility transport framing convention.
-            arguments.insert(arguments.end(), {"-aud", "1", "-pix_fmt", "yuv420p", "-f", "h264", "pipe:1"});
+            // `pipe:1` otherwise uses FFmpeg's normal AVIO buffering.  That
+            // can retain several H.264 access units before the reader thread
+            // sees any bytes, turning a low-latency encoder into a visibly
+            // delayed desktop. Flush each complete packet into the private
+            // sequenced-packet tap instead.
+            arguments.insert(arguments.end(), {"-aud", "1", "-pix_fmt", "yuv420p",
+                                               "-flush_packets", "1", "-f", "h264", "pipe:1"});
             std::vector<char *> argv;
             argv.reserve(arguments.size() + 1U);
             for (auto &argument : arguments) { argv.push_back(argument.data()); }
