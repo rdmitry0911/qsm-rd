@@ -292,7 +292,12 @@ struct DmaBufReadback::EglReadback final {
             return std::nullopt;
         }
         make_current();
-        const GLenum status = glClientWaitSync(pending_sync_, 0U, 0U);
+        // Some nested VirGL/NVIDIA combinations do not submit a fence from a
+        // zero-time poll even after glFlush(). Request submission explicitly
+        // and allow one millisecond for the driver to retire it; this runs in
+        // the listener's idle poll, never in QEMU's synchronous callback.
+        const GLenum status = glClientWaitSync(pending_sync_, GL_SYNC_FLUSH_COMMANDS_BIT,
+                                               1'000'000ULL);
         if (status == GL_TIMEOUT_EXPIRED) {
             return std::nullopt;
         }
