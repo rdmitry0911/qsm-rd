@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 struct gbm_bo;
@@ -41,6 +42,14 @@ public:
                                     std::int32_t width,
                                     std::int32_t height);
 
+    // Queue a full GPU-to-CPU update without waiting for its readback fence.
+    // Display1 damage is producer-driven; replying to QEMU promptly keeps the
+    // compositor able to render the next interactive update. The owning peer
+    // loop calls complete_queued() on the same EGL thread until it returns a
+    // completed immutable CPU frame.
+    [[nodiscard]] bool queue_update();
+    [[nodiscard]] std::optional<FrameToken> complete_queued(CpuFramebuffer& framebuffer);
+
     void reset() noexcept;
     [[nodiscard]] bool active() const noexcept { return static_cast<bool>(backing_fd_); }
 
@@ -55,11 +64,6 @@ private:
                           std::uint32_t drm_fourcc) const;
     [[nodiscard]] FrameToken copy_scanout_gbm(CpuFramebuffer& framebuffer);
     [[nodiscard]] FrameToken copy_scanout_egl(CpuFramebuffer& framebuffer);
-    [[nodiscard]] FrameToken copy_update_gbm(CpuFramebuffer& framebuffer,
-                                             std::int32_t x,
-                                             std::int32_t y,
-                                             std::int32_t width,
-                                             std::int32_t height);
     [[nodiscard]] FrameToken copy_update_egl(CpuFramebuffer& framebuffer,
                                              std::int32_t x,
                                              std::int32_t y,

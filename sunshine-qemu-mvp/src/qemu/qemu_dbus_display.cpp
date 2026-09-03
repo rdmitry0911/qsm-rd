@@ -842,6 +842,7 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
             if (!dmabuf_readback_) {
                 dmabuf_readback_ = std::make_unique<DmaBufReadback>();
             }
+            dmabuf_readback_pending_ = false;
             publish(dmabuf_readback_->scanout(framebuffer_,
                                                duplicate_cloexec(fd),
                                                width,
@@ -888,8 +889,11 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
             if (!dmabuf_readback_ || !dmabuf_readback_->active()) {
                 throw std::logic_error("DMA-BUF update arrived without an active scanout");
             }
-            publish(dmabuf_readback_->update(framebuffer_, x, y, width, height));
+            if (!dmabuf_readback_pending_) {
+                dmabuf_readback_pending_ = dmabuf_readback_->queue_update();
+            }
         } catch (...) {
+            dmabuf_readback_pending_ = false;
             std::lock_guard lock(stats_mutex_);
             ++dmabuf_readback_failures_;
             throw;
@@ -911,6 +915,7 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
         if (dmabuf_readback_) {
             dmabuf_readback_->reset();
         }
+        dmabuf_readback_pending_ = false;
 #endif
         framebuffer_.disable();
         display_disabled_.store(true);
@@ -1352,6 +1357,7 @@ void QemuDbusDisplay::peer_loop() noexcept {
                 }
                 break;
             }
+            drain_pending_dmabuf_readback();
         }
     } catch (const std::exception& ex) {
         if (!stopping_.load()) {
@@ -1362,6 +1368,20 @@ void QemuDbusDisplay::peer_loop() noexcept {
             report_error("QEMU peer event loop failed with an unknown exception");
         }
     }
+}
+
+void QemuDbusDisplay::drain_pending_dmabuf_readback() {
+#ifdef QMDP_HAS_GBM
+    if (!dmabuf_readback_pending_ || !dmabuf_readback_) {
+        return;
+    }
+    auto frame = dmabuf_readback_->complete_queued(framebuffer_);
+    if (!frame) {
+        return;
+    }
+    dmabuf_readback_pending_ = false;
+    publish(std::move(*frame));
+#endif
 }
 
 QemuDbusDisplay::Stats QemuDbusDisplay::stats() const {

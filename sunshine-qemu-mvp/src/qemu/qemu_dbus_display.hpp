@@ -121,6 +121,7 @@ private:
                           std::span<const std::string_view> extra_interfaces);
     int handle_introspection(sd_bus_message *message, const char *xml);
     int handle_peer_standard(sd_bus_message *message);
+    void drain_pending_dmabuf_readback();
     void peer_loop() noexcept;
     void audio_loop() noexcept;
     void register_audio_listener();
@@ -164,6 +165,7 @@ private:
     std::thread peer_thread_;
 #ifdef QMDP_HAS_GBM
     std::unique_ptr<DmaBufReadback> dmabuf_readback_;
+    bool dmabuf_readback_pending_ {false};
 #endif
     dbus::Bus audio_bus_;
     UniqueFd audio_transport_shutdown_fd_;
