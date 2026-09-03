@@ -220,6 +220,28 @@ class DbusManager:
         self._lock = threading.Lock()
         self._children: dict[int, subprocess.Popen[bytes]] = {}
 
+    @staticmethod
+    def _socket_is_live(path: Path) -> bool:
+        """Return whether a root-owned Display1 socket still has a listener.
+
+        QEMU connects once to its private D-Bus during VM startup and does not
+        reconnect if the bus disappears.  A terminal service restart must
+        therefore adopt a still-live, safe bus rather than unlink it beneath
+        an already running VM.  A successful Unix ``connect`` is sufficient:
+        no D-Bus message is sent and no peer-controlled input is involved.
+        """
+        connection: socket.socket | None = None
+        try:
+            connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            connection.settimeout(0.2)
+            connection.connect(os.fspath(path))
+            return True
+        except OSError:
+            return False
+        finally:
+            if connection is not None:
+                connection.close()
+
     def ensure(self, vmid: int, address: str) -> None:
         expected = self._root / str(vmid) / "qemu-display1.bus"
         if address != f"unix:path={expected}":
@@ -242,6 +264,11 @@ class DbusManager:
                 metadata = expected.lstat()
                 if not stat.S_ISSOCK(metadata.st_mode) or metadata.st_mode & 0o077:
                     raise DirectTerminalError("direct-terminal Display1 socket is unsafe")
+                if self._socket_is_live(expected):
+                    # It belongs to an earlier terminal process. Keep it
+                    # alive so an already-running QEMU retains `org.qemu`;
+                    # this manager will use the same root-only bus.
+                    return
                 expected.unlink()
             except FileNotFoundError:
                 pass
@@ -282,11 +309,14 @@ class DbusManager:
                     pass
 
     def close(self) -> None:
+        # Each daemon is intentionally retained across terminal restarts.
+        # The dedicated root-only runtime directory is a tmpfs cleared at
+        # boot, while PVE owns VM stop/start. Killing a live bus here would
+        # make QEMU's Display1 endpoint permanently unavailable until the VM
+        # itself is restarted. The systemd unit uses KillMode=process and
+        # SIGINT so this main process reaches its normal session cleanup.
         with self._lock:
-            processes = tuple(self._children.values())
             self._children.clear()
-        for process in processes:
-            self._terminate(process)
 
 
 @dataclass

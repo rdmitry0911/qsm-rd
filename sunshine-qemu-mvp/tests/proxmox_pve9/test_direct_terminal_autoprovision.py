@@ -47,6 +47,8 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
                 pve_config_directory=pve_config_directory,
                 local_node=None,
             )
+            bus_process = None
+            replacement = None
             try:
                 socket_path = vm_runtime_directory / str(vmid) / "qemu-display1.bus"
                 self.assertFalse(socket_path.exists(), "a VM without qsm Display1 must not receive a bus")
@@ -58,13 +60,34 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
                 )
                 os.chmod(config, 0o600)
                 deadline = time.monotonic() + 3.0
-                while time.monotonic() < deadline and not socket_path.exists():
+                while (time.monotonic() < deadline and
+                       (not socket_path.exists() or vmid not in manager._dbus._children)):
                     time.sleep(0.05)
                 self.assertTrue(socket_path.exists(), "saving QSM Display1 must provision its bus automatically")
                 self.assertTrue(stat.S_ISSOCK(socket_path.stat().st_mode))
                 self.assertTrue(manager._display_is_configured(vmid))
-            finally:
+                bus_process = manager._dbus._children[vmid]
+
+                # A terminal upgrade/restart must adopt the existing bus.
+                # QEMU has no reconnect protocol for Display1, so replacing
+                # this socket would make a running VM unusable.
                 manager.close()
+                self.assertIsNone(bus_process.poll(), "the private bus must outlive the terminal process")
+                replacement = DirectSessionManager(
+                    instance_directory=instance_directory,
+                    runtime_directory=runtime_directory,
+                    vm_runtime_directory=vm_runtime_directory,
+                    pve_config_directory=pve_config_directory,
+                    local_node=None,
+                )
+                self.assertTrue(replacement._dbus._socket_is_live(socket_path))
+                self.assertNotIn(vmid, replacement._dbus._children)
+            finally:
+                if replacement is not None:
+                    replacement.close()
+                manager.close()
+                if bus_process is not None:
+                    manager._dbus._terminate(bus_process)
 
 
 if __name__ == "__main__":

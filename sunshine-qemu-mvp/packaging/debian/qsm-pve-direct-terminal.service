@@ -14,8 +14,13 @@ ExecStart=/usr/bin/qsm-pve-direct-terminal
 Restart=on-failure
 RestartSec=2s
 TimeoutStartSec=20s
-TimeoutStopSec=20s
-KillMode=control-group
+TimeoutStopSec=45s
+# QEMU opens its Display1 D-Bus once at VM startup and cannot reconnect if a
+# terminal package upgrade restarts this service. SIGINT lets Python close
+# media workers cleanly; only the primary terminal process is stopped while
+# its root-only per-VM D-Bus daemons remain available to running VMs.
+KillSignal=SIGINT
+KillMode=process
 TasksMax=192
 MemoryMax=1024M
 LimitNOFILE=1024
