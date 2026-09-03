@@ -24,12 +24,17 @@ class BrowserPeer:
     """Small JSON-lines driver for the disposable Chrome peer over SSH."""
 
     def __init__(self, arguments: argparse.Namespace) -> None:
+        environment = ["env", f"QSM_BROWSER_E2E_EXECUTABLE={arguments.browser_executable}"]
+        if arguments.browser_headful:
+            environment.append("QSM_BROWSER_E2E_HEADFUL=1")
+        if arguments.browser_display:
+            environment.append(f"DISPLAY={arguments.browser_display}")
         command = [
             "ssh", "-i", arguments.browser_key,
             "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
             f"{arguments.browser_user}@{arguments.browser_host}",
-            "env", f"QSM_BROWSER_E2E_EXECUTABLE={arguments.browser_executable}",
+            *environment,
             "node", arguments.browser_script,
         ]
         self._process = subprocess.Popen(
@@ -123,6 +128,10 @@ def main() -> int:
     parser.add_argument("--browser-key", default="/root/.ssh/qsm-browser-gate")
     parser.add_argument("--browser-script", default="/opt/qsm-browser/browser-webrtc-receiver.cjs")
     parser.add_argument("--browser-executable", default="/usr/bin/google-chrome")
+    parser.add_argument("--browser-headful", action="store_true",
+                        help="run Chrome in an isolated visible X display")
+    parser.add_argument("--browser-display", default="",
+                        help="X display for --browser-headful, for example :97")
     parser.add_argument("--socket", default="/run/qsm-pve-direct-terminal/pve-webrtc.sock")
     parser.add_argument("--node", default=socket.gethostname())
     parser.add_argument("--vmid", type=int, default=100)

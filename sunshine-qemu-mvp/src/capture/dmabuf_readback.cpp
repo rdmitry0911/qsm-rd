@@ -70,10 +70,11 @@ void check_gl(const char *operation) {
 
 }  // namespace
 
-// NVIDIA's GBM driver imports VirGL's DMA-BUF but intentionally returns EAGAIN
-// for gbm_bo_map(). EGL_EXT_image_dma_buf_import is the interoperable readback
-// path: import on the same render node, normalize through an ordinary RGBA FBO,
-// then synchronously read the pixels. There is no host window system involved.
+// Prefer a GBM map where the render node supports it: it avoids an additional
+// GL blit/readback round trip.  Some driver combinations (notably a subset of
+// NVIDIA/VirGL exports) expose DMA-BUF only through EGL, so scanout selects the
+// EGL_EXT_image_dma_buf_import fallback once and keeps that choice for the
+// lifetime of the QEMU scanout.  Neither path requires a host window system.
 struct DmaBufReadback::EglReadback final {
     explicit EglReadback(gbm_device *device) {
         if (device == nullptr) {
@@ -482,14 +483,44 @@ FrameToken DmaBufReadback::scanout(CpuFramebuffer& framebuffer,
     modifier_ = modifier;
     pixman_format_ = pixman_format_for_fourcc(drm_fourcc);
     y0_top_ = y0_top;
-    // Do not first probe gbm_bo_map().  On this exact VirGL path it can wait
-    // for GPU completion and reduce interactive capture to a few frames per
-    // second. EGL_EXT_image_dma_buf_import is already required, is the
-    // Sunshine QEMU backend's production path, and has deterministic full
-    // readback semantics for Display1 damage callbacks.
-    egl_fallback_ = true;
-    ensure_egl_readback();
-    return copy_scanout_egl(framebuffer);
+    struct gbm_import_fd_modifier_data import_data {};
+    import_data.width = width;
+    import_data.height = height;
+    import_data.format = drm_fourcc;
+    import_data.num_fds = 1U;
+    import_data.fds[0] = fd.get();
+    import_data.strides[0] = static_cast<int>(stride);
+    import_data.offsets[0] = 0;
+    import_data.modifier = modifier;
+
+    gbm_bo *replacement = gbm_bo_import(device_, GBM_BO_IMPORT_FD_MODIFIER,
+                                         &import_data, GBM_BO_USE_RENDERING);
+    if (replacement == nullptr) {
+        throw std::system_error(errno == 0 ? EIO : errno,
+                                std::generic_category(),
+                                "gbm_bo_import DMA-BUF");
+    }
+
+    reset();
+    bo_ = replacement;
+    backing_fd_ = std::move(fd);
+    width_ = width;
+    height_ = height;
+    stride_ = stride;
+    drm_fourcc_ = drm_fourcc;
+    modifier_ = modifier;
+    pixman_format_ = pixman_format_for_fourcc(drm_fourcc);
+    y0_top_ = y0_top;
+    try {
+        return copy_scanout_gbm(framebuffer);
+    } catch (const std::system_error&) {
+        // Imports from a non-mappable render node are expected to reach this
+        // branch.  Do not retry GBM on every damage event: failed map calls
+        // can themselves serialize the producer pipeline.
+        egl_fallback_ = true;
+        ensure_egl_readback();
+        return copy_scanout_egl(framebuffer);
+    }
 }
 
 FrameToken DmaBufReadback::copy_scanout_gbm(CpuFramebuffer& framebuffer) {
@@ -553,7 +584,9 @@ FrameToken DmaBufReadback::update(CpuFramebuffer& framebuffer,
     if (!backing_fd_) {
         throw std::logic_error("DMA-BUF update arrived before scanout");
     }
-    return copy_update_egl(framebuffer, x, y, width, height);
+    return egl_fallback_
+        ? copy_update_egl(framebuffer, x, y, width, height)
+        : copy_update_gbm(framebuffer, x, y, width, height);
 }
 
 FrameToken DmaBufReadback::copy_update_gbm(CpuFramebuffer& framebuffer,

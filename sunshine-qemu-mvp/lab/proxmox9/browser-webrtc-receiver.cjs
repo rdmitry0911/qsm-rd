@@ -64,8 +64,12 @@ async function waitForIceComplete() {
 
 async function createOffer() {
     const executablePath = process.env.QSM_BROWSER_E2E_EXECUTABLE;
+    const headful = process.env.QSM_BROWSER_E2E_HEADFUL === '1';
     browser = await chromium.launch({
-        headless: true,
+        // Default to headless for a lightweight CI gate, but permit the
+        // latency harness to exercise Chrome's actual visible compositor and
+        // video presentation path on an isolated Xvfb display.
+        headless: !headful,
         // The Linux Chromium build bundled with Playwright intentionally
         // excludes H.264.  This qualification uses a normal Chrome/Edge
         // executable selected by the Python driver, because it is the actual
@@ -88,7 +92,7 @@ async function createOffer() {
             '--force-webrtc-ip-handling-policy=default',
         ],
     });
-    page = await browser.newPage();
+    page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto(await startLocalPage());
     const offer = await page.evaluate(async () => {
         const video = document.getElementById('remote');
