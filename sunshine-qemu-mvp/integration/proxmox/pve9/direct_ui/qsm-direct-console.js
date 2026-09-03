@@ -11,6 +11,7 @@
     const RUNTIME_PREFIX = '/run/qsm-pve-direct';
     const DEFAULT_RENDER_NODE = '/dev/dri/renderD128';
     const DIRECT_GPU_ID = 'qsm-direct-gpu';
+    const DIRECT_AGENT_ID = 'qsm-direct-agent';
 
     const validNode = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$/.test(value);
     const validVmid = (value) => Number.isInteger(value) && value >= MIN_VMID && value <= MAX_VMID;
@@ -29,6 +30,11 @@
         return `-display dbus,addr=unix:path=${RUNTIME_PREFIX}/${vmid}/qemu-display1.bus,gl=on,rendernode=${rendernode}`;
     };
     const gpuArgument = () => `-device virtio-vga-gl,id=${DIRECT_GPU_ID}`;
+    const guestArguments = (vmid) => [
+        `-chardev socket,id=${DIRECT_AGENT_ID},path=${RUNTIME_PREFIX}/${vmid}/qsm-agent.sock,server=on,wait=off`,
+        '-device virtio-serial-pci,id=qsm-direct-serial',
+        `-device virtserialport,chardev=${DIRECT_AGENT_ID},name=org.qsm.direct.agent`,
+    ];
     const displayPattern = (vmid) => new RegExp(
         `(?:^|\\s)-display\\s+dbus,addr=unix:path=${escapeRegExp(RUNTIME_PREFIX)}/${vmid}/qemu-display1\\.bus,gl=on,rendernode=(/dev/dri/renderD[0-9]{1,4})(?=\\s|$)`,
     );
@@ -37,6 +43,19 @@
         /(?:^|\s)-device\s+virtio-vga-gl(?:,[^\s]+)?(?=\s|$)/g,
     ) || [];
     const normaliseArgument = (value) => value.trim();
+    const containsArgument = (args, value) => new RegExp(
+        `(?:^|\\s)${escapeRegExp(value)}(?=\\s|$)`,
+    ).test(args);
+    const managedGuestChannel = (args, vmid) => guestArguments(vmid).every((value) => containsArgument(args, value));
+    const removeManagedGuestChannel = (args, vmid) => guestArguments(vmid).reduce((current, value) =>
+        current.replace(new RegExp(`(?:^|\\s)${escapeRegExp(value)}(?=\\s|$)`), ''), args,
+    ).trim().replace(/\s{2,}/g, ' ');
+    const addManagedGuestChannel = (args, vmid) => {
+        if (args.includes(DIRECT_AGENT_ID) && !managedGuestChannel(args, vmid)) {
+            throw new Error('unsafe QSM guest channel arguments');
+        }
+        return managedGuestChannel(args, vmid) ? args : `${args} ${guestArguments(vmid).join(' ')}`.trim();
+    };
     const displayState = (args, vmid) => {
         if (typeof args !== 'string' || !validVmid(vmid)) {
             return { managed: false, legacy: false, legacyGpu: false, rendernode: DEFAULT_RENDER_NODE };
@@ -45,17 +64,17 @@
         const gpu = virtioVgaGlArguments(args).map(normaliseArgument);
         if (match && displayCount(args) === 1) {
             if (gpu.length === 1 && gpu[0] === gpuArgument()) {
-                return { managed: true, legacy: false, legacyGpu: false, rendernode: match[1] };
+                return { managed: true, legacy: false, legacyGpu: false, guest: managedGuestChannel(args, vmid), rendernode: match[1] };
             }
             // git20 emitted the unlabelled VirtIO-GPU argument. It is safe to
             // migrate only that exact historical form; any device options or
             // a second adapter belong to an administrator and must not be
             // silently claimed or duplicated by this UI overlay.
             if (gpu.length === 1 && gpu[0] === '-device virtio-vga-gl') {
-                return { managed: false, legacy: true, legacyGpu: true, rendernode: match[1] };
+                return { managed: false, legacy: true, legacyGpu: true, guest: managedGuestChannel(args, vmid), rendernode: match[1] };
             }
             if (gpu.length === 0) {
-                return { managed: false, legacy: true, legacyGpu: false, rendernode: match[1] };
+                return { managed: false, legacy: true, legacyGpu: false, guest: managedGuestChannel(args, vmid), rendernode: match[1] };
             }
         }
         return { managed: false, legacy: false, legacyGpu: false, rendernode: DEFAULT_RENDER_NODE };
@@ -72,7 +91,7 @@
         if (want) {
             if (count === 0) {
                 if (gpu.length !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
-                const added = `${gpuArgument()} ${wanted}`;
+                const added = `${gpuArgument()} ${wanted} ${guestArguments(vmid).join(' ')}`;
                 return args ? `${args} ${added}` : added;
             }
             if (!existing.managed && !existing.legacy) {
@@ -81,14 +100,14 @@
             const previous = displayArgument(vmid, existing.rendernode);
             const updated = args.replace(new RegExp(`(?:^|\\s)${escapeRegExp(previous)}(?=\\s|$)`), (value) =>
                 value.startsWith(' ') ? ` ${wanted}` : wanted);
-            if (existing.managed) { return updated; }
+            if (existing.managed) { return addManagedGuestChannel(updated, vmid); }
             if (existing.legacyGpu) {
-                return updated.replace(
+                return addManagedGuestChannel(updated.replace(
                     /(?:^|\s)-device\s+virtio-vga-gl(?=\s|$)/,
                     (value) => value.startsWith(' ') ? ` ${gpuArgument()}` : gpuArgument(),
-                );
+                ), vmid);
             }
-            return `${updated} ${gpuArgument()}`;
+            return addManagedGuestChannel(`${updated} ${gpuArgument()}`, vmid);
         }
         if (!existing.managed && !existing.legacy) {
             if (gpu.length !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
@@ -101,7 +120,7 @@
             ? withoutDisplay.replace(/(?:^|\s)-device\s+virtio-vga-gl(?=\s|$)/, '')
             : withoutDisplay.replace(
                 new RegExp(`(?:^|\\s)${escapeRegExp(gpuArgument())}(?=\\s|$)`), '');
-        return withoutGpu.trim().replace(/\s{2,}/g, ' ');
+        return removeManagedGuestChannel(withoutGpu, vmid);
     };
 
     const displayFields = () => [
@@ -120,7 +139,7 @@
             validator: (value) => validRenderNode(value) || gettext('Use a DRM render node, for example /dev/dri/renderD128.'),
         },
         { xtype: 'displayfield', userCls: 'pmx-hint', value: gettext(
-            'When enabled, PVE Graphic card is intentionally saved as None: this prevents PVE from adding an incompatible VNC backend. QSM Direct owns the private D-Bus display and VirtIO-GPU (VirGL). To return to VNC, disable QSM Display1 and select a PVE graphic card.'),
+            'When enabled, PVE Graphic card is intentionally saved as None: this prevents PVE from adding an incompatible VNC backend. QSM Direct owns the private D-Bus display, VirtIO-GPU (VirGL), and an optional guest-tools serial channel for clipboard and files. Restart the VM after changing this setting. To return to VNC, disable QSM Display1 and select a PVE graphic card.'),
         },
     ];
 
@@ -256,9 +275,13 @@
         const document = popup.document;
         document.title = gettext('QSM Direct Console');
         document.documentElement.style.cssText = 'height:100%;background:#000';
-        document.body.style.cssText = 'height:100%;margin:0;display:flex;flex-direction:column;background:#000;color:#fff;font:13px sans-serif';
+        // Keep the video viewport equal to the entire popup.  The controls
+        // deliberately float above it: a desktop console must not silently
+        // lose a row of guest pixels merely because its window has controls.
+        document.body.style.cssText = 'height:100%;margin:0;position:relative;overflow:hidden;background:#000;color:#fff;font:13px sans-serif';
         const toolbar = document.createElement('div');
-        toolbar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;background:#1f2937;flex:0 0 auto';
+        toolbar.setAttribute('aria-label', gettext('Console controls'));
+        toolbar.style.cssText = 'position:absolute;z-index:10;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(17,24,39,.88);box-shadow:0 1px 6px rgba(0,0,0,.55);opacity:1;transform:translateY(0);transition:opacity .16s ease,transform .16s ease';
         const status = document.createElement('span');
         status.textContent = gettext('Connecting…');
         status.style.flex = '1 1 auto';
@@ -275,7 +298,7 @@
         // deterministically; audio can be enabled explicitly afterwards.
         video.muted = true;
         video.tabIndex = 0;
-        video.style.cssText = 'display:block;width:100%;min-height:0;flex:1 1 auto;background:#000;object-fit:contain;outline:none';
+        video.style.cssText = 'display:block;width:100%;height:100%;background:#000;object-fit:contain;outline:none';
         const audio = document.createElement('button');
         audio.type = 'button';
         audio.style.cssText = 'padding:4px 9px;cursor:pointer';
@@ -302,8 +325,31 @@
             if (action && typeof action.catch === 'function') { action.catch(() => undefined); }
         });
         document.addEventListener('fullscreenchange', setFullscreenLabel);
-        toolbar.append(status, audio, fullscreen);
-        document.body.append(toolbar, video);
+        const copy = document.createElement('button');
+        copy.type = 'button';
+        copy.textContent = gettext('Copy');
+        copy.title = gettext('Copy guest clipboard to this browser');
+        copy.style.cssText = 'padding:4px 9px;cursor:pointer';
+        const paste = document.createElement('button');
+        paste.type = 'button';
+        paste.textContent = gettext('Paste');
+        paste.title = gettext('Paste this browser clipboard into the guest');
+        paste.style.cssText = 'padding:4px 9px;cursor:pointer';
+        const upload = document.createElement('button');
+        upload.type = 'button';
+        upload.textContent = gettext('Upload');
+        upload.title = gettext('Upload a file to the guest exchange folder');
+        upload.style.cssText = 'padding:4px 9px;cursor:pointer';
+        const download = document.createElement('button');
+        download.type = 'button';
+        download.textContent = gettext('Download');
+        download.title = gettext('Download a named file from the guest exchange folder');
+        download.style.cssText = 'padding:4px 9px;cursor:pointer';
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.style.display = 'none';
+        toolbar.append(status, copy, paste, upload, download, audio, fullscreen);
+        document.body.append(video, toolbar, fileInput);
         popup.focus();
 
         let peer = null;
@@ -316,10 +362,111 @@
         let pendingPointer = null;
         let resizeTimer = null;
         let firstFrameTimer = null;
+        let toolbarTimer = null;
+        let guestRequestNumber = 0;
+        const guestRequests = new Map();
         let lastResize = '';
+        const revealToolbar = () => {
+            if (closed) { return; }
+            if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); toolbarTimer = null; }
+            toolbar.style.opacity = '1';
+            toolbar.style.transform = 'translateY(0)';
+        };
+        const hideToolbarSoon = () => {
+            if (closed || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) { return; }
+            if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); }
+            toolbarTimer = popup.setTimeout(() => {
+                toolbarTimer = null;
+                toolbar.style.opacity = '0';
+                toolbar.style.transform = 'translateY(-100%)';
+            }, 1800);
+        };
+        toolbar.addEventListener('pointerenter', revealToolbar);
+        toolbar.addEventListener('pointerleave', hideToolbarSoon);
         const send = (value) => {
             if (control && control.readyState === 'open') { control.send(JSON.stringify(value)); }
         };
+        const bytesToB64 = (bytes) => {
+            let binary = '';
+            const view = new Uint8Array(bytes);
+            for (let index = 0; index < view.length; index += 0x8000) {
+                binary += String.fromCharCode(...view.subarray(index, index + 0x8000));
+            }
+            return btoa(binary);
+        };
+        const b64ToBytes = (encoded) => {
+            const binary = atob(encoded);
+            const result = new Uint8Array(binary.length);
+            for (let index = 0; index < binary.length; index += 1) { result[index] = binary.charCodeAt(index); }
+            return result;
+        };
+        const guestRequest = (op, fields = {}) => new Promise((resolve, reject) => {
+            if (!control || control.readyState !== 'open') {
+                reject(new Error('guest tools are not connected')); return;
+            }
+            const requestId = `qsm-${Date.now()}-${guestRequestNumber += 1}`;
+            const timer = popup.setTimeout(() => {
+                guestRequests.delete(requestId);
+                reject(new Error('guest tools did not respond'));
+            }, 40000);
+            guestRequests.set(requestId, { resolve, reject, timer });
+            control.send(JSON.stringify({ op, request_id: requestId, ...fields }));
+        });
+        const copyToBrowser = async (text) => {
+            if (!popup.navigator.clipboard || !popup.navigator.clipboard.writeText) {
+                throw new Error('browser clipboard access is unavailable');
+            }
+            await popup.navigator.clipboard.writeText(text);
+        };
+        const pasteFromBrowser = async () => {
+            if (!popup.navigator.clipboard || !popup.navigator.clipboard.readText) {
+                throw new Error('browser clipboard access is unavailable');
+            }
+            const text = await popup.navigator.clipboard.readText();
+            await guestRequest('qsm_guest_clipboard_set', { text_b64: bytesToB64(new TextEncoder().encode(text)) });
+            status.textContent = gettext('Clipboard pasted into guest');
+        };
+        const guestClipboardToBrowser = async () => {
+            const result = await guestRequest('qsm_guest_clipboard_get');
+            if (!result || typeof result.text_b64 !== 'string') { throw new Error('invalid guest clipboard'); }
+            await copyToBrowser(new TextDecoder('utf-8', { fatal: true }).decode(b64ToBytes(result.text_b64)));
+            status.textContent = gettext('Guest clipboard copied');
+        };
+        copy.addEventListener('click', () => { guestClipboardToBrowser().catch(() => {
+            status.textContent = gettext('Guest clipboard is unavailable. Install and start QSM Guest Agent.');
+        }); });
+        paste.addEventListener('click', () => { pasteFromBrowser().catch(() => {
+            status.textContent = gettext('Browser clipboard is unavailable.');
+        }); });
+        upload.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files && fileInput.files[0];
+            fileInput.value = '';
+            if (!file) { return; }
+            if (file.size > 2 * 1024 * 1024) {
+                status.textContent = gettext('File transfer is limited to 2 MiB per file.'); return;
+            }
+            file.arrayBuffer().then((data) => guestRequest('qsm_guest_file_upload', {
+                name: file.name, data_b64: bytesToB64(data),
+            })).then(() => { status.textContent = gettext('File uploaded to guest exchange folder'); }).catch(() => {
+                status.textContent = gettext('File upload failed. Install and start QSM Guest Agent.');
+            });
+        });
+        download.addEventListener('click', () => {
+            const name = popup.prompt(gettext('Guest exchange file name:'));
+            if (!name) { return; }
+            guestRequest('qsm_guest_file_download', { name }).then((result) => {
+                if (!result || typeof result.name !== 'string' || typeof result.data_b64 !== 'string') {
+                    throw new Error('invalid guest file');
+                }
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(new Blob([b64ToBytes(result.data_b64)]));
+                link.download = result.name;
+                link.click();
+                popup.setTimeout(() => URL.revokeObjectURL(link.href), 0);
+                status.textContent = gettext('Guest file download started');
+            }).catch(() => { status.textContent = gettext('Guest file is unavailable.'); });
+        });
         const sendPointer = (value) => {
             if (pointer && pointer.readyState === 'open') { pointer.send(JSON.stringify(value)); }
         };
@@ -332,6 +479,12 @@
             if (pointerFrame !== null) { popup.cancelAnimationFrame(pointerFrame); }
             if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); }
             if (firstFrameTimer !== null) { popup.clearTimeout(firstFrameTimer); }
+            if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); }
+            for (const request of guestRequests.values()) {
+                popup.clearTimeout(request.timer);
+                request.reject(new Error('console closed'));
+            }
+            guestRequests.clear();
         };
         const closeForStoppedVm = () => {
             if (closed) { return; }
@@ -359,6 +512,7 @@
                     popup.clearTimeout(firstFrameTimer);
                     firstFrameTimer = null;
                 }
+                hideToolbarSoon();
             } else if (peer.connectionState === 'connected') {
                 status.textContent = gettext('Connected — waiting for guest video…');
             }
@@ -436,6 +590,26 @@
                 if (pointerFrame === null) { pointerFrame = popup.requestAnimationFrame(flushPointer); }
             };
             control.addEventListener('open', () => resize(true));
+            control.addEventListener('message', (event) => {
+                if (typeof event.data !== 'string') { return; }
+                let message;
+                try { message = JSON.parse(event.data); } catch (_error) { return; }
+                if (!message || typeof message !== 'object') { return; }
+                if (message.op === 'qsm_guest_result' && typeof message.request_id === 'string') {
+                    const request = guestRequests.get(message.request_id);
+                    if (!request) { return; }
+                    guestRequests.delete(message.request_id);
+                    popup.clearTimeout(request.timer);
+                    if (message.ok === true && message.result && typeof message.result === 'object') {
+                        request.resolve(message.result);
+                    } else {
+                        request.reject(new Error('guest operation failed'));
+                    }
+                } else if (message.op === 'qsm_guest_clipboard' && typeof message.text_b64 === 'string') {
+                    try { copyToBrowser(new TextDecoder('utf-8', { fatal: true }).decode(b64ToBytes(message.text_b64))).catch(() => undefined); }
+                    catch (_error) { /* Ignore malformed guest clipboard notifications. */ }
+                }
+            });
             // aiortc closes every server-side data channel while retiring a
             // VM session. Track-end is the normal media signal, but this is
             // an independent browser-visible lifecycle signal for codecs or
@@ -445,6 +619,8 @@
             observer = new ResizeObserver(() => resize(false));
             observer.observe(video);
             video.addEventListener('mousemove', (event) => {
+                revealToolbar();
+                hideToolbarSoon();
                 const box = video.getBoundingClientRect();
                 const x = Math.max(0, Math.min(Math.floor(event.clientX - box.left), Math.floor(box.width) - 1));
                 const y = Math.max(0, Math.min(Math.floor(event.clientY - box.top), Math.floor(box.height) - 1));
@@ -453,10 +629,26 @@
             video.addEventListener('mousedown', (event) => { flushPointer(); video.focus(); send({ op: 'mouse_button', button: event.button + 1, down: true }); event.preventDefault(); });
             video.addEventListener('mouseup', (event) => { send({ op: 'mouse_button', button: event.button + 1, down: false }); event.preventDefault(); });
             video.addEventListener('wheel', (event) => { send({ op: 'scroll', vertical: Math.max(-32768, Math.min(32767, Math.trunc(event.deltaY))), horizontal: Math.max(-32768, Math.min(32767, Math.trunc(event.deltaX))) }); event.preventDefault(); }, { passive: false });
+            video.addEventListener('paste', (event) => {
+                const text = event.clipboardData && event.clipboardData.getData('text/plain');
+                if (typeof text !== 'string') { return; }
+                event.preventDefault();
+                guestRequest('qsm_guest_clipboard_set', {
+                    text_b64: bytesToB64(new TextEncoder().encode(text)),
+                }).catch(() => { status.textContent = gettext('Guest clipboard is unavailable.'); });
+            });
             for (const name of ['keydown', 'keyup']) {
                 video.addEventListener(name, (event) => {
                     const key = qemuKey(event);
-                    if (key !== null) { send({ op: 'keyboard', key, down: name === 'keydown', modifiers: 0 }); event.preventDefault(); }
+                    const pasteShortcut = event.code === 'KeyV' && (event.ctrlKey || event.metaKey);
+                    if (pasteShortcut) {
+                        event.preventDefault();
+                        if (name === 'keydown') { pasteFromBrowser().catch(() => {
+                            status.textContent = gettext('Browser clipboard is unavailable.');
+                        }); }
+                    } else if (key !== null) {
+                        send({ op: 'keyboard', key, down: name === 'keydown', modifiers: 0 }); event.preventDefault();
+                    }
                 });
             }
             peer.addTransceiver('video', { direction: 'recvonly' });

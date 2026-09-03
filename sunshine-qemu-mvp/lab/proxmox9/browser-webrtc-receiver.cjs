@@ -100,6 +100,28 @@ async function createOffer() {
         window.qsmPeerConnection = pc;
         window.qsmControl = pc.createDataChannel('qsm-control', { ordered: true });
         window.qsmPointer = pc.createDataChannel('qsm-pointer', { ordered: false, maxRetransmits: 0 });
+        window.qsmGuestRequests = new Map();
+        window.qsmGuestClipboardEvents = [];
+        window.qsmControl.addEventListener('message', (event) => {
+            if (typeof event.data !== 'string') {
+                return;
+            }
+            try {
+                const message = JSON.parse(event.data);
+                if (message?.op === 'qsm_guest_result' && typeof message.request_id === 'string') {
+                    const pending = window.qsmGuestRequests.get(message.request_id);
+                    if (pending) {
+                        window.qsmGuestRequests.delete(message.request_id);
+                        pending.resolve(message);
+                    }
+                } else if (message?.op === 'qsm_guest_clipboard') {
+                    window.qsmGuestClipboardEvents.push(message.text_b64);
+                }
+            } catch (_) {
+                // Product code must ignore an unrelated or malformed SCTP
+                // message. The harness only observes the QSM guest schema.
+            }
+        });
         window.qsmTrackKinds = [];
         window.qsmIceCandidateSeen = false;
         pc.addEventListener('track', (event) => {
@@ -414,6 +436,32 @@ async function pointer(message) {
     return { sent: true };
 }
 
+async function guest(message) {
+    if (!page || !message || typeof message !== 'object' || typeof message.op !== 'string') {
+        throw new Error('invalid browser guest command');
+    }
+    return page.evaluate(async (payload) => {
+        if (!window.qsmControl || window.qsmControl.readyState !== 'open') {
+            throw new Error('browser control channel is not open');
+        }
+        const requestId = `lab-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const response = await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                window.qsmGuestRequests.delete(requestId);
+                reject(new Error('guest operation timed out'));
+            }, 10000);
+            window.qsmGuestRequests.set(requestId, {
+                resolve: (result) => { clearTimeout(timer); resolve(result); },
+            });
+            window.qsmControl.send(JSON.stringify({ ...payload, request_id: requestId }));
+        });
+        if (response.ok !== true || !response.result || typeof response.result !== 'object') {
+            throw new Error('guest operation failed');
+        }
+        return response.result;
+    }, message);
+}
+
 async function close() {
     if (page) {
         await page.evaluate(() => window.qsmPeerConnection?.close());
@@ -453,6 +501,7 @@ const commands = {
     measure_hover: async (message) => measureHover(message.message),
     control: async (message) => control(message.message),
     pointer: async (message) => pointer(message.message),
+    guest: async (message) => guest(message.message),
     close: async () => {
         // Reply before closing stdout so the driver can distinguish a clean
         // shutdown from an abruptly lost browser peer.  A previous version

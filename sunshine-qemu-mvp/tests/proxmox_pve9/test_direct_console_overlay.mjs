@@ -6,6 +6,10 @@ import vm from 'node:vm';
 const overlayPath = new URL('../../integration/proxmox/pve9/direct_ui/qsm-direct-console.js', import.meta.url);
 const source = fs.readFileSync(overlayPath, 'utf8');
 const definitions = new Map();
+const managedGuestArgs = (vmid) =>
+    ` -chardev socket,id=qsm-direct-agent,path=/run/qsm-pve-direct/${vmid}/qsm-agent.sock,server=on,wait=off` +
+    ' -device virtio-serial-pci,id=qsm-direct-serial' +
+    ' -device virtserialport,chardev=qsm-direct-agent,name=org.qsm.direct.agent';
 
 globalThis.gettext = (text) => text;
 globalThis.Ext = {
@@ -45,6 +49,14 @@ assert.match(source, /new MediaStream\(\)/,
     'a streamless remote track must be attached to a local MediaStream rather than rendering black');
 assert.match(source, /document\.documentElement\.requestFullscreen\(\)/,
     'the popup must provide a full-screen action for the entire display');
+assert.match(source, /position:absolute;z-index:10;top:0;left:0;right:0/,
+    'the console controls must overlay, rather than consume, guest video pixels');
+assert.match(source, /video\.style\.cssText = 'display:block;width:100%;height:100%/,
+    'the guest video viewport must fill the popup beneath the floating controls');
+assert.match(source, /const hideToolbarSoon = \(\) =>/,
+    'an idle connected console must auto-hide its floating controls');
+assert.match(source, /toolbar\.style\.transform = 'translateY\(-100%\)'/,
+    'auto-hiding controls must move completely outside the guest picture');
 assert.match(source, /connectionstatechange/,
     'the popup must follow WebRTC shutdown when its VM Display1 source disappears');
 assert.match(source, /The virtual machine was stopped\. Closing console…/,
@@ -92,7 +104,7 @@ assert.deepEqual(
     }),
     {
         vga: 'type=none',
-        args: '-cpu host -device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD129',
+        args: '-cpu host -device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD129' + managedGuestArgs(321),
     },
     'enabling Display1 must replace PVE VNC with one managed VirGL/Display1 pair',
 );
@@ -140,7 +152,7 @@ assert.deepEqual(
     }),
     {
         vga: 'type=none',
-        args: '-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128 -device virtio-vga-gl,id=qsm-direct-gpu',
+        args: '-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128 -device virtio-vga-gl,id=qsm-direct-gpu' + managedGuestArgs(321),
     },
     'saving an old Display1-only setting must migrate it away from PVE VNC',
 );
@@ -155,7 +167,7 @@ assert.deepEqual(
     }),
     {
         vga: 'type=none',
-        args: '-cpu host -device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD129',
+        args: '-cpu host -device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD129' + managedGuestArgs(321),
     },
     'the old unlabelled QSM GPU must migrate in place instead of adding a second adapter',
 );

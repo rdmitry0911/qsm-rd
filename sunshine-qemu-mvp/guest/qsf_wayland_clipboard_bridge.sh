@@ -78,9 +78,13 @@ valid_utf8_text() {
     0) ;;
     *) return 1 ;;
   esac
-  # musl provides iconv(3), while Alpine's CLI utility is explicitly supplied
-  # by gnu-libiconv. A byte-for-byte round trip rejects malformed UTF-8.
-  gnu-iconv -f UTF-8 -t UTF-8 "$file" >"$validated" 2>/dev/null || return 1
+  # Alpine supplies gnu-iconv while Debian/Kubuntu expose the same utility as
+  # iconv. A byte-for-byte round trip rejects malformed UTF-8 on either.
+  if command -v gnu-iconv >/dev/null 2>&1; then
+    gnu-iconv -f UTF-8 -t UTF-8 "$file" >"$validated" 2>/dev/null || return 1
+  else
+    iconv -f UTF-8 -t UTF-8 "$file" >"$validated" 2>/dev/null || return 1
+  fi
   cmp -s "$file" "$validated"
 }
 
@@ -104,7 +108,7 @@ publish_wayland_to_state() {
 [ -S "$runtime_dir/wayland-0" ] || fail wayland_socket_missing
 command -v wl-copy >/dev/null 2>&1 || fail wl_copy_missing
 command -v wl-paste >/dev/null 2>&1 || fail wl_paste_missing
-command -v gnu-iconv >/dev/null 2>&1 || fail gnu_iconv_missing
+command -v gnu-iconv >/dev/null 2>&1 || command -v iconv >/dev/null 2>&1 || fail iconv_missing
 
 export XDG_RUNTIME_DIR="$runtime_dir"
 export WAYLAND_DISPLAY=wayland-0

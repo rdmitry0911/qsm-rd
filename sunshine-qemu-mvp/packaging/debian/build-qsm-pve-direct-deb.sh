@@ -27,6 +27,8 @@ for required in \
     "$ROOT_DIR/CMakeLists.txt" \
     "$ROOT_DIR/tools/qsm_direct_media_worker.cpp" \
     "$ROOT_DIR/extensions/browser_bridge/qsm_browser_bridge.py" \
+    "$ROOT_DIR/extensions/direct_guest/__init__.py" \
+    "$ROOT_DIR/extensions/direct_guest/qsm_guest_channel.py" \
     "$ROOT_DIR/extensions/direct_terminal/qsm_direct_terminal.py" \
     "$ROOT_DIR/integration/proxmox/pve9/direct_api/PVE/API2/QsmDirect.pm" \
     "$ROOT_DIR/integration/proxmox/pve9/direct_ui/qsm-direct-console.js" \
@@ -58,7 +60,7 @@ worker="$build_root/cmake/qsm-direct-media-worker"
 
 package_name=qsm-pve-direct
 package_root="$stage_root/usr/lib/$package_name"
-install -d "$package_root/bin" "$package_root/browser_bridge" "$package_root/direct_terminal" \
+install -d "$package_root/bin" "$package_root/browser_bridge" "$package_root/direct_terminal" "$package_root/direct_guest" \
     "$package_root/pve9-api/PVE/API2" "$package_root/pve9-api/PVE/QsmDirect" "$package_root/pve9-ui" \
     "$stage_root/usr/bin" "$stage_root/usr/sbin" "$stage_root/usr/share/doc/$package_name" \
     "$stage_root/usr/share/pve-manager/js" "$stage_root/usr/share/$package_name/pve9-ui" \
@@ -68,6 +70,8 @@ install -d "$package_root/bin" "$package_root/browser_bridge" "$package_root/dir
 install -m 0755 "$worker" "$package_root/bin/qsm-direct-media-worker"
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/__init__.py" "$package_root/browser_bridge/__init__.py"
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/qsm_browser_bridge.py" "$package_root/browser_bridge/qsm_browser_bridge.py"
+install -m 0644 "$ROOT_DIR/extensions/direct_guest/__init__.py" "$package_root/direct_guest/__init__.py"
+install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_guest_channel.py" "$package_root/direct_guest/qsm_guest_channel.py"
 install -m 0755 "$ROOT_DIR/extensions/direct_terminal/qsm_direct_terminal.py" "$package_root/direct_terminal/qsm_direct_terminal.py"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-terminal" "$stage_root/usr/bin/qsm-pve-direct-terminal"
 install -m 0644 "$PACKAGE_DIR/qsm-pve-direct-terminal.service" \

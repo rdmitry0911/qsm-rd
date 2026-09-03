@@ -1,0 +1,13 @@
+[Unit]
+Description=QSM Wayland clipboard bridge
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/qsm-guest-agent/qsm-wayland-clipboard-bridge --state-dir %h/.local/share/qsm-guest-agent --telemetry /dev/null --runtime-dir %t
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

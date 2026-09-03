@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+usage() {
+    echo "usage: qsm-guest-agent-setup USER" >&2
+    exit 2
+}
+
+[ "$#" = 1 ] || usage
+user=$1
+case "$user" in
+    *[!A-Za-z0-9._-]*|'') usage ;;
+esac
+id "$user" >/dev/null 2>&1 || { echo "qsm guest setup: user does not exist" >&2; exit 1; }
+usermod -a -G qsm-guest "$user"
+loginctl terminate-user "$user" 2>/dev/null || true
+echo "QSM guest agent enabled for $user. Log in again, then run: systemctl --user enable --now qsm-guest-clipboard.service"

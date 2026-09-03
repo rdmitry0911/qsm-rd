@@ -13,6 +13,7 @@ signing key appears in this module's wire protocol or browser response.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import socket
@@ -23,6 +24,7 @@ import threading
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
+from typing import Any, Callable
 
 import av
 from aiortc import (MediaStreamTrack, RTCPeerConnection, RTCSessionDescription,
@@ -50,6 +52,7 @@ MAX_FRAGMENT_BYTES = 256 * 1024
 MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024
 MAX_SDP_BYTES = 128 * 1024
 MAX_CONTROL_MESSAGE_BYTES = 1024
+MAX_GUEST_CONTROL_MESSAGE_BYTES = 3 * 1024 * 1024
 VIDEO_TIME_BASE = Fraction(1, 90_000)
 AUDIO_TIME_BASE = Fraction(1, 48_000)
 # This route is an interactive console, not a recorder.  A browser which is
@@ -694,7 +697,8 @@ class BrowserWebRtcBridge:
     def __init__(self, runtime_directory: Path, *, fps: int = 60,
                  expected_producer_uid: int | None = None,
                  shared_media: SharedMediaIngress | None = None,
-                 shared_input: UnixInputEgress | None = None) -> None:
+                 shared_input: UnixInputEgress | None = None,
+                 guest_dispatch: Callable[[Any], dict[str, Any]] | None = None) -> None:
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError as error:
@@ -714,6 +718,7 @@ class BrowserWebRtcBridge:
         self._owns_input = shared_input is None
         self.input = shared_input or UnixInputEgress(
             runtime_directory, expected_uid=expected_producer_uid)
+        self._guest_dispatch = guest_dispatch
         self._closed = False
         # A PVE console session has exactly one SDP offer and one pair of
         # tracks.  In particular, do not let a caller append another sender
@@ -722,6 +727,7 @@ class BrowserWebRtcBridge:
         self._offer_consumed = False
         self._control_channel_seen = False
         self._pointer_channel_seen = False
+        self._control_channel: object | None = None
         self._pc.on("datachannel", self._on_datachannel)
 
         @self._pc.on("connectionstatechange")
@@ -739,6 +745,82 @@ class BrowserWebRtcBridge:
     @property
     def input_context(self) -> str:
         return f"unix:{self.input.path}"
+
+    def _send_control(self, payload: dict[str, Any]) -> None:
+        """Send a bounded, server-originated guest-side-channel event."""
+        channel = self._control_channel
+        if self._closed or channel is None or getattr(channel, "readyState", None) != "open":
+            return
+        try:
+            channel.send(json.dumps(payload, separators=(",", ":"), ensure_ascii=True))
+        except Exception:
+            # SCTP closure is ordinary browser lifecycle, not a media failure.
+            pass
+
+    def notify_guest_clipboard(self, text: str) -> None:
+        """Publish a validated guest clipboard update to this browser only."""
+        if not isinstance(text, str):
+            return
+        encoded = text.encode("utf-8")
+        if len(encoded) > 1024 * 1024:
+            return
+        self._loop.call_soon_threadsafe(
+            self._send_control,
+            {"op": "qsm_guest_clipboard", "text_b64": base64.b64encode(encoded).decode("ascii")},
+        )
+
+    @staticmethod
+    def _guest_request(message: object) -> tuple[str, dict[str, Any]] | None:
+        """Recognise one guest command without widening the input protocol."""
+        if isinstance(message, bytes):
+            if len(message) > MAX_GUEST_CONTROL_MESSAGE_BYTES:
+                raise BridgeError("browser guest message is too large")
+            try:
+                message = message.decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise BridgeError("browser guest message is invalid") from error
+        if not isinstance(message, str) or len(message.encode("utf-8")) > MAX_GUEST_CONTROL_MESSAGE_BYTES:
+            raise BridgeError("browser guest message is invalid")
+        try:
+            value = json.loads(message)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(value, dict) or not isinstance(value.get("op"), str) or \
+                not value["op"].startswith("qsm_guest_"):
+            return None
+        request_id = value.pop("request_id", None)
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 64 or \
+                not request_id.isascii() or not request_id.replace("-", "").isalnum():
+            raise BridgeError("browser guest message is invalid")
+        operations = {
+            "qsm_guest_clipboard_set": "clipboard_set",
+            "qsm_guest_clipboard_get": "clipboard_get",
+            "qsm_guest_file_upload": "file_upload",
+            "qsm_guest_file_download": "file_download",
+            "qsm_guest_status": "status",
+        }
+        operation = operations.get(value.pop("op"))
+        if operation is None:
+            raise BridgeError("browser guest message is invalid")
+        value["op"] = operation
+        return request_id, value
+
+    async def _dispatch_guest_request(self, channel: object, request_id: str,
+                                      request: dict[str, Any]) -> None:
+        try:
+            if self._guest_dispatch is None:
+                raise BridgeError("guest tools are unavailable")
+            result = await asyncio.to_thread(self._guest_dispatch, request)
+            response: dict[str, Any] = {
+                "op": "qsm_guest_result", "request_id": request_id, "ok": True, "result": result,
+            }
+        except Exception:
+            # The guest-side detail can include a transient agent state. Keep
+            # the PVE browser response useful but deliberately non-sensitive.
+            response = {"op": "qsm_guest_result", "request_id": request_id, "ok": False,
+                        "error": "Guest clipboard or file operation failed."}
+        if not self._closed and channel is self._control_channel:
+            self._send_control(response)
 
     def _on_datachannel(self, channel: object) -> None:
         # There are exactly two browser-to-guest channels.  qsm-control is
@@ -761,6 +843,7 @@ class BrowserWebRtcBridge:
             return
         if control:
             self._control_channel_seen = True
+            self._control_channel = channel
         else:
             self._pointer_channel_seen = True
 
@@ -768,7 +851,11 @@ class BrowserWebRtcBridge:
         def on_message(message: object) -> None:
             try:
                 if control:
-                    self.input.send_browser_message(message)
+                    guest = self._guest_request(message)
+                    if guest is None:
+                        self.input.send_browser_message(message)
+                    else:
+                        asyncio.create_task(self._dispatch_guest_request(channel, *guest))
                 else:
                     self.input.send_browser_pointer_message(message)
             except BridgeError:

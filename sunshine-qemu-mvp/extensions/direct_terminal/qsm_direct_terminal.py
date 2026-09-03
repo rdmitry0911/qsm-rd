@@ -28,7 +28,7 @@ import time
 from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 PACKAGE_DIRECTORY = Path(__file__).resolve().parents[1]
@@ -37,6 +37,7 @@ if str(PACKAGE_DIRECTORY) not in sys.path:
 
 from browser_bridge.qsm_browser_bridge import (BrowserWebRtcBridge, BridgeError,
                                                 SharedMediaIngress, UnixInputEgress)  # noqa: E402
+from direct_guest.qsm_guest_channel import QsmGuestChannel  # noqa: E402
 
 
 MIN_VMID = 100
@@ -202,6 +203,27 @@ def _managed_display_enabled(config: str, vmid: int, vm_runtime_directory: Path)
     return count == 1 and gpu_count == 1 and display.search(args) is not None
 
 
+def _managed_guest_channel_enabled(config: str, vmid: int, vm_runtime_directory: Path) -> bool:
+    """Recognise the exact optional QSM virtio-serial guest channel.
+
+    Display1 remains usable without guest tools.  A partial or foreign chardev
+    is never claimed: clipboard and files simply remain unavailable until the
+    VM is saved with the complete managed argument set and restarted.
+    """
+    if not _valid_vmid(vmid):
+        return False
+    args = next((line.removeprefix("args:").strip() for line in config.splitlines()
+                 if line.startswith("args:")), None)
+    if args is None or len(args) > 8192 or any(ord(value) < 0x20 or ord(value) == 0x7f for value in args):
+        return False
+    expected = (
+        f"-chardev socket,id=qsm-direct-agent,path={vm_runtime_directory}/{vmid}/qsm-agent.sock,server=on,wait=off",
+        "-device virtio-serial-pci,id=qsm-direct-serial",
+        "-device virtserialport,chardev=qsm-direct-agent,name=org.qsm.direct.agent",
+    )
+    return all(re.search(rf"(?:^|\\s){re.escape(argument)}(?=\\s|$)", args) for argument in expected)
+
+
 def _safe_runtime_directory(path: Path) -> None:
     try:
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -328,6 +350,7 @@ class DirectSession:
     worker: subprocess.Popen[bytes]
     directory: Path
     expires_at: float
+    remove_guest_listener: Callable[[], None] | None = None
 
 
 @dataclass
@@ -339,6 +362,7 @@ class DirectVmTransport:
     media: SharedMediaIngress
     input: UnixInputEgress
     directory: Path
+    guest: QsmGuestChannel | None = None
 
 
 class DirectSessionManager:
@@ -480,16 +504,22 @@ class DirectSessionManager:
         _safe_runtime_directory(directory)
         bridge = BrowserWebRtcBridge(
             directory, fps=fps, expected_producer_uid=os.geteuid(),
-            shared_media=transport.media, shared_input=transport.input)
+            shared_media=transport.media, shared_input=transport.input,
+            guest_dispatch=transport.guest.dispatch if transport.guest is not None else None)
+        remove_guest_listener = (transport.guest.add_clipboard_listener(bridge.notify_guest_clipboard)
+                                 if transport.guest is not None else None)
         try:
             bridge.start_taps()
             answer = await bridge.answer_offer(sdp)
             self._sessions[identifier] = DirectSession(
                 vmid=vmid, bridge=bridge, worker=transport.worker, directory=directory,
-                expires_at=time.monotonic() + SESSION_IDLE_SECONDS)
+                expires_at=time.monotonic() + SESSION_IDLE_SECONDS,
+                remove_guest_listener=remove_guest_listener)
             asyncio.create_task(self._watch_session(identifier))
             return answer
         except BaseException:
+            if remove_guest_listener is not None:
+                remove_guest_listener()
             await bridge.close()
             self._remove_directory(directory)
             if not any(session.vmid == vmid for session in self._sessions.values()):
@@ -538,8 +568,13 @@ class DirectSessionManager:
             if worker.poll() is not None:
                 raise DirectTerminalError(
                     f"direct-terminal media worker failed to start (exit code {worker.returncode})")
+            config = _read_pve_vm_config(self._pve_config_directory / f"{vmid}.conf")
+            guest = (QsmGuestChannel(self._vm_runtime_directory / str(vmid) / "qsm-agent.sock")
+                     if config is not None and _managed_guest_channel_enabled(
+                         config, vmid, self._vm_runtime_directory) else None)
             transport = DirectVmTransport(
-                vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory)
+                vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
+                guest=guest)
             self._transports[vmid] = transport
             print(
                 f"qsm-direct-terminal: VM media transport started vmid={vmid} encoder={encoder} pid={worker.pid}",
@@ -587,6 +622,8 @@ class DirectSessionManager:
         if session is None:
             return
         await session.bridge.close()
+        if session.remove_guest_listener is not None:
+            session.remove_guest_listener()
         self._remove_directory(session.directory)
         if not any(other.vmid == session.vmid for other in self._sessions.values()):
             await self._close_transport(session.vmid)
@@ -598,6 +635,8 @@ class DirectSessionManager:
         self._terminate_worker(transport.worker)
         transport.media.close()
         transport.input.close()
+        if transport.guest is not None:
+            transport.guest.close()
         self._remove_directory(transport.directory)
 
     async def _close_vmid_sessions(self, vmid: int) -> None:
@@ -608,6 +647,8 @@ class DirectSessionManager:
         for identifier in identifiers:
             session = self._sessions.pop(identifier, None)
             if session is not None:
+                if session.remove_guest_listener is not None:
+                    session.remove_guest_listener()
                 await session.bridge.close()
                 self._remove_directory(session.directory)
         await self._close_transport(vmid)

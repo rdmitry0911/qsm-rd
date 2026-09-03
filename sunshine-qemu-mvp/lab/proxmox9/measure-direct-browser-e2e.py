@@ -11,6 +11,7 @@ qualification log.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import select
 import socket
@@ -143,6 +144,8 @@ def main() -> int:
     parser.add_argument("--warmup-seconds", type=float, default=3.0)
     parser.add_argument("--hover-runs", type=int, default=0,
                         help="run the 1280x800 laboratory hover-popover measurement N times")
+    parser.add_argument("--guest-transfer", action="store_true",
+                        help="exercise browser-to-guest clipboard and both file directions")
     arguments = parser.parse_args()
 
     peer = BrowserPeer(arguments)
@@ -174,6 +177,36 @@ def main() -> int:
             "deltaFramesDecoded": after.get("framesDecoded", 0) - before.get("framesDecoded", 0),
             "pixels": pixels,
         }
+        if arguments.guest_transfer:
+            clipboard = "browser direct clipboard → guest\nПривет".encode("utf-8")
+            set_result = peer.request({"op": "guest", "message": {
+                "op": "qsm_guest_clipboard_set",
+                "text_b64": base64.b64encode(clipboard).decode("ascii"),
+            }}, timeout=15.0)
+            if set_result.get("bytes") != len(clipboard):
+                raise RuntimeError("guest clipboard set returned an invalid byte count")
+            get_result = peer.request({"op": "guest", "message": {
+                "op": "qsm_guest_clipboard_get",
+            }}, timeout=15.0)
+            if base64.b64decode(get_result.get("text_b64", ""), validate=True) != clipboard:
+                raise RuntimeError("guest clipboard round trip did not preserve UTF-8 bytes")
+            upload = b"\x00browser-direct-file\xff\n"
+            upload_result = peer.request({"op": "guest", "message": {
+                "op": "qsm_guest_file_upload", "name": "browser-direct.bin",
+                "data_b64": base64.b64encode(upload).decode("ascii"),
+            }}, timeout=15.0)
+            if upload_result.get("name") != "browser-direct.bin" or upload_result.get("bytes") != len(upload):
+                raise RuntimeError("guest file upload returned an invalid result")
+            download_result = peer.request({"op": "guest", "message": {
+                "op": "qsm_guest_file_download", "name": "guest-download.txt",
+            }}, timeout=15.0)
+            downloaded = base64.b64decode(download_result.get("data_b64", ""), validate=True)
+            if download_result.get("name") != "guest-download.txt" or not downloaded:
+                raise RuntimeError("guest file download returned no guest data")
+            result["guestTransfer"] = {
+                "clipboardBytes": len(clipboard), "uploadBytes": len(upload),
+                "downloadBytes": len(downloaded),
+            }
         if arguments.hover_runs:
             if arguments.width != 1280 or arguments.height < 480:
                 raise RuntimeError("the hover target requires a 1280-pixel-wide desktop at least 480 pixels high")

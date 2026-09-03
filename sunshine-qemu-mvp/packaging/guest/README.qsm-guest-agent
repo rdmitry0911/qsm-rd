@@ -1,0 +1,17 @@
+# QSM Guest Agent
+
+This package is installed **inside a Linux VM**, not on Proxmox.
+
+1. Enable QSM Display1 in VM Hardware -> Display and restart the VM. This
+   creates `org.qsm.direct.agent` on virtio-serial.
+2. Install the package in the guest: `sudo apt install ./qsm-guest-agent_*.deb`.
+3. Select the logged-in desktop user once:
+   `sudo qsm-guest-agent-setup USER`.
+4. Log in again. For a Wayland desktop, enable its bridge once:
+   `systemctl --user enable --now qsm-guest-clipboard.service`.
+
+The agent uses `~/.local/share/qsm-guest-agent/incoming` for browser uploads
+and `~/.local/share/qsm-guest-agent/outgoing` for files that the browser may
+download. It transfers only plain UTF-8 clipboard text (up to 1 MiB) and files
+with a plain basename (up to 2 MiB). `wl-clipboard` is required for the
+Wayland clipboard bridge; install it with `sudo apt install wl-clipboard`.

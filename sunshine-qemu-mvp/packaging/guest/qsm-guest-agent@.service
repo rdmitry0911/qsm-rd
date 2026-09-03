@@ -1,0 +1,21 @@
+[Unit]
+Description=QSM Guest clipboard and file agent for %i
+ConditionPathExists=/dev/virtio-ports/org.qsm.direct.agent
+After=dev-virtio\x2dports-org.qsm.direct.agent.device
+
+[Service]
+Type=simple
+User=%i
+Group=qsm-guest
+Environment=HOME=/home/%i
+ExecStart=/usr/lib/qsm-guest-agent/qsm-guest-agent --device /dev/virtio-ports/org.qsm.direct.agent --state-dir %h/.local/share/qsm-guest-agent
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/qsm-guest-agent
+
+[Install]
+WantedBy=multi-user.target
