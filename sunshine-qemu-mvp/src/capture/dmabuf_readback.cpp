@@ -474,15 +474,6 @@ FrameToken DmaBufReadback::scanout(CpuFramebuffer& framebuffer,
     }
     validate_scanout(width, height, stride, drm_fourcc);
 
-    reset();
-    backing_fd_ = std::move(fd);
-    width_ = width;
-    height_ = height;
-    stride_ = stride;
-    drm_fourcc_ = drm_fourcc;
-    modifier_ = modifier;
-    pixman_format_ = pixman_format_for_fourcc(drm_fourcc);
-    y0_top_ = y0_top;
     // GBM imports are allowed to consume implementation-private state from a
     // supplied descriptor.  The EGL fallback needs the original QEMU-owned
     // duplicate intact, so give every GBM import attempt its own fd.
