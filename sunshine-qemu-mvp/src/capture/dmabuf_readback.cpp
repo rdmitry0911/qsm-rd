@@ -541,8 +541,8 @@ FrameToken DmaBufReadback::copy_scanout_egl(CpuFramebuffer& framebuffer) {
     const auto pixels = egl_readback_->read_full(y0_top_);
     // The RGBA FBO normalizes every supported source fourcc to XRGB pixels.
     pixman_format_ = pixman_x8r8g8b8;
-    return framebuffer.scanout_inline(width_, height_, width_ * 4U, pixman_format_,
-                                      pixels, "qemu-dmabuf-egl");
+    return framebuffer.scanout_owned(width_, height_, width_ * 4U, pixman_format_,
+                                     std::move(pixels), "qemu-dmabuf-egl");
 }
 
 FrameToken DmaBufReadback::update(CpuFramebuffer& framebuffer,
@@ -621,10 +621,8 @@ FrameToken DmaBufReadback::copy_update_egl(CpuFramebuffer& framebuffer,
     // and is deliberately bounded by max_bytes; native zero-copy encoding can
     // replace this compatibility path later.
     const auto pixels = egl_readback_->read_full(y0_top_);
-    return framebuffer.update_inline(0, 0,
-                                     static_cast<std::int32_t>(width_),
-                                     static_cast<std::int32_t>(height_),
-                                     width_ * 4U, pixman_format_, pixels);
+    return framebuffer.replace_full_owned(
+        x, y, width, height, pixman_format_, std::move(pixels));
 }
 
 }  // namespace qmdp

@@ -110,11 +110,13 @@ CpuFramebuffer::DamageCompatibility CpuFramebuffer::damage_compatibility(
 }
 
 void CpuFramebuffer::copy_full_from(std::span<const std::uint8_t> source) {
-    if (source.size() < backing_.size()) {
+    if (!backing_ || source.size() < backing_->size()) {
         throw std::invalid_argument("scanout payload is smaller than advertised");
     }
-    std::memcpy(backing_.data(), source.data(), backing_.size());
-    copied_bytes_ += backing_.size();
+    auto replacement = std::make_shared<std::vector<std::uint8_t>>(backing_->size());
+    std::memcpy(replacement->data(), source.data(), replacement->size());
+    copied_bytes_ += replacement->size();
+    backing_ = std::move(replacement);
 }
 
 void CpuFramebuffer::copy_damage_from(std::span<const std::uint8_t> source,
@@ -137,6 +139,10 @@ void CpuFramebuffer::copy_damage_from(std::span<const std::uint8_t> source,
         throw std::invalid_argument("update payload is smaller than advertised");
     }
 
+    if (!backing_) {
+        throw std::logic_error("framebuffer has no backing storage");
+    }
+    auto replacement = std::make_shared<std::vector<std::uint8_t>>(*backing_);
     for (std::uint32_t row = 0; row < damage.height; ++row) {
         const std::size_t source_row = source_is_full_frame
                                            ? static_cast<std::size_t>(damage.y + row)
@@ -146,15 +152,18 @@ void CpuFramebuffer::copy_damage_from(std::span<const std::uint8_t> source,
         const std::size_t destination_offset =
             static_cast<std::size_t>(damage.y + row) * stride_ +
             static_cast<std::size_t>(damage.x) * 4U;
-        std::memcpy(backing_.data() + destination_offset,
+        std::memcpy(replacement->data() + destination_offset,
                     source.data() + source_offset,
                     row_bytes);
     }
     copied_bytes_ += static_cast<std::uint64_t>(row_bytes) * damage.height;
+    backing_ = std::move(replacement);
 }
 
 FrameToken CpuFramebuffer::snapshot(const DamageRect& damage) {
-    auto immutable = std::make_shared<const std::vector<std::uint8_t>>(backing_);
+    if (!backing_) {
+        throw std::logic_error("framebuffer has no backing storage");
+    }
     auto surface = std::make_shared<FrameSurface>();
     surface->width = width_;
     surface->height = height_;
@@ -164,7 +173,7 @@ FrameToken CpuFramebuffer::snapshot(const DamageRect& damage) {
     surface->storage = CpuPixels{
         .stride = stride_,
         .pixman_format = pixman_format_,
-        .bytes = std::move(immutable),
+        .bytes = backing_,
     };
 
     FrameToken token;
@@ -194,12 +203,60 @@ FrameToken CpuFramebuffer::scanout_inline(
     stride_ = stride;
     pixman_format_ = pixman_format;
     debug_name_ = std::move(debug_name);
-    backing_.assign(geometry.byte_size, 0U);
+    backing_ = std::make_shared<const std::vector<std::uint8_t>>(geometry.byte_size, 0U);
     mapping_.reset();
     enabled_ = true;
     ++generation_;
     copy_full_from(data.first(geometry.byte_size));
     return snapshot({0U, 0U, width_, height_});
+}
+
+FrameToken CpuFramebuffer::scanout_owned(
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t stride,
+    std::uint32_t pixman_format,
+    std::vector<std::uint8_t> data,
+    std::string debug_name) {
+    std::lock_guard lock(mutex_);
+    const auto geometry = validate_geometry(width, height, stride, pixman_format);
+    if (data.size() < geometry.byte_size) {
+        throw std::invalid_argument("owned scanout payload is too small");
+    }
+    data.resize(geometry.byte_size);
+    width_ = width;
+    height_ = height;
+    stride_ = stride;
+    pixman_format_ = pixman_format;
+    debug_name_ = std::move(debug_name);
+    backing_ = std::make_shared<const std::vector<std::uint8_t>>(std::move(data));
+    mapping_.reset();
+    enabled_ = true;
+    ++generation_;
+    copied_bytes_ += geometry.byte_size;
+    return snapshot({0U, 0U, width_, height_});
+}
+
+FrameToken CpuFramebuffer::replace_full_owned(
+    std::int32_t x,
+    std::int32_t y,
+    std::int32_t width,
+    std::int32_t height,
+    std::uint32_t pixman_format,
+    std::vector<std::uint8_t> data) {
+    std::lock_guard lock(mutex_);
+    const auto damage = validate_damage(x, y, width, height);
+    if (pixman_format != pixman_format_) {
+        throw std::invalid_argument("pixman format changed without a new scanout");
+    }
+    const auto bytes = checked_mul(stride_, height_);
+    if (data.size() < bytes) {
+        throw std::invalid_argument("owned update payload is too small");
+    }
+    data.resize(static_cast<std::size_t>(bytes));
+    backing_ = std::make_shared<const std::vector<std::uint8_t>>(std::move(data));
+    copied_bytes_ += bytes;
+    return snapshot(damage);
 }
 
 FrameToken CpuFramebuffer::update_inline(
@@ -236,7 +293,7 @@ FrameToken CpuFramebuffer::scanout_map(
     stride_ = stride;
     pixman_format_ = pixman_format;
     debug_name_ = std::move(debug_name);
-    backing_.assign(geometry.byte_size, 0U);
+    backing_ = std::make_shared<const std::vector<std::uint8_t>>(geometry.byte_size, 0U);
     mapping_ = std::move(replacement);
     enabled_ = true;
     ++generation_;
@@ -264,7 +321,7 @@ void CpuFramebuffer::disable() noexcept {
     height_ = 0U;
     stride_ = 0U;
     pixman_format_ = 0U;
-    backing_.clear();
+    backing_.reset();
     mapping_.reset();
     debug_name_.clear();
 }

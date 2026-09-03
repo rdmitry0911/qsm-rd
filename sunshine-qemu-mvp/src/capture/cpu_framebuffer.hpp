@@ -53,6 +53,26 @@ public:
         std::uint32_t pixman_format,
         std::span<const std::uint8_t> data);
 
+    // DMA-BUF readback has already produced a complete CPU frame. Transfer
+    // its owned storage into the immutable snapshot rather than first copying
+    // it into a mutable backing vector and then cloning that vector again.
+    // Older frame tokens retain their shared storage while an encoder drains.
+    [[nodiscard]] FrameToken scanout_owned(
+        std::uint32_t width,
+        std::uint32_t height,
+        std::uint32_t stride,
+        std::uint32_t pixman_format,
+        std::vector<std::uint8_t> data,
+        std::string debug_name = "qemu-owned");
+
+    [[nodiscard]] FrameToken replace_full_owned(
+        std::int32_t x,
+        std::int32_t y,
+        std::int32_t width,
+        std::int32_t height,
+        std::uint32_t pixman_format,
+        std::vector<std::uint8_t> data);
+
     [[nodiscard]] FrameToken scanout_map(
         UniqueFd fd,
         std::uint32_t offset,
@@ -124,7 +144,7 @@ private:
     std::uint64_t generation_ {};
     std::uint64_t sequence_ {};
     std::uint64_t copied_bytes_ {};
-    std::vector<std::uint8_t> backing_;
+    std::shared_ptr<const std::vector<std::uint8_t>> backing_;
     MappedRegion mapping_;
     CursorState cursor_;
     std::string debug_name_;
