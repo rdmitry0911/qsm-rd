@@ -26,6 +26,14 @@ else:
 
 @unittest.skipUnless(shutil.which("dbus-daemon"), "dbus-daemon is required")
 class DirectTerminalAutoprovisionTests(unittest.TestCase):
+    def test_terminal_service_allows_ice_interface_enumeration(self) -> None:
+        unit = (PROJECT_ROOT / "packaging/debian/qsm-pve-direct-terminal.service").read_text(
+            encoding="utf-8")
+        self.assertIn(
+            "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK", unit)
+        self.assertIn("KillSignal=SIGINT", unit)
+        self.assertIn("KillMode=process", unit)
+
     def test_saved_display1_argument_starts_a_private_bus_without_policy_file(self) -> None:
         with tempfile.TemporaryDirectory(prefix="qsm-direct-autoprovision.") as temporary:
             root = Path(temporary)
