@@ -233,8 +233,28 @@ struct DmaBufReadback::EglReadback final {
             throw std::logic_error("EGL DMA-BUF image is not active");
         }
         make_current();
-        blit_to_destination(y0_top);
-        const auto bytes = readback_bytes();
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, source_framebuffer_);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, destination_framebuffer_);
+        // glReadPixels emits bottom-up rows.  QEMU VirGL advertises
+        // y0_top=false, which means that copying source bottom-to-top into a
+        // normal destination makes row zero of the CPU result logical top.
+        // Inverting both source and destination would cancel that correction
+        // and vertically mirror the browser image while input remains normal.
+        const GLint source_y0 = y0_top ? static_cast<GLint>(height_) : 0;
+        const GLint source_y1 = y0_top ? 0 : static_cast<GLint>(height_);
+        glBlitFramebuffer(0, source_y0,
+                          static_cast<GLint>(width_), source_y1,
+                          0, 0,
+                          static_cast<GLint>(width_), static_cast<GLint>(height_),
+                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        check_gl("blit DMA-BUF into readback framebuffer");
+
+        const auto bytes = checked_product(checked_product(width_, 4U,
+                                                            "EGL readback row"),
+                                           height_, "EGL readback size");
+        if (bytes > max_bytes || bytes > std::numeric_limits<std::size_t>::max()) {
+            throw std::invalid_argument("EGL DMA-BUF readback exceeds byte limit");
+        }
         std::vector<std::uint8_t> pixels(static_cast<std::size_t>(bytes));
         glBindFramebuffer(GL_READ_FRAMEBUFFER, destination_framebuffer_);
         glReadBuffer(GL_COLOR_ATTACHMENT0);
@@ -246,92 +266,14 @@ struct DmaBufReadback::EglReadback final {
         return pixels;
     }
 
-    // The synchronous readback above is required for the initial scanout so
-    // a new viewer always has one complete picture.  Damage updates use this
-    // one-slot PBO instead: QEMU gets its D-Bus reply after submission and the
-    // same listener thread publishes the completed frame on a later poll.
-    // Keeping one latest readback avoids building a latency queue when a guest
-    // repaints faster than its CPU readback can complete.
-    [[nodiscard]] bool queue_full(bool y0_top) {
-        if (source_framebuffer_ == 0U || width_ == 0U || height_ == 0U) {
-            throw std::logic_error("EGL DMA-BUF image is not active");
-        }
-        if (pending_sync_ != nullptr) {
-            return false;
-        }
-        make_current();
-        blit_to_destination(y0_top);
-        const auto bytes = readback_bytes();
-        if (pixel_pack_buffer_ == 0U) {
-            glGenBuffers(1, &pixel_pack_buffer_);
-        }
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, pixel_pack_buffer_);
-        glBufferData(GL_PIXEL_PACK_BUFFER, static_cast<GLsizeiptr>(bytes), nullptr,
-                     GL_STREAM_READ);
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, destination_framebuffer_);
-        glReadBuffer(GL_COLOR_ATTACHMENT0);
-        glPixelStorei(GL_PACK_ALIGNMENT, 1);
-        glReadPixels(0, 0, static_cast<GLsizei>(width_), static_cast<GLsizei>(height_),
-                     GL_BGRA, GL_UNSIGNED_BYTE, nullptr);
-        glPixelStorei(GL_PACK_ALIGNMENT, 4);
-        pending_sync_ = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0U);
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0U);
-        check_gl("queue DMA-BUF readback");
-        if (pending_sync_ == nullptr) {
-            throw std::runtime_error("create DMA-BUF readback fence failed");
-        }
-        pending_bytes_ = static_cast<std::size_t>(bytes);
-        // The command stream must be visible before returning the Display1
-        // callback.  This flush never waits for rasterization or readback.
-        glFlush();
-        return true;
-    }
-
-    [[nodiscard]] std::optional<std::vector<std::uint8_t>> take_queued() {
-        if (pending_sync_ == nullptr) {
-            return std::nullopt;
-        }
-        make_current();
-        const GLenum status = glClientWaitSync(pending_sync_, 0U, 0U);
-        if (status == GL_TIMEOUT_EXPIRED) {
-            return std::nullopt;
-        }
-        if (status != GL_ALREADY_SIGNALED && status != GL_CONDITION_SATISFIED) {
-            throw std::runtime_error("wait for DMA-BUF readback fence failed");
-        }
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, pixel_pack_buffer_);
-        const void *mapped = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0,
-                                              static_cast<GLsizeiptr>(pending_bytes_),
-                                              GL_MAP_READ_BIT);
-        if (mapped == nullptr) {
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0U);
-            throw std::runtime_error("map DMA-BUF readback PBO failed");
-        }
-        std::vector<std::uint8_t> pixels(pending_bytes_);
-        std::memcpy(pixels.data(), mapped, pixels.size());
-        if (glUnmapBuffer(GL_PIXEL_PACK_BUFFER) != GL_TRUE) {
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, 0U);
-            throw std::runtime_error("unmap DMA-BUF readback PBO failed");
-        }
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0U);
-        glDeleteSync(pending_sync_);
-        pending_sync_ = nullptr;
-        pending_bytes_ = 0U;
-        check_gl("complete DMA-BUF readback");
-        return pixels;
-    }
-
     void reset_image() noexcept {
         if (!make_current_noexcept()) {
             source_texture_ = 0U;
             source_framebuffer_ = 0U;
-            pending_sync_ = nullptr;
-            pending_bytes_ = 0U;
             width_ = 0U;
             height_ = 0U;
             return;
         }
-        discard_queued();
         if (source_framebuffer_ != 0U) {
             glDeleteFramebuffers(1, &source_framebuffer_);
             source_framebuffer_ = 0U;
@@ -345,40 +287,6 @@ struct DmaBufReadback::EglReadback final {
     }
 
 private:
-    void blit_to_destination(bool y0_top) {
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, source_framebuffer_);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, destination_framebuffer_);
-        // glReadPixels emits bottom-up rows.  QEMU VirGL advertises
-        // y0_top=false, so source inversion makes CPU row zero logical top.
-        const GLint source_y0 = y0_top ? static_cast<GLint>(height_) : 0;
-        const GLint source_y1 = y0_top ? 0 : static_cast<GLint>(height_);
-        glBlitFramebuffer(0, source_y0,
-                          static_cast<GLint>(width_), source_y1,
-                          0, 0,
-                          static_cast<GLint>(width_), static_cast<GLint>(height_),
-                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
-        check_gl("blit DMA-BUF into readback framebuffer");
-    }
-
-    [[nodiscard]] std::uint64_t readback_bytes() const {
-        const auto bytes = checked_product(checked_product(width_, 4U,
-                                                            "EGL readback row"),
-                                           height_, "EGL readback size");
-        if (bytes > max_bytes || bytes > std::numeric_limits<std::size_t>::max() ||
-            bytes > static_cast<std::uint64_t>(std::numeric_limits<GLsizeiptr>::max())) {
-            throw std::invalid_argument("EGL DMA-BUF readback exceeds byte limit");
-        }
-        return bytes;
-    }
-
-    void discard_queued() noexcept {
-        if (pending_sync_ != nullptr) {
-            glDeleteSync(pending_sync_);
-            pending_sync_ = nullptr;
-        }
-        pending_bytes_ = 0U;
-    }
-
     void make_current() {
         if (eglMakeCurrent(display_, surface_, surface_, context_) != EGL_TRUE) {
             throw std::runtime_error(egl_error_message("eglMakeCurrent"));
@@ -426,11 +334,6 @@ private:
     void destroy() noexcept {
         reset_image();
         if (make_current_noexcept()) {
-            discard_queued();
-            if (pixel_pack_buffer_ != 0U) {
-                glDeleteBuffers(1, &pixel_pack_buffer_);
-                pixel_pack_buffer_ = 0U;
-            }
             if (destination_framebuffer_ != 0U) {
                 glDeleteFramebuffers(1, &destination_framebuffer_);
                 destination_framebuffer_ = 0U;
@@ -466,9 +369,6 @@ private:
     GLuint source_framebuffer_ {};
     GLuint destination_texture_ {};
     GLuint destination_framebuffer_ {};
-    GLuint pixel_pack_buffer_ {};
-    GLsync pending_sync_ {};
-    std::size_t pending_bytes_ {};
     std::uint32_t width_ {};
     std::uint32_t height_ {};
     std::uint32_t destination_width_ {};
@@ -650,28 +550,50 @@ FrameToken DmaBufReadback::update(CpuFramebuffer& framebuffer,
     return copy_update_egl(framebuffer, x, y, width, height);
 }
 
-bool DmaBufReadback::queue_update() {
-    if (!backing_fd_ || !egl_readback_) {
-        throw std::logic_error("DMA-BUF queued update arrived before scanout");
+FrameToken DmaBufReadback::copy_update_gbm(CpuFramebuffer& framebuffer,
+                                           std::int32_t x,
+                                           std::int32_t y,
+                                           std::int32_t width,
+                                           std::int32_t height) {
+    if (x < 0 || y < 0 || width <= 0 || height <= 0 ||
+        static_cast<std::uint64_t>(x) + static_cast<std::uint64_t>(width) > width_ ||
+        static_cast<std::uint64_t>(y) + static_cast<std::uint64_t>(height) > height_) {
+        throw std::invalid_argument("DMA-BUF damage is outside scanout");
     }
-    return egl_readback_->queue_full(y0_top_);
-}
-
-std::optional<FrameToken> DmaBufReadback::complete_queued(CpuFramebuffer& framebuffer) {
-    if (!egl_readback_) {
-        return std::nullopt;
+    const auto source_y = y0_top_
+        ? static_cast<std::uint32_t>(y)
+        : height_ - static_cast<std::uint32_t>(y) - static_cast<std::uint32_t>(height);
+    std::uint32_t map_stride = 0U;
+    void *map_data = nullptr;
+    void *mapped = gbm_bo_map(bo_, static_cast<std::uint32_t>(x), source_y,
+                              static_cast<std::uint32_t>(width),
+                              static_cast<std::uint32_t>(height),
+                              GBM_BO_TRANSFER_READ, &map_stride, &map_data);
+    if (mapped == nullptr || map_data == nullptr) {
+        throw std::system_error(errno == 0 ? EIO : errno,
+                                std::generic_category(), "gbm_bo_map update");
     }
-    auto pixels = egl_readback_->take_queued();
-    if (!pixels) {
-        return std::nullopt;
+    try {
+        const auto bytes = checked_product(map_stride, static_cast<std::uint32_t>(height),
+                                           "DMA-BUF mapped damage size");
+        if (map_stride < checked_product(static_cast<std::uint32_t>(width), 4U,
+                                         "DMA-BUF mapped damage row") ||
+            bytes > max_bytes || bytes > std::numeric_limits<std::size_t>::max()) {
+            throw std::invalid_argument("DMA-BUF mapped damage geometry is invalid");
+        }
+        const auto *source = static_cast<const std::uint8_t *>(mapped);
+        FrameToken frame = y0_top_
+            ? framebuffer.update_inline(x, y, width, height, map_stride, pixman_format_,
+                                        {source, static_cast<std::size_t>(bytes)})
+            : framebuffer.update_inline(x, y, width, height, map_stride, pixman_format_,
+                                        flip_rows(source, map_stride,
+                                                  static_cast<std::uint32_t>(height)));
+        gbm_bo_unmap(bo_, map_data);
+        return frame;
+    } catch (...) {
+        gbm_bo_unmap(bo_, map_data);
+        throw;
     }
-    // A queued PBO readback is always a complete, normalized source image.
-    // Publish complete damage rather than stale producer damage coordinates:
-    // it makes the latest-frame mailbox self-contained even when intermediate
-    // QEMU damage callbacks were deliberately coalesced while the fence ran.
-    return framebuffer.replace_full_owned(0, 0, static_cast<std::int32_t>(width_),
-                                          static_cast<std::int32_t>(height_),
-                                          pixman_format_, std::move(*pixels));
 }
 
 FrameToken DmaBufReadback::copy_update_egl(CpuFramebuffer& framebuffer,
