@@ -400,12 +400,21 @@ public:
                                         cpu->stride, cpu->pixman_format);
         observe_source_frame(bgra);
         std::lock_guard lock(video_mutex_);
-        if (!video_input_ || width_ != frame.surface->width || height_ != frame.surface->height ||
-            force_idr_.exchange(false)) {
+        const bool fresh_encoder = !video_input_ || width_ != frame.surface->width ||
+                                   height_ != frame.surface->height || force_idr_.exchange(false);
+        if (fresh_encoder) {
             close_video_process();
             open_video_process(frame.surface->width, frame.surface->height);
         }
         write_all(video_input_, bgra);
+        if (fresh_encoder) {
+            // FFmpeg's raw-video input may retain its very first frame until
+            // it observes another frame timestamp. Display1 is idle-driven:
+            // a newly opened console could otherwise remain black forever on
+            // an unchanged desktop. A one-time duplicate establishes H.264
+            // immediately and is not part of steady-state capture.
+            write_all(video_input_, bgra);
+        }
     }
 
     void submit_audio(std::span<const float> interleaved_samples, std::uint32_t sample_rate,
