@@ -110,29 +110,40 @@ struct DmaBufReadback::EglReadback final {
             throw std::runtime_error(egl_error_message("eglBindAPI(OpenGL)"));
         }
 
-        constexpr EGLint config_attributes[] = {
+        // Rendering targets explicit FBOs. Requiring a pbuffer excludes
+        // otherwise valid GBM configurations exposed by nested VirGL, which
+        // commonly publish only surfaceless OpenGL configs. This is the same
+        // capability order as the validated QEMU/Sunshine capture backend.
+        constexpr EGLint surfaceless_config_attributes[] = {
+            EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
+            EGL_NONE,
+        };
+        constexpr EGLint pbuffer_config_attributes[] = {
             EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
             EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
-            EGL_RED_SIZE, 8,
-            EGL_GREEN_SIZE, 8,
-            EGL_BLUE_SIZE, 8,
-            EGL_ALPHA_SIZE, 8,
             EGL_NONE,
         };
-        EGLint count = 0;
-        if (eglChooseConfig(display_, config_attributes, &config_, 1, &count) != EGL_TRUE ||
-            count != 1) {
-            throw std::runtime_error(egl_error_message("eglChooseConfig"));
-        }
-
-        constexpr EGLint pbuffer_attributes[] = {
-            EGL_WIDTH, 1,
-            EGL_HEIGHT, 1,
-            EGL_NONE,
+        const auto choose_config = [this](const EGLint *attributes) {
+            EGLint count = 0;
+            return eglChooseConfig(display_, attributes, &config_, 1, &count) == EGL_TRUE && count != 0;
         };
-        surface_ = eglCreatePbufferSurface(display_, config_, pbuffer_attributes);
-        if (surface_ == EGL_NO_SURFACE) {
-            throw std::runtime_error(egl_error_message("eglCreatePbufferSurface"));
+        if (epoxy_has_egl_extension(display_, "EGL_KHR_surfaceless_context") &&
+            choose_config(surfaceless_config_attributes)) {
+            surfaceless_ = true;
+        } else {
+            if (!choose_config(pbuffer_config_attributes)) {
+                throw std::runtime_error(
+                    "EGL render node has no OpenGL configuration suitable for offscreen DMA-BUF readback");
+            }
+            constexpr EGLint pbuffer_attributes[] = {
+                EGL_WIDTH, 1,
+                EGL_HEIGHT, 1,
+                EGL_NONE,
+            };
+            surface_ = eglCreatePbufferSurface(display_, config_, pbuffer_attributes);
+            if (surface_ == EGL_NO_SURFACE) {
+                throw std::runtime_error(egl_error_message("eglCreatePbufferSurface"));
+            }
         }
         context_ = eglCreateContext(display_, config_, EGL_NO_CONTEXT, nullptr);
         if (context_ == EGL_NO_CONTEXT) {
@@ -284,7 +295,7 @@ private:
     }
 
     [[nodiscard]] bool make_current_noexcept() noexcept {
-        return display_ != EGL_NO_DISPLAY && surface_ != EGL_NO_SURFACE &&
+        return display_ != EGL_NO_DISPLAY && (surfaceless_ || surface_ != EGL_NO_SURFACE) &&
                context_ != EGL_NO_CONTEXT &&
                eglMakeCurrent(display_, surface_, surface_, context_) == EGL_TRUE;
     }
@@ -364,6 +375,7 @@ private:
     std::uint32_t destination_width_ {};
     std::uint32_t destination_height_ {};
     bool initialized_ {false};
+    bool surfaceless_ {false};
 };
 
 DmaBufReadback::DmaBufReadback(std::string render_node) {
