@@ -37,7 +37,7 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             pve_config_directory.mkdir(mode=0o700)
             vmid = 321
             config = pve_config_directory / f"{vmid}.conf"
-            config.write_text("vga: virtio-gl\n", encoding="utf-8")
+            config.write_text("vga: none\n", encoding="utf-8")
             os.chmod(config, 0o600)
 
             manager = DirectSessionManager(
@@ -51,8 +51,9 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
                 socket_path = vm_runtime_directory / str(vmid) / "qemu-display1.bus"
                 self.assertFalse(socket_path.exists(), "a VM without qsm Display1 must not receive a bus")
                 config.write_text(
-                    "vga: virtio-gl\n"
-                    f"args: -display dbus,addr=unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128\n",
+                    "vga: none\n"
+                    "args: -device virtio-vga-gl,id=qsm-direct-gpu "
+                    f"-display dbus,addr=unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128\n",
                     encoding="utf-8",
                 )
                 os.chmod(config, 0o600)

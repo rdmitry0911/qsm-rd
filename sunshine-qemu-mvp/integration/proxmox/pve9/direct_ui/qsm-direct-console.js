@@ -10,6 +10,7 @@
     const MAX_QEMU_ARGS_BYTES = 8192;
     const RUNTIME_PREFIX = '/run/qsm-pve-direct';
     const DEFAULT_RENDER_NODE = '/dev/dri/renderD128';
+    const DIRECT_GPU_ID = 'qsm-direct-gpu';
 
     const validNode = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$/.test(value);
     const validVmid = (value) => Number.isInteger(value) && value >= MIN_VMID && value <= MAX_VMID;
@@ -27,17 +28,23 @@
         }
         return `-display dbus,addr=unix:path=${RUNTIME_PREFIX}/${vmid}/qemu-display1.bus,gl=on,rendernode=${rendernode}`;
     };
+    const gpuArgument = () => `-device virtio-vga-gl,id=${DIRECT_GPU_ID}`;
     const displayPattern = (vmid) => new RegExp(
         `(?:^|\\s)-display\\s+dbus,addr=unix:path=${escapeRegExp(RUNTIME_PREFIX)}/${vmid}/qemu-display1\\.bus,gl=on,rendernode=(/dev/dri/renderD[0-9]{1,4})(?=\\s|$)`,
     );
     const displayCount = (args) => (args.match(/(?:^|\s)-display(?:\s|$)/g) || []).length;
+    const directGpuCount = (args) => (args.match(
+        new RegExp(`(?:^|\\s)${escapeRegExp(gpuArgument())}(?=\\s|$)`, 'g')) || []).length;
     const displayState = (args, vmid) => {
         if (typeof args !== 'string' || !validVmid(vmid)) {
-            return { managed: false, rendernode: DEFAULT_RENDER_NODE };
+            return { managed: false, legacy: false, rendernode: DEFAULT_RENDER_NODE };
         }
         const match = args.match(displayPattern(vmid));
-        return match && displayCount(args) === 1 ? { managed: true, rendernode: match[1] } :
-            { managed: false, rendernode: DEFAULT_RENDER_NODE };
+        const gpuCount = directGpuCount(args);
+        if (match && displayCount(args) === 1 && gpuCount <= 1) {
+            return { managed: gpuCount === 1, legacy: gpuCount === 0, rendernode: match[1] };
+        }
+        return { managed: false, legacy: false, rendernode: DEFAULT_RENDER_NODE };
     };
     const updateDisplayArgument = (args, vmid, rendernode, want) => {
         args = args === undefined || args === null ? '' : args;
@@ -46,30 +53,38 @@
         }
         const existing = displayState(args, vmid);
         const count = displayCount(args);
+        const gpuCount = directGpuCount(args);
         const wanted = displayArgument(vmid, rendernode);
         if (want) {
             if (count === 0) {
-                return args ? `${args} ${wanted}` : wanted;
+                if (gpuCount !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
+                const added = `${gpuArgument()} ${wanted}`;
+                return args ? `${args} ${added}` : added;
             }
-            if (!existing.managed) {
+            if (!existing.managed && !existing.legacy) {
                 throw new Error('another QEMU display is configured');
             }
             const previous = displayArgument(vmid, existing.rendernode);
-            return args.replace(new RegExp(`(?:^|\\s)${escapeRegExp(previous)}(?=\\s|$)`), (value) =>
+            const updated = args.replace(new RegExp(`(?:^|\\s)${escapeRegExp(previous)}(?=\\s|$)`), (value) =>
                 value.startsWith(' ') ? ` ${wanted}` : wanted);
+            return existing.legacy ? `${updated} ${gpuArgument()}` : updated;
         }
-        if (!existing.managed) {
+        if (!existing.managed && !existing.legacy) {
+            if (gpuCount !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
             return args;
         }
         const previous = displayArgument(vmid, existing.rendernode);
-        return args.replace(new RegExp(`(?:^|\\s)${escapeRegExp(previous)}(?=\\s|$)`), '').trim().replace(/\s{2,}/g, ' ');
+        const withoutDisplay = args.replace(
+            new RegExp(`(?:^|\\s)${escapeRegExp(previous)}(?=\\s|$)`), '').trim();
+        return withoutDisplay.replace(
+            new RegExp(`(?:^|\\s)${escapeRegExp(gpuArgument())}(?=\\s|$)`), '').trim().replace(/\s{2,}/g, ' ');
     };
 
     const displayFields = () => [
         {
             xtype: 'proxmoxcheckbox', name: 'qsm_direct_display1', uncheckedValue: 0,
             defaultValue: 0, deleteDefaultValue: true, fieldLabel: gettext('QSM Display1'),
-            boxLabel: gettext('D-Bus display with VirGL GPU'),
+            boxLabel: gettext('Replace VNC with D-Bus display and VirGL GPU'),
             listeners: { change: function (_field, value) {
                 const node = this.up('inputpanel').down('[name=qsm_direct_rendernode]');
                 if (node) { node.setDisabled(!enabled(value)); }
@@ -81,7 +96,7 @@
             validator: (value) => validRenderNode(value) || gettext('Use a DRM render node, for example /dev/dri/renderD128.'),
         },
         { xtype: 'displayfield', userCls: 'pmx-hint', value: gettext(
-            'Enabling QSM Display1 selects VirtIO-GPU (VirGL) and adds one private Display1 D-Bus endpoint.'),
+            'QSM Display1 disables PVE VNC for this VM, then adds its private D-Bus display and VirtIO-GPU (VirGL).'),
         },
     ];
 
@@ -104,9 +119,12 @@
             // boundary, which fails its integer schema validation. Preserve a
             // supplied integer (the ExtJS field may serialize it as a string),
             // but leave the property out when the field is absent.
-            const result = { type: active ? 'virtio-gl' : values.type };
+            // PVE normally appends both egl-headless and VNC for virtio-gl.
+            // QEMU rejects VNC next to a GL Display1 backend. With vga=none,
+            // PVE emits no VNC and the managed args own the single virgl GPU.
+            const result = { type: active ? 'none' : values.type };
             const rawMemory = values.memory;
-            if (rawMemory !== undefined && rawMemory !== null && rawMemory !== '') {
+            if (!active && rawMemory !== undefined && rawMemory !== null && rawMemory !== '') {
                 const memory = Number(rawMemory);
                 if (Number.isInteger(memory)) { result.memory = memory; }
             }
@@ -135,11 +153,11 @@
                     const data = response && response.result && response.result.data;
                     const state = displayState(data && data.args, windowVmid(me));
                     me.setValues({
-                        qsm_direct_display1: state.managed ? 1 : 0,
+                        qsm_direct_display1: state.managed || state.legacy ? 1 : 0,
                         qsm_direct_rendernode: state.rendernode,
                     });
                     const rendernode = me.down('[name=qsm_direct_rendernode]');
-                    if (rendernode) { rendernode.setDisabled(!state.managed); }
+                    if (rendernode) { rendernode.setDisabled(!state.managed && !state.legacy); }
                 };
                 return stockLoad.call(me, chained);
             };

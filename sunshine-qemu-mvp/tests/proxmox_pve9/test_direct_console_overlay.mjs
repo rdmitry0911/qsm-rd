@@ -59,11 +59,27 @@ assert.deepEqual(
         qsm_direct_rendernode: '/dev/dri/renderD129',
     }),
     {
-        vga: 'type=virtio-gl',
-        args: '-cpu host -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD129',
+        vga: 'type=none',
+        args: '-cpu host -device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD129',
     },
-    'enabling Display1 without a VGA memory field must remain API-valid',
+    'enabling Display1 must replace PVE VNC with one managed VirGL/Display1 pair',
 );
+
+vmWindow.vmconfig.args =
+    '-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128';
+assert.deepEqual(
+    displayOverlay.onGetValues.call(displayPanel, {
+        type: 'virtio-gl',
+        qsm_direct_display1: 1,
+        qsm_direct_rendernode: '/dev/dri/renderD128',
+    }),
+    {
+        vga: 'type=none',
+        args: '-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128 -device virtio-vga-gl,id=qsm-direct-gpu',
+    },
+    'saving an old Display1-only setting must migrate it away from PVE VNC',
+);
+vmWindow.vmconfig.args = '-cpu host';
 
 assert.deepEqual(
     displayOverlay.onGetValues.call(displayPanel, {
@@ -82,7 +98,7 @@ const displayEdit = {
     load: (options) => options.success({
         result: {
             data: {
-                args: '-cpu host -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD130',
+                args: '-cpu host -device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD130',
             },
         },
     }),
@@ -130,7 +146,7 @@ globalThis.Proxmox = {
             request.success({
                 result: {
                     data: {
-                        args: '-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128',
+                        args: '-device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128',
                     },
                 },
             });

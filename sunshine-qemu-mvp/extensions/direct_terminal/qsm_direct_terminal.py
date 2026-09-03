@@ -180,7 +180,7 @@ def _read_pve_vm_config(path: Path) -> str | None:
 
 
 def _managed_display_enabled(config: str, vmid: int, vm_runtime_directory: Path) -> bool:
-    """Accept only the one exact Display1 argument owned by this transport."""
+    """Accept the one GL Display1/GPU pair owned by this transport."""
     if not _valid_vmid(vmid):
         return False
     args: str | None = None
@@ -195,7 +195,9 @@ def _managed_display_enabled(config: str, vmid: int, vm_runtime_directory: Path)
     display = re.compile(
         rf"(?:^|\s)-display\s+dbus,addr={address},gl=on,rendernode=/dev/dri/renderD[0-9]{{1,4}}(?=\s|$)")
     count = len(re.findall(r"(?:^|\s)-display(?:\s|$)", args))
-    return count == 1 and display.search(args) is not None
+    gpu = re.compile(r"(?:^|\s)-device\s+virtio-vga-gl,id=qsm-direct-gpu(?=\s|$)")
+    gpu_count = len(gpu.findall(args))
+    return count == 1 and gpu_count == 1 and display.search(args) is not None
 
 
 def _safe_runtime_directory(path: Path) -> None:

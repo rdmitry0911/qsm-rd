@@ -23,11 +23,13 @@ restart each configured VM once so its QEMU process connects to the current
 bus.
 
 In the PVE VM's **Hardware → Display → Advanced**, enable **QSM Display1**.
-It explicitly selects VirtIO-GPU (VirGL) and writes the one private D-Bus
-Display1 argument. Reopening the dialog restores the checkbox and render node
-from that saved argument. **QSM Direct** in the Console menu is enabled only
-for a VM with that exact Display1 configuration. Start the VM, then choose
-the enabled menu item. Resizing the console window or entering/leaving
+It disables PVE's VNC display for that VM, then writes one private D-Bus
+Display1 argument and one VirtIO-GPU (VirGL) device. PVE VNC cannot coexist
+with QEMU's GL Display1 backend; use QSM Direct as the VM's browser console
+while this setting is enabled. Reopening the dialog restores the checkbox and
+render node from the saved arguments. **QSM Direct** in the Console menu is
+enabled only for a VM with that exact Display1 configuration. Start the VM,
+then choose the enabled menu item. Resizing the console window or entering/leaving
 fullscreen sends the selected even viewport to QEMU Display1 and causes a
 fresh H.264 configuration/IDR boundary.
 
