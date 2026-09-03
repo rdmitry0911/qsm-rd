@@ -81,7 +81,7 @@
             validator: (value) => validRenderNode(value) || gettext('Use a DRM render node, for example /dev/dri/renderD128.'),
         },
         { xtype: 'displayfield', userCls: 'pmx-hint', value: gettext(
-            'QSM direct uses this private Display1 D-Bus endpoint. Configure the matching VM policy before starting the VM.'),
+            'Enabling QSM Display1 selects VirtIO-GPU (VirGL) and adds one private Display1 D-Bus endpoint.'),
         },
     ];
 
@@ -115,6 +115,36 @@
             const changed = updateDisplayArgument(edit.vmconfig.args, vmid, rendernode, active);
             if (changed !== (edit.vmconfig.args || '')) { response.args = changed; }
             return response;
+        },
+    });
+
+    // The custom controls are represented by the exact `args` value rather
+    // than an unsupported PVE config key. Populate them after DisplayEdit's
+    // asynchronous load so reopening Hardware -> Display reflects what was
+    // actually saved for this VM.
+    Ext.define('PVE.qsmDirect.DisplayEditOverlay', {
+        override: 'PVE.qemu.DisplayEdit',
+        initComponent: function () {
+            const me = this;
+            const stockLoad = me.load;
+            me.load = function (options) {
+                const chained = Ext.apply({}, options);
+                const stockSuccess = chained.success;
+                chained.success = function (response) {
+                    if (stockSuccess) { stockSuccess.apply(this, arguments); }
+                    const data = response && response.result && response.result.data;
+                    const state = displayState(data && data.args, windowVmid(me));
+                    me.setValues({
+                        qsm_direct_display1: state.managed ? 1 : 0,
+                        qsm_direct_rendernode: state.rendernode,
+                    });
+                    const rendernode = me.down('[name=qsm_direct_rendernode]');
+                    if (rendernode) { rendernode.setDisabled(!state.managed); }
+                };
+                return stockLoad.call(me, chained);
+            };
+            me.callParent();
+            me.load = stockLoad;
         },
     });
 
@@ -228,14 +258,47 @@
 
     Ext.define('PVE.qsmDirect.ConsoleButtonOverlay', {
         override: 'PVE.button.ConsoleButton',
+        enableQsmDirect: false,
+        setEnableQsmDirect: function (enable) {
+            this.enableQsmDirect = !!enable;
+            const item = this.down('#qsm-direct');
+            if (item) { item.setDisabled(!this.enableQsmDirect); }
+        },
         initComponent: function () {
             const me = this;
             if (me.consoleType === 'kvm' && validNode(me.nodename) && validVmid(Number(me.vmid))) {
+                me.itemId = 'qsm-direct-console-button';
                 me.menu = (me.menu || []).map((item) => Ext.apply({}, item));
                 me.menu.push({ xtype: 'menuitem', itemId: 'qsm-direct', text: 'QSM Direct',
-                    iconCls: 'fa fa-desktop', handler: () => openConsole(me, me.nodename, Number(me.vmid)) });
+                    iconCls: 'fa fa-desktop', disabled: !me.enableQsmDirect,
+                    handler: () => openConsole(me, me.nodename, Number(me.vmid)) });
             }
             me.callParent();
+        },
+    });
+
+    // Unlike stock Spice/serial capability bits, PVE's status endpoint does
+    // not expose arbitrary QEMU `args`. Read the ordinary protected config
+    // once when a VM view opens and only enable this menu item if the exact
+    // transport-owned Display1 argument is present.
+    Ext.define('PVE.qsmDirect.QemuConfigOverlay', {
+        override: 'PVE.qemu.Config',
+        initComponent: function () {
+            const me = this;
+            me.callParent();
+            const vm = me.pveSelNode && me.pveSelNode.data;
+            const vmid = vm ? Number(vm.vmid) : NaN;
+            const button = me.down('#qsm-direct-console-button');
+            if (!button || !validNode(vm && vm.node) || !validVmid(vmid)) { return; }
+            Proxmox.Utils.API2Request({
+                url: `/nodes/${encodeURIComponent(vm.node)}/qemu/${encodeURIComponent(vmid)}/config`,
+                method: 'GET',
+                success: ({ result }) => {
+                    const data = result && result.data;
+                    button.setEnableQsmDirect(displayState(data && data.args, vmid).managed);
+                },
+                failure: () => button.setEnableQsmDirect(false),
+            });
         },
     });
 }());

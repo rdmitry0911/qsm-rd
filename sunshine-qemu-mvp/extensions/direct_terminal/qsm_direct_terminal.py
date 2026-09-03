@@ -45,6 +45,8 @@ MAX_REQUEST_BYTES = MAX_SDP_BYTES + 4096
 REQUEST_TIMEOUT_SECONDS = 15.0
 SESSION_IDLE_SECONDS = 10 * 60
 MAX_SESSIONS = 16
+PVE_CONFIG_MAX_BYTES = 256 * 1024
+PVE_CONFIG_RECONCILE_SECONDS = 0.25
 PVE_OPERATION = "pve_acl_webrtc"
 PROTOCOL_VERSION = 1
 _NODE_PATTERN = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9.-]{0,62}\Z")
@@ -52,6 +54,7 @@ _SUBJECT_PATTERN = re.compile(r"\A[^\s\x00]{1,64}\Z")
 _VMID_PATTERN = re.compile(r"\A[1-9][0-9]{1,8}\Z")
 _ENCODER_PATTERN = re.compile(r"\A(?:h264_nvenc|h264_qsv|h264_vaapi|libx264)\Z")
 _RENDER_NODE_PATTERN = re.compile(r"\A/dev/dri/renderD[0-9]{1,4}\Z")
+_PVE_VM_CONFIG_PATTERN = re.compile(r"\A([1-9][0-9]{1,8})\.conf\Z")
 _ENVIRONMENT_KEYS = frozenset({
     "QSM_DIRECT_QEMU_DBUS_ADDRESS",
     "QSM_DIRECT_ENCODER",
@@ -123,6 +126,76 @@ def _load_instance(instance_directory: Path, vmid: int, vm_runtime_directory: Pa
     if encoder == "h264_vaapi" and not render_node:
         raise DirectTerminalError("direct-terminal VA-API encoder lacks a render node")
     return values
+
+
+def _load_optional_instance(instance_directory: Path, vmid: int,
+                            vm_runtime_directory: Path) -> dict[str, str]:
+    """Load an optional root-owned codec policy, with a portable default.
+
+    The PVE VM config is the source of truth for whether Display1 is enabled.
+    A policy file only refines node-local encoder choices; requiring one before
+    QEMU can start made the UI checkbox deceptively incomplete.
+    """
+    path = instance_directory / f"{vmid}.conf"
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return {
+            "QSM_DIRECT_QEMU_DBUS_ADDRESS":
+                f"unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus",
+        }
+    return _load_instance(instance_directory, vmid, vm_runtime_directory)
+
+
+def _read_pve_vm_config(path: Path) -> str | None:
+    """Read one PVE-owned VM config without following a substituted path."""
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise DirectTerminalError("direct-terminal VM configuration is unavailable") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if (not stat.S_ISREG(metadata.st_mode) or
+                (os.geteuid() == 0 and metadata.st_uid != 0) or
+                metadata.st_mode & 0o002 or metadata.st_size < 0 or
+                metadata.st_size > PVE_CONFIG_MAX_BYTES):
+            raise DirectTerminalError("direct-terminal VM configuration is unsafe")
+        content = bytearray()
+        while len(content) <= PVE_CONFIG_MAX_BYTES:
+            block = os.read(descriptor, PVE_CONFIG_MAX_BYTES + 1 - len(content))
+            if not block:
+                break
+            content.extend(block)
+        if len(content) > PVE_CONFIG_MAX_BYTES or b"\x00" in content:
+            raise DirectTerminalError("direct-terminal VM configuration is unsafe")
+        try:
+            return bytes(content).decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise DirectTerminalError("direct-terminal VM configuration is unsafe") from error
+    finally:
+        os.close(descriptor)
+
+
+def _managed_display_enabled(config: str, vmid: int, vm_runtime_directory: Path) -> bool:
+    """Accept only the one exact Display1 argument owned by this transport."""
+    if not _valid_vmid(vmid):
+        return False
+    args: str | None = None
+    for line in config.splitlines():
+        if line.startswith("args:"):
+            if args is not None:
+                return False
+            args = line.removeprefix("args:").strip()
+    if args is None or len(args) > 8192 or any(ord(value) < 0x20 or ord(value) == 0x7f for value in args):
+        return False
+    address = re.escape(f"unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus")
+    display = re.compile(
+        rf"(?:^|\s)-display\s+dbus,addr={address},gl=on,rendernode=/dev/dri/renderD[0-9]{{1,4}}(?=\s|$)")
+    count = len(re.findall(r"(?:^|\s)-display(?:\s|$)", args))
+    return count == 1 and display.search(args) is not None
 
 
 def _safe_runtime_directory(path: Path) -> None:
@@ -226,44 +299,71 @@ class DirectSessionManager:
     """Keep each one-off browser offer on one dedicated asyncio loop."""
 
     def __init__(self, *, instance_directory: Path, runtime_directory: Path,
-                 vm_runtime_directory: Path, local_node: str | None) -> None:
+                 vm_runtime_directory: Path, pve_config_directory: Path,
+                 local_node: str | None) -> None:
         self._instance_directory = instance_directory
         self._runtime_directory = runtime_directory
         self._vm_runtime_directory = vm_runtime_directory
+        self._pve_config_directory = pve_config_directory
         self._local_node = local_node
         self._dbus = DbusManager(vm_runtime_directory)
+        self._reconcile_stop = threading.Event()
         self._start_configured_display_buses()
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run_loop, name="qsm-direct-webrtc", daemon=True)
         self._sessions: dict[str, DirectSession] = {}
         self._closed = False
         self._thread.start()
+        self._reconcile_thread = threading.Thread(
+            target=self._reconcile_configured_display_buses,
+            name="qsm-direct-display-reconcile",
+            daemon=True,
+        )
+        self._reconcile_thread.start()
 
-    def _start_configured_display_buses(self) -> None:
-        """Create each configured QEMU bus before that VM is started.
-
-        QEMU's ``-display dbus,addr=…`` is a client of the private bus: it
-        cannot wait until a browser has opened the Console menu.  Restrict
-        startup to explicit root-owned ``<vmid>.conf`` policies, so this does
-        not turn a directory scan into an implicit VM discovery mechanism.
-        """
+    def _configured_vms(self) -> tuple[int, ...]:
+        """Return VMIDs whose PVE config has our exact Display1 argument."""
         try:
-            metadata = self._instance_directory.stat()
-            entries = sorted(self._instance_directory.iterdir(), key=lambda item: item.name)
+            entries = tuple(self._pve_config_directory.iterdir())
+        except FileNotFoundError:
+            return ()
         except OSError as error:
-            raise DirectTerminalError("direct-terminal instance directory is unavailable") from error
-        if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_mode & 0o027 or
-                (os.geteuid() == 0 and metadata.st_uid != 0)):
-            raise DirectTerminalError("direct-terminal instance directory is unsafe")
-        for entry in entries:
-            match = re.fullmatch(r"([1-9][0-9]{1,8})\.conf", entry.name)
+            raise DirectTerminalError("direct-terminal VM configuration is unavailable") from error
+        result: list[int] = []
+        for entry in sorted(entries, key=lambda item: item.name):
+            match = _PVE_VM_CONFIG_PATTERN.fullmatch(entry.name)
             if match is None:
                 continue
             vmid = int(match.group(1))
             if not _valid_vmid(vmid):
-                raise DirectTerminalError("direct-terminal VM policy is invalid")
-            policy = _load_instance(self._instance_directory, vmid, self._vm_runtime_directory)
+                continue
+            config = _read_pve_vm_config(entry)
+            if config is not None and _managed_display_enabled(config, vmid, self._vm_runtime_directory):
+                result.append(vmid)
+        return tuple(result)
+
+    def _display_is_configured(self, vmid: int) -> bool:
+        if not _valid_vmid(vmid):
+            return False
+        config = _read_pve_vm_config(self._pve_config_directory / f"{vmid}.conf")
+        return config is not None and _managed_display_enabled(config, vmid, self._vm_runtime_directory)
+
+    def _start_configured_display_buses(self) -> None:
+        """Create QEMU buses before the user starts a Display1-configured VM."""
+        for vmid in self._configured_vms():
+            policy = _load_optional_instance(
+                self._instance_directory, vmid, self._vm_runtime_directory)
             self._dbus.ensure(vmid, policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"])
+
+    def _reconcile_configured_display_buses(self) -> None:
+        """Pick up a saved Display setting without an operator service restart."""
+        while not self._reconcile_stop.wait(PVE_CONFIG_RECONCILE_SECONDS):
+            try:
+                self._start_configured_display_buses()
+            except DirectTerminalError as error:
+                # A transient pmxcfs read while PVE updates a config must not
+                # take down already running VMs or unrelated browser sessions.
+                print(f"qsm-direct-terminal: Display1 reconcile deferred: {error}", file=sys.stderr)
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self._loop)
@@ -308,7 +408,9 @@ class DirectSessionManager:
         self._collect_expired()
         if len(self._sessions) >= MAX_SESSIONS:
             raise DirectTerminalError("direct-terminal session capacity is exhausted")
-        policy = _load_instance(self._instance_directory, vmid, self._vm_runtime_directory)
+        if not self._display_is_configured(vmid):
+            raise DirectTerminalError("direct-terminal VM is not configured for Display1")
+        policy = _load_optional_instance(self._instance_directory, vmid, self._vm_runtime_directory)
         self._dbus.ensure(vmid, policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"])
         identifier = secrets.token_hex(16)
         directory = self._runtime_directory / f"vm-{vmid}" / identifier
@@ -412,6 +514,8 @@ class DirectSessionManager:
         if self._closed:
             return
         self._closed = True
+        self._reconcile_stop.set()
+        self._reconcile_thread.join(timeout=2)
         async def close_all() -> None:
             for identifier in tuple(self._sessions):
                 await self._close_session(identifier)
@@ -521,6 +625,7 @@ def main() -> int:
     parser.add_argument("--instance-directory", type=Path, default=Path("/etc/qsm-pve-direct/instances.d"))
     parser.add_argument("--runtime-directory", type=Path, default=Path("/run/qsm-pve-direct-terminal/sessions"))
     parser.add_argument("--vm-runtime-directory", type=Path, default=Path("/run/qsm-pve-direct"))
+    parser.add_argument("--pve-config-directory", type=Path, default=Path("/etc/pve/qemu-server"))
     parser.add_argument("--pve-socket", type=Path, default=Path("/run/qsm-pve-direct-terminal/pve-webrtc.sock"))
     parser.add_argument("--local-node")
     arguments = parser.parse_args()
@@ -530,6 +635,7 @@ def main() -> int:
     sessions = DirectSessionManager(instance_directory=arguments.instance_directory,
                                     runtime_directory=arguments.runtime_directory,
                                     vm_runtime_directory=arguments.vm_runtime_directory,
+                                    pve_config_directory=arguments.pve_config_directory,
                                     local_node=arguments.local_node)
     server: PveRequestServer | None = None
     try:

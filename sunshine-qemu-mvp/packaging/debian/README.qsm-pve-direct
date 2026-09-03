@@ -15,23 +15,30 @@ Install:
     sudo apt install ./qsm-pve-direct_*.deb
     sudo systemctl enable --now qsm-pve-direct-terminal.service
 
-The private Display1 bus is created by that service before QEMU starts. After
-installing or upgrading the package, restart each configured VM once so its
-QEMU process connects to the current bus.
+The service reads PVE's saved VM configuration and creates the private
+Display1 bus before the VM is started. No per-VM policy file is required for
+the portable `libx264` default. After saving a Display1 setting, the service
+reconciles the bus automatically; after installing or upgrading the package,
+restart each configured VM once so its QEMU process connects to the current
+bus.
 
-For each VM create `/etc/qsm-pve-direct/instances.d/<VMID>.conf` (root:root,
-0600):
-
-    QSM_DIRECT_QEMU_DBUS_ADDRESS=unix:path=/run/qsm-pve-direct/<VMID>/qemu-display1.bus
-    # Select an encoder tested for this node.  libx264 is the portable CPU fallback.
-    QSM_DIRECT_ENCODER=h264_nvenc
-
-For VA-API add `QSM_DIRECT_VAAPI_RENDER_NODE=/dev/dri/renderD128`. In the PVE
-VM's **Hardware → Display → Advanced**, enable **QSM Display1**. It sets
-VirGL and the same private D-Bus address. Start the VM, then choose **QSM
-Direct** in its Console menu. Resizing the console window or entering/leaving
+In the PVE VM's **Hardware → Display → Advanced**, enable **QSM Display1**.
+It explicitly selects VirtIO-GPU (VirGL) and writes the one private D-Bus
+Display1 argument. Reopening the dialog restores the checkbox and render node
+from that saved argument. **QSM Direct** in the Console menu is enabled only
+for a VM with that exact Display1 configuration. Start the VM, then choose
+the enabled menu item. Resizing the console window or entering/leaving
 fullscreen sends the selected even viewport to QEMU Display1 and causes a
 fresh H.264 configuration/IDR boundary.
+
+An optional root-owned `/etc/qsm-pve-direct/instances.d/<VMID>.conf` (0600)
+selects a node-specific encoder without changing the display setup:
+
+    QSM_DIRECT_QEMU_DBUS_ADDRESS=unix:path=/run/qsm-pve-direct/<VMID>/qemu-display1.bus
+    QSM_DIRECT_ENCODER=h264_nvenc
+
+For VA-API additionally set
+`QSM_DIRECT_VAAPI_RENDER_NODE=/dev/dri/renderD128`.
 
 The direct WebRTC console currently provides video, guest audio, keyboard,
 pointer, scrolling and dynamic Display1 resolution. Guest clipboard and file
