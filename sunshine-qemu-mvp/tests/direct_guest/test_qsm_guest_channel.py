@@ -85,6 +85,9 @@ class GuestAgent:
 
 
 class DirectGuestChannelTest(unittest.TestCase):
+    def test_optional_guest_channel_uses_a_short_interaction_timeout(self) -> None:
+        self.assertLessEqual(qsm.REQUEST_TIMEOUT_SECONDS, 5.0)
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="qsm-direct-guest-test-")
         self.path = Path(self.temporary.name) / "agent.sock"

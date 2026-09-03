@@ -21,7 +21,9 @@ from typing import Any, Callable
 MAX_CLIPBOARD_BYTES = 1024 * 1024
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_AGENT_LINE = 4 * 1024 * 1024
-REQUEST_TIMEOUT_SECONDS = 35.0
+# A missing optional in-guest package must not make a connected desktop
+# console appear frozen for half a minute after Copy, Paste or Upload.
+REQUEST_TIMEOUT_SECONDS = 5.0
 _SAFE_FILE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 
 
