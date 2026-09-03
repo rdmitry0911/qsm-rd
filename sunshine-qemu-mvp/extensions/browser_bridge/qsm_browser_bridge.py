@@ -45,6 +45,7 @@ INPUT_MOUSE_POSITION = 1
 INPUT_MOUSE_BUTTON = 2
 INPUT_KEYBOARD = 3
 INPUT_SCROLL = 4
+INPUT_RESIZE = 5
 MAX_FRAGMENT_BYTES = 256 * 1024
 MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024
 MAX_SDP_BYTES = 128 * 1024
@@ -451,7 +452,7 @@ class UnixInputEgress:
             value = json.loads(raw)
         except json.JSONDecodeError as error:
             raise BridgeError("invalid browser control message") from error
-        if not isinstance(value, dict) or set(value) - {"op", "x", "y", "width", "height", "button", "down", "key", "modifiers", "vertical", "horizontal"}:
+        if not isinstance(value, dict) or set(value) - {"op", "x", "y", "width", "height", "button", "down", "key", "modifiers", "vertical", "horizontal", "fps"}:
             raise BridgeError("invalid browser control message")
         op = value.get("op")
         payload: bytes
@@ -483,6 +484,17 @@ class UnixInputEgress:
             horizontal = cls._integer(value["horizontal"], -32768, 32767)
             opcode = INPUT_SCROLL
             payload = struct.pack("!hh", vertical, horizontal)
+        elif op == "resize" and set(value) == {"op", "width", "height", "fps"}:
+            width = cls._integer(value["width"], 64, 16384)
+            height = cls._integer(value["height"], 64, 16384)
+            fps = cls._integer(value["fps"], 10, 240)
+            # The direct worker emits H.264 4:2:0, which requires even luma
+            # dimensions. Reject here rather than silently changing the
+            # visible browser viewport behind the user's back.
+            if width % 2 or height % 2:
+                raise BridgeError("invalid browser control message")
+            opcode = INPUT_RESIZE
+            payload = struct.pack("!IIH", width, height, fps)
         else:
             raise BridgeError("invalid browser control message")
         return INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, opcode, len(payload)) + payload
@@ -708,6 +720,7 @@ __all__ = [
     "INPUT_MOUSE_BUTTON",
     "INPUT_MOUSE_POSITION",
     "INPUT_SCROLL",
+    "INPUT_RESIZE",
     "INPUT_VERSION",
     "PACKET_AUDIO",
     "PACKET_CONFIG",

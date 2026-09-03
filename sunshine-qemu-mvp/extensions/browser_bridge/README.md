@@ -27,7 +27,7 @@ runtime directory.  H.264 and Opus stay encoded: aiortc packetizes the
 or `AudioFrame` and invoking an encoder.  The producer drops local packets on
 backpressure; it must never hold the QEMU capture or encoder queue.
 
-`q_sunshine_browser_bridge.py` intentionally has no HTTP listener and no PVE
+`qsm_browser_bridge.py` intentionally has no HTTP listener and no PVE
 authentication parser. The terminal service owns the one PVE-authorized,
 VM-scoped media worker, and the PVE API remains the only browser-facing
 authorization boundary. A PVE adapter passes only a bounded SDP offer after

@@ -1,0 +1,157 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# PVE 9 protected browser-WebRTC Console route for qsm-pve-direct.
+package PVE::API2::QsmDirect;
+
+use strict;
+use warnings;
+
+use IO::Select;
+use IO::Socket::UNIX qw(SOCK_STREAM);
+use JSON qw(decode_json encode_json);
+use Fcntl qw(S_ISSOCK);
+
+use PVE::API2::Qemu;
+use PVE::JSONSchema qw(get_standard_option);
+use PVE::QemuConfig;
+use PVE::QemuServer;
+use PVE::RPCEnvironment;
+
+my $PVE_WEBRTC_SOCKET = '/run/qsm-pve-direct-terminal/pve-webrtc.sock';
+my $SOCKET_TIMEOUT_SECONDS = 18;
+my $MAX_RESPONSE_BYTES = 160 * 1024;
+my $MAX_SDP_BYTES = 128 * 1024;
+my $MIN_VMID = 100;
+my $MAX_VMID = 999_999_999;
+
+sub _unavailable {
+    die "qsm direct console is unavailable\n";
+}
+
+sub _private_socket_is_safe {
+    my ($path) = @_;
+    my @stat = lstat($path);
+    return 0 if !@stat;
+    return 0 if !S_ISSOCK($stat[2]);
+    return 0 if $stat[4] != 0;
+    return 0 if $stat[2] & 0o077;
+    return 1;
+}
+
+sub _write_all {
+    my ($socket, $bytes) = @_;
+    my $offset = 0;
+    while ($offset < length($bytes)) {
+        my $written = syswrite($socket, $bytes, length($bytes) - $offset, $offset);
+        _unavailable() if !defined($written) || $written <= 0;
+        $offset += $written;
+    }
+}
+
+sub _read_one_line {
+    my ($socket) = @_;
+    my $selector = IO::Select->new($socket);
+    my $response = '';
+    my $deadline = time() + $SOCKET_TIMEOUT_SECONDS;
+    while (1) {
+        my $remaining = $deadline - time();
+        _unavailable() if $remaining <= 0;
+        my @ready = $selector->can_read($remaining);
+        _unavailable() if !@ready;
+        my $chunk = '';
+        my $read = sysread($socket, $chunk, 4096);
+        _unavailable() if !defined($read) || $read <= 0;
+        $response .= $chunk;
+        _unavailable() if length($response) > $MAX_RESPONSE_BYTES;
+        my $newline = index($response, "\n");
+        next if $newline < 0;
+        _unavailable() if $newline != length($response) - 1;
+        return substr($response, 0, $newline);
+    }
+}
+
+sub _positive_integer {
+    my ($value, $minimum, $maximum) = @_;
+    return 0 if !defined($value) || ref($value) || $value !~ /\A[0-9]+\z/;
+    return 0 if $value < $minimum || $value > $maximum;
+    return 1;
+}
+
+sub _valid_answer {
+    my ($answer) = @_;
+    return 0 if ref($answer) ne 'HASH';
+    return 0 if join("\0", sort keys($answer->%*)) ne join("\0", qw(sdp type));
+    return 0 if !defined($answer->{type}) || ref($answer->{type}) || $answer->{type} ne 'answer';
+    return 0 if !defined($answer->{sdp}) || ref($answer->{sdp}) ||
+        length($answer->{sdp}) < 1 || length($answer->{sdp}) > $MAX_SDP_BYTES ||
+        $answer->{sdp} !~ /\Av=0\r?\n/ || $answer->{sdp} =~ /[^\x20-\x7e\r\n]/;
+    return 1;
+}
+
+sub _answer_from_terminal {
+    my ($node, $vmid, $subject, $sdp, $width, $height, $fps) = @_;
+    _unavailable() if !_private_socket_is_safe($PVE_WEBRTC_SOCKET);
+    my $socket = IO::Socket::UNIX->new(
+        Type => SOCK_STREAM, Peer => $PVE_WEBRTC_SOCKET, Timeout => $SOCKET_TIMEOUT_SECONDS,
+    );
+    _unavailable() if !$socket;
+    my $request = encode_json({
+        version => 1, op => 'pve_acl_webrtc', node => $node, vmid => $vmid + 0,
+        subject => $subject, sdp => $sdp, sdp_type => 'offer', width => $width + 0,
+        height => $height + 0, fps => $fps + 0,
+    }) . "\n";
+    _unavailable() if length($request) > $MAX_SDP_BYTES + 4096;
+    my $line;
+    eval { _write_all($socket, $request); $line = _read_one_line($socket); 1 } or _unavailable();
+    close($socket);
+    my $response;
+    eval { $response = decode_json($line); 1 } or _unavailable();
+    _unavailable() if ref($response) ne 'HASH' || join("\0", sort keys($response->%*)) ne
+        join("\0", qw(ok result)) || !$response->{ok} || !_valid_answer($response->{result});
+    return $response->{result};
+}
+
+PVE::API2::Qemu->register_method({
+    name => 'qsm_direct_webrtc',
+    path => '{vmid}/qsm-direct',
+    method => 'POST',
+    protected => 1,
+    proxyto => 'node',
+    permissions => { check => ['perm', '/vms/{vmid}', ['VM.Console']] },
+    description => 'Create an authorized direct browser WebRTC console session.',
+    parameters => {
+        additionalProperties => 0,
+        properties => {
+            node => get_standard_option('pve-node'),
+            vmid => get_standard_option('pve-vmid'),
+            sdp => { type => 'string', minLength => 1, maxLength => $MAX_SDP_BYTES },
+            width => { type => 'integer', minimum => 64, maximum => 16384 },
+            height => { type => 'integer', minimum => 64, maximum => 16384 },
+            fps => { type => 'integer', minimum => 10, maximum => 240 },
+        },
+    },
+    returns => { type => 'object' },
+    code => sub {
+        my ($param) = @_;
+        _unavailable() if $> != 0;
+        my ($node, $vmid, $sdp, $width, $height, $fps) = @{$param}{qw(node vmid sdp width height fps)};
+        _unavailable() if !defined($node) || !defined($vmid) || !defined($sdp) ||
+            $node !~ /\A[A-Za-z0-9][A-Za-z0-9.-]{0,62}\z/ ||
+            !_positive_integer($vmid, $MIN_VMID, $MAX_VMID) ||
+            ref($sdp) || length($sdp) > $MAX_SDP_BYTES || $sdp !~ /\Av=0\r?\n/ ||
+            $sdp =~ /[^\x20-\x7e\r\n]/ ||
+            !_positive_integer($width, 64, 16384) || !_positive_integer($height, 64, 16384) ||
+            !_positive_integer($fps, 10, 240) || $width % 2 || $height % 2;
+        my $rpcenv = PVE::RPCEnvironment::get();
+        my $subject = $rpcenv->get_user();
+        _unavailable() if !defined($subject) || $subject !~ /\A[^\s\x00]{1,64}\z/;
+        eval {
+            PVE::QemuConfig->load_config($vmid, $node);
+            die "not running\n" if !PVE::QemuServer::check_running($vmid);
+            1;
+        } or _unavailable();
+        return _answer_from_terminal($node, $vmid, $subject, $sdp, $width, $height, $fps);
+    },
+});
+
+1;

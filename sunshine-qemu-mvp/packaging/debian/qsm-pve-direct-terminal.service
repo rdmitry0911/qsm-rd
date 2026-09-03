@@ -1,0 +1,42 @@
+[Unit]
+Description=QSM direct PVE browser console terminal
+Documentation=file:/usr/share/doc/qsm-pve-direct/README.Debian
+After=pve-cluster.service pveproxy.service pvedaemon.service
+Before=pve-guests.service
+
+[Service]
+Type=simple
+RuntimeDirectory=qsm-pve-direct-terminal
+RuntimeDirectoryMode=0750
+Environment=QSM_DIRECT_LOCAL_NODE=%H
+UMask=0077
+ExecStart=/usr/bin/qsm-pve-direct-terminal
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=20s
+TimeoutStopSec=20s
+KillMode=control-group
+TasksMax=192
+MemoryMax=1024M
+LimitNOFILE=1024
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+# The terminal service owns the local Unix control plane, while its WebRTC
+# child needs UDP sockets for ICE, DTLS, and SRTP.  No TCP listener is opened.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

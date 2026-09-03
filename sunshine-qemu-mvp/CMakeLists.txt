@@ -143,6 +143,19 @@ if(QMDP_BUILD_TOOLS AND QMDP_BUILD_DBUS)
     )
     qmdp_target_defaults(qemu-display-probe)
 
+    find_library(QMDP_OPUS_LIBRARY NAMES opus)
+    if(QMDP_OPUS_LIBRARY)
+        add_executable(qsm-direct-media-worker
+            tools/qsm_direct_media_worker.cpp
+        )
+        target_link_libraries(qsm-direct-media-worker PRIVATE
+            qmdp_dbus qmdp_pipeline qmdp_core Threads::Threads ${QMDP_OPUS_LIBRARY}
+        )
+        qmdp_target_defaults(qsm-direct-media-worker)
+    else()
+        message(STATUS "q-sunshine direct media worker disabled: libopus was not found")
+    endif()
+
     # Standalone fake QEMU service for a real cross-process message-bus test.
     add_library(qmdp_testing
         src/testing/fake_qemu_service.cpp

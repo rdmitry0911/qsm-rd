@@ -8,27 +8,24 @@
  */
 
 const readline = require('node:readline');
-const http = require('node:http');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
 const { chromium } = require('playwright');
 
 let browser;
 let page;
-let pageServer;
+let pageDirectory;
 
 async function startLocalPage() {
-    pageServer = http.createServer((_request, response) => {
-        response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        response.end('<!doctype html><video id="remote" autoplay muted playsinline></video>');
-    });
-    await new Promise((resolve, reject) => {
-        pageServer.once('error', reject);
-        pageServer.listen(0, '127.0.0.1', resolve);
-    });
-    const address = pageServer.address();
-    if (!address || typeof address === 'string') {
-        throw new Error('could not bind local browser E2E page');
-    }
-    return `http://127.0.0.1:${address.port}/`;
+    // A file origin is potentially trustworthy and does not require Chrome's
+    // HTTP network service to traverse loopback, which is unavailable in
+    // some unprivileged LXC profiles. WebRTC still uses its actual local
+    // UDP/DTLS path, so this remains a browser media qualification.
+    pageDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'qsm-webrtc-page-'));
+    const pagePath = path.join(pageDirectory, 'index.html');
+    await fs.writeFile(pagePath, '<!doctype html><video id="remote" autoplay muted playsinline></video>');
+    return `file://${pagePath}`;
 }
 
 function reply(payload) {
@@ -74,10 +71,20 @@ async function createOffer() {
         // browser compatibility contract being tested.
         ...(executablePath ? { executablePath } : {}),
         args: [
+            // The qualification is often executed in an unprivileged LXC,
+            // where Chrome's network namespace sandbox is unavailable even
+            // though the ordinary browser/WebRTC stack itself is usable.
+            // This applies only to the disposable local test process; the
+            // packaged PVE Console never supplies browser launch flags.
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-seccomp-filter-sandbox',
+            '--disable-dev-shm-usage',
             '--autoplay-policy=no-user-gesture-required',
             // Only the local test needs aiortc to see the loopback host
             // candidate instead of Chrome's privacy-preserving mDNS alias.
-            '--disable-features=WebRtcHideLocalIpsWithMdns',
+            '--disable-features=WebRtcHideLocalIpsWithMdns,NetworkServiceSandbox',
+            '--force-webrtc-ip-handling-policy=default',
         ],
     });
     page = await browser.newPage();
@@ -86,6 +93,7 @@ async function createOffer() {
         const video = document.getElementById('remote');
         const pc = new RTCPeerConnection({ iceServers: [] });
         window.qsmPeerConnection = pc;
+        window.qsmControl = pc.createDataChannel('qsm-control', { ordered: true });
         window.qsmTrackKinds = [];
         window.qsmIceCandidateSeen = false;
         pc.addEventListener('track', (event) => {
@@ -105,6 +113,8 @@ async function createOffer() {
     return page.evaluate(() => ({
         type: window.qsmPeerConnection.localDescription.type,
         sdp: window.qsmPeerConnection.localDescription.sdp,
+        candidateCount: (window.qsmPeerConnection.localDescription.sdp.match(/^a=candidate:/gm) || []).length,
+        iceGatheringState: window.qsmPeerConnection.iceGatheringState,
     }));
 }
 
@@ -132,6 +142,19 @@ async function status() {
     });
 }
 
+async function control(message) {
+    if (!page || !message || typeof message !== 'object') {
+        throw new Error('invalid browser control command');
+    }
+    await page.evaluate((payload) => {
+        if (!window.qsmControl || window.qsmControl.readyState !== 'open') {
+            throw new Error('browser control channel is not open');
+        }
+        window.qsmControl.send(JSON.stringify(payload));
+    }, message);
+    return { sent: true };
+}
+
 async function close() {
     if (page) {
         await page.evaluate(() => window.qsmPeerConnection?.close());
@@ -139,12 +162,12 @@ async function close() {
     if (browser) {
         await browser.close();
     }
-    if (pageServer) {
-        await new Promise((resolve) => pageServer.close(resolve));
+    if (pageDirectory) {
+        await fs.rm(pageDirectory, { recursive: true, force: true });
     }
     page = undefined;
     browser = undefined;
-    pageServer = undefined;
+    pageDirectory = undefined;
 }
 
 const commands = {
@@ -154,6 +177,7 @@ const commands = {
         return { accepted: true };
     },
     status: async () => status(),
+    control: async (message) => control(message.message),
     close: async () => {
         await close();
         return { closed: true };

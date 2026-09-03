@@ -1,0 +1,24 @@
+#!/bin/sh
+set -e
+
+restart_pve_api_services() {
+    if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then return 0; fi
+    systemctl daemon-reload || return 0
+    systemctl try-restart pvedaemon.service || return 0
+    systemctl try-restart pveproxy.service || true
+}
+
+case "${1:-}" in
+    configure)
+        install -d -o root -g root -m 0700 /etc/qsm-pve-direct
+        install -d -o root -g root -m 0750 /etc/qsm-pve-direct/instances.d
+        install -d -o root -g root -m 0700 /run/qsm-pve-direct
+        restart_pve_api_services
+        /usr/sbin/qsm-pve-direct-ui reconcile || echo "qsm-pve-direct: PVE Console UI was not changed" >&2
+        echo "qsm-pve-direct installed; create each VM policy and enable qsm-pve-direct-terminal before starting its VM."
+        ;;
+    triggered)
+        restart_pve_api_services
+        /usr/sbin/qsm-pve-direct-ui reconcile || echo "qsm-pve-direct: PVE Console UI was not changed" >&2
+        ;;
+esac

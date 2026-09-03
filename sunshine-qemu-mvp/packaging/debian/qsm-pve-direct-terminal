@@ -1,0 +1,24 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -eu
+
+absolute_path() {
+    case "$1" in
+        /*) return 0 ;;
+        *) echo "qsm-pve-direct-terminal: configured path must be absolute" >&2; exit 2 ;;
+    esac
+}
+
+instance_directory="${QSM_DIRECT_INSTANCE_DIRECTORY:-/etc/qsm-pve-direct/instances.d}"
+runtime_directory="${QSM_DIRECT_RUNTIME_DIRECTORY:-/run/qsm-pve-direct-terminal/sessions}"
+vm_runtime_directory="${QSM_DIRECT_VM_RUNTIME_DIRECTORY:-/run/qsm-pve-direct}"
+for value in "$instance_directory" "$runtime_directory" "$vm_runtime_directory"; do
+    absolute_path "$value"
+done
+
+set -- --instance-directory "$instance_directory" --runtime-directory "$runtime_directory" \
+    --vm-runtime-directory "$vm_runtime_directory"
+if [ -n "${QSM_DIRECT_LOCAL_NODE:-}" ]; then
+    set -- "$@" --local-node "$QSM_DIRECT_LOCAL_NODE"
+fi
+exec /usr/bin/python3 /usr/lib/qsm-pve-direct/direct_terminal/qsm_direct_terminal.py "$@"

@@ -1,1 +1,1 @@
-"""Browser-only q-sunshine media bridge."""
+"""Browser-only QSM direct-media bridge."""

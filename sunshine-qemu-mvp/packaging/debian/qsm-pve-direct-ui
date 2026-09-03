@@ -1,0 +1,4 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -eu
+exec /usr/bin/python3 /usr/lib/qsm-pve-direct/pve9-ui/qsm_pve_direct_ui.py "$@"

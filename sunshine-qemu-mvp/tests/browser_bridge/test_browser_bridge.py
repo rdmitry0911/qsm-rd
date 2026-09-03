@@ -14,7 +14,7 @@ from pathlib import Path
 from aiortc import RTCPeerConnection, RTCRtpSender, RTCSessionDescription
 from aiortc.codecs.h264 import H264Encoder
 
-from extensions.browser_bridge.q_sunshine_browser_bridge import (
+from extensions.browser_bridge.qsm_browser_bridge import (
     AUDIO_TIME_BASE,
     BrowserWebRtcBridge,
     BridgeError,
@@ -24,6 +24,7 @@ from extensions.browser_bridge.q_sunshine_browser_bridge import (
     INPUT_MAGIC,
     INPUT_MOUSE_BUTTON,
     INPUT_MOUSE_POSITION,
+    INPUT_RESIZE,
     INPUT_SCROLL,
     INPUT_VERSION,
     PACKET_AUDIO,
@@ -66,7 +67,7 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
             assembler.add(2, 0, PACKET_FIRST | PACKET_END | PACKET_AUDIO, b"opus")
 
     def test_browser_control_schema_is_rewritten_into_fixed_packets(self) -> None:
-        from extensions.browser_bridge.q_sunshine_browser_bridge import UnixInputEgress
+        from extensions.browser_bridge.qsm_browser_bridge import UnixInputEgress
 
         packet = UnixInputEgress.encode_browser_message(
             '{"op":"mouse_position","x":20,"y":10,"width":1920,"height":1080}')
@@ -84,12 +85,19 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
         scroll = UnixInputEgress.encode_browser_message(
             '{"op":"scroll","vertical":-120,"horizontal":0}')
         self.assertEqual(INPUT_HEADER.unpack_from(scroll)[2], INPUT_SCROLL)
+        resize = UnixInputEgress.encode_browser_message(
+            '{"op":"resize","width":1920,"height":1080,"fps":60}')
+        self.assertEqual(INPUT_HEADER.unpack_from(resize),
+                         (INPUT_MAGIC, INPUT_VERSION, INPUT_RESIZE, 10))
+        self.assertEqual(resize[INPUT_HEADER.size:],
+                         b"\x00\x00\x07\x80\x00\x00\x04\x38\x00\x3c")
 
         for raw in (
             '{"op":"mouse_position","x":1920,"y":0,"width":1920,"height":1080}',
             '{"op":"mouse_button","button":6,"down":true}',
             '{"op":"keyboard","key":30,"down":1,"modifiers":0}',
             '{"op":"scroll","vertical":0,"horizontal":0,"extra":1}',
+            '{"op":"resize","width":1919,"height":1080,"fps":60}',
             '{"op":"unknown"}',
         ):
             with self.assertRaises(BridgeError):
