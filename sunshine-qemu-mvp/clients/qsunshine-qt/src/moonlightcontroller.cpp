@@ -6,11 +6,14 @@
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
+#include <QFileDevice>
 #include <QFileInfo>
 #include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QTimer>
+#include <QTemporaryFile>
 #include <QUrl>
 
 #ifndef QSUNSHINE_PACKAGED_MOONLIGHT_PATH
@@ -22,6 +25,11 @@ namespace {
 constexpr int kMaxOutputCharacters = 8192;
 constexpr int kMaxOutputLineBytes = 64 * 1024;
 constexpr int kReconnectGracePeriodMs = 500;
+constexpr qint64 kMaxSystemAuthCaBytes = 64 * 1024;
+// The Proxmox transport exposes one opaque VM-console endpoint rather than
+// Sunshine's application launcher.  Keep this name in one place because it
+// is part of the pinned GameStream wire contract (/applist -> /launch).
+const QString kQemuConsoleApplication = QStringLiteral("QEMU Console");
 
 QString boundedText(QString value)
 {
@@ -148,7 +156,8 @@ MoonlightController::MoonlightController(QObject* parent)
       m_PairCancelRequested(false),
       m_PairGeneration(0),
       m_RestartGeneration(0),
-      m_PendingRestartGeneration(0)
+      m_PendingRestartGeneration(0),
+      m_RemoveEphemeralSystemAuthCaWhenStopped(false)
 {
     QSettings settings;
     // Do not read the legacy moonlightBinary setting. It is intentionally
@@ -279,6 +288,11 @@ MoonlightController::MoonlightController(QObject* parent)
     });
 }
 
+MoonlightController::~MoonlightController()
+{
+    clearEphemeralSystemAuthCaFile();
+}
+
 QString MoonlightController::binaryPath() const
 {
     return m_BinaryPath;
@@ -335,6 +349,16 @@ QStringList MoonlightController::profileIds() const
 QString MoonlightController::currentProfileId() const
 {
     return m_CurrentProfileId;
+}
+
+QString MoonlightController::profileProxmoxEndpoint() const
+{
+    return m_ProfileProxmoxEndpoint;
+}
+
+QString MoonlightController::profileVmId() const
+{
+    return m_ProfileVmId;
 }
 
 QString MoonlightController::profileHost() const
@@ -449,9 +473,11 @@ void MoonlightController::loadProfile(const QString& profileId)
 {
     QSettings settings;
     settings.beginGroup(profileSettingsGroup(profileId));
+    m_ProfileProxmoxEndpoint = settings.value(QStringLiteral("proxmoxEndpoint")).toString().trimmed();
+    m_ProfileVmId = settings.value(QStringLiteral("vmId")).toString().trimmed();
     m_ProfileHost = settings.value(QStringLiteral("host")).toString().trimmed();
     m_ProfileAppName = settings.value(QStringLiteral("appName"),
-                                      QStringLiteral("Desktop")).toString().trimmed();
+                                      kQemuConsoleApplication).toString().trimmed();
     m_ProfileResolution = settings.value(QStringLiteral("resolution"),
                                          QStringLiteral("1920x1080")).toString().trimmed();
     m_ProfileDisplayMode = normalizeDisplayMode(
@@ -463,9 +489,15 @@ void MoonlightController::loadProfile(const QString& profileId)
                                          QStringLiteral("auto")).toString().trimmed();
     settings.endGroup();
 
+    if (m_ProfileProxmoxEndpoint.size() > 255 || hasControlCharacter(m_ProfileProxmoxEndpoint)) {
+        m_ProfileProxmoxEndpoint.clear();
+    }
+    if (!validVmId(m_ProfileVmId)) {
+        m_ProfileVmId.clear();
+    }
     if (m_ProfileAppName.isEmpty() || m_ProfileAppName.size() > 256 ||
         hasControlCharacter(m_ProfileAppName)) {
-        m_ProfileAppName = QStringLiteral("Desktop");
+        m_ProfileAppName = kQemuConsoleApplication;
     }
     if (!isSupportedResolution(m_ProfileResolution)) {
         m_ProfileResolution = QStringLiteral("1920x1080");
@@ -497,6 +529,8 @@ void MoonlightController::writeCurrentProfile() const
     QSettings settings;
     settings.beginGroup(profileSettingsGroup(m_CurrentProfileId));
     settings.setValue(QStringLiteral("profileId"), m_CurrentProfileId);
+    settings.setValue(QStringLiteral("proxmoxEndpoint"), m_ProfileProxmoxEndpoint);
+    settings.setValue(QStringLiteral("vmId"), m_ProfileVmId);
     settings.setValue(QStringLiteral("host"), m_ProfileHost);
     settings.setValue(QStringLiteral("appName"), m_ProfileAppName);
     settings.setValue(QStringLiteral("resolution"), m_ProfileResolution);
@@ -611,6 +645,43 @@ bool MoonlightController::saveProfile(const QString& profileId, const QString& h
     if (previousProfileId != m_CurrentProfileId || previousHost != m_ProfileHost) {
         emit streamAuthorizationScopeChanged();
     }
+    emit profileChanged();
+    return true;
+}
+
+bool MoonlightController::validVmId(const QString& vmId)
+{
+    // Proxmox VMIDs are positive decimal integers.  Keep the upper bound
+    // inside a signed 32-bit range so this metadata can later be represented
+    // exactly in protocol JSON without a float round-trip.
+    static const QRegularExpression pattern(QStringLiteral("\\A[1-9][0-9]{0,8}\\z"));
+    return pattern.match(vmId).hasMatch();
+}
+
+bool MoonlightController::saveConnectionIdentity(const QString& proxmoxEndpoint,
+                                                  const QString& vmId)
+{
+    if (profileHandoffBlocksConfigurationChange(QStringLiteral("connection identity changes"))) {
+        return false;
+    }
+    const QString endpoint = proxmoxEndpoint.trimmed();
+    const QString normalizedVmId = vmId.trimmed();
+    if (endpoint.isEmpty() || endpoint.size() > 255 || hasControlCharacter(endpoint)) {
+        setLastError(QStringLiteral("Provide a valid Proxmox host name or address"));
+        return false;
+    }
+    if (!validVmId(normalizedVmId)) {
+        setLastError(QStringLiteral("Proxmox VMID must be a positive decimal integer"));
+        return false;
+    }
+    if (m_ProfileProxmoxEndpoint == endpoint && m_ProfileVmId == normalizedVmId) {
+        return true;
+    }
+    m_ProfileProxmoxEndpoint = endpoint;
+    m_ProfileVmId = normalizedVmId;
+    writeCurrentProfile();
+    setLastError(QString());
+    setStatus(QStringLiteral("Connection identity saved for VM %1").arg(m_ProfileVmId));
     emit profileChanged();
     return true;
 }
@@ -753,7 +824,20 @@ void MoonlightController::startStream(const QString& host, const QString& appNam
                       : QStringLiteral("Sign in with a system account before starting the legacy GameStream compatibility path"));
         return;
     }
-    StreamRequest request {host.trimmed(), appName.trimmed(), resolution.trimmed(), displayMode.trimmed(),
+    const QString requestedProfileHost = host.trimmed();
+    // A terminal broker route is C++-installed only after authenticated,
+    // schema-validated route discovery. Preserve the public API's profile
+    // scope check below, but never let its user-facing endpoint replace the
+    // broker-authoritative media destination.
+    const QString streamHost = m_SystemAuthMediaHost.isEmpty()
+        ? requestedProfileHost : m_SystemAuthMediaHost;
+    // A PVE-issued route intentionally has no caller-selectable Sunshine
+    // application.  The transport endpoint is the VM console itself.  This
+    // also makes an old persisted "Desktop" setting inert before it can be
+    // put on Moonlight's command line.
+    const QString streamApplication = m_SystemAuthMediaHost.isEmpty()
+        ? appName.trimmed() : kQemuConsoleApplication;
+    StreamRequest request {streamHost, streamApplication, resolution.trimmed(), displayMode.trimmed(),
                            m_ProfileFps, m_ProfileBitrateKbps, m_ProfileVideoCodec};
     QString error;
     if (!validateStreamRequest(request, &error)) {
@@ -763,7 +847,7 @@ void MoonlightController::startStream(const QString& host, const QString& appNam
     // The public launch API operates on the selected saved desktop route.
     // Requiring the caller to save a changed host first makes the controller's
     // scope-change signal (and therefore system-auth revocation) unavoidable.
-    if (request.host != m_ProfileHost) {
+    if (requestedProfileHost != m_ProfileHost) {
         setLastError(QStringLiteral("Save the requested Sunshine host in the selected desktop profile before connecting"));
         return;
     }
@@ -771,7 +855,7 @@ void MoonlightController::startStream(const QString& host, const QString& appNam
         setLastError(QStringLiteral("Wait for Moonlight pairing to finish before connecting"));
         return;
     }
-    startValidatedStreamRequest(request);
+    startValidatedStreamRequest(request, m_SystemAuthMediaHost.isEmpty());
 }
 
 bool MoonlightController::applyNegotiatedProfile(int width, int height, int fps,
@@ -789,7 +873,11 @@ bool MoonlightController::applyNegotiatedProfileForHandoff(int width, int height
                                                             const QString& videoCodec)
 {
     const QString resolution = QStringLiteral("%1x%2").arg(width).arg(height);
-    StreamRequest request {m_ProfileHost, m_ProfileAppName, resolution, m_ProfileDisplayMode,
+    const QString streamHost = m_SystemAuthMediaHost.isEmpty()
+        ? m_ProfileHost : m_SystemAuthMediaHost;
+    const QString streamApplication = m_SystemAuthMediaHost.isEmpty()
+        ? m_ProfileAppName : kQemuConsoleApplication;
+    StreamRequest request {streamHost, streamApplication, resolution, m_ProfileDisplayMode,
                            fps, bitrateKbps, videoCodec};
     QString error;
     // A connection profile owns QEMU SetUIInfo and the guest scanout.  It is
@@ -813,7 +901,7 @@ bool MoonlightController::applyNegotiatedProfileForHandoff(int width, int height
         setLastError(error);
         return false;
     }
-    startValidatedStreamRequest(request);
+    startValidatedStreamRequest(request, m_SystemAuthMediaHost.isEmpty());
     return true;
 }
 
@@ -883,6 +971,79 @@ void MoonlightController::setSystemAuthGameStreamLease(const QString& authHost, 
     }
 }
 
+bool MoonlightController::setSystemAuthGameStreamLeasePem(const QString& authHost, int authPort,
+                                                           const QString& authServerName,
+                                                           const QByteArray& authCaPem,
+                                                           const QString& audience,
+                                                           const QByteArray& ticket,
+                                                           qint64 expiresAtUtcMs)
+{
+    if (authCaPem.isEmpty() || authCaPem.size() > kMaxSystemAuthCaBytes ||
+        authCaPem.contains("PRIVATE KEY")) {
+        setLastError(QStringLiteral("Broker returned invalid transport trust material"));
+        return false;
+    }
+    if (streamBusy() && m_SystemAuthEphemeralCaFile) {
+        // Replacing a launch route underneath a live child could remove the
+        // exact CA file it is still using. A new descriptor must wait for
+        // normal stream teardown instead.
+        setLastError(QStringLiteral("Wait for the current Moonlight stream before replacing launch trust"));
+        return false;
+    }
+    clearEphemeralSystemAuthCaFile();
+    auto file = std::make_unique<QTemporaryFile>(
+        QDir::tempPath() + QStringLiteral("/q-sunshine-moonlight-ca-XXXXXX.pem"));
+    file->setAutoRemove(true);
+    if (!file->open() ||
+        !file->setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner) ||
+        file->write(authCaPem) != authCaPem.size() || !file->flush()) {
+        if (file->isOpen()) {
+            file->close();
+        }
+        file->remove();
+        setLastError(QStringLiteral("Could not create ephemeral Moonlight trust file"));
+        return false;
+    }
+    const QString filePath = file->fileName();
+    file->close();
+    const QFileInfo info(filePath);
+    const QFileDevice::Permissions permissions = info.permissions();
+    if (!info.isFile() || (permissions & (QFileDevice::ReadGroup | QFileDevice::WriteGroup |
+                                          QFileDevice::ExeGroup | QFileDevice::ReadOther |
+                                          QFileDevice::WriteOther | QFileDevice::ExeOther))) {
+        file->remove();
+        setLastError(QStringLiteral("Ephemeral Moonlight trust file permissions are unsafe"));
+        return false;
+    }
+    m_SystemAuthEphemeralCaFile = std::move(file);
+    m_RemoveEphemeralSystemAuthCaWhenStopped = false;
+    setSystemAuthGameStreamLease(authHost, authPort, authServerName, filePath, audience,
+                                 ticket, expiresAtUtcMs);
+    return true;
+}
+
+bool MoonlightController::setSystemAuthGameStreamMediaRoute(const QString& host, int basePort)
+{
+    const QString normalizedHost = host.trimmed();
+    if (normalizedHost.isEmpty() || normalizedHost.size() > 253 || basePort <= 5 ||
+        basePort > 65535 || hasControlCharacter(normalizedHost) ||
+        normalizedHost.contains(QLatin1Char('/')) || normalizedHost.contains(QLatin1Char('@')) ||
+        normalizedHost.contains(QLatin1Char('?')) || normalizedHost.contains(QLatin1Char('#'))) {
+        setLastError(QStringLiteral("Terminal-server media route is invalid"));
+        return false;
+    }
+    QString endpointHost = normalizedHost;
+    if (normalizedHost.contains(QLatin1Char(':'))) {
+        // SystemAuthClient validates broker route hosts with QHostAddress
+        // before this C++ composition hook is reached. Keep this
+        // QtCore-only controller free of a QtNetwork dependency while
+        // formatting the already-validated bare IPv6 literal for Moonlight.
+        endpointHost = QStringLiteral("[") + normalizedHost + QStringLiteral("]");
+    }
+    m_SystemAuthMediaHost = endpointHost + QLatin1Char(':') + QString::number(basePort);
+    return true;
+}
+
 void MoonlightController::clearSystemAuthGameStreamLease()
 {
     const bool previousCanStart = canStartStream();
@@ -894,9 +1055,46 @@ void MoonlightController::clearSystemAuthGameStreamLease()
     m_SystemAuthCaFile.clear();
     m_SystemAuthAudience.clear();
     m_SystemAuthTicketExpiresAtUtcMs = 0;
+    m_SystemAuthMediaHost.clear();
+    if (streamBusy()) {
+        m_RemoveEphemeralSystemAuthCaWhenStopped = true;
+    }
+    else {
+        clearEphemeralSystemAuthCaFile();
+    }
     if (previousCanStart != canStartStream()) {
         emit canStartStreamChanged();
     }
+}
+
+void MoonlightController::clearEphemeralSystemAuthCaFile()
+{
+    if (!m_SystemAuthEphemeralCaFile) {
+        return;
+    }
+    QTemporaryFile* file = m_SystemAuthEphemeralCaFile.get();
+    QFile scrub(file->fileName());
+    if (scrub.open(QIODevice::ReadWrite)) {
+        const qint64 size = scrub.size();
+        if (size > 0 && scrub.seek(0)) {
+            QByteArray zeros(static_cast<int>(qMin<qint64>(size, 4096)), '\0');
+            qint64 remaining = size;
+            while (remaining > 0) {
+                const qint64 written = scrub.write(zeros.constData(), qMin<qint64>(remaining, zeros.size()));
+                if (written <= 0) {
+                    break;
+                }
+                remaining -= written;
+            }
+            zeros.fill('\0');
+            scrub.flush();
+        }
+        scrub.resize(0);
+        scrub.close();
+    }
+    file->remove();
+    m_SystemAuthEphemeralCaFile.reset();
+    m_RemoveEphemeralSystemAuthCaWhenStopped = false;
 }
 
 bool MoonlightController::profileHandoffBlocksConfigurationChange(const QString& operation)
@@ -913,18 +1111,23 @@ bool MoonlightController::profileHandoffBlocksConfigurationChange(const QString&
     return true;
 }
 
-void MoonlightController::startValidatedStreamRequest(const StreamRequest& request)
+void MoonlightController::startValidatedStreamRequest(const StreamRequest& request,
+                                                       bool persistProfile)
 {
     const quint64 requestGeneration = ++m_RestartGeneration;
-    m_ProfileHost = request.host;
+    if (persistProfile) {
+        m_ProfileHost = request.host;
+    }
     m_ProfileAppName = request.appName;
     m_ProfileResolution = request.resolution;
     m_ProfileDisplayMode = request.displayMode;
     m_ProfileFps = request.fps;
     m_ProfileBitrateKbps = request.bitrateKbps;
     m_ProfileVideoCodec = request.videoCodec;
-    writeCurrentProfile();
-    writeProfileIndex();
+    if (persistProfile) {
+        writeCurrentProfile();
+        writeProfileIndex();
+    }
     emit profileChanged();
     if (m_StreamProcess->state() != QProcess::NotRunning) {
         m_PendingRestart = request;
@@ -1081,6 +1284,9 @@ void MoonlightController::finishStream(int exitCode, QProcess::ExitStatus exitSt
     emit streamStoppingChanged();
     const bool wasRunning = m_Running;
     setRunning(false);
+    if (m_RemoveEphemeralSystemAuthCaWhenStopped && !restartRequested) {
+        clearEphemeralSystemAuthCaFile();
+    }
     if (intentionalStop) {
         setStatus(QStringLiteral("Moonlight stream stopped"));
     }

@@ -43,6 +43,7 @@ struct Options {
     std::optional<std::filesystem::path> encode_directory;
     std::string ffmpeg_binary {"ffmpeg"};
     std::string video_encoder {"libx264"};
+    std::optional<std::filesystem::path> vaapi_device;
     std::uint32_t fps {30U};
     bool enable_audio {true};
     bool require_audio {false};
@@ -68,6 +69,7 @@ struct Options {
         << "  --encode-dir DIR             encode H.264 MKV segments with ffmpeg\n"
         << "  --ffmpeg FILE                ffmpeg executable (default: ffmpeg)\n"
         << "  --video-encoder NAME         ffmpeg encoder (default: libx264)\n"
+        << "  --vaapi-device PATH          render node required by h264_vaapi\n"
         << "  --fps N                      encoder input rate (default: 30)\n"
         << "  --encode-delay-ms N          artificial CPU sink delay for stress tests\n"
         << "  --frame-wait-ms N            mailbox wait period (default: 20)\n"
@@ -167,6 +169,8 @@ Options parse_options(int argc, char **argv) {
             result.ffmpeg_binary = value_after(index, argument);
         } else if (argument == "--video-encoder") {
             result.video_encoder = value_after(index, argument);
+        } else if (argument == "--vaapi-device") {
+            result.vaapi_device = value_after(index, argument);
         } else if (argument == "--fps") {
             result.fps = parse_integer<std::uint32_t>(
                 value_after(index, argument), "fps");
@@ -195,6 +199,10 @@ Options parse_options(int argc, char **argv) {
     if (result.duration.count() <= 0 || result.frame_wait.count() <= 0 ||
         result.artificial_delay.count() < 0 || result.fps == 0U) {
         throw std::invalid_argument("duration, frame wait and fps must be positive");
+    }
+    if (result.video_encoder == "h264_vaapi" &&
+        (!result.vaapi_device || !result.vaapi_device->is_absolute())) {
+        throw std::invalid_argument("h264_vaapi requires --vaapi-device /dev/dri/renderD<N>");
     }
     return result;
 }
@@ -237,6 +245,7 @@ int main(int argc, char **argv) {
                     .filename_prefix = "qemu-probe",
                     .ffmpeg_binary = options.ffmpeg_binary,
                     .video_encoder = options.video_encoder,
+                    .vaapi_device = options.vaapi_device,
                     .fps = options.fps,
                 });
             ffmpeg_sink = sink.get();

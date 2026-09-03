@@ -224,6 +224,46 @@ if(BUILD_TESTING)
                     -v
             )
             set_tests_properties(qsunshine_gamestream_authd_lease PROPERTIES TIMEOUT 75)
+
+            # PVE Web UI -> stock VM.Console-scoped VNC ticket -> one-use
+            # .qsm descriptor -> native TLS transport redemption. This uses
+            # no PVE password login path and rejects ticket/claim replay.
+            add_test(
+                NAME qsunshine_pve_terminal_broker
+                COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/terminal_server/test_terminal_server.py
+                    -v
+            )
+            set_tests_properties(qsunshine_pve_terminal_broker PROPERTIES TIMEOUT 45)
+
+            add_test(
+                NAME qsunshine_pve9_ui_integration
+                COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_pve9_ui.py
+                    -v
+            )
+            set_tests_properties(qsunshine_pve9_ui_integration PROPERTIES TIMEOUT 30)
+
+            find_program(QSUNSHINE_PERL_EXECUTABLE perl)
+            if(QSUNSHINE_PERL_EXECUTABLE AND
+               EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_vnc_ticket_verifier.pl)
+                add_test(
+                    NAME qsunshine_pve_vnc_ticket_verifier
+                    COMMAND ${QSUNSHINE_PERL_EXECUTABLE}
+                        ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_vnc_ticket_verifier.pl
+                )
+                set_tests_properties(qsunshine_pve_vnc_ticket_verifier PROPERTIES TIMEOUT 30)
+            endif()
+
+            find_program(QSUNSHINE_NODE_EXECUTABLE node)
+            if(QSUNSHINE_NODE_EXECUTABLE)
+                add_test(
+                    NAME qsunshine_pve_console_overlay
+                    COMMAND ${QSUNSHINE_NODE_EXECUTABLE}
+                        ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_console_overlay.mjs
+                )
+                set_tests_properties(qsunshine_pve_console_overlay PROPERTIES TIMEOUT 20)
+            endif()
         endif()
 
     endif()
@@ -349,6 +389,30 @@ if(BUILD_TESTING)
                     )
                     set_tests_properties(qmdp_real_qemu_absolute_e2e
                         PROPERTIES TIMEOUT 30)
+
+                    # Register the accelerator gate only on a node that
+                    # explicitly exposes NVIDIA's encode device. The test
+                    # itself performs a real FFmpeg/NVENC initialization, so
+                    # a mounted device node is merely a prerequisite for
+                    # registration, never evidence of success.
+                    if(EXISTS "/dev/nvidia0")
+                        add_test(
+                            NAME qmdp_real_qemu_nvenc_e2e
+                            COMMAND ${CMAKE_COMMAND} -E env
+                                QMDP_REAL_QEMU_VIDEO_ENCODER=h264_nvenc
+                                ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_real_qemu_e2e.sh
+                                $<TARGET_FILE:qemu-display-probe>
+                                ${CMAKE_BINARY_DIR}/real-qemu-nvenc-e2e
+                                ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/qmdp_vga_smoke.S
+                                relative
+                                ${QMDP_QEMU_SYSTEM_X86_64_EXECUTABLE}
+                                ${QMDP_AS_EXECUTABLE}
+                                ${QMDP_LD_EXECUTABLE}
+                                ${QMDP_FFPROBE_EXECUTABLE}
+                        )
+                        set_tests_properties(qmdp_real_qemu_nvenc_e2e
+                            PROPERTIES TIMEOUT 30)
+                    endif()
 
                 endif()
             endif()

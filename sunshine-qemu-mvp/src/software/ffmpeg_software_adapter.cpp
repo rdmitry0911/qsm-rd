@@ -26,6 +26,10 @@ FfmpegSoftwareAdapter::FfmpegSoftwareAdapter(FfmpegSoftwareOptions options)
         options_.ffmpeg_binary.empty() || options_.video_encoder.empty()) {
         throw std::invalid_argument("invalid ffmpeg software adapter options");
     }
+    if (options_.video_encoder == "h264_vaapi" &&
+        (!options_.vaapi_device || !options_.vaapi_device->is_absolute())) {
+        throw std::invalid_argument("h264_vaapi requires an absolute render node");
+    }
 }
 
 FfmpegSoftwareAdapter::~FfmpegSoftwareAdapter() {
@@ -94,19 +98,36 @@ void FfmpegSoftwareAdapter::open_segment(std::uint32_t width,
             "-loglevel", "error",
             "-nostdin",
             "-y",
+        };
+        if (options_.video_encoder == "h264_vaapi") {
+            arguments.insert(arguments.end(), {"-vaapi_device",
+                                               options_.vaapi_device->string()});
+        }
+        arguments.insert(arguments.end(), {
             "-f", "rawvideo",
             "-pixel_format", "bgra",
             "-video_size", dimensions,
             "-framerate", fps,
             "-i", "pipe:0",
             "-an",
-            "-c:v", options_.video_encoder,
-            "-preset", "ultrafast",
-            "-tune", "zerolatency",
-            "-pix_fmt", "yuv420p",
-            "-f", "matroska",
-            path_string,
-        };
+        });
+        // libx264 and NVENC deliberately use different preset vocabularies.
+        // Do not pass a software-only literal to a hardware encoder: an
+        // initialization failure here would otherwise look like a missing GPU
+        // although direct QEMU capture is perfectly valid.
+        arguments.insert(arguments.end(), {"-c:v", options_.video_encoder});
+        if (options_.video_encoder == "h264_nvenc") {
+            arguments.insert(arguments.end(), {"-preset", "p1", "-tune", "ll"});
+        } else if (options_.video_encoder == "h264_vaapi") {
+            arguments.insert(arguments.end(), {"-vf", "format=nv12,hwupload"});
+        } else if (options_.video_encoder == "h264_qsv") {
+            arguments.insert(arguments.end(), {"-vf", "format=nv12"});
+        } else {
+            arguments.insert(arguments.end(), {"-preset", "ultrafast",
+                                               "-tune", "zerolatency"});
+        }
+        arguments.insert(arguments.end(), {"-pix_fmt", "yuv420p", "-f", "matroska",
+                                           path_string});
         std::vector<char *> argv;
         argv.reserve(arguments.size() + 1U);
         for (auto& argument : arguments) {

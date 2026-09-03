@@ -67,6 +67,9 @@ invocation and assertions are in `docs/MOONLIGHT_AUDIO_E2E.md`.
   CLOEXEC duplicate of the received D-Bus FD-list entry;
 - headless GBM/EGL `EGL_EXT_image_dma_buf_import` + FBO `glReadPixels` into
   tight BGRX CPU frames, including QEMU's `y0_top` orientation;
+- prefers `EGL_KHR_surfaceless_context` for FBO-only readback, retaining a
+  one-pixel pbuffer only as a compatibility fallback; this supports nested
+  VirGL drivers that advertise window-only EGL configurations;
 - bounded 16,384-pixel / 512-MiB validation and four XRGB/ARGB/XBGR/ABGR
   formats; modifiers are required only when QEMU supplies a nonzero modifier;
 - full-frame reread on `UpdateDMABUF` for correctness. This is not a
@@ -101,27 +104,37 @@ documented in `ISOLATED_LIBVA.md`.
   removed, which otherwise produces repeated `UnknownMethod` display updates
   during capture retirement.
 
-## 9. `0008-nvhttp-require-system-auth-media-leases.patch` — implemented
+## 9. `0008-nvhttp-require-system-auth-media-leases.patch` — transport-only PVE profile
 
-- opt-in `qsm_system_auth_mode=enabled` switches GameStream HTTPS admission
-  from Sunshine's paired-certificate/PIN store to a short-lived mTLS media
-  lease issued after system login;
-- requires an exact VM audience URI SAN, a constrained CA:false/clientAuth
-  leaf profile, certificate validity and a conservative login subject before
-  serving a sensitive GameStream endpoint;
-- loads the per-VM public media CA once from an absolute, root-owned,
-  non-group/world-writable regular file using `O_NOFOLLOW`, so a replaceable
-  path cannot become a trust anchor;
-- unregisters HTTPS and plaintext `/pair` routes and the Web UI PIN routes
-  while the mode is active; there is no paired-certificate fallback;
-- derives the client identity from the specific active TLS request instead of
-  a process-global verification callback result;
-- redacts case-insensitive `rikey`, `rikeyid`, token, auth, and cookie query
-  or header values in the GameStream debug-request trace;
-- requires encrypted RTSP possession proof (`corever` and a strict 128-bit
-  `rikey`) for native lease launches, and rejects a lease that expires before
-  pending RTSP admission. A successfully admitted media session is not
-  forcibly cut off merely because its intentionally short lease later expires.
+- `QSUNSHINE_TRANSPORT_ONLY=ON` replaces Sunshine's application launcher with
+  one immutable `QEMU Console` entry (`appid=1255037302`); it never reads an
+  app manifest, starts a command, runs a prep command, or owns a child process;
+- retains only the authenticated GameStream endpoints required by Moonlight:
+  `/serverinfo`, `/applist`, `/appasset`, `/launch`, `/resume`, and `/cancel`.
+  `launch`, supplied `resume`, and `appasset` IDs are parsed strictly and an
+  invalid ID is rejected before RTSP state is created;
+- makes the media plane mTLS-only: an exact VM audience URI SAN, constrained
+  CA:false/clientAuth leaf profile, certificate validity, and a conservative
+  login subject are required; an encrypted RTSP `rikey` possession proof is
+  required before native session admission. The legacy plaintext HTTP listener
+  is not compiled into this profile, so no unauthenticated GameStream bootstrap
+  port exists;
+- loads only absolute, root-owned, non-group/world-writable trust paths using
+  `O_NOFOLLOW`; a relative certificate or media-CA setting fails before any
+  legacy appdata migration can create a second configuration plane;
+- removes the host control plane from the transport target: Web UI, PIN
+  pairing, paired-certificate store, discovery, UPnP, tray, display device
+  manager, persistent state, `apps.json`, Boost.Process, and host command/
+  process-group helpers. The package consequently carries no X11, Wayland,
+  PulseAudio, ALSA, curl, miniupnpc, or Qt runtime dependency;
+- locks the remaining video/audio capture graph to QEMU Display1 with DMA-BUF
+  readback and guest-only audio. Conflicting CMake cache inputs cannot
+  re-enable a host-desktop capture or display-control backend; encoder choice
+  remains a root-owned VM policy and is accepted only after runtime capability
+  probing;
+- preserves the normal Sunshine build behind the CMake switch. In the PVE
+  package Proxmox owns identity, ACLs, VM selection, and VM lifecycle; Sunshine
+  is solely the VM-specific media transport.
 
 This outer patch depends on the nested
 `simple-web-server/0001-server-http-expose-request-tls-native-handle.patch`.

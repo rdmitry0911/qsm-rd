@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=q-sunshine VM Receiver
+Comment=Open a one-use Proxmox VM launch
+Exec=qsunshine-client --launch-file %f
+TryExec=qsunshine-client
+Terminal=false
+Categories=Network;RemoteAccess;
+MimeType=application/x-q-sunshine-launch;
+NoDisplay=true

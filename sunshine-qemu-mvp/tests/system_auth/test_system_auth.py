@@ -310,6 +310,17 @@ class SystemAuthTest(unittest.TestCase):
             load_tls_server_cert_chain(
                 ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER), certificate, private_key,
                 require_root_owner=False)
+        # PVE's root-managed proxy key is 0640 so pveproxy can read it.  The
+        # compatibility path must be an explicit opt-in; ordinary TLS callers
+        # still reject a group-readable private key.
+        private_key.chmod(0o640)
+        with self.assertRaises(AuthError):
+            load_tls_server_cert_chain(
+                ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER), certificate, private_key,
+                require_root_owner=False)
+        load_tls_server_cert_chain(
+            ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER), certificate, private_key,
+            require_root_owner=False, allow_root_group_readable_private_key=True)
         private_key.chmod(0o600)
         linked_key = self.path / "server-key-link"
         linked_key.symlink_to(private_key)

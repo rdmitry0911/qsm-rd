@@ -10,8 +10,11 @@
 #include <QStringList>
 #include <QtGlobal>
 
+#include <memory>
+
 class QTimer;
 class QProcessEnvironment;
+class QTemporaryFile;
 
 class MoonlightController final : public QObject
 {
@@ -31,6 +34,10 @@ class MoonlightController final : public QObject
     Q_PROPERTY(QString recentOutput READ recentOutput NOTIFY recentOutputChanged)
     Q_PROPERTY(QStringList profileIds READ profileIds NOTIFY profilesChanged)
     Q_PROPERTY(QString currentProfileId READ currentProfileId NOTIFY profileChanged)
+    // Retained non-secret profile identity, never media routing. The PVE
+    // launch receiver does not infer a VM transport route from either value.
+    Q_PROPERTY(QString profileProxmoxEndpoint READ profileProxmoxEndpoint NOTIFY profileChanged)
+    Q_PROPERTY(QString profileVmId READ profileVmId NOTIFY profileChanged)
     Q_PROPERTY(QString profileHost READ profileHost NOTIFY profileChanged)
     Q_PROPERTY(QString profileAppName READ profileAppName NOTIFY profileChanged)
     Q_PROPERTY(QString profileResolution READ profileResolution NOTIFY profileChanged)
@@ -42,6 +49,7 @@ class MoonlightController final : public QObject
 
 public:
     explicit MoonlightController(QObject* parent = nullptr);
+    ~MoonlightController() override;
 
     QString binaryPath() const;
     bool running() const;
@@ -54,6 +62,8 @@ public:
     QString recentOutput() const;
     QStringList profileIds() const;
     QString currentProfileId() const;
+    QString profileProxmoxEndpoint() const;
+    QString profileVmId() const;
     QString profileHost() const;
     QString profileAppName() const;
     QString profileResolution() const;
@@ -75,6 +85,10 @@ public:
     Q_INVOKABLE bool saveProfile(const QString& profileId, const QString& host,
                                  const QString& appName, const QString& resolution,
                                  const QString& displayMode);
+    // Compatibility composition API for non-secret profile identity. It is
+    // deliberately not Q_INVOKABLE: the receiver never creates connections
+    // or lets a QML caller select a node/VM route.
+    bool saveConnectionIdentity(const QString& proxmoxEndpoint, const QString& vmId);
     // Kept only for an explicit administrator/test compatibility enrollment.
     // It is deliberately not Q_INVOKABLE: the shipped desktop UI has no PIN
     // workflow and ordinary QML must not be able to recreate one.
@@ -101,6 +115,20 @@ public:
                                       const QString& audience,
                                       const QByteArray& ticket,
                                       qint64 expiresAtUtcMs);
+    // Broker descriptors carry public transport CA PEM in memory. Materialize
+    // it only into a 0600 QTemporaryFile for the patched Moonlight child's
+    // existing path-based native lease API; it is scrubbed/removed after the
+    // associated media process finishes.
+    bool setSystemAuthGameStreamLeasePem(const QString& authHost, int authPort,
+                                         const QString& authServerName,
+                                         const QByteArray& authCaPem,
+                                         const QString& audience,
+                                         const QByteArray& ticket,
+                                         qint64 expiresAtUtcMs);
+    // Terminal-broker route installation is intentionally a C++ composition
+    // API. It is never exposed to QML, because a user-controlled route must
+    // not become the endpoint for a VM-scoped GameStream ticket.
+    bool setSystemAuthGameStreamMediaRoute(const QString& host, int basePort);
     void clearSystemAuthGameStreamLease();
 
 signals:
@@ -151,11 +179,17 @@ private:
     // normal Moonlight admission during a remote guest transaction.
     void setProfileHandoffStartBlocked(bool blocked);
     static bool validProfileId(const QString& profileId, QString* error);
+    static bool validVmId(const QString& vmId);
     QString profileSettingsGroup(const QString& profileId) const;
     void loadProfile(const QString& profileId);
     void writeProfileIndex() const;
     void writeCurrentProfile() const;
-    void startValidatedStreamRequest(const StreamRequest& request);
+    // A PVE launch descriptor supplies a broker-authoritative, one-use media
+    // route.  That route must never become durable desktop-profile state:
+    // it is meaningful only for the current VM lease.  Compatibility callers
+    // retain the historical persistent-profile behavior.
+    void startValidatedStreamRequest(const StreamRequest& request,
+                                     bool persistProfile = true);
     void launchStream(const StreamRequest& request);
     bool prepareSystemAuthGameStreamEnvironment(const StreamRequest& request,
                                                 QProcessEnvironment* environment,
@@ -163,6 +197,7 @@ private:
     void appendOutput(const QByteArray& output);
     void appendRedactedOutput(const QByteArray& output);
     void flushOutputFragment();
+    void clearEphemeralSystemAuthCaFile();
     // A profile handoff has already selected an encoder/guest profile against
     // the current desktop configuration.  Reject public configuration changes
     // until its remote transaction is terminal, rather than letting a caller
@@ -184,6 +219,8 @@ private:
     bool m_DiscardingOutputLine;
     QStringList m_ProfileIds;
     QString m_CurrentProfileId;
+    QString m_ProfileProxmoxEndpoint;
+    QString m_ProfileVmId;
     QString m_ProfileHost;
     QString m_ProfileAppName;
     QString m_ProfileResolution;
@@ -208,6 +245,9 @@ private:
     QString m_SystemAuthAudience;
     QByteArray m_SystemAuthTicket;
     qint64 m_SystemAuthTicketExpiresAtUtcMs;
+    QString m_SystemAuthMediaHost;
+    std::unique_ptr<QTemporaryFile> m_SystemAuthEphemeralCaFile;
+    bool m_RemoveEphemeralSystemAuthCaWhenStopped;
     bool m_PairCancelRequested;
     quint64 m_PairGeneration;
     quint64 m_RestartGeneration;

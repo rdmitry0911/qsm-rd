@@ -1,0 +1,13 @@
+#!/bin/sh
+# Source this from q-sunshine-pve's postinst after package files are installed.
+# Keep a PVE upgrade available even when its new Web UI hash needs review: the
+# manager restores the stock template and returns success for that case.
+set -eu
+
+case "${1:-}" in
+    configure|triggered)
+        if ! /usr/sbin/q-sunshine-pve-ui reconcile; then
+            echo "q-sunshine-pve: PVE Console overlay was not changed; inspect q-sunshine-pve-ui status" >&2
+        fi
+        ;;
+esac

@@ -40,6 +40,7 @@ class CapabilityContractTest(unittest.TestCase):
             "QSUNSHINE_QSF_HOST_MAX_FPS": "60",
             "QSUNSHINE_QSF_HOST_MAX_BITRATE_KBPS": "30000",
             "QSUNSHINE_QSF_HOST_ENCODER_CODECS": "H264,HEVC,AV1",
+            "QSUNSHINE_QSF_ENCODER_PROBE": "sunshine_compat",
             "QSUNSHINE_QSF_SUNSHINE_SERVERINFO_URL": "",
             "QSUNSHINE_QSF_SUNSHINE_SERVERINFO_CA_FILE": "",
             **extra,
@@ -123,6 +124,20 @@ class CapabilityContractTest(unittest.TestCase):
                 clear=False):
             with self.assertRaises(qsf_control.ControlError):
                 qsf_control.detected_host_encoder_capabilities()
+
+    def test_direct_probe_uses_only_verified_h264_and_keeps_geometry_explicit(self) -> None:
+        class Selection:
+            name = "vaapi"
+            hardware = True
+
+        environment = self._environment(QSUNSHINE_QSF_ENCODER_PROBE="direct")
+        with patch.dict(os.environ, environment, clear=False), \
+                patch.object(qsf_control, "select_h264_encoder", return_value=Selection()):
+            capabilities = qsf_control.detected_host_encoder_capabilities()
+        self.assertEqual(capabilities["encoder_codecs"], ("H264",))
+        self.assertEqual(capabilities["encoder_backend"], "vaapi")
+        self.assertTrue(capabilities["encoder_hardware"])
+        self.assertEqual((capabilities["max_width"], capabilities["max_height"]), (2560, 1440))
 
 
 if __name__ == "__main__":

@@ -32,7 +32,7 @@ _SYSTEM_AUTH_MODULE_DIRECTORY = Path(__file__).resolve().parents[1] / "system_au
 if str(_SYSTEM_AUTH_MODULE_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(_SYSTEM_AUTH_MODULE_DIRECTORY))
 from q_sunshine_auth import AuthError as SystemAuthError  # noqa: E402
-from q_sunshine_auth import (load_ticket_key, load_tls_server_cert_chain,
+from q_sunshine_auth import (is_pve_proxy_tls_material, load_ticket_key, load_tls_server_cert_chain,
                              valid_audience, verify_ticket)  # noqa: E402
 
 
@@ -272,7 +272,10 @@ def tls_server_context(arguments: argparse.Namespace,
     try:
         load_tls_server_cert_chain(
             context, Path(arguments.server_cert), Path(arguments.server_key),
-            require_root_owner=os.geteuid() == 0)
+            require_root_owner=os.geteuid() == 0,
+            allow_root_group_readable_private_key=(
+                os.geteuid() == 0 and is_pve_proxy_tls_material(
+                    Path(arguments.server_cert), Path(arguments.server_key))))
     except SystemAuthError as error:
         raise ControlError("cannot load QSF TLS server material") from error
     if authenticator.client_ca:

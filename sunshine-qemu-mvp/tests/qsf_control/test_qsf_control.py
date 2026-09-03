@@ -133,6 +133,123 @@ class FakeAgent:
             return
 
 
+class RestartablePingAgent:
+    """Small real AF_UNIX peer for deterministic transport-reconnect tests."""
+
+    def __init__(self, path: Path) -> None:
+        self._listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._listener.bind(str(path))
+        self._listener.listen(4)
+        self._stopped = threading.Event()
+        self._condition = threading.Condition()
+        self._connection: socket.socket | None = None
+        self._connections = 0
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def close(self) -> None:
+        self._stopped.set()
+        with self._condition:
+            connection = self._connection
+            self._connection = None
+            self._condition.notify_all()
+        if connection is not None:
+            connection.close()
+        self._listener.close()
+        self._thread.join(timeout=2)
+
+    def disconnect(self) -> None:
+        with self._condition:
+            connection = self._connection
+        if connection is not None:
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            connection.close()
+
+    def wait_for_connections(self, expected: int, timeout: float = 2.0) -> bool:
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            while self._connections < expected:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._condition.wait(remaining)
+            return True
+
+    def _serve(self) -> None:
+        while not self._stopped.is_set():
+            try:
+                connection, _ = self._listener.accept()
+            except OSError:
+                return
+            with self._condition:
+                if self._stopped.is_set():
+                    connection.close()
+                    return
+                self._connection = connection
+                self._connections += 1
+                self._condition.notify_all()
+            try:
+                connection.settimeout(0.1)
+                connection.sendall(b"READY QSF1\n")
+                buffer = bytearray()
+                while not self._stopped.is_set():
+                    try:
+                        chunk = connection.recv(4096)
+                    except socket.timeout:
+                        continue
+                    if not chunk:
+                        break
+                    buffer.extend(chunk)
+                    while b"\n" in buffer:
+                        line, _, trailing = buffer.partition(b"\n")
+                        buffer = bytearray(trailing)
+                        if line == b"PING":
+                            connection.sendall(b"OK PONG\n")
+            except OSError:
+                pass
+            finally:
+                connection.close()
+                with self._condition:
+                    if self._connection is connection:
+                        self._connection = None
+                        self._condition.notify_all()
+
+
+class AgentChannelReconnectTest(unittest.TestCase):
+    """A stale worker channel must recover before its next side-channel op."""
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory(prefix="qsf-agent-reconnect-test-")
+        self.path = Path(self.directory.name)
+        self.agent = RestartablePingAgent(self.path / "agent.sock")
+        self.channel = qsf_control.AgentChannel(self.path / "agent.sock", lambda _text: None)
+
+    def tearDown(self) -> None:
+        self.channel.close()
+        self.agent.close()
+        self.directory.cleanup()
+
+    def test_reconnects_after_peer_eof_before_a_new_request(self) -> None:
+        self.assertEqual(self.channel.request("PING", "OK PONG"), "OK PONG")
+        self.assertTrue(self.agent.wait_for_connections(1))
+
+        self.agent.disconnect()
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            with self.channel._condition:
+                if self.channel._socket is None:
+                    break
+            time.sleep(0.01)
+        with self.channel._condition:
+            self.assertIsNone(self.channel._socket, "channel did not observe peer EOF")
+
+        self.assertEqual(self.channel.request("PING", "OK PONG"), "OK PONG")
+        self.assertTrue(self.agent.wait_for_connections(2))
+
+
 class RecordingProfileAgent:
     """In-process agent used to inspect a broker transaction's deadline."""
 
@@ -175,6 +292,8 @@ def _host_capabilities(*, deadline: float | None = None) -> dict[str, object]:
         "max_fps": 60,
         "max_bitrate_kbps": 30000,
         "encoder_codecs": ("H264",),
+        "encoder_backend": "test",
+        "encoder_hardware": False,
     }
 
 
@@ -266,6 +385,7 @@ class QsfControlTest(unittest.TestCase):
             "QSUNSHINE_QSF_HOST_MAX_FPS": "60",
             "QSUNSHINE_QSF_HOST_MAX_BITRATE_KBPS": "30000",
             "QSUNSHINE_QSF_HOST_ENCODER_CODECS": "H264",
+            "QSUNSHINE_QSF_ENCODER_PROBE": "static",
         })
         self.process = subprocess.Popen(
             [
@@ -361,6 +481,8 @@ class QsfControlTest(unittest.TestCase):
             "requested_height": 1440,
             "guest_profile_generation": "42",
             "qemu_set_ui_info": "disabled",
+            "encoder_backend": "static",
+            "encoder_hardware": None,
         })
 
         rejected = self.request({"op": "download", "name": "../escape"})

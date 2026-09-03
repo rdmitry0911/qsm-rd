@@ -25,10 +25,10 @@ std::size_t DesktopSession::milliseconds_to_frames(
 }
 
 DesktopSession::DesktopSession(IQemuDisplay& display,
-                               ISunshineAdapter& sunshine,
+                               IMediaAdapter& media,
                                DesktopSessionOptions options)
     : display_(display),
-      sunshine_(sunshine),
+      media_(media),
       options_(options),
       audio_fifo_(options.audio_sample_rate,
                   options.audio_channels,
@@ -52,7 +52,7 @@ void DesktopSession::start() {
     }
 
     try {
-        sunshine_.start();
+        media_.start();
         encoder_thread_ = std::thread(&DesktopSession::encoder_loop, this);
         audio_thread_ = std::thread(&DesktopSession::audio_loop, this);
         display_.start({
@@ -90,7 +90,7 @@ void DesktopSession::start() {
         if (audio_thread_.joinable()) {
             audio_thread_.join();
         }
-        sunshine_.stop();
+        media_.stop();
         throw;
     }
 }
@@ -108,7 +108,7 @@ void DesktopSession::stop() noexcept {
     if (audio_thread_.joinable()) {
         audio_thread_.join();
     }
-    sunshine_.stop();
+    media_.stop();
 }
 
 void DesktopSession::set_ui_info(const ViewportRequest& request) {
@@ -168,10 +168,10 @@ void DesktopSession::encoder_loop() noexcept {
                 (frame->surface->generation != previous_generation ||
                  frame->surface->width != previous_width ||
                  frame->surface->height != previous_height);
-            sunshine_.submit_frame(*frame);
+            media_.submit_frame(*frame);
             ++encoded_frames_;
             if (mode_changed) {
-                sunshine_.request_idr();
+                media_.request_idr();
                 ++idr_requests_;
             }
             previous_width = frame->surface->width;
@@ -202,9 +202,9 @@ void DesktopSession::audio_loop() noexcept {
             continue;
         }
         try {
-            sunshine_.submit_audio(samples,
-                                   options_.audio_sample_rate,
-                                   options_.audio_channels);
+            media_.submit_audio(samples,
+                                options_.audio_sample_rate,
+                                options_.audio_channels);
             ++audio_submissions_;
         } catch (const std::exception& ex) {
             record_error(std::string("audio submission: ") + ex.what());

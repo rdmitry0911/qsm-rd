@@ -18,6 +18,15 @@ qemu_binary=$5
 assembler=$6
 linker=$7
 ffprobe_binary=$8
+video_encoder=${QMDP_REAL_QEMU_VIDEO_ENCODER:-libx264}
+
+case "$video_encoder" in
+  libx264|h264_nvenc|h264_qsv|h264_vaapi) ;;
+  *)
+    echo "unsupported test H.264 encoder: $video_encoder" >&2
+    exit 2
+    ;;
+esac
 
 case "$pointer_mode" in
   relative|absolute) ;;
@@ -81,6 +90,7 @@ dbus-run-session -- bash -euo pipefail -c '
   output_dir=$3
   floppy_image=$4
   pointer_mode=$5
+  video_encoder=$6
   qemu_log="$output_dir/qemu.log"
   probe_log="$output_dir/probe.log"
 
@@ -139,8 +149,9 @@ dbus-run-session -- bash -euo pipefail -c '
     --no-audio \
     --input-smoke \
     --encode-dir "$output_dir/encoded" \
+    --video-encoder "$video_encoder" \
     >"$probe_log" 2>&1
-' bash "$qemu_binary" "$probe" "$output_dir" "$floppy_image" "$pointer_mode"
+' bash "$qemu_binary" "$probe" "$output_dir" "$floppy_image" "$pointer_mode" "$video_encoder"
 
 grep -q '^QEMU_DISPLAY_PROBE_RESULT$' "$output_dir/probe.log"
 grep -Eq 'frames published/encoded/dropped: [1-9][0-9]*/[1-9][0-9]*/' \
@@ -181,6 +192,7 @@ grep -q '^codec_name=h264$' "$output_dir/ffprobe.txt"
   echo "floppy_image_bytes=$floppy_bytes"
   echo "transport=private-session-dbus + RegisterListener peer socket"
   echo "capture=real-qemu-inline-cpu-framebuffer"
+  echo "encoder=$video_encoder"
   echo "input_pointer_mode=$pointer_mode"
   if [[ "$pointer_mode" == absolute ]]; then
     echo "input_device=usb-tablet; ps2=i8042-off"

@@ -1,0 +1,49 @@
+[Unit]
+Description=q-sunshine PVE VM terminal broker
+Documentation=file:/usr/share/doc/q-sunshine-pve/README.Debian
+After=network-online.target pve-cluster.service pveproxy.service pvedaemon.service
+Before=pve-guests.service
+Wants=network-online.target
+ConditionPathExists=/etc/q-sunshine/terminal.conf
+ConditionPathExists=/etc/pve/q-sunshine-node-endpoints.json
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/q-sunshine/terminal.conf
+# The process owns its Sunshine/QSF children itself. There are deliberately no
+# per-VM q-sunshine@, auth@, or QSF gateway@ systemd units in this design.
+# It also creates each configured private Display1 dbus-daemon before
+# pve-guests starts the corresponding QEMU VM.
+RuntimeDirectory=q-sunshine-terminal
+RuntimeDirectoryMode=0750
+StateDirectory=q-sunshine
+StateDirectoryMode=0750
+UMask=0077
+ExecStart=/usr/bin/q-sunshine-terminal
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=25s
+TimeoutStopSec=35s
+KillMode=control-group
+TasksMax=192
+MemoryMax=1024M
+LimitNOFILE=1024
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

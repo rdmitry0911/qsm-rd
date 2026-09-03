@@ -6,9 +6,10 @@ set -eu
 readonly binary=/usr/lib/q-sunshine/bin/sunshine
 allow_non_pve=0
 require_virgl=0
+require_encoder=0
 
 usage() {
-    echo "Usage: q-sunshine-preflight [--virgl] [--allow-non-pve]" >&2
+    echo "Usage: q-sunshine-preflight [--virgl] [--encoder] [--allow-non-pve]" >&2
     exit 2
 }
 
@@ -20,6 +21,7 @@ fail() {
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --virgl) require_virgl=1 ;;
+        --encoder) require_encoder=1 ;;
         --allow-non-pve) allow_non_pve=1 ;;
         -h|--help) usage ;;
         *) usage ;;
@@ -47,6 +49,14 @@ if [ "$require_virgl" -eq 1 ]; then
     [ -c "$render_node" ] || fail "VirGL requested but render node is unavailable: $render_node"
 fi
 
+if [ "$require_encoder" -eq 1 ]; then
+    probe=/usr/lib/q-sunshine/qsf/q_sunshine_encoder_probe.py
+    [ -r "$probe" ] || fail "direct encoder probe is unavailable"
+    encoder_result=$(/usr/bin/python3 "$probe") || fail "no direct H.264 encoder can initialize"
+else
+    encoder_result=not-checked
+fi
+
 ldd_output=$(ldd "$binary")
 printf '%s\n' "$ldd_output" | grep -F 'not found' >/dev/null &&
     fail "runtime library is unresolved"
@@ -54,4 +64,4 @@ if printf '%s\n' "$ldd_output" | grep -E 'libX11|libXtst|libXi|libXext|libXrende
     fail "headless runtime unexpectedly resolves a desktop or host-audio library"
 fi
 
-echo "Q_SUNSHINE_PREFLIGHT_OK qemu=$qemu_binary virgl=$require_virgl"
+echo "Q_SUNSHINE_PREFLIGHT_OK qemu=$qemu_binary virgl=$require_virgl encoder=$encoder_result"

@@ -79,6 +79,7 @@ int main(int argc, char **argv) {
             .filename_prefix = "qmdp-cpu",
             .ffmpeg_binary = "ffmpeg",
             .video_encoder = "libx264",
+            .vaapi_device = std::nullopt,
             .fps = 30U,
         });
         qmdp::DesktopSession session(display, encoder, {.frame_wait = 20ms});

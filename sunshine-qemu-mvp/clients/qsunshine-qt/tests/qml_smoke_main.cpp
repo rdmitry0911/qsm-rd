@@ -7,9 +7,11 @@
 #include "systemauthclient.h"
 
 #include <QDateTime>
+#include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QMetaProperty>
+#include <QRegularExpression>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickItem>
@@ -149,16 +151,20 @@ int main(int argc, char* argv[])
         QStringLiteral("mainTabs"));
     auto* presentationMode = engine.rootObjects().constFirst()->findChild<QObject*>(
         QStringLiteral("presentationMode"));
-    auto* systemUsername = engine.rootObjects().constFirst()->findChild<QObject*>(
+    auto* guestResolution = engine.rootObjects().constFirst()->findChild<QObject*>(
+        QStringLiteral("guestResolution"));
+    auto* launchReceiverStatus = engine.rootObjects().constFirst()->findChild<QObject*>(
+        QStringLiteral("launchReceiverStatus"));
+    auto* legacySystemUsername = engine.rootObjects().constFirst()->findChild<QObject*>(
         QStringLiteral("systemAuthUsername"));
-    auto* systemPassword = engine.rootObjects().constFirst()->findChild<QObject*>(
+    auto* legacySystemPassword = engine.rootObjects().constFirst()->findChild<QObject*>(
         QStringLiteral("systemAuthPassword"));
-    auto* systemLogin = engine.rootObjects().constFirst()->findChild<QObject*>(
+    auto* legacySystemLogin = engine.rootObjects().constFirst()->findChild<QObject*>(
         QStringLiteral("systemAuthLogin"));
 
     if (!require(window && connectionScroll && connectionContent && companionScroll &&
-                     companionContent && tabs && presentationMode && systemUsername &&
-                     systemPassword && systemLogin,
+                     companionContent && tabs && presentationMode && guestResolution &&
+                     launchReceiverStatus,
                  QStringLiteral("expected responsive page objects were not created"))) {
         return 2;
     }
@@ -197,8 +203,36 @@ int main(int argc, char* argv[])
                  QStringLiteral("presentation UI exposes a mode other than windowed/fullscreen"))) {
         return 2;
     }
-    if (!require(systemPassword->property("echoMode").toInt() != 0,
-                 QStringLiteral("system-auth password editor is not masked"))) {
+    const QVariantList guestResolutionChoices = guestResolution->property("model").toList();
+    if (!require(guestResolutionChoices.contains(QStringLiteral("1280x720")) &&
+                     guestResolutionChoices.contains(QStringLiteral("1920x1080")),
+                 QStringLiteral("receiver has no explicit VM desktop-size selector"))) {
+        return 2;
+    }
+    QFile qmlSource(QStringLiteral(":/Main.qml"));
+    if (!require(qmlSource.open(QIODevice::ReadOnly),
+                 QStringLiteral("could not read the embedded receiver QML"))) {
+        return 2;
+    }
+    const QString qmlText = QString::fromUtf8(qmlSource.readAll());
+    const QRegularExpression selectedSizeNegotiation(
+        QStringLiteral(R"(profileNegotiation\.negotiate\s*\(\s*guestResolution\.editText\s*,\s*moonlight\.videoDecoder\s*\))"));
+    if (!require(selectedSizeNegotiation.match(qmlText).hasMatch() &&
+                     !qmlText.contains(QStringLiteral("profileNegotiation.negotiate(\n                                                           moonlight.profileResolution,")),
+                 QStringLiteral("optimal profile negotiation ignores the selected VM desktop size"))) {
+        return 2;
+    }
+    if (!require(!legacySystemUsername && !legacySystemPassword && !legacySystemLogin,
+                 QStringLiteral("receiver UI still exposes a standalone system-login form"))) {
+        return 2;
+    }
+    if (!require(systemAuth.metaObject()->indexOfMethod("login(QString,QString)") < 0,
+                 QStringLiteral("standalone password login remains invokable from the receiver"))) {
+        return 2;
+    }
+    if (!require(moonlight.metaObject()->indexOfMethod(
+                     "saveConnectionIdentity(QString,QString)") < 0,
+                 QStringLiteral("receiver exposes a QML connection-creation route"))) {
         return 2;
     }
 

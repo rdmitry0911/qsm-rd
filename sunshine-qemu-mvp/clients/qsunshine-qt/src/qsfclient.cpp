@@ -338,7 +338,10 @@ bool QsfClient::configured() const
 {
     const bool legacyMtls = !m_UseEphemeralSystemAuthTicket &&
                             !m_ClientCertificateFile.isEmpty() && !m_ClientKeyFile.isEmpty();
-    return !m_Host.isEmpty() && m_Port >= 1 && m_Port <= 65535 && !m_CaFile.isEmpty() &&
+    // A blank custom CA means the platform trust store.  QSF still uses
+    // VerifyPeer and fails closed when neither that store nor an optional
+    // private CA validates the server certificate.
+    return !m_Host.isEmpty() && m_Port >= 1 && m_Port <= 65535 &&
            (legacyMtls || hasValidEphemeralSystemAuthTicket());
 }
 
@@ -531,6 +534,53 @@ bool QsfClient::applyConfigurationText(const QString& host,
     }
     return applyConfiguration(host, parsedPort, serverName, caFile,
                               clientCertificateFile, clientKeyFile);
+}
+
+bool QsfClient::applyBrokerConfiguration(const QString& host, int port,
+                                         const QString& serverName,
+                                         const QString& caFile)
+{
+    // SystemAuthClient invokes this only after it has authenticated the
+    // selected VM and validated the broker's exact route object. Unlike the
+    // compatibility API above, do not call saveProfile(): the route and its
+    // ephemeral CA path must disappear with the one-use launch session.
+    if (profileHandoffBlocksPublicOperation(QStringLiteral("broker endpoint configuration"))) {
+        return false;
+    }
+    if (m_SessionActive) {
+        setLastError(QStringLiteral("Deactivate QSF before installing a new launch route"));
+        return false;
+    }
+    const QString trimmedHost = host.trimmed();
+    const QString trimmedServerName = serverName.trimmed();
+    const QString trimmedCaFile = caFile.trimmed();
+    if (trimmedHost.isEmpty() || port < 1 || port > 65535 || trimmedCaFile.isEmpty()) {
+        setLastError(QStringLiteral("Broker returned an invalid QSF route"));
+        return false;
+    }
+    if (m_UseEphemeralSystemAuthTicket) {
+        clearEphemeralSystemAuthTicket();
+    }
+    ++m_ActivationEpoch;
+    cancelAllRequests();
+    setReady(false);
+    m_DesiredResizeWidth = 0;
+    m_DesiredResizeHeight = 0;
+    m_LastResizeWidth = 0;
+    m_LastResizeHeight = 0;
+    m_RemoteClipboardHash.clear();
+    clearPendingClipboard();
+    setLastResult(QString());
+    m_Host = trimmedHost;
+    m_Port = port;
+    m_ServerName = trimmedServerName;
+    m_CaFile = trimmedCaFile;
+    m_ClientCertificateFile.clear();
+    m_ClientKeyFile.clear();
+    setLastError(QString());
+    setStatus(QStringLiteral("QSF launch route installed in memory"));
+    emit configurationChanged();
+    return true;
 }
 
 bool QsfClient::hasValidEphemeralSystemAuthTicket() const
@@ -1118,21 +1168,21 @@ bool QsfClient::enqueue(const QString& operation, const QJsonObject& payload,
 
 bool QsfClient::prepareSslSocket(QSslSocket* socket, QString* error) const
 {
-    QFile caFile(m_CaFile);
-    if (!caFile.open(QIODevice::ReadOnly)) {
-        *error = QStringLiteral("Unable to read the QSF CA certificate file");
-        return false;
-    }
-
-    const QList<QSslCertificate> cas = QSslCertificate::fromData(caFile.readAll(), QSsl::Pem);
-    if (cas.isEmpty()) {
-        *error = QStringLiteral("Invalid QSF CA certificate file");
-        return false;
-    }
-
     QSslConfiguration configuration = QSslConfiguration::defaultConfiguration();
     configuration.setProtocol(QSsl::TlsV1_3OrLater);
-    configuration.setCaCertificates(cas);
+    if (!m_CaFile.isEmpty()) {
+        QFile caFile(m_CaFile);
+        if (!caFile.open(QIODevice::ReadOnly)) {
+            *error = QStringLiteral("Unable to read the QSF CA certificate file");
+            return false;
+        }
+        const QList<QSslCertificate> cas = QSslCertificate::fromData(caFile.readAll(), QSsl::Pem);
+        if (cas.isEmpty()) {
+            *error = QStringLiteral("Invalid QSF CA certificate file");
+            return false;
+        }
+        configuration.setCaCertificates(cas);
+    }
     if (!m_UseEphemeralSystemAuthTicket) {
         QFile certificateFile(m_ClientCertificateFile);
         QFile keyFile(m_ClientKeyFile);

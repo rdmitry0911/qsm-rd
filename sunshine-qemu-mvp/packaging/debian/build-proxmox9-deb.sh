@@ -20,10 +20,8 @@ BUILD_JOBS="${QSUNSHINE_DEB_JOBS:-4}"
 readonly FFMPEG_BUILD_DEPS_TAG=v2026.724.203728
 readonly FFMPEG_ARCHIVE_SHA256=2c27d4694b4ed0e734f497d4bd62f1b3662cbbc4ded2a69f2dc4b703441eebb3
 readonly FFMPEG_ARCHIVE_URL="https://github.com/LizardByte/build-deps/releases/download/${FFMPEG_BUILD_DEPS_TAG}/Linux-x86_64-ffmpeg.tar.gz"
-readonly SUNSHINE_LISTENER_TEARDOWN_PATCH=integration/sunshine/patches/0007-platform-linux-close-QEMU-listener-transport-before-teardown.patch
-readonly SUNSHINE_LISTENER_TEARDOWN_PATCH_SHA256=bdef88093a2b2f00b51c7e3a06533e7e62ef8fb00d2eaa8c52b718a14f8b107b
-readonly SUNSHINE_SYSTEM_AUTH_PATCH=integration/sunshine/patches/0008-nvhttp-require-system-auth-media-leases.patch
-readonly SUNSHINE_SYSTEM_AUTH_PATCH_SHA256=35603f17e961809391d96ea155741d333b3f9d8d47d53bde4035f880c597e9ef
+readonly SUNSHINE_TRANSPORT_PATCH=integration/sunshine/patches/0008-nvhttp-require-system-auth-media-leases.patch
+readonly SUNSHINE_TRANSPORT_PATCH_SHA256=daa34c1afcc47162762eaeef91f3cc3e2fd507a1e38966a50abb33d5082920b9
 readonly SIMPLE_WEB_SERVER_SYSTEM_AUTH_PATCH=integration/sunshine/simple-web-server/0001-server-http-expose-request-tls-native-handle.patch
 readonly SIMPLE_WEB_SERVER_SYSTEM_AUTH_PATCH_SHA256=7c978eaa72a3077fa46f03dc322abd26ac0db0e17cd8be525227cc0976cff2e9
 
@@ -87,63 +85,76 @@ if [[ "${QSUNSHINE_DEB_ALLOW_NONTRIXIE:-0}" != "1" ]]; then
 fi
 
 for required in cc cmake ninja meson git dpkg dpkg-deb dpkg-shlibdeps patchelf readelf ldd \
-                strip strings sed grep awk find sort install cp curl gzip sha256sum tar; do
+                strip strings sed grep awk find sort install curl gzip sha256sum tar; do
     require_command "$required"
 done
 
 require_file "$SUNSHINE_SOURCE_DIR/CMakeLists.txt"
 require_file "$LIBVA_SOURCE_DIR/meson.build"
-require_file "$ROOT_DIR/$SUNSHINE_LISTENER_TEARDOWN_PATCH"
-require_file "$ROOT_DIR/$SUNSHINE_SYSTEM_AUTH_PATCH"
+require_file "$ROOT_DIR/$SUNSHINE_TRANSPORT_PATCH"
 require_file "$ROOT_DIR/$SIMPLE_WEB_SERVER_SYSTEM_AUTH_PATCH"
 for required_submodule_file in \
     third-party/moonlight-common-c/enet/CMakeLists.txt \
     third-party/Simple-Web-Server/CMakeLists.txt \
     third-party/lizardbyte-common/CMakeLists.txt \
-    third-party/libdisplaydevice/CMakeLists.txt \
     third-party/glad/cmake/CMakeLists.txt; do
     require_file "$SUNSHINE_SOURCE_DIR/$required_submodule_file"
 done
-for required_package_file in control.in q-sunshine q-sunshine-preflight q-sunshine@.service \
-                             q-sunshine-qsf-control q-sunshine-qsf-client q-sunshine-qsf-gateway \
-                             q-sunshine-qsf-system-auth-gateway \
-                             q-sunshine-qsf-control@.service q-sunshine-qsf-gateway@.service \
-                             q-sunshine-qsf-system-auth-gateway@.service \
-                             q-sunshine-auth q-sunshine-auth@.service q-sunshine-remote.pam \
-                             postinst postrm README.Debian example-instance.conf copyright \
-                             changelog.in lintian-overrides; do
+for required_package_file in control.in q-sunshine q-sunshine-preflight \
+                             q-sunshine-terminal q-sunshine-terminal.service \
+                             q-sunshine-provision-vm q-sunshine-qsf-control \
+                             q-sunshine-qsf-terminal-gateway postinst postrm prerm \
+                             README.Debian example-terminal.conf example-vm.conf \
+                             example-node-endpoints.json copyright changelog.in \
+                             lintian-overrides; do
     require_file "$PACKAGE_DIR/$required_package_file"
 done
-for required_auth_file in q_sunshine_auth.py q_sunshine_auth_gateway.py pam_auth_helper.c; do
+for required_auth_file in q_sunshine_auth.py; do
     require_file "$ROOT_DIR/extensions/system_auth/$required_auth_file"
 done
 for required_gamestream_auth_file in q_sunshine_gamestream_lease.py q_sunshine_lease_issuer.c; do
     require_file "$ROOT_DIR/extensions/gamestream_auth/$required_gamestream_auth_file"
 done
-for required_qsf_file in qsf_control.py qsf_client.py qsf_tls_client.py qsf_tls_gateway.py; do
+for required_qsf_file in qsf_control.py qsf_tls_gateway.py q_sunshine_encoder_probe.py; do
     require_file "$ROOT_DIR/extensions/qsf_control/$required_qsf_file"
+done
+require_file "$ROOT_DIR/extensions/terminal_server/q_sunshine_terminal.py"
+for required_pve_api_file in \
+    PVE/API2/QSunshine.pm \
+    PVE/QSunshine/Compatibility.pm \
+    q-sunshine-pveproxy \
+    q-sunshine-pvedaemon \
+    q-sunshine-pvesh \
+    systemd/pveproxy.service.d/q-sunshine-api.conf \
+    systemd/pvedaemon.service.d/q-sunshine-api.conf \
+    README.md; do
+    require_file "$ROOT_DIR/integration/proxmox/pve9/api/$required_pve_api_file"
+done
+for required_pve_ui_file in \
+    q-sunshine-console.js \
+    q_sunshine_pve9_ui.py \
+    pve-manager-index-template.sha256 \
+    debian/q-sunshine-pve-ui \
+    debian/triggers \
+    debian/postinst-hook \
+    debian/prerm-hook; do
+    require_file "$ROOT_DIR/integration/proxmox/pve9/ui/$required_pve_ui_file"
 done
 require_file "$ROOT_DIR/extensions/qsf_control/README.md"
 require_file "$ROOT_DIR/docs/QSF_STREAM_NEGOTIATION.md"
 require_file "$ROOT_DIR/docs/SUNSHINE_QEMU_INTEGRATION.md"
-require_file "$ROOT_DIR/docs/SYSTEM_AUTH.md"
-require_file "$ROOT_DIR/docs/GAMESTREAM_LEASE_AUTH.md"
 for required_guest_file in qsf_guest_agent.c qsf_input_watcher.c qsf_wayland_clipboard_bridge.sh \
                            qsf_virgl_display_adapter.sh; do
     require_file "$ROOT_DIR/guest/$required_guest_file"
 done
 
 # The package is built from the QEMU Display1 replay, not a stock Sunshine
-# tag.  Pin the listener-retirement and native system-auth patches before
-# exporting the source; the latter are replayed below from the export rather
-# than trusting the caller's mutable Sunshine worktree.
-listener_patch_path="$ROOT_DIR/$SUNSHINE_LISTENER_TEARDOWN_PATCH"
-system_auth_patch_path="$ROOT_DIR/$SUNSHINE_SYSTEM_AUTH_PATCH"
+# tag.  Pin the complete transport-only patch before exporting the source and
+# replay it from that VCS-free export rather than trusting a mutable worktree.
+transport_patch_path="$ROOT_DIR/$SUNSHINE_TRANSPORT_PATCH"
 simple_web_server_system_auth_patch_path="$ROOT_DIR/$SIMPLE_WEB_SERVER_SYSTEM_AUTH_PATCH"
-verify_patch_digest "$listener_patch_path" "$SUNSHINE_LISTENER_TEARDOWN_PATCH_SHA256" \
-    "Sunshine listener-retirement"
-verify_patch_digest "$system_auth_patch_path" "$SUNSHINE_SYSTEM_AUTH_PATCH_SHA256" \
-    "Sunshine system-auth"
+verify_patch_digest "$transport_patch_path" "$SUNSHINE_TRANSPORT_PATCH_SHA256" \
+    "Sunshine transport"
 verify_patch_digest "$simple_web_server_system_auth_patch_path" \
     "$SIMPLE_WEB_SERVER_SYSTEM_AUTH_PATCH_SHA256" "Simple-Web-Server system-auth"
 
@@ -184,11 +195,8 @@ for required_export_file in \
     third-party/Simple-Web-Server/server_http.hpp; do
     require_file "$sunshine_source_export_dir/$required_export_file"
 done
-git -C "$sunshine_source_export_dir" apply --no-index --reverse --check "$listener_patch_path" \
-    >/dev/null 2>&1 ||
-    die "Sunshine source export does not contain the required listener-retirement patch"
-replay_patch_roundtrip "$sunshine_source_export_dir" "$system_auth_patch_path" \
-    "Sunshine system-auth patch"
+replay_patch_roundtrip "$sunshine_source_export_dir" "$transport_patch_path" \
+    "Sunshine transport patch"
 replay_patch_roundtrip "$sunshine_source_export_dir/third-party/Simple-Web-Server" \
     "$simple_web_server_system_auth_patch_path" "Simple-Web-Server system-auth patch"
 
@@ -236,6 +244,7 @@ cmake -S "$sunshine_source_export_dir" -B "$sunshine_build_dir" -G Ninja \
     -DFFMPEG_PREPARED_BINARIES:PATH="$ffmpeg_prepared_binaries" \
     -DBUILD_DOCS=OFF \
     -DBUILD_TESTS=OFF \
+    -DQSUNSHINE_TRANSPORT_ONLY=ON \
     -DSUNSHINE_ENABLE_QEMU_DBUS=ON \
     -DSUNSHINE_ENABLE_QEMU_DBUS_DMABUF=ON \
     -DSUNSHINE_ENABLE_QEMU_DBUS_AUDIO_ONLY=ON \
@@ -250,29 +259,45 @@ cmake -S "$sunshine_source_export_dir" -B "$sunshine_build_dir" -G Ninja \
     -DCUDA_FAIL_ON_MISSING=OFF \
     -DSUNSHINE_ENABLE_VULKAN=OFF \
     -DLIBVIRTUALHID_ENABLE_XTEST=OFF
-cmake --build "$sunshine_build_dir" --target sunshine web-ui --parallel "$BUILD_JOBS"
+
+# A transport build intentionally has neither a browser UI nor its Node/npm
+# toolchain.  Fail before compiling if the selected source profile quietly
+# regresses into resolving those optional control-plane dependencies.
+sunshine_cmake_cache="$sunshine_build_dir/CMakeCache.txt"
+require_file "$sunshine_cmake_cache"
+grep -Fxq 'QSUNSHINE_TRANSPORT_ONLY:BOOL=ON' "$sunshine_cmake_cache" ||
+    die "Sunshine CMake configuration did not enable QSUNSHINE_TRANSPORT_ONLY"
+if grep -Eq '^(CURL|MINIUPNP)_[^=]*=' "$sunshine_cmake_cache"; then
+    die "transport-only CMake configuration resolved curl or miniupnpc"
+fi
+if grep -Eq '^NPM(:FILEPATH|_EXECUTABLE:FILEPATH)=' "$sunshine_cmake_cache"; then
+    die "transport-only CMake configuration resolved npm"
+fi
+if ninja -C "$sunshine_build_dir" -t targets all | awk -F: '$1 == "web-ui" { found = 1 } END { exit(found ? 0 : 1) }'; then
+    die "transport-only CMake configuration still exposes a web-ui target"
+fi
+transport_build_commands="$(ninja -C "$sunshine_build_dir" -t commands sunshine)"
+for forbidden_transport_source in process.cpp display_device.cpp system_tray.cpp confighttp.cpp upnp.cpp; do
+    if grep -Fq "/src/$forbidden_transport_source" <<< "$transport_build_commands"; then
+        die "transport-only CMake configuration still compiles $forbidden_transport_source"
+    fi
+done
+if grep -Fq "/src/platform/linux/publish.cpp" <<< "$transport_build_commands"; then
+    die "transport-only CMake configuration still compiles the legacy network publisher"
+fi
+
+cmake --build "$sunshine_build_dir" --target sunshine --parallel "$BUILD_JOBS"
 
 sunshine_binary="$sunshine_build_dir/sunshine"
 [[ -x "$sunshine_binary" ]] || die "Sunshine build did not produce a runtime binary"
-[[ -f "$sunshine_build_dir/assets/apps.json" ]] || die "Sunshine assets were not staged in the build tree"
-[[ -f "$sunshine_build_dir/assets/web/index.html" ]] || die "Sunshine Web UI was not built"
 
 install -d "$package_root/bin" "$package_root/lib" "$package_root/assets"
 install -m 0755 "$sunshine_binary" "$package_root/bin/sunshine"
 strip --strip-unneeded "$package_root/bin/sunshine"
 
-# PAM itself stays a normal Debian runtime dependency. Keep this tiny
-# conversation helper separate from Sunshine so the media binary remains
-# headless and has no PAM linkage. It receives password bytes only on stdin.
-auth_helper_binary="$build_dir/q-sunshine-pam-auth"
-cc -std=c11 -O2 -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE \
-    -Wall -Wextra -Werror -Wformat=2 -Werror=format-security \
-    "$ROOT_DIR/extensions/system_auth/pam_auth_helper.c" -o "$auth_helper_binary" \
-    -pie -Wl,-z,relro,-z,now -lpam
-
-# The optional prepared GameStream lease issuer has its own narrow OpenSSL
-# boundary. It is not linked into Sunshine and never receives a client private
-# key; authd invokes it only after a valid qsa1 ticket/CSR request.
+# The prepared GameStream lease issuer has its own narrow OpenSSL boundary.
+# It is not linked into Sunshine and never receives a client private key; the
+# node terminal broker invokes it only after a redeemed PVE launch ticket.
 lease_issuer_binary="$build_dir/q-sunshine-lease-issuer"
 cc -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -D_FORTIFY_SOURCE=2 \
     -fstack-protector-strong -fPIE -Wall -Wextra -Werror -Wformat=2 \
@@ -280,15 +305,23 @@ cc -std=c11 -D_POSIX_C_SOURCE=200809L -O2 -D_FORTIFY_SOURCE=2 \
     "$ROOT_DIR/extensions/gamestream_auth/q_sunshine_lease_issuer.c" \
     -o "$lease_issuer_binary" -pie -Wl,-z,relro,-z,now -lssl -lcrypto
 
-# These package-owned release helpers are ELF executables just like Sunshine.
+# This package-owned release helper is an ELF executable just like Sunshine.
 # Strip local debug sections before lintian verifies the staged package.
-strip --strip-unneeded "$auth_helper_binary"
 strip --strip-unneeded "$lease_issuer_binary"
 
-# The build tree's shader directory is normally a symlink into the source
-# tree. Dereference it so the package never contains a build-machine path.
-cp -aL "$sunshine_build_dir/assets/." "$package_root/assets/"
-[[ -f "$package_root/assets/apps.json" ]] || die "package asset copy failed"
+# A terminal worker has exactly one virtual desktop and must never execute an
+# upstream app/desktop command on the Proxmox host.  The transport binary
+# exposes its immutable QEMU Console entry in memory; it deliberately has no
+# apps.json parser or mutable application manifest. `box.png` is the sole
+# non-control-plane asset used when a GameStream client asks for its artwork.
+transport_box_image="$sunshine_source_export_dir/src_assets/common/assets/box.png"
+require_file "$transport_box_image"
+install -Dm644 "$transport_box_image" "$package_root/assets/box.png"
+[[ -f "$package_root/assets/box.png" ]] || die "transport fallback artwork was not staged"
+[[ ! -e "$package_root/assets/apps.json" ]] || die "transport package unexpectedly staged apps.json"
+if [[ -e "$package_root/assets/web" ]]; then
+    die "transport package unexpectedly staged Web UI assets"
+fi
 
 libva_real="$(readlink -f "$libva_staged_prefix/lib/libva.so.2")"
 [[ -f "$libva_real" ]] || die "cannot resolve built libva.so.2"
@@ -307,52 +340,69 @@ patchelf --set-rpath '$ORIGIN' "$package_root/lib/$(basename "$libva_drm_real")"
 
 install -Dm755 "$PACKAGE_DIR/q-sunshine" "$stage_dir/usr/bin/q-sunshine"
 install -Dm755 "$PACKAGE_DIR/q-sunshine-preflight" "$stage_dir/usr/bin/q-sunshine-preflight"
-for qsf_tool in qsf_control qsf_client qsf_tls_client qsf_tls_gateway; do
+install -Dm755 "$PACKAGE_DIR/q-sunshine-terminal" "$stage_dir/usr/bin/q-sunshine-terminal"
+install -Dm755 "$PACKAGE_DIR/q-sunshine-provision-vm" \
+    "$stage_dir/usr/sbin/q-sunshine-provision-vm"
+for qsf_tool in qsf_control qsf_tls_gateway q_sunshine_encoder_probe; do
     install -Dm644 "$ROOT_DIR/extensions/qsf_control/$qsf_tool.py" \
         "$package_root/qsf/$qsf_tool.py"
 done
-for auth_module in q_sunshine_auth q_sunshine_auth_gateway; do
-    install -Dm644 "$ROOT_DIR/extensions/system_auth/$auth_module.py" \
-        "$package_root/system_auth/$auth_module.py"
-done
+install -Dm644 "$ROOT_DIR/extensions/system_auth/q_sunshine_auth.py" \
+    "$package_root/system_auth/q_sunshine_auth.py"
 install -Dm644 "$ROOT_DIR/extensions/gamestream_auth/q_sunshine_gamestream_lease.py" \
-    "$package_root/system_auth/q_sunshine_gamestream_lease.py"
-install -Dm755 "$auth_helper_binary" "$package_root/bin/q-sunshine-pam-auth"
+    "$package_root/gamestream_auth/q_sunshine_gamestream_lease.py"
+install -Dm644 "$ROOT_DIR/extensions/terminal_server/q_sunshine_terminal.py" \
+    "$package_root/terminal_server/q_sunshine_terminal.py"
 install -Dm755 "$lease_issuer_binary" "$package_root/bin/q-sunshine-lease-issuer"
-install -Dm755 "$PACKAGE_DIR/q-sunshine-auth" "$stage_dir/usr/bin/q-sunshine-auth"
+for pve_api_module in PVE/API2/QSunshine.pm PVE/QSunshine/Compatibility.pm; do
+    install -Dm644 "$ROOT_DIR/integration/proxmox/pve9/api/$pve_api_module" \
+        "$package_root/pve9-api/$pve_api_module"
+done
+for pve_api_launcher in q-sunshine-pveproxy q-sunshine-pvedaemon q-sunshine-pvesh; do
+    install -Dm755 "$ROOT_DIR/integration/proxmox/pve9/api/$pve_api_launcher" \
+        "$package_root/pve9-api/$pve_api_launcher"
+done
+for pve_api_service in pveproxy pvedaemon; do
+    install -Dm644 \
+        "$ROOT_DIR/integration/proxmox/pve9/api/systemd/$pve_api_service.service.d/q-sunshine-api.conf" \
+        "$stage_dir/usr/lib/systemd/system/$pve_api_service.service.d/q-sunshine-api.conf"
+done
 install -Dm755 "$PACKAGE_DIR/q-sunshine-qsf-control" "$stage_dir/usr/bin/q-sunshine-qsf-control"
-install -Dm755 "$PACKAGE_DIR/q-sunshine-qsf-client" "$stage_dir/usr/bin/q-sunshine-qsf-client"
-install -Dm755 "$PACKAGE_DIR/q-sunshine-qsf-gateway" "$stage_dir/usr/bin/q-sunshine-qsf-gateway"
-install -Dm755 "$PACKAGE_DIR/q-sunshine-qsf-system-auth-gateway" \
-    "$stage_dir/usr/bin/q-sunshine-qsf-system-auth-gateway"
+install -Dm755 "$PACKAGE_DIR/q-sunshine-qsf-terminal-gateway" \
+    "$stage_dir/usr/bin/q-sunshine-qsf-terminal-gateway"
 for guest_file in qsf_guest_agent.c qsf_input_watcher.c qsf_wayland_clipboard_bridge.sh; do
     install -Dm644 "$ROOT_DIR/guest/$guest_file" "$stage_dir/usr/share/q-sunshine/guest/$guest_file"
 done
 install -Dm755 "$ROOT_DIR/guest/qsf_virgl_display_adapter.sh" \
     "$stage_dir/usr/share/q-sunshine/guest/qsf_virgl_display_adapter.sh"
-install -Dm644 "$PACKAGE_DIR/q-sunshine@.service" "$stage_dir/usr/lib/systemd/system/q-sunshine@.service"
-install -Dm644 "$PACKAGE_DIR/q-sunshine-qsf-control@.service" \
-    "$stage_dir/usr/lib/systemd/system/q-sunshine-qsf-control@.service"
-install -Dm644 "$PACKAGE_DIR/q-sunshine-qsf-gateway@.service" \
-    "$stage_dir/usr/lib/systemd/system/q-sunshine-qsf-gateway@.service"
-install -Dm644 "$PACKAGE_DIR/q-sunshine-qsf-system-auth-gateway@.service" \
-    "$stage_dir/usr/lib/systemd/system/q-sunshine-qsf-system-auth-gateway@.service"
-install -Dm644 "$PACKAGE_DIR/q-sunshine-auth@.service" \
-    "$stage_dir/usr/lib/systemd/system/q-sunshine-auth@.service"
+install -Dm644 "$PACKAGE_DIR/q-sunshine-terminal.service" \
+    "$stage_dir/usr/lib/systemd/system/q-sunshine-terminal.service"
+# PVE Console overlay: the integration manager will fail closed on an
+# unsupported pve-manager template instead of guessing at an upstream UI.
+install -Dm644 "$ROOT_DIR/integration/proxmox/pve9/ui/q-sunshine-console.js" \
+    "$stage_dir/usr/share/pve-manager/js/q-sunshine-console.js"
+for pve_ui_module in q_sunshine_pve9_ui; do
+    install -Dm644 "$ROOT_DIR/integration/proxmox/pve9/ui/$pve_ui_module.py" \
+        "$package_root/pve9-ui/$pve_ui_module.py"
+done
+install -Dm644 "$ROOT_DIR/integration/proxmox/pve9/ui/pve-manager-index-template.sha256" \
+    "$stage_dir/usr/share/q-sunshine/pve9-ui/pve-manager-index-template.sha256"
+install -Dm755 "$ROOT_DIR/integration/proxmox/pve9/ui/debian/q-sunshine-pve-ui" \
+    "$stage_dir/usr/sbin/q-sunshine-pve-ui"
 install -Dm644 "$PACKAGE_DIR/README.Debian" "$stage_dir/usr/share/doc/$package_name/README.Debian"
 install -Dm644 "$ROOT_DIR/extensions/qsf_control/README.md" "$stage_dir/usr/share/doc/$package_name/QSF.md"
 install -Dm644 "$ROOT_DIR/docs/QSF_STREAM_NEGOTIATION.md" \
     "$stage_dir/usr/share/doc/$package_name/QSF_STREAM_NEGOTIATION.md"
 install -Dm644 "$ROOT_DIR/docs/SUNSHINE_QEMU_INTEGRATION.md" \
     "$stage_dir/usr/share/doc/$package_name/SUNSHINE_QEMU_INTEGRATION.md"
-install -Dm644 "$ROOT_DIR/docs/SYSTEM_AUTH.md" \
-    "$stage_dir/usr/share/doc/$package_name/SYSTEM_AUTH.md"
-install -Dm644 "$ROOT_DIR/docs/GAMESTREAM_LEASE_AUTH.md" \
-    "$stage_dir/usr/share/doc/$package_name/GAMESTREAM_LEASE_AUTH.md"
-install -Dm644 "$PACKAGE_DIR/q-sunshine-remote.pam" \
-    "$stage_dir/usr/share/doc/$package_name/q-sunshine-remote.pam"
-install -Dm644 "$PACKAGE_DIR/example-instance.conf" \
-    "$stage_dir/usr/share/doc/$package_name/example-instance.conf"
+install -Dm644 "$ROOT_DIR/integration/proxmox/pve9/api/README.md" \
+    "$stage_dir/usr/share/doc/$package_name/PVE_API.md"
+install -Dm644 "$PACKAGE_DIR/example-terminal.conf" \
+    "$stage_dir/usr/share/doc/$package_name/example-terminal.conf"
+install -Dm644 "$PACKAGE_DIR/example-vm.conf" \
+    "$stage_dir/usr/share/doc/$package_name/example-vm.conf"
+install -Dm644 "$PACKAGE_DIR/example-node-endpoints.json" \
+    "$stage_dir/usr/share/doc/$package_name/example-node-endpoints.json"
 install -Dm644 "$PACKAGE_DIR/copyright" "$stage_dir/usr/share/doc/$package_name/copyright"
 sed "s|@VERSION@|$package_version|" "$PACKAGE_DIR/changelog.in" \
     > "$stage_dir/usr/share/doc/$package_name/changelog"
@@ -364,10 +414,91 @@ staged_binary="$package_root/bin/sunshine"
 patchelf --set-rpath '$ORIGIN/../lib' "$staged_binary"
 readelf -d "$staged_binary" | grep -Fq '$ORIGIN/../lib' ||
     die "package binary does not contain the private relative RPATH"
+# The clean chroot deliberately mounts procfs only for the final install
+# smoke.  glibc cannot expand a $ORIGIN RUNPATH for a direct exec without
+# /proc/self/exe there, even though the installed PVE system has procfs.  Run
+# this early no-appdata probe through the ELF interpreter, then validate the
+# ordinary direct invocation in the later proc-mounted install smoke.
+staged_loader="$(readelf -l "$staged_binary" |
+    sed -n 's/.*Requesting program interpreter: \([^]]*\)\].*/\1/p' |
+    head -n 1)"
+[[ "$staged_loader" == /* && -x "$staged_loader" ]] ||
+    die "cannot resolve the staged Sunshine ELF interpreter"
+# Transport-only Sunshine must not create an upstream appdata/config tree even
+# for a harmless version probe.  Use every XDG home-like root under one empty
+# disposable directory so the stage gate catches a regression before a package
+# is emitted.
+appdata_probe_root="$(mktemp -d "$build_dir/appdata-probe.XXXXXX")"
+if ! env -i \
+    PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+    HOME="$appdata_probe_root/home" \
+    XDG_CONFIG_HOME="$appdata_probe_root/config" \
+    XDG_DATA_HOME="$appdata_probe_root/data" \
+    XDG_STATE_HOME="$appdata_probe_root/state" \
+    XDG_CACHE_HOME="$appdata_probe_root/cache" \
+    "$staged_loader" "$staged_binary" --version >/dev/null 2>&1; then
+    die "transport-only staged Sunshine failed its isolated version probe"
+fi
+if [[ -n "$(find "$appdata_probe_root" -mindepth 1 -print -quit)" ]]; then
+    die "transport-only staged Sunshine created appdata during its version probe"
+fi
+echo "Q_SUNSHINE_TRANSPORT_NO_APPDATA_OK"
+
+# A relative TLS or mTLS-CA path is not a convenience spelling in this
+# profile: resolving it through Sunshine's legacy appdata helper can run the
+# old migration and recreate a second configuration plane.  Seed that legacy
+# source deliberately, then prove a malformed relative launch setting fails
+# before any XDG target is touched.
+relative_path_probe_root="$(mktemp -d "$build_dir/relative-path-probe.XXXXXX")"
+relative_path_legacy_home="$relative_path_probe_root/legacy-home"
+relative_path_config="$relative_path_probe_root/config"
+relative_path_data="$relative_path_probe_root/data"
+relative_path_state="$relative_path_probe_root/state"
+relative_path_cache="$relative_path_probe_root/cache"
+install -d "$relative_path_legacy_home/.config/sunshine" \
+    "$relative_path_config" "$relative_path_data" "$relative_path_state" "$relative_path_cache"
+install -m 0600 /dev/null "$relative_path_legacy_home/.config/sunshine/sentinel"
+if env -i \
+    PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+    HOME="$relative_path_legacy_home" \
+    XDG_CONFIG_HOME="$relative_path_config" \
+    XDG_DATA_HOME="$relative_path_data" \
+    XDG_STATE_HOME="$relative_path_state" \
+    XDG_CACHE_HOME="$relative_path_cache" \
+    SUNSHINE_MIGRATE_CONFIG=1 \
+    "$staged_binary" \
+    cert=relative-cert.pem pkey=relative-key.pem qsm_system_auth_ca=relative-ca.pem \
+    --version >/dev/null 2>&1; then
+    die "transport-only Sunshine accepted a relative pre-provisioned path"
+fi
+for relative_path_target in "$relative_path_config/sunshine" \
+                            "$relative_path_data/sunshine" \
+                            "$relative_path_state/sunshine" \
+                            "$relative_path_cache/sunshine"; do
+    [[ ! -e "$relative_path_target" ]] ||
+        die "transport-only Sunshine migrated a relative path into appdata"
+done
+echo "Q_SUNSHINE_TRANSPORT_RELATIVE_PATH_REJECT_OK"
 binary_strings="$build_dir/sunshine.strings"
 strings "$staged_binary" > "$binary_strings"
-grep -Fxq '/usr/lib/q-sunshine/assets' "$binary_strings" ||
+grep -Fq '/usr/lib/q-sunshine/assets' "$binary_strings" ||
     die "package binary was not compiled with the installed assets prefix"
+for forbidden_transport_string in \
+    apps.json global_prep_cmd file_apps sunshine_state.json credentials_file \
+    system_tray run_command open_url '^/pair$' '^/pin$' \
+    "Couldn't start http server"; do
+    if grep -Fq "$forbidden_transport_string" "$binary_strings"; then
+        die "transport-only package retains host-control symbol or manifest string: $forbidden_transport_string"
+    fi
+done
+for required_transport_route in \
+    '^/serverinfo$' '^/applist$' '^/appasset$' '^/launch$' '^/resume$' '^/cancel$'; do
+    grep -Fxq "$required_transport_route" "$binary_strings" ||
+        die "transport-only package is missing required GameStream route: $required_transport_route"
+done
+transport_route_count="$(grep -E '^\^/[A-Za-z0-9_./-]+\$$' "$binary_strings" | LC_ALL=C sort -u | wc -l)"
+[[ "$transport_route_count" == 6 ]] ||
+    die "transport-only package exposes unexpected GameStream route strings"
 for forbidden_build_path in "$ROOT_DIR" "$build_dir"; do
     if grep -Fq "$forbidden_build_path" "$binary_strings"; then
         die "package binary contains a build-machine path"
@@ -407,9 +538,9 @@ if [[ -n "$ldd_libva_drm_path" ]]; then
     [[ "$(readlink -f "$ldd_libva_drm_path")" == "$(readlink -f "$package_root/lib/libva-drm.so.2")" ]] ||
         die "package binary mixes the private libva with a system libva-drm"
 fi
-for forbidden_runtime in libX11 libXtst libXi libXext libXrender libXrandr libwayland libpulse libasound; do
+for forbidden_runtime in libX11 libXtst libXi libXext libXrender libXrandr libwayland libpulse libasound libcurl miniupnpc; do
     if printf '%s\n' "$ldd_output" | grep -F "$forbidden_runtime" >/dev/null; then
-        die "headless package unexpectedly resolves $forbidden_runtime"
+        die "transport-only package unexpectedly resolves $forbidden_runtime"
     fi
 done
 
@@ -428,10 +559,9 @@ install -d "$stage_dir/DEBIAN" "$deb_control_dir"
 # Depends even when the software-only Sunshine link drops it under --as-needed.
 shlib_depends="$(cd "$build_dir" && dpkg-shlibdeps -O --ignore-missing-info \
     -l"$package_root/lib" "$staged_binary" \
-    "$package_root/bin/q-sunshine-pam-auth" \
     "$package_root/bin/q-sunshine-lease-issuer" \
     "$package_root/lib/$(basename "$libva_drm_real")" | sed -n 's/^shlibs:Depends=//p')"
-depends='python3 (>= 3.11)'
+depends='python3 (>= 3.11), dbus-daemon, openssl, ffmpeg, pve-manager (>= 9.0), qemu-server (>= 9.0)'
 if [[ -n "$shlib_depends" ]]; then
     depends+=", $shlib_depends"
 fi
@@ -439,10 +569,35 @@ sed -e "s|@VERSION@|$package_version|" -e "s|@DEPENDS@|$depends|" \
     "$PACKAGE_DIR/control.in" > "$stage_dir/DEBIAN/control"
 install -m 0755 "$PACKAGE_DIR/postinst" "$stage_dir/DEBIAN/postinst"
 install -m 0755 "$PACKAGE_DIR/postrm" "$stage_dir/DEBIAN/postrm"
+install -m 0755 "$PACKAGE_DIR/prerm" "$stage_dir/DEBIAN/prerm"
+install -m 0644 "$ROOT_DIR/integration/proxmox/pve9/ui/debian/triggers" \
+    "$stage_dir/DEBIAN/triggers"
 
 artifact="$OUTPUT_DIR/${package_name}_${package_version}_amd64.deb"
 dpkg-deb --build --root-owner-group "$stage_dir" "$artifact" >/dev/null
 [[ -f "$artifact" ]] || die "dpkg-deb did not produce an artifact"
+if dpkg-deb -c "$artifact" | grep -Eq '/usr/lib/q-sunshine/assets/web(/|$)'; then
+    die "built transport package unexpectedly contains Web UI assets"
+fi
+artifact_listing="$(dpkg-deb -c "$artifact")"
+for required_artifact_path in \
+    /usr/lib/q-sunshine/pve9-api/PVE/API2/QSunshine.pm \
+    /usr/lib/q-sunshine/pve9-api/PVE/QSunshine/Compatibility.pm \
+    /usr/lib/q-sunshine/pve9-api/q-sunshine-pveproxy \
+    /usr/lib/q-sunshine/pve9-api/q-sunshine-pvedaemon \
+    /usr/lib/q-sunshine/pve9-api/q-sunshine-pvesh \
+    /usr/lib/systemd/system/pveproxy.service.d/q-sunshine-api.conf \
+    /usr/lib/systemd/system/pvedaemon.service.d/q-sunshine-api.conf; do
+    grep -Fq "$required_artifact_path" <<< "$artifact_listing" ||
+        die "built package is missing PVE API asset: $required_artifact_path"
+done
+if grep -Fq '/usr/lib/q-sunshine/bin/q-sunshine-verify-vnc-ticket' <<< "$artifact_listing"; then
+    die "built package unexpectedly contains the obsolete PVE VNC-ticket verifier"
+fi
+artifact_depends="$(dpkg-deb -f "$artifact" Depends)"
+if grep -Eq '(^|[ ,])(libcurl[^ ,]*|miniupnpc[^ ,]*)([ ,]|$)' <<< "$artifact_depends"; then
+    die "built transport package unexpectedly depends on curl or miniupnpc"
+fi
 
 # Treat a lintian error as a packaging failure, but do not turn non-actionable
 # informational tags into a failed reproducible build.

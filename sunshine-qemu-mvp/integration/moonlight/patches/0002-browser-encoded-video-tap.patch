@@ -1,0 +1,365 @@
+diff --git a/app/streaming/session.cpp b/app/streaming/session.cpp
+index 40c1e59..04cf8d1 100644
+--- a/app/streaming/session.cpp
++++ b/app/streaming/session.cpp
+@@ -1703,9 +1703,19 @@ bool Session::startConnectionAsync()
+                                                                          false);
+     }
+ 
++    // LiStartConnection retains both context pointers for the lifetime of the
++    // GameStream connection. Keep their QByteArray storage in Session rather
++    // than passing temporary qgetenv() values to its asynchronous workers.
++    m_QsmBrowserVideoRecordPath = qgetenv("QSM_BROWSER_VIDEO_RECORD_PATH");
++    m_QsmBrowserAudioRecordPath = qgetenv("QSM_BROWSER_AUDIO_RECORD_PATH");
+     int err = LiStartConnection(&hostInfo, &m_StreamConfig, &k_ConnCallbacks,
+                                 &m_VideoCallbacks, &m_AudioCallbacks,
+-                                NULL, 0, NULL, 0);
++                                m_QsmBrowserVideoRecordPath.isEmpty() ? NULL :
++                                    const_cast<char*>(m_QsmBrowserVideoRecordPath.constData()),
++                                0,
++                                m_QsmBrowserAudioRecordPath.isEmpty() ? NULL :
++                                    const_cast<char*>(m_QsmBrowserAudioRecordPath.constData()),
++                                0);
+     if (err != 0) {
+         // We already displayed an error dialog in the stage failure
+         // listener.
+diff --git a/app/streaming/session.h b/app/streaming/session.h
+index 53ac9e0..18471b4 100644
+--- a/app/streaming/session.h
++++ b/app/streaming/session.h
+@@ -249,6 +249,11 @@ private:
+     STREAM_CONFIGURATION m_StreamConfig;
+     DECODER_RENDERER_CALLBACKS m_VideoCallbacks;
+     AUDIO_RENDERER_CALLBACKS m_AudioCallbacks;
++    // The q-sunshine browser bridge supplies these to moonlight-common-c as
++    // connection contexts. LiStartConnection keeps the pointers after this
++    // method returns, so the storage must outlive startConnectionAsync().
++    QByteArray m_QsmBrowserVideoRecordPath;
++    QByteArray m_QsmBrowserAudioRecordPath;
+     NvComputer* m_Computer;
+     NvApp m_App;
+     SDL_Window* m_Window;
+diff --git a/moonlight-common-c/moonlight-common-c.pro b/moonlight-common-c/moonlight-common-c.pro
+index b42427a..05f9f95 100644
+--- a/moonlight-common-c/moonlight-common-c.pro
++++ b/moonlight-common-c/moonlight-common-c.pro
+@@ -65,6 +65,7 @@ SOURCES += \
+     $$COMMON_C_DIR/src/Platform.c \
+     $$COMMON_C_DIR/src/PlatformCrypto.c \
+     $$COMMON_C_DIR/src/PlatformSockets.c \
++    $$COMMON_C_DIR/src/RecorderCallbacks.c \
+     $$COMMON_C_DIR/src/RtpAudioQueue.c \
+     $$COMMON_C_DIR/src/RtpVideoQueue.c \
+     $$COMMON_C_DIR/src/RtspConnection.c \
+@@ -82,6 +83,10 @@ INCLUDEPATH += \
+     $$COMMON_C_DIR/nanors/deps \
+     $$COMMON_C_DIR/nanors/deps/obl
+ DEFINES += HAS_SOCKLEN_T
++# q-sunshine's browser bridge consumes the decrypted encoded stream before
++# presentation. Keep the upstream recorder wrapper absent from ordinary
++# Moonlight release builds.
++DEFINES += LC_DEBUG_RECORD_MODE
+ 
+ CONFIG(debug, debug|release) {
+     # Enable asserts on debug builds
+diff --git a/moonlight-common-c/moonlight-common-c/src/Limelight-internal.h b/moonlight-common-c/moonlight-common-c/src/Limelight-internal.h
+index e1314c5..bd83249 100644
+--- a/moonlight-common-c/moonlight-common-c/src/Limelight-internal.h
++++ b/moonlight-common-c/moonlight-common-c/src/Limelight-internal.h
+@@ -111,6 +111,7 @@ void* extendBuffer(void* ptr, size_t newSize);
+ void fixupMissingCallbacks(PDECODER_RENDERER_CALLBACKS* drCallbacks, PAUDIO_RENDERER_CALLBACKS* arCallbacks,
+     PCONNECTION_LISTENER_CALLBACKS* clCallbacks);
+ void setRecorderCallbacks(PDECODER_RENDERER_CALLBACKS drCallbacks, PAUDIO_RENDERER_CALLBACKS arCallbacks);
++void recordDecodeUnit(PDECODE_UNIT decodeUnit);
+ 
+ char* getSdpPayloadForStreamConfig(int rtspClientVersion, int* length);
+ 
+diff --git a/moonlight-common-c/moonlight-common-c/src/RecorderCallbacks.c b/moonlight-common-c/moonlight-common-c/src/RecorderCallbacks.c
+index 840ac19..65254fb 100644
+--- a/moonlight-common-c/moonlight-common-c/src/RecorderCallbacks.c
++++ b/moonlight-common-c/moonlight-common-c/src/RecorderCallbacks.c
+@@ -5,21 +5,134 @@
+ 
+ #include "Limelight-internal.h"
+ 
++#ifndef _WIN32
++#include <arpa/inet.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <sys/socket.h>
++#include <sys/un.h>
++#include <unistd.h>
++#endif
++
++#define QSM_BROWSER_UNIX_PREFIX "unix:"
++#define QSM_BROWSER_PACKET_MAGIC 0x51534D50U
++#define QSM_BROWSER_PACKET_FIRST 0x00000001U
++#define QSM_BROWSER_PACKET_END 0x00000002U
++#define QSM_BROWSER_PACKET_IDR 0x00000004U
++#define QSM_BROWSER_PACKET_AUDIO 0x00000008U
++#define QSM_BROWSER_PACKET_CONFIG 0x00000010U
++#define QSM_BROWSER_MAX_FRAGMENT_BYTES (256U * 1024U)
++
+ static FILE* videoFile;
+ static FILE* audioFile;
++static int videoSocket = -1;
++static int audioSocket = -1;
++static unsigned int audioPacketNumber;
+ 
+ static DECODER_RENDERER_CALLBACKS realDrCallbacks;
+ static AUDIO_RENDERER_CALLBACKS realArCallbacks;
+ 
++#ifndef _WIN32
++static int openQsmBrowserSocket(const char* context)
++{
++    struct sockaddr_un address;
++    const char* path;
++    int descriptor;
++    int flags;
++
++    if (strncmp(context, QSM_BROWSER_UNIX_PREFIX, strlen(QSM_BROWSER_UNIX_PREFIX)) != 0) {
++        return -2;
++    }
++
++    path = context + strlen(QSM_BROWSER_UNIX_PREFIX);
++    if (path[0] != '/' || strlen(path) >= sizeof(address.sun_path)) {
++        return -1;
++    }
++
++    descriptor = socket(AF_UNIX, SOCK_SEQPACKET, 0);
++    if (descriptor < 0) {
++        return -1;
++    }
++
++    memset(&address, 0, sizeof(address));
++    address.sun_family = AF_UNIX;
++    strcpy(address.sun_path, path);
++    if (connect(descriptor, (struct sockaddr*)&address, sizeof(address)) != 0) {
++        close(descriptor);
++        return -1;
++    }
++    // A nonblocking AF_UNIX connect commonly returns EINPROGRESS even when
++    // the bridge is already listening.  Connect while blocking, then make
++    // the steady-state media path lossy/nonblocking so a stalled local
++    // browser cannot pause GameStream's decoder queue.
++    flags = fcntl(descriptor, F_GETFL);
++    if (flags < 0 || fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) != 0) {
++        close(descriptor);
++        return -1;
++    }
++    return descriptor;
++}
++
++static void closeQsmBrowserSocket(int* descriptor)
++{
++    if (*descriptor >= 0) {
++        close(*descriptor);
++        *descriptor = -1;
++    }
++}
++
++static void sendQsmBrowserPacket(int* descriptor, unsigned int frameNumber,
++                                 unsigned int fragmentNumber, unsigned int flags,
++                                 const void* data, unsigned int length)
++{
++    uint32_t header[5];
++    struct iovec vectors[2];
++    struct msghdr message;
++    ssize_t sent;
++
++    if (*descriptor < 0 || length > QSM_BROWSER_MAX_FRAGMENT_BYTES) {
++        return;
++    }
++
++    header[0] = htonl(QSM_BROWSER_PACKET_MAGIC);
++    header[1] = htonl(frameNumber);
++    header[2] = htonl(fragmentNumber);
++    header[3] = htonl(flags);
++    header[4] = htonl(length);
++    memset(&message, 0, sizeof(message));
++    vectors[0].iov_base = header;
++    vectors[0].iov_len = sizeof(header);
++    vectors[1].iov_base = (void*)data;
++    vectors[1].iov_len = length;
++    message.msg_iov = vectors;
++    message.msg_iovlen = 2;
++    sent = sendmsg(*descriptor, &message, MSG_DONTWAIT | MSG_NOSIGNAL);
++    if (sent != (ssize_t)(sizeof(header) + length) && errno != EAGAIN && errno != EWOULDBLOCK) {
++        closeQsmBrowserSocket(descriptor);
++    }
++}
++#endif
++
+ static int recDrSetup(int videoFormat, int width, int height, int redrawRate, void* context, int drFlags)
+ {
+     const char* path = context;
+     
+     if (path != NULL) {
++ #ifndef _WIN32
++        videoSocket = openQsmBrowserSocket(path);
++        if (videoSocket == -2) {
++            videoFile = fopen(path, "wb");
++            videoSocket = -1;
++        }
++        if (videoSocket < -1 || (videoSocket == -1 && videoFile == NULL)) {
++ #else
+         videoFile = fopen(path, "wb");
+         if (videoFile == NULL) {
++ #endif
++            Limelog("q-sunshine browser video recorder could not open its local sink\n");
+             return -1;
+         }
++        Limelog("q-sunshine browser video recorder enabled\n");
+     }
+     else {
+         Limelog("Video recording will not be enabled - file path not specified in drContext!\n");
+@@ -33,13 +146,39 @@ static void recDrCleanup(void)
+     if (videoFile != NULL) {
+         fclose(videoFile);
+         videoFile = NULL;
++        Limelog("q-sunshine browser video recorder closed\n");
+     }
++#ifndef _WIN32
++    closeQsmBrowserSocket(&videoSocket);
++#endif
+ 
+     realDrCallbacks.cleanup();
+ }
+ 
+-static int recDrSubmitDecodeUnit(PDECODE_UNIT decodeUnit)
++void recordDecodeUnit(PDECODE_UNIT decodeUnit)
+ {
++#ifndef _WIN32
++    if (videoSocket >= 0) {
++        PLENTRY entry = decodeUnit->bufferList;
++        unsigned int fragmentNumber = 0;
++        while (entry != NULL) {
++            unsigned int flags = 0;
++            if (fragmentNumber == 0) {
++                flags |= QSM_BROWSER_PACKET_FIRST;
++            }
++            if (entry->next == NULL) {
++                flags |= QSM_BROWSER_PACKET_END;
++            }
++            if (decodeUnit->frameType == FRAME_TYPE_IDR) {
++                flags |= QSM_BROWSER_PACKET_IDR;
++            }
++            sendQsmBrowserPacket(&videoSocket, decodeUnit->frameNumber,
++                                 fragmentNumber++, flags, entry->data, entry->length);
++            entry = entry->next;
++        }
++        return;
++    }
++#endif
+     if (videoFile != NULL) {
+         PLENTRY entry = decodeUnit->bufferList;
+         while (entry != NULL) {
+@@ -47,6 +186,11 @@ static int recDrSubmitDecodeUnit(PDECODE_UNIT decodeUnit)
+             entry = entry->next;
+         }
+     }
++}
++
++static int recDrSubmitDecodeUnit(PDECODE_UNIT decodeUnit)
++{
++    recordDecodeUnit(decodeUnit);
+ 
+     return realDrCallbacks.submitDecodeUnit(decodeUnit);
+ }
+@@ -56,10 +200,31 @@ static int recArInit(int audioConfiguration, POPUS_MULTISTREAM_CONFIGURATION opu
+     const char* path = context;
+ 
+     if (path != NULL) {
++ #ifndef _WIN32
++        audioSocket = openQsmBrowserSocket(path);
++        if (audioSocket == -2) {
++            audioFile = fopen(path, "wb");
++            audioSocket = -1;
++        }
++        if (audioSocket < -1 || (audioSocket == -1 && audioFile == NULL)) {
++ #else
+         audioFile = fopen(path, "wb");
+         if (audioFile == NULL) {
++ #endif
+             return -1;
+         }
++        audioPacketNumber = 0;
++#ifndef _WIN32
++        // Tell the local WebRTC bridge the exact negotiated Opus packet
++        // duration before payload delivery.  ``fragmentNumber`` carries the
++        // samples-per-channel value; configuration has no media bytes.
++        if (audioSocket >= 0 && opusConfig != NULL && opusConfig->samplesPerFrame > 0) {
++            sendQsmBrowserPacket(&audioSocket, 0, (unsigned int)opusConfig->samplesPerFrame,
++                                 QSM_BROWSER_PACKET_FIRST | QSM_BROWSER_PACKET_END |
++                                 QSM_BROWSER_PACKET_AUDIO | QSM_BROWSER_PACKET_CONFIG,
++                                 "", 0);
++        }
++#endif
+     }
+     else {
+         Limelog("Audio recording will not be enabled - file path not specified in arContext!\n");
+@@ -74,12 +239,24 @@ static void recArCleanup(void)
+         fclose(audioFile);
+         audioFile = NULL;
+     }
++#ifndef _WIN32
++    closeQsmBrowserSocket(&audioSocket);
++#endif
+ 
+     realArCallbacks.cleanup();
+ }
+ 
+ static void recArDecodeAndPlaySample(char* sampleData, int sampleLength)
+ {
++#ifndef _WIN32
++    if (audioSocket >= 0) {
++        sendQsmBrowserPacket(&audioSocket, audioPacketNumber++, 0,
++                             QSM_BROWSER_PACKET_FIRST | QSM_BROWSER_PACKET_END |
++                             QSM_BROWSER_PACKET_AUDIO,
++                             sampleData, sampleLength);
++    }
++    else
++#endif
+     if (audioFile != NULL) {
+         fwrite(sampleData, 1, sampleLength, audioFile);
+     }
+@@ -94,7 +271,12 @@ void setRecorderCallbacks(PDECODER_RENDERER_CALLBACKS drCallbacks, PAUDIO_RENDER
+ 
+     drCallbacks->setup = recDrSetup;
+     drCallbacks->cleanup = recDrCleanup;
+-    drCallbacks->submitDecodeUnit = recDrSubmitDecodeUnit;
++    // FFmpeg's pull decoder owns the decode-unit queue itself. Replacing its
++    // callback would create a second consumer. The q-sunshine bridge records
++    // that path at LiWaitForNextVideoFrame()/LiPollNextVideoFrame() instead.
++    if ((drCallbacks->capabilities & CAPABILITY_PULL_RENDERER) == 0) {
++        drCallbacks->submitDecodeUnit = recDrSubmitDecodeUnit;
++    }
+ 
+     arCallbacks->init = recArInit;
+     arCallbacks->cleanup = recArCleanup;
+diff --git a/moonlight-common-c/moonlight-common-c/src/VideoDepacketizer.c b/moonlight-common-c/moonlight-common-c/src/VideoDepacketizer.c
+index 43f2df9..04c26a4 100644
+--- a/moonlight-common-c/moonlight-common-c/src/VideoDepacketizer.c
++++ b/moonlight-common-c/moonlight-common-c/src/VideoDepacketizer.c
+@@ -243,6 +243,10 @@ bool LiWaitForNextVideoFrame(VIDEO_FRAME_HANDLE* frameHandle, PDECODE_UNIT* deco
+ 
+     validateDecodeUnitForPlayback(&qdu->decodeUnit);
+ 
++#ifdef LC_DEBUG_RECORD_MODE
++    recordDecodeUnit(&qdu->decodeUnit);
++#endif
++
+     *frameHandle = qdu;
+     *decodeUnit = &qdu->decodeUnit;
+     return true;
+@@ -258,6 +262,10 @@ bool LiPollNextVideoFrame(VIDEO_FRAME_HANDLE* frameHandle, PDECODE_UNIT* decodeU
+ 
+     validateDecodeUnitForPlayback(&qdu->decodeUnit);
+ 
++#ifdef LC_DEBUG_RECORD_MODE
++    recordDecodeUnit(&qdu->decodeUnit);
++#endif
++
+     *frameHandle = qdu;
+     *decodeUnit = &qdu->decodeUnit;
+     return true;

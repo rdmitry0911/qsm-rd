@@ -1,0 +1,52 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# One PVE-aware terminal broker.  PVE's protected API endpoint authorizes
+# ``VM.Console`` and reaches this process through a root-only Unix socket;
+# PVE cookies, passwords, CSRF values, and other bearer credentials never
+# enter it.
+set -eu
+
+if [ -z "${QSUNSHINE_TERMINAL_SERVER_CERT:-}" ] || \
+   [ -z "${QSUNSHINE_TERMINAL_SERVER_KEY:-}" ] || \
+   [ -z "${QSUNSHINE_TERMINAL_TICKET_KEY:-}" ] || \
+   [ -z "${QSUNSHINE_TERMINAL_DESCRIPTOR_CA_FILE:-}" ] || \
+   [ -z "${QSUNSHINE_TERMINAL_NODE_ENDPOINTS_FILE:-}" ]; then
+    echo "q-sunshine-terminal: TLS, ticket, descriptor CA, and node map are required" >&2
+    exit 2
+fi
+
+absolute_path() {
+    case "$1" in
+        /*) return 0 ;;
+        *) echo "q-sunshine-terminal: a configured path must be absolute" >&2; exit 2 ;;
+    esac
+}
+
+absolute_path "$QSUNSHINE_TERMINAL_SERVER_CERT"
+absolute_path "$QSUNSHINE_TERMINAL_SERVER_KEY"
+absolute_path "$QSUNSHINE_TERMINAL_TICKET_KEY"
+absolute_path "$QSUNSHINE_TERMINAL_DESCRIPTOR_CA_FILE"
+absolute_path "$QSUNSHINE_TERMINAL_NODE_ENDPOINTS_FILE"
+
+set -- \
+    --server-cert "$QSUNSHINE_TERMINAL_SERVER_CERT" \
+    --server-key "$QSUNSHINE_TERMINAL_SERVER_KEY" \
+    --ticket-key "$QSUNSHINE_TERMINAL_TICKET_KEY" \
+    --descriptor-ca-file "$QSUNSHINE_TERMINAL_DESCRIPTOR_CA_FILE" \
+    --node-endpoints-file "$QSUNSHINE_TERMINAL_NODE_ENDPOINTS_FILE" \
+    --listen-host "${QSUNSHINE_TERMINAL_LISTEN_HOST:-127.0.0.1}" \
+    --listen-port "${QSUNSHINE_TERMINAL_LISTEN_PORT:-48123}" \
+    --transport-bind-host "${QSUNSHINE_TERMINAL_TRANSPORT_BIND_HOST:-127.0.0.1}" \
+    --instance-directory "${QSUNSHINE_TERMINAL_INSTANCE_DIRECTORY:-/etc/q-sunshine/instances.d}" \
+    --runtime-directory "${QSUNSHINE_TERMINAL_RUNTIME_DIRECTORY:-/run/q-sunshine-terminal/workers}" \
+    --vm-runtime-directory "${QSUNSHINE_TERMINAL_VM_RUNTIME_DIRECTORY:-/run/q-sunshine}" \
+    --state-directory "${QSUNSHINE_TERMINAL_STATE_DIRECTORY:-/var/lib/q-sunshine}" \
+    --ticket-ttl-seconds "${QSUNSHINE_TERMINAL_TICKET_TTL_SECONDS:-600}" \
+    --descriptor-ttl-seconds "${QSUNSHINE_TERMINAL_DESCRIPTOR_TTL_SECONDS:-60}" \
+    --max-concurrent-requests "${QSUNSHINE_TERMINAL_MAX_CONCURRENT_REQUESTS:-16}"
+
+if [ -n "${QSUNSHINE_TERMINAL_LOCAL_NODE:-}" ]; then
+    set -- "$@" --local-node "$QSUNSHINE_TERMINAL_LOCAL_NODE"
+fi
+
+exec /usr/bin/python3 /usr/lib/q-sunshine/terminal_server/q_sunshine_terminal.py "$@"

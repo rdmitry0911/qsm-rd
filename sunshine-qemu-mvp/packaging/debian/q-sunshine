@@ -10,6 +10,15 @@ if [ ! -x "$binary" ]; then
     exit 127
 fi
 
+# Introspection must remain usable before a VM has been provisioned.  In
+# particular, package-manager smoke tests and an administrator diagnosing an
+# inactive transport need the version without inventing lease credentials.
+# Keep this deliberately narrow: every actual worker invocation still flows
+# through the complete Proxmox-owned material validation below.
+if [ "$#" -eq 1 ] && { [ "$1" = "--version" ] || [ "$1" = "--help" ]; }; then
+    exec "$binary" "$1"
+fi
+
 # The qemu_dbus capture path never consumes a desktop session.  Clearing these
 # avoids accidentally inheriting a Proxmox shell's graphical environment.
 if [ "${QSUNSHINE_KEEP_DISPLAY_ENV:-0}" != "1" ]; then
@@ -39,41 +48,48 @@ if [ -n "${QSUNSHINE_ENCODER:-}" ]; then
     esac
 fi
 
-# The native GameStream lease path is a strict all-or-nothing transition. If
-# authd has a configured issuer, Sunshine must receive the same VM CA/audience
-# and must disable its paired-certificate/PIN fallback. A partial Environment-
-# File is a startup error, not a reason to launch legacy pairing accidentally.
-if [ -n "${QSUNSHINE_GAMESTREAM_LEASE_ISSUER:-}" ] || \
-   [ -n "${QSUNSHINE_GAMESTREAM_LEASE_CA_CERT:-}" ] || \
-   [ -n "${QSUNSHINE_GAMESTREAM_LEASE_CA_KEY:-}" ] || \
-   [ -n "${QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_CERT:-}" ] || \
-   [ -n "${QSUNSHINE_GAMESTREAM_LEASE_TTL_SECONDS:-}" ]; then
-    if [ -z "${QSUNSHINE_GAMESTREAM_LEASE_ISSUER:-}" ] || \
-       [ -z "${QSUNSHINE_GAMESTREAM_LEASE_CA_CERT:-}" ] || \
-       [ -z "${QSUNSHINE_GAMESTREAM_LEASE_CA_KEY:-}" ] || \
-       [ -z "${QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_CERT:-}" ] || \
-       [ -z "${QSUNSHINE_GAMESTREAM_LEASE_TTL_SECONDS:-}" ] || \
-       [ -z "${QSUNSHINE_AUTH_AUDIENCE:-}" ]; then
-        echo "q-sunshine: complete GameStream lease config and QSUNSHINE_AUTH_AUDIENCE are required together" >&2
-        exit 2
-    fi
-    case "$QSUNSHINE_GAMESTREAM_LEASE_CA_CERT" in
+# The terminal parent validates and retains the lease issuer/CA private key.
+# Sunshine itself needs only the VM lease CA, its fixed audience, and an
+# explicit pre-provisioned GameStream server key pair. Requiring that pair
+# prevents a first-launch race with Sunshine's legacy auto-generated pairing
+# certificate and disables PIN pairing rather than falling back to it.
+if [ -z "${QSUNSHINE_GAMESTREAM_LEASE_CA_CERT:-}" ] || \
+   [ -z "${QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_CERT:-}" ] || \
+   [ -z "${QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_KEY:-}" ] || \
+   [ -z "${QSUNSHINE_AUTH_AUDIENCE:-}" ]; then
+    echo "q-sunshine: complete native GameStream server material and QSUNSHINE_AUTH_AUDIENCE are required" >&2
+    exit 2
+fi
+
+case "$QSUNSHINE_GAMESTREAM_LEASE_CA_CERT" in
         /*) ;;
         *)
             echo "q-sunshine: QSUNSHINE_GAMESTREAM_LEASE_CA_CERT must be an absolute path" >&2
             exit 2
             ;;
-    esac
-    case "$QSUNSHINE_AUTH_AUDIENCE" in
+esac
+case "$QSUNSHINE_AUTH_AUDIENCE" in
         [!A-Za-z0-9]*|*[!A-Za-z0-9_.:-]* )
             echo "q-sunshine: QSUNSHINE_AUTH_AUDIENCE is invalid" >&2
             exit 2
             ;;
+esac
+for qsunshine_server_path in \
+    "$QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_CERT" \
+    "$QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_KEY"; do
+    case "$qsunshine_server_path" in
+        /*) ;;
+        *)
+            echo "q-sunshine: GameStream server paths must be absolute" >&2
+            exit 2
+            ;;
     esac
-    set -- "$@" \
-        qsm_system_auth_mode=enabled \
-        "qsm_system_auth_ca=$QSUNSHINE_GAMESTREAM_LEASE_CA_CERT" \
-        "qsm_system_auth_audience=$QSUNSHINE_AUTH_AUDIENCE"
-fi
+done
+set -- "$@" \
+    qsm_system_auth_mode=enabled \
+    "qsm_system_auth_ca=$QSUNSHINE_GAMESTREAM_LEASE_CA_CERT" \
+    "qsm_system_auth_audience=$QSUNSHINE_AUTH_AUDIENCE" \
+    "cert=$QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_CERT" \
+    "pkey=$QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_KEY"
 
 exec "$binary" "$@"

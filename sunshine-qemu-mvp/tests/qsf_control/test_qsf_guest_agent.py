@@ -35,10 +35,12 @@ class GuestAgentPtyTest(unittest.TestCase):
         )
         self.master, self.slave = pty.openpty()
         tty.setraw(self.slave)
+        self.device = self.path / "virtio-port"
+        os.symlink(os.ttyname(self.slave), self.device)
         self._buffer = bytearray()
         self.state = self.path / "state"
         self.process = subprocess.Popen(
-            [str(self.binary), "--device", os.ttyname(self.slave), "--state-dir", str(self.state)],
+            [str(self.binary), "--device", str(self.device), "--state-dir", str(self.state)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
@@ -89,6 +91,26 @@ class GuestAgentPtyTest(unittest.TestCase):
         if readable:
             self._buffer.extend(os.read(self.master, 65536))
             self.fail("guest agent unexpectedly emitted a line")
+
+    def _replace_transport(self) -> None:
+        """Model a QEMU socket-chardev peer going away and returning.
+
+        The agent is deliberately pointed at a stable pathname while the
+        underlying PTY changes.  Closing the old master gives its open slave
+        the same HUP/EOF class that virtio-serial reports when qsf-control is
+        retired; atomically retargeting the path lets the production retry
+        loop attach to the replacement transport.
+        """
+        replacement_master, replacement_slave = pty.openpty()
+        tty.setraw(replacement_slave)
+        replacement_link = self.path / "virtio-port.next"
+        os.symlink(os.ttyname(replacement_slave), replacement_link)
+        os.replace(replacement_link, self.device)
+
+        previous_master, previous_slave = self.master, self.slave
+        self.master, self.slave = replacement_master, replacement_slave
+        os.close(previous_master)
+        os.close(previous_slave)
 
     @staticmethod
     def _wire(data: bytes) -> str:
@@ -171,6 +193,13 @@ class GuestAgentPtyTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertEqual(self._command("CLIP_SET " + self._wire(payload)), "OK CLIP_SET")
                 self.assertEqual((self.state / "qsf-clipboard.txt").read_bytes(), payload)
+
+    def test_reopens_the_virtio_transport_after_peer_disconnect(self) -> None:
+        self.assertEqual(self._command("PING"), "OK PONG")
+        self._replace_transport()
+        self.assertEqual(self._line(timeout=4), "READY QSF1")
+        self.assertIsNone(self.process.poll(), "guest agent exited after transport HUP")
+        self.assertEqual(self._command("PING"), "OK PONG")
 
     def test_guest_applies_only_pair_configuration_within_its_display_capabilities(self) -> None:
         self.assertEqual(self._command("CONNECTION_OPTIMIZE"),

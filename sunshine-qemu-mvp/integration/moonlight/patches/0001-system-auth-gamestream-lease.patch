@@ -200,7 +200,7 @@ new file mode 100644
 index 0000000..9516c30
 --- /dev/null
 +++ b/app/backend/gamestreamlease.cpp
-@@ -0,0 +1,649 @@
+@@ -0,0 +1,676 @@
 +// SPDX-License-Identifier: GPL-3.0-or-later
 +// PIN-free, short-lived GameStream mTLS identity acquisition for q-sunshine.
 +
@@ -245,6 +245,12 @@ index 0000000..9516c30
 +constexpr int kRequestTimeoutMs = 12 * 1000;
 +constexpr qint64 kMinimumLeaseRemainingMs = 30 * 1000;
 +constexpr qint64 kMaximumLeaseLifetimeMs = 15 * 60 * 1000 + 30 * 1000;
++// The terminal and client authenticate each other with TLS before the lease
++// exchange, but a VM can still be a few seconds ahead while NTP settles. A
++// freshly issued leaf must not be rejected merely because its notBefore is
++// slightly ahead of the client clock. Keep this equal to the descriptor clock
++// guard; a certificate farther in the future remains invalid.
++constexpr qint64 kMaximumCertificateClockSkewMs = 30 * 1000;
 +
 +constexpr const char* kAuthHost = "QSM_GAMESTREAM_AUTH_HOST";
 +constexpr const char* kAuthPort = "QSM_GAMESTREAM_AUTH_PORT";
@@ -531,6 +537,27 @@ index 0000000..9516c30
 +    return matches;
 +}
 +
++bool certificateNotBeforeWithinClockSkew(X509* certificate)
++{
++    if (certificate == nullptr) {
++        return false;
++    }
++    struct tm notBefore = {};
++    if (ASN1_TIME_to_tm(X509_get0_notBefore(certificate), &notBefore) != 1) {
++        return false;
++    }
++#ifdef Q_OS_WIN
++    const time_t seconds = static_cast<time_t>(_mkgmtime64(&notBefore));
++#else
++    const time_t seconds = timegm(&notBefore);
++#endif
++    if (seconds <= 0 || seconds > std::numeric_limits<qint64>::max() / 1000) {
++        return false;
++    }
++    return static_cast<qint64>(seconds) * 1000 <=
++           QDateTime::currentMSecsSinceEpoch() + kMaximumCertificateClockSkewMs;
++}
++
 +bool verifyClientCertificateProfile(const QByteArray& certificatePem, const QByteArray& privateKeyPem,
 +                                    const QString& audience)
 +{
@@ -548,7 +575,7 @@ index 0000000..9516c30
 +    const QByteArray expectedUri = QByteArray("urn:q-sunshine:aud:") + audience.toUtf8();
 +
 +    if (certificate == nullptr || !verifyPrivateKeyMatchesCertificate(certificatePem, privateKeyPem) ||
-+        X509_cmp_current_time(X509_get0_notBefore(certificate)) > 0 ||
++        !certificateNotBeforeWithinClockSkew(certificate) ||
 +        X509_cmp_current_time(X509_get0_notAfter(certificate)) <= 0) {
 +        goto done;
 +    }

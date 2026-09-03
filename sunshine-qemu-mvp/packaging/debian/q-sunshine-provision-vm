@@ -1,0 +1,103 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Create the root-only native GameStream lease material for one PVE VM before
+# q-sunshine-terminal starts its first Sunshine worker.  This deliberately
+# does not create PVE users, passwords, pairing state, or client keys.
+set -eu
+
+usage() {
+    echo "usage: q-sunshine-provision-vm <VMID>" >&2
+    exit 2
+}
+
+[ "$(id -u)" -eq 0 ] || {
+    echo "q-sunshine-provision-vm: must run as root" >&2
+    exit 1
+}
+[ "$#" -eq 1 ] || usage
+
+vmid=$1
+case "$vmid" in
+    *[!0-9]*|'') usage ;;
+esac
+if [ "$vmid" -lt 100 ] || [ "$vmid" -gt 999999999 ]; then
+    usage
+fi
+
+command -v openssl >/dev/null 2>&1 || {
+    echo "q-sunshine-provision-vm: openssl is required" >&2
+    exit 1
+}
+
+material_dir="/etc/q-sunshine/vms/$vmid"
+
+prepare_directory() {
+    directory=$1
+    if [ -L "$directory" ]; then
+        echo "q-sunshine-provision-vm: refusing symlinked directory $directory" >&2
+        exit 1
+    fi
+    install -d -o root -g root -m 0700 "$directory"
+    if [ -L "$directory" ] || [ ! -d "$directory" ] || \
+       [ "$(stat -c %u "$directory")" != 0 ]; then
+        echo "q-sunshine-provision-vm: unsafe directory $directory" >&2
+        exit 1
+    fi
+    chmod 0700 "$directory"
+}
+
+prepare_directory /etc/q-sunshine
+prepare_directory /etc/q-sunshine/vms
+if [ -e "$material_dir" ] && [ ! -d "$material_dir" ]; then
+    echo "q-sunshine-provision-vm: unsafe material path $material_dir" >&2
+    exit 1
+fi
+for material_file in \
+    "$material_dir/gamestream-ca.crt" \
+    "$material_dir/gamestream-ca.key" \
+    "$material_dir/sunshine-server.crt" \
+    "$material_dir/sunshine-server.key"; do
+    if [ -e "$material_file" ]; then
+        echo "q-sunshine-provision-vm: refusing to overwrite $material_file" >&2
+        exit 1
+    fi
+done
+
+umask 077
+prepare_directory "$material_dir"
+
+cleanup() {
+    rm -f -- "$material_dir/gamestream-ca.crt" \
+        "$material_dir/gamestream-ca.key" \
+        "$material_dir/sunshine-server.crt" \
+        "$material_dir/sunshine-server.key"
+}
+trap cleanup 0 HUP INT TERM
+
+# The lease issuer requires an RSA-3072-or-stronger CA.  The lease CA signs
+# only short-lived client-auth leaves; the stable GameStream server identity
+# remains RSA-2048 for conservative Sunshine/Moonlight interoperability.
+openssl req -x509 -newkey rsa:3072 -nodes -sha256 -days 3650 \
+    -subj "/CN=q-sunshine VM $vmid GameStream lease CA" \
+    -addext 'basicConstraints=critical,CA:TRUE' \
+    -addext 'keyUsage=critical,keyCertSign,cRLSign' \
+    -keyout "$material_dir/gamestream-ca.key" \
+    -out "$material_dir/gamestream-ca.crt" >/dev/null 2>&1
+openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 825 \
+    -subj "/CN=q-sunshine VM $vmid GameStream" \
+    -addext 'basicConstraints=critical,CA:FALSE' \
+    -addext 'keyUsage=critical,digitalSignature,keyEncipherment' \
+    -keyout "$material_dir/sunshine-server.key" \
+    -out "$material_dir/sunshine-server.crt" >/dev/null 2>&1
+chmod 0600 "$material_dir/gamestream-ca.key" "$material_dir/sunshine-server.key"
+chmod 0644 "$material_dir/gamestream-ca.crt" "$material_dir/sunshine-server.crt"
+trap - 0 HUP INT TERM
+
+cat <<EOF
+q-sunshine native GameStream material is ready for VM $vmid:
+  QSUNSHINE_GAMESTREAM_LEASE_CA_CERT=$material_dir/gamestream-ca.crt
+  QSUNSHINE_GAMESTREAM_LEASE_CA_KEY=$material_dir/gamestream-ca.key
+  QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_CERT=$material_dir/sunshine-server.crt
+  QSUNSHINE_GAMESTREAM_LEASE_SUNSHINE_SERVER_KEY=$material_dir/sunshine-server.key
+EOF

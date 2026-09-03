@@ -111,7 +111,8 @@ def load_ticket_key(path: Path, *, require_root_owner: bool = False) -> bytes:
 
 
 def _open_tls_material(path: Path, *, private_key: bool,
-                       require_root_owner: bool) -> int:
+                       require_root_owner: bool,
+                       allow_root_group_readable_private_key: bool = False) -> int:
     """Open one non-symlink TLS file and retain its checked descriptor.
 
     ``SSLContext.load_cert_chain()`` normally reopens pathnames after caller
@@ -128,7 +129,13 @@ def _open_tls_material(path: Path, *, private_key: bool,
         raise AuthError("cannot load TLS server material") from error
     try:
         metadata = os.fstat(descriptor)
+        # PVE's proxy key is intentionally root:www-data 0640: pveproxy
+        # needs the group-read bit.  Only a caller that has bound this narrow
+        # exception to PVE's exact proxy paths may opt in; all other private
+        # keys keep the normal mode-0600 requirement.
         unsafe_mode = 0o077 if private_key else 0o022
+        if private_key and allow_root_group_readable_private_key:
+            unsafe_mode = 0o037
         if (not stat.S_ISREG(metadata.st_mode) or metadata.st_mode & unsafe_mode or
                 (require_root_owner and metadata.st_uid != 0)):
             raise AuthError("TLS server material must be root-owned regular files with safe modes")
@@ -140,19 +147,23 @@ def _open_tls_material(path: Path, *, private_key: bool,
 
 def load_tls_server_cert_chain(context: Any, certificate_path: Path,
                                private_key_path: Path, *,
-                               require_root_owner: bool = False) -> None:
+                               require_root_owner: bool = False,
+                               allow_root_group_readable_private_key: bool = False) -> None:
     """Load a TLS leaf/key only from checked Linux descriptors.
 
     A public certificate may be readable, but neither file may be group/world
     writable; the key also must be inaccessible to group/other. Root-run
-    packaged services require root ownership of both files.
+    packaged services require root ownership of both files.  The optional
+    PVE-compatible mode permits group-read only, never group-write/execute
+    or any access for other users; callers must not expose it generally.
     """
     certificate_descriptor = _open_tls_material(
         certificate_path, private_key=False, require_root_owner=require_root_owner)
     private_key_descriptor = -1
     try:
         private_key_descriptor = _open_tls_material(
-            private_key_path, private_key=True, require_root_owner=require_root_owner)
+        private_key_path, private_key=True, require_root_owner=require_root_owner,
+        allow_root_group_readable_private_key=allow_root_group_readable_private_key)
         context.load_cert_chain(
             certfile=f"/proc/self/fd/{certificate_descriptor}",
             keyfile=f"/proc/self/fd/{private_key_descriptor}",
@@ -163,6 +174,18 @@ def load_tls_server_cert_chain(context: Any, certificate_path: Path,
         if private_key_descriptor >= 0:
             os.close(private_key_descriptor)
         os.close(certificate_descriptor)
+
+
+def is_pve_proxy_tls_material(certificate_path: Path, private_key_path: Path) -> bool:
+    """Return true only for PVE's documented proxy certificate/key paths.
+
+    PVE stores these final files in pmxcfs as root:www-data 0640.  This
+    lexical comparison deliberately does not resolve caller-controlled paths;
+    `_open_tls_material()` still opens a checked no-follow descriptor before
+    OpenSSL sees either file.
+    """
+    return (str(certificate_path) == "/etc/pve/local/pve-ssl.pem" and
+            str(private_key_path) == "/etc/pve/local/pve-ssl.key")
 
 
 def issue_ticket(key: bytes, *, subject: str, audience: str, ttl_seconds: int,

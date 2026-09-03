@@ -52,7 +52,7 @@ fi
 [[ -n "$MOONLIGHT_GIT_URL" ]] || die "QSUNSHINE_MOONLIGHT_GIT_URL is empty"
 [[ -f "$MOONLIGHT_PATCH" ]] || die "missing canonical Moonlight patch: $MOONLIGHT_PATCH"
 
-for required in cmake ninja ditto codesign hdiutil lipo shasum git python3 make strings; do
+for required in cmake ninja ditto codesign hdiutil lipo plutil shasum git python3 make strings; do
     require_command "$required"
 done
 
@@ -199,6 +199,18 @@ assert_architectures "$launcher_binary"
 "$macdeployqt" "$app_bundle" \
     -qmldir="$ROOT_DIR/clients/qsunshine-qt/qml" \
     -always-overwrite
+info_plist="$app_bundle/Contents/Info.plist"
+[[ -f "$info_plist" ]] || die "q-sunshine bundle has no Info.plist"
+plutil -lint "$info_plist" >/dev/null
+plutil -extract CFBundleDocumentTypes xml1 -o - "$info_plist" |
+    grep -F '<string>qsm</string>' >/dev/null ||
+    die "q-sunshine bundle does not register .qsm document opens"
+plutil -extract UTExportedTypeDeclarations xml1 -o - "$info_plist" |
+    grep -F '<string>io.qsunshine.pve-launch</string>' >/dev/null ||
+    die "q-sunshine bundle does not export its .qsm UTI"
+if plutil -extract CFBundleURLTypes raw -o - "$info_plist" >/dev/null 2>&1; then
+    die "q-sunshine bundle must not register a launch URL scheme"
+fi
 ditto "$moonlight_bundle" "$app_bundle/Contents/Resources/Moonlight.app"
 cp -p "$ROOT_DIR/LICENSE" "$app_bundle/Contents/Resources/LICENSE"
 

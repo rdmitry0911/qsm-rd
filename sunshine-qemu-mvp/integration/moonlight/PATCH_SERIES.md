@@ -22,3 +22,25 @@ The patch does not alter ordinary upstream Moonlight behavior when every
 `QSM_GAMESTREAM_*` variable is absent. q-sunshine's production launcher always
 supplies the full set and the explicit marker; it therefore has no legacy
 fallback.
+
+`0002-browser-encoded-video-tap.patch` is applied after it. It adds an
+explicit internal output contract for the browser bridge:
+
+- `QSM_BROWSER_VIDEO_RECORD_PATH` and `QSM_BROWSER_AUDIO_RECORD_PATH` accept
+  either an owner-private recording pathname (qualification fallback) or a
+  `unix:/absolute/path` local `SOCK_SEQPACKET` sink;
+- the local path carries bounded framed **encoded** H.264/HEVC/AV1 access
+  units and encoded Opus packets. It is read after GameStream decryption but
+  before presentation, so the WebRTC bridge packetizes the original encoder
+  output instead of decoding and re-encoding it;
+- an Opus configuration packet declares the negotiated samples-per-frame;
+  this preserves 5 ms versus 10 ms timing without guessing from payload size;
+- recorder storage remains owned by the Moonlight `Session` for the complete
+  connection lifetime;
+- FFmpeg's pull queue is observed at its consumer boundary rather than being
+  consumed a second time, so native presentation keeps its original threading
+  contract.
+
+The tap is intentionally local-only and carries no PVE credential, pairing
+identity, GameStream ticket, or QSF authority. The production WebRTC bridge
+uses the bounded local socket; the file form remains a forensic test sink.

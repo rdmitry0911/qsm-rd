@@ -117,6 +117,7 @@ signals:
 private:
     friend class ProfileNegotiationCoordinator;
     friend class QsfClientTestAccess;
+    friend class SystemAuthClient;
 
     struct Request {
         QString operation;
@@ -180,6 +181,12 @@ private:
     void scheduleClipboardRetry();
     void resetClipboardRetry();
     void clearPendingClipboard();
+    // Called only by SystemAuthClient after a terminal broker has
+    // authenticated the selected VM and supplied an authoritative QSF route.
+    // It is deliberately not Q_INVOKABLE: a QML caller must not be able to
+    // select the server that receives an in-memory VM ticket.
+    bool applyBrokerConfiguration(const QString& host, int port,
+                                  const QString& serverName, const QString& caFile);
     bool handleClipboardReply(const QJsonObject& result,
                               const QByteArray& requestLocalRevision);
     void enqueueLatestResizeIfNeeded();

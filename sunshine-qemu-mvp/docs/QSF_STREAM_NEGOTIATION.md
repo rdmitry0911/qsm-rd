@@ -6,8 +6,8 @@ the QEMU VirGL desktop. They are not interchangeable capability sources.
 
 | Participant | Authoritative information |
 | --- | --- |
-| Qt/Moonlight client | The size selected by the user, selected display refresh ceiling, and verified hardware/software decoder codecs. |
-| Sunshine host | Codecs which its live encoder probe accepted, plus a separately configured, tested encoder resolution/FPS/bitrate envelope. |
+| Browser (or compatibility Qt/Moonlight) client | The size selected by the user, selected display refresh ceiling, and verified hardware/software decoder codecs. |
+| Node direct media worker | Its actually initialized encoder plus a separately configured, tested resolution/FPS/bitrate envelope.  It may be NVIDIA NVENC, Intel QSV, VAAPI on Intel/AMD, or libx264 on CPU. |
 | QEMU/VirGL guest | The virtual display ceiling and the actual compositor scanout which it can apply. This is the guest screen capability, not a host encoder capability. |
 | QEMU Display1 | A preferred virtual mode request only; `Console.SetUIInfo` alone is not a scanout acknowledgement. |
 
@@ -18,18 +18,18 @@ a screen size from the host GPU or an NVIDIA device node.
 
 ## Safe client lifecycle
 
-A QSF display profile changes the same guest scanout from which Sunshine is
+A QSF display profile changes the same guest scanout from which the media worker is
 capturing. It must not be negotiated beneath a live old stream. The Qt shell
 allows **Choose optimal stream profile** only while a visible Moonlight stream
 has a verified normal QSF session, then performs this handoff:
 
 1. End normal QSF and cancel its clipboard, file-transfer, and diagnostic
    resize requests.
-2. Stop the visible Moonlight process, wait for it to exit, and wait a bounded
+2. Stop the visible transport session, wait for it to exit, and wait a bounded
    host capture-retirement interval before touching the guest mode.
-3. Establish a temporary TLS 1.3 mTLS **profile-only** lease. It can perform
-   only `connection_optimize`; it cannot move clipboard or file data or submit
-   a standalone resize.
+3. Establish a temporary broker-authorized TLS **profile-only** QSF session.
+   It can perform only `connection_optimize`; it cannot move clipboard or file
+   data or submit a standalone resize.
 4. Complete the broker/guest transaction below. On success, close that
    temporary lease before launching a fresh Moonlight process with the resolved
    profile.
@@ -66,7 +66,7 @@ after a marker was restored or mutate a profile beneath an in-flight guest
 acknowledgement.
 The public writable QSF `sessionActive` property is covered too: both an
 activation and a deactivation are status-only refusals while the guard is
-live. Only the coordinator's private lease teardown can close the mTLS socket,
+live. Only the coordinator's private lease teardown can close the QSF TLS socket,
 so a direct `sessionActive = false` cannot discard the authoritative reply
 after `connection_optimize` has reached the broker.
 
@@ -77,9 +77,9 @@ change and does not bypass this lifecycle.
 ## Transaction
 
 1. The Qt client sends its selected size, display refresh ceiling, and
-   verified decoder codecs over the mTLS QSF gateway.
+   verified decoder codecs over the broker-authorized QSF TLS gateway.
 2. The guest replies with its display ceiling.  The broker intersects it with
-   the explicit tested Sunshine encoder envelope and client information.
+   the explicit tested node encoder envelope and client information.
 3. `PAIR_CAPABILITIES` validates the result in the static guest agent and
    returns `CONNECTION_PROFILE_ACCEPTED` with a unique generation.  Nothing
    in the guest desktop changes yet.
@@ -135,10 +135,12 @@ current mode. The adapter never
 uses `eval`, accepts only the canonical profile schema, and refuses to publish
 an acknowledgement if a newer generation replaced the snapshot.
 
-## Host encoder envelope
+## Node encoder envelope
 
 Do not infer NVENC or an encoding ceiling from `/dev/nvidia*`, `/dev/dri`, CPU
-count, KVM, or an LXC device passthrough.  Configure a tested per-VM envelope:
+count, KVM, or an LXC device passthrough. Configure a tested per-VM envelope;
+the direct worker separately runs a small real H.264 initialization before it
+claims an encoder:
 
 ```ini
 QSUNSHINE_QSF_HOST_MAX_WIDTH=3840
@@ -148,13 +150,25 @@ QSUNSHINE_QSF_HOST_MAX_BITRATE_KBPS=45000
 QSUNSHINE_QSF_HOST_ENCODER_CODECS=H264,HEVC,AV1
 ```
 
-Optionally add a loopback Sunshine endpoint:
+The default selector is `NVENC → QSV → VAAPI → libx264`; it has no X11,
+Wayland, or desktop-audio dependency. Set an exact fail-closed policy only if
+needed for operations:
+
+```ini
+QSUNSHINE_QSF_ENCODER_PROBE=direct
+QSUNSHINE_DIRECT_ENCODER=auto
+# QSUNSHINE_DIRECT_ENCODER=vaapi
+# QSUNSHINE_DIRECT_VAAPI_RENDER_NODE=/dev/dri/renderD128
+```
+
+The former Sunshine endpoint remains only for the native GameStream
+compatibility worker, and is opt-in:
 
 ```ini
 QSUNSHINE_QSF_SUNSHINE_SERVERINFO_URL=http://127.0.0.1:47990/serverinfo
 ```
 
-The broker then intersects those configured codecs with the actual
+In that compatibility mode the broker intersects those configured codecs with the actual
 `ServerCodecModeSupport` returned by Sunshine.  `/serverinfo` does not expose
 a reliable maximum resolution, FPS, bitrate, or hardware/throughput claim, so
 the tested envelope remains mandatory.  HTTPS requires

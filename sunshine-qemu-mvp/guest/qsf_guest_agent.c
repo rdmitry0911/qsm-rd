@@ -18,6 +18,7 @@
 #include <poll.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +32,11 @@ enum {
   max_file_bytes = 2 * 1024 * 1024,
   max_wire_bytes = 4 * 1024 * 1024,
   capability_protocol_version = 2,
+  /* A QEMU socket chardev deliberately reports HUP when the host-side
+   * controller goes away.  Keep the guest endpoint alive and reopen its
+   * virtio port after a short bounded pause instead of treating a terminal
+   * worker restart as a guest shutdown. */
+  agent_reconnect_pause_ns = 100L * 1000L * 1000L,
 };
 
 /* A generation makes a compositor acknowledgement unambiguously belong to
@@ -848,6 +854,68 @@ static int initialize_state(struct agent_state *state, const char *device, const
   return state->fd < 0 ? -1 : 0;
 }
 
+static void reset_transport_state(struct agent_state *state) {
+  /* A profile exchange is a single host-controller transaction.  Do not let
+   * a reconnect complete a partially received transaction from a previous
+   * controller; the durable profile files remain available to the desktop
+   * adapter, while this connection-local protocol state is discarded. */
+  state->pending_profile_valid = false;
+  state->pending_profile_committed = false;
+  memset(&state->pending_profile, 0, sizeof(state->pending_profile));
+  memset(state->pending_profile_codec, 0, sizeof(state->pending_profile_codec));
+}
+
+static void reconnect_pause(void) {
+  struct timespec remaining = {
+    .tv_sec = 0,
+    .tv_nsec = agent_reconnect_pause_ns,
+  };
+  while (nanosleep(&remaining, &remaining) != 0 && errno == EINTR) {
+  }
+}
+
+static bool serve_transport(struct agent_state *state) {
+  write_line(state->fd, "READY ", "QSF1");
+
+  char *line = malloc(max_wire_bytes + 1U);
+  size_t line_size = 0;
+  if (line == NULL) {
+    return false;
+  }
+  for (;;) {
+    const struct pollfd descriptor = {.fd = state->fd, .events = POLLIN, .revents = 0};
+    const int ready = poll((struct pollfd *) &descriptor, 1U, 250);
+    if (ready < 0 && errno == EINTR) {
+      continue;
+    }
+    if (ready < 0 || (descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+      break;
+    }
+    if (ready > 0 && (descriptor.revents & POLLIN) != 0) {
+      char buffer[4096];
+      const ssize_t amount = read(state->fd, buffer, sizeof(buffer));
+      if (amount <= 0) {
+        break;
+      }
+      for (ssize_t index = 0; index < amount; ++index) {
+        if (buffer[index] == '\n') {
+          line[line_size] = '\0';
+          handle_command(state, line);
+          line_size = 0;
+        } else if (line_size < max_wire_bytes) {
+          line[line_size++] = buffer[index];
+        } else {
+          line_size = 0;
+          write_line(state->fd, "ERR ", "LINE_TOO_LONG");
+        }
+      }
+    }
+    poll_guest_clipboard(state);
+  }
+  free(line);
+  return true;
+}
+
 int main(int argc, char **argv) {
   const char *device = "/dev/virtio-ports/org.q-sunshine.agent";
   const char *state_dir = "/tmp/qsf";
@@ -868,45 +936,28 @@ int main(int argc, char **argv) {
     fprintf(stderr, "qsf-guest-agent: initialization failed: %s\n", strerror(errno));
     return 1;
   }
-  write_line(state.fd, "READY ", "QSF1");
-
-  char *line = malloc(max_wire_bytes + 1U);
-  size_t line_size = 0;
-  if (line == NULL) {
-    close(state.fd);
-    return 1;
-  }
+  /* A disconnected Unix-socket chardev may otherwise raise SIGPIPE while the
+   * guest is reporting READY or an unsolicited clipboard event.  Treat it as
+   * the ordinary reconnect condition handled below. */
+  (void) signal(SIGPIPE, SIG_IGN);
   for (;;) {
-    const struct pollfd descriptor = {.fd = state.fd, .events = POLLIN, .revents = 0};
-    const int ready = poll((struct pollfd *) &descriptor, 1U, 250);
-    if (ready < 0 && errno == EINTR) {
-      continue;
+    if (!serve_transport(&state)) {
+      close(state.fd);
+      return 1;
     }
-    if (ready < 0 || (descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
-      break;
-    }
-    if (ready > 0 && (descriptor.revents & POLLIN) != 0) {
-      char buffer[4096];
-      const ssize_t amount = read(state.fd, buffer, sizeof(buffer));
-      if (amount <= 0) {
-        break;
-      }
-      for (ssize_t index = 0; index < amount; ++index) {
-        if (buffer[index] == '\n') {
-          line[line_size] = '\0';
-          handle_command(&state, line);
-          line_size = 0;
-        } else if (line_size < max_wire_bytes) {
-          line[line_size++] = buffer[index];
-        } else {
-          line_size = 0;
-          write_line(state.fd, "ERR ", "LINE_TOO_LONG");
-        }
-      }
-    }
-    poll_guest_clipboard(&state);
+    close(state.fd);
+    state.fd = -1;
+    reset_transport_state(&state);
+
+    /* The terminal worker is intentionally created and retired separately
+     * from the VM.  A host-side QSF controller can therefore disappear while
+     * the guest stays up, and a VM reboot can make the path briefly absent
+     * while the controller remains alive.  Reopen the same fixed virtio port
+     * until the peer is present again; no data or controller identity crosses
+     * this boundary during the retry. */
+    do {
+      reconnect_pause();
+      state.fd = open(device, O_RDWR | O_CLOEXEC | O_NOCTTY);
+    } while (state.fd < 0);
   }
-  free(line);
-  close(state.fd);
-  return 0;
 }

@@ -6,9 +6,11 @@ Comment:
  The packaged Sunshine executable is built from Sunshine revision
  v2026.830.223700 base 4f39fc116294abf8241bcd30e1b1e23d371e6e7b with the
  q-sunshine ordered QEMU Display1 patch series 0001 through 0008, plus the
- nested Simple-Web-Server request-TLS-handle patch. Patch 0008 replaces PIN
- pairing with system-auth media-lease admission and is pinned as SHA-256
- 35603f17e961809391d96ea155741d333b3f9d8d47d53bde4035f880c597e9ef; its
+ nested Simple-Web-Server request-TLS-handle patch. Patch 0008 is the complete
+ transport-only PVE profile: it replaces PIN pairing and host application
+ control with system-auth media-lease admission and one fixed QEMU Console
+ endpoint. It is pinned as SHA-256
+ daa34c1afcc47162762eaeef91f3cc3e2fd507a1e38966a50abb33d5082920b9; its
  nested dependency is pinned as SHA-256
  7c978eaa72a3077fa46f03dc322abd26ac0db0e17cd8be525227cc0976cff2e9.
  Build provenance also pins the LizardByte build-deps release v2026.724.203728
@@ -48,8 +50,12 @@ License: Expat
  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
  IN THE SOFTWARE.
 
-Files: usr/lib/q-sunshine/qsf/* usr/share/q-sunshine/guest/* usr/bin/q-sunshine*
-       usr/share/doc/q-sunshine-pve/* usr/lib/systemd/system/q-sunshine*
+Files: usr/lib/q-sunshine/qsf/* usr/lib/q-sunshine/system_auth/*
+       usr/lib/q-sunshine/gamestream_auth/* usr/lib/q-sunshine/terminal_server/*
+       usr/lib/q-sunshine/pve9-ui/* usr/lib/q-sunshine/bin/q-sunshine-*
+       usr/share/q-sunshine/* usr/share/pve-manager/js/q-sunshine-console.js
+       usr/bin/q-sunshine* usr/sbin/q-sunshine* usr/share/doc/q-sunshine-pve/*
+       usr/lib/systemd/system/q-sunshine*
 Copyright: 2026 q-sunshine contributors
 License: GPL-3+
  On Debian systems, the complete text of the GNU General Public License

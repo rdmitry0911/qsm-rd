@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <sys/types.h>
 
@@ -17,14 +18,17 @@ struct FfmpegSoftwareOptions {
     std::string filename_prefix {"qemu-software"};
     std::string ffmpeg_binary {"ffmpeg"};
     std::string video_encoder {"libx264"};
+    // Required only for h264_vaapi. A render node is an encoder-host resource,
+    // never a guest display capability.
+    std::optional<std::filesystem::path> vaapi_device;
     std::uint32_t fps {30U};
 };
 
-// Diagnostic software-encoding adapter. It deliberately uses ffmpeg as a
-// subprocess, so the no-GPU vertical slice can produce a real H.264 Matroska
-// stream without libavcodec development headers. Production networking remains
-// Sunshine's responsibility; this class validates everything up to its CPU
-// encoder boundary.
+// Diagnostic encoded-media adapter. It deliberately uses ffmpeg as a
+// subprocess, so the CPU baseline and the hardware-init smoke paths produce a
+// real H.264 Matroska stream without libavcodec development headers. Production
+// networking is deliberately outside this class; it validates QEMU Display1 up
+// to an actual H.264 encoder boundary.
 class FfmpegSoftwareAdapter final : public ISunshineAdapter {
 public:
     explicit FfmpegSoftwareAdapter(FfmpegSoftwareOptions options = {});

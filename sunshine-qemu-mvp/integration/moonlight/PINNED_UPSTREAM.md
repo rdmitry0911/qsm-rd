@@ -10,7 +10,7 @@ Moonlight binary must not be used as a fallback.
 | Upstream | `https://github.com/moonlight-stream/moonlight-qt.git` |
 | Revision | `0eff3b9b4dd685e07b15a383519e1972e626c9b3` |
 | Subject | `Update CI builds to Qt 6.11.2` |
-| Patch | `patches/0001-system-auth-gamestream-lease.patch` |
+| Patches | `patches/0001-system-auth-gamestream-lease.patch`, `patches/0002-browser-encoded-video-tap.patch` |
 | SHA-256 | `5d49b262ebd2ce138743b621f156acd5667d4643df68cf5e297098aea63b06d8` |
 
 Replay on a fresh checkout:
@@ -22,6 +22,8 @@ git checkout --detach 0eff3b9b4dd685e07b15a383519e1972e626c9b3
 git submodule update --init --recursive
 git apply --check --index ../q-sunshine/integration/moonlight/patches/0001-system-auth-gamestream-lease.patch
 git apply --index ../q-sunshine/integration/moonlight/patches/0001-system-auth-gamestream-lease.patch
+git apply --check ../q-sunshine/integration/moonlight/patches/0002-browser-encoded-video-tap.patch
+git apply ../q-sunshine/integration/moonlight/patches/0002-browser-encoded-video-tap.patch
 git diff --check
 ```
 

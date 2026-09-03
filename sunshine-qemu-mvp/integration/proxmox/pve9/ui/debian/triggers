@@ -1,0 +1,17 @@
+# Reconcile after pve-manager changes its package-owned template.  dpkg file
+# triggers match the package's declared pathname before a local diversion.
+interest-noawait /usr/share/pve-manager/index.html.tpl
+# The API route has no supported PVE extension ABI.  When any reviewed PVE
+# implementation file changes, q-sunshine's postinst restarts its two service
+# wrappers; their exact profile then either re-registers the route or execs
+# the stock PVE daemon immediately.  Keep these as individual file triggers
+# (rather than a broad Perl directory) to avoid needless restarts.
+interest-noawait /usr/bin/pveproxy
+interest-noawait /usr/bin/pvedaemon
+interest-noawait /usr/share/perl5/PVE/API2/Qemu.pm
+interest-noawait /usr/share/perl5/PVE/QemuConfig.pm
+interest-noawait /usr/share/perl5/PVE/QemuServer.pm
+interest-noawait /usr/share/perl5/PVE/RPCEnvironment.pm
+interest-noawait /usr/share/perl5/PVE/JSONSchema.pm
+interest-noawait /usr/share/perl5/PVE/Service/pveproxy.pm
+interest-noawait /usr/share/perl5/PVE/Service/pvedaemon.pm

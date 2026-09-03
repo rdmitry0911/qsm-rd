@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "nodes": {
+    "pve": {
+      "host": "pve.example.invalid",
+      "port": 48123,
+      "server_name": "pve.example.invalid"
+    }
+  }
+}

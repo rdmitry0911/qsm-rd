@@ -1,0 +1,37 @@
+#!/bin/sh
+set -eu
+
+remove_pve_api_dropins_and_restart_stock() {
+    # These two paths are owned by this package.  Do not remove an /etc
+    # administrator override or a vendor pve-manager file.  Reload and restart
+    # while the package-owned launchers still exist, so every later PVE service
+    # start resolves directly to the vendor binary after package removal.
+    rm -f -- \
+        /usr/lib/systemd/system/pveproxy.service.d/q-sunshine-api.conf \
+        /usr/lib/systemd/system/pvedaemon.service.d/q-sunshine-api.conf
+
+    if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
+        return 0
+    fi
+    if ! systemctl daemon-reload; then
+        echo "q-sunshine-pve: could not reload systemd during removal" >&2
+        return 0
+    fi
+    if ! systemctl try-restart pvedaemon.service; then
+        echo "q-sunshine-pve: pvedaemon restart was skipped during removal" >&2
+        return 0
+    fi
+    if ! systemctl try-restart pveproxy.service; then
+        echo "q-sunshine-pve: pveproxy restart was skipped during removal" >&2
+    fi
+}
+
+# Restore the exact PVE template before dpkg removes the overlay asset. The
+# manager refuses an unknown/foreign diversion rather than leaving PVE with a
+# template that references a missing JavaScript file.
+case "${1:-}" in
+    remove|deconfigure|purge)
+        remove_pve_api_dropins_and_restart_stock
+        /usr/sbin/q-sunshine-pve-ui remove
+        ;;
+esac

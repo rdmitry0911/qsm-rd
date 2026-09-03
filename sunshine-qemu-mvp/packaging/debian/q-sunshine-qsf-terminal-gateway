@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Ticket-only QSF transport worker owned by q-sunshine-terminal. The VM
+# audience and ticket-key path are set only by the root-owned worker manager.
+set -eu
+
+if [ -z "${QSUNSHINE_AUTH_TICKET_KEY:-}" ] || [ -z "${QSUNSHINE_AUTH_AUDIENCE:-}" ]; then
+    echo "q-sunshine-qsf-terminal-gateway: VM ticket key and audience are required" >&2
+    exit 2
+fi
+
+exec /usr/bin/python3 /usr/lib/q-sunshine/qsf/qsf_tls_gateway.py "$@" \
+    --system-auth-ticket-key "$QSUNSHINE_AUTH_TICKET_KEY" \
+    --system-auth-audience "$QSUNSHINE_AUTH_AUDIENCE"

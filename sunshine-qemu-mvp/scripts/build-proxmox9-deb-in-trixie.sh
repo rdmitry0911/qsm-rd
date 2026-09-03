@@ -11,13 +11,22 @@ OUTPUT_DIR="${QSUNSHINE_DEB_OUTPUT_DIR:-$ROOT_DIR/dist}"
 DEBOOTSTRAP_MIRROR="${QSUNSHINE_DEBOOTSTRAP_MIRROR:-https://deb.debian.org/debian}"
 CHROOT_DIR="${QSUNSHINE_TRIXIE_CHROOT:-$(mktemp -d /var/tmp/q-sunshine-trixie.XXXXXX)}"
 SOURCE_ARCHIVE="$(mktemp /var/tmp/q-sunshine-trixie-source.XXXXXX.tar)"
+PVE_KEY_FILE="$(mktemp /var/tmp/q-sunshine-pve-release-key.XXXXXX)"
+
+# The Proxmox archive is part of the install smoke because the resulting
+# package explicitly depends on pve-manager and qemu-server.  Keep the
+# no-subscription source declarative and pin the downloaded release key bytes
+# before they become trusted by the disposable target userspace.
+readonly PVE_RELEASE_KEY_URL='https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg'
+readonly PVE_RELEASE_KEY_SHA256='1bcd2d5bab556076c9ea756a84fe2b7445b13f4ef6e97b2e412b68778377ba6d'
+readonly PVE_SOURCE_TEMPLATE="$ROOT_DIR/scripts/proxmox-pve9-no-subscription.sources"
 
 die() {
     echo "q-sunshine Trixie package driver: $*" >&2
     exit 1
 }
 
-for required in sudo debootstrap tar mktemp find mount umount mountpoint; do
+for required in sudo debootstrap tar mktemp find mount umount mountpoint curl sha256sum install; do
     command -v "$required" >/dev/null 2>&1 || die "missing required command: $required"
 done
 sudo -n true || die "passwordless sudo is required"
@@ -34,6 +43,7 @@ for required_path in \
     "$ROOT_DIR/integration/sunshine/patches/0008-nvhttp-require-system-auth-media-leases.patch" \
     "$ROOT_DIR/integration/sunshine/simple-web-server/0001-server-http-expose-request-tls-native-handle.patch" \
     "$ROOT_DIR/packaging/debian/build-proxmox9-deb.sh" \
+    "$PVE_SOURCE_TEMPLATE" \
     "$ROOT_DIR/docs/GAMESTREAM_LEASE_AUTH.md"; do
     [[ -f "$required_path" ]] || die "missing required source: $required_path"
 done
@@ -51,12 +61,22 @@ echo "Q_SUNSHINE_TRIXIE_BOOTSTRAP_START root=$CHROOT_DIR sunshine_revision=$suns
 sudo debootstrap --variant=minbase --arch=amd64 trixie "$CHROOT_DIR" "$DEBOOTSTRAP_MIRROR"
 sudo install -d -m 0755 "$CHROOT_DIR/work/source" "$CHROOT_DIR/work/out" "$CHROOT_DIR/work/build"
 
+curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+    --output "$PVE_KEY_FILE" "$PVE_RELEASE_KEY_URL"
+[[ "$(sha256sum "$PVE_KEY_FILE" | awk '{print $1}')" == "$PVE_RELEASE_KEY_SHA256" ]] ||
+    die 'Proxmox VE 9 release-key digest mismatch'
+sudo install -D -m 0644 "$PVE_KEY_FILE" \
+    "$CHROOT_DIR/usr/share/keyrings/proxmox-release-trixie.gpg"
+sudo install -D -m 0644 "$PVE_SOURCE_TEMPLATE" \
+    "$CHROOT_DIR/etc/apt/sources.list.d/q-sunshine-pve9-no-subscription.sources"
+
 # The external Sunshine worktree is deliberately exported without .git object
 # stores.  All initialized submodule contents remain in the source archive.
 tar --create --file "$SOURCE_ARCHIVE" --exclude-vcs --directory "$ROOT_DIR" \
     CMakeLists.txt LICENSE \
     .upstream/Sunshine .upstream/libva-2.21.0 \
-    packaging/debian extensions/qsf_control extensions/system_auth extensions/gamestream_auth guest integration/sunshine \
+    packaging/debian extensions/qsf_control extensions/system_auth extensions/gamestream_auth \
+    extensions/terminal_server guest integration/sunshine integration/proxmox \
     docs/QSF_STREAM_NEGOTIATION.md docs/SUNSHINE_QEMU_INTEGRATION.md docs/SYSTEM_AUTH.md \
     docs/GAMESTREAM_LEASE_AUTH.md
 sudo tar --extract --file "$SOURCE_ARCHIVE" --directory "$CHROOT_DIR/work/source"
@@ -66,10 +86,10 @@ sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive /bin/bash 
     apt-get update
     apt-get install -y --no-install-recommends \
         build-essential binutils ca-certificates cmake curl dpkg-dev git \
-        libboost-dev libcap-dev libcurl4-openssl-dev libdrm-dev libevdev-dev \
-        libgbm-dev libglib2.0-dev libicu-dev libminiupnpc-dev libnuma-dev \
+        libboost-dev libcap-dev libdrm-dev libevdev-dev libgbm-dev libglib2.0-dev \
+        libicu-dev libnuma-dev \
         libopus-dev libpam0g-dev libssl-dev lintian meson ninja-build nlohmann-json3-dev \
-        nodejs npm patchelf pkg-config python3 python3-jinja2
+        patchelf pkg-config python3 python3-jinja2
 '
 
 sudo chroot "$CHROOT_DIR" /usr/bin/env \
@@ -131,4 +151,4 @@ sudo chown "$(id -u):$(id -g)" "$OUTPUT_DIR/$artifact_name"
 )
 
 echo "Q_SUNSHINE_TRIXIE_BUILD_OK artifact=$OUTPUT_DIR/$artifact_name"
-echo "Q_SUNSHINE_TRIXIE_CHROOT_RETAINED root=$CHROOT_DIR source_archive=$SOURCE_ARCHIVE"
+echo "Q_SUNSHINE_TRIXIE_CHROOT_RETAINED root=$CHROOT_DIR source_archive=$SOURCE_ARCHIVE pve_release_key=$PVE_KEY_FILE"

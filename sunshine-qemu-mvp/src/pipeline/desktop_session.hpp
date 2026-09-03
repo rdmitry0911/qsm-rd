@@ -3,7 +3,7 @@
 #include "core/audio_fifo.hpp"
 #include "core/latest_frame_mailbox.hpp"
 #include "interfaces/qemu_display.hpp"
-#include "interfaces/sunshine_adapter.hpp"
+#include "interfaces/media_adapter.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -24,13 +24,13 @@ struct DesktopSessionOptions {
     std::chrono::milliseconds audio_chunk {10};
 };
 
-// One-QEMU-console to one-Sunshine-worker bridge. Display and audio callbacks
-// never wait for the encoder. Video uses a one-slot latest-frame mailbox;
-// audio uses a bounded FIFO which drops the oldest PCM on overflow.
+// One-QEMU-console to one encoded-media worker. Display and audio callbacks
+// never wait for the encoder or transport. Video uses a one-slot latest-frame
+// mailbox; audio uses a bounded FIFO which drops oldest PCM on overflow.
 class DesktopSession {
 public:
     DesktopSession(IQemuDisplay& display,
-                   ISunshineAdapter& sunshine,
+                   IMediaAdapter& media,
                    DesktopSessionOptions options = {});
     ~DesktopSession();
 
@@ -71,7 +71,7 @@ private:
     void record_error(std::string message) noexcept;
 
     IQemuDisplay& display_;
-    ISunshineAdapter& sunshine_;
+    IMediaAdapter& media_;
     DesktopSessionOptions options_;
     LatestFrameMailbox mailbox_;
     AudioFifo audio_fifo_;

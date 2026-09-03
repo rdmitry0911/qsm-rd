@@ -18,7 +18,10 @@ The local control socket has a random 256-bit token in a `0600` file. Do not
 expose that socket or token directly on TCP. A remote companion uses a separate
 TLS 1.3 gateway which reads the local token on the host and never transmits it.
 It has two explicit, mutually exclusive modes: retained client-certificate
-mTLS or a short-lived TLS/PAM system-auth ticket.
+mTLS or a short-lived VM-scoped ticket issued by the node-level
+`q-sunshine-terminal` service after it has verified PVE's stock `vncproxy`
+ticket. The packaged PVE 9 path uses the latter; it has no separate password
+or PAM login service.
 
 The guest agent accepts and emits only non-NUL UTF-8 clipboard data up to 1
 MiB, including when a guest-local state writer bypasses the host broker; bad
@@ -81,8 +84,8 @@ GameStream/Moonlight has no interoperable clipboard or file-transfer packet.
 For a remote Moonlight-based client, run the optional QSF companion beside the
 Moonlight client rather than pretending these operations are GameStream
 messages. `qsf_tls_gateway.py` is the server-side bridge from either an mTLS
-connection or a TLS/PAM-issued ticket to the local `0600` control socket. The
-local token remains on the host and is never sent over TLS.
+connection or a terminal-issued VM ticket to the local `0600` control socket.
+The local token remains on the host and is never sent over TLS.
 
 ### Legacy mTLS mode
 
@@ -114,37 +117,33 @@ non-symlink files. A root-run service requires root ownership; neither file
 may be group/world writable and the private key must be mode `0600` (or
 stricter). Restart the gateway after rotating its TLS material.
 
-### System-auth ticket mode
+### PVE terminal-ticket mode
 
-For the Qt client, provision and start `q-sunshine-auth@VMID` and the dedicated
-`q-sunshine-qsf-system-auth-gateway@VMID` unit instead. The Qt shell sends its
-short-lived VM-audience ticket in an `authorization` JSON member over verified
-TLS; the ticket gateway verifies signature, expiry, and exact audience, then
-strips that member before it forwards the request to the local broker. It does
-not accept an mTLS client certificate, and the mTLS/ticket units conflict for
-the same VM so an operator cannot accidentally expose both modes. See
-[`SYSTEM_AUTH.md`](../../docs/SYSTEM_AUTH.md) for provisioning and the
-password/ticket persistence boundary.
+For the packaged Qt client, the PVE Console entry first obtains a normal
+`VM.Console`-protected `vncproxy` ticket, and the node-level
+`q-sunshine-terminal` service turns it into a one-use `.qsm` descriptor. Once
+the client redeems that descriptor over descriptor-pinned TLS, it sends the
+short-lived VM-audience session ticket in an `authorization` JSON member to
+the dynamically owned QSF gateway. The gateway verifies signature, expiry,
+and exact audience, then strips that member before it forwards the request to
+the local broker. No PVE password, PVE cookie, VNC ticket, or client private
+key reaches QSF.
 
-The Qt UI is ticket-only: it exposes no mTLS client certificate/key fields.
-The retained mTLS mode above is for deployment, CLI, and test compatibility,
-not a selectable desktop-profile authentication mode.
-
-The Qt profile also stores a non-secret expected VM audience (for example
-`vm-100`) and rejects an otherwise successful PAM reply unless it matches
-exactly. That field is routing/trust metadata, not an additional credential or
-a value inferred from the editable desktop-profile label.
+The Qt client receives the audience from the broker-authoritative descriptor
+result and rejects a mismatch; it does not persist an editable audience or a
+login/password. The retained mTLS mode above is for deployment, CLI, and test
+compatibility, not a selectable normal desktop-profile mode.
 
 Both TCP gateway modes bound incomplete TLS/profile workers to 16 by default
 (configurable from 1 to 16), use short ingress timeouts, and close excess
 accepted peers before forwarding. This protects service capacity but does not
-replace network filtering or the ticket gateway's per-source login rate limit.
+replace network filtering or the terminal broker's per-source request limit.
 
 The current protocol does **not** cryptographically bind a QSF TLS request to
 the corresponding GameStream/Moonlight session. Treat the gateway endpoint as
-part of the VM trust boundary: use separate certificate material or an exact
-system-auth audience per VM and do not direct a client at an untrusted gateway.
-The optional Qt desktop shell therefore requires an explicit post-video
-activation and immediately tears the companion down when its Moonlight child
-stops or reconnects; see
+part of the VM trust boundary: use the descriptor-pinned terminal certificate,
+the exact broker-issued VM audience, and never direct a client at an
+untrusted gateway. The optional Qt desktop shell therefore requires an
+explicit post-video activation and immediately tears the companion down when
+its Moonlight child stops or reconnects; see
 [`docs/QT_DESKTOP_CLIENT.md`](../../docs/QT_DESKTOP_CLIENT.md).

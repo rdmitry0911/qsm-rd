@@ -15,7 +15,7 @@ patches:
   - patches/0003-platform-linux-add-QEMU-Display1-guest-audio-source.patch
     SHA-256: 2bfedbf4475125f9f469145f29f3c059d875681a4ceb61509b2fac8b17ca230f
   - patches/0004-platform-linux-qemu-dmabuf-egl-readback.patch
-    SHA-256: 46c06c088d7642486d79ed40496bb54a9b9b0bbf081df10508c06e3831a19715
+    SHA-256: 4bd302a3dc0803080cbaf2e9802ebc632caca9257e53af8d5ddb73a6e5c5384d
   - patches/0005-cmake-avoid-X11-FFmpeg-glue-for-software-builds.patch
     SHA-256: edc8a9580d40505c076a95ee9e2300cccc24802f5de1a5f3692e61668d6e52ec
   - patches/0006-platform-linux-add-QEMU-guest-audio-only-build.patch
@@ -23,7 +23,7 @@ patches:
   - patches/0007-platform-linux-close-QEMU-listener-transport-before-teardown.patch
     SHA-256: bdef88093a2b2f00b51c7e3a06533e7e62ef8fb00d2eaa8c52b718a14f8b107b
   - patches/0008-nvhttp-require-system-auth-media-leases.patch
-    SHA-256: 35603f17e961809391d96ea155741d333b3f9d8d47d53bde4035f880c597e9ef
+    SHA-256: daa34c1afcc47162762eaeef91f3cc3e2fd507a1e38966a50abb33d5082920b9
   - simple-web-server/0001-server-http-expose-request-tls-native-handle.patch
     SHA-256: 7c978eaa72a3077fa46f03dc322abd26ac0db0e17cd8be525227cc0976cff2e9
 ```
@@ -37,6 +37,12 @@ for this backend). It still presents a bounded CPU BGRX frame to Sunshine's
 software encoder and requires neither X11 nor Wayland. It consumes a per-process
 `SUNSHINE_QEMU_DBUS_ADDRESS`; it does not place a VM D-Bus address in Sunshine's
 public network configuration.
+
+The EGL importer uses `EGL_KHR_surfaceless_context` when the GBM driver offers
+it, because nested VirGL may expose only `EGL_WINDOW_BIT` configurations. Its
+FBO readback does not need a native surface; the old one-pixel pbuffer remains
+the compatibility path on EGL implementations without the surfaceless
+extension.
 
 Check that the complete ordered series still replays before updating the pin.
 Use a disposable worktree so the production source tree is left untouched;
@@ -73,9 +79,17 @@ requires them; the helper requires `libva.so.2` to resolve from the isolated
 This pin is a source-integration checkpoint, not an upstream Sunshine release
 or an endorsement by the Sunshine project.
 
-The final outer patch is deliberately separate from the nested
-Simple-Web-Server patch: Sunshine's parent repository records the latter as a
-gitlink, so a parent-only patch would silently omit the TLS request accessor
-needed by system-auth media admission. The Debian recipe exports the patched
-source without VCS metadata and proves each native patch can reverse, apply,
-and reverse-check before compiling it.
+The final outer patch is the complete post-`0007` QSM transport profile: it
+keeps the QEMU Display1/VirGL media path and a single fixed `QEMU Console`
+GameStream application, but removes Sunshine's host application launcher,
+Web UI, PIN pairing, discovery, UPnP, tray, persistent state, and host display
+control plane. Proxmox supplies identity, ACLs, VM selection, and launch
+lifecycle; the remaining media plane uses the VM-scoped mTLS lease and RTSP
+possession proof.
+
+It is deliberately separate from the nested Simple-Web-Server patch:
+Sunshine's parent repository records that source as a gitlink, so a parent-only
+patch would silently omit the TLS request accessor needed by system-auth media
+admission. The Debian recipe exports the patched source without VCS metadata
+and proves the complete transport patch and nested patch can reverse, apply,
+and reverse-check before compiling them.

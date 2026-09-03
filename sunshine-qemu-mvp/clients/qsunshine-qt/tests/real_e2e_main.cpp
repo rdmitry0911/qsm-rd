@@ -31,6 +31,12 @@
 namespace {
 
 struct Arguments {
+    // Descriptor mode is the PVE Console path. It deliberately has no PVE
+    // username, password, direct media route, QSF route, SNI, or CA option:
+    // all of those arrive only after a one-use .qsm claim is redeemed.
+    bool launchDescriptorMode = false;
+    bool descriptorBootstrapOnly = false;
+    QString launchFile;
     QString moonlightBinary;
     QString host;
     QString appName;
@@ -182,21 +188,39 @@ public:
           m_Clipboard(QGuiApplication::clipboard())
     {
         // This is the same composition as the desktop application's entry
-        // point: one TLS/PAM login supplies the short-lived ticket to the
-        // ticket-mode QSF companion and, through a narrow in-process sink, to
-        // the patched Moonlight child's one-shot lease pipe.  It deliberately
-        // has no pairing/PIN state or legacy GameStream admission fallback.
+        // point. Descriptor mode accepts only a PVE-issued one-use launch
+        // file; the broker installs the VM-scoped media/QSF/lease routes in
+        // process after TLS redemption. The retained legacy branch exists
+        // only for its separately invoked historical system-auth fixture.
+        // Neither path has a pairing/PIN fallback.
         m_Moonlight.requireSystemAuthGameStreamLease();
         m_SystemAuth.attachQsfClient(&m_Qsf);
-        m_SystemAuth.setGameStreamLeaseSink(
-            [this](const QString& authHost, int authPort, const QString& authServerName,
-                   const QString& authCaFile, const QString& audience,
-                   const QByteArray& ticket, qint64 expiresAtUtcMs) {
-                m_Moonlight.setSystemAuthGameStreamLease(
-                    authHost, authPort, authServerName, authCaFile, audience, ticket,
-                    expiresAtUtcMs);
-            },
-            [this]() { m_Moonlight.clearSystemAuthGameStreamLease(); });
+        if (m_Arguments.launchDescriptorMode) {
+            m_SystemAuth.setBrokerMediaRouteSink(
+                [this](const QString& host, int basePort) {
+                    return m_Moonlight.setSystemAuthGameStreamMediaRoute(host, basePort);
+                },
+                [this]() { m_Moonlight.clearSystemAuthGameStreamLease(); });
+            m_SystemAuth.setBrokerGameStreamLeaseSink(
+                [this](const QString& authHost, int authPort, const QString& authServerName,
+                       const QByteArray& authCaPem, const QString& audience,
+                       const QByteArray& ticket, qint64 expiresAtUtcMs) {
+                    return m_Moonlight.setSystemAuthGameStreamLeasePem(
+                        authHost, authPort, authServerName, authCaPem, audience, ticket,
+                        expiresAtUtcMs);
+                });
+        }
+        else {
+            m_SystemAuth.setGameStreamLeaseSink(
+                [this](const QString& authHost, int authPort, const QString& authServerName,
+                       const QString& authCaFile, const QString& audience,
+                       const QByteArray& ticket, qint64 expiresAtUtcMs) {
+                    m_Moonlight.setSystemAuthGameStreamLease(
+                        authHost, authPort, authServerName, authCaFile, audience, ticket,
+                        expiresAtUtcMs);
+                },
+                [this]() { m_Moonlight.clearSystemAuthGameStreamLease(); });
+        }
         m_PhasePoll.setInterval(100);
         connect(&m_PhasePoll, &QTimer::timeout, this, [this]() { pollHarnessPhases(); });
 
@@ -264,7 +288,9 @@ public:
         connect(&m_SystemAuth, &SystemAuthClient::authenticatedChanged, this, [this]() {
             m_Moonlight.setSystemAuthAdmission(m_SystemAuth.authenticated());
             if (m_Phase == Phase::Authenticating && m_SystemAuth.authenticated()) {
-                if (!writePhase(QStringLiteral("system-authenticated"))) {
+                if (!writePhase(m_Arguments.launchDescriptorMode
+                                    ? QStringLiteral("descriptor-redeemed")
+                                    : QStringLiteral("system-authenticated"))) {
                     return;
                 }
                 startWindowedStream();
@@ -284,57 +310,56 @@ public:
 
     void start()
     {
-        if (m_Clipboard == nullptr) {
-            fail(QStringLiteral("Qt has no clipboard implementation on this platform"));
-            return;
-        }
         const QDir phaseDirectory(m_Arguments.phaseDirectory);
         if (!QFileInfo(m_Arguments.phaseDirectory).isDir() ||
-            !phaseDirectory.entryList(QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty() ||
-            !QFileInfo(m_Arguments.uploadSource).isFile() ||
-            !QFileInfo(m_Arguments.expectedGuestClipboardFile).isFile() ||
-            !QFileInfo(m_Arguments.clientClipboardFile).isFile() ||
-            !QFileInfo(m_Arguments.expectedDownloadSource).isFile() ||
-            !QFileInfo(m_Arguments.systemAuthCaFile).isFile() ||
-            !QFileInfo(m_Arguments.qsfCaFile).isFile()) {
-            fail(QStringLiteral("real E2E has a missing phase directory, fixture, or TLS credential"));
+            !phaseDirectory.entryList(QDir::AllEntries | QDir::NoDotAndDotDot).isEmpty()) {
+            fail(QStringLiteral("real E2E requires a fresh private phase directory"));
             return;
         }
-        if (!QFileInfo(m_Arguments.receivedClipboardDestination).dir().exists() ||
-            QFileInfo(m_Arguments.receivedClipboardDestination).exists() ||
-            !QFileInfo(m_Arguments.downloadDestination).dir().exists() ||
-            QFileInfo(m_Arguments.downloadDestination).exists() ||
-            !QFileInfo(m_Arguments.fullscreenDownloadDestination).dir().exists() ||
-            QFileInfo(m_Arguments.fullscreenDownloadDestination).exists() ||
-            !readUtf8ClipboardFile(m_Arguments.expectedGuestClipboardFile,
-                                   &m_Arguments.expectedGuestClipboard) ||
-            !readUtf8ClipboardFile(m_Arguments.clientClipboardFile,
-                                   &m_Arguments.clientClipboard)) {
-            fail(QStringLiteral("real E2E has an invalid fixture or stale result path"));
+        if (m_Arguments.launchDescriptorMode && !QFileInfo(m_Arguments.launchFile).isFile()) {
+            fail(QStringLiteral("descriptor E2E launch file is unavailable"));
             return;
         }
-        if (m_Arguments.clientClipboard.isEmpty() ||
-            m_Arguments.expectedGuestClipboard.isEmpty() ||
-            m_Arguments.clientClipboard == m_Arguments.expectedGuestClipboard) {
-            fail(QStringLiteral("real E2E requires distinct non-empty client and guest clipboard fixtures"));
-            return;
+        if (!m_Arguments.descriptorBootstrapOnly) {
+            if (m_Clipboard == nullptr) {
+                fail(QStringLiteral("Qt has no clipboard implementation on this platform"));
+                return;
+            }
+            if (!QFileInfo(m_Arguments.uploadSource).isFile() ||
+                !QFileInfo(m_Arguments.expectedGuestClipboardFile).isFile() ||
+                !QFileInfo(m_Arguments.clientClipboardFile).isFile() ||
+                !QFileInfo(m_Arguments.expectedDownloadSource).isFile() ||
+                (!m_Arguments.launchDescriptorMode &&
+                 (!QFileInfo(m_Arguments.systemAuthCaFile).isFile() ||
+                  !QFileInfo(m_Arguments.qsfCaFile).isFile()))) {
+                fail(QStringLiteral("real E2E has a missing fixture or TLS credential"));
+                return;
+            }
+            if (!QFileInfo(m_Arguments.receivedClipboardDestination).dir().exists() ||
+                QFileInfo(m_Arguments.receivedClipboardDestination).exists() ||
+                !QFileInfo(m_Arguments.downloadDestination).dir().exists() ||
+                QFileInfo(m_Arguments.downloadDestination).exists() ||
+                !QFileInfo(m_Arguments.fullscreenDownloadDestination).dir().exists() ||
+                QFileInfo(m_Arguments.fullscreenDownloadDestination).exists() ||
+                !readUtf8ClipboardFile(m_Arguments.expectedGuestClipboardFile,
+                                       &m_Arguments.expectedGuestClipboard) ||
+                !readUtf8ClipboardFile(m_Arguments.clientClipboardFile,
+                                       &m_Arguments.clientClipboard)) {
+                fail(QStringLiteral("real E2E has an invalid fixture or stale result path"));
+                return;
+            }
+            if (m_Arguments.clientClipboard.isEmpty() ||
+                m_Arguments.expectedGuestClipboard.isEmpty() ||
+                m_Arguments.clientClipboard == m_Arguments.expectedGuestClipboard) {
+                fail(QStringLiteral("real E2E requires distinct non-empty client and guest clipboard fixtures"));
+                return;
+            }
         }
         if (!m_Arguments.moonlightLog.isEmpty() &&
             !QFileInfo(m_Arguments.moonlightLog).dir().exists()) {
             fail(QStringLiteral("Moonlight diagnostic log parent does not exist"));
             return;
         }
-        for (const QString& marker : {QStringLiteral("activate-windowed"),
-                                      QStringLiteral("negotiated-video-verified"),
-                                      QStringLiteral("activate-negotiated-qsf"),
-                                      QStringLiteral("activate-fullscreen-profile"),
-                                      QStringLiteral("activate-fullscreen")}) {
-            if (phaseRequested(marker)) {
-                fail(QStringLiteral("stale harness marker exists: %1").arg(marker));
-                return;
-            }
-        }
-
         if (!m_Moonlight.setTestMoonlightBinary(m_Arguments.moonlightBinary)) {
             fail(QStringLiteral("could not select the real-E2E Moonlight test child: %1")
                      .arg(m_Moonlight.lastError()));
@@ -349,7 +374,9 @@ public:
             fail(QStringLiteral("could not select the Moonlight software decoder for visual attestation"));
             return;
         }
-        if (!m_Moonlight.saveProfile(QStringLiteral("real-qt-e2e"), m_Arguments.host,
+        const QString profileHost = m_Arguments.launchDescriptorMode
+            ? QStringLiteral("terminal-broker") : m_Arguments.host;
+        if (!m_Moonlight.saveProfile(QStringLiteral("real-qt-e2e"), profileHost,
                                      m_Arguments.appName, m_Arguments.initialResolution,
                                      QStringLiteral("windowed"))) {
             fail(QStringLiteral("could not save the real E2E desktop profile: %1")
@@ -357,29 +384,33 @@ public:
             return;
         }
         m_Qsf.selectProfile(m_Moonlight.currentProfileId());
-        if (!m_Qsf.applyConfiguration(m_Arguments.qsfHost, m_Arguments.qsfPort,
-                                      m_Arguments.qsfServerName, m_Arguments.qsfCaFile,
-                                      QString(), QString())) {
-            fail(QStringLiteral("could not configure QSF: %1").arg(m_Qsf.lastError()));
-            return;
-        }
-        if (!m_SystemAuth.selectProfile(m_Moonlight.currentProfileId()) ||
-            !m_SystemAuth.applyConfiguration(m_Arguments.systemAuthHost,
-                                             m_Arguments.systemAuthPort,
-                                             m_Arguments.systemAuthServerName,
-                                             m_Arguments.systemAuthCaFile,
-                                             m_Arguments.systemAuthAudience)) {
-            fail(QStringLiteral("could not configure system authentication: %1")
-                     .arg(m_SystemAuth.lastError()));
-            return;
+        if (!m_Arguments.launchDescriptorMode) {
+            if (!m_Qsf.applyConfiguration(m_Arguments.qsfHost, m_Arguments.qsfPort,
+                                          m_Arguments.qsfServerName, m_Arguments.qsfCaFile,
+                                          QString(), QString())) {
+                fail(QStringLiteral("could not configure QSF: %1").arg(m_Qsf.lastError()));
+                return;
+            }
+            if (!m_SystemAuth.selectProfile(m_Moonlight.currentProfileId()) ||
+                !m_SystemAuth.applyConfiguration(m_Arguments.systemAuthHost,
+                                                 m_Arguments.systemAuthPort,
+                                                 m_Arguments.systemAuthServerName,
+                                                 m_Arguments.systemAuthCaFile,
+                                                 m_Arguments.systemAuthAudience)) {
+                fail(QStringLiteral("could not configure system authentication: %1")
+                         .arg(m_SystemAuth.lastError()));
+                return;
+            }
         }
 
-        // The guest's native-Wayland fixture intentionally waits for this
-        // client value before it creates its independent guest-side copy. This
-        // exercises both directions in a causally unambiguous order.
-        m_Qsf.setInitialClipboardDirection(QStringLiteral("client"));
-        m_Qsf.setClipboardSyncEnabled(true);
-        m_Clipboard->setText(m_Arguments.clientClipboard, QClipboard::Clipboard);
+        if (!m_Arguments.descriptorBootstrapOnly) {
+            // The guest's native-Wayland fixture intentionally waits for this
+            // client value before it creates its independent guest-side copy.
+            // This exercises both directions in a causally unambiguous order.
+            m_Qsf.setInitialClipboardDirection(QStringLiteral("client"));
+            m_Qsf.setClipboardSyncEnabled(true);
+            m_Clipboard->setText(m_Arguments.clientClipboard, QClipboard::Clipboard);
+        }
 
         if (!writePhase(QStringLiteral("driver-ready"))) {
             return;
@@ -387,6 +418,16 @@ public:
         m_Phase = Phase::Authenticating;
         m_Timeout.start();
         m_PhasePoll.start();
+        if (m_Arguments.launchDescriptorMode) {
+            if (!writePhase(QStringLiteral("descriptor-redeem-started"))) {
+                return;
+            }
+            if (!m_SystemAuth.claimLaunchFile(m_Arguments.launchFile)) {
+                fail(QStringLiteral("could not redeem descriptor launch file: %1")
+                         .arg(m_SystemAuth.lastError()));
+            }
+            return;
+        }
         if (!writePhase(QStringLiteral("system-auth-login-started"))) {
             return;
         }
@@ -458,7 +499,9 @@ private:
     void startWindowedStream()
     {
         m_Phase = Phase::StartingWindowed;
-        m_Moonlight.startStream(m_Arguments.host, m_Arguments.appName,
+        const QString profileHost = m_Arguments.launchDescriptorMode
+            ? m_Moonlight.profileHost() : m_Arguments.host;
+        m_Moonlight.startStream(profileHost, m_Arguments.appName,
                                 m_Arguments.initialResolution,
                                 QStringLiteral("windowed"));
     }
@@ -506,7 +549,7 @@ private:
             // retires the currently visible stream before QSF changes the
             // guest scanout.
             if (!m_Moonlight.saveProfile(m_Moonlight.currentProfileId(),
-                                         m_Arguments.host, m_Arguments.appName,
+                                         m_Moonlight.profileHost(), m_Arguments.appName,
                                          m_Arguments.fullscreenResolution,
                                          QStringLiteral("fullscreen"))) {
                 fail(QStringLiteral("could not select the requested fullscreen stream profile"));
@@ -529,6 +572,23 @@ private:
         ++m_StreamStarts;
         if (m_StreamStarts == 1 && m_Phase == Phase::StartingWindowed) {
             if (!writePhase(QStringLiteral("windowed-process-started"))) {
+                return;
+            }
+            if (m_Arguments.descriptorBootstrapOnly) {
+                // The launch-file smoke deliberately stops before QSF is
+                // activated: it proves only the real receiver composition
+                // (strict descriptor redemption -> in-memory broker routes ->
+                // lease-aware Moonlight child). Full data-plane E2E remains
+                // gated behind visible-video activation markers below.
+                if (!m_SystemAuth.authenticated() || !m_Qsf.configured()) {
+                    fail(QStringLiteral("descriptor redemption did not install a usable in-memory route"));
+                    return;
+                }
+                if (!writePhase(QStringLiteral("descriptor-bootstrap-verified"))) {
+                    return;
+                }
+                m_Phase = Phase::Stopping;
+                m_Moonlight.stopStream();
                 return;
             }
             m_Phase = Phase::AwaitWindowedVerification;
@@ -577,7 +637,12 @@ private:
                 return;
             }
             m_Phase = Phase::Complete;
-            QTextStream(stdout) << "QSUNSHINE_QT_REAL_E2E_OK\n" << Qt::flush;
+            const QString marker = m_Arguments.launchDescriptorMode
+                ? (m_Arguments.descriptorBootstrapOnly
+                       ? QStringLiteral("QSUNSHINE_QT_DESCRIPTOR_BOOTSTRAP_OK")
+                       : QStringLiteral("QSUNSHINE_QT_DESCRIPTOR_E2E_OK"))
+                : QStringLiteral("QSUNSHINE_QT_REAL_E2E_OK");
+            QTextStream(stdout) << marker << '\n' << Qt::flush;
             QTimer::singleShot(0, &m_Application, [this]() { m_Application.exit(0); });
             return;
         }
@@ -769,7 +834,10 @@ private:
         m_Qsf.setSessionActive(false);
         writeMoonlightLog();
         writePhase(QStringLiteral("failed"));
-        QTextStream(stderr) << "QSUNSHINE_QT_REAL_E2E_FAILED=" << detail << '\n' << Qt::flush;
+        const QString marker = m_Arguments.launchDescriptorMode
+            ? QStringLiteral("QSUNSHINE_QT_DESCRIPTOR_E2E_FAILED=")
+            : QStringLiteral("QSUNSHINE_QT_REAL_E2E_FAILED=");
+        QTextStream(stderr) << marker << detail << '\n' << Qt::flush;
         QTimer::singleShot(0, &m_Application, [this]() { m_Application.exit(2); });
     }
 
@@ -800,11 +868,18 @@ int main(int argc, char* argv[])
 
     QCommandLineParser parser;
     parser.setApplicationDescription(
-        QStringLiteral("Real Qt system-auth/Moonlight/QSF E2E driver"));
+        QStringLiteral("Real Qt Moonlight/QSF E2E driver (legacy system-auth or PVE launch descriptor)"));
     parser.addHelpOption();
     parser.addOption({QStringLiteral("moonlight-binary"), QStringLiteral("patched Moonlight Qt executable"), QStringLiteral("path")});
+    parser.addOption({QStringLiteral("launch-file"),
+                      QStringLiteral("one-use PVE .qsm launch authorization"),
+                      QStringLiteral("path")});
+    parser.addOption({QStringLiteral("descriptor-bootstrap-only"),
+                      QStringLiteral("redeem --launch-file and start/stop Moonlight without activating QSF")});
     parser.addOption({QStringLiteral("host"), QStringLiteral("Sunshine host or host:base-port"), QStringLiteral("host")});
-    parser.addOption({QStringLiteral("app"), QStringLiteral("Sunshine application"), QStringLiteral("name"), QStringLiteral("Desktop")});
+    parser.addOption({QStringLiteral("app"),
+                      QStringLiteral("legacy Sunshine application (PVE descriptor mode always uses QEMU Console)"),
+                      QStringLiteral("name"), QStringLiteral("QEMU Console")});
     parser.addOption({QStringLiteral("initial-resolution"), QStringLiteral("windowed Moonlight resolution"), QStringLiteral("resolution")});
     parser.addOption({QStringLiteral("fullscreen-resolution"), QStringLiteral("fullscreen reconnect resolution"), QStringLiteral("resolution")});
     parser.addOption({QStringLiteral("system-auth-host"), QStringLiteral("TLS/PAM system-auth gateway host"), QStringLiteral("host")});
@@ -854,27 +929,90 @@ int main(int argc, char* argv[])
     parser.addOption({QStringLiteral("moonlight-log"), QStringLiteral("redacted Moonlight diagnostic output"), QStringLiteral("path")});
     parser.process(application);
 
-    const QStringList required = {
-        QStringLiteral("moonlight-binary"), QStringLiteral("host"),
-        QStringLiteral("initial-resolution"), QStringLiteral("fullscreen-resolution"),
-        QStringLiteral("system-auth-host"), QStringLiteral("system-auth-port"),
-        QStringLiteral("system-auth-ca-file"), QStringLiteral("system-auth-audience"),
-        QStringLiteral("system-auth-username"), QStringLiteral("system-auth-password-stdin"),
-        QStringLiteral("qsf-host"), QStringLiteral("qsf-port"),
+    const bool launchDescriptorMode = parser.isSet(QStringLiteral("launch-file"));
+    const bool descriptorBootstrapOnly = parser.isSet(QStringLiteral("descriptor-bootstrap-only"));
+    if (descriptorBootstrapOnly && !launchDescriptorMode) {
+        QTextStream(stderr) << "--descriptor-bootstrap-only requires --launch-file\n";
+        return 2;
+    }
+
+    // The receiver mode is intentionally broker-authoritative. Reject every
+    // former user-controlled ingress field before it can be copied into an
+    // Arguments object, so this test driver cannot accidentally exercise a
+    // direct PVE password or caller-provided VM route alongside a descriptor.
+    const QStringList legacyIngressOptions {
+        QStringLiteral("host"),
+        QStringLiteral("app"),
+        QStringLiteral("system-auth-host"),
+        QStringLiteral("system-auth-port"),
+        QStringLiteral("system-auth-server-name"),
+        QStringLiteral("system-auth-ca-file"),
+        QStringLiteral("system-auth-audience"),
+        QStringLiteral("system-auth-username"),
+        QStringLiteral("system-auth-password-stdin"),
+        QStringLiteral("qsf-host"),
+        QStringLiteral("qsf-port"),
+        QStringLiteral("qsf-server-name"),
         QStringLiteral("qsf-ca-file"),
-        QStringLiteral("expected-guest-clipboard-file"), QStringLiteral("client-clipboard-file"),
-        QStringLiteral("upload-source"), QStringLiteral("upload-name"),
-        QStringLiteral("download-name"), QStringLiteral("download-destination"),
-        QStringLiteral("fullscreen-download-destination"),
-        QStringLiteral("expected-download-source"),
-        QStringLiteral("received-clipboard-destination"),
-        QStringLiteral("resize"), QStringLiteral("expected-negotiated-fps"),
-        QStringLiteral("expected-negotiated-bitrate-kbps"),
-        QStringLiteral("expected-negotiated-video-codec"),
-        QStringLiteral("expected-fullscreen-fps"),
-        QStringLiteral("expected-fullscreen-bitrate-kbps"),
-        QStringLiteral("expected-fullscreen-video-codec"), QStringLiteral("phase-dir"),
     };
+    if (launchDescriptorMode) {
+        for (const QString& option : legacyIngressOptions) {
+            if (parser.isSet(option)) {
+                QTextStream(stderr) << "--" << option
+                                    << " is not accepted with --launch-file\n";
+                return 2;
+            }
+        }
+    }
+
+    QStringList required {
+        QStringLiteral("moonlight-binary"),
+        QStringLiteral("initial-resolution"),
+        QStringLiteral("phase-dir"),
+    };
+    if (launchDescriptorMode) {
+        required.append(QStringLiteral("launch-file"));
+        if (!descriptorBootstrapOnly) {
+            required.append({
+                QStringLiteral("fullscreen-resolution"),
+                QStringLiteral("expected-guest-clipboard-file"),
+                QStringLiteral("client-clipboard-file"),
+                QStringLiteral("upload-source"), QStringLiteral("upload-name"),
+                QStringLiteral("download-name"), QStringLiteral("download-destination"),
+                QStringLiteral("fullscreen-download-destination"),
+                QStringLiteral("expected-download-source"),
+                QStringLiteral("received-clipboard-destination"),
+                QStringLiteral("resize"), QStringLiteral("expected-negotiated-fps"),
+                QStringLiteral("expected-negotiated-bitrate-kbps"),
+                QStringLiteral("expected-negotiated-video-codec"),
+                QStringLiteral("expected-fullscreen-fps"),
+                QStringLiteral("expected-fullscreen-bitrate-kbps"),
+                QStringLiteral("expected-fullscreen-video-codec"),
+            });
+        }
+    }
+    else {
+        required.append({
+            QStringLiteral("host"), QStringLiteral("fullscreen-resolution"),
+            QStringLiteral("system-auth-host"), QStringLiteral("system-auth-port"),
+            QStringLiteral("system-auth-ca-file"), QStringLiteral("system-auth-audience"),
+            QStringLiteral("system-auth-username"), QStringLiteral("system-auth-password-stdin"),
+            QStringLiteral("qsf-host"), QStringLiteral("qsf-port"),
+            QStringLiteral("qsf-ca-file"),
+            QStringLiteral("expected-guest-clipboard-file"), QStringLiteral("client-clipboard-file"),
+            QStringLiteral("upload-source"), QStringLiteral("upload-name"),
+            QStringLiteral("download-name"), QStringLiteral("download-destination"),
+            QStringLiteral("fullscreen-download-destination"),
+            QStringLiteral("expected-download-source"),
+            QStringLiteral("received-clipboard-destination"),
+            QStringLiteral("resize"), QStringLiteral("expected-negotiated-fps"),
+            QStringLiteral("expected-negotiated-bitrate-kbps"),
+            QStringLiteral("expected-negotiated-video-codec"),
+            QStringLiteral("expected-fullscreen-fps"),
+            QStringLiteral("expected-fullscreen-bitrate-kbps"),
+            QStringLiteral("expected-fullscreen-video-codec"),
+        });
+    }
     for (const QString& option : required) {
         if (!parser.isSet(option)) {
             QTextStream(stderr) << "missing required option --" << option << '\n';
@@ -882,89 +1020,153 @@ int main(int argc, char* argv[])
         }
     }
 
-    bool qsfPortOk = false;
-    bool systemAuthPortOk = false;
     Arguments arguments;
+    arguments.launchDescriptorMode = launchDescriptorMode;
+    arguments.descriptorBootstrapOnly = descriptorBootstrapOnly;
+    arguments.launchFile = parser.value(QStringLiteral("launch-file")).trimmed();
     arguments.moonlightBinary = parser.value(QStringLiteral("moonlight-binary"));
-    arguments.host = parser.value(QStringLiteral("host"));
     arguments.appName = parser.value(QStringLiteral("app"));
     arguments.initialResolution = parser.value(QStringLiteral("initial-resolution"));
-    arguments.fullscreenResolution = parser.value(QStringLiteral("fullscreen-resolution"));
-    arguments.systemAuthHost = parser.value(QStringLiteral("system-auth-host"));
-    arguments.systemAuthPort = parser.value(QStringLiteral("system-auth-port")).toInt(&systemAuthPortOk);
-    arguments.systemAuthServerName = parser.value(QStringLiteral("system-auth-server-name"));
-    arguments.systemAuthCaFile = parser.value(QStringLiteral("system-auth-ca-file"));
-    arguments.systemAuthAudience = parser.value(QStringLiteral("system-auth-audience"));
-    arguments.systemAuthUsername = parser.value(QStringLiteral("system-auth-username"));
-    arguments.qsfHost = parser.value(QStringLiteral("qsf-host"));
-    arguments.qsfPort = parser.value(QStringLiteral("qsf-port")).toInt(&qsfPortOk);
-    arguments.qsfServerName = parser.value(QStringLiteral("qsf-server-name"));
-    arguments.qsfCaFile = parser.value(QStringLiteral("qsf-ca-file"));
-    arguments.expectedGuestClipboardFile = parser.value(QStringLiteral("expected-guest-clipboard-file"));
-    arguments.clientClipboardFile = parser.value(QStringLiteral("client-clipboard-file"));
-    arguments.uploadSource = parser.value(QStringLiteral("upload-source"));
-    arguments.uploadName = parser.value(QStringLiteral("upload-name"));
-    arguments.downloadName = parser.value(QStringLiteral("download-name"));
-    arguments.downloadDestination = parser.value(QStringLiteral("download-destination"));
-    arguments.fullscreenDownloadDestination =
-        parser.value(QStringLiteral("fullscreen-download-destination"));
-    arguments.expectedDownloadSource = parser.value(QStringLiteral("expected-download-source"));
-    arguments.receivedClipboardDestination = parser.value(QStringLiteral("received-clipboard-destination"));
     arguments.phaseDirectory = parser.value(QStringLiteral("phase-dir"));
     arguments.moonlightLog = parser.value(QStringLiteral("moonlight-log"));
-    static const QRegularExpression portPattern(QStringLiteral("\\A[0-9]{1,5}\\z"));
     static const QRegularExpression timeoutPattern(QStringLiteral("\\A[0-9]{5,6}\\z"));
     int ignoredWidth = 0;
     int ignoredHeight = 0;
     bool timeoutOk = false;
-    bool expectedFpsOk = false;
-    bool expectedBitrateOk = false;
-    bool expectedFullscreenFpsOk = false;
-    bool expectedFullscreenBitrateOk = false;
     arguments.timeoutMs = parser.value(QStringLiteral("timeout-ms")).toInt(&timeoutOk);
-    arguments.expectedNegotiatedFps =
-        parser.value(QStringLiteral("expected-negotiated-fps")).toInt(&expectedFpsOk);
-    arguments.expectedNegotiatedBitrateKbps =
-        parser.value(QStringLiteral("expected-negotiated-bitrate-kbps")).toInt(&expectedBitrateOk);
-    arguments.expectedNegotiatedVideoCodec =
-        parser.value(QStringLiteral("expected-negotiated-video-codec")).trimmed();
-    arguments.expectedFullscreenFps =
-        parser.value(QStringLiteral("expected-fullscreen-fps")).toInt(&expectedFullscreenFpsOk);
-    arguments.expectedFullscreenBitrateKbps =
-        parser.value(QStringLiteral("expected-fullscreen-bitrate-kbps"))
-            .toInt(&expectedFullscreenBitrateOk);
-    arguments.expectedFullscreenVideoCodec =
-        parser.value(QStringLiteral("expected-fullscreen-video-codec")).trimmed();
-    if (!portPattern.match(parser.value(QStringLiteral("qsf-port")).trimmed()).hasMatch() ||
-        !portPattern.match(parser.value(QStringLiteral("system-auth-port")).trimmed()).hasMatch() ||
-        !timeoutPattern.match(parser.value(QStringLiteral("timeout-ms")).trimmed()).hasMatch() ||
-        !qsfPortOk || arguments.qsfPort < 1 || arguments.qsfPort > 65535 ||
-        !systemAuthPortOk || arguments.systemAuthPort < 1 || arguments.systemAuthPort > 65535 ||
+    if (!timeoutPattern.match(parser.value(QStringLiteral("timeout-ms")).trimmed()).hasMatch() ||
         !timeoutOk || arguments.timeoutMs < 60000 || arguments.timeoutMs > 900000 ||
-        !expectedFpsOk || arguments.expectedNegotiatedFps < 10 ||
-        arguments.expectedNegotiatedFps > 240 || !expectedBitrateOk ||
-        arguments.expectedNegotiatedBitrateKbps < 500 ||
-        arguments.expectedNegotiatedBitrateKbps > 500000 ||
-        (arguments.expectedNegotiatedVideoCodec != QStringLiteral("H.264") &&
-         arguments.expectedNegotiatedVideoCodec != QStringLiteral("HEVC") &&
-         arguments.expectedNegotiatedVideoCodec != QStringLiteral("AV1")) ||
-        !expectedFullscreenFpsOk || arguments.expectedFullscreenFps < 10 ||
-        arguments.expectedFullscreenFps > 240 || !expectedFullscreenBitrateOk ||
-        arguments.expectedFullscreenBitrateKbps < 500 ||
-        arguments.expectedFullscreenBitrateKbps > 500000 ||
-        (arguments.expectedFullscreenVideoCodec != QStringLiteral("H.264") &&
-         arguments.expectedFullscreenVideoCodec != QStringLiteral("HEVC") &&
-         arguments.expectedFullscreenVideoCodec != QStringLiteral("AV1")) ||
-        !parseResolution(arguments.initialResolution, &ignoredWidth, &ignoredHeight) ||
-        !parseResolution(arguments.fullscreenResolution, &ignoredWidth, &ignoredHeight) ||
-        !parseResolution(parser.value(QStringLiteral("resize")), &arguments.resizeWidth,
-                         &arguments.resizeHeight)) {
-        QTextStream(stderr) << "invalid system-auth/QSF endpoint, negotiated-profile, timeout, or resolution argument\n";
+        !parseResolution(arguments.initialResolution, &ignoredWidth, &ignoredHeight)) {
+        QTextStream(stderr) << "invalid timeout or initial-resolution argument\n";
         return 2;
     }
-    if (!readSystemAuthPassword(&arguments.systemAuthPassword)) {
-        QTextStream(stderr) << "invalid or missing system-auth password on stdin\n";
-        return 2;
+
+    if (!launchDescriptorMode) {
+        static const QRegularExpression portPattern(QStringLiteral("\\A[0-9]{1,5}\\z"));
+        bool qsfPortOk = false;
+        bool systemAuthPortOk = false;
+        bool expectedFpsOk = false;
+        bool expectedBitrateOk = false;
+        bool expectedFullscreenFpsOk = false;
+        bool expectedFullscreenBitrateOk = false;
+        arguments.host = parser.value(QStringLiteral("host"));
+        arguments.fullscreenResolution = parser.value(QStringLiteral("fullscreen-resolution"));
+        arguments.systemAuthHost = parser.value(QStringLiteral("system-auth-host"));
+        arguments.systemAuthPort =
+            parser.value(QStringLiteral("system-auth-port")).toInt(&systemAuthPortOk);
+        arguments.systemAuthServerName = parser.value(QStringLiteral("system-auth-server-name"));
+        arguments.systemAuthCaFile = parser.value(QStringLiteral("system-auth-ca-file"));
+        arguments.systemAuthAudience = parser.value(QStringLiteral("system-auth-audience"));
+        arguments.systemAuthUsername = parser.value(QStringLiteral("system-auth-username"));
+        arguments.qsfHost = parser.value(QStringLiteral("qsf-host"));
+        arguments.qsfPort = parser.value(QStringLiteral("qsf-port")).toInt(&qsfPortOk);
+        arguments.qsfServerName = parser.value(QStringLiteral("qsf-server-name"));
+        arguments.qsfCaFile = parser.value(QStringLiteral("qsf-ca-file"));
+        arguments.expectedGuestClipboardFile =
+            parser.value(QStringLiteral("expected-guest-clipboard-file"));
+        arguments.clientClipboardFile = parser.value(QStringLiteral("client-clipboard-file"));
+        arguments.uploadSource = parser.value(QStringLiteral("upload-source"));
+        arguments.uploadName = parser.value(QStringLiteral("upload-name"));
+        arguments.downloadName = parser.value(QStringLiteral("download-name"));
+        arguments.downloadDestination = parser.value(QStringLiteral("download-destination"));
+        arguments.fullscreenDownloadDestination =
+            parser.value(QStringLiteral("fullscreen-download-destination"));
+        arguments.expectedDownloadSource = parser.value(QStringLiteral("expected-download-source"));
+        arguments.receivedClipboardDestination =
+            parser.value(QStringLiteral("received-clipboard-destination"));
+        arguments.expectedNegotiatedFps =
+            parser.value(QStringLiteral("expected-negotiated-fps")).toInt(&expectedFpsOk);
+        arguments.expectedNegotiatedBitrateKbps =
+            parser.value(QStringLiteral("expected-negotiated-bitrate-kbps")).toInt(&expectedBitrateOk);
+        arguments.expectedNegotiatedVideoCodec =
+            parser.value(QStringLiteral("expected-negotiated-video-codec")).trimmed();
+        arguments.expectedFullscreenFps =
+            parser.value(QStringLiteral("expected-fullscreen-fps")).toInt(&expectedFullscreenFpsOk);
+        arguments.expectedFullscreenBitrateKbps =
+            parser.value(QStringLiteral("expected-fullscreen-bitrate-kbps"))
+                .toInt(&expectedFullscreenBitrateOk);
+        arguments.expectedFullscreenVideoCodec =
+            parser.value(QStringLiteral("expected-fullscreen-video-codec")).trimmed();
+        if (!portPattern.match(parser.value(QStringLiteral("qsf-port")).trimmed()).hasMatch() ||
+            !portPattern.match(parser.value(QStringLiteral("system-auth-port")).trimmed()).hasMatch() ||
+            !qsfPortOk || arguments.qsfPort < 1 || arguments.qsfPort > 65535 ||
+            !systemAuthPortOk || arguments.systemAuthPort < 1 || arguments.systemAuthPort > 65535 ||
+            !expectedFpsOk || arguments.expectedNegotiatedFps < 10 ||
+            arguments.expectedNegotiatedFps > 240 || !expectedBitrateOk ||
+            arguments.expectedNegotiatedBitrateKbps < 500 ||
+            arguments.expectedNegotiatedBitrateKbps > 500000 ||
+            (arguments.expectedNegotiatedVideoCodec != QStringLiteral("H.264") &&
+             arguments.expectedNegotiatedVideoCodec != QStringLiteral("HEVC") &&
+             arguments.expectedNegotiatedVideoCodec != QStringLiteral("AV1")) ||
+            !expectedFullscreenFpsOk || arguments.expectedFullscreenFps < 10 ||
+            arguments.expectedFullscreenFps > 240 || !expectedFullscreenBitrateOk ||
+            arguments.expectedFullscreenBitrateKbps < 500 ||
+            arguments.expectedFullscreenBitrateKbps > 500000 ||
+            (arguments.expectedFullscreenVideoCodec != QStringLiteral("H.264") &&
+             arguments.expectedFullscreenVideoCodec != QStringLiteral("HEVC") &&
+             arguments.expectedFullscreenVideoCodec != QStringLiteral("AV1")) ||
+            !parseResolution(arguments.fullscreenResolution, &ignoredWidth, &ignoredHeight) ||
+            !parseResolution(parser.value(QStringLiteral("resize")), &arguments.resizeWidth,
+                             &arguments.resizeHeight)) {
+            QTextStream(stderr) << "invalid legacy system-auth/QSF endpoint, negotiated-profile, or resolution argument\n";
+            return 2;
+        }
+        if (!readSystemAuthPassword(&arguments.systemAuthPassword)) {
+            QTextStream(stderr) << "invalid or missing system-auth password on stdin\n";
+            return 2;
+        }
+    }
+    else if (!descriptorBootstrapOnly) {
+        bool expectedFpsOk = false;
+        bool expectedBitrateOk = false;
+        bool expectedFullscreenFpsOk = false;
+        bool expectedFullscreenBitrateOk = false;
+        arguments.fullscreenResolution = parser.value(QStringLiteral("fullscreen-resolution"));
+        arguments.expectedGuestClipboardFile =
+            parser.value(QStringLiteral("expected-guest-clipboard-file"));
+        arguments.clientClipboardFile = parser.value(QStringLiteral("client-clipboard-file"));
+        arguments.uploadSource = parser.value(QStringLiteral("upload-source"));
+        arguments.uploadName = parser.value(QStringLiteral("upload-name"));
+        arguments.downloadName = parser.value(QStringLiteral("download-name"));
+        arguments.downloadDestination = parser.value(QStringLiteral("download-destination"));
+        arguments.fullscreenDownloadDestination =
+            parser.value(QStringLiteral("fullscreen-download-destination"));
+        arguments.expectedDownloadSource = parser.value(QStringLiteral("expected-download-source"));
+        arguments.receivedClipboardDestination =
+            parser.value(QStringLiteral("received-clipboard-destination"));
+        arguments.expectedNegotiatedFps =
+            parser.value(QStringLiteral("expected-negotiated-fps")).toInt(&expectedFpsOk);
+        arguments.expectedNegotiatedBitrateKbps =
+            parser.value(QStringLiteral("expected-negotiated-bitrate-kbps")).toInt(&expectedBitrateOk);
+        arguments.expectedNegotiatedVideoCodec =
+            parser.value(QStringLiteral("expected-negotiated-video-codec")).trimmed();
+        arguments.expectedFullscreenFps =
+            parser.value(QStringLiteral("expected-fullscreen-fps")).toInt(&expectedFullscreenFpsOk);
+        arguments.expectedFullscreenBitrateKbps =
+            parser.value(QStringLiteral("expected-fullscreen-bitrate-kbps"))
+                .toInt(&expectedFullscreenBitrateOk);
+        arguments.expectedFullscreenVideoCodec =
+            parser.value(QStringLiteral("expected-fullscreen-video-codec")).trimmed();
+        if (!expectedFpsOk || arguments.expectedNegotiatedFps < 10 ||
+            arguments.expectedNegotiatedFps > 240 || !expectedBitrateOk ||
+            arguments.expectedNegotiatedBitrateKbps < 500 ||
+            arguments.expectedNegotiatedBitrateKbps > 500000 ||
+            (arguments.expectedNegotiatedVideoCodec != QStringLiteral("H.264") &&
+             arguments.expectedNegotiatedVideoCodec != QStringLiteral("HEVC") &&
+             arguments.expectedNegotiatedVideoCodec != QStringLiteral("AV1")) ||
+            !expectedFullscreenFpsOk || arguments.expectedFullscreenFps < 10 ||
+            arguments.expectedFullscreenFps > 240 || !expectedFullscreenBitrateOk ||
+            arguments.expectedFullscreenBitrateKbps < 500 ||
+            arguments.expectedFullscreenBitrateKbps > 500000 ||
+            (arguments.expectedFullscreenVideoCodec != QStringLiteral("H.264") &&
+             arguments.expectedFullscreenVideoCodec != QStringLiteral("HEVC") &&
+             arguments.expectedFullscreenVideoCodec != QStringLiteral("AV1")) ||
+            !parseResolution(arguments.fullscreenResolution, &ignoredWidth, &ignoredHeight) ||
+            !parseResolution(parser.value(QStringLiteral("resize")), &arguments.resizeWidth,
+                             &arguments.resizeHeight)) {
+            QTextStream(stderr) << "invalid descriptor E2E negotiated-profile or resolution argument\n";
+            return 2;
+        }
     }
 
     RealE2eDriver driver(application, std::move(arguments));

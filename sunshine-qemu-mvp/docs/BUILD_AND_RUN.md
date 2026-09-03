@@ -4,8 +4,10 @@
 > KVM/VirGL deployment artifact, no-X build, Moonlight E2E and QSF desktop
 > companion, use [`../README.md`](../README.md),
 > [`MOONLIGHT_SUNSHINE_VIRGL_E2E.md`](MOONLIGHT_SUNSHINE_VIRGL_E2E.md), and
-> [`VALIDATION.md`](VALIDATION.md). The current native path uses headless
-> GBM/EGL CPU readback plus `libx264`, not a hardware encoder.
+> [`VALIDATION.md`](VALIDATION.md). The portable baseline uses headless
+> GBM/EGL CPU readback plus `libx264`; the PVE transport keeps that capture
+> path while permitting a provisioned encoder such as NVENC through its
+> root-owned per-VM policy.
 
 ## Packages
 

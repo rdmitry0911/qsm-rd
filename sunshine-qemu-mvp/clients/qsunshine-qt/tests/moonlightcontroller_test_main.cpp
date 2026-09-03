@@ -10,6 +10,7 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QSaveFile>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -471,11 +472,26 @@ int main(int argc, char* argv[])
         return 2;
     }
     const QByteArray nativeTicket("qsa1.controller-native-ticket");
-    controller.setSystemAuthGameStreamLease(QStringLiteral("auth.vm.example"), 48123,
-                                             QStringLiteral("auth.vm.example"),
-                                             QStringLiteral("/tmp/auth-ca.pem"),
-                                             QStringLiteral("vm-100"), nativeTicket,
-                                             QDateTime::currentMSecsSinceEpoch() + 60000);
+    const QByteArray nativeCaPem("-----BEGIN CERTIFICATE-----\n"
+                                 "q-sunshine-controller-test-public-ca\n"
+                                 "-----END CERTIFICATE-----\n");
+    if (!require(controller.setSystemAuthGameStreamLeasePem(
+                     QStringLiteral("auth.vm.example"), 48123,
+                     QStringLiteral("auth.vm.example"), nativeCaPem,
+                     QStringLiteral("vm-100"), nativeTicket,
+                     QDateTime::currentMSecsSinceEpoch() + 60000),
+                 QStringLiteral("ephemeral native Moonlight CA file could not be installed"))) {
+        return 2;
+    }
+    const QString savedHostBeforeBrokerLaunch = controller.profileHost();
+    settings.beginGroup(QStringLiteral("q-sunshine/client/profiles/") + profileHash);
+    const QString persistedHostBeforeBrokerLaunch = settings.value(QStringLiteral("host")).toString();
+    settings.endGroup();
+    if (!require(controller.setSystemAuthGameStreamMediaRoute(
+                     QStringLiteral("192.0.2.44"), 47989),
+                 QStringLiteral("broker media route could not be installed"))) {
+        return 2;
+    }
     if (!require(controller.canStartStream(),
                  QStringLiteral("current native system-auth lease did not admit a stream"))) {
         return 2;
@@ -500,12 +516,30 @@ int main(int argc, char* argv[])
         return 2;
     }
     const QString nativeOutput = QString::fromUtf8(nativeLog.readAll());
+    const QRegularExpression nativeEnvironmentPattern(
+        QStringLiteral("NATIVE_ENV auth=auth\\.vm\\.example:48123 sni=auth\\.vm\\.example "
+                       "ca=([^ ]+) audience=vm-100 fd=0 host=192\\.0\\.2\\.44 https=47984"));
+    const QRegularExpressionMatch nativeEnvironment = nativeEnvironmentPattern.match(nativeOutput);
+    const QString nativeCaPath = nativeEnvironment.captured(1);
+    const QFileInfo nativeCaInfo(nativeCaPath);
+    const QFileDevice::Permissions unsafeCaPermissions =
+        QFileDevice::ReadGroup | QFileDevice::WriteGroup | QFileDevice::ExeGroup |
+        QFileDevice::ReadOther | QFileDevice::WriteOther | QFileDevice::ExeOther;
+    QFile nativeCaFile(nativeCaPath);
+    const bool nativeCaContentsMatch = nativeCaFile.open(QIODevice::ReadOnly) &&
+        nativeCaFile.readAll() == nativeCaPem;
+    settings.beginGroup(QStringLiteral("q-sunshine/client/profiles/") + profileHash);
+    const QString persistedHostAfterBrokerLaunch = settings.value(QStringLiteral("host")).toString();
+    settings.endGroup();
     if (!require(nativeOutput.contains(QStringLiteral("stream --qsm-system-auth")) &&
-                 nativeOutput.contains(
-                     QStringLiteral("NATIVE_ENV auth=auth.vm.example:48123 sni=auth.vm.example "
-                                    "ca=/tmp/auth-ca.pem audience=vm-100 fd=0 host=127.0.0.1 https=47984")) &&
+                 nativeEnvironment.hasMatch() && nativeCaInfo.isFile() &&
+                 !(nativeCaInfo.permissions() & unsafeCaPermissions) && nativeCaContentsMatch &&
+                 controller.profileHost() == savedHostBeforeBrokerLaunch &&
+                 controller.profileAppName() == QStringLiteral("QEMU Console") &&
+                 persistedHostAfterBrokerLaunch == persistedHostBeforeBrokerLaunch &&
+                 nativeOutput.contains(QStringLiteral("192.0.2.44:47989 QEMU Console")) &&
                  !nativeOutput.contains(QString::fromUtf8(nativeTicket)),
-                 QStringLiteral("native Moonlight launch leaked its ticket or lost trusted lease metadata"))) {
+                 QStringLiteral("native Moonlight launch leaked its ticket, lost trusted lease metadata, or accepted a caller-selected app"))) {
         return 2;
     }
     // A system-auth ticket is launch admission only.  Model its expiry by
@@ -514,12 +548,15 @@ int main(int argc, char* argv[])
     // that native Sunshine has already accepted.
     controller.setSystemAuthAdmission(false);
     controller.clearSystemAuthGameStreamLease();
-    if (!require(!controller.canStartStream() && controller.running() && controller.streamBusy(),
+    if (!require(!controller.canStartStream() && controller.running() && controller.streamBusy() &&
+                 QFileInfo::exists(nativeCaPath),
                  QStringLiteral("ticket expiry incorrectly interrupted an established native stream"))) {
         return 2;
     }
     controller.stopStream();
-    if (!require(waitUntil([&controller]() { return !controller.streamBusy(); }, 6000),
+    if (!require(waitUntil([&controller, &nativeCaPath]() {
+                     return !controller.streamBusy() && !QFileInfo::exists(nativeCaPath);
+                 }, 6000),
                  QStringLiteral("native Moonlight child did not stop"))) {
         return 2;
     }

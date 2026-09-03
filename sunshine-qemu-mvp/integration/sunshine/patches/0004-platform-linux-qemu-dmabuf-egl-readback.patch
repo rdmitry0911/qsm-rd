@@ -1,15 +1,15 @@
-From a41988824e0ee4c07c844c2d9c90030b0c351449 Mon Sep 17 00:00:00 2001
+From 9f7042104ccab6b736158a93eb52221e77b6c19e Mon Sep 17 00:00:00 2001
 From: Codex <codex@local>
-Date: Tue, 1 Sep 2026 13:03:24 +0000
+Date: Tue, 1 Sep 2026 12:29:38 +0000
 Subject: [PATCH] platform/linux: add QEMU Display1 DMA-BUF EGL readback
 
 ---
  cmake/compile_definitions/linux.cmake   |  30 +-
  cmake/prep/options.cmake                |   2 +
- src/platform/linux/qemu_dbus.cpp        | 235 +++++++++-
- src/platform/linux/qemu_dbus_dmabuf.cpp | 568 ++++++++++++++++++++++++
+ src/platform/linux/qemu_dbus.cpp        | 231 +++++++++-
+ src/platform/linux/qemu_dbus_dmabuf.cpp | 586 ++++++++++++++++++++++++
  src/platform/linux/qemu_dbus_dmabuf.h   |  72 +++
- 5 files changed, 886 insertions(+), 21 deletions(-)
+ 5 files changed, 902 insertions(+), 19 deletions(-)
  create mode 100644 src/platform/linux/qemu_dbus_dmabuf.cpp
  create mode 100644 src/platform/linux/qemu_dbus_dmabuf.h
 
@@ -73,7 +73,7 @@ index 3b77726..9294bff 100644
 +            "Enable headless EGL CPU readback for QEMU Display1 DMA-BUF scanouts" ON)
  endif()
 diff --git a/src/platform/linux/qemu_dbus.cpp b/src/platform/linux/qemu_dbus.cpp
-index 6477035..1999a47 100644
+index 6503a85..b417d7b 100644
 --- a/src/platform/linux/qemu_dbus.cpp
 +++ b/src/platform/linux/qemu_dbus.cpp
 @@ -18,6 +18,7 @@
@@ -146,7 +146,7 @@ index 6477035..1999a47 100644
      std::uint64_t read_audio_unsigned(const std::uint8_t *bytes,
                                        std::size_t byte_count,
                                        bool big_endian) {
-@@ -1959,12 +2000,12 @@ namespace platf {
+@@ -1841,12 +1882,12 @@ namespace platf {
  
          std::unique_lock lock(frame_mutex_);
          if (!frame_ready_.wait_for(lock, 5s, [this] {
@@ -161,7 +161,7 @@ index 6477035..1999a47 100644
            return false;
          }
          width = static_cast<int>(frame_.width);
-@@ -2076,6 +2117,8 @@ namespace platf {
+@@ -1958,6 +1999,8 @@ namespace platf {
    <interface name="org.qemu.Display1.Listener">
      <method name="Scanout"><arg type="u" direction="in"/><arg type="u" direction="in"/><arg type="u" direction="in"/><arg type="u" direction="in"/><arg type="ay" direction="in"/></method>
      <method name="Update"><arg type="i" direction="in"/><arg type="i" direction="in"/><arg type="i" direction="in"/><arg type="i" direction="in"/><arg type="u" direction="in"/><arg type="u" direction="in"/><arg type="ay" direction="in"/></method>
@@ -170,7 +170,7 @@ index 6477035..1999a47 100644
      <method name="Disable"/>
      <method name="MouseSet"><arg type="i" direction="in"/><arg type="i" direction="in"/><arg type="i" direction="in"/></method>
      <method name="CursorDefine"><arg type="i" direction="in"/><arg type="i" direction="in"/><arg type="i" direction="in"/><arg type="i" direction="in"/><arg type="ay" direction="in"/></method>
-@@ -2102,6 +2145,28 @@ namespace platf {
+@@ -1984,6 +2027,28 @@ namespace platf {
              self->handle_update(parameters, invocation);
              return;
            }
@@ -199,7 +199,7 @@ index 6477035..1999a47 100644
            if (std::strcmp(method_name, "Disable") == 0) {
              self->handle_disable(invocation);
              return;
-@@ -2171,6 +2236,44 @@ namespace platf {
+@@ -2053,6 +2118,41 @@ namespace platf {
          }
        }
  
@@ -222,9 +222,6 @@ index 6477035..1999a47 100644
 +          frame_.available = true;
 +          frame_.disabled = false;
 +        }
-+        if (input_transport_) {
-+          input_transport_->set_scanout_geometry(new_width, new_height);
-+        }
 +        if (geometry_changed) {
 +          BOOST_LOG(info) << "[qemu-dbus] QEMU scanout geometry changed to "sv
 +                          << new_width << 'x' << new_height;
@@ -244,7 +241,7 @@ index 6477035..1999a47 100644
        void handle_scanout(GVariant *parameters, GDBusMethodInvocation *invocation) {
          guint32 new_width = 0U;
          guint32 new_height = 0U;
-@@ -2194,27 +2297,99 @@ namespace platf {
+@@ -2076,24 +2176,99 @@ namespace platf {
            return;
          }
  
@@ -338,9 +335,7 @@ index 6477035..1999a47 100644
 +          BOOST_LOG(debug) << "[qemu-dbus] dropped incompatible QEMU UpdateDMABUF"sv;
 +          g_dbus_method_invocation_return_value(invocation, nullptr);
 +          return;
-         }
--        if (input_transport_) {
--          input_transport_->set_scanout_geometry(new_width, new_height);
++        }
 +
 +        try {
 +          auto frame = dmabuf_readback_->update(x, y, update_width, update_height);
@@ -359,7 +354,7 @@ index 6477035..1999a47 100644
  
        void handle_update(GVariant *parameters, GDBusMethodInvocation *invocation) {
          gint32 x = 0;
-@@ -2277,6 +2452,11 @@ namespace platf {
+@@ -2156,6 +2331,11 @@ namespace platf {
        }
  
        void handle_disable(GDBusMethodInvocation *invocation) {
@@ -371,9 +366,9 @@ index 6477035..1999a47 100644
          {
            std::lock_guard lock(frame_mutex_);
            frame_.disabled = true;
-@@ -2305,6 +2485,18 @@ namespace platf {
-           input_transport_->report_input_stats();
-           input_transport_.reset();
+@@ -2178,6 +2358,18 @@ namespace platf {
+         if (peer_thread_.joinable()) {
+           peer_thread_.join();
          }
 +#ifdef SUNSHINE_BUILD_QEMU_DBUS_DMABUF
 +        // The EGL context belongs to the peer callback thread.  That thread
@@ -390,7 +385,7 @@ index 6477035..1999a47 100644
          if (peer_bus_ != nullptr && listener_registration_ != 0U) {
            g_dbus_connection_unregister_object(peer_bus_, listener_registration_);
            listener_registration_ = 0U;
-@@ -2350,6 +2542,15 @@ namespace platf {
+@@ -2223,6 +2415,15 @@ namespace platf {
        std::thread peer_thread_;
        std::shared_ptr<qemu_input_transport_t> input_transport_;
  
@@ -408,10 +403,10 @@ index 6477035..1999a47 100644
        qemu_frame_t frame_;
 diff --git a/src/platform/linux/qemu_dbus_dmabuf.cpp b/src/platform/linux/qemu_dbus_dmabuf.cpp
 new file mode 100644
-index 0000000..fce7d22
+index 0000000..dd9d5d7
 --- /dev/null
 +++ b/src/platform/linux/qemu_dbus_dmabuf.cpp
-@@ -0,0 +1,568 @@
+@@ -0,0 +1,586 @@
 +/**
 + * @file src/platform/linux/qemu_dbus_dmabuf.cpp
 + * @brief Headless EGL DMA-BUF import and CPU readback for QEMU Display1.
@@ -579,33 +574,49 @@ index 0000000..fce7d22
 +        throw std::runtime_error("EGL render node lacks EGL_EXT_image_dma_buf_import");
 +      }
 +      has_modifiers_ = has_egl_extension(extensions, "EGL_EXT_image_dma_buf_import_modifiers");
++      const bool has_surfaceless_context =
++        has_egl_extension(extensions, "EGL_KHR_surfaceless_context");
 +      if (eglBindAPI(EGL_OPENGL_API) != EGL_TRUE) {
 +        throw std::runtime_error(egl_error("eglBindAPI(OpenGL)"));
 +      }
 +
-+      constexpr EGLint config_attributes[] {
++      // All rendering here targets explicit FBOs.  Requiring a pbuffer just
++      // to make the context current excludes valid GBM configurations: Mesa's
++      // nested VirGL renderer, for example, publishes window-only configs.
++      // Prefer the standard surfaceless extension and retain pbuffer as the
++      // compatibility fallback for EGL implementations without it.
++      constexpr EGLint surfaceless_config_attributes[] {
++        EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
++        EGL_NONE,
++      };
++      constexpr EGLint pbuffer_config_attributes[] {
 +        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
 +        EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
-+        EGL_RED_SIZE, 8,
-+        EGL_GREEN_SIZE, 8,
-+        EGL_BLUE_SIZE, 8,
-+        EGL_ALPHA_SIZE, 8,
 +        EGL_NONE,
 +      };
-+      EGLint config_count = 0;
-+      if (eglChooseConfig(display_, config_attributes, &config_, 1, &config_count) != EGL_TRUE ||
-+          config_count == 0) {
-+        throw std::runtime_error(egl_error("eglChooseConfig"));
-+      }
++      const auto choose_config = [this](const EGLint *attributes) {
++        EGLint config_count = 0;
++        return eglChooseConfig(display_, attributes, &config_, 1, &config_count) == EGL_TRUE &&
++               config_count != 0;
++      };
 +
-+      constexpr EGLint pbuffer_attributes[] {
-+        EGL_WIDTH, 1,
-+        EGL_HEIGHT, 1,
-+        EGL_NONE,
-+      };
-+      surface_ = eglCreatePbufferSurface(display_, config_, pbuffer_attributes);
-+      if (surface_ == EGL_NO_SURFACE) {
-+        throw std::runtime_error(egl_error("eglCreatePbufferSurface"));
++      if (has_surfaceless_context && choose_config(surfaceless_config_attributes)) {
++        surfaceless_ = true;
++      } else {
++        if (!choose_config(pbuffer_config_attributes)) {
++          throw std::runtime_error(
++            "EGL render node has no OpenGL configuration suitable for offscreen DMA-BUF readback"
++          );
++        }
++        constexpr EGLint pbuffer_attributes[] {
++          EGL_WIDTH, 1,
++          EGL_HEIGHT, 1,
++          EGL_NONE,
++        };
++        surface_ = eglCreatePbufferSurface(display_, config_, pbuffer_attributes);
++        if (surface_ == EGL_NO_SURFACE) {
++          throw std::runtime_error(egl_error("eglCreatePbufferSurface"));
++        }
 +      }
 +      context_ = eglCreateContext(display_, config_, EGL_NO_CONTEXT, nullptr);
 +      if (context_ == EGL_NO_CONTEXT) {
@@ -786,8 +797,8 @@ index 0000000..fce7d22
 +    }
 +
 +    [[nodiscard]] bool make_current_noexcept() noexcept {
-+      return display_ != EGL_NO_DISPLAY && surface_ != EGL_NO_SURFACE &&
-+             context_ != EGL_NO_CONTEXT &&
++      return display_ != EGL_NO_DISPLAY && context_ != EGL_NO_CONTEXT &&
++             (surfaceless_ || surface_ != EGL_NO_SURFACE) &&
 +             eglMakeCurrent(display_, surface_, surface_, context_) == EGL_TRUE;
 +    }
 +
@@ -856,6 +867,7 @@ index 0000000..fce7d22
 +          eglDestroySurface(display_, surface_);
 +          surface_ = EGL_NO_SURFACE;
 +        }
++        surfaceless_ = false;
 +        if (initialized_) {
 +          eglTerminate(display_);
 +          initialized_ = false;
@@ -880,6 +892,7 @@ index 0000000..fce7d22
 +    std::uint32_t destination_height_ {};
 +    bool initialized_ {};
 +    bool has_modifiers_ {};
++    bool surfaceless_ {};
 +  };
 +
 +  qemu_dbus_dmabuf_readback_t::qemu_dbus_dmabuf_readback_t(std::string render_node):

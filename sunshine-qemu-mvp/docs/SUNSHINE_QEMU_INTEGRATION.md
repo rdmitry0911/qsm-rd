@@ -13,12 +13,18 @@ encoder = software
 ```
 
 The per-VM private bus is deliberately process-scoped rather than a public
-Sunshine configuration value:
+Sunshine configuration value. In the packaged PVE 9 terminal service it is
+created before QEMU starts at a root-only, VM-specific location:
 
 ```text
-SUNSHINE_QEMU_DBUS_ADDRESS=unix:path=/run/user/1000/qemu-vm42.bus
+SUNSHINE_QEMU_DBUS_ADDRESS=unix:path=/run/q-sunshine/100/qemu-display1.bus
 SUNSHINE_QEMU_DBUS_DESTINATION=org.qemu     # optional, this is the default
 ```
+
+`q-sunshine-terminal.service` owns that private `dbus-daemon`; do not inherit
+`DBUS_SESSION_BUS_ADDRESS`, substitute a host session bus, or reuse the socket
+for another VM. The matching PVE `args:` example and service launch sequence
+are in the packaged `README.Debian`.
 
 ## Implemented first slice
 

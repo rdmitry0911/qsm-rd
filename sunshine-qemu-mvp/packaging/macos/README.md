@@ -35,13 +35,34 @@ Apple credentials. The build refuses a non-Tahoe host unless
 `QSUNSHINE_MACOS_ALLOW_OTHER=1` is set for development, and defaults to
 `QSUNSHINE_MACOS_DEPLOYMENT_TARGET=26.0`.
 
+## Opening a Proxmox VM launch
+
+The bundle registers the local `.qsm` document type with LaunchServices. From
+the Proxmox VM Console menu, download the one-use launch file and double-click
+it in Finder; q-sunshine receives the file-open event and redeems it over the
+descriptor-pinned TLS connection. No Proxmox password, PIN, media endpoint,
+or CA path is entered in the client.
+
+For a shell invocation, use the bundle's receiver explicitly:
+
+```bash
+/Applications/qsunshine-client.app/Contents/MacOS/qsunshine-client \
+  --launch-file "$HOME/Downloads/vm-100.qsm"
+```
+
+The launch file is a short-lived one-use authorization. Do not copy it into a
+profile or pass it through a URL scheme; the bundle intentionally declares no
+custom scheme. On Linux builds that install the Qt client, the accompanying
+desktop/MIME metadata runs the same required `--launch-file %f` invocation for
+`application/x-q-sunshine-launch` files.
+
 For an audited mirror, set `QSUNSHINE_MOONLIGHT_GIT_URL`; the builder still
 requires the exact pinned commit and applies the canonical patch with
 `git apply --index`, so a different source revision cannot be
 accepted accidentally.
 
-The release-consumer order for installing a verified DMG, configuring the
-system-auth profile, connecting, checking QSF features, uninstalling, and
+The release-consumer order for installing a verified DMG, opening a Proxmox
+Console-generated launch file, checking QSF features, uninstalling, and
 handling Developer ID/notarization caveats is in
 [`docs/RELEASE_NOTES.md`](../../docs/RELEASE_NOTES.md). That document does not
 claim that a particular DMG has been published or notarized.

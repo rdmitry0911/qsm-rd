@@ -67,12 +67,16 @@ set_target_properties(qsunshine-client PROPERTIES
 if(APPLE)
     # Produce a conventional .app. The Tahoe packaging script then deploys Qt
     # frameworks and embeds the pinned patched Moonlight.app in Resources.
+    # The custom Info.plist declares `.qsm` as a local PVE launch document;
+    # it deliberately does not register a URL scheme.
     set_target_properties(qsunshine-client PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_BUNDLE_NAME "q-sunshine"
         MACOSX_BUNDLE_GUI_IDENTIFIER "io.qsunshine.client"
         MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_INFO_PLIST
+            "${CMAKE_CURRENT_SOURCE_DIR}/resources/MacOSXBundleInfo.plist.in"
     )
 endif()
 
@@ -109,6 +113,22 @@ install(TARGETS qsunshine-client
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     BUNDLE DESTINATION .
 )
+
+# A Linux desktop build can be invoked directly from a browser/download
+# manager after a PVE Console launch.  The Exec value always supplies the
+# required option; the receiver still rejects positional routes and validates
+# the local one-use envelope itself.  The Proxmox server .deb intentionally
+# does not build this Qt desktop target, so it remains headless.
+if(UNIX AND NOT APPLE)
+    configure_file(resources/qsunshine-client.desktop.in
+                   qsunshine-client.desktop @ONLY)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/qsunshine-client.desktop"
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications
+    )
+    install(FILES resources/q-sunshine-launch.xml
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/mime/packages
+    )
+endif()
 
 if(BUILD_TESTING)
     qt_add_executable(qsunshine-qml-smoke
@@ -172,6 +192,46 @@ if(BUILD_TESTING)
         add_test(NAME qsunshine_moonlight_controller
                  COMMAND qsunshine-moonlight-controller-test)
         set_tests_properties(qsunshine_moonlight_controller PROPERTIES TIMEOUT 25)
+
+        # Preflight a browser-downloaded .qsm before any network event loop
+        # runs: strict schema, no symlink/world-writable acceptance, exact
+        # redeem request, and no claim persistence.  It deliberately uses a
+        # closed local port because this target tests the local receiver
+        # boundary rather than a broker implementation.
+        qt_add_executable(qsunshine-launch-descriptor-preflight-test
+            tests/launchdescriptor_preflight_test_main.cpp
+            src/qsfclient.cpp
+            src/qsfclient.h
+            src/systemauthclient.cpp
+            src/systemauthclient.h
+        )
+        target_include_directories(qsunshine-launch-descriptor-preflight-test PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+        )
+        target_link_libraries(qsunshine-launch-descriptor-preflight-test PRIVATE
+            Qt6::Core
+            Qt6::Gui
+            Qt6::Network
+        )
+        add_test(NAME qsunshine_launch_descriptor_preflight
+                 COMMAND qsunshine-launch-descriptor-preflight-test)
+        set_tests_properties(qsunshine_launch_descriptor_preflight PROPERTIES TIMEOUT 15)
+
+        qt_add_executable(qsunshine-launch-descriptor-tls-test
+            tests/launchdescriptor_tls_test_main.cpp
+            src/qsfclient.cpp
+            src/qsfclient.h
+            src/systemauthclient.cpp
+            src/systemauthclient.h
+        )
+        target_include_directories(qsunshine-launch-descriptor-tls-test PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+        )
+        target_link_libraries(qsunshine-launch-descriptor-tls-test PRIVATE
+            Qt6::Core
+            Qt6::Gui
+            Qt6::Network
+        )
     endif()
 
     qt_add_executable(qsunshine-qsf-e2e
@@ -266,6 +326,15 @@ if(BUILD_TESTING)
 
     find_package(Python3 COMPONENTS Interpreter)
     find_program(QSUNSHINE_OPENSSL_EXECUTABLE openssl)
+    if(Python3_Interpreter_FOUND)
+        add_test(
+            NAME qsunshine_client_launch_associations
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/client_launch_association_test.py
+                -v
+        )
+        set_tests_properties(qsunshine_client_launch_associations PROPERTIES TIMEOUT 10)
+    endif()
     # The current gateway fixture uses an AF_UNIX broker and POSIX select()
     # behavior, so it is a Unix test even though QsfClient itself is portable.
     if(UNIX AND Python3_Interpreter_FOUND AND QSUNSHINE_OPENSSL_EXECUTABLE)
@@ -289,6 +358,35 @@ if(BUILD_TESTING)
         )
         set_tests_properties(qsunshine_qt_system_auth_client PROPERTIES
             TIMEOUT 40
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        )
+        add_test(
+            NAME qsunshine_qt_launch_descriptor_tls
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/system_auth/test_qt_launch_descriptor_client.py
+                --qt-client $<TARGET_FILE:qsunshine-launch-descriptor-tls-test>
+                -v
+        )
+        set_tests_properties(qsunshine_qt_launch_descriptor_tls PROPERTIES
+            TIMEOUT 35
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        )
+        # This invokes the full test-only driver, rather than the smaller
+        # SystemAuthClient fixture above. It proves that a PVE .qsm is the
+        # only ingress into the real controller composition: redeem ->
+        # in-memory broker routes -> lease-aware patched Moonlight child.
+        # No legacy username/password or user-supplied QSF/media route is
+        # accepted in this mode, and the child CA path is checked as 0600 and
+        # absent after teardown.
+        add_test(
+            NAME qsunshine_qt_descriptor_real_driver
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/system_auth/test_qt_descriptor_real_driver.py
+                --real-driver $<TARGET_FILE:qsunshine-real-e2e-driver>
+                -v
+        )
+        set_tests_properties(qsunshine_qt_descriptor_real_driver PROPERTIES
+            TIMEOUT 45
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         )
         add_test(

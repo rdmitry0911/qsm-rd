@@ -156,27 +156,24 @@ fail-closed:
    mode bypasses pairing persistence, host discovery persistence, and every
    PIN route. A stock Moonlight executable rejects the explicit marker rather
    than falling back silently.
-3. Sunshine's per-instance `qsm_system_auth_mode=enabled` accepts only a
-   current leaf issued by that VM CA. The public CA is opened as an absolute,
-   root-owned, non-symlink, non-group/world-writable regular file; it is loaded
-   once from that checked descriptor, not reopened by pathname. For every
-   sensitive HTTPS request Sunshine reconstructs the identity from that
-   request's actual TLS socket and strictly verifies chain, validity,
-   `clientAuth`, `CA:FALSE`, exact critical URI SAN audience, and the fixed
-   certificate profile.
+3. The transport-only Sunshine worker requires `qsm_system_auth_mode=enabled`
+   and accepts only a current leaf issued by that VM CA. It starts no plaintext
+   HTTP bootstrap listener: the six GameStream transport endpoints are served
+   only over HTTPS. The public CA is opened as an absolute, root-owned,
+   non-symlink, non-group/world-writable regular file; it is loaded once from
+   that checked descriptor, not reopened by pathname. For every sensitive
+   HTTPS request Sunshine reconstructs the identity from that request's actual
+   TLS socket and strictly verifies chain, validity, `clientAuth`, `CA:FALSE`,
+   exact critical URI SAN audience, and the fixed certificate profile.
 4. A native `/launch` or `/resume` additionally requires `corever >= 1` and
    exactly 16 bytes of hex `rikey`. This forces `rtspenc://`: the RTSP control
    connection must prove possession of the secret sent only over the mTLS
    launch response before commands are dispatched. Sunshine carries the
    request-local lease expiry into the pending RTSP session and rejects a
    session that has expired before transport admission.
-5. Native Sunshine does not register `/pair`, `/api/pin`, or the Web UI PIN
-   page, and never reads the legacy paired-certificate queue. A changed or
-   missing native lease cannot fall back to paired GameStream. The generic
-   GameStream compatibility responder encodes an unregistered route as HTTP
-   200 with XML `<root status_code="404"/>`; callers must test that exact
-   protocol payload rather than treating the transport status as a successful
-   pairing route.
+5. Native Sunshine does not construct `/pair`, `/api/pin`, Web UI, a
+   plaintext GameStream responder, or the legacy paired-certificate queue. A
+   changed or missing native lease cannot fall back to paired GameStream.
 
 The canonical source contracts are
 [`integration/moonlight/patches/0001-system-auth-gamestream-lease.patch`](../integration/moonlight/patches/0001-system-auth-gamestream-lease.patch),

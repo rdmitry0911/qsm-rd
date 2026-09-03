@@ -39,6 +39,14 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+# The package invokes this file directly, and the unit suite imports it by
+# file location.  Keep its sibling encoder policy module discoverable in both
+# cases without making the project depend on an ambient PYTHONPATH.
+_MODULE_DIRECTORY = Path(__file__).resolve().parent
+if str(_MODULE_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(_MODULE_DIRECTORY))
+from q_sunshine_encoder_probe import EncoderProbeError, select_h264_encoder
+
 
 MAX_CLIPBOARD_BYTES = 1024 * 1024
 MAX_FILE_BYTES = 2 * 1024 * 1024
@@ -281,13 +289,13 @@ def _sunshine_serverinfo_encoder_codecs(
 
 def detected_host_encoder_capabilities(
         *, deadline: float | None = None) -> dict[str, Any]:
-    """Read the verified per-VM Sunshine encoder envelope.
+    """Read the explicit host envelope and a proven direct encoder backend.
 
-    Presence of /dev/nvidia*, a render node, CPU count, or KVM says nothing
-    about the encoder that Sunshine actually probed.  This service therefore
-    never turns a device node into a codec claim.  The envelope must be
-    supplied from a tested Sunshine/ServerCodecModeSupport deployment; the
-    H.264 software-safe default is intentionally conservative.
+    The primary browser route probes its own H.264 encoder, so it does not
+    depend on a Sunshine HTTP endpoint or turn a GPU device node into an
+    unsupported claim.  ``sunshine_compat`` preserves the former native
+    GameStream diagnostic path while it remains available as a compatibility
+    transport; it is never selected implicitly.
     """
     envelope = {
         "max_width": _bounded_environment_int("QSUNSHINE_QSF_HOST_MAX_WIDTH",
@@ -304,13 +312,38 @@ def detected_host_encoder_capabilities(
         "encoder_codecs": _codec_list_environment(
             "QSUNSHINE_QSF_HOST_ENCODER_CODECS", ("H264",)),
     }
-    probed_codecs = _sunshine_serverinfo_encoder_codecs(deadline=deadline)
-    if probed_codecs is not None:
+    mode = os.environ.get("QSUNSHINE_QSF_ENCODER_PROBE", "direct")
+    if mode == "direct":
+        try:
+            timeout = None if deadline is None else _remaining_deadline_seconds(
+                deadline, "connection profile transaction timed out")
+            selection = select_h264_encoder(timeout_seconds=timeout)
+        except EncoderProbeError as error:
+            raise ControlError("no direct H.264 encoder is available on this host") from error
         envelope["encoder_codecs"] = tuple(
-            codec for codec in envelope["encoder_codecs"] if codec in probed_codecs)
+            codec for codec in envelope["encoder_codecs"] if codec == "H264")
         if not envelope["encoder_codecs"]:
-            raise ControlError(
-                "the tested host encoder envelope and Sunshine /serverinfo have no common codec")
+            raise ControlError("direct browser transport requires H264 in the host envelope")
+        envelope["encoder_backend"] = selection.name
+        envelope["encoder_hardware"] = selection.hardware
+    elif mode == "sunshine_compat":
+        probed_codecs = _sunshine_serverinfo_encoder_codecs(deadline=deadline)
+        if probed_codecs is not None:
+            envelope["encoder_codecs"] = tuple(
+                codec for codec in envelope["encoder_codecs"] if codec in probed_codecs)
+            if not envelope["encoder_codecs"]:
+                raise ControlError(
+                    "the tested host encoder envelope and Sunshine /serverinfo have no common codec")
+        envelope["encoder_backend"] = "sunshine_compat"
+        envelope["encoder_hardware"] = None
+    elif mode == "static":
+        # Fixture-only / offline administrative mode.  It intentionally
+        # retains an explicit envelope but makes no hardware assertion.
+        envelope["encoder_backend"] = "static"
+        envelope["encoder_hardware"] = None
+    else:
+        raise ControlError(
+            "QSUNSHINE_QSF_ENCODER_PROBE must be direct, sunshine_compat, or static")
     return envelope
 
 
@@ -346,36 +379,73 @@ def _fit_resolution(width: int, height: int, maximum_width: int,
 
 
 class AgentChannel:
-    """Serialize requests to the single guest virtio-serial connection."""
+    """Serialize requests to a guest virtio-serial connection that may restart.
+
+    A terminal worker and its QSF controller are deliberately independent of
+    the VM lifecycle.  A guest reboot therefore closes the Unix chardev while
+    the controller process remains healthy.  Conversely, a terminal worker
+    restart disconnects the guest endpoint without changing its VM.  Treat
+    that socket as a reconnectable transport, but never replay a command once
+    it has been written: clipboard/file/profile mutations retain at-most-once
+    semantics and the caller gets a clear retryable failure instead.
+    """
+
+    _RECONNECT_PAUSE_SECONDS = 0.10
+    _READ_TIMEOUT_SECONDS = 1.0
 
     def __init__(self, path: Path, on_clipboard: callable) -> None:
         self._path = path
         self._on_clipboard = on_clipboard
-        self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._socket.connect(str(path))
-        self._socket.settimeout(1.0)
-        self._closed = threading.Event()
+        self._stopped = threading.Event()
         self._responses: deque[str] = deque()
         self._condition = threading.Condition()
         self._request_lock = threading.Lock()
-        self._reader = threading.Thread(target=self._read_loop, name="qsf-agent-reader", daemon=True)
-        self._reader.start()
+        self._socket: socket.socket | None = None
+        self._reader: threading.Thread | None = None
+        self._generation = 0
+        self._ready_generation: int | None = None
 
     def close(self) -> None:
-        self._closed.set()
+        self._stopped.set()
+        with self._condition:
+            channel = self._socket
+            reader = self._reader
+            self._socket = None
+            self._reader = None
+            self._generation += 1
+            self._ready_generation = None
+            self._responses.clear()
+            self._condition.notify_all()
+        if channel is not None:
+            try:
+                channel.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            channel.close()
+        if reader is not None and reader is not threading.current_thread():
+            reader.join(timeout=1.0)
+
+    def _disconnect(self, channel: socket.socket, generation: int) -> None:
+        """Forget exactly one transport generation and wake waiting requests."""
+        with self._condition:
+            if self._socket is not channel or self._generation != generation:
+                return
+            self._socket = None
+            self._reader = None
+            self._ready_generation = None
+            self._responses.clear()
+            self._condition.notify_all()
         try:
-            self._socket.shutdown(socket.SHUT_RDWR)
+            channel.close()
         except OSError:
             pass
-        self._socket.close()
-        self._reader.join(timeout=1.0)
 
-    def _read_loop(self) -> None:
+    def _read_loop(self, channel: socket.socket, generation: int) -> None:
         buffer = bytearray()
         try:
-            while not self._closed.is_set():
+            while not self._stopped.is_set():
                 try:
-                    chunk = self._socket.recv(65536)
+                    chunk = channel.recv(65536)
                 except socket.timeout:
                     continue
                 if not chunk:
@@ -389,6 +459,12 @@ class AgentChannel:
                     try:
                         line = raw.decode("ascii")
                     except UnicodeDecodeError:
+                        continue
+                    if line == "READY QSF1":
+                        with self._condition:
+                            if self._socket is channel and self._generation == generation:
+                                self._ready_generation = generation
+                                self._condition.notify_all()
                         continue
                     # `CLIP` is the synchronous response to CLIP_GET.  An
                     # unsolicited guest clipboard change has a distinct
@@ -405,14 +481,84 @@ class AgentChannel:
                         self._on_clipboard(text)
                         continue
                     with self._condition:
-                        self._responses.append(line)
-                        self._condition.notify_all()
+                        if self._socket is channel and self._generation == generation:
+                            self._responses.append(line)
+                            self._condition.notify_all()
         except (OSError, ControlError):
             pass
         finally:
-            self._closed.set()
+            self._disconnect(channel, generation)
+
+    def _wait_for_ready(self, channel: socket.socket, generation: int,
+                        deadline: float, timeout_error: str) -> bool:
+        """Wait for the guest's fixed protocol greeting on this connection."""
+        with self._condition:
+            while True:
+                if self._stopped.is_set():
+                    raise ControlError("guest agent transport is stopped")
+                if self._socket is not channel or self._generation != generation:
+                    return False
+                if self._ready_generation == generation:
+                    return True
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ControlError(timeout_error)
+                self._condition.wait(remaining)
+
+    def _connect(self, deadline: float, timeout_error: str) -> tuple[socket.socket, int]:
+        """Return a live, greeted transport or wait only within the request budget."""
+        while True:
+            if self._stopped.is_set():
+                raise ControlError("guest agent transport is stopped")
             with self._condition:
-                self._condition.notify_all()
+                existing = self._socket
+                existing_generation = self._generation
+            if existing is not None:
+                if self._wait_for_ready(existing, existing_generation, deadline, timeout_error):
+                    return existing, existing_generation
+                continue
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ControlError(timeout_error)
+            candidate = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                candidate.settimeout(min(self._READ_TIMEOUT_SECONDS, remaining))
+                candidate.connect(str(self._path))
+                candidate.settimeout(self._READ_TIMEOUT_SECONDS)
+            except OSError:
+                candidate.close()
+                with self._condition:
+                    if self._stopped.is_set():
+                        raise ControlError("guest agent transport is stopped")
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ControlError(timeout_error)
+                    self._condition.wait(min(self._RECONNECT_PAUSE_SECONDS, remaining))
+                continue
+
+            with self._condition:
+                if self._stopped.is_set():
+                    should_close = True
+                elif self._socket is not None:
+                    should_close = True
+                else:
+                    self._generation += 1
+                    generation = self._generation
+                    self._socket = candidate
+                    self._responses.clear()
+                    self._ready_generation = None
+                    reader = threading.Thread(target=self._read_loop,
+                                              args=(candidate, generation),
+                                              name="qsf-agent-reader", daemon=True)
+                    self._reader = reader
+                    reader.start()
+                    should_close = False
+            if should_close:
+                candidate.close()
+                continue
+            if self._wait_for_ready(candidate, generation, deadline, timeout_error):
+                return candidate, generation
 
     def request(self, command: str, expected_prefix: str,
                 *, deadline: float | None = None) -> str:
@@ -434,13 +580,16 @@ class AgentChannel:
         if not self._request_lock.acquire(timeout=lock_wait):
             raise ControlError(timeout_error)
         try:
-            if self._closed.is_set():
-                raise ControlError("guest agent transport is closed")
-            _remaining_deadline_seconds(deadline, timeout_error)
+            channel, generation = self._connect(deadline, timeout_error)
             try:
-                self._socket.sendall(command.encode("ascii") + b"\n")
+                channel.sendall(command.encode("ascii") + b"\n")
             except OSError as error:
-                raise ControlError("cannot write to guest agent") from error
+                self._disconnect(channel, generation)
+                # A Unix stream may have accepted a prefix of the command
+                # before reporting an error.  Do not replay a potentially
+                # mutating request; a later user action can establish a fresh
+                # greeted channel safely.
+                raise ControlError("guest agent transport interrupted; retry operation") from error
             with self._condition:
                 while True:
                     if self._responses:
@@ -452,8 +601,10 @@ class AgentChannel:
                         # READY and unrelated asynchronous status messages are
                         # harmless while a request is in flight.
                         continue
+                    if self._socket is not channel or self._generation != generation:
+                        raise ControlError("guest agent transport interrupted; retry operation")
                     remaining = deadline - time.monotonic()
-                    if remaining <= 0 or self._closed.is_set():
+                    if remaining <= 0:
                         raise ControlError(timeout_error)
                     self._condition.wait(remaining)
         finally:
@@ -626,7 +777,7 @@ class Broker:
             codec = next((candidate for candidate in ("AV1", "HEVC", "H264")
                           if candidate in common_codecs), None)
             if codec is None:
-                raise ControlError("client decoder and Sunshine encoder have no common codec")
+                raise ControlError("client decoder and host encoder have no common codec")
             width, height = _fit_resolution(
                 client["requested_width"], client["requested_height"],
                 min(host["max_width"], guest["max_width"]),
@@ -698,6 +849,8 @@ class Broker:
             # Keep the transaction identifier textual at the public boundary.
             profile["guest_profile_generation"] = str(profile.pop("generation"))
             profile["qemu_set_ui_info"] = qemu_set_ui_info
+            profile["encoder_backend"] = host["encoder_backend"]
+            profile["encoder_hardware"] = host["encoder_hardware"]
             return profile
         finally:
             self._display_transaction_lock.release()

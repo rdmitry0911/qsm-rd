@@ -9,9 +9,11 @@
 #include <QString>
 
 #include <functional>
+#include <memory>
 
 class QSslSocket;
 class QTimer;
+class QTemporaryFile;
 class QsfClient;
 class SystemAuthClientTestAccess;
 
@@ -35,6 +37,7 @@ class SystemAuthClient final : public QObject
 
 public:
     explicit SystemAuthClient(QObject* parent = nullptr);
+    ~SystemAuthClient() override;
 
     QString profileId() const;
     QString host() const;
@@ -62,7 +65,12 @@ public:
                                             const QString& serverName,
                                             const QString& caFile,
                                             const QString& expectedAudience);
-    Q_INVOKABLE void login(const QString& username, const QString& password);
+    // Compatibility/test-only legacy PAM path. It is deliberately not
+    // Q_INVOKABLE: the shipped receiver never collects a PVE password.
+    void login(const QString& username, const QString& password);
+    // Load a one-use launch descriptor generated after normal Proxmox ACL
+    // authentication. The descriptor and its claim remain in memory only.
+    bool claimLaunchFile(const QString& path);
     Q_INVOKABLE void logout();
 
     // This is a C++ composition hook, not a QML entry point. It gives the
@@ -79,6 +87,18 @@ public:
                                                    const QByteArray&, qint64)>;
     void setGameStreamLeaseSink(GameStreamLeaseSink installLease,
                                 std::function<void()> clearLease);
+    // Receives only broker-validated media routing metadata. It is C++-only
+    // so QML cannot redirect a VM-scoped system-auth media ticket.
+    using BrokerMediaRouteSink = std::function<bool(const QString&, int)>;
+    void setBrokerMediaRouteSink(BrokerMediaRouteSink installRoute,
+                                 std::function<void()> clearRoute);
+    // The descriptor response's transport CA is passed as bytes only to the
+    // trusted local controller, which materializes its own 0600 ephemeral
+    // file for the patched Moonlight child's existing CA-file contract.
+    using BrokerGameStreamLeaseSink = std::function<bool(const QString&, int, const QString&,
+                                                         const QByteArray&, const QString&,
+                                                         const QByteArray&, qint64)>;
+    void setBrokerGameStreamLeaseSink(BrokerGameStreamLeaseSink installLease);
 
 signals:
     void profileChanged();
@@ -108,6 +128,7 @@ private:
     bool prepareSslSocket(QSslSocket* socket, QString* error) const;
     void drainResponse(QSslSocket* socket);
     void finishLogin(QByteArray line);
+    void finishLaunchClaim(QByteArray line);
     void failLogin(const QString& error);
     void clearSession(const QString& status, bool reportStatus);
     void expireSession();
@@ -117,6 +138,10 @@ private:
     void setLastError(const QString& error);
     static bool validProfileId(const QString& profileId);
     static bool validUsername(const QString& username);
+    bool startClaimSocket(QString* error);
+    void clearLaunchDescriptor();
+    bool installBrokerQsfTrust(const QByteArray& caPem, QString* path, QString* error);
+    void clearBrokerQsfTrust();
 
     QString m_ProfileId;
     QString m_Host;
@@ -144,4 +169,15 @@ private:
     QsfClient* m_QsfClient;
     GameStreamLeaseSink m_InstallGameStreamLease;
     std::function<void()> m_ClearGameStreamLease;
+    BrokerMediaRouteSink m_InstallBrokerMediaRoute;
+    std::function<void()> m_ClearBrokerMediaRoute;
+    BrokerGameStreamLeaseSink m_InstallBrokerGameStreamLease;
+    bool m_ApplyingBrokerRoutes;
+    bool m_LaunchDescriptorMode;
+    QString m_LaunchHost;
+    int m_LaunchPort;
+    QString m_LaunchServerName;
+    QByteArray m_LaunchCaPem;
+    qint64 m_LaunchDescriptorExpiresAtUtcMs;
+    std::unique_ptr<QTemporaryFile> m_BrokerQsfCaFile;
 };
