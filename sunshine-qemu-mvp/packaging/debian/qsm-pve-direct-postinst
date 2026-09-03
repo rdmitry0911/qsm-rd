@@ -19,7 +19,7 @@ case "${1:-}" in
         install -d -o root -g root -m 0700 /run/qsm-pve-direct
         restart_pve_api_services
         /usr/sbin/qsm-pve-direct-ui reconcile || echo "qsm-pve-direct: PVE Console UI was not changed" >&2
-        echo "qsm-pve-direct installed; create each VM policy and enable qsm-pve-direct-terminal before starting its VM."
+        echo "qsm-pve-direct installed; enable qsm-pve-direct-terminal and configure QSM Display1 for each VM."
         ;;
     triggered)
         restart_pve_api_services
