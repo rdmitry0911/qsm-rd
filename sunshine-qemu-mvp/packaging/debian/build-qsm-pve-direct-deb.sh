@@ -18,9 +18,11 @@ if [[ "${QSM_DIRECT_DEB_ALLOW_NONTRIXIE:-0}" != 1 ]]; then
     source /etc/os-release
     [[ "${VERSION_CODENAME:-}" == trixie ]] || die "build in Debian 13/Trixie or use the clean-chroot driver"
 fi
-for command in cmake ninja dpkg dpkg-deb install find sed tar sha256sum strings; do
+for command in cmake ninja dpkg dpkg-deb install find sed tar sha256sum strings pkg-config; do
     command -v "$command" >/dev/null 2>&1 || die "missing command: $command"
 done
+pkg-config --exists libavcodec libavutil libswscale || \
+    die "PVE 9 direct package requires libavcodec-dev, libavutil-dev, and libswscale-dev"
 for required in \
     "$ROOT_DIR/CMakeLists.txt" \
     "$ROOT_DIR/tools/qsm_direct_media_worker.cpp" \
@@ -114,7 +116,7 @@ Section: net
 Priority: optional
 Architecture: amd64
 Maintainer: qsm contributors <qsm@users.noreply.github.com>
-Depends: libc6 (>= 2.38), libopus0 (>= 1.3), libstdc++6 (>= 13), libsystemd0, dbus, ffmpeg, python3, python3-aiortc, python3-av, pve-manager, qemu-server
+Depends: libc6 (>= 2.38), libopus0 (>= 1.3), libstdc++6 (>= 13), libsystemd0, libavcodec61, libavutil59, libswscale8, dbus, ffmpeg, python3, python3-aiortc, python3-av, pve-manager, qemu-server
 Conflicts: q-sunshine-pve
 Replaces: q-sunshine-pve
 Description: browser-only direct QEMU Display1 console for Proxmox VE 9

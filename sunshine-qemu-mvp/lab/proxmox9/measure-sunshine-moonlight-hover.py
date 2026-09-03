@@ -339,7 +339,7 @@ def moonlight_surface_failure_diagnostic(process: subprocess.Popen[bytes]) -> st
         pass
     # Startup noise is expected; the final lines describe the stream teardown.
     return (f"Moonlight {state}; visible={','.join(visible) or '[none]'}; "
-            f"log={text.strip()[-1200:] or '[no stdout diagnostic]'}")
+            f"log={text.strip()[-4096:] or '[no stdout diagnostic]'}")
 
 
 def main() -> int:
@@ -411,7 +411,13 @@ def main() -> int:
         # Moonlight can create and replace a splash X surface while it opens
         # GameStream.  Select the surviving surface only after the actual
         # known guest fixture has appeared in decoded pixels.
-        window = wait_for_decoded_fixture(moonlight, time.monotonic() + 30.0)
+        try:
+            window = wait_for_decoded_fixture(moonlight, time.monotonic() + 30.0)
+        except MeasurementError as error:
+            # A modern Moonlight can keep its Qt process alive after its SDL
+            # stream window fails. Include the bounded, redacted child tail
+            # in that otherwise indistinguishable timeout.
+            raise MeasurementError(f"{error}; {moonlight_surface_failure_diagnostic(moonlight)}") from error
         diagnostic = moonlight_exit_diagnostic(moonlight)
         if diagnostic:
             raise MeasurementError(diagnostic)

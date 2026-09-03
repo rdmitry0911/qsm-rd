@@ -163,12 +163,14 @@ def main() -> int:
         before = peer.request({"op": "webrtc_stats"})
         time.sleep(arguments.warmup_seconds)
         after = peer.request({"op": "webrtc_stats"})
+        after_video = peer.request({"op": "status"})
         pixels = peer.request({"op": "frame_stats"})
         result = {
             "firstVideoMs": first_video_ms,
             "video": video,
             "before": before,
             "after": after,
+            "afterVideo": after_video,
             "deltaFramesDecoded": after.get("framesDecoded", 0) - before.get("framesDecoded", 0),
             "pixels": pixels,
         }

@@ -76,6 +76,13 @@ public:
         std::uint64_t dmabuf_scanouts {};
         std::uint64_t dmabuf_updates {};
         std::uint64_t dmabuf_readback_failures {};
+        // Wall time spent importing and reading completed DMA-BUF frames.
+        // This is an operator diagnostic for the headless VirGL path: GPU
+        // fence waits are invisible to CPU utilisation, yet directly affect
+        // input-to-pixel latency.
+        std::uint64_t dmabuf_readback_samples {};
+        std::uint64_t dmabuf_readback_total_microseconds {};
+        std::uint64_t dmabuf_readback_max_microseconds {};
         std::uint64_t unsupported_dmabuf_messages {};
         std::uint64_t audio_inits {};
         std::uint64_t audio_writes {};
@@ -186,6 +193,9 @@ private:
     std::uint64_t dmabuf_scanouts_ {};
     std::uint64_t dmabuf_updates_ {};
     std::uint64_t dmabuf_readback_failures_ {};
+    std::uint64_t dmabuf_readback_samples_ {};
+    std::uint64_t dmabuf_readback_total_microseconds_ {};
+    std::uint64_t dmabuf_readback_max_microseconds_ {};
     std::uint64_t unsupported_dmabuf_messages_ {};
     std::uint64_t audio_inits_ {};
     std::uint64_t audio_writes_ {};

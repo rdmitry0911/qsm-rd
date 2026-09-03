@@ -145,12 +145,35 @@ if(QMDP_BUILD_TOOLS AND QMDP_BUILD_DBUS)
 
     find_library(QMDP_OPUS_LIBRARY NAMES opus)
     if(QMDP_OPUS_LIBRARY)
+        if(NOT PkgConfig_FOUND)
+            find_package(PkgConfig QUIET)
+        endif()
+        if(PkgConfig_FOUND)
+            pkg_check_modules(QMDP_AVCODEC QUIET IMPORTED_TARGET libavcodec)
+            pkg_check_modules(QMDP_AVUTIL QUIET IMPORTED_TARGET libavutil)
+            pkg_check_modules(QMDP_SWSCALE QUIET IMPORTED_TARGET libswscale)
+        endif()
         add_executable(qsm-direct-media-worker
             tools/qsm_direct_media_worker.cpp
         )
         target_link_libraries(qsm-direct-media-worker PRIVATE
             qmdp_dbus qmdp_pipeline qmdp_core Threads::Threads ${QMDP_OPUS_LIBRARY}
         )
+        # The CPU fallback uses libavcodec directly when development files are
+        # present. This avoids ffmpeg(1)'s multi-frame process pipeline in the
+        # interactive path; hardware encoders retain the portable ffmpeg(1)
+        # launcher below.
+        if(TARGET PkgConfig::QMDP_AVCODEC AND TARGET PkgConfig::QMDP_AVUTIL AND
+           TARGET PkgConfig::QMDP_SWSCALE)
+            target_link_libraries(qsm-direct-media-worker PRIVATE
+                PkgConfig::QMDP_AVCODEC
+                PkgConfig::QMDP_AVUTIL
+                PkgConfig::QMDP_SWSCALE
+            )
+            target_compile_definitions(qsm-direct-media-worker PRIVATE QMDP_HAS_LIBAVCODEC=1)
+        else()
+            message(STATUS "q-sunshine direct worker: libavcodec development files absent; software fallback uses ffmpeg(1)")
+        endif()
         qmdp_target_defaults(qsm-direct-media-worker)
     else()
         message(STATUS "q-sunshine direct media worker disabled: libopus was not found")

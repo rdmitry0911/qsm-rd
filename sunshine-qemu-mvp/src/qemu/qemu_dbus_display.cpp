@@ -838,6 +838,7 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
                                         &modifier,
                                         &y0_top),
                     "read Listener.ScanoutDMABUF");
+        const auto readback_started = std::chrono::steady_clock::now();
         try {
             if (!dmabuf_readback_) {
                 dmabuf_readback_ = std::make_unique<DmaBufReadback>();
@@ -858,6 +859,12 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
         {
             std::lock_guard lock(stats_mutex_);
             ++dmabuf_scanouts_;
+            const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - readback_started).count();
+            ++dmabuf_readback_samples_;
+            dmabuf_readback_total_microseconds_ += static_cast<std::uint64_t>(elapsed);
+            dmabuf_readback_max_microseconds_ = std::max(
+                dmabuf_readback_max_microseconds_, static_cast<std::uint64_t>(elapsed));
         }
         dbus::check(sd_bus_reply_method_return(message, ""),
                     "reply ScanoutDMABUF");
@@ -884,6 +891,7 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
                         "reply stale UpdateDMABUF");
             return 1;
         }
+        const auto readback_started = std::chrono::steady_clock::now();
         try {
             if (!dmabuf_readback_ || !dmabuf_readback_->active()) {
                 throw std::logic_error("DMA-BUF update arrived without an active scanout");
@@ -897,6 +905,12 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
         {
             std::lock_guard lock(stats_mutex_);
             ++dmabuf_updates_;
+            const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - readback_started).count();
+            ++dmabuf_readback_samples_;
+            dmabuf_readback_total_microseconds_ += static_cast<std::uint64_t>(elapsed);
+            dmabuf_readback_max_microseconds_ = std::max(
+                dmabuf_readback_max_microseconds_, static_cast<std::uint64_t>(elapsed));
         }
         dbus::check(sd_bus_reply_method_return(message, ""),
                     "reply UpdateDMABUF");
@@ -1378,6 +1392,9 @@ QemuDbusDisplay::Stats QemuDbusDisplay::stats() const {
         .dmabuf_scanouts = dmabuf_scanouts_,
         .dmabuf_updates = dmabuf_updates_,
         .dmabuf_readback_failures = dmabuf_readback_failures_,
+        .dmabuf_readback_samples = dmabuf_readback_samples_,
+        .dmabuf_readback_total_microseconds = dmabuf_readback_total_microseconds_,
+        .dmabuf_readback_max_microseconds = dmabuf_readback_max_microseconds_,
         .unsupported_dmabuf_messages = unsupported_dmabuf_messages_,
         .audio_inits = audio_inits_,
         .audio_writes = audio_writes_,

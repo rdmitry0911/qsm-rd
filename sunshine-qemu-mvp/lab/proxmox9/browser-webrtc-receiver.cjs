@@ -152,6 +152,7 @@ async function status() {
             videoWidth: video.videoWidth,
             videoHeight: video.videoHeight,
             currentTime: video.currentTime,
+            playbackRate: video.playbackRate,
             controlReady: window.qsmControl?.readyState === 'open',
             pointerReady: window.qsmPointer?.readyState === 'open',
             playoutDelayHint: window.qsmVideoReceiver?.playoutDelayHint ?? null,
@@ -236,6 +237,11 @@ async function webrtcStats() {
             jitterBufferEmittedCount: emitted,
             jitterBufferMeanDelayMs: delay !== null && emitted !== null && emitted > 0
                 ? (delay * 1000) / emitted : null,
+            jitter: number(video.jitter),
+            estimatedPlayoutTimestamp: number(video.estimatedPlayoutTimestamp),
+            framesPerSecond: number(video.framesPerSecond),
+            freezeCount: number(video.freezeCount),
+            totalFreezesDuration: number(video.totalFreezesDuration),
         };
     });
 }
@@ -312,9 +318,25 @@ async function measureHover(message) {
         }));
         const awaitFrame = (timeoutMs) => new Promise((resolve, reject) => {
             const timer = setTimeout(() => reject(new Error('video did not present a new frame')), timeoutMs);
-            const complete = () => {
+            const complete = (now, metadata) => {
                 clearTimeout(timer);
-                resolve();
+                // requestVideoFrameCallback is tied to compositor
+                // presentation rather than a canvas readback. Retaining this
+                // small diagnostic record makes a measured hover delay
+                // attributable to RTP/decode or to browser presentation.
+                resolve({
+                    callbackMs: now,
+                    callbackEpochMs: performance.timeOrigin + now,
+                    expectedDisplayTimeMs: Number(metadata?.expectedDisplayTime),
+                    presentationTimeMs: Number(metadata?.presentationTime),
+                    mediaTime: Number(metadata?.mediaTime),
+                    presentedFrames: Number(metadata?.presentedFrames),
+                    processingDurationMs: Number(metadata?.processingDuration) * 1000,
+                    captureTimeMs: Number(metadata?.captureTime),
+                    receiveTimeMs: Number(metadata?.receiveTime),
+                    receiveEpochMs: Number.isFinite(Number(metadata?.receiveTime))
+                        ? performance.timeOrigin + Number(metadata.receiveTime) : null,
+                });
             };
             if (typeof video.requestVideoFrameCallback === 'function') {
                 video.requestVideoFrameCallback(complete);
@@ -335,14 +357,16 @@ async function measureHover(message) {
         }
 
         const started = performance.now();
+        const startedEpochMs = Date.now();
         sendPosition(targetX, targetY);
         let observedFrames = 0;
+        let presentation = null;
         let visible = popupVisible();
         while (!visible) {
             if (performance.now() - started >= timeoutMs) {
                 throw new Error('hover popup was not presented before timeout');
             }
-            await awaitFrame(Math.max(1, timeoutMs - (performance.now() - started)));
+            presentation = await awaitFrame(Math.max(1, timeoutMs - (performance.now() - started)));
             observedFrames += 1;
             visible = popupVisible();
         }
@@ -350,10 +374,16 @@ async function measureHover(message) {
         if (!bounds) {
             throw new Error('hover probe was visible but popup geometry was not present');
         }
+        const videoArrivalLatencyMs = presentation && Number.isFinite(presentation.receiveEpochMs)
+            ? presentation.receiveEpochMs - startedEpochMs : null;
         return {
             latencyMs: performance.now() - started,
+            videoArrivalLatencyMs,
+            startedEpochMs,
+            completedEpochMs: Date.now(),
             observedFrames,
             popupBounds: bounds,
+            presentation,
         };
     }, message);
 }

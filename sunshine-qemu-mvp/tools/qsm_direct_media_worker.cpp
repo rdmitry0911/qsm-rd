@@ -24,6 +24,15 @@
 
 #include <opus/opus.h>
 
+#if defined(QMDP_HAS_LIBAVCODEC)
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavutil/error.h>
+#include <libavutil/opt.h>
+#include <libswscale/swscale.h>
+}
+#endif
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -345,6 +354,136 @@ private:
     std::uint64_t video_send_failures_ {};
 };
 
+#if defined(QMDP_HAS_LIBAVCODEC)
+class LibavH264Encoder final {
+public:
+    struct Packet {
+        std::vector<std::uint8_t> bytes;
+        bool keyframe {};
+    };
+
+    LibavH264Encoder(std::uint32_t width, std::uint32_t height, std::uint32_t fps) {
+        if (width == 0U || height == 0U || width > static_cast<std::uint32_t>(INT_MAX) ||
+            height > static_cast<std::uint32_t>(INT_MAX) || fps == 0U ||
+            fps > static_cast<std::uint32_t>(INT_MAX)) {
+            throw WorkerError("invalid in-process H.264 dimensions");
+        }
+        const auto *codec = avcodec_find_encoder_by_name("libx264");
+        if (codec == nullptr) {
+            throw WorkerError("libavcodec has no libx264 encoder");
+        }
+        context_ = avcodec_alloc_context3(codec);
+        frame_ = av_frame_alloc();
+        packet_ = av_packet_alloc();
+        if (context_ == nullptr || frame_ == nullptr || packet_ == nullptr) {
+            throw WorkerError("cannot allocate in-process H.264 encoder");
+        }
+        context_->width = static_cast<int>(width);
+        context_->height = static_cast<int>(height);
+        context_->pix_fmt = AV_PIX_FMT_YUV420P;
+        context_->time_base = AVRational {1, static_cast<int>(fps)};
+        context_->framerate = AVRational {static_cast<int>(fps), 1};
+        context_->gop_size = 30;
+        context_->max_b_frames = 0;
+        context_->flags |= AV_CODEC_FLAG_LOW_DELAY;
+        // Match Sunshine's CPU configuration: two slice threads give useful
+        // parallelism without frame-thread reordering latency.
+        context_->thread_type = FF_THREAD_SLICE;
+        context_->thread_count = 2;
+
+        AVDictionary *options = nullptr;
+        (void) av_dict_set(&options, "preset", "ultrafast", 0);
+        (void) av_dict_set(&options, "tune", "zerolatency", 0);
+        (void) av_dict_set(&options, "aud", "1", 0);
+        (void) av_dict_set(&options, "x264-params",
+                           "aud=1:keyint=30:min-keyint=30:scenecut=0:bframes=0:"
+                           "repeat-headers=1:sliced-threads=1:sync-lookahead=0:rc-lookahead=0",
+                           0);
+        const int opened = avcodec_open2(context_, codec, &options);
+        av_dict_free(&options);
+        if (opened < 0) {
+            throw WorkerError("cannot initialise in-process libx264: " + error_string(opened));
+        }
+
+        frame_->format = context_->pix_fmt;
+        frame_->width = context_->width;
+        frame_->height = context_->height;
+        const int allocated = av_frame_get_buffer(frame_, 32);
+        if (allocated < 0) {
+            throw WorkerError("cannot allocate in-process H.264 frame: " + error_string(allocated));
+        }
+        scale_ = sws_getContext(context_->width, context_->height, AV_PIX_FMT_BGRA,
+                                context_->width, context_->height, context_->pix_fmt,
+                                SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+        if (scale_ == nullptr) {
+            throw WorkerError("cannot initialise BGRA to H.264 conversion");
+        }
+    }
+
+    ~LibavH264Encoder() {
+        if (packet_ != nullptr) { av_packet_free(&packet_); }
+        if (frame_ != nullptr) { av_frame_free(&frame_); }
+        if (context_ != nullptr) { avcodec_free_context(&context_); }
+        if (scale_ != nullptr) { sws_freeContext(scale_); }
+    }
+
+    LibavH264Encoder(const LibavH264Encoder &) = delete;
+    LibavH264Encoder &operator=(const LibavH264Encoder &) = delete;
+
+    [[nodiscard]] std::vector<Packet> encode(std::span<const std::uint8_t> bgra,
+                                               bool force_idr) {
+        const auto required = static_cast<std::size_t>(context_->width) *
+                              static_cast<std::size_t>(context_->height) * 4U;
+        if (bgra.size() != required) {
+            throw WorkerError("in-process H.264 input frame has an invalid size");
+        }
+        const int writable = av_frame_make_writable(frame_);
+        if (writable < 0) {
+            throw WorkerError("cannot reuse in-process H.264 frame: " + error_string(writable));
+        }
+        const std::array<const std::uint8_t *, 4U> source {bgra.data(), nullptr, nullptr, nullptr};
+        const std::array<int, 4U> stride {context_->width * 4, 0, 0, 0};
+        (void) sws_scale(scale_, source.data(), stride.data(), 0, context_->height,
+                         frame_->data, frame_->linesize);
+        frame_->pts = next_pts_++;
+        frame_->pict_type = force_idr ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
+        const int submitted = avcodec_send_frame(context_, frame_);
+        if (submitted < 0) {
+            throw WorkerError("in-process libx264 rejected a frame: " + error_string(submitted));
+        }
+        std::vector<Packet> result;
+        while (true) {
+            const int received = avcodec_receive_packet(context_, packet_);
+            if (received == AVERROR(EAGAIN) || received == AVERROR_EOF) {
+                break;
+            }
+            if (received < 0) {
+                throw WorkerError("in-process libx264 did not produce H.264: " + error_string(received));
+            }
+            result.push_back({
+                .bytes = {packet_->data, packet_->data + packet_->size},
+                .keyframe = (packet_->flags & AV_PKT_FLAG_KEY) != 0,
+            });
+            av_packet_unref(packet_);
+        }
+        return result;
+    }
+
+private:
+    static std::string error_string(int error) {
+        std::array<char, AV_ERROR_MAX_STRING_SIZE> message {};
+        av_strerror(error, message.data(), message.size());
+        return message.data();
+    }
+
+    AVCodecContext *context_ {};
+    AVFrame *frame_ {};
+    AVPacket *packet_ {};
+    SwsContext *scale_ {};
+    std::int64_t next_pts_ {};
+};
+#endif
+
 class DirectMediaAdapter final : public qmdp::IMediaAdapter {
 public:
     struct VideoStats {
@@ -502,8 +641,19 @@ private:
             frame_changed_ = false;
             lock.unlock();
             try {
-                const bool fresh_encoder = !video_input_ || width_ != width || height_ != height ||
-                                           force_idr_.exchange(false);
+                const bool force_idr = force_idr_.exchange(false);
+#if defined(QMDP_HAS_LIBAVCODEC)
+                if (encoder_ == "libx264") {
+                    if (!software_encoder_ || width_ != width || height_ != height) {
+                        close_video_process();
+                        open_video_process(width, height);
+                    }
+                    for (auto &packet : software_encoder_->encode(*bgra, force_idr)) {
+                        sink_.send_video(packet.keyframe, packet.bytes);
+                    }
+                } else {
+#endif
+                const bool fresh_encoder = video_input_ < 0 || width_ != width || height_ != height || force_idr;
                 if (fresh_encoder) {
                     close_video_process();
                     open_video_process(width, height);
@@ -515,6 +665,9 @@ private:
                     // picture immediately; steady-state repeats are paced.
                     write_all(video_input_, *bgra);
                 }
+#if defined(QMDP_HAS_LIBAVCODEC)
+                }
+#endif
             } catch (...) {
                 running_ = false;
                 video_cv_.notify_all();
@@ -564,6 +717,14 @@ private:
     }
 
     void open_video_process(std::uint32_t width, std::uint32_t height) {
+#if defined(QMDP_HAS_LIBAVCODEC)
+        if (encoder_ == "libx264") {
+            software_encoder_ = std::make_unique<LibavH264Encoder>(width, height, fps_);
+            width_ = width;
+            height_ = height;
+            return;
+        }
+#endif
         int input[2] {-1, -1};
         int output[2] {-1, -1};
         if (::pipe2(input, O_CLOEXEC) < 0 || ::pipe2(output, O_CLOEXEC) < 0) {
@@ -590,8 +751,13 @@ private:
             const std::string fps = std::to_string(fps_);
             std::vector<std::string> arguments {
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-fflags", "nobuffer",
+                // FFmpeg otherwise starts a threaded demux/filter pipeline
+                // with several raw frames in flight. It is throughput-friendly
+                // but defeats an interactive desktop where only the newest
+                // frame is useful.
+                "-filter_threads", "1", "-filter_complex_threads", "1", "-thread_queue_size", "1",
                 "-f", "rawvideo", "-pixel_format", "bgra", "-video_size", dimensions,
-                "-framerate", fps, "-i", "pipe:0", "-an", "-c:v", encoder_,
+                "-framerate", fps, "-i", "pipe:0", "-an", "-c:v", encoder_, "-flags", "low_delay",
             };
             if (encoder_ == "h264_vaapi") {
                 arguments.insert(arguments.end(), {"-vaapi_device", *vaapi_device_, "-vf", "format=nv12,hwupload"});
@@ -604,7 +770,14 @@ private:
                                                    "-rc", "cbr_ld_hq", "-b:v", "20M", "-maxrate", "20M",
                                                    "-bufsize", "333k", "-g", "30", "-bf", "0"});
             } else if (encoder_ == "libx264") {
-                arguments.insert(arguments.end(), {"-preset", "ultrafast", "-tune", "zerolatency",
+                // Keep software H.264 on slice, rather than frame, threads.
+                // Frame threading retains several pictures before emitting the
+                // first one; Sunshine uses two slice threads for exactly this
+                // reason.  It gives a current desktop frame to the transport
+                // without sacrificing the modest parallelism needed for CPU
+                // fallback.
+                arguments.insert(arguments.end(), {"-threads", "2", "-thread_type", "slice", "-slices", "2",
+                                                   "-preset", "ultrafast", "-tune", "zerolatency",
                                                    "-x264-params", "aud=1:keyint=30:min-keyint=30:scenecut=0:bframes=0:repeat-headers=1"});
             }
             // FFmpeg's NVENC default is an effectively unbounded output
@@ -759,6 +932,9 @@ private:
     }
 
     void close_video_process() noexcept {
+#if defined(QMDP_HAS_LIBAVCODEC)
+        software_encoder_.reset();
+#endif
         if (video_input_ >= 0) {
             ::close(video_input_);
             video_input_ = -1;
@@ -796,6 +972,9 @@ private:
     std::uint32_t latest_width_ {};
     std::uint32_t latest_height_ {};
     bool frame_changed_ {false};
+#if defined(QMDP_HAS_LIBAVCODEC)
+    std::unique_ptr<LibavH264Encoder> software_encoder_;
+#endif
     int video_input_ {-1};
     int video_output_ {-1};
     pid_t video_pid_ {-1};
@@ -933,10 +1112,13 @@ std::string recent_error_summary(const qmdp::DesktopSession::Stats &stats) {
 
 void write_session_diagnostic(std::string_view event,
                               const qmdp::DesktopSession::Stats &stats,
+                              const qmdp::QemuDbusDisplay::Stats &display,
                               const DirectMediaAdapter::VideoStats &source,
                               const PacketSink::Stats &egress) {
     const auto source_luma_mean = source.sampled_pixels == 0U ? 0U :
         source.luma_sum / source.sampled_pixels;
+    const auto dmabuf_readback_mean = display.dmabuf_readback_samples == 0U ? 0U :
+        display.dmabuf_readback_total_microseconds / display.dmabuf_readback_samples;
     std::cerr << "QSM_DIRECT_MEDIA_" << event
               << " encoded_frames=" << stats.encoded_frames
               << " errors=" << stats.errors
@@ -944,6 +1126,9 @@ void write_session_diagnostic(std::string_view event,
               << " latest_frame_published=" << stats.mailbox.published
               << " latest_frame_consumed=" << stats.mailbox.consumed
               << " latest_frame_dropped=" << stats.mailbox.dropped
+              << " dmabuf_readback_samples=" << display.dmabuf_readback_samples
+              << " dmabuf_readback_mean_us=" << dmabuf_readback_mean
+              << " dmabuf_readback_max_us=" << display.dmabuf_readback_max_microseconds
               << " source_frames=" << source.submitted_frames
               << " source_luma_min=" << static_cast<unsigned int>(source.luma_min)
               << " source_luma_max=" << static_cast<unsigned int>(source.luma_max)
@@ -990,13 +1175,13 @@ int run(const Options &options) {
         while (!stopping.load() && !session.display_failed()) {
             if (!capture_diagnostic_written && std::chrono::steady_clock::now() >= capture_deadline) {
                 const auto stats = session.stats();
-                write_session_diagnostic("CAPTURE_AFTER_3S", stats, media.video_stats(), sink.stats());
+                write_session_diagnostic("CAPTURE_AFTER_3S", stats, display.stats(), media.video_stats(), sink.stats());
                 capture_diagnostic_written = true;
             }
             std::this_thread::sleep_for(100ms);
         }
         write_session_diagnostic(session.display_failed() ? "DISPLAY_ENDED" : "STOPPING",
-                                 session.stats(), media.video_stats(), sink.stats());
+                                 session.stats(), display.stats(), media.video_stats(), sink.stats());
         input.stop();
         session.stop();
     } catch (...) {
