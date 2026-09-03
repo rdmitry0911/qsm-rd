@@ -18,7 +18,10 @@ IMPORT_ROOT = Path(PACKAGE_LIBRARY) if PACKAGE_LIBRARY else PROJECT_ROOT
 if str(IMPORT_ROOT) not in sys.path:
     sys.path.insert(0, str(IMPORT_ROOT))
 
-from extensions.direct_terminal.qsm_direct_terminal import DirectSessionManager
+if PACKAGE_LIBRARY:
+    from direct_terminal.qsm_direct_terminal import DirectSessionManager
+else:
+    from extensions.direct_terminal.qsm_direct_terminal import DirectSessionManager
 
 
 @unittest.skipUnless(shutil.which("dbus-daemon"), "dbus-daemon is required")
