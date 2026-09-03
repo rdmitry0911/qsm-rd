@@ -1,0 +1,13 @@
+version: 2
+ethernets:
+  eth0:
+    match:
+      macaddress: "bc:24:11:f9:8d:cf"
+    set-name: eth0
+    addresses:
+      - 192.168.76.3/24
+    routes:
+      - to: default
+        via: 192.168.76.1
+    nameservers:
+      addresses: [1.1.1.1, 8.8.8.8]

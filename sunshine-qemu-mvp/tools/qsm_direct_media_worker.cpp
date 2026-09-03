@@ -41,6 +41,7 @@
 #include <mutex>
 #include <memory>
 #include <optional>
+#include <poll.h>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -75,6 +76,12 @@ constexpr std::size_t packet_header_size = 20U;
 constexpr std::size_t input_header_size = 8U;
 constexpr std::size_t max_fragment_bytes = 256U * 1024U;
 constexpr std::size_t max_access_unit_bytes = 4U * 1024U * 1024U;
+// FFmpeg writes an H.264 access unit without an explicit packet-length
+// wrapper.  The next AUD normally closes the prior unit, but an idle desktop
+// may produce exactly one initial IDR and then no second AUD for minutes.
+// A tiny quiet interval after draining the pipe therefore closes its final
+// NAL and makes a newly opened static console present a first picture.
+constexpr int h264_access_unit_quiet_ms = 2;
 constexpr std::uint32_t opus_sample_rate = 48'000U;
 constexpr std::uint16_t opus_channels = 2U;
 constexpr std::uint16_t opus_samples_per_frame = 960U; // 20 ms
@@ -619,7 +626,39 @@ private:
         bool have_aud = false;
         bool keyframe = false;
         std::array<std::uint8_t, 64U * 1024U> bytes {};
+        const auto flush_trailing_access_unit = [&]() noexcept {
+            const auto prefix = start_code(buffer, 0U);
+            if (!prefix || prefix->first != 0U) {
+                return;
+            }
+            // The pipe had no bytes for a small interval after it was fully
+            // drained.  FFmpeg writes one encoded packet contiguously, so the
+            // remaining NAL is complete even though there is no following
+            // Annex-B start code yet.
+            flush_nal({buffer.data(), buffer.size()}, prefix->second,
+                      leading, access_unit, have_aud, keyframe);
+            buffer.clear();
+            if (have_aud && !access_unit.empty()) {
+                sink_.send_video(keyframe, access_unit);
+                access_unit.clear();
+                have_aud = false;
+                keyframe = false;
+            }
+        };
         while (true) {
+            pollfd wait_for_data {.fd = descriptor, .events = POLLIN, .revents = 0};
+            const auto ready = ::poll(&wait_for_data, 1, h264_access_unit_quiet_ms);
+            if (ready == 0) {
+                flush_trailing_access_unit();
+                continue;
+            }
+            if (ready < 0) {
+                if (errno == EINTR) { continue; }
+                break;
+            }
+            if (wait_for_data.revents & (POLLERR | POLLNVAL)) {
+                break;
+            }
             const auto count = ::read(descriptor, bytes.data(), bytes.size());
             if (count == 0) { break; }
             if (count < 0) {

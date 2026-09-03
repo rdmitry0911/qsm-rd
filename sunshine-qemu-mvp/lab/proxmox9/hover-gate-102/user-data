@@ -1,0 +1,83 @@
+#cloud-config
+hostname: qsm-hover-gate
+manage_etc_hosts: false
+ssh_pwauth: false
+disable_root: false
+users:
+  - name: root
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG9UiQYPSSU+vcVaapYjxm43yBCLFIHJg044zoPmldfA dima@trade-bot
+package_update: true
+packages:
+  # Debian's cloud kernel intentionally omits virtio_gpu.  The laboratory
+  # needs the normal guest kernel to exercise the VirGL/DRM display path.
+  - linux-image-amd64
+  - weston
+  - xwayland
+write_files:
+  - path: /opt/qsm-hover/index.html
+    permissions: '0644'
+    content: |
+      <!doctype html>
+      <meta charset="utf-8">
+      <title>QSM Direct hover latency target</title>
+      <style>
+        * { box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #151923; color: #f4f7ff; font-family: sans-serif; }
+        #title { position: absolute; left: 48px; top: 44px; font-size: 26px; }
+        #subtitle { position: absolute; left: 48px; top: 82px; color: #aeb8cf; font-size: 16px; }
+        #icon { position: absolute; left: 560px; top: 290px; width: 160px; height: 160px; border-radius: 30px; background: #2b6cff; box-shadow: 0 12px 30px #0008; }
+        #icon::before { content: 'Q'; position: absolute; inset: 0; text-align: center; line-height: 160px; font-size: 92px; font-weight: 700; }
+        #icon-label { position: absolute; left: 548px; top: 466px; width: 184px; text-align: center; font-size: 18px; }
+        #probe { display: none; position: absolute; left: 764px; top: 334px; width: 280px; height: 78px; padding: 18px 22px; border-radius: 12px; color: #18001d; background: #ff00ff; font-size: 22px; font-weight: 700; }
+        #icon:hover ~ #probe { display: block; }
+      </style>
+      <div id="title">QSM Direct input-to-pixel laboratory</div>
+      <div id="subtitle">Move the pointer over the blue application icon.</div>
+      <div id="icon" aria-label="QSM test application"></div>
+      <div id="icon-label">QSM Test App</div>
+      <div id="probe">Hover popover ready</div>
+  - path: /usr/local/sbin/qsm-hover-session
+    permissions: '0755'
+    content: |
+      #!/bin/sh
+      set -eu
+      export XDG_RUNTIME_DIR=/run/user/0
+      install -d -m 0700 -o root -g root "$XDG_RUNTIME_DIR"
+      rm -f "$XDG_RUNTIME_DIR/wayland-0" "$XDG_RUNTIME_DIR/wayland-0.lock"
+      /usr/bin/weston --backend=drm-backend.so --socket=wayland-0 --idle-time=0 --log=/var/log/qsm-hover-weston.log &
+      weston_pid=$!
+      trap 'kill "$weston_pid" 2>/dev/null || true; wait "$weston_pid" 2>/dev/null || true' EXIT INT TERM
+      for attempt in $(seq 1 100); do
+        test -S "$XDG_RUNTIME_DIR/wayland-0" && break
+        sleep 0.1
+      done
+      test -S "$XDG_RUNTIME_DIR/wayland-0"
+      export WAYLAND_DISPLAY=wayland-0
+      exec /usr/bin/google-chrome --no-sandbox --ozone-platform=wayland --disable-gpu-sandbox --no-first-run --disable-session-crashed-bubble --disable-features=Translate,MediaRouter --kiosk --app=file:///opt/qsm-hover/index.html --user-data-dir=/var/lib/qsm-hover-chrome
+  - path: /etc/systemd/system/qsm-hover.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=QSM Direct graphical hover target
+      After=multi-user.target
+      Conflicts=getty@tty1.service
+      Before=getty@tty1.service
+
+      [Service]
+      Type=simple
+      User=root
+      Group=root
+      TTYPath=/dev/tty1
+      TTYReset=yes
+      StandardInput=tty
+      Environment=XDG_RUNTIME_DIR=/run/user/0
+      ExecStart=/usr/local/sbin/qsm-hover-session
+      Restart=on-failure
+      RestartSec=2
+
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - [ /bin/sh, -ec, "systemctl daemon-reload && systemctl enable --now qsm-hover.service" ]

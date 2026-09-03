@@ -16,6 +16,7 @@ const { chromium } = require('playwright');
 let browser;
 let page;
 let pageDirectory;
+let closing = false;
 
 async function startLocalPage() {
     // A file origin is potentially trustworthy and does not require Chrome's
@@ -192,6 +193,119 @@ async function frameStats() {
     });
 }
 
+async function webrtcStats() {
+    if (!page) {
+        throw new Error('browser peer is not initialized');
+    }
+    return page.evaluate(async () => {
+        const reports = await window.qsmPeerConnection.getStats();
+        let video;
+        for (const report of reports.values()) {
+            if (report.type === 'inbound-rtp' && report.kind === 'video' && !report.isRemote) {
+                video = report;
+                break;
+            }
+        }
+        if (!video) {
+            throw new Error('inbound video stats are unavailable');
+        }
+        const number = (value) => typeof value === 'number' && Number.isFinite(value) ? value : null;
+        const emitted = number(video.jitterBufferEmittedCount);
+        const delay = number(video.jitterBufferDelay);
+        return {
+            framesDecoded: number(video.framesDecoded),
+            framesDropped: number(video.framesDropped),
+            framesReceived: number(video.framesReceived),
+            totalDecodeTime: number(video.totalDecodeTime),
+            jitterBufferDelay: delay,
+            jitterBufferEmittedCount: emitted,
+            jitterBufferMeanDelayMs: delay !== null && emitted !== null && emitted > 0
+                ? (delay * 1000) / emitted : null,
+        };
+    });
+}
+
+async function measureHover(message) {
+    if (!page || !message || typeof message !== 'object') {
+        throw new Error('invalid hover measurement command');
+    }
+    return page.evaluate(async (payload) => {
+        const integer = (name, minimum, maximum) => {
+            const value = payload[name];
+            if (!Number.isInteger(value) || value < minimum || value > maximum) {
+                throw new Error(`invalid hover measurement ${name}`);
+            }
+            return value;
+        };
+        const width = integer('width', 1, 32767);
+        const height = integer('height', 1, 32767);
+        const resetX = integer('resetX', 0, width - 1);
+        const resetY = integer('resetY', 0, height - 1);
+        const targetX = integer('targetX', 0, width - 1);
+        const targetY = integer('targetY', 0, height - 1);
+        const probeX = integer('probeX', 0, width - 1);
+        const probeY = integer('probeY', 0, height - 1);
+        const timeoutMs = integer('timeoutMs', 50, 10000);
+        const video = document.getElementById('remote');
+        if (!video || video.videoWidth !== width || video.videoHeight !== height ||
+            !window.qsmPointer || window.qsmPointer.readyState !== 'open') {
+            throw new Error('browser hover peer is not ready');
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (!context) {
+            throw new Error('hover measurement canvas is unavailable');
+        }
+        const popupPresent = () => {
+            context.drawImage(video, 0, 0, width, height);
+            const pixel = context.getImageData(probeX, probeY, 1, 1).data;
+            // The dedicated lab popup is #ff00ff.  Tolerance makes this
+            // robust to H.264 4:2:0 conversion without accepting its dark
+            // background or the blue application icon.
+            return pixel[0] > 180 && pixel[1] < 100 && pixel[2] > 180;
+        };
+        const sendPosition = (x, y) => window.qsmPointer.send(JSON.stringify({
+            op: 'mouse_position', x, y, width, height,
+        }));
+        const awaitFrame = () => new Promise((resolve) => {
+            if (typeof video.requestVideoFrameCallback === 'function') {
+                video.requestVideoFrameCallback(() => resolve());
+            } else {
+                requestAnimationFrame(() => resolve());
+            }
+        });
+
+        // Reset away from the icon.  A fresh decoded frame makes the test
+        // independent of a pointer left over from a prior iteration.
+        sendPosition(resetX, resetY);
+        const resetDeadline = performance.now() + timeoutMs;
+        while (popupPresent()) {
+            if (performance.now() >= resetDeadline) {
+                throw new Error('hover popup did not clear');
+            }
+            await awaitFrame();
+        }
+
+        const started = performance.now();
+        sendPosition(targetX, targetY);
+        let observedFrames = 0;
+        while (!popupPresent()) {
+            if (performance.now() - started >= timeoutMs) {
+                throw new Error('hover popup was not presented before timeout');
+            }
+            await awaitFrame();
+            observedFrames += 1;
+        }
+        return {
+            latencyMs: performance.now() - started,
+            observedFrames,
+            probe: { x: probeX, y: probeY },
+        };
+    }, message);
+}
+
 async function control(message) {
     if (!page || !message || typeof message !== 'object') {
         throw new Error('invalid browser control command');
@@ -233,6 +347,18 @@ async function close() {
     pageDirectory = undefined;
 }
 
+async function terminate() {
+    if (closing) {
+        return;
+    }
+    closing = true;
+    try {
+        await close();
+    } finally {
+        input.close();
+    }
+}
+
 const commands = {
     offer: async () => createOffer(),
     answer: async (message) => {
@@ -241,10 +367,16 @@ const commands = {
     },
     status: async () => status(),
     frame_stats: async () => frameStats(),
+    webrtc_stats: async () => webrtcStats(),
+    measure_hover: async (message) => measureHover(message.message),
     control: async (message) => control(message.message),
     pointer: async (message) => pointer(message.message),
     close: async () => {
-        await close();
+        // Reply before closing stdout so the driver can distinguish a clean
+        // shutdown from an abruptly lost browser peer.  A previous version
+        // only closed Playwright; its JSON-lines process then remained alive
+        // after an SSH driver had exited, accumulating test Chrome instances.
+        setImmediate(() => terminate().catch(() => { process.exitCode = 1; }));
         return { closed: true };
     },
 };
@@ -261,6 +393,13 @@ input.on('line', async (line) => {
     } catch (error) {
         reply({ ok: false, error: String(error && error.message ? error.message : error) });
     }
+});
+
+// A cancelled driver closes its SSH stdin without sending `close`.  Release
+// the browser in that case too; this is test harness hygiene, not product
+// console behaviour.
+input.on('close', () => {
+    terminate().catch(() => { process.exitCode = 1; });
 });
 
 process.on('exit', () => {
