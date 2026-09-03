@@ -217,6 +217,12 @@ std::int16_t read_i16(std::span<const std::uint8_t> input, std::size_t offset) {
 
 class PacketSink {
 public:
+    struct Stats {
+        std::uint64_t video_access_units {};
+        std::uint64_t video_records {};
+        std::uint64_t video_send_failures {};
+    };
+
     PacketSink(std::string video_path, std::string audio_path)
         : video_(connect(video_path)), audio_(connect(audio_path)) {}
 
@@ -224,7 +230,10 @@ public:
     PacketSink &operator=(const PacketSink &) = delete;
 
     void send_video(bool keyframe, std::span<const std::uint8_t> data) noexcept {
-        send(video_, ++video_number_, keyframe ? packet_idr : 0U, data);
+        if (send(video_, ++video_number_, keyframe ? packet_idr : 0U, data)) {
+            std::lock_guard lock(mutex_);
+            ++video_access_units_;
+        }
     }
 
     void send_audio_config() noexcept {
@@ -234,6 +243,15 @@ public:
 
     void send_audio(std::span<const std::uint8_t> data) noexcept {
         send(audio_, ++audio_number_, packet_audio, data);
+    }
+
+    [[nodiscard]] Stats stats() const noexcept {
+        std::lock_guard lock(mutex_);
+        return {
+            .video_access_units = video_access_units_,
+            .video_records = video_records_,
+            .video_send_failures = video_send_failures_,
+        };
     }
 
     static int connect(const std::string &path) {
@@ -258,11 +276,11 @@ public:
 
 private:
 
-    void send(int descriptor, std::uint32_t number, std::uint32_t type_flags,
+    bool send(int descriptor, std::uint32_t number, std::uint32_t type_flags,
               std::span<const std::uint8_t> data,
               std::uint32_t config_fragment = 0U) noexcept {
         if (descriptor < 0 || data.size() > max_access_unit_bytes) {
-            return;
+            return false;
         }
         std::lock_guard lock(mutex_);
         std::size_t offset = 0U;
@@ -295,22 +313,41 @@ private:
                 // The bridge's assembler deliberately drops this incomplete
                 // AU and recovers on the next FIRST packet. Do not ever make
                 // Display1 or the encoder wait behind a browser reader.
-                return;
+                if (descriptor == video_) {
+                    ++video_send_failures_;
+                }
+                return false;
+            }
+            if (descriptor == video_) {
+                ++video_records_;
             }
             offset += length;
             ++fragment;
         } while (offset < data.size() || (data.empty() && fragment == 0U));
+        return true;
     }
 
     int video_ {-1};
     int audio_ {-1};
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     std::uint32_t video_number_ {};
     std::uint32_t audio_number_ {};
+    std::uint64_t video_access_units_ {};
+    std::uint64_t video_records_ {};
+    std::uint64_t video_send_failures_ {};
 };
 
 class DirectMediaAdapter final : public qmdp::IMediaAdapter {
 public:
+    struct VideoStats {
+        std::uint64_t submitted_frames {};
+        std::uint64_t sampled_pixels {};
+        std::uint64_t non_black_pixels {};
+        std::uint64_t luma_sum {};
+        std::uint8_t luma_min {255U};
+        std::uint8_t luma_max {};
+    };
+
     DirectMediaAdapter(PacketSink &sink, std::string encoder,
                        std::optional<std::string> vaapi_device, std::uint32_t fps)
         : sink_(sink), encoder_(std::move(encoder)), vaapi_device_(std::move(vaapi_device)), fps_(fps) {}
@@ -354,6 +391,7 @@ public:
         }
         const auto bgra = qmdp::to_bgra(*cpu->bytes, frame.surface->width, frame.surface->height,
                                         cpu->stride, cpu->pixman_format);
+        observe_source_frame(bgra);
         std::lock_guard lock(video_mutex_);
         if (!video_input_ || width_ != frame.surface->width || height_ != frame.surface->height ||
             force_idr_.exchange(false)) {
@@ -386,6 +424,11 @@ public:
 
     void request_idr() override { force_idr_ = true; }
 
+    [[nodiscard]] VideoStats video_stats() const noexcept {
+        std::lock_guard lock(stats_mutex_);
+        return video_stats_;
+    }
+
 private:
     struct OpusDeleter {
         void operator()(OpusEncoder *encoder) const noexcept { opus_encoder_destroy(encoder); }
@@ -404,6 +447,44 @@ private:
             }
             throw WorkerError("direct H.264 encoder stopped accepting frames");
         }
+    }
+
+    void observe_source_frame(std::span<const std::uint8_t> bgra) noexcept {
+        constexpr std::size_t maximum_samples = 4096U;
+        const auto pixels = bgra.size() / 4U;
+        if (pixels == 0U) {
+            return;
+        }
+        const auto stride = std::max<std::size_t>(1U, pixels / maximum_samples);
+        std::uint64_t samples = 0U;
+        std::uint64_t non_black = 0U;
+        std::uint64_t luma_sum = 0U;
+        std::uint8_t luma_min = 255U;
+        std::uint8_t luma_max = 0U;
+        for (std::size_t pixel = 0U; pixel < pixels; pixel += stride) {
+            const auto offset = pixel * 4U;
+            // qmdp::to_bgra deliberately normalises the captured surface to
+            // B, G, R, A. Integer BT.601 luma is enough to distinguish an
+            // all-black GL scanout from a rendered guest without retaining
+            // any guest pixels in process memory or logs.
+            const auto luma = static_cast<std::uint8_t>(
+                (29U * bgra[offset] + 150U * bgra[offset + 1U] +
+                 77U * bgra[offset + 2U]) >> 8U);
+            ++samples;
+            luma_sum += luma;
+            luma_min = std::min(luma_min, luma);
+            luma_max = std::max(luma_max, luma);
+            if (luma > 10U) {
+                ++non_black;
+            }
+        }
+        std::lock_guard lock(stats_mutex_);
+        ++video_stats_.submitted_frames;
+        video_stats_.sampled_pixels += samples;
+        video_stats_.non_black_pixels += non_black;
+        video_stats_.luma_sum += luma_sum;
+        video_stats_.luma_min = std::min(video_stats_.luma_min, luma_min);
+        video_stats_.luma_max = std::max(video_stats_.luma_max, luma_max);
     }
 
     void open_video_process(std::uint32_t width, std::uint32_t height) {
@@ -591,6 +672,8 @@ private:
     std::thread h264_thread_;
     std::uint32_t width_ {};
     std::uint32_t height_ {};
+    mutable std::mutex stats_mutex_;
+    VideoStats video_stats_;
     std::mutex audio_mutex_;
     std::unique_ptr<OpusEncoder, OpusDeleter> opus_;
     std::vector<float> audio_pending_;
@@ -711,7 +794,11 @@ std::string recent_error_summary(const qmdp::DesktopSession::Stats &stats) {
 }
 
 void write_session_diagnostic(std::string_view event,
-                              const qmdp::DesktopSession::Stats &stats) {
+                              const qmdp::DesktopSession::Stats &stats,
+                              const DirectMediaAdapter::VideoStats &source,
+                              const PacketSink::Stats &egress) {
+    const auto source_luma_mean = source.sampled_pixels == 0U ? 0U :
+        source.luma_sum / source.sampled_pixels;
     std::cerr << "QSM_DIRECT_MEDIA_" << event
               << " encoded_frames=" << stats.encoded_frames
               << " errors=" << stats.errors
@@ -719,6 +806,15 @@ void write_session_diagnostic(std::string_view event,
               << " latest_frame_published=" << stats.mailbox.published
               << " latest_frame_consumed=" << stats.mailbox.consumed
               << " latest_frame_dropped=" << stats.mailbox.dropped
+              << " source_frames=" << source.submitted_frames
+              << " source_luma_min=" << static_cast<unsigned int>(source.luma_min)
+              << " source_luma_max=" << static_cast<unsigned int>(source.luma_max)
+              << " source_luma_mean=" << source_luma_mean
+              << " source_nonblack_samples=" << source.non_black_pixels
+              << " source_samples=" << source.sampled_pixels
+              << " h264_access_units=" << egress.video_access_units
+              << " h264_records=" << egress.video_records
+              << " h264_send_failures=" << egress.video_send_failures
               << " recent_error=" << recent_error_summary(stats)
               << '\n' << std::flush;
 }
@@ -756,14 +852,13 @@ int run(const Options &options) {
         while (!stopping.load() && !session.display_failed()) {
             if (!capture_diagnostic_written && std::chrono::steady_clock::now() >= capture_deadline) {
                 const auto stats = session.stats();
-                if (stats.encoded_frames == 0U) {
-                    write_session_diagnostic("NO_VIDEO_AFTER_3S", stats);
-                }
+                write_session_diagnostic("CAPTURE_AFTER_3S", stats, media.video_stats(), sink.stats());
                 capture_diagnostic_written = true;
             }
             std::this_thread::sleep_for(100ms);
         }
-        write_session_diagnostic(session.display_failed() ? "DISPLAY_ENDED" : "STOPPING", session.stats());
+        write_session_diagnostic(session.display_failed() ? "DISPLAY_ENDED" : "STOPPING",
+                                 session.stats(), media.video_stats(), sink.stats());
         input.stop();
         session.stop();
     } catch (...) {
