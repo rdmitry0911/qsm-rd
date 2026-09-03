@@ -99,7 +99,17 @@
             if (!edit || !edit.vmconfig || (active && (!validVmid(vmid) || !validRenderNode(rendernode)))) {
                 throw new Error('direct Display1 configuration is invalid');
             }
-            const result = { type: active ? 'virtio-gl' : values.type, memory: values.memory };
+            // PVE 9 does not populate `memory` for every VGA type. Passing an
+            // explicit `undefined` becomes `vga.memory=undefined` at the API
+            // boundary, which fails its integer schema validation. Preserve a
+            // supplied integer (the ExtJS field may serialize it as a string),
+            // but leave the property out when the field is absent.
+            const result = { type: active ? 'virtio-gl' : values.type };
+            const rawMemory = values.memory;
+            if (rawMemory !== undefined && rawMemory !== null && rawMemory !== '') {
+                const memory = Number(rawMemory);
+                if (Number.isInteger(memory)) { result.memory = memory; }
+            }
             const printed = PVE.Parser.printPropertyString(result, 'type');
             const response = printed ? { vga: printed } : { delete: 'vga' };
             const changed = updateDisplayArgument(edit.vmconfig.args, vmid, rendernode, active);
