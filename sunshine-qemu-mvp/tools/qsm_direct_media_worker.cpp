@@ -445,8 +445,14 @@ private:
                 arguments.insert(arguments.end(), {"-preset", "p1", "-tune", "ll", "-forced-idr", "1"});
             } else if (encoder_ == "libx264") {
                 arguments.insert(arguments.end(), {"-preset", "ultrafast", "-tune", "zerolatency",
-                                                   "-x264-params", "aud=1:keyint=60:min-keyint=60:scenecut=0:repeat-headers=1"});
+                                                   "-x264-params", "aud=1:keyint=30:min-keyint=30:scenecut=0:bframes=0:repeat-headers=1"});
             }
+            // Keep encoder and muxer delay bounded.  A 0.5-second IDR
+            // interval restores a browser quickly after an intentionally
+            // dropped stale frame, while no B-frame may make the visible
+            // cursor trail a gesture.
+            arguments.insert(arguments.end(), {"-g", "30", "-bf", "0", "-flags", "low_delay",
+                                               "-max_delay", "0", "-flush_packets", "1"});
             // Every supported H.264 encoder can emit an access-unit delimiter.
             // The packetizer uses that unambiguous boundary to keep its private
             // socket records frame-aligned; do not rely on encoder-specific
@@ -708,7 +714,13 @@ int run(const Options &options) {
                                  .remote_scale_percent = 100U});
         }
         std::cout << "QSM_DIRECT_MEDIA_READY encoder=" << options.encoder << " fps=" << options.fps << '\n' << std::flush;
-        while (!stopping.load()) { std::this_thread::sleep_for(100ms); }
+        // Display1 has no reconnect protocol. A QEMU stop closes its D-Bus
+        // listener; terminate this per-console worker immediately so the
+        // terminal service closes the corresponding WebRTC peer and the
+        // browser console window follows the VM lifecycle.
+        while (!stopping.load() && !session.display_failed()) {
+            std::this_thread::sleep_for(100ms);
+        }
         input.stop();
         session.stop();
     } catch (...) {

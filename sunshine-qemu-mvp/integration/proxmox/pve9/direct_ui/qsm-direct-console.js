@@ -33,18 +33,32 @@
         `(?:^|\\s)-display\\s+dbus,addr=unix:path=${escapeRegExp(RUNTIME_PREFIX)}/${vmid}/qemu-display1\\.bus,gl=on,rendernode=(/dev/dri/renderD[0-9]{1,4})(?=\\s|$)`,
     );
     const displayCount = (args) => (args.match(/(?:^|\s)-display(?:\s|$)/g) || []).length;
-    const directGpuCount = (args) => (args.match(
-        new RegExp(`(?:^|\\s)${escapeRegExp(gpuArgument())}(?=\\s|$)`, 'g')) || []).length;
+    const virtioVgaGlArguments = (args) => args.match(
+        /(?:^|\s)-device\s+virtio-vga-gl(?:,[^\s]+)?(?=\s|$)/g,
+    ) || [];
+    const normaliseArgument = (value) => value.trim();
     const displayState = (args, vmid) => {
         if (typeof args !== 'string' || !validVmid(vmid)) {
-            return { managed: false, legacy: false, rendernode: DEFAULT_RENDER_NODE };
+            return { managed: false, legacy: false, legacyGpu: false, rendernode: DEFAULT_RENDER_NODE };
         }
         const match = args.match(displayPattern(vmid));
-        const gpuCount = directGpuCount(args);
-        if (match && displayCount(args) === 1 && gpuCount <= 1) {
-            return { managed: gpuCount === 1, legacy: gpuCount === 0, rendernode: match[1] };
+        const gpu = virtioVgaGlArguments(args).map(normaliseArgument);
+        if (match && displayCount(args) === 1) {
+            if (gpu.length === 1 && gpu[0] === gpuArgument()) {
+                return { managed: true, legacy: false, legacyGpu: false, rendernode: match[1] };
+            }
+            // git20 emitted the unlabelled VirtIO-GPU argument. It is safe to
+            // migrate only that exact historical form; any device options or
+            // a second adapter belong to an administrator and must not be
+            // silently claimed or duplicated by this UI overlay.
+            if (gpu.length === 1 && gpu[0] === '-device virtio-vga-gl') {
+                return { managed: false, legacy: true, legacyGpu: true, rendernode: match[1] };
+            }
+            if (gpu.length === 0) {
+                return { managed: false, legacy: true, legacyGpu: false, rendernode: match[1] };
+            }
         }
-        return { managed: false, legacy: false, rendernode: DEFAULT_RENDER_NODE };
+        return { managed: false, legacy: false, legacyGpu: false, rendernode: DEFAULT_RENDER_NODE };
     };
     const updateDisplayArgument = (args, vmid, rendernode, want) => {
         args = args === undefined || args === null ? '' : args;
@@ -53,11 +67,11 @@
         }
         const existing = displayState(args, vmid);
         const count = displayCount(args);
-        const gpuCount = directGpuCount(args);
+        const gpu = virtioVgaGlArguments(args).map(normaliseArgument);
         const wanted = displayArgument(vmid, rendernode);
         if (want) {
             if (count === 0) {
-                if (gpuCount !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
+                if (gpu.length !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
                 const added = `${gpuArgument()} ${wanted}`;
                 return args ? `${args} ${added}` : added;
             }
@@ -67,24 +81,34 @@
             const previous = displayArgument(vmid, existing.rendernode);
             const updated = args.replace(new RegExp(`(?:^|\\s)${escapeRegExp(previous)}(?=\\s|$)`), (value) =>
                 value.startsWith(' ') ? ` ${wanted}` : wanted);
-            return existing.legacy ? `${updated} ${gpuArgument()}` : updated;
+            if (existing.managed) { return updated; }
+            if (existing.legacyGpu) {
+                return updated.replace(
+                    /(?:^|\s)-device\s+virtio-vga-gl(?=\s|$)/,
+                    (value) => value.startsWith(' ') ? ` ${gpuArgument()}` : gpuArgument(),
+                );
+            }
+            return `${updated} ${gpuArgument()}`;
         }
         if (!existing.managed && !existing.legacy) {
-            if (gpuCount !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
+            if (gpu.length !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
             return args;
         }
         const previous = displayArgument(vmid, existing.rendernode);
         const withoutDisplay = args.replace(
             new RegExp(`(?:^|\\s)${escapeRegExp(previous)}(?=\\s|$)`), '').trim();
-        return withoutDisplay.replace(
-            new RegExp(`(?:^|\\s)${escapeRegExp(gpuArgument())}(?=\\s|$)`), '').trim().replace(/\s{2,}/g, ' ');
+        const withoutGpu = existing.legacyGpu
+            ? withoutDisplay.replace(/(?:^|\s)-device\s+virtio-vga-gl(?=\s|$)/, '')
+            : withoutDisplay.replace(
+                new RegExp(`(?:^|\\s)${escapeRegExp(gpuArgument())}(?=\\s|$)`), '');
+        return withoutGpu.trim().replace(/\s{2,}/g, ' ');
     };
 
     const displayFields = () => [
         {
             xtype: 'proxmoxcheckbox', name: 'qsm_direct_display1', uncheckedValue: 0,
             defaultValue: 0, deleteDefaultValue: true, fieldLabel: gettext('QSM Display1'),
-            boxLabel: gettext('Replace VNC with D-Bus display and VirGL GPU'),
+            boxLabel: gettext('Replace VNC with D-Bus Display1 and VirGL GPU (PVE display becomes None)'),
             listeners: { change: function (_field, value) {
                 const node = this.up('inputpanel').down('[name=qsm_direct_rendernode]');
                 if (node) { node.setDisabled(!enabled(value)); }
@@ -96,7 +120,7 @@
             validator: (value) => validRenderNode(value) || gettext('Use a DRM render node, for example /dev/dri/renderD128.'),
         },
         { xtype: 'displayfield', userCls: 'pmx-hint', value: gettext(
-            'QSM Display1 disables PVE VNC for this VM, then adds its private D-Bus display and VirtIO-GPU (VirGL).'),
+            'When enabled, PVE Graphic card is intentionally saved as None: this prevents PVE from adding an incompatible VNC backend. QSM Direct owns the private D-Bus display and VirtIO-GPU (VirGL). To return to VNC, disable QSM Display1 and select a PVE graphic card.'),
         },
     ];
 
@@ -216,40 +240,156 @@
         return { width, height, fps: 60 };
     };
 
-    const openConsole = async function (button, node, vmid) {
+    const openConsole = function (button, node, vmid) {
         const windowId = `qsm-direct-${node}-${vmid}-${Date.now()}`;
-        const panel = Ext.create('Ext.window.Window', {
-            itemId: windowId, title: gettext('QSM Direct Console'), width: 1280, height: 800,
-            maximizable: true, modal: false, layout: 'fit', closeAction: 'destroy',
-            html: '<video autoplay playsinline tabindex="0" style="width:100%;height:100%;background:#000;object-fit:contain"></video>',
+        // `window.open` must run synchronously in the Console-menu click
+        // handler. Opening it after an await makes ordinary browsers treat it
+        // as an unsolicited popup. It is an about:blank, same-origin popup:
+        // PVE credentials and signalling remain in the parent PVE page.
+        const popup = window.open('', windowId,
+            'popup=yes,width=1280,height=800,resizable=yes,scrollbars=no');
+        if (!popup) {
+            Ext.Msg.alert(gettext('QSM Direct'), gettext(
+                'The browser blocked the separate console window. Allow popups for this Proxmox site and try again.'));
+            return;
+        }
+        const document = popup.document;
+        document.title = gettext('QSM Direct Console');
+        document.documentElement.style.cssText = 'height:100%;background:#000';
+        document.body.style.cssText = 'height:100%;margin:0;display:flex;flex-direction:column;background:#000;color:#fff;font:13px sans-serif';
+        const toolbar = document.createElement('div');
+        toolbar.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 8px;background:#1f2937;flex:0 0 auto';
+        const status = document.createElement('span');
+        status.textContent = gettext('Connecting…');
+        status.style.flex = '1 1 auto';
+        const fullscreen = document.createElement('button');
+        fullscreen.type = 'button';
+        fullscreen.style.cssText = 'padding:4px 9px;cursor:pointer';
+        const video = document.createElement('video');
+        video.autoplay = true;
+        video.playsInline = true;
+        video.tabIndex = 0;
+        video.style.cssText = 'display:block;width:100%;min-height:0;flex:1 1 auto;background:#000;object-fit:contain;outline:none';
+        const setFullscreenLabel = () => {
+            fullscreen.textContent = document.fullscreenElement
+                ? gettext('Exit Full Screen') : gettext('Full Screen');
+        };
+        setFullscreenLabel();
+        fullscreen.addEventListener('click', () => {
+            const action = document.fullscreenElement
+                ? document.exitFullscreen()
+                : document.documentElement.requestFullscreen();
+            if (action && typeof action.catch === 'function') { action.catch(() => undefined); }
         });
+        document.addEventListener('fullscreenchange', setFullscreenLabel);
+        toolbar.append(status, fullscreen);
+        document.body.append(toolbar, video);
+        popup.focus();
+
         let peer = null;
         let control = null;
+        let pointer = null;
         let observer = null;
+        let closed = false;
+        let closeWatcher = null;
+        let pointerFrame = null;
+        let pendingPointer = null;
+        let resizeTimer = null;
+        let lastResize = '';
         const send = (value) => {
             if (control && control.readyState === 'open') { control.send(JSON.stringify(value)); }
         };
-        panel.on('destroy', () => {
+        const sendPointer = (value) => {
+            if (pointer && pointer.readyState === 'open') { pointer.send(JSON.stringify(value)); }
+        };
+        const close = () => {
+            if (closed) { return; }
+            closed = true;
             if (observer) { observer.disconnect(); }
             if (peer) { peer.close(); }
-        });
-        panel.show();
-        const video = panel.getEl().down('video').dom;
-        try {
+            if (closeWatcher !== null) { window.clearInterval(closeWatcher); }
+            if (pointerFrame !== null) { popup.cancelAnimationFrame(pointerFrame); }
+            if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); }
+        };
+        const closeForStoppedVm = () => {
+            if (closed) { return; }
+            status.textContent = gettext('The virtual machine was stopped. Closing console…');
+            // A state transition is dispatched while the peer is processing
+            // transport shutdown. Defer the actual close one task so browsers
+            // consistently complete that transition before the popup goes.
+            window.setTimeout(() => {
+                close();
+                if (!popup.closed) { popup.close(); }
+            }, 0);
+        };
+        popup.addEventListener('beforeunload', close, { once: true });
+        window.addEventListener('beforeunload', close, { once: true });
+        closeWatcher = window.setInterval(() => {
+            if (popup.closed) { close(); }
+        }, 500);
+
+        const connect = async () => {
+            try {
             peer = new RTCPeerConnection();
             control = peer.createDataChannel('qsm-control', { ordered: true });
-            peer.ontrack = (event) => { video.srcObject = event.streams[0]; };
-            const resize = () => send({ op: 'resize', ...dimensions(video) });
-            control.addEventListener('open', resize);
-            observer = new ResizeObserver(resize);
+            // Cursor positions are latest-state samples. Sending them as a
+            // reliable ordered stream lets one congested packet make every
+            // later gesture visibly stale, while keys/clicks must remain
+            // ordered and reliable on qsm-control.
+            pointer = peer.createDataChannel('qsm-pointer', { ordered: false, maxRetransmits: 0 });
+            peer.addEventListener('connectionstatechange', () => {
+                if (peer.connectionState === 'failed' || peer.connectionState === 'closed') {
+                    closeForStoppedVm();
+                }
+            });
+            peer.addEventListener('iceconnectionstatechange', () => {
+                if (peer.iceConnectionState === 'failed' || peer.iceConnectionState === 'closed') {
+                    closeForStoppedVm();
+                }
+            });
+            peer.ontrack = (event) => {
+                video.srcObject = event.streams[0];
+                event.track.addEventListener('ended', closeForStoppedVm, { once: true });
+                video.play().catch(() => undefined);
+            };
+            const resize = (immediate = false) => {
+                const dispatch = () => {
+                    resizeTimer = null;
+                    const value = dimensions(video);
+                    const identity = `${value.width}x${value.height}@${value.fps}`;
+                    if (identity !== lastResize) {
+                        lastResize = identity;
+                        send({ op: 'resize', ...value });
+                    }
+                };
+                if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); resizeTimer = null; }
+                if (immediate) { dispatch(); }
+                else { resizeTimer = popup.setTimeout(dispatch, 150); }
+            };
+            const flushPointer = () => {
+                pointerFrame = null;
+                if (pendingPointer) { sendPointer(pendingPointer); pendingPointer = null; }
+            };
+            const queuePointer = (value) => {
+                pendingPointer = value;
+                if (pointerFrame === null) { pointerFrame = popup.requestAnimationFrame(flushPointer); }
+            };
+            control.addEventListener('open', () => resize(true));
+            // aiortc closes every server-side data channel while retiring a
+            // VM session. Track-end is the normal media signal, but this is
+            // an independent browser-visible lifecycle signal for codecs or
+            // browsers that postpone a track's `ended` event.
+            control.addEventListener('close', closeForStoppedVm, { once: true });
+            pointer.addEventListener('close', closeForStoppedVm, { once: true });
+            observer = new ResizeObserver(() => resize(false));
             observer.observe(video);
             video.addEventListener('mousemove', (event) => {
                 const box = video.getBoundingClientRect();
                 const x = Math.max(0, Math.min(Math.floor(event.clientX - box.left), Math.floor(box.width) - 1));
                 const y = Math.max(0, Math.min(Math.floor(event.clientY - box.top), Math.floor(box.height) - 1));
-                send({ op: 'mouse_position', x, y, width: Math.max(1, Math.floor(box.width)), height: Math.max(1, Math.floor(box.height)) });
+                queuePointer({ op: 'mouse_position', x, y, width: Math.max(1, Math.floor(box.width)), height: Math.max(1, Math.floor(box.height)) });
             });
-            video.addEventListener('mousedown', (event) => { video.focus(); send({ op: 'mouse_button', button: event.button + 1, down: true }); event.preventDefault(); });
+            video.addEventListener('mousedown', (event) => { flushPointer(); video.focus(); send({ op: 'mouse_button', button: event.button + 1, down: true }); event.preventDefault(); });
             video.addEventListener('mouseup', (event) => { send({ op: 'mouse_button', button: event.button + 1, down: false }); event.preventDefault(); });
             video.addEventListener('wheel', (event) => { send({ op: 'scroll', vertical: Math.max(-32768, Math.min(32767, Math.trunc(event.deltaY))), horizontal: Math.max(-32768, Math.min(32767, Math.trunc(event.deltaX))) }); event.preventDefault(); }, { passive: false });
             for (const name of ['keydown', 'keyup']) {
@@ -268,10 +408,16 @@
                 sdp: peer.localDescription.sdp, width: requestSize.width, height: requestSize.height, fps: requestSize.fps,
             }, button);
             await peer.setRemoteDescription(answer);
-        } catch (_error) {
-            panel.close();
-            Ext.Msg.alert(gettext('QSM Direct'), gettext('Could not create a direct browser console.'));
-        }
+            status.textContent = gettext('Connected');
+            video.focus();
+            } catch (_error) {
+                status.textContent = gettext('Could not create a direct browser console.');
+                close();
+                popup.close();
+                Ext.Msg.alert(gettext('QSM Direct'), gettext('Could not create a direct browser console.'));
+            }
+        };
+        connect();
     };
 
     Ext.define('PVE.qsmDirect.ConsoleButtonOverlay', {

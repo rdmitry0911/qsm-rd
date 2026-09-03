@@ -31,6 +31,28 @@ assert.ok(displayOverlay, 'PVE Display editor must receive the qsm Display1 over
 assert.ok(displayEditOverlay, 'PVE Display edit loader must restore qsm Display1 state');
 assert.ok(consoleOverlay, 'PVE Console menu must receive the qsm Direct entry');
 assert.ok(qemuConfigOverlay, 'PVE VM view must gate QSM Direct on saved Display1 args');
+assert.match(source, /window\.open\('', windowId,/,
+    'QSM Direct must create a separate browser popup synchronously from the menu action');
+assert.match(source, /popup=yes,width=1280,height=800,resizable=yes/,
+    'the separate console window must be resizable by the operating system');
+assert.match(source, /document\.documentElement\.requestFullscreen\(\)/,
+    'the popup must provide a full-screen action for the entire display');
+assert.match(source, /connectionstatechange/,
+    'the popup must follow WebRTC shutdown when its VM Display1 source disappears');
+assert.match(source, /The virtual machine was stopped\. Closing console…/,
+    'a stopped VM must explicitly close the separate browser console');
+assert.match(source, /control\.addEventListener\('close', closeForStoppedVm/,
+    'a server-side WebRTC data-channel close must also retire the popup');
+assert.match(source, /qsm-pointer/,
+    'latest-state pointer samples must not queue behind reliable keyboard input');
+assert.match(source, /maxRetransmits: 0/,
+    'the pointer channel must discard stale samples rather than retransmit them');
+assert.match(source, /requestAnimationFrame\(flushPointer\)/,
+    'browser mousemove bursts must be coalesced to the display refresh cadence');
+assert.match(source, /popup\.setTimeout\(dispatch, 150\)/,
+    'window dragging must debounce guest resolution changes');
+assert.doesNotMatch(source, /Ext\.create\('Ext\.window\.Window'/,
+    'the direct console must not be trapped inside the PVE browser page');
 
 const vmWindow = {
     pveSelNode: { data: { vmid: 321 } },
@@ -65,6 +87,39 @@ assert.deepEqual(
     'enabling Display1 must replace PVE VNC with one managed VirGL/Display1 pair',
 );
 
+// PVE's normal list contains display types with and without a memory value.
+// Exercise every non-default form accepted by PVE 9 through repeated
+// enable/disable cycles: QSM must never append a second GPU or display, and
+// disabling must leave the caller-selected stock display intact.
+const stockDisplayTypes = [
+    'std', 'vmware', 'qxl', 'qxl2', 'qxl3', 'qxl4',
+    'virtio', 'virtio-gl', 'serial0', 'serial1', 'serial2', 'serial3', 'none',
+];
+for (const type of stockDisplayTypes) {
+    let args = '-cpu host';
+    for (let round = 0; round < 8; round += 1) {
+        vmWindow.vmconfig.args = args;
+        const enabledResult = displayOverlay.onGetValues.call(displayPanel, {
+            type,
+            qsm_direct_display1: 1,
+            qsm_direct_rendernode: '/dev/dri/renderD128',
+        });
+        assert.equal(enabledResult.vga, 'type=none', `QSM owns the GPU for ${type}`);
+        assert.match(enabledResult.args, /-device virtio-vga-gl,id=qsm-direct-gpu/);
+        assert.equal((enabledResult.args.match(/(?:^|\s)-display(?:\s|$)/g) || []).length, 1);
+        assert.equal((enabledResult.args.match(/(?:^|\s)-device\s+virtio-vga-gl(?:,|\s|$)/g) || []).length, 1);
+
+        vmWindow.vmconfig.args = enabledResult.args;
+        const disabledResult = displayOverlay.onGetValues.call(displayPanel, {
+            type,
+            qsm_direct_display1: 0,
+        });
+        assert.deepEqual(disabledResult, { vga: `type=${type}`, args: '-cpu host' },
+            `round ${round}: disabling QSM restores the selected ${type} display`);
+        args = disabledResult.args;
+    }
+}
+
 vmWindow.vmconfig.args =
     '-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128';
 assert.deepEqual(
@@ -79,6 +134,40 @@ assert.deepEqual(
     },
     'saving an old Display1-only setting must migrate it away from PVE VNC',
 );
+
+vmWindow.vmconfig.args =
+    '-cpu host -device virtio-vga-gl -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128';
+assert.deepEqual(
+    displayOverlay.onGetValues.call(displayPanel, {
+        type: 'none',
+        qsm_direct_display1: 1,
+        qsm_direct_rendernode: '/dev/dri/renderD129',
+    }),
+    {
+        vga: 'type=none',
+        args: '-cpu host -device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD129',
+    },
+    'the old unlabelled QSM GPU must migrate in place instead of adding a second adapter',
+);
+assert.deepEqual(
+    displayOverlay.onGetValues.call(displayPanel, {
+        type: 'std', qsm_direct_display1: 0,
+    }),
+    { vga: 'type=std', args: '-cpu host' },
+    'disabling the old unlabelled QSM GPU must remove it completely',
+);
+
+for (const unsafeArgs of [
+    '-device virtio-vga-gl,id=foreign -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128',
+    '-device virtio-vga-gl,id=qsm-direct-gpu -device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128',
+    '-display gtk',
+]) {
+    vmWindow.vmconfig.args = unsafeArgs;
+    assert.throws(() => displayOverlay.onGetValues.call(displayPanel, {
+        type: 'std', qsm_direct_display1: 1, qsm_direct_rendernode: '/dev/dri/renderD128',
+    }), /another QEMU display|unsafe QEMU Display1 device arguments/,
+    'foreign or duplicate QEMU display state must not be silently claimed');
+}
 vmWindow.vmconfig.args = '-cpu host';
 
 assert.deepEqual(

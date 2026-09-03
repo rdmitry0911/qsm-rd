@@ -166,14 +166,19 @@ async def qualify(worker_binary: Path, fake_qemu_binary: Path,
                     if not controls_sent:
                         for message in (
                             {"op": "resize", "width": 320, "height": 180, "fps": 30},
-                            {"op": "mouse_position", "x": 20, "y": 10, "width": 320, "height": 180},
-                            {"op": "mouse_position", "x": 25, "y": 14, "width": 320, "height": 180},
                             {"op": "mouse_button", "button": 1, "down": True},
                             {"op": "mouse_button", "button": 1, "down": False},
                             {"op": "keyboard", "key": 30, "down": True, "modifiers": 0},
                             {"op": "keyboard", "key": 30, "down": False, "modifiers": 0},
                         ):
                             browser.request({"op": "control", "message": message}, timeout=3)
+                        # Cursor positions must traverse the lossy latest-
+                        # state channel, never queue in front of clicks/keys.
+                        for message in (
+                            {"op": "mouse_position", "x": 20, "y": 10, "width": 320, "height": 180},
+                            {"op": "mouse_position", "x": 25, "y": 14, "width": 320, "height": 180},
+                        ):
+                            browser.request({"op": "pointer", "message": message}, timeout=3)
                         controls_sent = True
                     if (status.get("videoWidth") == 320 and status.get("videoHeight") == 180 and
                             float(status.get("currentTime", 0)) > 0):

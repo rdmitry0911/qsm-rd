@@ -44,6 +44,7 @@ MAX_SDP_BYTES = 128 * 1024
 MAX_REQUEST_BYTES = MAX_SDP_BYTES + 4096
 REQUEST_TIMEOUT_SECONDS = 15.0
 SESSION_IDLE_SECONDS = 10 * 60
+SESSION_WATCH_SECONDS = 0.25
 MAX_SESSIONS = 16
 PVE_CONFIG_MAX_BYTES = 256 * 1024
 PVE_CONFIG_RECONCILE_SECONDS = 0.25
@@ -481,6 +482,11 @@ class DirectSessionManager:
             self._sessions[identifier] = DirectSession(
                 bridge=bridge, worker=worker, directory=directory,
                 expires_at=time.monotonic() + SESSION_IDLE_SECONDS)
+            # The worker exits when QEMU closes its Display1 connection (for
+            # example, on a VM shutdown).  Watch it independently of new
+            # browser requests so the associated WebRTC peer is closed at
+            # once; _close_session is idempotent and also covers expiration.
+            asyncio.create_task(self._watch_session(identifier))
             return answer
         except BaseException:
             if worker is not None:
@@ -523,6 +529,16 @@ class DirectSessionManager:
         self._terminate_worker(session.worker)
         await session.bridge.close()
         self._remove_directory(session.directory)
+
+    async def _watch_session(self, identifier: str) -> None:
+        while not self._closed:
+            session = self._sessions.get(identifier)
+            if session is None:
+                return
+            if session.worker.poll() is not None or session.expires_at <= time.monotonic():
+                await self._close_session(identifier)
+                return
+            await asyncio.sleep(SESSION_WATCH_SECONDS)
 
     def _collect_expired(self) -> None:
         now = time.monotonic()

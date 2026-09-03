@@ -46,6 +46,10 @@ public:
     [[nodiscard]] bool is_absolute_pointer();
     void absolute_pointer(std::uint32_t x, std::uint32_t y);
     void relative_pointer(std::int32_t dx, std::int32_t dy);
+    // QEMU Display1 is the source of this session.  Once its event channel
+    // fails, a direct-console worker cannot recover without a new VM console
+    // launch, so expose that terminal condition to its owner.
+    [[nodiscard]] bool display_failed() const noexcept;
 
     struct Stats {
         LatestFrameMailbox::Stats mailbox;
@@ -57,6 +61,7 @@ public:
         std::uint64_t idr_requests {};
         std::uint64_t errors {};
         bool running {};
+        bool display_failed {};
         std::vector<std::string> recent_errors;
     };
 
@@ -86,6 +91,7 @@ private:
     std::atomic<std::uint64_t> rejected_audio_callbacks_ {};
     std::atomic<std::uint64_t> idr_requests_ {};
     std::atomic<std::uint64_t> errors_ {};
+    std::atomic<bool> display_failed_ {false};
     mutable std::mutex errors_mutex_;
     std::vector<std::string> recent_errors_;
 };

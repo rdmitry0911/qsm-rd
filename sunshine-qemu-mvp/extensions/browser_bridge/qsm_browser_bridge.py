@@ -501,6 +501,22 @@ class UnixInputEgress:
 
     def send_browser_message(self, raw: object) -> None:
         packet = self.encode_browser_message(raw)
+        self._send_packet(packet)
+
+    def send_browser_pointer_message(self, raw: object) -> None:
+        """Forward only a latest-state absolute pointer packet.
+
+        Pointer samples travel on the browser's unordered, non-retransmitted
+        channel.  Keeping them separate from keys, clicks and resize requests
+        means a stale cursor coordinate can be discarded without delaying a
+        subsequent click or keyboard shortcut.
+        """
+        packet = self.encode_browser_message(raw)
+        if packet[5] != INPUT_MOUSE_POSITION:
+            raise BridgeError("browser pointer channel received a non-pointer message")
+        self._send_packet(packet)
+
+    def _send_packet(self, packet: bytes) -> None:
         with self._lock:
             if self._error is not None:
                 raise self._error
@@ -576,6 +592,7 @@ class BrowserWebRtcBridge:
         self._taps_started = False
         self._offer_consumed = False
         self._control_channel_seen = False
+        self._pointer_channel_seen = False
         self._pc.on("datachannel", self._on_datachannel)
 
     @property
@@ -583,24 +600,36 @@ class BrowserWebRtcBridge:
         return f"unix:{self.input.path}"
 
     def _on_datachannel(self, channel: object) -> None:
-        # Accept exactly one named reliable ordered channel. aiortc exposes a
-        # narrow RTCDataChannel surface, so inspect only the fields used by
-        # the protocol and close any unrecognised channel before it carries a
-        # browser-controlled payload.
-        if self._control_channel_seen or getattr(channel, "label", None) != "qsm-control" or \
-                getattr(channel, "ordered", None) is not True or \
-                getattr(channel, "maxRetransmits", None) is not None or \
-                getattr(channel, "maxPacketLifeTime", None) is not None:
+        # There are exactly two browser-to-guest channels.  qsm-control is
+        # reliable/ordered for stateful keyboard, button and resize messages;
+        # qsm-pointer carries only replaceable cursor coordinates and must not
+        # queue behind a lost packet.  Reject every other SCTP data channel.
+        label = getattr(channel, "label", None)
+        control = (label == "qsm-control" and not self._control_channel_seen and
+                   getattr(channel, "ordered", None) is True and
+                   getattr(channel, "maxRetransmits", None) is None and
+                   getattr(channel, "maxPacketLifeTime", None) is None)
+        pointer = (label == "qsm-pointer" and not self._pointer_channel_seen and
+                   getattr(channel, "ordered", None) is False and
+                   getattr(channel, "maxRetransmits", None) == 0 and
+                   getattr(channel, "maxPacketLifeTime", None) is None)
+        if not control and not pointer:
             close = getattr(channel, "close", None)
             if callable(close):
                 close()
             return
-        self._control_channel_seen = True
+        if control:
+            self._control_channel_seen = True
+        else:
+            self._pointer_channel_seen = True
 
         @channel.on("message")
         def on_message(message: object) -> None:
             try:
-                self.input.send_browser_message(message)
+                if control:
+                    self.input.send_browser_message(message)
+                else:
+                    self.input.send_browser_pointer_message(message)
             except BridgeError:
                 # A malformed browser command must not tear down encrypted
                 # video. Close this data channel; a fresh PVE Console launch

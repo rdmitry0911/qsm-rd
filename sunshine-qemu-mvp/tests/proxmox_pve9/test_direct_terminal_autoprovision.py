@@ -10,6 +10,7 @@ import stat
 import tempfile
 import time
 import unittest
+import asyncio
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -19,9 +20,9 @@ if str(IMPORT_ROOT) not in sys.path:
     sys.path.insert(0, str(IMPORT_ROOT))
 
 if PACKAGE_LIBRARY:
-    from direct_terminal.qsm_direct_terminal import DirectSessionManager
+    from direct_terminal.qsm_direct_terminal import DirectSession, DirectSessionManager
 else:
-    from extensions.direct_terminal.qsm_direct_terminal import DirectSessionManager
+    from extensions.direct_terminal.qsm_direct_terminal import DirectSession, DirectSessionManager
 
 
 @unittest.skipUnless(shutil.which("dbus-daemon"), "dbus-daemon is required")
@@ -96,6 +97,45 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
                 manager.close()
                 if bus_process is not None:
                     manager._dbus._terminate(bus_process)
+
+    def test_exited_media_worker_closes_its_webrtc_session_without_a_new_request(self) -> None:
+        class ExitedWorker:
+            def poll(self) -> int:
+                return 0
+
+        class ClosingBridge:
+            closed = False
+
+            async def close(self) -> None:
+                self.closed = True
+
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-session-watch.") as temporary:
+            root = Path(temporary)
+            for name in ("instances", "qemu-server", "sessions", "display"):
+                (root / name).mkdir(mode=0o700)
+            manager = DirectSessionManager(
+                instance_directory=root / "instances",
+                runtime_directory=root / "sessions",
+                vm_runtime_directory=root / "display",
+                pve_config_directory=root / "qemu-server",
+                local_node=None,
+            )
+            bridge = ClosingBridge()
+            directory = root / "sessions" / "vm-321" / "ended"
+            directory.parent.mkdir(mode=0o700)
+            directory.mkdir(mode=0o700)
+            try:
+                manager._sessions["ended"] = DirectSession(
+                    bridge=bridge, worker=ExitedWorker(), directory=directory,
+                    expires_at=time.monotonic() + 60)
+                future = asyncio.run_coroutine_threadsafe(
+                    manager._watch_session("ended"), manager._loop)
+                future.result(timeout=2)
+                self.assertTrue(bridge.closed)
+                self.assertNotIn("ended", manager._sessions)
+                self.assertFalse(directory.exists())
+            finally:
+                manager.close()
 
 
 if __name__ == "__main__":

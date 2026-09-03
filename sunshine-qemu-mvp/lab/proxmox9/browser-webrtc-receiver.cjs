@@ -94,6 +94,7 @@ async function createOffer() {
         const pc = new RTCPeerConnection({ iceServers: [] });
         window.qsmPeerConnection = pc;
         window.qsmControl = pc.createDataChannel('qsm-control', { ordered: true });
+        window.qsmPointer = pc.createDataChannel('qsm-pointer', { ordered: false, maxRetransmits: 0 });
         window.qsmTrackKinds = [];
         window.qsmIceCandidateSeen = false;
         pc.addEventListener('track', (event) => {
@@ -155,6 +156,19 @@ async function control(message) {
     return { sent: true };
 }
 
+async function pointer(message) {
+    if (!page || !message || typeof message !== 'object') {
+        throw new Error('invalid browser pointer command');
+    }
+    await page.evaluate((payload) => {
+        if (!window.qsmPointer || window.qsmPointer.readyState !== 'open') {
+            throw new Error('browser pointer channel is not open');
+        }
+        window.qsmPointer.send(JSON.stringify(payload));
+    }, message);
+    return { sent: true };
+}
+
 async function close() {
     if (page) {
         await page.evaluate(() => window.qsmPeerConnection?.close());
@@ -178,6 +192,7 @@ const commands = {
     },
     status: async () => status(),
     control: async (message) => control(message.message),
+    pointer: async (message) => pointer(message.message),
     close: async () => {
         await close();
         return { closed: true };

@@ -136,6 +136,34 @@ int main() {
         CHECK(sink_stats.audio_frames >= 4800U);
         CHECK(session_stats.audio_callbacks >= 10U);
 
+        // A VM stop closes QEMU's Display1 peer.  The per-console worker
+        // relies on DesktopSession::display_failed() to turn that loss into
+        // WebRTC teardown instead of leaving a stale browser console alive.
+        const auto stopped_snapshot = std::filesystem::current_path() /
+            "dbus-display-stop-last.ppm";
+        std::filesystem::remove(stopped_snapshot);
+        qmdp::test::MockQemuDbusServer stopped_qemu({
+            .width = 320U,
+            .height = 180U,
+            .fps = 60U,
+        });
+        auto stopped_client_fd = stopped_qemu.take_client_fd();
+        stopped_qemu.start();
+        qmdp::QemuDbusOptions stopped_display_options;
+        stopped_display_options.destination.clear();
+        stopped_display_options.p2p_fd = std::move(stopped_client_fd);
+        stopped_display_options.call_timeout = 2s;
+        stopped_display_options.pump_interval = 10ms;
+        qmdp::QemuDbusDisplay stopped_display(std::move(stopped_display_options));
+        qmdp::CpuFrameSink stopped_sink({.snapshot_path = stopped_snapshot});
+        qmdp::DesktopSession stopped_session(stopped_display, stopped_sink, {.frame_wait = 20ms});
+        stopped_session.start();
+        CHECK(wait_until(2s, [&] { return stopped_sink.stats().frames >= 2U; }));
+        stopped_qemu.stop();
+        CHECK(wait_until(2s, [&] { return stopped_session.display_failed(); }));
+        CHECK(stopped_session.stats().display_failed);
+        stopped_session.stop();
+
         CHECK(display_stats.mapped_scanouts >= 2U);
         CHECK(display_stats.mapped_updates >= 5U);
         CHECK(display_stats.cursor_definitions >= 1U);

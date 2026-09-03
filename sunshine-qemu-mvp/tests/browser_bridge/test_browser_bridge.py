@@ -171,6 +171,14 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(INPUT_HEADER.unpack_from(packet),
                                  (INPUT_MAGIC, INPUT_VERSION, INPUT_MOUSE_BUTTON, 2))
                 self.assertEqual(packet[INPUT_HEADER.size:], b"\x01\x01")
+                bridge.input.send_browser_pointer_message(
+                    '{"op":"mouse_position","x":20,"y":10,"width":1920,"height":1080}')
+                packet = receiver.recv(64)
+                self.assertEqual(INPUT_HEADER.unpack_from(packet),
+                                 (INPUT_MAGIC, INPUT_VERSION, INPUT_MOUSE_POSITION, 8))
+                with self.assertRaises(BridgeError):
+                    bridge.input.send_browser_pointer_message(
+                        '{"op":"mouse_button","button":1,"down":true}')
             finally:
                 receiver.close()
                 await bridge.close()

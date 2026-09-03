@@ -50,6 +50,7 @@ void DesktopSession::start() {
     if (running_.exchange(true)) {
         throw std::logic_error("desktop session is already running");
     }
+    display_failed_ = false;
 
     try {
         media_.start();
@@ -78,6 +79,10 @@ void DesktopSession::start() {
             },
             .on_error = [this](std::string message) {
                 record_error(std::move(message));
+                // QemuDbusDisplay reports an event-channel close here. The
+                // producer worker polls this flag and tears down its WebRTC
+                // bridge, rather than continuing to encode a stale frame.
+                display_failed_ = true;
             },
         });
     } catch (...) {
@@ -151,6 +156,10 @@ void DesktopSession::relative_pointer(std::int32_t dx, std::int32_t dy) {
         throw std::logic_error("desktop session is not running");
     }
     display_.relative_pointer(dx, dy);
+}
+
+bool DesktopSession::display_failed() const noexcept {
+    return display_failed_.load();
 }
 
 void DesktopSession::encoder_loop() noexcept {
@@ -243,6 +252,7 @@ DesktopSession::Stats DesktopSession::stats() const {
         .idr_requests = idr_requests_.load(),
         .errors = errors_.load(),
         .running = running_.load(),
+        .display_failed = display_failed_.load(),
         .recent_errors = std::move(recent),
     };
 }

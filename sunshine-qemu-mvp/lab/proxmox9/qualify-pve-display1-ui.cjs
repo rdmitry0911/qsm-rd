@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /*
- * Real-browser check for the q-sunshine Display1 Advanced panel in PVE 9.
+ * Real-browser check for the QSM Direct Display1 Advanced panel in PVE 9.
  *
  * This intentionally only opens the stock Hardware -> Display editor and
  * checks its live ExtJS fields. It never clicks OK, posts a VM update, or
@@ -32,7 +32,7 @@ const MAX_TIMEOUT_MS = 120_000;
 const RENDER_NODE_PATTERN = /^\/dev\/dri\/renderD[0-9]{1,4}$/;
 
 const fail = (code) => { throw new QualificationError(code); };
-const status = (phase) => process.stdout.write(`q-sunshine PVE Display1 UI qualification: ${phase}\n`);
+const status = (phase) => process.stdout.write(`QSM Direct PVE Display1 UI qualification: ${phase}\n`);
 
 const parseInteger = (value, lower, upper) => {
     if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value)) {
@@ -127,15 +127,17 @@ const openDisplayEditor = async (page, timeout) => {
         // window by the two fields supplied by this overlay instead.
         const editor = Ext.ComponentQuery.query('window').find((candidate) =>
             candidate && candidate.rendered && !candidate.hidden &&
-            candidate.down && candidate.down('[name=qsm_display1]') &&
-            candidate.down('[name=qsm_rendernode]'));
-        const display = editor && editor.down && editor.down('[name=qsm_display1]');
-        const renderNode = editor && editor.down && editor.down('[name=qsm_rendernode]');
+            candidate.down && candidate.down('[name=qsm_direct_display1]') &&
+            candidate.down('[name=qsm_direct_rendernode]'));
+        const display = editor && editor.down && editor.down('[name=qsm_direct_display1]');
+        const renderNode = editor && editor.down && editor.down('[name=qsm_direct_rendernode]');
+        const graphicCard = editor && editor.down && editor.down('[name=type]');
         if (!display || !renderNode) return null;
         return {
             displayEnabled: display.getValue() === true || display.getValue() === 1 || display.getValue() === '1',
             renderNode: String(renderNode.getValue() || ''),
             renderNodeDisabled: renderNode.disabled === true,
+            graphicCard: graphicCard ? String(graphicCard.getValue() || '') : '',
         };
     }, undefined, { timeout });
     try {
@@ -177,11 +179,11 @@ const main = async () => {
         status('opening Display editor');
         const result = await openDisplayEditor(page, options.timeout);
         if (!result || result.displayEnabled !== true || result.renderNodeDisabled ||
-            !RENDER_NODE_PATTERN.test(result.renderNode)) {
+            !RENDER_NODE_PATTERN.test(result.renderNode) || result.graphicCard !== 'none') {
             fail('PVE_DISPLAY1_FIELDS_INVALID');
         }
         process.stdout.write(
-            `QSM_PVE_DISPLAY1_UI_E2E_OK vmid=${options.vmid} rendernode=${result.renderNode}\n`,
+            `QSM_DIRECT_PVE_DISPLAY1_UI_E2E_OK vmid=${options.vmid} rendernode=${result.renderNode} vga=${result.graphicCard}\n`,
         );
     } finally {
         if (password) {
@@ -196,7 +198,7 @@ const main = async () => {
 if (require.main === module) {
     main().catch((error) => {
         const code = error instanceof QualificationError ? error.code : 'PVE_DISPLAY1_UI_FAILED';
-        process.stderr.write(`q-sunshine PVE Display1 UI qualification: FAIL (${code})\n`);
+        process.stderr.write(`QSM Direct PVE Display1 UI qualification: FAIL (${code})\n`);
         process.exitCode = 1;
     });
 }
