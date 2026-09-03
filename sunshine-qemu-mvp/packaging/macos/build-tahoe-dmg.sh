@@ -198,7 +198,8 @@ for framework_search_dir in \
     "$moonlight_build/lib" \
     "$moonlight_build/app/lib" \
     "$BUILD_PARENT/lib" \
-    "$build_dir/lib"; do
+    "$build_dir/lib" \
+    "$ROOT_DIR/lib"; do
     mkdir -p "$framework_search_dir"
     for framework_path in "${macdeploy_extra_framework_paths[@]}"; do
         for framework in "$framework_path"/Qt*.framework; do
