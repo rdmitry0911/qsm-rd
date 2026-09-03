@@ -70,11 +70,10 @@ void check_gl(const char *operation) {
 
 }  // namespace
 
-// Prefer a GBM map where the render node supports it: it avoids an additional
-// GL blit/readback round trip.  Some driver combinations (notably a subset of
-// NVIDIA/VirGL exports) expose DMA-BUF only through EGL, so scanout selects the
-// EGL_EXT_image_dma_buf_import fallback once and keeps that choice for the
-// lifetime of the QEMU scanout.  Neither path requires a host window system.
+// QEMU's headless Display1 backend and Sunshine both import this DMA-BUF with
+// EGL_EXT_image_dma_buf_import.  It is portable across render nodes where GBM
+// cannot import the buffer, and avoids GBM map calls that can serialize a
+// VirGL producer.  Neither path requires a host window system.
 struct DmaBufReadback::EglReadback final {
     explicit EglReadback(gbm_device *device) {
         if (device == nullptr) {
@@ -179,12 +178,11 @@ struct DmaBufReadback::EglReadback final {
             EGL_DMA_BUF_PLANE0_OFFSET_EXT, 0,
             EGL_DMA_BUF_PLANE0_PITCH_EXT, static_cast<EGLint>(stride),
         };
-        // Keep the exact modifier that QEMU exported.  In particular, zero is
-        // DRM_FORMAT_MOD_LINEAR, not an omitted modifier.  QEMU itself only
-        // omits these attributes for DRM_FORMAT_MOD_INVALID.  Omitting a
-        // valid linear modifier happens to work on Mesa, but NVIDIA then
-        // accepts the EGLImage and samples an all-black texture.
-        if (modifier != DRM_FORMAT_MOD_INVALID) {
+        // QEMU's Display1 contract follows EGL's conventional representation:
+        // zero means no explicit modifier attributes.  Supplying explicit
+        // linear attributes to a VirGL/NVIDIA import changes its fence path
+        // and delays damage visibility by whole compositor periods.
+        if (modifier != 0U && modifier != DRM_FORMAT_MOD_INVALID) {
             attributes.push_back(EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT);
             attributes.push_back(static_cast<EGLint>(modifier & 0xffffffffULL));
             attributes.push_back(EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT);
@@ -474,58 +472,7 @@ FrameToken DmaBufReadback::scanout(CpuFramebuffer& framebuffer,
     }
     validate_scanout(width, height, stride, drm_fourcc);
 
-    // GBM imports are allowed to consume implementation-private state from a
-    // supplied descriptor.  The EGL fallback needs the original QEMU-owned
-    // duplicate intact, so give every GBM import attempt its own fd.
-    UniqueFd modifier_import_fd = fd.duplicate();
-    struct gbm_import_fd_modifier_data import_data {};
-    import_data.width = width;
-    import_data.height = height;
-    import_data.format = drm_fourcc;
-    import_data.num_fds = 1U;
-    import_data.fds[0] = modifier_import_fd.get();
-    import_data.strides[0] = static_cast<int>(stride);
-    import_data.offsets[0] = 0;
-    import_data.modifier = modifier;
-
-    gbm_bo *replacement = gbm_bo_import(device_, GBM_BO_IMPORT_FD_MODIFIER,
-                                         &import_data, GBM_BO_USE_RENDERING);
-    // virtio-gpu normally advertises DRM_FORMAT_MOD_LINEAR.  A few GBM
-    // implementations reject the modifier-bearing ABI but still support the
-    // older linear import ABI.  Try it only when it preserves the exact buffer
-    // layout; a tiled or otherwise explicit modifier must never be discarded.
-    if (replacement == nullptr && modifier == DRM_FORMAT_MOD_LINEAR) {
-        UniqueFd linear_import_fd = fd.duplicate();
-        struct gbm_import_fd_data linear_import {};
-        linear_import.fd = linear_import_fd.get();
-        linear_import.width = static_cast<int>(width);
-        linear_import.height = static_cast<int>(height);
-        linear_import.stride = static_cast<int>(stride);
-        linear_import.format = drm_fourcc;
-        replacement = gbm_bo_import(device_, GBM_BO_IMPORT_FD, &linear_import,
-                                    GBM_BO_USE_RENDERING);
-    }
-    if (replacement == nullptr) {
-        // Imported buffers which cannot be represented as a GBM BO are still
-        // valid EGL DMA-BUF images.  Select that portable path before any
-        // frame is published, so a driver capability difference cannot end a
-        // browser console at its first scanout.
-        reset();
-        backing_fd_ = std::move(fd);
-        width_ = width;
-        height_ = height;
-        stride_ = stride;
-        drm_fourcc_ = drm_fourcc;
-        modifier_ = modifier;
-        pixman_format_ = pixman_format_for_fourcc(drm_fourcc);
-        y0_top_ = y0_top;
-        egl_fallback_ = true;
-        ensure_egl_readback();
-        return copy_scanout_egl(framebuffer);
-    }
-
     reset();
-    bo_ = replacement;
     backing_fd_ = std::move(fd);
     width_ = width;
     height_ = height;
@@ -534,16 +481,9 @@ FrameToken DmaBufReadback::scanout(CpuFramebuffer& framebuffer,
     modifier_ = modifier;
     pixman_format_ = pixman_format_for_fourcc(drm_fourcc);
     y0_top_ = y0_top;
-    try {
-        return copy_scanout_gbm(framebuffer);
-    } catch (const std::system_error&) {
-        // Imports from a non-mappable render node are expected to reach this
-        // branch.  Do not retry GBM on every damage event: failed map calls
-        // can themselves serialize the producer pipeline.
-        egl_fallback_ = true;
-        ensure_egl_readback();
-        return copy_scanout_egl(framebuffer);
-    }
+    egl_fallback_ = true;
+    ensure_egl_readback();
+    return copy_scanout_egl(framebuffer);
 }
 
 FrameToken DmaBufReadback::copy_scanout_gbm(CpuFramebuffer& framebuffer) {
@@ -607,9 +547,7 @@ FrameToken DmaBufReadback::update(CpuFramebuffer& framebuffer,
     if (!backing_fd_) {
         throw std::logic_error("DMA-BUF update arrived before scanout");
     }
-    return egl_fallback_
-        ? copy_update_egl(framebuffer, x, y, width, height)
-        : copy_update_gbm(framebuffer, x, y, width, height);
+    return copy_update_egl(framebuffer, x, y, width, height);
 }
 
 FrameToken DmaBufReadback::copy_update_gbm(CpuFramebuffer& framebuffer,
