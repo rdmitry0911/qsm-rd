@@ -40,8 +40,10 @@ RestrictNamespaces=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
 # The terminal service owns the local Unix control plane, while its WebRTC
-# child needs UDP sockets for ICE, DTLS, and SRTP.  No TCP listener is opened.
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# child needs UDP sockets for ICE, DTLS, and SRTP. aiortc also opens Netlink
+# solely to enumerate local interfaces before it emits host ICE candidates.
+# No TCP listener is opened.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 
 [Install]
 WantedBy=multi-user.target
