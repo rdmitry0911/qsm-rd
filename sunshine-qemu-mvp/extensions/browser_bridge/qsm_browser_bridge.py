@@ -18,6 +18,7 @@ import os
 import socket
 import stat
 import struct
+import sys
 import threading
 from dataclasses import dataclass
 from fractions import Fraction
@@ -594,6 +595,18 @@ class BrowserWebRtcBridge:
         self._control_channel_seen = False
         self._pointer_channel_seen = False
         self._pc.on("datachannel", self._on_datachannel)
+
+        @self._pc.on("connectionstatechange")
+        async def on_connectionstatechange() -> None:
+            # This is deliberately diagnostic-only.  It contains neither the
+            # SDP nor a peer address, but tells the PVE operator whether a
+            # blank console is caused before or after the DTLS/SRTP browser
+            # connection becomes usable.
+            print(
+                f"qsm-direct-terminal: WebRTC connection state={self._pc.connectionState}",
+                file=sys.stderr,
+                flush=True,
+            )
 
     @property
     def input_context(self) -> str:

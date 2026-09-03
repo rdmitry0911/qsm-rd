@@ -126,7 +126,7 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             directory.mkdir(mode=0o700)
             try:
                 manager._sessions["ended"] = DirectSession(
-                    bridge=bridge, worker=ExitedWorker(), directory=directory,
+                    vmid=321, bridge=bridge, worker=ExitedWorker(), directory=directory,
                     expires_at=time.monotonic() + 60)
                 future = asyncio.run_coroutine_threadsafe(
                     manager._watch_session("ended"), manager._loop)
@@ -134,6 +134,56 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
                 self.assertTrue(bridge.closed)
                 self.assertNotIn("ended", manager._sessions)
                 self.assertFalse(directory.exists())
+            finally:
+                manager.close()
+
+    def test_replacing_a_browser_console_closes_only_that_vms_old_session(self) -> None:
+        class ExitedWorker:
+            def poll(self) -> int:
+                return 0
+
+        class ClosingBridge:
+            def __init__(self) -> None:
+                self.closed = False
+
+            async def close(self) -> None:
+                self.closed = True
+
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-session-replace.") as temporary:
+            root = Path(temporary)
+            for name in ("instances", "qemu-server", "sessions", "display"):
+                (root / name).mkdir(mode=0o700)
+            manager = DirectSessionManager(
+                instance_directory=root / "instances",
+                runtime_directory=root / "sessions",
+                vm_runtime_directory=root / "display",
+                pve_config_directory=root / "qemu-server",
+                local_node=None,
+            )
+            old_bridge = ClosingBridge()
+            other_bridge = ClosingBridge()
+            old_directory = root / "sessions" / "vm-321" / "old"
+            other_directory = root / "sessions" / "vm-322" / "other"
+            old_directory.parent.mkdir(mode=0o700)
+            old_directory.mkdir(mode=0o700)
+            other_directory.parent.mkdir(mode=0o700)
+            other_directory.mkdir(mode=0o700)
+            try:
+                manager._sessions["old"] = DirectSession(
+                    vmid=321, bridge=old_bridge, worker=ExitedWorker(), directory=old_directory,
+                    expires_at=time.monotonic() + 60)
+                manager._sessions["other"] = DirectSession(
+                    vmid=322, bridge=other_bridge, worker=ExitedWorker(), directory=other_directory,
+                    expires_at=time.monotonic() + 60)
+                future = asyncio.run_coroutine_threadsafe(
+                    manager._close_vmid_sessions(321), manager._loop)
+                future.result(timeout=2)
+                self.assertTrue(old_bridge.closed)
+                self.assertFalse(other_bridge.closed)
+                self.assertNotIn("old", manager._sessions)
+                self.assertIn("other", manager._sessions)
+                self.assertFalse(old_directory.exists())
+                self.assertTrue(other_directory.exists())
             finally:
                 manager.close()
 

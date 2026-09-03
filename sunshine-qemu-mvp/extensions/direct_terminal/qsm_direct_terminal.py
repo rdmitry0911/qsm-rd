@@ -322,6 +322,7 @@ class DbusManager:
 
 @dataclass
 class DirectSession:
+    vmid: int
     bridge: BrowserWebRtcBridge
     worker: subprocess.Popen[bytes]
     directory: Path
@@ -345,6 +346,11 @@ class DirectSessionManager:
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run_loop, name="qsm-direct-webrtc", daemon=True)
         self._sessions: dict[str, DirectSession] = {}
+        # QEMU Display1 is a single-consumer endpoint.  Keeping a lock per VM
+        # makes two near-simultaneous popup launches deterministic: the newer
+        # offer replaces the older complete session instead of creating two
+        # media workers which compete for the same Display1 socket.
+        self._vm_locks: dict[int, asyncio.Lock] = {}
         self._closed = False
         self._thread.start()
         self._reconcile_thread = threading.Thread(
@@ -438,11 +444,22 @@ class DirectSessionManager:
         return {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C"}
 
     async def _create(self, vmid: int, sdp: str, width: int, height: int, fps: int) -> dict[str, str]:
-        self._collect_expired()
-        if len(self._sessions) >= MAX_SESSIONS:
-            raise DirectTerminalError("direct-terminal session capacity is exhausted")
+        # Do not retain a lock for an arbitrary VMID submitted by an
+        # authenticated but otherwise invalid request.  Only a configured VM
+        # may acquire the small, process-lifetime per-VM serialization entry.
         if not self._display_is_configured(vmid):
             raise DirectTerminalError("direct-terminal VM is not configured for Display1")
+        lock = self._vm_locks.setdefault(vmid, asyncio.Lock())
+        async with lock:
+            return await self._create_locked(vmid, sdp, width, height, fps)
+
+    async def _create_locked(self, vmid: int, sdp: str, width: int, height: int, fps: int) -> dict[str, str]:
+        self._collect_expired()
+        if not self._display_is_configured(vmid):
+            raise DirectTerminalError("direct-terminal VM is not configured for Display1")
+        await self._close_vmid_sessions(vmid)
+        if len(self._sessions) >= MAX_SESSIONS:
+            raise DirectTerminalError("direct-terminal session capacity is exhausted")
         policy = _load_optional_instance(self._instance_directory, vmid, self._vm_runtime_directory)
         self._dbus.ensure(vmid, policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"])
         identifier = secrets.token_hex(16)
@@ -486,7 +503,7 @@ class DirectSessionManager:
             )
             answer = await bridge.answer_offer(sdp)
             self._sessions[identifier] = DirectSession(
-                bridge=bridge, worker=worker, directory=directory,
+                vmid=vmid, bridge=bridge, worker=worker, directory=directory,
                 expires_at=time.monotonic() + SESSION_IDLE_SECONDS)
             # The worker exits when QEMU closes its Display1 connection (for
             # example, on a VM shutdown).  Watch it independently of new
@@ -536,6 +553,20 @@ class DirectSessionManager:
         await session.bridge.close()
         self._remove_directory(session.directory)
 
+    async def _close_vmid_sessions(self, vmid: int) -> None:
+        """Stop every older browser session that owns this VM's Display1."""
+        identifiers = tuple(
+            identifier for identifier, session in self._sessions.items()
+            if session.vmid == vmid)
+        if identifiers:
+            print(
+                f"qsm-direct-terminal: replacing {len(identifiers)} existing browser session(s) vmid={vmid}",
+                file=sys.stderr,
+                flush=True,
+            )
+        for identifier in identifiers:
+            await self._close_session(identifier)
+
     async def _watch_session(self, identifier: str) -> None:
         while not self._closed:
             session = self._sessions.get(identifier)
@@ -544,7 +575,7 @@ class DirectSessionManager:
             exit_code = session.worker.poll()
             if exit_code is not None:
                 print(
-                    f"qsm-direct-terminal: media worker ended vmid={session.directory.parent.name.removeprefix('vm-')} "
+                    f"qsm-direct-terminal: media worker ended vmid={session.vmid} "
                     f"exit_code={exit_code}",
                     file=sys.stderr,
                     flush=True,
