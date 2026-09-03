@@ -20,13 +20,27 @@ if str(IMPORT_ROOT) not in sys.path:
     sys.path.insert(0, str(IMPORT_ROOT))
 
 if PACKAGE_LIBRARY:
-    from direct_terminal.qsm_direct_terminal import DirectSession, DirectSessionManager
+    from direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
+                                                     _managed_guest_channel_enabled)
 else:
-    from extensions.direct_terminal.qsm_direct_terminal import DirectSession, DirectSessionManager
+    from extensions.direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
+                                                                 _managed_guest_channel_enabled)
 
 
 @unittest.skipUnless(shutil.which("dbus-daemon"), "dbus-daemon is required")
 class DirectTerminalAutoprovisionTests(unittest.TestCase):
+    def test_saved_qsm_guest_channel_requires_the_exact_three_arguments(self) -> None:
+        runtime = Path("/run/qsm-pve-direct")
+        arguments = (
+            "-chardev socket,id=qsm-direct-agent,"
+            "path=/run/qsm-pve-direct/321/qsm-agent.sock,server=on,wait=off "
+            "-device virtio-serial-pci,id=qsm-direct-serial "
+            "-device virtserialport,chardev=qsm-direct-agent,name=org.qsm.direct.agent"
+        )
+        self.assertTrue(_managed_guest_channel_enabled(f"args: {arguments}\n", 321, runtime))
+        self.assertFalse(_managed_guest_channel_enabled(
+            f"args: {arguments.removesuffix('agent')}\n", 321, runtime))
+
     def test_terminal_service_allows_ice_interface_enumeration(self) -> None:
         unit = (PROJECT_ROOT / "packaging/debian/qsm-pve-direct-terminal.service").read_text(
             encoding="utf-8")

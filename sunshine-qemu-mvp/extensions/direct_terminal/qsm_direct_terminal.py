@@ -221,7 +221,7 @@ def _managed_guest_channel_enabled(config: str, vmid: int, vm_runtime_directory:
         "-device virtio-serial-pci,id=qsm-direct-serial",
         "-device virtserialport,chardev=qsm-direct-agent,name=org.qsm.direct.agent",
     )
-    return all(re.search(rf"(?:^|\\s){re.escape(argument)}(?=\\s|$)", args) for argument in expected)
+    return all(re.search(rf"(?:^|\s){re.escape(argument)}(?=\s|$)", args) for argument in expected)
 
 
 def _safe_runtime_directory(path: Path) -> None:
