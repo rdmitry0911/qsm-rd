@@ -495,10 +495,37 @@ FrameToken DmaBufReadback::scanout(CpuFramebuffer& framebuffer,
 
     gbm_bo *replacement = gbm_bo_import(device_, GBM_BO_IMPORT_FD_MODIFIER,
                                          &import_data, GBM_BO_USE_RENDERING);
+    // virtio-gpu normally advertises DRM_FORMAT_MOD_LINEAR.  A few GBM
+    // implementations reject the modifier-bearing ABI but still support the
+    // older linear import ABI.  Try it only when it preserves the exact buffer
+    // layout; a tiled or otherwise explicit modifier must never be discarded.
+    if (replacement == nullptr && modifier == DRM_FORMAT_MOD_LINEAR) {
+        struct gbm_import_fd_data linear_import {};
+        linear_import.fd = fd.get();
+        linear_import.width = static_cast<int>(width);
+        linear_import.height = static_cast<int>(height);
+        linear_import.stride = static_cast<int>(stride);
+        linear_import.format = drm_fourcc;
+        replacement = gbm_bo_import(device_, GBM_BO_IMPORT_FD, &linear_import,
+                                    GBM_BO_USE_RENDERING);
+    }
     if (replacement == nullptr) {
-        throw std::system_error(errno == 0 ? EIO : errno,
-                                std::generic_category(),
-                                "gbm_bo_import DMA-BUF");
+        // Imported buffers which cannot be represented as a GBM BO are still
+        // valid EGL DMA-BUF images.  Select that portable path before any
+        // frame is published, so a driver capability difference cannot end a
+        // browser console at its first scanout.
+        reset();
+        backing_fd_ = std::move(fd);
+        width_ = width;
+        height_ = height;
+        stride_ = stride;
+        drm_fourcc_ = drm_fourcc;
+        modifier_ = modifier;
+        pixman_format_ = pixman_format_for_fourcc(drm_fourcc);
+        y0_top_ = y0_top;
+        egl_fallback_ = true;
+        ensure_egl_readback();
+        return copy_scanout_egl(framebuffer);
     }
 
     reset();
