@@ -524,10 +524,20 @@ private:
             }
             if (encoder_ == "h264_nvenc") {
                 arguments.insert(arguments.end(), {"-preset", "p1", "-tune", "ll", "-forced-idr", "1",
-                                                   "-zerolatency", "1", "-rc-lookahead", "0", "-g", "30", "-bf", "0"});
+                                                   "-zerolatency", "1", "-delay", "0", "-rc-lookahead", "0",
+                                                   "-rc", "cbr_ld_hq", "-b:v", "20M", "-maxrate", "20M",
+                                                   "-bufsize", "333k", "-g", "30", "-bf", "0"});
             } else if (encoder_ == "libx264") {
                 arguments.insert(arguments.end(), {"-preset", "ultrafast", "-tune", "zerolatency",
                                                    "-x264-params", "aud=1:keyint=30:min-keyint=30:scenecut=0:bframes=0:repeat-headers=1"});
+            }
+            // FFmpeg's NVENC default is an effectively unbounded output
+            // delay. `-delay 0` above is therefore essential rather than a
+            // cosmetic tuning flag. The output bitstream filter repeats the
+            // encoder's extradata on every IDR, allowing a late WebRTC fanout
+            // subscriber to decode its cached bootstrap frame immediately.
+            if (encoder_ == "h264_nvenc") {
+                arguments.insert(arguments.end(), {"-bsf:v", "dump_extra=freq=k"});
             }
             // Do not force generic AVCodecContext latency flags here: some
             // supported hardware FFmpeg builds accept the WebRTC offer but
