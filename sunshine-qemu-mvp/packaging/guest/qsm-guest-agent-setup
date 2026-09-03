@@ -13,5 +13,10 @@ case "$user" in
 esac
 id "$user" >/dev/null 2>&1 || { echo "qsm guest setup: user does not exist" >&2; exit 1; }
 usermod -a -G qsm-guest "$user"
+# The system unit owns the private virtio port. Enable its concrete user
+# instance now; a missing port merely leaves the unit condition inactive until
+# Display1 is saved and the VM is restarted.
+systemctl enable "qsm-guest-agent@${user}.service"
+systemctl start "qsm-guest-agent@${user}.service" 2>/dev/null || true
 loginctl terminate-user "$user" 2>/dev/null || true
 echo "QSM guest agent enabled for $user. Log in again, then run: systemctl --user enable --now qsm-guest-clipboard.service"

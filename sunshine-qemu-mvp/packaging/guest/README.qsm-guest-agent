@@ -5,7 +5,9 @@ This package is installed **inside a Linux VM**, not on Proxmox.
 1. Enable QSM Display1 in VM Hardware -> Display and restart the VM. This
    creates `org.qsm.direct.agent` on virtio-serial.
 2. Install the package in the guest: `sudo apt install ./qsm-guest-agent_*.deb`.
-3. Select the logged-in desktop user once:
+3. Select the logged-in desktop user once. This enables the per-user system
+   agent; if the VM was not restarted after step 1 it will start automatically
+   when the virtio port next appears:
    `sudo qsm-guest-agent-setup USER`.
 4. Log in again. For a Wayland desktop, enable its bridge once:
    `systemctl --user enable --now qsm-guest-clipboard.service`.
