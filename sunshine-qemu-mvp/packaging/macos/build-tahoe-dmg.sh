@@ -189,19 +189,20 @@ assert_architectures "$embedded_moonlight"
 strings -a "$embedded_moonlight" | grep -F -- "qsm-system-auth" >/dev/null ||
     die "built Moonlight is missing the required q-sunshine system-auth marker"
 
-# On Tahoe, macdeployqt additionally searches the sibling `app/lib` directory
-# but does not consistently honor `-libpath` for keg-only framework bundles.
-# Populate that disposable search directory with links only; macdeployqt
-# copies each resolved framework into Moonlight.app, while this directory is
-# outside the final bundle and never leaks a builder-specific rpath.
-framework_search_dir="$moonlight_build/app/lib"
-mkdir -p "$framework_search_dir"
-for framework_path in "${macdeploy_extra_framework_paths[@]}"; do
-    for framework in "$framework_path"/Qt*.framework; do
-        [[ -d "$framework" ]] || continue
-        framework_link="$framework_search_dir/$(basename "$framework")"
-        [[ -e "$framework_link" || -L "$framework_link" ]] ||
-            ln -s "$framework" "$framework_link"
+# On Tahoe, macdeployqt searches `moonlight-build/lib`, but does not
+# consistently honor `-libpath` for keg-only framework bundles. Populate its
+# disposable search directories with links only; macdeployqt copies every
+# resolved framework into Moonlight.app, while the directories below remain
+# outside the final bundle and cannot leak a builder-specific rpath.
+for framework_search_dir in "$moonlight_build/lib" "$moonlight_build/app/lib"; do
+    mkdir -p "$framework_search_dir"
+    for framework_path in "${macdeploy_extra_framework_paths[@]}"; do
+        for framework in "$framework_path"/Qt*.framework; do
+            [[ -d "$framework" ]] || continue
+            framework_link="$framework_search_dir/$(basename "$framework")"
+            [[ -e "$framework_link" || -L "$framework_link" ]] ||
+                ln -s "$framework" "$framework_link"
+        done
     done
 done
 "$macdeployqt" "$moonlight_bundle" "${macdeploy_libpath_args[@]}" \
