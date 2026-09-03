@@ -442,17 +442,17 @@ private:
                 arguments.insert(arguments.end(), {"-vf", "format=nv12"});
             }
             if (encoder_ == "h264_nvenc") {
-                arguments.insert(arguments.end(), {"-preset", "p1", "-tune", "ll", "-forced-idr", "1"});
+                arguments.insert(arguments.end(), {"-preset", "p1", "-tune", "ll", "-forced-idr", "1",
+                                                   "-zerolatency", "1", "-rc-lookahead", "0", "-g", "30", "-bf", "0"});
             } else if (encoder_ == "libx264") {
                 arguments.insert(arguments.end(), {"-preset", "ultrafast", "-tune", "zerolatency",
                                                    "-x264-params", "aud=1:keyint=30:min-keyint=30:scenecut=0:bframes=0:repeat-headers=1"});
             }
-            // Keep encoder and muxer delay bounded.  A 0.5-second IDR
-            // interval restores a browser quickly after an intentionally
-            // dropped stale frame, while no B-frame may make the visible
-            // cursor trail a gesture.
-            arguments.insert(arguments.end(), {"-g", "30", "-bf", "0", "-flags", "low_delay",
-                                               "-max_delay", "0", "-flush_packets", "1"});
+            // Do not force generic AVCodecContext latency flags here: some
+            // supported hardware FFmpeg builds accept the WebRTC offer but
+            // reject those flags only after the encoder process has started.
+            // libx264 and NVENC receive their documented low-latency knobs
+            // above; other approved encoders retain their known-good defaults.
             // Every supported H.264 encoder can emit an access-unit delimiter.
             // The packetizer uses that unambiguous boundary to keep its private
             // socket records frame-aligned; do not rely on encoder-specific
