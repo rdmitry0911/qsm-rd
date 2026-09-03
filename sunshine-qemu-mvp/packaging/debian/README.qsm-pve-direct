@@ -18,9 +18,9 @@ Install:
 The service reads PVE's saved VM configuration and creates the private
 Display1 bus before the VM is started. No per-VM policy file is required for
 the portable `libx264` default. After saving a Display1 setting, the service
-reconciles the bus automatically; after installing or upgrading the package,
-restart each configured VM once so its QEMU process connects to the current
-bus.
+reconciles the bus automatically. Package upgrades may restart the terminal
+service, but preserve every live private Display1 bus: a running configured
+VM does not need to be rebooted solely for this package update.
 
 In the PVE VM's **Hardware → Display → Advanced**, enable **QSM Display1**.
 It disables PVE's VNC display for that VM, then writes one private D-Bus
