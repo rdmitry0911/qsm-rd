@@ -93,7 +93,8 @@ def read_record(connection: socket.socket) -> tuple[int, int, int, bytes]:
     return frame, fragment, flags, body
 
 
-def qualify(worker_binary: Path, fake_qemu_binary: Path) -> str:
+def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
+            width: int, height: int, frames: int, fps: int) -> str:
     if not worker_binary.is_file() or not os.access(worker_binary, os.X_OK):
         raise QualificationError("direct worker binary is unavailable")
     if not fake_qemu_binary.is_file() or not os.access(fake_qemu_binary, os.X_OK):
@@ -117,8 +118,8 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path) -> str:
             input_listener = listener(root / "input.sock")
             listeners = [video_listener, audio_listener, input_listener]
             fake = subprocess.Popen(
-                [os.fspath(fake_qemu_binary), "--bus-address", address, "--width", "320", "--height", "180",
-                 "--frames", "120", "--fps", "30", "--inline"],
+                [os.fspath(fake_qemu_binary), "--bus-address", address, "--width", str(width), "--height", str(height),
+                 "--frames", str(frames), "--fps", str(fps), "--inline"],
                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
             time.sleep(0.15)
@@ -128,8 +129,8 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path) -> str:
                 [os.fspath(worker_binary), "--dbus-address", address,
                  "--video-socket", f"unix:{root / 'video.sock'}",
                  "--audio-socket", f"unix:{root / 'audio.sock'}",
-                 "--input-socket", f"unix:{root / 'input.sock'}", "--encoder", "libx264",
-                 "--fps", "30", "--initial-size", "320x180"],
+                 "--input-socket", f"unix:{root / 'input.sock'}", "--encoder", encoder,
+                 "--fps", str(fps), "--initial-size", f"{width}x{height}"],
                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
             time.sleep(0.1)
@@ -144,9 +145,9 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path) -> str:
             if worker.poll() is not None:
                 raise QualificationError("direct worker exited during startup")
 
-            input_connection.sendall(packet(INPUT_RESIZE, struct.pack("!IIH", 320, 180, 30)))
-            input_connection.sendall(packet(INPUT_MOUSE_POSITION, struct.pack("!hhhh", 20, 10, 320, 180)))
-            input_connection.sendall(packet(INPUT_MOUSE_POSITION, struct.pack("!hhhh", 25, 14, 320, 180)))
+            input_connection.sendall(packet(INPUT_RESIZE, struct.pack("!IIH", width, height, fps)))
+            input_connection.sendall(packet(INPUT_MOUSE_POSITION, struct.pack("!hhhh", 20, 10, width, height)))
+            input_connection.sendall(packet(INPUT_MOUSE_POSITION, struct.pack("!hhhh", 25, 14, width, height)))
             input_connection.sendall(packet(INPUT_MOUSE_BUTTON, b"\x01\x01"))
             input_connection.sendall(packet(INPUT_MOUSE_BUTTON, b"\x01\x00"))
             input_connection.sendall(packet(INPUT_KEYBOARD, b"\x00\x1e\x01\x00"))
@@ -189,7 +190,7 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path) -> str:
                 raise QualificationError("worker did not publish its Opus configuration")
             trace = fake_stdout.decode("utf-8", "replace").strip()
             if not all(marker in trace for marker in (
-                    "FAKE_QEMU_RESULT", "frames=120", "requested=320x180", "keyboard=2", "mouse=3",
+                    "FAKE_QEMU_RESULT", f"frames={frames}", f"requested={width}x{height}", "keyboard=2", "mouse=3",
                     "listener=1", "peer_completed=1")):
                 raise QualificationError(f"direct input/resize did not reach Display1: {trace}")
             return trace
@@ -207,9 +208,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--worker", type=Path, required=True)
     parser.add_argument("--fake-qemu", type=Path, required=True)
+    parser.add_argument("--encoder", default="libx264")
+    parser.add_argument("--width", type=int, default=320)
+    parser.add_argument("--height", type=int, default=180)
+    parser.add_argument("--frames", type=int, default=120)
+    parser.add_argument("--fps", type=int, default=30)
     arguments = parser.parse_args()
     try:
-        trace = qualify(arguments.worker, arguments.fake_qemu)
+        if (arguments.width < 64 or arguments.height < 64 or arguments.frames < 10 or
+                arguments.fps < 10 or arguments.width % 2 or arguments.height % 2):
+            raise QualificationError("invalid media qualification dimensions")
+        trace = qualify(arguments.worker, arguments.fake_qemu, encoder=arguments.encoder,
+                        width=arguments.width, height=arguments.height,
+                        frames=arguments.frames, fps=arguments.fps)
     except (OSError, QualificationError, subprocess.SubprocessError) as error:
         print(f"QSM_DIRECT_WORKER_MEDIA_E2E_FAILED: {error}")
         return 1

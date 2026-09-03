@@ -704,6 +704,13 @@ public:
 
     void start() {
         descriptor_ = PacketSink::connect(path_);
+        // Display1's pointer mode is a capability of the emulated device;
+        // it does not change as the user moves the pointer.  Querying the
+        // D-Bus property for every browser mouse event put a synchronous
+        // round trip in front of every SetAbsPosition call.  Determine it
+        // once when the authenticated input receiver attaches, so movement
+        // is one D-Bus method call rather than a Get + method call sequence.
+        absolute_pointer_ = session_.is_absolute_pointer();
         stopping_ = false;
         thread_ = std::thread(&InputReceiver::run, this);
     }
@@ -739,7 +746,7 @@ private:
             const auto width = read_u16(payload, 4U);
             const auto height = read_u16(payload, 6U);
             if (width == 0U || height == 0U || x >= width || y >= height) { return; }
-            if (session_.is_absolute_pointer()) {
+            if (absolute_pointer_) {
                 session_.absolute_pointer(x, y);
             } else if (last_x_ && last_y_) {
                 session_.relative_pointer(static_cast<std::int32_t>(x) - *last_x_,
@@ -783,6 +790,7 @@ private:
     std::thread thread_;
     std::optional<std::uint16_t> last_x_;
     std::optional<std::uint16_t> last_y_;
+    bool absolute_pointer_ {false};
     std::uint64_t resize_id_ {};
 };
 

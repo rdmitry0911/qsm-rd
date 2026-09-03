@@ -53,6 +53,13 @@ MAX_SDP_BYTES = 128 * 1024
 MAX_CONTROL_MESSAGE_BYTES = 1024
 VIDEO_TIME_BASE = Fraction(1, 90_000)
 AUDIO_TIME_BASE = Fraction(1, 48_000)
+# This route is an interactive console, not a recorder.  A browser which is
+# temporarily behind must receive the current encoded picture rather than a
+# small backlog of already obsolete mouse/desktop updates.  Audio can retain a
+# few 20 ms Opus packets for normal WebRTC jitter handling without becoming a
+# visible lip-sync delay.
+VIDEO_QUEUE_DEPTH = 1
+AUDIO_QUEUE_DEPTH = 4
 
 
 class BridgeError(RuntimeError):
@@ -654,8 +661,8 @@ class SharedMediaIngress:
         if not self._started:
             raise BridgeError("shared browser media source is not started")
         return (
-            self._video.subscribe(kind="video", maximum_queue=4),
-            self._audio.subscribe(kind="audio", maximum_queue=32),
+            self._video.subscribe(kind="video", maximum_queue=VIDEO_QUEUE_DEPTH),
+            self._audio.subscribe(kind="audio", maximum_queue=AUDIO_QUEUE_DEPTH),
         )
 
     def unsubscribe(self, video_track: _PacketTrack, audio_track: _PacketTrack) -> None:
@@ -690,8 +697,8 @@ class BrowserWebRtcBridge:
         self._shared_media = shared_media
         self._owns_media = shared_media is None
         if shared_media is None:
-            self.video_track = _PacketTrack("video", maximum_queue=4)
-            self.audio_track = _PacketTrack("audio", maximum_queue=32)
+            self.video_track = _PacketTrack("video", maximum_queue=VIDEO_QUEUE_DEPTH)
+            self.audio_track = _PacketTrack("audio", maximum_queue=AUDIO_QUEUE_DEPTH)
             self.ingress = UnixTapIngress(runtime_directory, self._loop, self.video_track,
                                            self.audio_track, fps=fps,
                                            expected_uid=expected_producer_uid)
