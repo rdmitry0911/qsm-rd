@@ -167,9 +167,12 @@ struct DmaBufReadback::EglReadback final {
             EGL_DMA_BUF_PLANE0_OFFSET_EXT, 0,
             EGL_DMA_BUF_PLANE0_PITCH_EXT, static_cast<EGLint>(stride),
         };
-        // Match QEMU's own import policy: a zero modifier means that the
-        // producer did not advertise an explicit modifier.
-        if (modifier != 0U) {
+        // Keep the exact modifier that QEMU exported.  In particular, zero is
+        // DRM_FORMAT_MOD_LINEAR, not an omitted modifier.  QEMU itself only
+        // omits these attributes for DRM_FORMAT_MOD_INVALID.  Omitting a
+        // valid linear modifier happens to work on Mesa, but NVIDIA then
+        // accepts the EGLImage and samples an all-black texture.
+        if (modifier != DRM_FORMAT_MOD_INVALID) {
             attributes.push_back(EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT);
             attributes.push_back(static_cast<EGLint>(modifier & 0xffffffffULL));
             attributes.push_back(EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT);
