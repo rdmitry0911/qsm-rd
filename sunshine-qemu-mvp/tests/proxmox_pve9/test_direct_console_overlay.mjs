@@ -163,4 +163,21 @@ qemuConfigOverlay.initComponent.call({
 });
 assert.equal(qsmDirectEnabled, true, 'only the managed Display1 argument enables QSM Direct');
 
+let delayedRefresh;
+let delayedEnabled;
+qemuConfigOverlay.initComponent.call({
+    pveSelNode: { data: { node: 'pve-a', vmid: 321 } },
+    callParent: () => undefined,
+    down: () => delayedRefresh ? { setEnableQsmDirect: (value) => { delayedEnabled = value; } } : null,
+    on: (event, callback, scope, options) => {
+        assert.equal(event, 'afterrender');
+        assert.equal(scope.pveSelNode.data.vmid, 321);
+        assert.deepEqual(options, { single: true });
+        delayedRefresh = callback;
+    },
+});
+assert.equal(typeof delayedRefresh, 'function', 'a late Console button must be refreshed after rendering');
+delayedRefresh();
+assert.equal(delayedEnabled, true, 'the first VM view must enable QSM Direct without a page reload');
+
 console.log('QSM_DIRECT_PVE_UI_OVERLAY_OK');

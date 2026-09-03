@@ -508,7 +508,17 @@ class DirectSessionManager:
             self._create(vmid, sdp, width, height, fps), self._loop)
         try:
             return future.result(timeout=REQUEST_TIMEOUT_SECONDS)
-        except (TimeoutError, BridgeError, OSError, asyncio.TimeoutError) as error:
+        except BridgeError as error:
+            future.cancel()
+            # The PVE API intentionally returns only a generic failure to the
+            # browser.  Preserve this bounded, locally generated bridge
+            # reason for the root-only service journal: otherwise an absent
+            # H.264/Opus offer is indistinguishable from ICE gathering or a
+            # local producer failure and every operator sees the same useless
+            # "Could not create" dialog.
+            raise DirectTerminalError(
+                f"direct-terminal WebRTC negotiation failed: {error}") from error
+        except (TimeoutError, OSError, asyncio.TimeoutError) as error:
             future.cancel()
             raise DirectTerminalError("direct-terminal WebRTC negotiation failed") from error
 

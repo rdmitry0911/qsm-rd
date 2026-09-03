@@ -306,17 +306,28 @@
             me.callParent();
             const vm = me.pveSelNode && me.pveSelNode.data;
             const vmid = vm ? Number(vm.vmid) : NaN;
-            const button = me.down('#qsm-direct-console-button');
-            if (!button || !validNode(vm && vm.node) || !validVmid(vmid)) { return; }
-            Proxmox.Utils.API2Request({
-                url: `/nodes/${encodeURIComponent(vm.node)}/qemu/${encodeURIComponent(vmid)}/config`,
-                method: 'GET',
-                success: ({ result }) => {
-                    const data = result && result.data;
-                    button.setEnableQsmDirect(displayState(data && data.args, vmid).managed);
-                },
-                failure: () => button.setEnableQsmDirect(false),
-            });
+            const refreshQsmDirect = () => {
+                const button = me.down('#qsm-direct-console-button');
+                if (!button || !validNode(vm && vm.node) || !validVmid(vmid)) { return false; }
+                Proxmox.Utils.API2Request({
+                    url: `/nodes/${encodeURIComponent(vm.node)}/qemu/${encodeURIComponent(vmid)}/config`,
+                    method: 'GET',
+                    success: ({ result }) => {
+                        const data = result && result.data;
+                        button.setEnableQsmDirect(displayState(data && data.args, vmid).managed);
+                    },
+                    failure: () => button.setEnableQsmDirect(false),
+                });
+                return true;
+            };
+            // PVE constructs the Console button late on some first visits to
+            // a VM view. A direct lookup then sees no component and leaves
+            // the item disabled until a full page refresh. Retry once after
+            // this view has rendered; no configuration state is inferred
+            // client-side, it is still read through PVE's protected API.
+            if (!refreshQsmDirect() && typeof me.on === 'function') {
+                me.on('afterrender', refreshQsmDirect, me, { single: true });
+            }
         },
     });
 }());
