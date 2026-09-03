@@ -35,7 +35,8 @@ PACKAGE_DIRECTORY = Path(__file__).resolve().parents[1]
 if str(PACKAGE_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(PACKAGE_DIRECTORY))
 
-from browser_bridge.qsm_browser_bridge import BrowserWebRtcBridge, BridgeError  # noqa: E402
+from browser_bridge.qsm_browser_bridge import (BrowserWebRtcBridge, BridgeError,
+                                                SharedMediaIngress, UnixInputEgress)  # noqa: E402
 
 
 MIN_VMID = 100
@@ -329,6 +330,17 @@ class DirectSession:
     expires_at: float
 
 
+@dataclass
+class DirectVmTransport:
+    """One Display1 worker and shared encoded stream for a VM."""
+
+    vmid: int
+    worker: subprocess.Popen[bytes]
+    media: SharedMediaIngress
+    input: UnixInputEgress
+    directory: Path
+
+
 class DirectSessionManager:
     """Keep each one-off browser offer on one dedicated asyncio loop."""
 
@@ -346,10 +358,10 @@ class DirectSessionManager:
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run_loop, name="qsm-direct-webrtc", daemon=True)
         self._sessions: dict[str, DirectSession] = {}
-        # QEMU Display1 is a single-consumer endpoint.  Keeping a lock per VM
-        # makes two near-simultaneous popup launches deterministic: the newer
-        # offer replaces the older complete session instead of creating two
-        # media workers which compete for the same Display1 socket.
+        # Display1 accepts one capture peer per VM. A transport owns that one
+        # worker and fans its encoded media out to all PVE-authorized browser
+        # sessions for the VM; it is not a single-viewer limitation.
+        self._transports: dict[int, DirectVmTransport] = {}
         self._vm_locks: dict[int, asyncio.Lock] = {}
         self._closed = False
         self._thread.start()
@@ -457,26 +469,61 @@ class DirectSessionManager:
         self._collect_expired()
         if not self._display_is_configured(vmid):
             raise DirectTerminalError("direct-terminal VM is not configured for Display1")
-        await self._close_vmid_sessions(vmid)
         if len(self._sessions) >= MAX_SESSIONS:
             raise DirectTerminalError("direct-terminal session capacity is exhausted")
         policy = _load_optional_instance(self._instance_directory, vmid, self._vm_runtime_directory)
         self._dbus.ensure(vmid, policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"])
+        transport = await self._transport_for(vmid, policy, width, height, fps)
         identifier = secrets.token_hex(16)
         directory = self._runtime_directory / f"vm-{vmid}" / identifier
         _safe_runtime_directory(directory.parent)
         _safe_runtime_directory(directory)
-        bridge = BrowserWebRtcBridge(directory, fps=fps, expected_producer_uid=os.geteuid())
+        bridge = BrowserWebRtcBridge(
+            directory, fps=fps, expected_producer_uid=os.geteuid(),
+            shared_media=transport.media, shared_input=transport.input)
+        try:
+            bridge.start_taps()
+            answer = await bridge.answer_offer(sdp)
+            self._sessions[identifier] = DirectSession(
+                vmid=vmid, bridge=bridge, worker=transport.worker, directory=directory,
+                expires_at=time.monotonic() + SESSION_IDLE_SECONDS)
+            asyncio.create_task(self._watch_session(identifier))
+            return answer
+        except BaseException:
+            await bridge.close()
+            self._remove_directory(directory)
+            if not any(session.vmid == vmid for session in self._sessions.values()):
+                await self._close_transport(vmid)
+            raise
+
+    async def _transport_for(self, vmid: int, policy: dict[str, str], width: int, height: int,
+                             fps: int) -> DirectVmTransport:
+        """Return the sole capture/encoder worker for this VM, starting it once."""
+        existing = self._transports.get(vmid)
+        if existing is not None and existing.worker.poll() is None:
+            existing.media.raise_if_failed()
+            existing.input.raise_if_failed()
+            return existing
+        if existing is not None:
+            await self._close_transport(vmid)
+
+        directory = self._runtime_directory / f"vm-{vmid}" / "producer"
+        _safe_runtime_directory(directory.parent)
+        _safe_runtime_directory(directory)
+        media = SharedMediaIngress(
+            directory, self._loop, fps=fps, expected_producer_uid=os.geteuid())
+        input_egress = UnixInputEgress(directory, expected_uid=os.geteuid())
         worker: subprocess.Popen[bytes] | None = None
         try:
-            video_socket, audio_socket = bridge.start_taps()
+            media.start()
+            input_egress.start()
             encoder = policy.get("QSM_DIRECT_ENCODER") or "libx264"
             arguments = [
                 "/usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker",
                 "--dbus-address", policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"],
-                "--video-socket", video_socket,
-                "--audio-socket", audio_socket,
-                "--input-socket", bridge.input_context,
+                "--video-socket", f"unix:{media.video_path}",
+                "--audio-socket", f"unix:{media.audio_path}",
+                "--input-socket", f"unix:{input_egress.path}",
                 "--encoder", encoder,
                 "--fps", str(fps),
                 "--initial-size", f"{width}x{height}",
@@ -484,11 +531,6 @@ class DirectSessionManager:
             if encoder == "h264_vaapi":
                 arguments.extend(["--vaapi-device", policy["QSM_DIRECT_VAAPI_RENDER_NODE"]])
             worker = subprocess.Popen(
-                # Worker diagnostics contain only local capture/encoder
-                # failures; retaining them in the service journal is required
-                # to distinguish a QEMU Display1 setup error from a rejected
-                # PVE request. Browser SDP and PVE credentials are never
-                # written by the worker.
                 arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=None,
                 env=self._child_environment(), close_fds=True, start_new_session=True,
             )
@@ -496,25 +538,20 @@ class DirectSessionManager:
             if worker.poll() is not None:
                 raise DirectTerminalError(
                     f"direct-terminal media worker failed to start (exit code {worker.returncode})")
+            transport = DirectVmTransport(
+                vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory)
+            self._transports[vmid] = transport
             print(
-                f"qsm-direct-terminal: media worker started vmid={vmid} encoder={encoder} pid={worker.pid}",
+                f"qsm-direct-terminal: VM media transport started vmid={vmid} encoder={encoder} pid={worker.pid}",
                 file=sys.stderr,
                 flush=True,
             )
-            answer = await bridge.answer_offer(sdp)
-            self._sessions[identifier] = DirectSession(
-                vmid=vmid, bridge=bridge, worker=worker, directory=directory,
-                expires_at=time.monotonic() + SESSION_IDLE_SECONDS)
-            # The worker exits when QEMU closes its Display1 connection (for
-            # example, on a VM shutdown).  Watch it independently of new
-            # browser requests so the associated WebRTC peer is closed at
-            # once; _close_session is idempotent and also covers expiration.
-            asyncio.create_task(self._watch_session(identifier))
-            return answer
+            return transport
         except BaseException:
             if worker is not None:
                 self._terminate_worker(worker)
-            await bridge.close()
+            media.close()
+            input_egress.close()
             self._remove_directory(directory)
             raise
 
@@ -549,23 +586,31 @@ class DirectSessionManager:
         session = self._sessions.pop(identifier, None)
         if session is None:
             return
-        self._terminate_worker(session.worker)
         await session.bridge.close()
         self._remove_directory(session.directory)
+        if not any(other.vmid == session.vmid for other in self._sessions.values()):
+            await self._close_transport(session.vmid)
+
+    async def _close_transport(self, vmid: int) -> None:
+        transport = self._transports.pop(vmid, None)
+        if transport is None:
+            return
+        self._terminate_worker(transport.worker)
+        transport.media.close()
+        transport.input.close()
+        self._remove_directory(transport.directory)
 
     async def _close_vmid_sessions(self, vmid: int) -> None:
-        """Stop every older browser session that owns this VM's Display1."""
+        """Retire all subscribers after their shared VM transport has ended."""
         identifiers = tuple(
             identifier for identifier, session in self._sessions.items()
             if session.vmid == vmid)
-        if identifiers:
-            print(
-                f"qsm-direct-terminal: replacing {len(identifiers)} existing browser session(s) vmid={vmid}",
-                file=sys.stderr,
-                flush=True,
-            )
         for identifier in identifiers:
-            await self._close_session(identifier)
+            session = self._sessions.pop(identifier, None)
+            if session is not None:
+                await session.bridge.close()
+                self._remove_directory(session.directory)
+        await self._close_transport(vmid)
 
     async def _watch_session(self, identifier: str) -> None:
         while not self._closed:
@@ -575,12 +620,12 @@ class DirectSessionManager:
             exit_code = session.worker.poll()
             if exit_code is not None:
                 print(
-                    f"qsm-direct-terminal: media worker ended vmid={session.vmid} "
+                    f"qsm-direct-terminal: VM media transport ended vmid={session.vmid} "
                     f"exit_code={exit_code}",
                     file=sys.stderr,
                     flush=True,
                 )
-                await self._close_session(identifier)
+                await self._close_vmid_sessions(session.vmid)
                 return
             if session.expires_at <= time.monotonic():
                 await self._close_session(identifier)
@@ -590,7 +635,9 @@ class DirectSessionManager:
     def _collect_expired(self) -> None:
         now = time.monotonic()
         for identifier, session in tuple(self._sessions.items()):
-            if session.expires_at <= now or session.worker.poll() is not None:
+            if session.worker.poll() is not None:
+                asyncio.create_task(self._close_vmid_sessions(session.vmid))
+            elif session.expires_at <= now:
                 asyncio.create_task(self._close_session(identifier))
 
     def answer(self, payload: Any) -> dict[str, str]:
@@ -633,6 +680,8 @@ class DirectSessionManager:
         async def close_all() -> None:
             for identifier in tuple(self._sessions):
                 await self._close_session(identifier)
+            for vmid in tuple(self._transports):
+                await self._close_transport(vmid)
         future = asyncio.run_coroutine_threadsafe(close_all(), self._loop)
         try:
             future.result(timeout=5)

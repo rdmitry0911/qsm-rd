@@ -196,6 +196,45 @@ class _PacketTrack(MediaStreamTrack):
         return packet
 
 
+class _TrackFanout:
+    """Publish one encoded elementary stream to each browser peer.
+
+    A QEMU Display1 capture must have one producer, but PVE Console is a
+    multi-viewer facility.  The ingress thread schedules this object on its
+    owning asyncio loop, therefore subscription changes and packet fan-out
+    cannot race an individual peer's queue teardown.
+    """
+
+    def __init__(self) -> None:
+        self._tracks: set[_PacketTrack] = set()
+        self._closed = False
+
+    def subscribe(self, *, kind: str, maximum_queue: int) -> _PacketTrack:
+        if self._closed:
+            raise BridgeError("shared browser media source is closed")
+        track = _PacketTrack(kind, maximum_queue=maximum_queue)
+        self._tracks.add(track)
+        return track
+
+    def unsubscribe(self, track: _PacketTrack) -> None:
+        if track in self._tracks:
+            self._tracks.remove(track)
+            track.end_nowait()
+
+    def put_nowait(self, unit: EncodedUnit) -> None:
+        if not self._closed:
+            for track in tuple(self._tracks):
+                track.put_nowait(unit)
+
+    def end_nowait(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        for track in tuple(self._tracks):
+            track.end_nowait()
+        self._tracks.clear()
+
+
 class UnixTapIngress:
     """Own two private Unix sequenced-packet taps and feed encoded tracks.
 
@@ -563,6 +602,64 @@ class UnixInputEgress:
             pass
 
 
+class SharedMediaIngress:
+    """One QEMU-worker media ingress shared by several WebRTC peers.
+
+    Each subscriber gets fresh bounded tracks, so a stalled browser loses only
+    its own old packets and cannot block capture, encoding, or another
+    viewer.  A worker is still authenticated by :class:`UnixTapIngress` and
+    connects to exactly one private video/audio socket pair.
+    """
+
+    def __init__(self, runtime_directory: Path, loop: asyncio.AbstractEventLoop,
+                 *, fps: int, expected_producer_uid: int | None = None) -> None:
+        self._video = _TrackFanout()
+        self._audio = _TrackFanout()
+        self._ingress = UnixTapIngress(
+            runtime_directory, loop, self._video, self._audio, fps=fps,
+            expected_uid=expected_producer_uid)
+        self._started = False
+        self._closed = False
+
+    @property
+    def video_path(self) -> Path:
+        return self._ingress.video_path
+
+    @property
+    def audio_path(self) -> Path:
+        return self._ingress.audio_path
+
+    def start(self) -> None:
+        if self._closed:
+            raise BridgeError("shared browser media source is closed")
+        if not self._started:
+            self._ingress.start()
+            self._started = True
+
+    def raise_if_failed(self) -> None:
+        if not self._started:
+            raise BridgeError("shared browser media source is not started")
+        self._ingress.raise_if_failed()
+
+    def subscribe(self) -> tuple[_PacketTrack, _PacketTrack]:
+        if not self._started:
+            raise BridgeError("shared browser media source is not started")
+        return (
+            self._video.subscribe(kind="video", maximum_queue=4),
+            self._audio.subscribe(kind="audio", maximum_queue=32),
+        )
+
+    def unsubscribe(self, video_track: _PacketTrack, audio_track: _PacketTrack) -> None:
+        self._video.unsubscribe(video_track)
+        self._audio.unsubscribe(audio_track)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._ingress.close()
+
+
 class BrowserWebRtcBridge:
     """One browser console's encrypted WebRTC media endpoint.
 
@@ -573,19 +670,28 @@ class BrowserWebRtcBridge:
     """
 
     def __init__(self, runtime_directory: Path, *, fps: int = 60,
-                 expected_producer_uid: int | None = None) -> None:
+                 expected_producer_uid: int | None = None,
+                 shared_media: SharedMediaIngress | None = None,
+                 shared_input: UnixInputEgress | None = None) -> None:
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError as error:
             raise BridgeError("BrowserWebRtcBridge must be created in an event loop") from error
         self._pc = RTCPeerConnection()
-        self.video_track = _PacketTrack("video", maximum_queue=4)
-        self.audio_track = _PacketTrack("audio", maximum_queue=32)
-        self.ingress = UnixTapIngress(runtime_directory, self._loop, self.video_track,
-                                       self.audio_track, fps=fps,
-                                       expected_uid=expected_producer_uid)
-        self.input = UnixInputEgress(runtime_directory,
-                                     expected_uid=expected_producer_uid)
+        self._shared_media = shared_media
+        self._owns_media = shared_media is None
+        if shared_media is None:
+            self.video_track = _PacketTrack("video", maximum_queue=4)
+            self.audio_track = _PacketTrack("audio", maximum_queue=32)
+            self.ingress = UnixTapIngress(runtime_directory, self._loop, self.video_track,
+                                           self.audio_track, fps=fps,
+                                           expected_uid=expected_producer_uid)
+        else:
+            self.video_track, self.audio_track = shared_media.subscribe()
+            self.ingress = None
+        self._owns_input = shared_input is None
+        self.input = shared_input or UnixInputEgress(
+            runtime_directory, expected_uid=expected_producer_uid)
         self._closed = False
         # A PVE console session has exactly one SDP offer and one pair of
         # tracks.  In particular, do not let a caller append another sender
@@ -656,14 +762,27 @@ class BrowserWebRtcBridge:
             raise BridgeError("browser bridge is closed")
         if self._taps_started:
             raise BridgeError("browser bridge taps are already running")
-        self.ingress.start()
+        if self._owns_media:
+            assert self.ingress is not None
+            self.ingress.start()
+        else:
+            assert self._shared_media is not None
+            self._shared_media.raise_if_failed()
         try:
-            self.input.start()
+            if self._owns_input:
+                self.input.start()
+            else:
+                self.input.raise_if_failed()
         except BaseException:
-            self.ingress.close()
+            if self._owns_media:
+                assert self.ingress is not None
+                self.ingress.close()
             raise
         self._taps_started = True
-        return (f"unix:{self.ingress.video_path}", f"unix:{self.ingress.audio_path}")
+        if self._owns_media:
+            assert self.ingress is not None
+            return (f"unix:{self.ingress.video_path}", f"unix:{self.ingress.audio_path}")
+        return ("", "")
 
     @staticmethod
     def _h264_codecs() -> list[object]:
@@ -715,7 +834,12 @@ class BrowserWebRtcBridge:
         # artifact even if DTLS/ICE negotiation subsequently fails; the PVE
         # adapter must create a fresh bridge/session for a retry.
         self._offer_consumed = True
-        self.ingress.raise_if_failed()
+        if self._owns_media:
+            assert self.ingress is not None
+            self.ingress.raise_if_failed()
+        else:
+            assert self._shared_media is not None
+            self._shared_media.raise_if_failed()
         self.input.raise_if_failed()
         video_sender = self._pc.addTrack(self.video_track)
         audio_sender = self._pc.addTrack(self.audio_track)
@@ -744,8 +868,14 @@ class BrowserWebRtcBridge:
         if self._closed:
             return
         self._closed = True
-        self.ingress.close()
-        self.input.close()
+        if self._owns_media:
+            assert self.ingress is not None
+            self.ingress.close()
+        else:
+            assert self._shared_media is not None
+            self._shared_media.unsubscribe(self.video_track, self.audio_track)
+        if self._owns_input:
+            self.input.close()
         await self._pc.close()
 
 
@@ -771,6 +901,7 @@ __all__ = [
     "PACKET_HEADER",
     "PACKET_IDR",
     "PACKET_MAGIC",
+    "SharedMediaIngress",
     "UnixTapIngress",
     "UnixInputEgress",
     "VIDEO_TIME_BASE",

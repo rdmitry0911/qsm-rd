@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import socket
 import tempfile
 import time
@@ -34,6 +35,7 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     PACKET_HEADER,
     PACKET_IDR,
     PACKET_MAGIC,
+    SharedMediaIngress,
     VIDEO_TIME_BASE,
     _AudioAssembler,
     _PacketTrack,
@@ -147,6 +149,29 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(timestamp, 0)
             self.assertTrue(any(payload.endswith(b"\x65\x88") for payload in payloads))
             await bridge.close()
+
+    async def test_one_worker_media_ingress_fans_out_to_two_browser_tracks(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="qsm-browser-fanout.") as directory:
+            source = SharedMediaIngress(Path(directory), asyncio.get_running_loop(), fps=60)
+            source.start()
+            first_video, _first_audio = source.subscribe()
+            second_video, _second_audio = source.subscribe()
+            try:
+                self._send(os.fspath(source.video_path), 1, 0, PACKET_FIRST | PACKET_IDR,
+                           b"\x00\x00\x00\x01\x67\x42")
+                self._send(os.fspath(source.video_path), 1, 1, PACKET_END | PACKET_IDR,
+                           b"\x00\x00\x00\x01\x65\x88")
+                first, second = await asyncio.gather(
+                    asyncio.wait_for(first_video.recv(), 2),
+                    asyncio.wait_for(second_video.recv(), 2))
+                expected = b"\x00\x00\x00\x01\x67\x42\x00\x00\x00\x01\x65\x88"
+                self.assertEqual(bytes(first), expected)
+                self.assertEqual(bytes(second), expected)
+                self.assertTrue(first.is_keyframe)
+                self.assertTrue(second.is_keyframe)
+                source.raise_if_failed()
+            finally:
+                source.close()
 
     async def test_private_input_socket_accepts_one_same_uid_receiver(self) -> None:
         with tempfile.TemporaryDirectory(prefix="qsm-browser-input.") as directory:

@@ -268,8 +268,28 @@
         const video = document.createElement('video');
         video.autoplay = true;
         video.playsInline = true;
+        // The SDP has an Opus m-line as well as video. Chromium and Safari
+        // are allowed to reject an asynchronous, unmuted `play()` in a popup
+        // even when that popup itself was opened by a Console-menu gesture.
+        // Muting before the first track makes the visual console autoplay
+        // deterministically; audio can be enabled explicitly afterwards.
+        video.muted = true;
         video.tabIndex = 0;
         video.style.cssText = 'display:block;width:100%;min-height:0;flex:1 1 auto;background:#000;object-fit:contain;outline:none';
+        const audio = document.createElement('button');
+        audio.type = 'button';
+        audio.style.cssText = 'padding:4px 9px;cursor:pointer';
+        const setAudioLabel = () => {
+            audio.textContent = video.muted ? gettext('Enable Audio') : gettext('Mute Audio');
+        };
+        setAudioLabel();
+        audio.addEventListener('click', () => {
+            video.muted = !video.muted;
+            setAudioLabel();
+            // A user gesture on this explicit control satisfies the browser
+            // audio-autoplay policy without making video startup depend on it.
+            video.play().catch(() => undefined);
+        });
         const setFullscreenLabel = () => {
             fullscreen.textContent = document.fullscreenElement
                 ? gettext('Exit Full Screen') : gettext('Full Screen');
@@ -282,7 +302,7 @@
             if (action && typeof action.catch === 'function') { action.catch(() => undefined); }
         });
         document.addEventListener('fullscreenchange', setFullscreenLabel);
-        toolbar.append(status, fullscreen);
+        toolbar.append(status, audio, fullscreen);
         document.body.append(toolbar, video);
         popup.focus();
 
@@ -366,7 +386,19 @@
                 }
             });
             peer.ontrack = (event) => {
-                video.srcObject = event.streams[0];
+                // `RTCTrackEvent.streams` is permitted to be empty. aiortc
+                // and browser versions disagree on when a remote stream ID
+                // is emitted, so attaching only streams[0] produced a
+                // connected but black `<video>` on affected Chrome builds.
+                let stream = event.streams && event.streams[0];
+                if (!stream) {
+                    stream = video.srcObject instanceof MediaStream
+                        ? video.srcObject : new MediaStream();
+                    if (!stream.getTracks().some((track) => track.id === event.track.id)) {
+                        stream.addTrack(event.track);
+                    }
+                }
+                video.srcObject = stream;
                 event.track.addEventListener('ended', closeForStoppedVm, { once: true });
                 video.play().catch(() => undefined);
                 updateMediaStatus();

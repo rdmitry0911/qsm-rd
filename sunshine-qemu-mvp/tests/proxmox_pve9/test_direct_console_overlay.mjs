@@ -35,6 +35,14 @@ assert.match(source, /window\.open\('', windowId,/,
     'QSM Direct must create a separate browser popup synchronously from the menu action');
 assert.match(source, /popup=yes,width=1280,height=800,resizable=yes/,
     'the separate console window must be resizable by the operating system');
+assert.match(source, /video\.muted = true/,
+    'the initial video path must satisfy browser autoplay policy even with an Opus track');
+assert.match(source, /Enable Audio/,
+    'the popup must provide a user-gesture path to unmute guest audio');
+assert.match(source, /event\.streams && event\.streams\[0\]/,
+    'the popup must tolerate a valid WebRTC track event without a stream array');
+assert.match(source, /new MediaStream\(\)/,
+    'a streamless remote track must be attached to a local MediaStream rather than rendering black');
 assert.match(source, /document\.documentElement\.requestFullscreen\(\)/,
     'the popup must provide a full-screen action for the entire display');
 assert.match(source, /connectionstatechange/,
