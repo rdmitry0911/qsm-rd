@@ -690,6 +690,39 @@ private:
 std::atomic<bool> stopping {false};
 void on_signal(int) noexcept { stopping = true; }
 
+std::string recent_error_summary(const qmdp::DesktopSession::Stats &stats) {
+    if (stats.recent_errors.empty()) {
+        return "none";
+    }
+    std::string result;
+    constexpr std::size_t maximum = 160U;
+    for (const unsigned char character : stats.recent_errors.back()) {
+        if (result.size() >= maximum) {
+            result += "...";
+            break;
+        }
+        // The D-Bus peer owns this message. Keep the root-only diagnostic on
+        // one printable journal line; it must never make an arbitrary log
+        // line or terminal escape sequence.
+        result += (character >= 0x20U && character <= 0x7eU) ?
+            static_cast<char>(character) : '?';
+    }
+    return result.empty() ? "empty" : result;
+}
+
+void write_session_diagnostic(std::string_view event,
+                              const qmdp::DesktopSession::Stats &stats) {
+    std::cerr << "QSM_DIRECT_MEDIA_" << event
+              << " encoded_frames=" << stats.encoded_frames
+              << " errors=" << stats.errors
+              << " display_failed=" << (stats.display_failed ? "yes" : "no")
+              << " latest_frame_published=" << stats.mailbox.published
+              << " latest_frame_consumed=" << stats.mailbox.consumed
+              << " latest_frame_dropped=" << stats.mailbox.dropped
+              << " recent_error=" << recent_error_summary(stats)
+              << '\n' << std::flush;
+}
+
 int run(const Options &options) {
     PacketSink sink(options.video_socket, options.audio_socket);
     DirectMediaAdapter media(sink, options.encoder, options.vaapi_device, options.fps);
@@ -718,9 +751,19 @@ int run(const Options &options) {
         // listener; terminate this per-console worker immediately so the
         // terminal service closes the corresponding WebRTC peer and the
         // browser console window follows the VM lifecycle.
+        const auto capture_deadline = std::chrono::steady_clock::now() + 3s;
+        bool capture_diagnostic_written = false;
         while (!stopping.load() && !session.display_failed()) {
+            if (!capture_diagnostic_written && std::chrono::steady_clock::now() >= capture_deadline) {
+                const auto stats = session.stats();
+                if (stats.encoded_frames == 0U) {
+                    write_session_diagnostic("NO_VIDEO_AFTER_3S", stats);
+                }
+                capture_diagnostic_written = true;
+            }
             std::this_thread::sleep_for(100ms);
         }
+        write_session_diagnostic(session.display_failed() ? "DISPLAY_ENDED" : "STOPPING", session.stats());
         input.stop();
         session.stop();
     } catch (...) {

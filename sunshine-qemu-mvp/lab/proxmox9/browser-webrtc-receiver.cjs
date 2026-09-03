@@ -143,6 +143,55 @@ async function status() {
     });
 }
 
+async function frameStats() {
+    if (!page) {
+        throw new Error('browser peer is not initialized');
+    }
+    return page.evaluate(() => {
+        const video = document.getElementById('remote');
+        if (!video || video.videoWidth < 1 || video.videoHeight < 1 || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+            throw new Error('decoded video frame is unavailable');
+        }
+        // Sampling a small, fixed canvas both keeps the JSON response tiny
+        // and proves that Chrome presented actual decoded pixels.  Merely
+        // observing videoWidth/currentTime accepts an all-black capture, the
+        // precise failure a Display1/GL regression can otherwise hide.
+        const width = Math.min(video.videoWidth, 64);
+        const height = Math.min(video.videoHeight, 64);
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (!context) {
+            throw new Error('2D canvas is unavailable');
+        }
+        context.drawImage(video, 0, 0, width, height);
+        const pixels = context.getImageData(0, 0, width, height).data;
+        let lumaSum = 0;
+        let lumaMin = 255;
+        let lumaMax = 0;
+        let nonBlack = 0;
+        for (let index = 0; index < pixels.length; index += 4) {
+            // Integer BT.601 luma; alpha is deliberately ignored.
+            const luma = (77 * pixels[index] + 150 * pixels[index + 1] + 29 * pixels[index + 2]) >> 8;
+            lumaSum += luma;
+            lumaMin = Math.min(lumaMin, luma);
+            lumaMax = Math.max(lumaMax, luma);
+            if (luma > 10) {
+                nonBlack += 1;
+            }
+        }
+        const samples = width * height;
+        return {
+            samples,
+            lumaMin,
+            lumaMax,
+            lumaMean: lumaSum / samples,
+            nonBlack,
+        };
+    });
+}
+
 async function control(message) {
     if (!page || !message || typeof message !== 'object') {
         throw new Error('invalid browser control command');
@@ -191,6 +240,7 @@ const commands = {
         return { accepted: true };
     },
     status: async () => status(),
+    frame_stats: async () => frameStats(),
     control: async (message) => control(message.message),
     pointer: async (message) => pointer(message.message),
     close: async () => {

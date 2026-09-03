@@ -477,7 +477,13 @@ class DirectSessionManager:
             )
             await asyncio.sleep(0.12)
             if worker.poll() is not None:
-                raise DirectTerminalError("direct-terminal media worker failed to start")
+                raise DirectTerminalError(
+                    f"direct-terminal media worker failed to start (exit code {worker.returncode})")
+            print(
+                f"qsm-direct-terminal: media worker started vmid={vmid} encoder={encoder} pid={worker.pid}",
+                file=sys.stderr,
+                flush=True,
+            )
             answer = await bridge.answer_offer(sdp)
             self._sessions[identifier] = DirectSession(
                 bridge=bridge, worker=worker, directory=directory,
@@ -535,7 +541,17 @@ class DirectSessionManager:
             session = self._sessions.get(identifier)
             if session is None:
                 return
-            if session.worker.poll() is not None or session.expires_at <= time.monotonic():
+            exit_code = session.worker.poll()
+            if exit_code is not None:
+                print(
+                    f"qsm-direct-terminal: media worker ended vmid={session.directory.parent.name.removeprefix('vm-')} "
+                    f"exit_code={exit_code}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                await self._close_session(identifier)
+                return
+            if session.expires_at <= time.monotonic():
                 await self._close_session(identifier)
                 return
             await asyncio.sleep(SESSION_WATCH_SECONDS)

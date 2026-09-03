@@ -50,7 +50,10 @@ and browser full screen:
 * `tests/dbus_integration_tests.cpp` closes a live QEMU peer and requires
   `DesktopSession::display_failed()` before teardown.
 * `lab/proxmox9/qualify-qsm-direct-worker-e2e.py` runs ordinary Chrome,
-  H.264/Opus WebRTC and both ordered input plus `qsm-pointer`.
+  H.264/Opus WebRTC and both ordered input plus `qsm-pointer`. It samples the
+  decoded video canvas and rejects an all-black/flat frame: SDP connection,
+  intrinsic video dimensions and advancing media time alone are insufficient
+  evidence of a usable guest image.
 * The PVE 9 lab gate must additionally prove a real Chrome session at the
   selected resolution, then `qm stop` leaves no media worker or session
   directory and a following `qm start` succeeds.

@@ -159,6 +159,7 @@ async def qualify(worker_binary: Path, fake_qemu_binary: Path,
             browser.request({"op": "answer", "answer": answer})
             deadline = time.monotonic() + 12
             status: dict[str, Any] = {}
+            frame_stats: dict[str, Any] = {}
             controls_sent = False
             while time.monotonic() < deadline:
                 status = browser.request({"op": "status"}, timeout=3)
@@ -182,6 +183,15 @@ async def qualify(worker_binary: Path, fake_qemu_binary: Path,
                         controls_sent = True
                     if (status.get("videoWidth") == 320 and status.get("videoHeight") == 180 and
                             float(status.get("currentTime", 0)) > 0):
+                        frame_stats = browser.request({"op": "frame_stats"}, timeout=3)
+                        # The fake QEMU producer deliberately draws a colour
+                        # gradient and moving rectangle.  A connected WebRTC
+                        # peer with an all-black decoded frame is therefore a
+                        # capture failure, not a passing media test.
+                        if (int(frame_stats.get("nonBlack", 0)) < 8 or
+                                int(frame_stats.get("lumaMax", 0)) - int(frame_stats.get("lumaMin", 0)) < 8):
+                            raise QualificationError(
+                                f"Chrome decoded an empty/black direct-worker frame: {frame_stats}")
                         bridge.ingress.raise_if_failed()
                         bridge.input.raise_if_failed()
                         break
@@ -200,7 +210,7 @@ async def qualify(worker_binary: Path, fake_qemu_binary: Path,
             trace = fake_stdout.decode("utf-8", "replace")
             if not all(marker in trace for marker in ("FAKE_QEMU_RESULT", "requested=320x180", "keyboard=2", "mouse=3")):
                 raise QualificationError(f"direct input/resize did not reach Display1: {trace}")
-            return {"browser": status, "fake_qemu": trace.strip()}
+            return {"browser": status, "frame_stats": frame_stats, "fake_qemu": trace.strip()}
         finally:
             if browser is not None:
                 browser.close()
