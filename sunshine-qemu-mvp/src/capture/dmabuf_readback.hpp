@@ -12,10 +12,12 @@ struct gbm_device;
 
 namespace qmdp {
 
-// Imports QEMU Display1's single-plane ScanoutDMABUF into GBM and copies only
-// the requested damage into CpuFramebuffer.  It is intentionally a bounded
-// CPU readback boundary: later encoder layers may choose a native DMA-BUF
-// path, but the current Sunshine software encoder receives ordinary pixels.
+// Imports QEMU Display1's single-plane ScanoutDMABUF through EGL and copies it
+// into CpuFramebuffer.  It is intentionally a bounded CPU readback boundary:
+// later encoder layers may choose a native DMA-BUF path, but the current
+// browser transport receives ordinary pixels.  EGL is the common path used by
+// the established QEMU/Sunshine backend; GBM mapping can block an entire
+// producer cadence on VirGL/NVIDIA combinations.
 class DmaBufReadback final {
 public:
     explicit DmaBufReadback(std::string render_node = "/dev/dri/renderD128");
@@ -40,7 +42,7 @@ public:
                                     std::int32_t height);
 
     void reset() noexcept;
-    [[nodiscard]] bool active() const noexcept { return bo_ != nullptr; }
+    [[nodiscard]] bool active() const noexcept { return static_cast<bool>(backing_fd_); }
 
 private:
     struct EglReadback;

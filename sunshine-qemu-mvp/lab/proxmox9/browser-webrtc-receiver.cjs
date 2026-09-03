@@ -243,8 +243,6 @@ async function measureHover(message) {
         const resetY = integer('resetY', 0, height - 1);
         const targetX = integer('targetX', 0, width - 1);
         const targetY = integer('targetY', 0, height - 1);
-        const probeX = integer('probeX', 0, width - 1);
-        const probeY = integer('probeY', 0, height - 1);
         const timeoutMs = integer('timeoutMs', 50, 10000);
         const video = document.getElementById('remote');
         if (!video || video.videoWidth !== width || video.videoHeight !== height ||
@@ -258,22 +256,44 @@ async function measureHover(message) {
         if (!context) {
             throw new Error('hover measurement canvas is unavailable');
         }
-        const popupPresent = () => {
+        const popupBounds = () => {
             context.drawImage(video, 0, 0, width, height);
-            const pixel = context.getImageData(probeX, probeY, 1, 1).data;
+            const pixels = context.getImageData(0, 0, width, height).data;
             // The dedicated lab popup is #ff00ff.  Tolerance makes this
             // robust to H.264 4:2:0 conversion without accepting its dark
-            // background or the blue application icon.
-            return pixel[0] > 180 && pixel[1] < 100 && pixel[2] > 180;
+            // background or the blue application icon. Scan rather than
+            // rely on one coordinate: a compositor or capture orientation
+            // regression must not turn a latency result into a false pass.
+            let minX = width;
+            let minY = height;
+            let maxX = -1;
+            let maxY = -1;
+            for (let y = 0; y < height; y += 4) {
+                for (let x = 0; x < width; x += 4) {
+                    const index = (y * width + x) * 4;
+                    if (pixels[index] > 180 && pixels[index + 1] < 100 && pixels[index + 2] > 180) {
+                        minX = Math.min(minX, x);
+                        minY = Math.min(minY, y);
+                        maxX = Math.max(maxX, x);
+                        maxY = Math.max(maxY, y);
+                    }
+                }
+            }
+            return maxX < 0 ? null : { minX, minY, maxX, maxY };
         };
         const sendPosition = (x, y) => window.qsmPointer.send(JSON.stringify({
             op: 'mouse_position', x, y, width, height,
         }));
-        const awaitFrame = () => new Promise((resolve) => {
+        const awaitFrame = (timeoutMs) => new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('video did not present a new frame')), timeoutMs);
+            const complete = () => {
+                clearTimeout(timer);
+                resolve();
+            };
             if (typeof video.requestVideoFrameCallback === 'function') {
-                video.requestVideoFrameCallback(() => resolve());
+                video.requestVideoFrameCallback(complete);
             } else {
-                requestAnimationFrame(() => resolve());
+                requestAnimationFrame(complete);
             }
         });
 
@@ -281,27 +301,29 @@ async function measureHover(message) {
         // independent of a pointer left over from a prior iteration.
         sendPosition(resetX, resetY);
         const resetDeadline = performance.now() + timeoutMs;
-        while (popupPresent()) {
+        while (popupBounds()) {
             if (performance.now() >= resetDeadline) {
                 throw new Error('hover popup did not clear');
             }
-            await awaitFrame();
+            await awaitFrame(Math.max(1, resetDeadline - performance.now()));
         }
 
         const started = performance.now();
         sendPosition(targetX, targetY);
         let observedFrames = 0;
-        while (!popupPresent()) {
+        let bounds = popupBounds();
+        while (!bounds) {
             if (performance.now() - started >= timeoutMs) {
                 throw new Error('hover popup was not presented before timeout');
             }
-            await awaitFrame();
+            await awaitFrame(Math.max(1, timeoutMs - (performance.now() - started)));
             observedFrames += 1;
+            bounds = popupBounds();
         }
         return {
             latencyMs: performance.now() - started,
             observedFrames,
-            probe: { x: probeX, y: probeY },
+            popupBounds: bounds,
         };
     }, message);
 }

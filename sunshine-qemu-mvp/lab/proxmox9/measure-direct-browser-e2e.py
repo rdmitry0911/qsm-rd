@@ -93,14 +93,25 @@ def terminal_request(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     return decoded["result"]
 
 
-def wait_for_video(peer: BrowserPeer, timeout: float) -> dict[str, Any]:
+def wait_for_video(peer: BrowserPeer, timeout: float, *, width: int, height: int) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
     last: dict[str, Any] = {}
+    nudge_sent = False
     while time.monotonic() < deadline:
         last = peer.request({"op": "status"}, timeout=5.0)
         if (last.get("connectionState") == "connected" and last.get("readyState", 0) >= 2 and
                 last.get("videoWidth", 0) > 0 and last.get("videoHeight", 0) > 0):
             return last
+        if last.get("connectionState") == "connected" and not nudge_sent:
+            # The separate browser VM has already completed DTLS, so data
+            # channels are live even if a totally idle guest has not yet
+            # painted a second frame. Exercise the real pointer route rather
+            # than treating a static initial scanout as a Chrome failure.
+            peer.request({"op": "pointer", "message": {
+                "op": "mouse_position", "x": 40, "y": 40,
+                "width": width, "height": height,
+            }}, timeout=5.0)
+            nudge_sent = True
         time.sleep(0.1)
     raise RuntimeError(f"Chrome did not present video: {last}")
 
@@ -136,7 +147,7 @@ def main() -> int:
             "fps": arguments.fps,
         })
         peer.request({"op": "answer", "answer": answer})
-        video = wait_for_video(peer, timeout=30.0)
+        video = wait_for_video(peer, timeout=30.0, width=arguments.width, height=arguments.height)
         first_video_ms = (time.monotonic() - started) * 1000.0
         before = peer.request({"op": "webrtc_stats"})
         time.sleep(arguments.warmup_seconds)

@@ -225,20 +225,17 @@ struct DmaBufReadback::EglReadback final {
         make_current();
         glBindFramebuffer(GL_READ_FRAMEBUFFER, source_framebuffer_);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, destination_framebuffer_);
-        // glReadPixels emits bottom-up rows. Normalise both producer origins
-        // into the top-origin CPU framebuffer without a second CPU row-copy:
-        // for QEMU VirGL (y0_top=false) the destination rectangle must be
-        // inverted. The old path left that case untouched, so every direct
-        // browser console was vertically mirrored while its input coordinates
-        // remained non-mirrored.
+        // glReadPixels emits bottom-up rows.  QEMU VirGL advertises
+        // y0_top=false, which means that copying source bottom-to-top into a
+        // normal destination makes row zero of the CPU result logical top.
+        // Inverting both source and destination would cancel that correction
+        // and vertically mirror the browser image while input remains normal.
         const GLint source_y0 = y0_top ? static_cast<GLint>(height_) : 0;
         const GLint source_y1 = y0_top ? 0 : static_cast<GLint>(height_);
-        const GLint destination_y0 = y0_top ? 0 : static_cast<GLint>(height_);
-        const GLint destination_y1 = y0_top ? static_cast<GLint>(height_) : 0;
         glBlitFramebuffer(0, source_y0,
                           static_cast<GLint>(width_), source_y1,
-                          0, destination_y0,
-                          static_cast<GLint>(width_), destination_y1,
+                          0, 0,
+                          static_cast<GLint>(width_), static_cast<GLint>(height_),
                           GL_COLOR_BUFFER_BIT, GL_NEAREST);
         check_gl("blit DMA-BUF into readback framebuffer");
 
@@ -464,26 +461,7 @@ FrameToken DmaBufReadback::scanout(CpuFramebuffer& framebuffer,
     }
     validate_scanout(width, height, stride, drm_fourcc);
 
-    struct gbm_import_fd_modifier_data import_data {};
-    import_data.width = width;
-    import_data.height = height;
-    import_data.format = drm_fourcc;
-    import_data.num_fds = 1U;
-    import_data.fds[0] = fd.get();
-    import_data.strides[0] = static_cast<int>(stride);
-    import_data.offsets[0] = 0;
-    import_data.modifier = modifier;
-
-    gbm_bo *replacement = gbm_bo_import(device_, GBM_BO_IMPORT_FD_MODIFIER,
-                                         &import_data, GBM_BO_USE_RENDERING);
-    if (replacement == nullptr) {
-        throw std::system_error(errno == 0 ? EIO : errno,
-                                std::generic_category(),
-                                "gbm_bo_import DMA-BUF");
-    }
-
     reset();
-    bo_ = replacement;
     backing_fd_ = std::move(fd);
     width_ = width;
     height_ = height;
@@ -492,16 +470,14 @@ FrameToken DmaBufReadback::scanout(CpuFramebuffer& framebuffer,
     modifier_ = modifier;
     pixman_format_ = pixman_format_for_fourcc(drm_fourcc);
     y0_top_ = y0_top;
-    try {
-        return copy_scanout_gbm(framebuffer);
-    } catch (const std::system_error&) {
-        // Imported NVIDIA/GBM allocations may be non-mappable even though
-        // EGL can consume them. Once selected, retain the EGL path for this
-        // scanout so the framebuffer format and orientation cannot oscillate.
-        egl_fallback_ = true;
-        ensure_egl_readback();
-        return copy_scanout_egl(framebuffer);
-    }
+    // Do not first probe gbm_bo_map().  On this exact VirGL path it can wait
+    // for GPU completion and reduce interactive capture to a few frames per
+    // second. EGL_EXT_image_dma_buf_import is already required, is the
+    // Sunshine QEMU backend's production path, and has deterministic full
+    // readback semantics for Display1 damage callbacks.
+    egl_fallback_ = true;
+    ensure_egl_readback();
+    return copy_scanout_egl(framebuffer);
 }
 
 FrameToken DmaBufReadback::copy_scanout_gbm(CpuFramebuffer& framebuffer) {
@@ -562,12 +538,10 @@ FrameToken DmaBufReadback::update(CpuFramebuffer& framebuffer,
                                   std::int32_t y,
                                   std::int32_t width,
                                   std::int32_t height) {
-    if (bo_ == nullptr) {
+    if (!backing_fd_) {
         throw std::logic_error("DMA-BUF update arrived before scanout");
     }
-    return egl_fallback_
-        ? copy_update_egl(framebuffer, x, y, width, height)
-        : copy_update_gbm(framebuffer, x, y, width, height);
+    return copy_update_egl(framebuffer, x, y, width, height);
 }
 
 FrameToken DmaBufReadback::copy_update_gbm(CpuFramebuffer& framebuffer,
