@@ -85,6 +85,18 @@ fi
 [[ -n "$qt_prefix" && -x "$qt_prefix/bin/macdeployqt" ]] ||
     die "set QSUNSHINE_QT_PREFIX to a Qt 6 prefix containing bin/macdeployqt"
 macdeployqt="$qt_prefix/bin/macdeployqt"
+macdeploy_libpath_args=("-libpath=$qt_prefix/lib")
+
+# Homebrew splits Qt State Machine into qtscxml.  It can be present as a
+# keg-only dependency of qtdeclarative, so macdeployqt cannot find its
+# frameworks through qtbase's normal rpaths.  Resolve the formula explicitly
+# instead of requiring a global `brew link` (which would mutate the builder).
+if [[ -n "$brew_binary" ]]; then
+    qtscxml_prefix="$("$brew_binary" --prefix qtscxml 2>/dev/null || true)"
+    if [[ -d "$qtscxml_prefix/lib" ]]; then
+        macdeploy_libpath_args+=("-libpath=$qtscxml_prefix/lib")
+    fi
+fi
 if [[ -x "$qt_prefix/bin/qmake" ]]; then
     moonlight_qmake="$qt_prefix/bin/qmake"
 elif [[ -x "$qt_prefix/bin/qmake6" ]]; then
@@ -172,7 +184,8 @@ embedded_moonlight="$moonlight_bundle/Contents/MacOS/Moonlight"
 assert_architectures "$embedded_moonlight"
 strings -a "$embedded_moonlight" | grep -F -- "qsm-system-auth" >/dev/null ||
     die "built Moonlight is missing the required q-sunshine system-auth marker"
-"$macdeployqt" "$moonlight_bundle" -qmldir="$moonlight_source/app/gui" -appstore-compliant
+"$macdeployqt" "$moonlight_bundle" "${macdeploy_libpath_args[@]}" \
+    -qmldir="$moonlight_source/app/gui" -appstore-compliant
 
 cmake -S "$ROOT_DIR" -B "$build_dir/qsunshine-build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
@@ -196,7 +209,7 @@ assert_architectures "$launcher_binary"
 # Deploy the QML runtime before adding the nested Moonlight bundle.  This
 # keeps Qt's deployment scanner scoped to q-sunshine and makes the final
 # signing pass cover both applications.
-"$macdeployqt" "$app_bundle" \
+"$macdeployqt" "$app_bundle" "${macdeploy_libpath_args[@]}" \
     -qmldir="$ROOT_DIR/clients/qsunshine-qt/qml" \
     -always-overwrite
 info_plist="$app_bundle/Contents/Info.plist"
