@@ -155,15 +155,17 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
             source = SharedMediaIngress(Path(directory), asyncio.get_running_loop(), fps=60)
             source.start()
             first_video, _first_audio = source.subscribe()
-            second_video, _second_audio = source.subscribe()
             try:
                 self._send(os.fspath(source.video_path), 1, 0, PACKET_FIRST | PACKET_IDR,
                            b"\x00\x00\x00\x01\x67\x42")
                 self._send(os.fspath(source.video_path), 1, 1, PACKET_END | PACKET_IDR,
                            b"\x00\x00\x00\x01\x65\x88")
-                first, second = await asyncio.gather(
-                    asyncio.wait_for(first_video.recv(), 2),
-                    asyncio.wait_for(second_video.recv(), 2))
+                first = await asyncio.wait_for(first_video.recv(), 2)
+                # A viewer can join long after the worker. It must receive a
+                # complete IDR with the repeated SPS/PPS immediately, not
+                # wait for a later keyframe after undecodable P-frames.
+                second_video, _second_audio = source.subscribe()
+                second = await asyncio.wait_for(second_video.recv(), 2)
                 expected = b"\x00\x00\x00\x01\x67\x42\x00\x00\x00\x01\x65\x88"
                 self.assertEqual(bytes(first), expected)
                 self.assertEqual(bytes(second), expected)

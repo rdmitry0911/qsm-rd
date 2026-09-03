@@ -207,6 +207,10 @@ class _TrackFanout:
 
     def __init__(self) -> None:
         self._tracks: set[_PacketTrack] = set()
+        # H.264 parameter sets are emitted with each IDR by the worker. Keep
+        # the current complete IDR so a browser which joins an already-live
+        # VM stream never starts by decoding arbitrary P-frames without PPS.
+        self._bootstrap: EncodedUnit | None = None
         self._closed = False
 
     def subscribe(self, *, kind: str, maximum_queue: int) -> _PacketTrack:
@@ -214,6 +218,8 @@ class _TrackFanout:
             raise BridgeError("shared browser media source is closed")
         track = _PacketTrack(kind, maximum_queue=maximum_queue)
         self._tracks.add(track)
+        if self._bootstrap is not None:
+            track.put_nowait(self._bootstrap)
         return track
 
     def unsubscribe(self, track: _PacketTrack) -> None:
@@ -223,6 +229,8 @@ class _TrackFanout:
 
     def put_nowait(self, unit: EncodedUnit) -> None:
         if not self._closed:
+            if unit.keyframe:
+                self._bootstrap = unit
             for track in tuple(self._tracks):
                 track.put_nowait(unit)
 
@@ -233,6 +241,7 @@ class _TrackFanout:
         for track in tuple(self._tracks):
             track.end_nowait()
         self._tracks.clear()
+        self._bootstrap = None
 
 
 class UnixTapIngress:
