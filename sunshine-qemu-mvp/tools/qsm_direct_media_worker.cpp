@@ -31,6 +31,7 @@
 #include <charconv>
 #include <chrono>
 #include <csignal>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -376,11 +377,14 @@ public:
         (void) opus_encoder_ctl(opus_.get(), OPUS_SET_BITRATE(128000));
         (void) opus_encoder_ctl(opus_.get(), OPUS_SET_COMPLEXITY(5));
         sink_.send_audio_config();
+        video_thread_ = std::thread(&DirectMediaAdapter::video_loop, this);
     }
 
     void stop() noexcept override {
-        if (!running_.exchange(false)) {
-            return;
+        running_ = false;
+        video_cv_.notify_all();
+        if (video_thread_.joinable()) {
+            video_thread_.join();
         }
         std::lock_guard lock(video_mutex_);
         close_video_process();
@@ -396,25 +400,21 @@ public:
         if (cpu == nullptr || !cpu->bytes) {
             throw WorkerError("direct media requires CPU-readable Display1 frames");
         }
-        const auto bgra = qmdp::to_bgra(*cpu->bytes, frame.surface->width, frame.surface->height,
-                                        cpu->stride, cpu->pixman_format);
-        observe_source_frame(bgra);
-        std::lock_guard lock(video_mutex_);
-        const bool fresh_encoder = !video_input_ || width_ != frame.surface->width ||
-                                   height_ != frame.surface->height || force_idr_.exchange(false);
-        if (fresh_encoder) {
-            close_video_process();
-            open_video_process(frame.surface->width, frame.surface->height);
+        auto bgra = std::make_shared<const std::vector<std::uint8_t>>(
+            qmdp::to_bgra(*cpu->bytes, frame.surface->width, frame.surface->height,
+                          cpu->stride, cpu->pixman_format));
+        observe_source_frame(*bgra);
+        {
+            std::lock_guard lock(video_mutex_);
+            if (!running_.load()) {
+                throw WorkerError("direct media adapter is stopping");
+            }
+            latest_bgra_ = std::move(bgra);
+            latest_width_ = frame.surface->width;
+            latest_height_ = frame.surface->height;
+            frame_changed_ = true;
         }
-        write_all(video_input_, bgra);
-        if (fresh_encoder) {
-            // FFmpeg's raw-video input may retain its very first frame until
-            // it observes another frame timestamp. Display1 is idle-driven:
-            // a newly opened console could otherwise remain black forever on
-            // an unchanged desktop. A one-time duplicate establishes H.264
-            // immediately and is not part of steady-state capture.
-            write_all(video_input_, bgra);
-        }
+        video_cv_.notify_one();
     }
 
     void submit_audio(std::span<const float> interleaved_samples, std::uint32_t sample_rate,
@@ -438,7 +438,10 @@ public:
         }
     }
 
-    void request_idr() override { force_idr_ = true; }
+    void request_idr() override {
+        force_idr_ = true;
+        video_cv_.notify_one();
+    }
 
     [[nodiscard]] VideoStats video_stats() const noexcept {
         std::lock_guard lock(stats_mutex_);
@@ -462,6 +465,64 @@ private:
                 continue;
             }
             throw WorkerError("direct H.264 encoder stopped accepting frames");
+        }
+    }
+
+    void video_loop() noexcept {
+        // Sunshine deliberately keeps its encoder active at at least half
+        // the negotiated rate (30 FPS for a 60 FPS session).  Display1 only
+        // reports damage, so merely forwarding its callbacks makes an idle
+        // desktop look like a bursty RTP source.  Repeat the latest immutable
+        // CPU frame at the same floor.  A new damage frame wakes this loop at
+        // once; it never waits for the next periodic tick.
+        const auto minimum_fps = std::max(10U, fps_ / 2U);
+        const auto repeat_interval = std::chrono::microseconds(1'000'000U / minimum_fps);
+        auto next_frame = std::chrono::steady_clock::now();
+        std::unique_lock lock(video_mutex_);
+        while (running_.load()) {
+            if (!latest_bgra_) {
+                video_cv_.wait(lock, [this] { return !running_.load() || latest_bgra_ != nullptr; });
+                next_frame = std::chrono::steady_clock::now();
+                continue;
+            }
+            if (!frame_changed_) {
+                (void) video_cv_.wait_until(lock, next_frame, [this] {
+                    return !running_.load() || frame_changed_;
+                });
+            }
+            if (!running_.load()) {
+                break;
+            }
+            if (!frame_changed_ && std::chrono::steady_clock::now() < next_frame) {
+                continue;
+            }
+
+            const auto bgra = latest_bgra_;
+            const auto width = latest_width_;
+            const auto height = latest_height_;
+            frame_changed_ = false;
+            lock.unlock();
+            try {
+                const bool fresh_encoder = !video_input_ || width_ != width || height_ != height ||
+                                           force_idr_.exchange(false);
+                if (fresh_encoder) {
+                    close_video_process();
+                    open_video_process(width, height);
+                }
+                write_all(video_input_, *bgra);
+                if (fresh_encoder) {
+                    // The first raw video frame may not be emitted until FFmpeg
+                    // sees another timestamp. Establish a decodable console
+                    // picture immediately; steady-state repeats are paced.
+                    write_all(video_input_, *bgra);
+                }
+            } catch (...) {
+                running_ = false;
+                video_cv_.notify_all();
+                break;
+            }
+            lock.lock();
+            next_frame = std::chrono::steady_clock::now() + repeat_interval;
         }
     }
 
@@ -730,6 +791,12 @@ private:
     std::atomic<bool> running_ {false};
     std::atomic<bool> force_idr_ {false};
     std::mutex video_mutex_;
+    std::condition_variable video_cv_;
+    std::thread video_thread_;
+    std::shared_ptr<const std::vector<std::uint8_t>> latest_bgra_;
+    std::uint32_t latest_width_ {};
+    std::uint32_t latest_height_ {};
+    bool frame_changed_ {false};
     int video_input_ {-1};
     int video_output_ {-1};
     pid_t video_pid_ {-1};
