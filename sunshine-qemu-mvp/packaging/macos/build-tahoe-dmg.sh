@@ -87,15 +87,17 @@ fi
 macdeployqt="$qt_prefix/bin/macdeployqt"
 macdeploy_libpath_args=("-libpath=$qt_prefix/lib")
 
-# Homebrew splits Qt State Machine into qtscxml.  It can be present as a
-# keg-only dependency of qtdeclarative, so macdeployqt cannot find its
-# frameworks through qtbase's normal rpaths.  Resolve the formula explicitly
-# instead of requiring a global `brew link` (which would mutate the builder).
+# Homebrew splits optional Qt frameworks across formulae.  They can be
+# present as keg-only dependencies, so macdeployqt cannot find them through
+# qtbase's normal rpaths.  Resolve their formulae explicitly instead of
+# requiring a global `brew link` (which would mutate the builder).
 if [[ -n "$brew_binary" ]]; then
-    qtscxml_prefix="$("$brew_binary" --prefix qtscxml 2>/dev/null || true)"
-    if [[ -d "$qtscxml_prefix/lib" ]]; then
-        macdeploy_libpath_args+=("-libpath=$qtscxml_prefix/lib")
-    fi
+    for qt_formula in qtscxml qtvirtualkeyboard; do
+        qt_optional_prefix="$("$brew_binary" --prefix "$qt_formula" 2>/dev/null || true)"
+        if [[ -d "$qt_optional_prefix/lib" ]]; then
+            macdeploy_libpath_args+=("-libpath=$qt_optional_prefix/lib")
+        fi
+    done
 fi
 if [[ -x "$qt_prefix/bin/qmake" ]]; then
     moonlight_qmake="$qt_prefix/bin/qmake"
