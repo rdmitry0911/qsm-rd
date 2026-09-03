@@ -171,14 +171,14 @@ def main() -> int:
             "pixels": pixels,
         }
         if arguments.hover_runs:
-            if (arguments.width, arguments.height) != (1280, 800):
-                raise RuntimeError("the hover target requires --width 1280 --height 800")
+            if arguments.width != 1280 or arguments.height < 480:
+                raise RuntimeError("the hover target requires a 1280-pixel-wide desktop at least 480 pixels high")
             hover: list[dict[str, Any]] = []
             for _ in range(arguments.hover_runs):
                 hover.append(peer.request({"op": "measure_hover", "message": {
                     # The guest's blue application icon is 560..720 x 290..450.
                     # Its magenta popover contains pixel (780, 350).
-                    "width": 1280, "height": 800,
+                    "width": arguments.width, "height": arguments.height,
                     "resetX": 40, "resetY": 40,
                     "targetX": 640, "targetY": 370,
                     "probeX": 780, "probeY": 350,
