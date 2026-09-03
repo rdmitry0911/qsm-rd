@@ -55,6 +55,8 @@ assert.match(source, /qsm-pointer/,
     'latest-state pointer samples must not queue behind reliable keyboard input');
 assert.match(source, /maxRetransmits: 0/,
     'the pointer channel must discard stale samples rather than retransmit them');
+assert.match(source, /playoutDelayHint\s*=\s*0/,
+    'the browser receiver must request interactive rather than conference playout delay');
 assert.match(source, /requestAnimationFrame\(flushPointer\)/,
     'browser mousemove bursts must be coalesced to the display refresh cadence');
 assert.match(source, /popup\.setTimeout\(dispatch, 150\)/,

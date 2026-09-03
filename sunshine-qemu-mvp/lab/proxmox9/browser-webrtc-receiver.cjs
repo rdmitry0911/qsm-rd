@@ -105,6 +105,14 @@ async function createOffer() {
         pc.addEventListener('track', (event) => {
             window.qsmTrackKinds.push(event.track.kind);
             if (event.track.kind === 'video') {
+                // Chromium otherwise chooses a conservative receiver playout
+                // target for a general WebRTC call. A PVE console is an
+                // interactive desktop: prefer the freshest decodable frame.
+                // Older browsers simply do not expose this optional hint.
+                if (event.receiver && 'playoutDelayHint' in event.receiver) {
+                    event.receiver.playoutDelayHint = 0;
+                }
+                window.qsmVideoReceiver = event.receiver;
                 video.srcObject = event.streams[0];
                 video.play().catch(() => {});
             }
@@ -146,6 +154,7 @@ async function status() {
             currentTime: video.currentTime,
             controlReady: window.qsmControl?.readyState === 'open',
             pointerReady: window.qsmPointer?.readyState === 'open',
+            playoutDelayHint: window.qsmVideoReceiver?.playoutDelayHint ?? null,
         };
     });
 }

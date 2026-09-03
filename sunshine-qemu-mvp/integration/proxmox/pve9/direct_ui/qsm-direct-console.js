@@ -390,6 +390,14 @@
                 // and browser versions disagree on when a remote stream ID
                 // is emitted, so attaching only streams[0] produced a
                 // connected but black `<video>` on affected Chrome builds.
+                // A remote-desktop console must prefer the newest decodable
+                // picture over WebRTC's conference-call playout cushion.
+                // This is an optional Chromium API, hence feature-detect it
+                // rather than making an older browser unable to connect.
+                if (event.track.kind === 'video' && event.receiver &&
+                    'playoutDelayHint' in event.receiver) {
+                    event.receiver.playoutDelayHint = 0;
+                }
                 let stream = event.streams && event.streams[0];
                 if (!stream) {
                     stream = video.srcObject instanceof MediaStream
