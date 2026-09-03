@@ -550,7 +550,16 @@ class DirectSessionManager:
                 f"direct-terminal WebRTC negotiation failed: {error}") from error
         except (TimeoutError, OSError, asyncio.TimeoutError) as error:
             future.cancel()
-            raise DirectTerminalError("direct-terminal WebRTC negotiation failed") from error
+            # As above, this is emitted only to the root-owned journal. Keep
+            # the browser response generic, but retain the exception class
+            # and errno (where applicable) so an operator can distinguish a
+            # local UDP/ICE bind problem from a signalling timeout without
+            # logging SDP, an address from the offer, or PVE credentials.
+            suffix = type(error).__name__
+            if isinstance(error, OSError) and error.errno is not None:
+                suffix += f" errno={error.errno}"
+            raise DirectTerminalError(
+                f"direct-terminal WebRTC negotiation failed: {suffix}") from error
 
     def close(self) -> None:
         if self._closed:
