@@ -483,12 +483,16 @@ FrameToken DmaBufReadback::scanout(CpuFramebuffer& framebuffer,
     modifier_ = modifier;
     pixman_format_ = pixman_format_for_fourcc(drm_fourcc);
     y0_top_ = y0_top;
+    // GBM imports are allowed to consume implementation-private state from a
+    // supplied descriptor.  The EGL fallback needs the original QEMU-owned
+    // duplicate intact, so give every GBM import attempt its own fd.
+    UniqueFd modifier_import_fd = fd.duplicate();
     struct gbm_import_fd_modifier_data import_data {};
     import_data.width = width;
     import_data.height = height;
     import_data.format = drm_fourcc;
     import_data.num_fds = 1U;
-    import_data.fds[0] = fd.get();
+    import_data.fds[0] = modifier_import_fd.get();
     import_data.strides[0] = static_cast<int>(stride);
     import_data.offsets[0] = 0;
     import_data.modifier = modifier;
@@ -500,8 +504,9 @@ FrameToken DmaBufReadback::scanout(CpuFramebuffer& framebuffer,
     // older linear import ABI.  Try it only when it preserves the exact buffer
     // layout; a tiled or otherwise explicit modifier must never be discarded.
     if (replacement == nullptr && modifier == DRM_FORMAT_MOD_LINEAR) {
+        UniqueFd linear_import_fd = fd.duplicate();
         struct gbm_import_fd_data linear_import {};
-        linear_import.fd = fd.get();
+        linear_import.fd = linear_import_fd.get();
         linear_import.width = static_cast<int>(width);
         linear_import.height = static_cast<int>(height);
         linear_import.stride = static_cast<int>(stride);
