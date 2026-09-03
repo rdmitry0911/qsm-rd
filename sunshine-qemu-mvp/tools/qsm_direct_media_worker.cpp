@@ -469,14 +469,13 @@ private:
     }
 
     void video_loop() noexcept {
-        // Sunshine deliberately keeps its encoder active at at least half
-        // the negotiated rate (30 FPS for a 60 FPS session).  Display1 only
-        // reports damage, so merely forwarding its callbacks makes an idle
-        // desktop look like a bursty RTP source.  Repeat the latest immutable
-        // CPU frame at the same floor.  A new damage frame wakes this loop at
-        // once; it never waits for the next periodic tick.
-        const auto minimum_fps = std::max(10U, fps_ / 2U);
-        const auto repeat_interval = std::chrono::microseconds(1'000'000U / minimum_fps);
+        // Sunshine deliberately keeps its encoder active even for a static
+        // desktop.  A browser WebRTC receiver also needs that regularity, but
+        // unlike GameStream it cannot use the client's presentation queue to
+        // hide a half-rate source.  Repeat at the negotiated cadence. A new
+        // damage frame wakes this loop at once; it never waits for the next
+        // periodic tick.
+        const auto repeat_interval = std::chrono::microseconds(1'000'000U / fps_);
         auto next_frame = std::chrono::steady_clock::now();
         std::unique_lock lock(video_mutex_);
         while (running_.load()) {
