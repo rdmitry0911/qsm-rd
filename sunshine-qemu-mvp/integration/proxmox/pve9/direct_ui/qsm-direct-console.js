@@ -295,6 +295,7 @@
         let pointerFrame = null;
         let pendingPointer = null;
         let resizeTimer = null;
+        let firstFrameTimer = null;
         let lastResize = '';
         const send = (value) => {
             if (control && control.readyState === 'open') { control.send(JSON.stringify(value)); }
@@ -310,6 +311,7 @@
             if (closeWatcher !== null) { window.clearInterval(closeWatcher); }
             if (pointerFrame !== null) { popup.cancelAnimationFrame(pointerFrame); }
             if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); }
+            if (firstFrameTimer !== null) { popup.clearTimeout(firstFrameTimer); }
         };
         const closeForStoppedVm = () => {
             if (closed) { return; }
@@ -328,6 +330,20 @@
             if (popup.closed) { close(); }
         }, 500);
 
+        const updateMediaStatus = () => {
+            if (closed || !peer) { return; }
+            if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+                video.videoWidth > 0 && video.videoHeight > 0) {
+                status.textContent = gettext('Connected');
+                if (firstFrameTimer !== null) {
+                    popup.clearTimeout(firstFrameTimer);
+                    firstFrameTimer = null;
+                }
+            } else if (peer.connectionState === 'connected') {
+                status.textContent = gettext('Connected — waiting for guest video…');
+            }
+        };
+
         const connect = async () => {
             try {
             peer = new RTCPeerConnection();
@@ -340,6 +356,8 @@
             peer.addEventListener('connectionstatechange', () => {
                 if (peer.connectionState === 'failed' || peer.connectionState === 'closed') {
                     closeForStoppedVm();
+                } else {
+                    updateMediaStatus();
                 }
             });
             peer.addEventListener('iceconnectionstatechange', () => {
@@ -351,7 +369,10 @@
                 video.srcObject = event.streams[0];
                 event.track.addEventListener('ended', closeForStoppedVm, { once: true });
                 video.play().catch(() => undefined);
+                updateMediaStatus();
             };
+            video.addEventListener('loadeddata', updateMediaStatus);
+            video.addEventListener('playing', updateMediaStatus);
             const resize = (immediate = false) => {
                 const dispatch = () => {
                     resizeTimer = null;
@@ -408,7 +429,15 @@
                 sdp: peer.localDescription.sdp, width: requestSize.width, height: requestSize.height, fps: requestSize.fps,
             }, button);
             await peer.setRemoteDescription(answer);
-            status.textContent = gettext('Connected');
+            status.textContent = gettext('Negotiating guest media…');
+            // A transport connection is not visual output. Keep the popup
+            // usable for a slow guest, but make a Display1/GL capture stall
+            // explicit instead of reporting a misleading plain "Connected".
+            firstFrameTimer = popup.setTimeout(() => {
+                if (!closed && video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+                    status.textContent = gettext('Connected, but the guest has not produced a video frame.');
+                }
+            }, 7000);
             video.focus();
             } catch (_error) {
                 status.textContent = gettext('Could not create a direct browser console.');
