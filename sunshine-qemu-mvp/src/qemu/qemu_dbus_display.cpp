@@ -419,40 +419,39 @@ void QemuDbusDisplay::set_ui_info(const ViewportRequest& request) {
 }
 
 void QemuDbusDisplay::key(std::uint32_t qemu_key_number, bool pressed) {
-    main_bus_call([&] {
-        dbus::Error error;
-        dbus::Message reply;
+    main_bus_send([&] {
+        dbus::Message call;
         const std::string path = console_path();
         const char *member = pressed ? "Press" : "Release";
-        const int result = sd_bus_call_method(main_bus_.get(),
-                                              destination(),
-                                              path.c_str(),
-                                              "org.qemu.Display1.Keyboard",
-                                              member,
-                                              error.get(),
-                                              reply.put(),
-                                              "u",
-                                              qemu_key_number);
-        dbus::check(result, std::string("QEMU Keyboard.") + member, error.get());
+        dbus::check(sd_bus_message_new_method_call(main_bus_.get(), call.put(),
+                                                   destination(), path.c_str(),
+                                                   "org.qemu.Display1.Keyboard", member),
+                    std::string("new QEMU Keyboard.") + member);
+        dbus::check(sd_bus_message_append(call.get(), "u", qemu_key_number),
+                    std::string("append QEMU Keyboard.") + member);
+        dbus::check(sd_bus_message_set_expect_reply(call.get(), 0),
+                    std::string("mark QEMU Keyboard.") + member + " no-reply");
+        dbus::check(sd_bus_send(main_bus_.get(), call.get(), nullptr),
+                    std::string("send QEMU Keyboard.") + member);
     });
 }
 
 void QemuDbusDisplay::button(std::uint8_t qemu_button, bool pressed) {
-    main_bus_call([&] {
-        dbus::Error error;
-        dbus::Message reply;
+    main_bus_send([&] {
+        dbus::Message call;
         const std::string path = console_path();
         const char *member = pressed ? "Press" : "Release";
-        const int result = sd_bus_call_method(main_bus_.get(),
-                                              destination(),
-                                              path.c_str(),
-                                              "org.qemu.Display1.Mouse",
-                                              member,
-                                              error.get(),
-                                              reply.put(),
-                                              "u",
-                                              static_cast<std::uint32_t>(qemu_button));
-        dbus::check(result, std::string("QEMU Mouse.") + member, error.get());
+        dbus::check(sd_bus_message_new_method_call(main_bus_.get(), call.put(),
+                                                   destination(), path.c_str(),
+                                                   "org.qemu.Display1.Mouse", member),
+                    std::string("new QEMU Mouse.") + member);
+        dbus::check(sd_bus_message_append(call.get(), "u",
+                                          static_cast<std::uint32_t>(qemu_button)),
+                    std::string("append QEMU Mouse.") + member);
+        dbus::check(sd_bus_message_set_expect_reply(call.get(), 0),
+                    std::string("mark QEMU Mouse.") + member + " no-reply");
+        dbus::check(sd_bus_send(main_bus_.get(), call.get(), nullptr),
+                    std::string("send QEMU Mouse.") + member);
     });
 }
 
@@ -488,40 +487,37 @@ bool QemuDbusDisplay::is_absolute_pointer() {
 }
 
 void QemuDbusDisplay::absolute_pointer(std::uint32_t x, std::uint32_t y) {
-    main_bus_call([&] {
-        dbus::Error error;
-        dbus::Message reply;
+    main_bus_send([&] {
+        dbus::Message call;
         const std::string path = console_path();
-        const int result = sd_bus_call_method(main_bus_.get(),
-                                              destination(),
-                                              path.c_str(),
-                                              "org.qemu.Display1.Mouse",
-                                              "SetAbsPosition",
-                                              error.get(),
-                                              reply.put(),
-                                              "uu",
-                                              x,
-                                              y);
-        dbus::check(result, "QEMU Mouse.SetAbsPosition", error.get());
+        dbus::check(sd_bus_message_new_method_call(main_bus_.get(), call.put(),
+                                                   destination(), path.c_str(),
+                                                   "org.qemu.Display1.Mouse",
+                                                   "SetAbsPosition"),
+                    "new QEMU Mouse.SetAbsPosition");
+        dbus::check(sd_bus_message_append(call.get(), "uu", x, y),
+                    "append QEMU Mouse.SetAbsPosition");
+        dbus::check(sd_bus_message_set_expect_reply(call.get(), 0),
+                    "mark QEMU Mouse.SetAbsPosition no-reply");
+        dbus::check(sd_bus_send(main_bus_.get(), call.get(), nullptr),
+                    "send QEMU Mouse.SetAbsPosition");
     });
 }
 
 void QemuDbusDisplay::relative_pointer(std::int32_t dx, std::int32_t dy) {
-    main_bus_call([&] {
-        dbus::Error error;
-        dbus::Message reply;
+    main_bus_send([&] {
+        dbus::Message call;
         const std::string path = console_path();
-        const int result = sd_bus_call_method(main_bus_.get(),
-                                              destination(),
-                                              path.c_str(),
-                                              "org.qemu.Display1.Mouse",
-                                              "RelMotion",
-                                              error.get(),
-                                              reply.put(),
-                                              "ii",
-                                              dx,
-                                              dy);
-        dbus::check(result, "QEMU Mouse.RelMotion", error.get());
+        dbus::check(sd_bus_message_new_method_call(main_bus_.get(), call.put(),
+                                                   destination(), path.c_str(),
+                                                   "org.qemu.Display1.Mouse", "RelMotion"),
+                    "new QEMU Mouse.RelMotion");
+        dbus::check(sd_bus_message_append(call.get(), "ii", dx, dy),
+                    "append QEMU Mouse.RelMotion");
+        dbus::check(sd_bus_message_set_expect_reply(call.get(), 0),
+                    "mark QEMU Mouse.RelMotion no-reply");
+        dbus::check(sd_bus_send(main_bus_.get(), call.get(), nullptr),
+                    "send QEMU Mouse.RelMotion");
     });
 }
 

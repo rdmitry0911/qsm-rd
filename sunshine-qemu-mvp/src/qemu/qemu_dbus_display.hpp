@@ -136,6 +136,18 @@ private:
         function();
     }
 
+    // Input is edge-triggered state delivered to QEMU; waiting for its method
+    // reply puts a VM scheduling round trip in front of every mouse sample.
+    // Callers construct a no-reply method message and this helper serializes
+    // its immediate flush against service shutdown.
+    template <typename Function>
+    void main_bus_send(Function&& function) {
+        std::lock_guard lock(main_bus_mutex_);
+        ensure_started();
+        function();
+        dbus::check(sd_bus_flush(main_bus_.get()), "flush QEMU input message");
+    }
+
     QemuDbusOptions options_;
     CpuFramebuffer framebuffer_;
     QemuDisplayCallbacks callbacks_;
