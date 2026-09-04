@@ -11,6 +11,8 @@ import tempfile
 import time
 import unittest
 import asyncio
+import signal
+import subprocess
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -21,14 +23,137 @@ if str(IMPORT_ROOT) not in sys.path:
 
 if PACKAGE_LIBRARY:
     from direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
-                                                     _managed_guest_channel_enabled)
+                                                     DirectVmTransport, _managed_guest_channel_enabled,
+                                                     _qemu_process_generation)
 else:
     from extensions.direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
-                                                                 _managed_guest_channel_enabled)
+                                                                 DirectVmTransport, _managed_guest_channel_enabled,
+                                                                 _qemu_process_generation)
 
 
 @unittest.skipUnless(shutil.which("dbus-daemon"), "dbus-daemon is required")
 class DirectTerminalAutoprovisionTests(unittest.TestCase):
+    @staticmethod
+    def _qemu_lookalike(vmid: int) -> subprocess.Popen[bytes]:
+        """Run a harmless process whose argv follows PVE's ``kvm -id`` form."""
+        return subprocess.Popen(
+            ["/bin/bash", "-c",
+             f'exec -a kvm /usr/bin/python3 -c "import time; time.sleep(60)" -id {vmid}'],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    @staticmethod
+    def _stop(process: subprocess.Popen[bytes]) -> None:
+        if process.poll() is not None:
+            return
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+            process.wait(timeout=2)
+        except (OSError, subprocess.TimeoutExpired):
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=2)
+
+    def test_qemu_generation_uses_pid_and_nonreusable_start_time(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-qemu-generation.") as temporary:
+            pid_directory = Path(temporary)
+            vmid = 321
+            process = self._qemu_lookalike(vmid)
+            try:
+                pid_file = pid_directory / f"{vmid}.pid"
+                pid_file.write_text(f"{process.pid}\n", encoding="ascii")
+                os.chmod(pid_file, 0o600)
+                deadline = time.monotonic() + 1.0
+                generation = None
+                while time.monotonic() < deadline and generation is None:
+                    generation = _qemu_process_generation(pid_directory, vmid)
+                    time.sleep(0.01)
+                self.assertIsNotNone(generation)
+                self.assertTrue(generation.startswith(f"{process.pid}:"))
+                self._stop(process)
+                self.assertIsNone(_qemu_process_generation(pid_directory, vmid))
+            finally:
+                self._stop(process)
+
+    def test_vm_restart_retires_stale_video_and_input_transport(self) -> None:
+        """A QEMU restart must never retain its old final frame/input socket."""
+        class ClosingBridge:
+            closed = False
+
+            async def close(self) -> None:
+                self.closed = True
+
+        class ClosingResource:
+            closed = False
+
+            def close(self) -> None:
+                self.closed = True
+
+            def raise_if_failed(self) -> None:
+                return
+
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-vm-restart.") as temporary:
+            root = Path(temporary)
+            for name in ("instances", "qemu-server", "sessions", "display", "pids"):
+                (root / name).mkdir(mode=0o700)
+            vmid = 321
+            (root / "qemu-server" / f"{vmid}.conf").write_text(
+                "vga: none\n"
+                "args: -device virtio-vga-gl,id=qsm-direct-gpu "
+                f"-display dbus,addr=unix:path={root}/display/{vmid}/qemu-display1.bus,"
+                "gl=on,rendernode=/dev/dri/renderD128\n",
+                encoding="utf-8",
+            )
+            os.chmod(root / "qemu-server" / f"{vmid}.conf", 0o600)
+            qemu = self._qemu_lookalike(vmid)
+            worker = subprocess.Popen(["/bin/sleep", "60"], stdin=subprocess.DEVNULL,
+                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                      start_new_session=True)
+            manager = None
+            bus_process = None
+            try:
+                pid_file = root / "pids" / f"{vmid}.pid"
+                pid_file.write_text(f"{qemu.pid}\n", encoding="ascii")
+                os.chmod(pid_file, 0o600)
+                deadline = time.monotonic() + 1.0
+                while time.monotonic() < deadline and _qemu_process_generation(root / "pids", vmid) is None:
+                    time.sleep(0.01)
+                manager = DirectSessionManager(
+                    instance_directory=root / "instances", runtime_directory=root / "sessions",
+                    vm_runtime_directory=root / "display", pve_config_directory=root / "qemu-server",
+                    qemu_pid_directory=root / "pids", local_node=None,
+                )
+                bus_process = manager._dbus._children.get(vmid)
+                media = ClosingResource()
+                input_egress = ClosingResource()
+                transport_directory = root / "sessions" / f"vm-{vmid}" / "producer"
+                transport_directory.mkdir(parents=True, mode=0o700)
+                manager._transports[vmid] = DirectVmTransport(
+                    vmid=vmid, worker=worker, media=media, input=input_egress,
+                    directory=transport_directory, qemu_generation="retired-qemu")
+                bridge = ClosingBridge()
+                session_directory = root / "sessions" / f"vm-{vmid}" / "browser"
+                session_directory.mkdir(mode=0o700)
+                manager._sessions["browser"] = DirectSession(
+                    vmid=vmid, bridge=bridge, worker=worker, directory=session_directory,
+                    expires_at=time.monotonic() + 60)
+                future = asyncio.run_coroutine_threadsafe(
+                    manager._reconcile_active_transports(frozenset({vmid})), manager._loop)
+                future.result(timeout=3)
+                self.assertTrue(bridge.closed)
+                self.assertTrue(media.closed)
+                self.assertTrue(input_egress.closed)
+                self.assertNotIn(vmid, manager._transports)
+                self.assertNotIn("browser", manager._sessions)
+                self.assertIsNotNone(worker.poll(), "stale encoder must be terminated")
+            finally:
+                if manager is not None:
+                    manager.close()
+                if bus_process is not None:
+                    manager._dbus._terminate(bus_process)
+                self._stop(worker)
+                self._stop(qemu)
+
     def test_saved_qsm_guest_channel_requires_the_exact_three_arguments(self) -> None:
         runtime = Path("/run/qsm-pve-direct")
         arguments = (

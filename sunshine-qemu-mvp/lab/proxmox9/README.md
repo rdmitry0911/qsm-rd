@@ -95,6 +95,43 @@ node --check lab/proxmox9/qualify-pve-console-launch.cjs
 node tests/proxmox_pve9/test_browser_qualification_static.cjs
 ```
 
+## Direct Console stress acceptance suite
+
+`run-qsm-direct-stress-suite.py` is the release gate for the browser-only
+transport.  Run it as `root` on the PVE node, with a disposable Chrome peer on
+a separate machine/VM.  It uses the real `qsm-pve-direct-terminal` socket and
+the real QEMU process; no API, decoder, or input route is mocked.
+
+```bash
+python3 /path/to/run-qsm-direct-stress-suite.py \
+  --vmid 103 \
+  --browser-host 192.168.64.25 \
+  --browser-user dima \
+  --browser-key /root/.ssh/id_ed25519 \
+  --browser-script /home/dima/Projects/q-sunshine/sunshine-qemu-mvp/lab/proxmox9/browser-webrtc-receiver.cjs
+```
+
+The browser account needs only an SSH key limited to the PVE node.  The script
+and ordinary Google Chrome stay on that test peer; neither is installed by the
+QSM package.  A successful run emits one bounded
+`QSM_DIRECT_STRESS_SUITE_OK` JSON record.  It covers this matrix:
+
+| Contract | Exercise |
+| --- | --- |
+| Window and fullscreen geometry | fresh 1280×798 and 1920×1080 Display1 sessions |
+| Video and input | real Chrome H.264 pixels, progressing decoded frames, ordered control and lossy pointer channels |
+| Several Console windows | two simultaneous Chrome subscribers to one QEMU scanout |
+| Clipboard and files | browser ↔ private virtio guest channel, UTF-8 clipboard and both file directions |
+| VM reboot while viewing | old WebRTC peer must disconnect; a new Console must decode current pixels |
+| Terminal-service restart while viewing | old peer must disconnect; private Display1 bus remains usable and a new Console succeeds |
+
+The full-screen row qualifies the remote scanout geometry.  Browser chrome
+fullscreen is a local UI action and therefore does not create a second
+transport mode.  The suite never attempts to log in to a guest desktop; GUI
+clipboard bridging additionally requires an active Wayland/X11 user session
+inside that guest, whereas the private guest-agent clipboard/file contract is
+available as soon as the virtio agent is ready.
+
 ## Display1 Advanced-form qualification
 
 `qualify-pve-display1-ui.cjs` opens the real PVE **Hardware → Display** editor

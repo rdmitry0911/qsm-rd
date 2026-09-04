@@ -224,6 +224,66 @@ def _managed_guest_channel_enabled(config: str, vmid: int, vm_runtime_directory:
     return all(re.search(rf"(?:^|\s){re.escape(argument)}(?=\s|$)", args) for argument in expected)
 
 
+def _qemu_process_generation(pid_directory: Path, vmid: int) -> str | None:
+    """Return the live PVE QEMU generation for ``vmid``.
+
+    A Display1 D-Bus address is intentionally persistent across a terminal
+    service restart: QEMU has no mechanism to reconnect to a replacement
+    bus.  That persistence makes a VM restart subtly different.  The old
+    encoder can remain connected to the old ``org.qemu`` peer and continue to
+    feed a browser its final firmware frame, while its input is no longer
+    consumed by the new QEMU process.
+
+    PVE writes one root-owned PID file per running VM.  Combine that PID with
+    Linux' non-reusable process start time, and verify the command still names
+    the requested VM.  ``None`` is a normal state while a VM is stopped or
+    between PVE's stop/start phases; callers must retire, never reuse, a
+    capture bound to a previous generation in that case.
+    """
+    if not _valid_vmid(vmid) or not pid_directory.is_absolute():
+        return None
+    try:
+        content = _read_root_file(pid_directory / f"{vmid}.pid", maximum=32)
+    except DirectTerminalError:
+        return None
+    try:
+        pid_text = content.decode("ascii").strip()
+    except UnicodeDecodeError:
+        return None
+    if not pid_text.isdecimal() or (pid_text.startswith("0") and pid_text != "0"):
+        return None
+    pid = int(pid_text)
+    if pid <= 1:
+        return None
+    try:
+        stat_text = (Path("/proc") / str(pid) / "stat").read_text(encoding="ascii")
+        command_line = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\x00")
+    except (OSError, UnicodeDecodeError):
+        return None
+    # proc(5): field 2 (comm) may contain spaces, so split only after its last
+    # closing parenthesis.  The remaining sequence starts at field 3; start
+    # time is field 22, at index 19.
+    separator = stat_text.rfind(") ")
+    if separator < 1:
+        return None
+    fields = stat_text[separator + 2:].split()
+    if len(fields) <= 19 or fields[0] == "Z" or not fields[19].isdecimal():
+        return None
+    argv = [part.decode("ascii", "ignore") for part in command_line if part]
+    if not argv:
+        return None
+    executable = os.path.basename(argv[0])
+    if executable not in {"kvm", "qemu-system-x86_64"} and not executable.startswith("qemu-system-"):
+        return None
+    try:
+        identity_index = argv.index("-id")
+    except ValueError:
+        return None
+    if identity_index + 1 >= len(argv) or argv[identity_index + 1] != str(vmid):
+        return None
+    return f"{pid}:{fields[19]}"
+
+
 def _safe_runtime_directory(path: Path) -> None:
     try:
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -362,6 +422,7 @@ class DirectVmTransport:
     media: SharedMediaIngress
     input: UnixInputEgress
     directory: Path
+    qemu_generation: str
     guest: QsmGuestChannel | None = None
 
 
@@ -370,11 +431,13 @@ class DirectSessionManager:
 
     def __init__(self, *, instance_directory: Path, runtime_directory: Path,
                  vm_runtime_directory: Path, pve_config_directory: Path,
-                 local_node: str | None) -> None:
+                 local_node: str | None,
+                 qemu_pid_directory: Path = Path("/run/qemu-server")) -> None:
         self._instance_directory = instance_directory
         self._runtime_directory = runtime_directory
         self._vm_runtime_directory = vm_runtime_directory
         self._pve_config_directory = pve_config_directory
+        self._qemu_pid_directory = qemu_pid_directory
         self._local_node = local_node
         self._dbus = DbusManager(vm_runtime_directory)
         self._reconcile_stop = threading.Event()
@@ -388,6 +451,7 @@ class DirectSessionManager:
         self._transports: dict[int, DirectVmTransport] = {}
         self._vm_locks: dict[int, asyncio.Lock] = {}
         self._closed = False
+        self._transport_reconcile_future: Future[None] | None = None
         self._thread.start()
         self._reconcile_thread = threading.Thread(
             target=self._reconcile_configured_display_buses,
@@ -423,18 +487,48 @@ class DirectSessionManager:
         config = _read_pve_vm_config(self._pve_config_directory / f"{vmid}.conf")
         return config is not None and _managed_display_enabled(config, vmid, self._vm_runtime_directory)
 
-    def _start_configured_display_buses(self) -> None:
+    def _start_configured_display_buses(self) -> tuple[int, ...]:
         """Create QEMU buses before the user starts a Display1-configured VM."""
-        for vmid in self._configured_vms():
+        configured = self._configured_vms()
+        for vmid in configured:
             policy = _load_optional_instance(
                 self._instance_directory, vmid, self._vm_runtime_directory)
             self._dbus.ensure(vmid, policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"])
+        return configured
+
+    async def _reconcile_active_transports(self, configured: frozenset[int]) -> None:
+        """Disconnect browser peers when their VM's Display1 owner changed.
+
+        A live WebRTC channel cannot be transparently switched between QEMU
+        processes.  Closing it is deliberate: the PVE Console retry/reload
+        creates a fresh media worker, instead of exposing a stale picture and
+        silently dead mouse to the user.
+        """
+        for vmid, transport in tuple(self._transports.items()):
+            generation = _qemu_process_generation(self._qemu_pid_directory, vmid)
+            if vmid in configured and generation == transport.qemu_generation:
+                continue
+            reason = "configuration changed" if vmid not in configured else "QEMU generation changed"
+            print(
+                f"qsm-direct-terminal: retiring VM media transport vmid={vmid}: {reason}",
+                file=sys.stderr,
+                flush=True,
+            )
+            await self._close_vmid_sessions(vmid)
+
+    def _schedule_transport_reconcile(self, configured: tuple[int, ...]) -> None:
+        if self._closed:
+            return
+        if self._transport_reconcile_future is not None and not self._transport_reconcile_future.done():
+            return
+        self._transport_reconcile_future = asyncio.run_coroutine_threadsafe(
+            self._reconcile_active_transports(frozenset(configured)), self._loop)
 
     def _reconcile_configured_display_buses(self) -> None:
         """Pick up a saved Display setting without an operator service restart."""
         while not self._reconcile_stop.wait(PVE_CONFIG_RECONCILE_SECONDS):
             try:
-                self._start_configured_display_buses()
+                self._schedule_transport_reconcile(self._start_configured_display_buses())
             except DirectTerminalError as error:
                 # A transient pmxcfs read while PVE updates a config must not
                 # take down already running VMs or unrelated browser sessions.
@@ -529,13 +623,19 @@ class DirectSessionManager:
     async def _transport_for(self, vmid: int, policy: dict[str, str], width: int, height: int,
                              fps: int) -> DirectVmTransport:
         """Return the sole capture/encoder worker for this VM, starting it once."""
+        generation = _qemu_process_generation(self._qemu_pid_directory, vmid)
         existing = self._transports.get(vmid)
-        if existing is not None and existing.worker.poll() is None:
+        if existing is not None and generation == existing.qemu_generation and existing.worker.poll() is None:
             existing.media.raise_if_failed()
             existing.input.raise_if_failed()
             return existing
         if existing is not None:
-            await self._close_transport(vmid)
+            # The old worker may still own a valid D-Bus connection, but it
+            # belongs to a previous QEMU instance.  Retire every subscriber;
+            # preserving one would retain a stale frame and dead input path.
+            await self._close_vmid_sessions(vmid)
+        if generation is None:
+            raise DirectTerminalError("direct-terminal VM is not running")
 
         directory = self._runtime_directory / f"vm-{vmid}" / "producer"
         _safe_runtime_directory(directory.parent)
@@ -574,7 +674,7 @@ class DirectSessionManager:
                          config, vmid, self._vm_runtime_directory) else None)
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
-                guest=guest)
+                qemu_generation=generation, guest=guest)
             self._transports[vmid] = transport
             print(
                 f"qsm-direct-terminal: VM media transport started vmid={vmid} encoder={encoder} pid={worker.pid}",
@@ -730,6 +830,8 @@ class DirectSessionManager:
             pass
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._thread.join(timeout=2)
+        if not self._loop.is_running():
+            self._loop.close()
         self._dbus.close()
 
 
@@ -830,6 +932,7 @@ def main() -> int:
     parser.add_argument("--runtime-directory", type=Path, default=Path("/run/qsm-pve-direct-terminal/sessions"))
     parser.add_argument("--vm-runtime-directory", type=Path, default=Path("/run/qsm-pve-direct"))
     parser.add_argument("--pve-config-directory", type=Path, default=Path("/etc/pve/qemu-server"))
+    parser.add_argument("--qemu-pid-directory", type=Path, default=Path("/run/qemu-server"))
     parser.add_argument("--pve-socket", type=Path, default=Path("/run/qsm-pve-direct-terminal/pve-webrtc.sock"))
     parser.add_argument("--local-node")
     arguments = parser.parse_args()
@@ -840,7 +943,8 @@ def main() -> int:
                                     runtime_directory=arguments.runtime_directory,
                                     vm_runtime_directory=arguments.vm_runtime_directory,
                                     pve_config_directory=arguments.pve_config_directory,
-                                    local_node=arguments.local_node)
+                                    local_node=arguments.local_node,
+                                    qemu_pid_directory=arguments.qemu_pid_directory)
     server: PveRequestServer | None = None
     try:
         server = PveRequestServer(arguments.pve_socket, sessions)

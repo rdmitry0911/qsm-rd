@@ -13,12 +13,14 @@ instance_directory="${QSM_DIRECT_INSTANCE_DIRECTORY:-/etc/qsm-pve-direct/instanc
 runtime_directory="${QSM_DIRECT_RUNTIME_DIRECTORY:-/run/qsm-pve-direct-terminal/sessions}"
 vm_runtime_directory="${QSM_DIRECT_VM_RUNTIME_DIRECTORY:-/run/qsm-pve-direct}"
 pve_config_directory="${QSM_DIRECT_PVE_CONFIG_DIRECTORY:-/etc/pve/qemu-server}"
-for value in "$instance_directory" "$runtime_directory" "$vm_runtime_directory" "$pve_config_directory"; do
+qemu_pid_directory="${QSM_DIRECT_QEMU_PID_DIRECTORY:-/run/qemu-server}"
+for value in "$instance_directory" "$runtime_directory" "$vm_runtime_directory" "$pve_config_directory" "$qemu_pid_directory"; do
     absolute_path "$value"
 done
 
 set -- --instance-directory "$instance_directory" --runtime-directory "$runtime_directory" \
-    --vm-runtime-directory "$vm_runtime_directory" --pve-config-directory "$pve_config_directory"
+    --vm-runtime-directory "$vm_runtime_directory" --pve-config-directory "$pve_config_directory" \
+    --qemu-pid-directory "$qemu_pid_directory"
 if [ -n "${QSM_DIRECT_LOCAL_NODE:-}" ]; then
     set -- "$@" --local-node "$QSM_DIRECT_LOCAL_NODE"
 fi

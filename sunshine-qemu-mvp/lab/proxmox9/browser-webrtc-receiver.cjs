@@ -94,9 +94,14 @@ async function createOffer() {
     });
     page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto(await startLocalPage());
-    const offer = await page.evaluate(async () => {
+    const iceServer = process.env.QSM_BROWSER_E2E_ICE_SERVER;
+    const offer = await page.evaluate(async (iceUrl) => {
         const video = document.getElementById('remote');
-        const pc = new RTCPeerConnection({ iceServers: [] });
+        // The normal browser contract is host ICE only.  A remote laboratory
+        // peer may opt into a STUN URL when its LXC policy prevents Chrome
+        // from exposing a host candidate; that is an E2E-lab plumbing switch,
+        // never a setting emitted by the packaged PVE Console.
+        const pc = new RTCPeerConnection({ iceServers: iceUrl ? [{ urls: iceUrl }] : [] });
         window.qsmPeerConnection = pc;
         window.qsmControl = pc.createDataChannel('qsm-control', { ordered: true });
         window.qsmPointer = pc.createDataChannel('qsm-pointer', { ordered: false, maxRetransmits: 0 });
@@ -191,7 +196,7 @@ async function createOffer() {
         const localOffer = await pc.createOffer();
         await pc.setLocalDescription(localOffer);
         return { type: pc.localDescription.type, sdp: pc.localDescription.sdp };
-    });
+    }, iceServer || '');
     await waitForIceComplete();
     return page.evaluate(() => ({
         type: window.qsmPeerConnection.localDescription.type,

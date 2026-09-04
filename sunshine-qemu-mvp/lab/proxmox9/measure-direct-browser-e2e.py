@@ -30,6 +30,8 @@ class BrowserPeer:
             environment.append("QSM_BROWSER_E2E_HEADFUL=1")
         if arguments.browser_display:
             environment.append(f"DISPLAY={arguments.browser_display}")
+        if arguments.browser_ice_server:
+            environment.append(f"QSM_BROWSER_E2E_ICE_SERVER={arguments.browser_ice_server}")
         command = [
             "ssh", "-i", arguments.browser_key,
             "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
@@ -99,15 +101,18 @@ def terminal_request(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     return decoded["result"]
 
 
-def wait_for_video(peer: BrowserPeer, timeout: float, *, width: int, height: int) -> dict[str, Any]:
+def wait_for_video(peer: BrowserPeer, timeout: float, *, width: int, height: int,
+                   require_geometry: bool = False) -> dict[str, Any]:
     deadline = time.monotonic() + timeout
     last: dict[str, Any] = {}
     nudge_sent = False
     while time.monotonic() < deadline:
         last = peer.request({"op": "status"}, timeout=5.0)
+        dimensions_match = last.get("videoWidth") == width and last.get("videoHeight") == height
         if (last.get("connectionState") == "connected" and last.get("pointerReady") is True and
-                last.get("readyState", 0) >= 2 and
-                last.get("videoWidth", 0) > 0 and last.get("videoHeight", 0) > 0):
+                last.get("controlReady") is True and last.get("readyState", 0) >= 2 and
+                last.get("videoWidth", 0) > 0 and last.get("videoHeight", 0) > 0 and
+                (not require_geometry or dimensions_match)):
             return last
         if (last.get("connectionState") == "connected" and last.get("pointerReady") is True and
                 not nudge_sent):
@@ -124,6 +129,18 @@ def wait_for_video(peer: BrowserPeer, timeout: float, *, width: int, height: int
     raise RuntimeError(f"Chrome did not present video: {last}")
 
 
+def wait_for_disconnect(peer: BrowserPeer, timeout: float) -> dict[str, Any]:
+    """Wait for a VM/service lifecycle action to retire this WebRTC peer."""
+    deadline = time.monotonic() + timeout
+    last: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        last = peer.request({"op": "status"}, timeout=5.0)
+        if last.get("connectionState") != "connected":
+            return last
+        time.sleep(0.1)
+    raise RuntimeError(f"Chrome Console remained connected after lifecycle action: {last}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--browser-host", default="192.168.76.2")
@@ -135,6 +152,8 @@ def main() -> int:
                         help="run Chrome in an isolated visible X display")
     parser.add_argument("--browser-display", default="",
                         help="X display for --browser-headful, for example :97")
+    parser.add_argument("--browser-ice-server", default="",
+                        help="optional laboratory-only STUN/TURN URL for the remote Chrome peer")
     parser.add_argument("--socket", default="/run/qsm-pve-direct-terminal/pve-webrtc.sock")
     parser.add_argument("--node", default=socket.gethostname())
     parser.add_argument("--vmid", type=int, default=100)
@@ -142,6 +161,10 @@ def main() -> int:
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--fps", type=int, default=60)
     parser.add_argument("--warmup-seconds", type=float, default=3.0)
+    parser.add_argument("--hold-seconds", type=float, default=0.0,
+                        help="keep the live browser peer open before recording final state (0..120)")
+    parser.add_argument("--expect-disconnect", action="store_true",
+                        help="require a lifecycle action to disconnect the live browser peer within --hold-seconds")
     parser.add_argument("--hover-runs", type=int, default=0,
                         help="run the 1280x800 laboratory hover-popover measurement N times")
     parser.add_argument("--guest-transfer", action="store_true",
@@ -155,6 +178,10 @@ def main() -> int:
         parser.error("--guest-file-bytes must be in 0..2097152")
     if arguments.guest_download_bytes is not None and not 0 <= arguments.guest_download_bytes <= 2 * 1024 * 1024:
         parser.error("--guest-download-bytes must be in 0..2097152")
+    if not 0 <= arguments.hold_seconds <= 120:
+        parser.error("--hold-seconds must be in 0..120")
+    if arguments.expect_disconnect and arguments.hold_seconds < 1:
+        parser.error("--expect-disconnect requires --hold-seconds of at least one second")
 
     peer = BrowserPeer(arguments)
     started = time.monotonic()
@@ -169,7 +196,16 @@ def main() -> int:
             "fps": arguments.fps,
         })
         peer.request({"op": "answer", "answer": answer})
-        video = wait_for_video(peer, timeout=30.0, width=arguments.width, height=arguments.height)
+        initial_video = wait_for_video(peer, timeout=30.0, width=arguments.width, height=arguments.height)
+        # Match the real Console UI: the SDP request supplies an initial
+        # worker size, but the browser's control channel is the authoritative
+        # resize path after the WebRTC channels become live.
+        peer.request({"op": "control", "message": {
+            "op": "resize", "width": arguments.width, "height": arguments.height,
+            "fps": arguments.fps,
+        }}, timeout=5.0)
+        video = wait_for_video(peer, timeout=30.0, width=arguments.width, height=arguments.height,
+                               require_geometry=True)
         first_video_ms = (time.monotonic() - started) * 1000.0
         before = peer.request({"op": "webrtc_stats"})
         time.sleep(arguments.warmup_seconds)
@@ -178,6 +214,7 @@ def main() -> int:
         pixels = peer.request({"op": "frame_stats"})
         result = {
             "firstVideoMs": first_video_ms,
+            "initialVideo": initial_video,
             "video": video,
             "before": before,
             "after": after,
@@ -216,13 +253,22 @@ def main() -> int:
             outgoing_list = peer.request({"op": "guest", "message": {
                 "op": "qsm_guest_file_list", "area": "outgoing",
             }}, timeout=15.0)
-            if not any(entry.get("name") == "guest-download.txt" for entry in outgoing_list.get("files", [])):
-                raise RuntimeError("guest outgoing file manifest did not include download fixture")
+            outgoing_files = outgoing_list.get("files")
+            if not isinstance(outgoing_files, list):
+                raise RuntimeError("guest outgoing file manifest is invalid")
+            # The agent owns this directory.  A real desktop may expose a
+            # user-selected file rather than the laboratory's historical
+            # ``guest-download.txt`` fixture; any safe manifest entry is a
+            # valid guest-to-browser transfer candidate.
+            download_name = next((entry.get("name") for entry in outgoing_files
+                                  if isinstance(entry, dict) and isinstance(entry.get("name"), str)), None)
+            if download_name is None:
+                raise RuntimeError("guest outgoing file manifest is empty")
             download_result = peer.request({"op": "guest", "message": {
-                "op": "qsm_guest_file_download", "name": "guest-download.txt",
+                "op": "qsm_guest_file_download", "name": download_name,
             }}, timeout=15.0)
             downloaded = base64.b64decode(download_result.get("data_b64", ""), validate=True)
-            if download_result.get("name") != "guest-download.txt" or not downloaded:
+            if download_result.get("name") != download_name or not downloaded:
                 raise RuntimeError("guest file download returned no guest data")
             if arguments.guest_download_bytes is not None and len(downloaded) != arguments.guest_download_bytes:
                 raise RuntimeError("guest file download returned an unexpected byte count")
@@ -246,6 +292,11 @@ def main() -> int:
                     "timeoutMs": 8000,
                 }}, timeout=15.0))
             result["hover"] = hover
+        if arguments.expect_disconnect:
+            result["afterHold"] = wait_for_disconnect(peer, arguments.hold_seconds)
+        elif arguments.hold_seconds:
+            time.sleep(arguments.hold_seconds)
+            result["afterHold"] = peer.request({"op": "status"}, timeout=10.0)
         print("QSM_LAB_DIRECT_CHROME_E2E " + json.dumps(result, separators=(",", ":"), sort_keys=True))
         return 0
     finally:
