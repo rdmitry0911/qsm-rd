@@ -36,7 +36,8 @@ MARKER = "QSM_LAB_DIRECT_CHROME_E2E "
 
 def _command(arguments: argparse.Namespace, *, width: int, height: int,
              hold_seconds: float = 0.0, guest_transfer: bool = False,
-             expect_disconnect: bool = False) -> list[str]:
+             expect_disconnect: bool = False,
+             viewport_resizes: tuple[tuple[int, int], ...] = ()) -> list[str]:
     command = [
         sys.executable, os.fspath(MEASURE),
         "--socket", arguments.socket,
@@ -60,6 +61,8 @@ def _command(arguments: argparse.Namespace, *, width: int, height: int,
         command.extend(["--guest-transfer", "--guest-file-bytes", str(arguments.guest_file_bytes)])
     if expect_disconnect:
         command.append("--expect-disconnect")
+    for resize_width, resize_height in viewport_resizes:
+        command.extend(["--viewport-resize", f"{resize_width}x{resize_height}"])
     return command
 
 
@@ -93,6 +96,11 @@ def _check_live(result: dict[str, Any], name: str, width: int, height: int) -> N
     if not isinstance(exercise, dict) or exercise.get("pointerSweep") != 3 or \
             exercise.get("mouseClick") is not True or exercise.get("keyboard") != "left-shift":
         raise StressFailure(f"{name}: browser did not exercise all direct input lanes")
+    layout = video.get("layout")
+    if not isinstance(layout, dict) or layout.get("viewportWidth") != width or \
+            layout.get("viewportHeight") != height or layout.get("objectFit") != "fill" or \
+            layout.get("fillsViewport") is not True:
+        raise StressFailure(f"{name}: decoded frame does not fill its final browser viewport")
 
 
 EVENT_DEVICE = re.compile(r"^/dev/input/event[0-9]{1,4}$")
@@ -134,9 +142,11 @@ def _await_guest_capture(process: subprocess.Popen[bytes], label: str) -> int:
 
 
 def _run_case(arguments: argparse.Namespace, name: str, width: int, height: int,
-              *, guest_transfer: bool = False) -> dict[str, Any]:
+              *, guest_transfer: bool = False,
+              viewport_resizes: tuple[tuple[int, int], ...] = ()) -> dict[str, Any]:
     completed = subprocess.run(
-        _command(arguments, width=width, height=height, guest_transfer=guest_transfer),
+        _command(arguments, width=width, height=height, guest_transfer=guest_transfer,
+                 viewport_resizes=viewport_resizes),
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, encoding="utf-8", timeout=90, check=False,
     )
@@ -147,6 +157,14 @@ def _run_case(arguments: argparse.Namespace, name: str, width: int, height: int,
     _check_live(result, name, width, height)
     if guest_transfer and not isinstance(result.get("guestTransfer"), dict):
         raise StressFailure(f"{name}: guest clipboard/file transfer was not completed")
+    if viewport_resizes:
+        observed = result.get("viewportResizes")
+        expected = [{"width": resize_width, "height": resize_height}
+                    for resize_width, resize_height in viewport_resizes]
+        if not isinstance(observed, list) or [
+                {"width": value.get("width"), "height": value.get("height")}
+                for value in observed if isinstance(value, dict)] != expected:
+            raise StressFailure(f"{name}: browser viewport/Display1 resize sequence was incomplete")
     return result
 
 
@@ -307,7 +325,10 @@ def main() -> int:
         tablet_capture = _guest_capture(arguments, arguments.guest_tablet_device)
         keyboard_capture = _guest_capture(arguments, arguments.guest_keyboard_device)
         try:
-            evidence["window"] = _run_case(arguments, "window", *arguments.window_size, guest_transfer=True)
+            evidence["window"] = _run_case(
+                arguments, "window", *arguments.window_size, guest_transfer=True,
+                viewport_resizes=(arguments.fullscreen_size, arguments.window_size),
+            )
         except BaseException:
             # A failed browser case must not leave a 45-second SSH reader
             # behind in a continuous lab run.  On success the readers finish
@@ -324,7 +345,10 @@ def main() -> int:
                 "tabletEventBytes": _await_guest_capture(tablet_capture, "tablet"),
                 "keyboardEventBytes": _await_guest_capture(keyboard_capture, "keyboard"),
             }
-        evidence["fullscreen"] = _run_case(arguments, "fullscreen", *arguments.fullscreen_size)
+        evidence["fullscreen"] = _run_case(
+            arguments, "fullscreen", *arguments.fullscreen_size,
+            viewport_resizes=(arguments.window_size, arguments.fullscreen_size),
+        )
         _concurrent_case(arguments)
         evidence["vmRestart"] = _run_held_case(arguments, "vm-restart", restart_vm=True)
         evidence["afterVmRestart"] = _run_case(arguments, "after-vm-restart", *arguments.window_size)

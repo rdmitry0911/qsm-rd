@@ -147,6 +147,30 @@ def wait_for_disconnect(peer: BrowserPeer, timeout: float) -> dict[str, Any]:
     raise RuntimeError(f"Chrome Console remained connected after lifecycle action: {last}")
 
 
+def require_viewport(status: dict[str, Any], width: int, height: int, label: str) -> None:
+    """Reject a decoded stream that leaves the Console viewport unused."""
+    layout = status.get("layout")
+    if not isinstance(layout, dict):
+        raise RuntimeError(f"{label}: browser did not report video layout")
+    expected = {
+        "viewportWidth": width, "viewportHeight": height,
+        "objectFit": "fill", "fillsViewport": True,
+    }
+    if any(layout.get(key) != value for key, value in expected.items()):
+        raise RuntimeError(f"{label}: video does not fill {width}x{height} browser viewport: {layout}")
+
+
+def geometry(value: str) -> tuple[int, int]:
+    width, separator, height = value.partition("x")
+    if separator != "x" or not width.isdecimal() or not height.isdecimal():
+        raise argparse.ArgumentTypeError("geometry must be WIDTHxHEIGHT")
+    result = int(width), int(height)
+    if not (64 <= result[0] <= 16384 and 64 <= result[1] <= 16384 and
+            result[0] % 2 == 0 and result[1] % 2 == 0):
+        raise argparse.ArgumentTypeError("geometry must be even and within 64..16384")
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--browser-host", default="192.168.76.2")
@@ -179,6 +203,8 @@ def main() -> int:
                         help="bytes uploaded during --guest-transfer (0..2097152)")
     parser.add_argument("--guest-download-bytes", type=int,
                         help="require this many bytes from the guest download during --guest-transfer")
+    parser.add_argument("--viewport-resize", type=geometry, action="append", default=[],
+                        help="resize the actual Chrome viewport and Display1 in this live session (WIDTHxHEIGHT)")
     arguments = parser.parse_args()
     if not 0 <= arguments.guest_file_bytes <= 2 * 1024 * 1024:
         parser.error("--guest-file-bytes must be in 0..2097152")
@@ -188,6 +214,9 @@ def main() -> int:
         parser.error("--hold-seconds must be in 0..120")
     if arguments.expect_disconnect and arguments.hold_seconds < 1:
         parser.error("--expect-disconnect requires --hold-seconds of at least one second")
+    if not (64 <= arguments.width <= 16384 and 64 <= arguments.height <= 16384 and
+            arguments.width % 2 == 0 and arguments.height % 2 == 0):
+        parser.error("--width/--height must be even and within 64..16384")
 
     peer = BrowserPeer(arguments)
     started = time.monotonic()
@@ -195,6 +224,8 @@ def main() -> int:
         offer = peer.request({"op": "offer"})
         if "H264/90000" not in offer.get("sdp", ""):
             raise RuntimeError("Chrome test peer did not offer H.264")
+        browser_viewport = peer.request({"op": "viewport", "width": arguments.width, "height": arguments.height})
+        require_viewport(browser_viewport, arguments.width, arguments.height, "initial viewport")
         answer = terminal_request(arguments.socket, {
             "version": 1, "op": "pve_acl_webrtc", "node": arguments.node,
             "vmid": arguments.vmid, "subject": "root@pam", "sdp": offer["sdp"],
@@ -212,6 +243,7 @@ def main() -> int:
         }}, timeout=5.0)
         video = wait_for_video(peer, timeout=30.0, width=arguments.width, height=arguments.height,
                                require_geometry=True)
+        require_viewport(video, arguments.width, arguments.height, "initial Display1 frame")
         # Exercise the reliable input lane too. Shift (set-1 42) changes no
         # text in a greeter or desktop, while still proving key press and
         # release traverse Chrome -> SCTP -> Display1 -> guest USB keyboard.
@@ -229,6 +261,17 @@ def main() -> int:
         peer.request({"op": "control", "message": {
             "op": "keyboard", "key": 42, "down": False, "modifiers": 0,
         }}, timeout=5.0)
+        viewport_resizes: list[dict[str, Any]] = []
+        for index, (width, height) in enumerate(arguments.viewport_resize, start=1):
+            resized_viewport = peer.request({"op": "viewport", "width": width, "height": height})
+            require_viewport(resized_viewport, width, height, f"viewport resize {index}")
+            peer.request({"op": "control", "message": {
+                "op": "resize", "width": width, "height": height, "fps": arguments.fps,
+            }}, timeout=5.0)
+            resized_video = wait_for_video(peer, timeout=30.0, width=width, height=height,
+                                           require_geometry=True)
+            require_viewport(resized_video, width, height, f"Display1 resize {index}")
+            viewport_resizes.append({"width": width, "height": height, "video": resized_video})
         first_video_ms = (time.monotonic() - started) * 1000.0
         before = peer.request({"op": "webrtc_stats"})
         time.sleep(arguments.warmup_seconds)
@@ -245,6 +288,7 @@ def main() -> int:
             "deltaFramesDecoded": after.get("framesDecoded", 0) - before.get("framesDecoded", 0),
             "pixels": pixels,
             "inputExercise": {"pointerSweep": 3, "mouseClick": True, "keyboard": "left-shift"},
+            "viewportResizes": viewport_resizes,
         }
         if arguments.guest_transfer:
             clipboard = "browser direct clipboard → guest\nПривет".encode("utf-8")

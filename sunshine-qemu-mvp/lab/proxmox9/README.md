@@ -122,7 +122,7 @@ QSM package.  A successful run emits one bounded
 
 | Contract | Exercise |
 | --- | --- |
-| Window and fullscreen geometry | fresh 1280×798 and 1920×1080 Display1 sessions |
+| Window and fullscreen geometry | fresh 1280×798 and 1920×1080 sessions, plus window → fullscreen → window and fullscreen → window → fullscreen in the same WebRTC Console; Chrome verifies the video box fills each viewport |
 | Video and input | real Chrome H.264 pixels, progressing decoded frames, ordered control and lossy pointer channels; optional full lane requires physical tablet and keyboard `evdev` records in the guest |
 | Several Console windows | two simultaneous Chrome subscribers to one QEMU scanout |
 | Clipboard and files | browser ↔ private virtio guest channel, UTF-8 clipboard and both file directions |

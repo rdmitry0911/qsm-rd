@@ -309,6 +309,11 @@
         const fullscreen = document.createElement('button');
         fullscreen.type = 'button';
         fullscreen.style.cssText = 'padding:4px 9px;cursor:pointer';
+        // Assigned once the WebRTC control channel is created.  A full-screen
+        // transition is not consistently reported by ResizeObserver across
+        // Chromium/Safari, so this explicit hook is part of the resize
+        // contract rather than merely a toolbar-label update.
+        let resizeConsole = () => undefined;
         const video = document.createElement('video');
         video.autoplay = true;
         video.playsInline = true;
@@ -319,7 +324,12 @@
         // deterministically; audio can be enabled explicitly afterwards.
         video.muted = true;
         video.tabIndex = 0;
-        video.style.cssText = 'display:block;width:100%;height:100%;background:#000;object-fit:contain;outline:none';
+        // Display1 is resized to this exact box. Fill immediately so neither
+        // a browser full-screen transition nor its first in-flight frame
+        // leaves a letterboxed fragment of the guest on screen.  Once the
+        // ordered resize is acknowledged, source and box have identical
+        // geometry and no aspect-ratio distortion remains.
+        video.style.cssText = 'display:block;width:100%;height:100%;background:#000;object-fit:fill;outline:none';
         const audio = document.createElement('button');
         audio.type = 'button';
         audio.style.cssText = 'padding:4px 9px;cursor:pointer';
@@ -345,7 +355,10 @@
                 : document.documentElement.requestFullscreen();
             if (action && typeof action.catch === 'function') { action.catch(() => undefined); }
         });
-        document.addEventListener('fullscreenchange', setFullscreenLabel);
+        document.addEventListener('fullscreenchange', () => {
+            setFullscreenLabel();
+            resizeConsole(true);
+        });
         const copy = document.createElement('button');
         copy.type = 'button';
         copy.textContent = gettext('Copy');
@@ -852,6 +865,7 @@
                 if (immediate) { dispatch(); }
                 else { resizeTimer = popup.setTimeout(dispatch, 150); }
             };
+            resizeConsole = resize;
             const flushPointer = () => {
                 pointerFrame = null;
                 if (pendingPointer) { sendPointer(pendingPointer); pendingPointer = null; }
@@ -929,13 +943,22 @@
             pointer.addEventListener('close', closeForStoppedVm, { once: true });
             observer = new ResizeObserver(() => resize(false));
             observer.observe(video);
+            popup.addEventListener('resize', () => resize(false));
             video.addEventListener('mousemove', (event) => {
                 revealToolbar();
                 hideToolbarSoon();
                 const box = video.getBoundingClientRect();
-                const x = Math.max(0, Math.min(Math.floor(event.clientX - box.left), Math.floor(box.width) - 1));
-                const y = Math.max(0, Math.min(Math.floor(event.clientY - box.top), Math.floor(box.height) - 1));
-                queuePointer({ op: 'mouse_position', x, y, width: Math.max(1, Math.floor(box.width)), height: Math.max(1, Math.floor(box.height)) });
+                // Pointer coordinates must describe the decoded source, not
+                // CSS pixels.  During the few frames while a full-screen
+                // resize is in flight these can differ; using the old CSS box
+                // made click targets shift or disappear precisely then.
+                const sourceWidth = Math.max(1, video.videoWidth || Math.floor(box.width));
+                const sourceHeight = Math.max(1, video.videoHeight || Math.floor(box.height));
+                const x = Math.max(0, Math.min(sourceWidth - 1,
+                    Math.floor((event.clientX - box.left) * sourceWidth / Math.max(1, box.width))));
+                const y = Math.max(0, Math.min(sourceHeight - 1,
+                    Math.floor((event.clientY - box.top) * sourceHeight / Math.max(1, box.height))));
+                queuePointer({ op: 'mouse_position', x, y, width: sourceWidth, height: sourceHeight });
             });
             video.addEventListener('mousedown', (event) => { flushPointer(); video.focus(); send({ op: 'mouse_button', button: event.button + 1, down: true }); event.preventDefault(); });
             video.addEventListener('mouseup', (event) => { send({ op: 'mouse_button', button: event.button + 1, down: false }); event.preventDefault(); });

@@ -25,7 +25,13 @@ async function startLocalPage() {
     // UDP/DTLS path, so this remains a browser media qualification.
     pageDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'qsm-webrtc-page-'));
     const pagePath = path.join(pageDirectory, 'index.html');
-    await fs.writeFile(pagePath, '<!doctype html><video id="remote" autoplay muted playsinline></video>');
+    // Match the shipped Console popup's geometry rather than relying on a
+    // browser's 300x150 default video box.  The E2E gate must be able to
+    // reject a stream whose pixels decode correctly but occupy only part of
+    // a resized or full-screen browser viewport.
+    await fs.writeFile(pagePath, `<!doctype html>
+<style>html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#000}#remote{display:block;width:100%;height:100%;background:#000;object-fit:fill}</style>
+<video id="remote" autoplay muted playsinline></video>`);
     return `file://${pagePath}`;
 }
 
@@ -216,8 +222,14 @@ async function setAnswer(answer) {
 }
 
 async function status() {
+    if (!page) {
+        throw new Error('browser peer is not initialized');
+    }
     return page.evaluate(() => {
         const video = document.getElementById('remote');
+        const rect = video.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
         return {
             connectionState: window.qsmPeerConnection.connectionState,
             iceConnectionState: window.qsmPeerConnection.iceConnectionState,
@@ -230,8 +242,33 @@ async function status() {
             controlReady: window.qsmControl?.readyState === 'open',
             pointerReady: window.qsmPointer?.readyState === 'open',
             playoutDelayHint: window.qsmVideoReceiver?.playoutDelayHint ?? null,
+            layout: {
+                viewportWidth,
+                viewportHeight,
+                renderedLeft: rect.left,
+                renderedTop: rect.top,
+                renderedWidth: rect.width,
+                renderedHeight: rect.height,
+                objectFit: getComputedStyle(video).objectFit,
+                fillsViewport: Math.abs(rect.left) < 0.5 && Math.abs(rect.top) < 0.5 &&
+                    Math.abs(rect.width - viewportWidth) < 0.5 && Math.abs(rect.height - viewportHeight) < 0.5,
+            },
         };
     });
+}
+
+async function setViewport(message) {
+    if (!page || !message || typeof message !== 'object') {
+        throw new Error('invalid browser viewport command');
+    }
+    const { width, height } = message;
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 64 || height < 64 ||
+        width > 16384 || height > 16384 || width % 2 !== 0 || height % 2 !== 0) {
+        throw new Error('invalid browser viewport geometry');
+    }
+    await page.setViewportSize({ width, height });
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
+    return status();
 }
 
 async function frameStats() {
@@ -576,6 +613,7 @@ const commands = {
     status: async () => status(),
     frame_stats: async () => frameStats(),
     webrtc_stats: async () => webrtcStats(),
+    viewport: async (message) => setViewport(message),
     measure_hover: async (message) => measureHover(message.message),
     control: async (message) => control(message.message),
     pointer: async (message) => pointer(message.message),
