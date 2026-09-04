@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import subprocess
 import sys
 import time
-import re
 from pathlib import Path
 from typing import Any
 
@@ -139,6 +139,108 @@ def _await_guest_capture(process: subprocess.Popen[bytes], label: str) -> int:
     if process.returncode != 0 or len(stdout) != 24 or stderr:
         raise StressFailure(f"guest {label}: direct input did not reach its evdev device")
     return len(stdout)
+
+
+def _guest_ssh_command(arguments: argparse.Namespace, *remote: str) -> list[str]:
+    """Build the bounded lab SSH command used for guest physical evidence."""
+    command = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+               "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"]
+    if arguments.guest_display_key:
+        command.extend(["-i", arguments.guest_display_key])
+    command.extend([f"{arguments.guest_display_user}@{arguments.guest_display_host}", *remote])
+    return command
+
+
+def _guest_wayland_geometry(arguments: argparse.Namespace, expected: tuple[int, int], name: str) -> dict[str, Any] | None:
+    """Prove the *guest compositor*, not merely QEMU's scanout, resized.
+
+    Browser video dimensions can change while a desktop keeps drawing its old
+    logical mode inside the new framebuffer.  Kubuntu's KScreen exposes the
+    active Wayland output geometry; query the active local seat (including the
+    SDDM Wayland greeter after a reboot) through the existing disposable-guest
+    SSH account and require it to equal the settled browser viewport.
+    """
+    if not arguments.guest_display_host:
+        return None
+    sessions = subprocess.run(
+        _guest_ssh_command(arguments, "sudo", "-n", "loginctl", "list-sessions", "--no-legend", "--no-pager"),
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", timeout=20, check=False,
+    )
+    if sessions.returncode != 0:
+        raise StressFailure(f"{name}: could not enumerate guest graphical sessions")
+    selected: tuple[str, str, str] | None = None
+    for line in sessions.stdout.splitlines():
+        session_id = line.split(maxsplit=1)[0] if line.split() else ""
+        if not session_id.isdecimal():
+            continue
+        details = subprocess.run(
+            _guest_ssh_command(arguments, "sudo", "-n", "loginctl", "show-session", session_id,
+                               "-p", "User", "-p", "Name", "-p", "Remote", "-p", "Type", "-p", "State"),
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", timeout=20, check=False,
+        )
+        if details.returncode != 0:
+            continue
+        properties = dict(line.split("=", 1) for line in details.stdout.splitlines() if "=" in line)
+        uid, user = properties.get("User", ""), properties.get("Name", "")
+        if (properties.get("Remote") == "no" and properties.get("Type") == "wayland" and
+                properties.get("State") == "active" and uid.isdecimal() and
+                re.fullmatch(r"[A-Za-z0-9._-]+", user or "")):
+            selected = session_id, uid, user
+            break
+    if selected is None:
+        raise StressFailure(f"{name}: guest has no active local Wayland session")
+    session_id, uid, user = selected
+
+    def read_geometry() -> tuple[int, int] | None:
+        for socket_name in ("wayland-0", "wayland-1", "wayland-2", "wayland-3"):
+            output = subprocess.run(
+                _guest_ssh_command(
+                    arguments, "sudo", "-n", "runuser", "-u", user, "--", "env",
+                    f"XDG_RUNTIME_DIR=/run/user/{uid}", f"WAYLAND_DISPLAY={socket_name}",
+                    f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus", "kscreen-doctor", "--json",
+                ),
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8", timeout=20, check=False,
+            )
+            if output.returncode != 0:
+                continue
+            try:
+                kscreen = json.loads(output.stdout)
+            except json.JSONDecodeError:
+                continue
+            outputs = kscreen.get("outputs") if isinstance(kscreen, dict) else None
+            if not isinstance(outputs, list):
+                continue
+            for display in outputs:
+                if not isinstance(display, dict) or display.get("enabled") is not True:
+                    continue
+                size = display.get("size")
+                if isinstance(size, dict) and isinstance(size.get("width"), int) and isinstance(size.get("height"), int):
+                    return size["width"], size["height"]
+        return None
+
+    # A successful decoder-size check alone catches only a transient frame.
+    # Keep observing KWin for two seconds after it has selected the requested
+    # mode: a second stale Console must not be able to restore its old window
+    # dimensions immediately afterwards.
+    deadline = time.monotonic() + 12.0
+    stable_since: float | None = None
+    latest: tuple[int, int] | None = None
+    while time.monotonic() < deadline:
+        latest = read_geometry()
+        if latest == expected:
+            if stable_since is None:
+                stable_since = time.monotonic()
+            elif time.monotonic() - stable_since >= 2.0:
+                return {"session": session_id, "user": user, "geometry": latest}
+        else:
+            stable_since = None
+        time.sleep(0.25)
+    if latest is None:
+        raise StressFailure(f"{name}: KScreen could not query the active guest Wayland output")
+    raise StressFailure(f"{name}: guest Wayland output settled at {latest[0]}x{latest[1]}, expected {expected[0]}x{expected[1]}")
 
 
 def _run_case(arguments: argparse.Namespace, name: str, width: int, height: int,
@@ -289,6 +391,10 @@ def main() -> int:
     parser.add_argument("--guest-input-key", default="")
     parser.add_argument("--guest-tablet-device", default="/dev/input/event2")
     parser.add_argument("--guest-keyboard-device", default="/dev/input/event1")
+    parser.add_argument("--guest-display-host", default="",
+                        help="optional guest SSH host for KScreen proof of the settled Wayland geometry")
+    parser.add_argument("--guest-display-user", default="root")
+    parser.add_argument("--guest-display-key", default="")
     parser.add_argument("--window-size", default="1280x798")
     parser.add_argument("--fullscreen-size", default="1920x1080")
     arguments = parser.parse_args()
@@ -322,6 +428,7 @@ def main() -> int:
             raise StressFailure("target VM is not running")
 
         evidence: dict[str, Any] = {}
+        display_evidence: dict[str, dict[str, Any]] = {}
         tablet_capture = _guest_capture(arguments, arguments.guest_tablet_device)
         keyboard_capture = _guest_capture(arguments, arguments.guest_keyboard_device)
         try:
@@ -345,10 +452,16 @@ def main() -> int:
                 "tabletEventBytes": _await_guest_capture(tablet_capture, "tablet"),
                 "keyboardEventBytes": _await_guest_capture(keyboard_capture, "keyboard"),
             }
+        window_geometry = _guest_wayland_geometry(arguments, arguments.window_size, "window")
+        if window_geometry is not None:
+            display_evidence["window"] = window_geometry
         evidence["fullscreen"] = _run_case(
             arguments, "fullscreen", *arguments.fullscreen_size,
             viewport_resizes=(arguments.window_size, arguments.fullscreen_size),
         )
+        fullscreen_geometry = _guest_wayland_geometry(arguments, arguments.fullscreen_size, "fullscreen")
+        if fullscreen_geometry is not None:
+            display_evidence["fullscreen"] = fullscreen_geometry
         _concurrent_case(arguments)
         evidence["vmRestart"] = _run_held_case(arguments, "vm-restart", restart_vm=True)
         evidence["afterVmRestart"] = _run_case(arguments, "after-vm-restart", *arguments.window_size)
@@ -361,6 +474,7 @@ def main() -> int:
             "fullscreen": arguments.fullscreen_size,
             "guestTransfer": evidence["window"].get("guestTransfer"),
             "guestInput": input_evidence,
+            "guestDisplay": display_evidence or None,
         }
     except (OSError, StressFailure, subprocess.SubprocessError, subprocess.TimeoutExpired) as error:
         print(f"QSM_DIRECT_STRESS_SUITE_FAILED: {error}", file=sys.stderr)

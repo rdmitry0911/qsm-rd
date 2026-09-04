@@ -83,6 +83,10 @@ assert.match(source, /requestAnimationFrame\(flushPointer\)/,
     'browser mousemove bursts must be coalesced to the display refresh cadence');
 assert.match(source, /popup\.setTimeout\(dispatch, 150\)/,
     'window dragging must debounce guest resolution changes');
+assert.match(source, /A VM has one Display1 scanout, while several PVE Console\n\s*\/\/ windows may observe it\./,
+    'a decoded resize from another Console must not be treated as this popup being resized');
+assert.doesNotMatch(source, /video\.addEventListener\('resize', \(\) => resize\(false\)\)/,
+    'an inactive differently sized Console must not restore its stale resolution');
 assert.match(source, /qsm_guest_file_upload_chunk/,
     'file upload must be fragmented for browser WebRTC SCTP message limits');
 assert.match(source, /const guestUploadChunkBytes = 32 \* 1024/,

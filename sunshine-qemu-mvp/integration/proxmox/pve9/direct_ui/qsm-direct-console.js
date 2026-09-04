@@ -973,7 +973,29 @@
             observer = new ResizeObserver(() => resize(false));
             observer.observe(video);
             popup.addEventListener('resize', () => resize(false));
-            video.addEventListener('resize', () => resize(false));
+            // A VM has one Display1 scanout, while several PVE Console
+            // windows may observe it.  A decoded-frame resize means that
+            // *some* Console already changed the guest mode; it is not a
+            // resize of this popup.  Feeding that event back into `resize()`
+            // made an older, differently sized viewer immediately restore
+            // its stale dimensions and left the window that the user had
+            // just resized letterboxed.  Only this popup's CSS box and its
+            // explicit full-screen transition are authority to request a
+            // mode.  The video event merely lets its outstanding retry yield
+            // to the newer Console request.
+            video.addEventListener('resize', () => {
+                const visible = `${video.videoWidth}x${video.videoHeight}@60`;
+                if (visible === resizeRetryIdentity) {
+                    resizeRetryAttempts = 0;
+                    return;
+                }
+                if (resizeRetryTimer !== null) {
+                    popup.clearTimeout(resizeRetryTimer);
+                    resizeRetryTimer = null;
+                }
+                resizeRetryIdentity = '';
+                resizeRetryAttempts = 0;
+            });
             video.addEventListener('mousemove', (event) => {
                 revealToolbar();
                 hideToolbarSoon();
