@@ -14,8 +14,12 @@ class QsmGuestPackageTests(unittest.TestCase):
     def test_setup_enables_the_system_virtio_agent_for_the_selected_user(self) -> None:
         setup = (ROOT / "packaging/guest/qsm-guest-agent-setup").read_text(encoding="utf-8")
         self.assertIn('install -d -m 0700 -o "$user" -g "$user"', setup)
+        self.assertIn('Environment=QSM_GUEST_HOME=$user_home', setup)
+        self.assertIn('ReadWritePaths=$user_home/.local/share/qsm-guest-agent', setup)
+        self.assertIn("systemctl daemon-reload", setup)
         self.assertIn('systemctl enable "qsm-guest-agent@${user}.service"', setup)
         self.assertIn('systemctl start "qsm-guest-agent@${user}.service"', setup)
+        self.assertNotIn("loginctl terminate-user", setup)
 
     def test_service_uses_only_the_private_direct_virtio_port(self) -> None:
         unit = (ROOT / "packaging/guest/qsm-guest-agent@.service").read_text(encoding="utf-8")
@@ -23,7 +27,10 @@ class QsmGuestPackageTests(unittest.TestCase):
         self.assertIn("--device /dev/virtio-ports/org.qsm.direct.agent", unit)
         self.assertIn("Group=qsm-guest", unit)
         self.assertIn("ProtectSystem=strict", unit)
-        self.assertIn("ReadWritePaths=%h/.local/share/qsm-guest-agent", unit)
+        self.assertIn("Environment=QSM_GUEST_HOME=/home/%i", unit)
+        self.assertIn("--state-dir ${QSM_GUEST_HOME}/.local/share/qsm-guest-agent", unit)
+        self.assertIn("ReadWritePaths=/home/%i/.local/share/qsm-guest-agent", unit)
+        self.assertNotIn("%h/.local/share/qsm-guest-agent", unit)
 
 
 if __name__ == "__main__":

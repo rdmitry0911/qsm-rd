@@ -21,11 +21,30 @@ case "$user_home" in
     /*) ;;
     *) echo "qsm guest setup: user has no absolute home directory" >&2; exit 1 ;;
 esac
+case "$user_home" in
+    *[!A-Za-z0-9_./-]*)
+        echo "qsm guest setup: user home contains unsupported characters" >&2
+        exit 1
+        ;;
+esac
 install -d -m 0700 -o "$user" -g "$user" "$user_home/.local/share/qsm-guest-agent"
+# The template has a portable /home/USER default.  Keep arbitrary local
+# account homes confined to their one writable exchange directory instead of
+# accidentally using systemd's %%h (PID 1's /root).
+dropin_directory="/etc/systemd/system/qsm-guest-agent@${user}.service.d"
+install -d -m 0755 "$dropin_directory"
+umask 022
+printf '%s\n' \
+    '[Service]' \
+    "Environment=HOME=$user_home" \
+    "Environment=QSM_GUEST_HOME=$user_home" \
+    'ReadWritePaths=' \
+    "ReadWritePaths=$user_home/.local/share/qsm-guest-agent" \
+    > "$dropin_directory/home.conf"
+systemctl daemon-reload
 # The system unit owns the private virtio port. Enable its concrete user
 # instance now; a missing port merely leaves the unit condition inactive until
 # Display1 is saved and the VM is restarted.
 systemctl enable "qsm-guest-agent@${user}.service"
 systemctl start "qsm-guest-agent@${user}.service" 2>/dev/null || true
-loginctl terminate-user "$user" 2>/dev/null || true
-echo "QSM guest agent enabled for $user. Log in again, then run: systemctl --user enable --now qsm-guest-clipboard.service"
+echo "QSM guest agent enabled for $user. For Wayland clipboard run: systemctl --user enable --now qsm-guest-clipboard.service"
