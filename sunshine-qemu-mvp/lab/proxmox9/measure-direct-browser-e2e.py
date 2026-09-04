@@ -234,6 +234,10 @@ def main() -> int:
                         help="capture after --hold-seconds; useful for a live compositor transition")
     parser.add_argument("--max-edge-luma", type=int,
                         help="optional lab-fixture limit for every decoded-frame corner (0..255)")
+    parser.add_argument("--max-steady-jitter-buffer-mean-ms", type=float,
+                        help="fail if Chrome's warm steady-state video playout delay exceeds this value (0..10000)")
+    parser.add_argument("--max-steady-frame-drops", type=int,
+                        help="fail if Chrome drops more than this many video frames during warm steady state (0..100000)")
     arguments = parser.parse_args()
     if not 0 <= arguments.guest_file_bytes <= 2 * 1024 * 1024:
         parser.error("--guest-file-bytes must be in 0..2097152")
@@ -245,6 +249,12 @@ def main() -> int:
         parser.error("--resize-settle-seconds must be in 0..30")
     if arguments.max_edge_luma is not None and not 0 <= arguments.max_edge_luma <= 255:
         parser.error("--max-edge-luma must be in 0..255")
+    if (arguments.max_steady_jitter_buffer_mean_ms is not None and
+            not 0 <= arguments.max_steady_jitter_buffer_mean_ms <= 10_000):
+        parser.error("--max-steady-jitter-buffer-mean-ms must be in 0..10000")
+    if (arguments.max_steady_frame_drops is not None and
+            not 0 <= arguments.max_steady_frame_drops <= 100_000):
+        parser.error("--max-steady-frame-drops must be in 0..100000")
     if arguments.expect_disconnect and arguments.hold_seconds < 1:
         parser.error("--expect-disconnect requires --hold-seconds of at least one second")
     if not (64 <= arguments.width <= 16384 and 64 <= arguments.height <= 16384 and
@@ -319,6 +329,35 @@ def main() -> int:
         before = peer.request({"op": "webrtc_stats"})
         time.sleep(arguments.warmup_seconds)
         after = peer.request({"op": "webrtc_stats"})
+        def delta(name: str) -> float | None:
+            prior, current = before.get(name), after.get(name)
+            if not isinstance(prior, (int, float)) or not isinstance(current, (int, float)):
+                return None
+            return float(current) - float(prior)
+
+        emitted = delta("jitterBufferEmittedCount")
+        jitter_delay = delta("jitterBufferDelay")
+        steady_delay = (jitter_delay * 1000.0 / emitted
+                        if jitter_delay is not None and emitted is not None and emitted > 0 else None)
+        steady_drops = delta("framesDropped")
+        steady_state = {
+            "decodedFrames": delta("framesDecoded"),
+            "droppedFrames": steady_drops,
+            "jitterBufferEmittedFrames": emitted,
+            "jitterBufferMeanDelayMs": steady_delay,
+            "freezeCount": delta("freezeCount"),
+            "freezeDurationSeconds": delta("totalFreezesDuration"),
+        }
+        if (arguments.max_steady_jitter_buffer_mean_ms is not None and
+                (steady_delay is None or steady_delay > arguments.max_steady_jitter_buffer_mean_ms)):
+            raise RuntimeError(
+                "Chrome warm steady-state playout delay exceeded "
+                f"{arguments.max_steady_jitter_buffer_mean_ms} ms: {steady_delay}")
+        if (arguments.max_steady_frame_drops is not None and
+                (steady_drops is None or steady_drops > arguments.max_steady_frame_drops)):
+            raise RuntimeError(
+                "Chrome warm steady-state frame drops exceeded "
+                f"{arguments.max_steady_frame_drops}: {steady_drops}")
         after_video = peer.request({"op": "status"})
         pixels = peer.request({"op": "frame_stats"})
         if arguments.max_edge_luma is not None:
@@ -337,6 +376,7 @@ def main() -> int:
             "video": video,
             "before": before,
             "after": after,
+            "steadyState": steady_state,
             "afterVideo": after_video,
             "deltaFramesDecoded": after.get("framesDecoded", 0) - before.get("framesDecoded", 0),
             "pixels": pixels,

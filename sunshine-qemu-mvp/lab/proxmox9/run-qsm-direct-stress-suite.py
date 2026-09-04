@@ -47,6 +47,8 @@ def _command(arguments: argparse.Namespace, *, width: int, height: int,
         "--width", str(width), "--height", str(height),
         "--fps", str(arguments.fps),
         "--warmup-seconds", str(arguments.warmup_seconds),
+        "--max-steady-jitter-buffer-mean-ms", str(arguments.max_steady_jitter_buffer_mean_ms),
+        "--max-steady-frame-drops", str(arguments.max_steady_frame_drops),
         "--resize-settle-seconds", str(arguments.resize_settle_seconds),
         "--hold-seconds", str(hold_seconds),
         "--browser-host", arguments.browser_host,
@@ -86,7 +88,8 @@ def _result(output: str, name: str) -> dict[str, Any]:
     raise StressFailure(f"{name}: Chrome E2E did not produce its completion marker")
 
 
-def _check_live(result: dict[str, Any], name: str, width: int, height: int) -> None:
+def _check_live(result: dict[str, Any], arguments: argparse.Namespace,
+                name: str, width: int, height: int) -> None:
     video = result.get("video")
     pixels = result.get("pixels")
     if not isinstance(video, dict) or not isinstance(pixels, dict):
@@ -98,6 +101,15 @@ def _check_live(result: dict[str, Any], name: str, width: int, height: int) -> N
         raise StressFailure(f"{name}: decoded geometry is not {width}x{height}")
     if int(result.get("deltaFramesDecoded", 0)) < 1:
         raise StressFailure(f"{name}: Chrome did not decode a progressing video stream")
+    steady = result.get("steadyState")
+    if not isinstance(steady, dict):
+        raise StressFailure(f"{name}: browser did not report warm steady-state latency")
+    delay = steady.get("jitterBufferMeanDelayMs")
+    drops = steady.get("droppedFrames")
+    if not isinstance(delay, (int, float)) or delay > arguments.max_steady_jitter_buffer_mean_ms:
+        raise StressFailure(f"{name}: steady browser video delay is invalid: {delay}")
+    if not isinstance(drops, (int, float)) or drops > arguments.max_steady_frame_drops:
+        raise StressFailure(f"{name}: Chrome dropped {drops} warm video frames")
     if int(pixels.get("nonBlack", 0)) < 8 or int(pixels.get("lumaMax", 0)) <= int(pixels.get("lumaMin", 0)):
         raise StressFailure(f"{name}: Chrome received an empty or black Display1 frame")
     exercise = result.get("inputExercise")
@@ -279,7 +291,7 @@ def _run_case(arguments: argparse.Namespace, name: str, width: int, height: int,
         reason = completed.stderr.strip().splitlines()[-1:] or ["browser E2E failed"]
         raise StressFailure(f"{name}: {reason[0][:400]}")
     result = _result(completed.stdout, name)
-    _check_live(result, name, width, height)
+    _check_live(result, arguments, name, width, height)
     if guest_transfer and not isinstance(result.get("guestTransfer"), dict):
         raise StressFailure(f"{name}: guest clipboard/file transfer was not completed")
     if viewport_resizes:
@@ -393,7 +405,7 @@ def _concurrent_case(arguments: argparse.Namespace) -> None:
             raise StressFailure(f"{name}: Chrome E2E timed out")
         if process.returncode != 0:
             raise StressFailure(f"{name}: {stderr.strip()[-400:]}")
-        _check_live(_result(stdout, name), name, *expected)
+        _check_live(_result(stdout, name), arguments, name, *expected)
 
 
 def _competing_resolution_case(arguments: argparse.Namespace) -> dict[str, Any]:
@@ -421,7 +433,7 @@ def _competing_resolution_case(arguments: argparse.Namespace) -> dict[str, Any]:
         if second.returncode != 0:
             raise StressFailure(f"competing-window: {second.stderr.strip()[-400:]}")
         result = _result(second.stdout, "competing-window")
-        _check_live(result, "competing-window", *arguments.window_size)
+        _check_live(result, arguments, "competing-window", *arguments.window_size)
         _check_settled_viewport(result.get("afterHold"), "competing-window", *arguments.window_size)
         guest_display = _guest_wayland_geometry(arguments, arguments.window_size, "competing-window")
         return {"guestDisplay": guest_display, "lastViewer": result.get("afterHold")}
@@ -454,6 +466,10 @@ def main() -> int:
                         help="optional fixture assertion for each decoded-frame corner (0..255)")
     parser.add_argument("--fps", type=int, default=60)
     parser.add_argument("--warmup-seconds", type=float, default=2.0)
+    parser.add_argument("--max-steady-jitter-buffer-mean-ms", type=float, default=80.0,
+                        help="maximum Chrome warm steady-state video playout delay (0..10000)")
+    parser.add_argument("--max-steady-frame-drops", type=int, default=4,
+                        help="maximum Chrome video-frame drops during warm steady state (0..100000)")
     parser.add_argument("--resize-settle-seconds", type=float, default=1.0,
                         help="minimum seconds between distinct Display1 modes (0..30)")
     parser.add_argument("--hold-seconds", type=float, default=30.0)
@@ -489,6 +505,9 @@ def main() -> int:
         if not 0 <= arguments.warmup_seconds <= 30 or not 0 <= arguments.resize_settle_seconds <= 30 or \
                 not 10 <= arguments.hold_seconds <= 120:
             raise StressFailure("warm-up/resize-settle/hold bounds are invalid")
+        if not 0 <= arguments.max_steady_jitter_buffer_mean_ms <= 10_000 or \
+                not 0 <= arguments.max_steady_frame_drops <= 100_000:
+            raise StressFailure("steady-state browser latency bounds are invalid")
         if not 0 <= arguments.guest_file_bytes <= 2 * 1024 * 1024:
             raise StressFailure("guest file size is invalid")
         if arguments.max_edge_luma is not None and not 0 <= arguments.max_edge_luma <= 255:
