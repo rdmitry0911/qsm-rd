@@ -9,10 +9,12 @@ MIRROR="${QSM_DIRECT_DEBOOTSTRAP_MIRROR:-https://deb.debian.org/debian}"
 CHROOT_DIR="${QSM_DIRECT_TRIXIE_CHROOT:-$(mktemp -d /var/tmp/qsm-direct-trixie.XXXXXX)}"
 SOURCE_ARCHIVE="$(mktemp /var/tmp/qsm-direct-trixie-source.XXXXXX.tar)"
 PVE_KEY="$(mktemp /var/tmp/qsm-direct-pve-key.XXXXXX)"
+BUILD_JOBS="${QSM_DIRECT_DEB_JOBS:-4}"
 readonly PVE_KEY_URL='https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg'
 readonly PVE_KEY_SHA256='1bcd2d5bab556076c9ea756a84fe2b7445b13f4ef6e97b2e412b68778377ba6d'
 
 die() { echo "qsm direct Trixie driver: $*" >&2; exit 1; }
+[[ "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] || die "QSM_DIRECT_DEB_JOBS must be positive"
 for command in sudo debootstrap tar mktemp curl sha256sum install find; do
     command -v "$command" >/dev/null 2>&1 || die "missing command: $command"
 done
@@ -57,7 +59,7 @@ sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive /bin/bash 
     pve-manager qemu-server
 '
 sudo chroot "$CHROOT_DIR" /usr/bin/env \
-    QSM_DIRECT_DEB_OUTPUT_DIR=/work/out QSM_DIRECT_DEB_WORK_ROOT=/work/build \
+    QSM_DIRECT_DEB_OUTPUT_DIR=/work/out QSM_DIRECT_DEB_WORK_ROOT=/work/build QSM_DIRECT_DEB_JOBS="$BUILD_JOBS" \
     QSM_DIRECT_DEB_VERSION="$version" /bin/bash -ec '
       cd /work/source
       ./packaging/debian/build-qsm-pve-direct-deb.sh
