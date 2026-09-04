@@ -28,6 +28,13 @@ case "$user_home" in
         ;;
 esac
 install -d -m 0700 -o "$user" -g "$user" "$user_home/.local/share/qsm-guest-agent"
+# Start the per-user Wayland bridge automatically at the next desktop login.
+# It intentionally waits for a real compositor, so enabling it also from an
+# SSH-created user manager is harmless and avoids a second manual setup step.
+clipboard_wants="$user_home/.config/systemd/user/default.target.wants"
+install -d -m 0700 -o "$user" -g "$user" "$clipboard_wants"
+ln -sfn /usr/lib/systemd/user/qsm-guest-clipboard.service "$clipboard_wants/qsm-guest-clipboard.service"
+chown -h "$user:$user" "$clipboard_wants/qsm-guest-clipboard.service"
 # The template has a portable /home/USER default.  Keep arbitrary local
 # account homes confined to their one writable exchange directory instead of
 # accidentally using systemd's %%h (PID 1's /root).
@@ -47,4 +54,4 @@ systemctl daemon-reload
 # Display1 is saved and the VM is restarted.
 systemctl enable "qsm-guest-agent@${user}.service"
 systemctl start "qsm-guest-agent@${user}.service" 2>/dev/null || true
-echo "QSM guest agent enabled for $user. For Wayland clipboard run: systemctl --user enable --now qsm-guest-clipboard.service"
+echo "QSM guest agent and Wayland clipboard bridge enabled for $user. The bridge becomes ready when that user logs into a Wayland desktop."

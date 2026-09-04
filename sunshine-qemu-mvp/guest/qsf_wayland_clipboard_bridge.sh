@@ -56,7 +56,10 @@ fail() {
   report "QSF_VIRGL_WAYLAND_GUEST_E2E_FAILED=wayland_bridge_$*"
   : >"$failure_file" 2>/dev/null || true
   chmod 600 "$failure_file" 2>/dev/null || true
-  rm -f "$candidate" "$validated"
+  # Never leave a readiness sentinel from an earlier compositor behind: the
+  # direct Console must not report GUI clipboard support while this bridge is
+  # no longer attached to a Wayland selection.
+  rm -f "$ready_file" "$candidate" "$validated"
   exit 1
 }
 
@@ -103,15 +106,32 @@ publish_wayland_to_state() {
   mv -f "$temporary" "$clipboard" || fail cannot_publish_wayland_selection
 }
 
-[ -d "$state_dir" ] || fail state_directory_missing
-[ -f "$clipboard" ] || fail qsf_clipboard_state_missing
-[ -S "$runtime_dir/wayland-0" ] || fail wayland_socket_missing
 command -v wl-copy >/dev/null 2>&1 || fail wl_copy_missing
 command -v wl-paste >/dev/null 2>&1 || fail wl_paste_missing
 command -v gnu-iconv >/dev/null 2>&1 || command -v iconv >/dev/null 2>&1 || fail iconv_missing
 
+wait_for_graphical_session() {
+  # A per-user systemd manager can come up through SSH or linger before the
+  # desktop compositor.  Treat that as normal startup ordering, not a
+  # permanent failure: systemd otherwise burns through Restart= retries and
+  # clipboard remains broken when the user finally reaches Plasma.
+  while [ ! -d "$state_dir" ] || [ ! -f "$clipboard" ]; do
+    sleep 1
+  done
+  while :; do
+    for socket in "$runtime_dir"/wayland-[0-9]*; do
+      if [ -S "$socket" ]; then
+        wayland_socket=${socket##*/}
+        export WAYLAND_DISPLAY="$wayland_socket"
+        return
+      fi
+    done
+    sleep 1
+  done
+}
+
 export XDG_RUNTIME_DIR="$runtime_dir"
-export WAYLAND_DISPLAY=wayland-0
+wait_for_graphical_session
 chmod 700 "$state_dir" 2>/dev/null || fail cannot_protect_state_directory
 rm -f "$failure_file" "$candidate" "$validated"
 : >"$ready_file" || fail cannot_create_ready_file

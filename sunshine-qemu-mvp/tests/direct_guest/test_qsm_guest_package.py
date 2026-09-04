@@ -19,6 +19,8 @@ class QsmGuestPackageTests(unittest.TestCase):
         self.assertIn("systemctl daemon-reload", setup)
         self.assertIn('systemctl enable "qsm-guest-agent@${user}.service"', setup)
         self.assertIn('systemctl start "qsm-guest-agent@${user}.service"', setup)
+        self.assertIn('qsm-guest-clipboard.service "$clipboard_wants/qsm-guest-clipboard.service"', setup)
+        self.assertIn('The bridge becomes ready when that user logs into a Wayland desktop.', setup)
         self.assertNotIn("loginctl terminate-user", setup)
 
     def test_service_uses_only_the_private_direct_virtio_port(self) -> None:
@@ -31,6 +33,17 @@ class QsmGuestPackageTests(unittest.TestCase):
         self.assertIn("--state-dir ${QSM_GUEST_HOME}/.local/share/qsm-guest-agent", unit)
         self.assertIn("ReadWritePaths=/home/%i/.local/share/qsm-guest-agent", unit)
         self.assertNotIn("%h/.local/share/qsm-guest-agent", unit)
+
+    def test_wayland_bridge_waits_for_the_logged_in_compositor(self) -> None:
+        bridge = (ROOT / "guest/qsf_wayland_clipboard_bridge.sh").read_text(encoding="utf-8")
+        # A user manager may start through SSH before Plasma creates any
+        # Wayland socket.  This must wait, not exhaust systemd Restart= and
+        # leave a stale ready marker that claims clipboard support.
+        self.assertIn("wait_for_graphical_session()", bridge)
+        self.assertIn('for socket in "$runtime_dir"/wayland-[0-9]*', bridge)
+        self.assertIn('export WAYLAND_DISPLAY="$wayland_socket"', bridge)
+        self.assertNotIn('[ -S "$runtime_dir/wayland-0" ] || fail wayland_socket_missing', bridge)
+        self.assertIn('rm -f "$ready_file" "$candidate" "$validated"', bridge)
 
 
 if __name__ == "__main__":
