@@ -45,6 +45,12 @@ from extensions.browser_bridge.qsm_browser_bridge import (
 
 
 class BrowserBridgeAssemblerTests(unittest.TestCase):
+    def test_guest_file_manifest_is_a_narrow_browser_command(self) -> None:
+        self.assertEqual(BrowserWebRtcBridge._guest_request(
+            '{"op":"qsm_guest_file_list","request_id":"files-1","area":"outgoing"}'),
+            ("files-1", {"op": "file_list", "area": "outgoing"}),
+        )
+
     def test_video_requires_complete_ordered_access_unit_and_recovers_at_first_boundary(self) -> None:
         assembler = _VideoAssembler(60)
         self.assertIsNone(assembler.add(4, 1, PACKET_END, b"late"))

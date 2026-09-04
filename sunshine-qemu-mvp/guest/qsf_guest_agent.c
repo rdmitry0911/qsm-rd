@@ -12,6 +12,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -30,6 +31,11 @@
 enum {
   max_clipboard_bytes = 1024 * 1024,
   max_file_bytes = 2 * 1024 * 1024,
+  /* The exchange folders are deliberately shallow.  Bounding both the
+   * number of names and their wire representation prevents a directory with
+   * many tiny files from becoming a control-channel denial of service. */
+  max_file_list_entries = 256,
+  max_file_list_bytes = 64 * 1024,
   max_wire_bytes = 4 * 1024 * 1024,
   capability_protocol_version = 2,
   /* A QEMU socket chardev deliberately reports HUP when the host-side
@@ -108,7 +114,7 @@ static void write_line(int fd, const char *prefix, const char *value) {
 }
 
 static bool safe_name(const char *name) {
-  if (name == NULL || name[0] == '\0' || strlen(name) > 128) {
+  if (name == NULL || name[0] == '\0' || !isalnum((unsigned char) name[0]) || strlen(name) > 128) {
     return false;
   }
   for (const unsigned char *cursor = (const unsigned char *) name; *cursor; ++cursor) {
@@ -329,6 +335,59 @@ static int write_file_atomic(const char *path, const uint8_t *data, size_t size)
     unlink(temporary);
     return -1;
   }
+  return 0;
+}
+
+/* Return a compact, line-oriented manifest of regular files in one QSM
+ * exchange folder.  Names have already been constrained to the agent's
+ * single-component grammar; fstatat(..., AT_SYMLINK_NOFOLLOW) additionally
+ * makes a hostile guest-side symlink invisible to the host controller.
+ *
+ * Each record is "name<TAB>decimal-bytes<LF>".  It intentionally contains no
+ * guest paths: the browser can list the share but cannot explore the guest's
+ * home directory or follow a link outside the exchange root. */
+static int list_exchange_files(const char *directory, char **listing) {
+  if (directory == NULL || listing == NULL) {
+    return -1;
+  }
+  *listing = NULL;
+  DIR *stream = opendir(directory);
+  if (stream == NULL) {
+    return -1;
+  }
+  char *result = calloc(max_file_list_bytes + 1U, 1U);
+  if (result == NULL) {
+    closedir(stream);
+    return -1;
+  }
+  size_t used = 0;
+  size_t entries = 0;
+  const int directory_fd = dirfd(stream);
+  struct dirent *entry = NULL;
+  while ((entry = readdir(stream)) != NULL) {
+    if (!safe_name(entry->d_name)) {
+      continue;
+    }
+    struct stat metadata;
+    if (fstatat(directory_fd, entry->d_name, &metadata, AT_SYMLINK_NOFOLLOW) != 0 ||
+        !S_ISREG(metadata.st_mode) || metadata.st_size < 0) {
+      continue;
+    }
+    if (entries >= max_file_list_entries) {
+      break;
+    }
+    const int length = snprintf(result + used, max_file_list_bytes + 1U - used,
+                                "%s\t%jd\n", entry->d_name, (intmax_t) metadata.st_size);
+    if (length < 0 || (size_t) length >= max_file_list_bytes + 1U - used) {
+      free(result);
+      closedir(stream);
+      return -1;
+    }
+    used += (size_t) length;
+    entries += 1U;
+  }
+  closedir(stream);
+  *listing = result;
   return 0;
 }
 
@@ -619,6 +678,46 @@ static void handle_command(struct agent_state *state, char *line) {
     }
     (void) snprintf(reply, reply_size, "%s %s", name, wire_payload);
     write_line(state->fd, "FILE ", reply);
+    free(reply);
+    free(encoded);
+    return;
+  }
+  if (strcmp(command, "FILE_LIST") == 0) {
+    char *area = strtok_r(NULL, " ", &save);
+    if (area == NULL || strtok_r(NULL, " ", &save) != NULL) {
+      write_line(state->fd, "ERR ", "BAD_FILE_LIST");
+      return;
+    }
+    const char *directory = NULL;
+    if (strcmp(area, "incoming") == 0) {
+      directory = state->incoming_dir;
+    } else if (strcmp(area, "outgoing") == 0) {
+      directory = state->outgoing_dir;
+    } else {
+      write_line(state->fd, "ERR ", "BAD_FILE_LIST");
+      return;
+    }
+    char *listing = NULL;
+    if (list_exchange_files(directory, &listing) != 0) {
+      write_line(state->fd, "ERR ", "FILE_LIST_FAILED");
+      return;
+    }
+    char *encoded = base64_encode((const uint8_t *) listing, strlen(listing));
+    free(listing);
+    if (encoded == NULL) {
+      write_line(state->fd, "ERR ", "OUT_OF_MEMORY");
+      return;
+    }
+    const char *wire_payload = encoded[0] == '\0' ? "-" : encoded;
+    const size_t reply_size = strlen(area) + strlen(wire_payload) + 2U;
+    char *reply = malloc(reply_size);
+    if (reply == NULL) {
+      free(encoded);
+      write_line(state->fd, "ERR ", "OUT_OF_MEMORY");
+      return;
+    }
+    (void) snprintf(reply, reply_size, "%s %s", area, wire_payload);
+    write_line(state->fd, "FILES ", reply);
     free(reply);
     free(encoded);
     return;

@@ -819,6 +819,7 @@ class BrowserWebRtcBridge:
             "qsm_guest_file_upload": "file_upload",
             "qsm_guest_file_upload_chunk": "file_upload_chunk",
             "qsm_guest_file_download": "file_download",
+            "qsm_guest_file_list": "file_list",
             "qsm_guest_status": "status",
         }
         operation = operations.get(value.pop("op"))

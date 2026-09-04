@@ -14,6 +14,13 @@ This package is installed **inside a Linux VM**, not on Proxmox.
 
 The agent uses `~/.local/share/qsm-guest-agent/incoming` for browser uploads
 and `~/.local/share/qsm-guest-agent/outgoing` for files that the browser may
-download. It transfers only plain UTF-8 clipboard text (up to 1 MiB) and files
-with a plain basename (up to 2 MiB). `wl-clipboard` is required for the
+download. In the QSM Direct Console, drag a local file onto the guest picture
+to place it in `incoming`; place a guest file in `outgoing`, open **Files**,
+then download it or drag its prepared browser item where the browser supports
+host drag-out. The browser cannot write arbitrary local paths without user
+consent, so **Download** remains the portable guest-to-client action.
+
+The agent transfers only plain UTF-8 clipboard text (up to 1 MiB) and files
+with a plain basename (up to 2 MiB). It lists only these two exchange folders;
+it never exposes the guest home directory. `wl-clipboard` is required for the
 Wayland clipboard bridge; install it with `sudo apt install wl-clipboard`.

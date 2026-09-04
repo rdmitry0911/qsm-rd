@@ -207,6 +207,17 @@ def main() -> int:
             }}, timeout=15.0)
             if upload_result.get("name") != "browser-direct.bin" or upload_result.get("bytes") != len(upload):
                 raise RuntimeError("guest file upload returned an invalid result")
+            incoming_list = peer.request({"op": "guest", "message": {
+                "op": "qsm_guest_file_list", "area": "incoming",
+            }}, timeout=15.0)
+            if not any(entry.get("name") == "browser-direct.bin" and entry.get("bytes") == len(upload)
+                       for entry in incoming_list.get("files", [])):
+                raise RuntimeError("guest incoming file manifest did not include browser upload")
+            outgoing_list = peer.request({"op": "guest", "message": {
+                "op": "qsm_guest_file_list", "area": "outgoing",
+            }}, timeout=15.0)
+            if not any(entry.get("name") == "guest-download.txt" for entry in outgoing_list.get("files", [])):
+                raise RuntimeError("guest outgoing file manifest did not include download fixture")
             download_result = peer.request({"op": "guest", "message": {
                 "op": "qsm_guest_file_download", "name": "guest-download.txt",
             }}, timeout=15.0)
@@ -218,6 +229,7 @@ def main() -> int:
             result["guestTransfer"] = {
                 "clipboardBytes": len(clipboard), "uploadBytes": len(upload),
                 "downloadBytes": len(downloaded),
+                "incomingFiles": len(incoming_list["files"]), "outgoingFiles": len(outgoing_list["files"]),
             }
         if arguments.hover_runs:
             if arguments.width != 1280 or arguments.height < 480:

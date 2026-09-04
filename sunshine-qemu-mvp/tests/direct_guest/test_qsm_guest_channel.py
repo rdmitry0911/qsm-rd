@@ -78,6 +78,10 @@ class GuestAgent:
                         self._reply("OK FILE_PUT " + fields[1])
                     elif len(fields) == 2 and fields[0] == "FILE_GET" and fields[1] in self.outgoing:
                         self._reply("FILE " + fields[1] + " " + self._wire(self.outgoing[fields[1]]))
+                    elif len(fields) == 2 and fields[0] == "FILE_LIST" and fields[1] in {"incoming", "outgoing"}:
+                        files = self.incoming if fields[1] == "incoming" else self.outgoing
+                        manifest = "".join(f"{name}\t{len(data)}\n" for name, data in sorted(files.items()))
+                        self._reply("FILES " + fields[1] + " " + self._wire(manifest.encode("ascii")))
                     else:
                         self._reply("ERR BAD")
         except OSError:
@@ -118,6 +122,12 @@ class DirectGuestChannelTest(unittest.TestCase):
         self.assertEqual(self.agent.incoming["client.bin"], uploaded)
         downloaded = self.channel.dispatch({"op": "file_download", "name": "guest.bin"})
         self.assertEqual(base64.b64decode(downloaded["data_b64"]), b"guest\x00file")
+        self.assertEqual(self.channel.dispatch({"op": "file_list", "area": "incoming"}), {
+            "area": "incoming", "files": [{"name": "client.bin", "bytes": len(uploaded)}],
+        })
+        self.assertEqual(self.channel.dispatch({"op": "file_list", "area": "outgoing"}), {
+            "area": "outgoing", "files": [{"name": "guest.bin", "bytes": len(b"guest\x00file")}],
+        })
 
     def test_guest_clipboard_event_reaches_every_subscriber(self) -> None:
         received: list[str] = []
@@ -135,6 +145,8 @@ class DirectGuestChannelTest(unittest.TestCase):
             self.channel.dispatch({"op": "file_upload", "name": "../escape", "data_b64": ""})
         with self.assertRaises(qsm.GuestChannelError):
             self.channel.dispatch({"op": "clipboard_set", "text_b64": self._b64(b"no\x00nul")})
+        with self.assertRaises(qsm.GuestChannelError):
+            self.channel.dispatch({"op": "file_list", "area": "home"})
 
 
 if __name__ == "__main__":

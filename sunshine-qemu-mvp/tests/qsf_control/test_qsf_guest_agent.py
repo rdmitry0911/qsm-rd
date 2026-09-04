@@ -146,12 +146,22 @@ class GuestAgentPtyTest(unittest.TestCase):
             self._command("FILE_GET guest.bin"),
             "FILE guest.bin " + self._wire(guest_file),
         )
+        self.assertEqual(
+            self._command("FILE_LIST incoming"),
+            "FILES incoming " + self._wire(f"client.bin\t{len(client_file)}\n".encode("ascii")),
+        )
+        self.assertEqual(
+            self._command("FILE_LIST outgoing"),
+            "FILES outgoing " + self._wire(f"guest.bin\t{len(guest_file)}\n".encode("ascii")),
+        )
         self.assertEqual(self._command("FILE_PUT empty.bin -"), "OK FILE_PUT empty.bin")
         self.assertEqual((self.state / "incoming" / "empty.bin").read_bytes(), b"")
 
         self.assertEqual(self._command("RESIZE 1920 1080"), "OK RESIZE 1920 1080")
         self.assertEqual((self.state / "resolution").read_text(encoding="ascii"), "1920x1080\n")
         self.assertEqual(self._command("FILE_PUT ../escape QQ=="), "ERR BAD_FILE_PUT")
+        self.assertEqual(self._command("FILE_PUT .hidden QQ=="), "ERR BAD_FILE_PUT")
+        self.assertEqual(self._command("FILE_LIST home"), "ERR BAD_FILE_LIST")
         self.assertEqual(self._command("CLIP_SET not-base64"), "ERR BAD_CLIPBOARD")
 
     def test_clip_set_requires_strict_utf8_and_preserves_state(self) -> None:

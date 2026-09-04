@@ -39,6 +39,12 @@ and browser full screen:
 7. a VM restart can create a fresh console without restarting the terminal
    service; terminal-package restart while the VM is live preserves its D-Bus
    bus.
+8. drag a local file onto the guest image and require it in the guest agent's
+   `incoming` exchange directory; then place a guest file in `outgoing`,
+   refresh **Files**, and require a byte-exact browser download. Chromium
+   host drag-out is exercised where available; an explicit browser download
+   is the portable fallback because browser sandboxing cannot write an
+   arbitrary host path without user consent.
 
 ## Automated gates and acceptance
 
@@ -61,5 +67,5 @@ and browser full screen:
 A release is accepted only when every relevant static, unit, D-Bus and lab
 gate passes.  Clipboard and file transfer are a separate guest-agent feature:
 they must be tested in both directions, with empty/non-ASCII clipboard text,
-2 MiB boundary files, rejected path traversal, and guest shutdown during a
-transfer.
+2 MiB boundary files, exchange-folder manifests, rejected path traversal, and
+guest shutdown during a transfer.

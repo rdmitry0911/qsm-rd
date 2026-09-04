@@ -335,21 +335,24 @@
         paste.textContent = gettext('Paste');
         paste.title = gettext('Paste this browser clipboard into the guest');
         paste.style.cssText = 'padding:4px 9px;cursor:pointer';
-        const upload = document.createElement('button');
-        upload.type = 'button';
-        upload.textContent = gettext('Upload');
-        upload.title = gettext('Upload a file to the guest exchange folder');
-        upload.style.cssText = 'padding:4px 9px;cursor:pointer';
-        const download = document.createElement('button');
-        download.type = 'button';
-        download.textContent = gettext('Download');
-        download.title = gettext('Download a named file from the guest exchange folder');
-        download.style.cssText = 'padding:4px 9px;cursor:pointer';
+        const files = document.createElement('button');
+        files.type = 'button';
+        files.textContent = gettext('Files');
+        files.title = gettext('Transfer files and enable drag and drop');
+        files.style.cssText = 'padding:4px 9px;cursor:pointer';
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
+        fileInput.multiple = true;
         fileInput.style.display = 'none';
-        toolbar.append(status, copy, paste, upload, download, audio, fullscreen);
-        document.body.append(video, toolbar, fileInput);
+        const dropHint = document.createElement('div');
+        dropHint.setAttribute('aria-live', 'polite');
+        dropHint.textContent = gettext('Drop files to send them to the guest');
+        dropHint.style.cssText = 'display:none;position:absolute;z-index:20;inset:0;align-items:center;justify-content:center;border:4px dashed #60a5fa;background:rgba(15,23,42,.72);color:#fff;font-size:20px;font-weight:600;pointer-events:none';
+        const filePanel = document.createElement('aside');
+        filePanel.setAttribute('aria-label', gettext('File transfer'));
+        filePanel.style.cssText = 'display:none;position:absolute;z-index:21;right:12px;top:48px;width:min(430px,calc(100% - 24px));max-height:calc(100% - 60px);overflow:auto;box-sizing:border-box;padding:12px;border:1px solid rgba(148,163,184,.55);border-radius:8px;background:rgba(15,23,42,.97);box-shadow:0 8px 28px rgba(0,0,0,.65);color:#f8fafc';
+        toolbar.append(status, copy, paste, files, audio, fullscreen);
+        document.body.append(video, toolbar, fileInput, dropHint, filePanel);
         popup.focus();
 
         let peer = null;
@@ -366,7 +369,11 @@
         let guestRequestNumber = 0;
         const guestRequests = new Map();
         const guestDownloads = new Map();
+        const guestFileUrls = new Map();
         const guestUploadChunkBytes = 32 * 1024;
+        let dropDepth = 0;
+        let filePanelOpen = false;
+        let filePanelRefreshing = false;
         let lastResize = '';
         const revealToolbar = () => {
             if (closed) { return; }
@@ -438,6 +445,179 @@
                 }));
             }
         });
+        const formatBytes = (bytes) => {
+            if (!Number.isFinite(bytes) || bytes < 0) { return ''; }
+            if (bytes < 1024) { return `${bytes} B`; }
+            if (bytes < 1024 * 1024) { return `${(bytes / 1024).toFixed(1)} KiB`; }
+            return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+        };
+        const prepareGuestDownload = (name) => {
+            const known = guestFileUrls.get(name);
+            if (known && known.ready) { return Promise.resolve(known); }
+            if (known && known.promise) { return known.promise; }
+            const promise = guestRequest('qsm_guest_file_download', { name }).then((result) => {
+                if (!result || result.name !== name || typeof result.data_b64 !== 'string') {
+                    throw new Error('invalid guest file');
+                }
+                const url = URL.createObjectURL(new Blob([b64ToBytes(result.data_b64)], {
+                    type: 'application/octet-stream',
+                }));
+                const transfer = { name, url, ready: true };
+                guestFileUrls.set(name, transfer);
+                return transfer;
+            }).catch((error) => {
+                guestFileUrls.delete(name);
+                throw error;
+            });
+            guestFileUrls.set(name, { promise });
+            return promise;
+        };
+        const startGuestDownload = async (name) => {
+            const transfer = await prepareGuestDownload(name);
+            const link = document.createElement('a');
+            link.href = transfer.url;
+            link.download = transfer.name;
+            link.style.display = 'none';
+            document.body.append(link);
+            link.click();
+            link.remove();
+            status.textContent = gettext('Guest file download started');
+        };
+        const uploadLocalFiles = async (selected) => {
+            const localFiles = Array.from(selected || []);
+            if (!localFiles.length) { return; }
+            for (let index = 0; index < localFiles.length; index += 1) {
+                const file = localFiles[index];
+                if (!file || file.size > 2 * 1024 * 1024) {
+                    throw new Error('file is too large');
+                }
+                status.textContent = localFiles.length > 1
+                    ? gettext(`Uploading ${index + 1}/${localFiles.length}: ${file.name}`)
+                    : gettext(`Uploading ${file.name}`);
+                await guestUpload(file, await file.arrayBuffer());
+            }
+            status.textContent = localFiles.length > 1
+                ? gettext('Files uploaded to guest exchange folder')
+                : gettext('File uploaded to guest exchange folder');
+        };
+
+        const filePanelTitle = document.createElement('strong');
+        filePanelTitle.textContent = gettext('File transfer');
+        const filePanelClose = document.createElement('button');
+        filePanelClose.type = 'button';
+        filePanelClose.textContent = '×';
+        filePanelClose.title = gettext('Close');
+        filePanelClose.style.cssText = 'margin-left:auto;padding:0 6px;font:22px sans-serif;line-height:22px;cursor:pointer';
+        const filePanelHeader = document.createElement('div');
+        filePanelHeader.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px';
+        filePanelHeader.append(filePanelTitle, filePanelClose);
+        const filePanelHelp = document.createElement('p');
+        filePanelHelp.textContent = gettext('Drop local files onto the guest image, or choose files below. The guest exposes only its QSM exchange folders.');
+        filePanelHelp.style.cssText = 'margin:0 0 10px;color:#cbd5e1;line-height:1.4';
+        const chooseFiles = document.createElement('button');
+        chooseFiles.type = 'button';
+        chooseFiles.textContent = gettext('Choose local files');
+        chooseFiles.style.cssText = 'padding:5px 9px;cursor:pointer';
+        const localDrop = document.createElement('div');
+        localDrop.textContent = gettext('Drop local files here to send to guest');
+        localDrop.style.cssText = 'margin:8px 0 14px;padding:12px;border:1px dashed #60a5fa;border-radius:6px;color:#bfdbfe;text-align:center';
+        const guestSection = document.createElement('div');
+        const guestSectionTitle = document.createElement('strong');
+        guestSectionTitle.textContent = gettext('Guest → this computer');
+        const guestSectionHelp = document.createElement('p');
+        guestSectionHelp.textContent = gettext('Drag a prepared item to a local folder where supported, or use Download. Files must be placed in the guest QSM outgoing folder.');
+        guestSectionHelp.style.cssText = 'margin:5px 0 8px;color:#cbd5e1;line-height:1.35';
+        const guestFiles = document.createElement('div');
+        guestFiles.style.cssText = 'display:flex;flex-direction:column;gap:5px;max-height:220px;overflow:auto';
+        const refreshFiles = document.createElement('button');
+        refreshFiles.type = 'button';
+        refreshFiles.textContent = gettext('Refresh guest files');
+        refreshFiles.style.cssText = 'margin-top:10px;padding:5px 9px;cursor:pointer';
+        guestSection.append(guestSectionTitle, guestSectionHelp, guestFiles, refreshFiles);
+        filePanel.append(filePanelHeader, filePanelHelp, chooseFiles, localDrop, guestSection);
+
+        const setFilePanelOpen = (open) => {
+            filePanelOpen = open;
+            filePanel.style.display = open ? 'block' : 'none';
+            if (open) { revealToolbar(); }
+        };
+        const renderGuestFiles = (entries) => {
+            guestFiles.replaceChildren();
+            if (!entries.length) {
+                const empty = document.createElement('span');
+                empty.textContent = gettext('No transferable files in guest outgoing folder.');
+                empty.style.color = '#cbd5e1';
+                guestFiles.append(empty);
+                return;
+            }
+            for (const entry of entries) {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;align-items:center;gap:7px;padding:6px;border:1px solid rgba(148,163,184,.35);border-radius:5px';
+                const name = document.createElement('span');
+                name.textContent = `${entry.name} (${formatBytes(entry.bytes)})`;
+                name.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
+                const downloadFile = document.createElement('button');
+                downloadFile.type = 'button';
+                downloadFile.textContent = gettext('Download');
+                downloadFile.style.cssText = 'padding:3px 7px;cursor:pointer';
+                const dragFile = document.createElement('span');
+                dragFile.textContent = gettext('Drag');
+                dragFile.title = gettext('Prepare this file, then drag it to a local folder');
+                dragFile.draggable = true;
+                dragFile.style.cssText = 'padding:3px 7px;border:1px solid #64748b;border-radius:4px;cursor:grab;user-select:none';
+                const prepare = () => prepareGuestDownload(entry.name).then(() => {
+                    dragFile.style.borderColor = '#34d399';
+                    dragFile.title = gettext('Drag to a local folder, or use Download');
+                }).catch(() => { status.textContent = gettext('Guest file is unavailable.'); });
+                dragFile.addEventListener('pointerenter', prepare, { once: true });
+                dragFile.addEventListener('dragstart', (event) => {
+                    const transfer = guestFileUrls.get(entry.name);
+                    if (!transfer || !transfer.ready || !event.dataTransfer) {
+                        event.preventDefault();
+                        prepare();
+                        status.textContent = gettext('Preparing guest file for drag. Start the drag again.');
+                        return;
+                    }
+                    event.dataTransfer.effectAllowed = 'copy';
+                    // Chromium recognises DownloadURL when a page item is
+                    // dragged to its host desktop.  blob: is same-origin and
+                    // never exposes the authenticated PVE session.  Other
+                    // browsers retain the explicit Download fallback.
+                    event.dataTransfer.setData('DownloadURL',
+                        `application/octet-stream:${transfer.name}:${transfer.url}`);
+                    event.dataTransfer.setData('text/uri-list', transfer.url);
+                    event.dataTransfer.setData('text/plain', transfer.name);
+                });
+                downloadFile.addEventListener('click', () => startGuestDownload(entry.name).catch(() => {
+                    status.textContent = gettext('Guest file is unavailable.');
+                }));
+                row.append(name, downloadFile, dragFile);
+                guestFiles.append(row);
+            }
+        };
+        const refreshGuestFiles = async () => {
+            if (filePanelRefreshing) { return; }
+            filePanelRefreshing = true;
+            refreshFiles.disabled = true;
+            try {
+                const result = await guestRequest('qsm_guest_file_list', { area: 'outgoing' });
+                if (!result || result.area !== 'outgoing' || !Array.isArray(result.files) ||
+                    result.files.some((entry) => !entry || typeof entry.name !== 'string' ||
+                        !Number.isInteger(entry.bytes) || entry.bytes < 0 || entry.bytes > 2 * 1024 * 1024)) {
+                    throw new Error('invalid guest file list');
+                }
+                renderGuestFiles(result.files);
+            } catch (_error) {
+                guestFiles.replaceChildren();
+                const unavailable = document.createElement('span');
+                unavailable.textContent = gettext('Guest file list is unavailable. Install and start QSM Guest Agent.');
+                unavailable.style.color = '#fca5a5';
+                guestFiles.append(unavailable);
+            } finally {
+                refreshFiles.disabled = false;
+                filePanelRefreshing = false;
+            }
+        };
         const copyToBrowser = async (text) => {
             if (!popup.navigator.clipboard || !popup.navigator.clipboard.writeText) {
                 throw new Error('browser clipboard access is unavailable');
@@ -464,34 +644,74 @@
         paste.addEventListener('click', () => { pasteFromBrowser().catch(() => {
             status.textContent = gettext('Browser clipboard is unavailable.');
         }); });
-        upload.addEventListener('click', () => fileInput.click());
+        files.addEventListener('click', () => {
+            setFilePanelOpen(!filePanelOpen);
+            if (filePanelOpen) { refreshGuestFiles(); }
+        });
+        filePanelClose.addEventListener('click', () => setFilePanelOpen(false));
+        chooseFiles.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', () => {
-            const file = fileInput.files && fileInput.files[0];
+            const selected = fileInput.files;
             fileInput.value = '';
-            if (!file) { return; }
-            if (file.size > 2 * 1024 * 1024) {
-                status.textContent = gettext('File transfer is limited to 2 MiB per file.'); return;
-            }
-            file.arrayBuffer().then((data) => guestUpload(file, data)).then(() => {
-                status.textContent = gettext('File uploaded to guest exchange folder'); }).catch(() => {
-                status.textContent = gettext('File upload failed. Install and start QSM Guest Agent.');
+            uploadLocalFiles(selected).then(() => {
+                if (filePanelOpen) { return refreshGuestFiles(); }
+                return undefined;
+            }).catch((error) => {
+                status.textContent = error && error.message === 'file is too large'
+                    ? gettext('File transfer is limited to 2 MiB per file.')
+                    : gettext('File upload failed. Install and start QSM Guest Agent.');
             });
         });
-        download.addEventListener('click', () => {
-            const name = popup.prompt(gettext('Guest exchange file name:'));
-            if (!name) { return; }
-            guestRequest('qsm_guest_file_download', { name }).then((result) => {
-                if (!result || typeof result.name !== 'string' || typeof result.data_b64 !== 'string') {
-                    throw new Error('invalid guest file');
-                }
-                const link = document.createElement('a');
-                link.href = URL.createObjectURL(new Blob([b64ToBytes(result.data_b64)]));
-                link.download = result.name;
-                link.click();
-                popup.setTimeout(() => URL.revokeObjectURL(link.href), 0);
-                status.textContent = gettext('Guest file download started');
-            }).catch(() => { status.textContent = gettext('Guest file is unavailable.'); });
+        const acceptsFiles = (event) => event.dataTransfer &&
+            Array.from(event.dataTransfer.types || []).includes('Files');
+        const showDropHint = () => { dropHint.style.display = 'flex'; revealToolbar(); };
+        const hideDropHint = () => { dropHint.style.display = 'none'; };
+        const receiveDrop = (event) => {
+            if (!acceptsFiles(event)) { return; }
+            event.preventDefault();
+            event.stopPropagation();
+            dropDepth = 0;
+            hideDropHint();
+            uploadLocalFiles(event.dataTransfer.files).then(() => {
+                if (filePanelOpen) { return refreshGuestFiles(); }
+                return undefined;
+            }).catch((error) => {
+                status.textContent = error && error.message === 'file is too large'
+                    ? gettext('File transfer is limited to 2 MiB per file.')
+                    : gettext('File upload failed. Install and start QSM Guest Agent.');
+            });
+        };
+        for (const target of [video, localDrop]) {
+            target.addEventListener('dragenter', (event) => {
+                if (!acceptsFiles(event)) { return; }
+                event.preventDefault();
+                dropDepth += 1;
+                showDropHint();
+            });
+            target.addEventListener('dragover', (event) => {
+                if (!acceptsFiles(event)) { return; }
+                event.preventDefault();
+                if (event.dataTransfer) { event.dataTransfer.dropEffect = 'copy'; }
+                showDropHint();
+            });
+            target.addEventListener('dragleave', (event) => {
+                if (!acceptsFiles(event)) { return; }
+                event.preventDefault();
+                dropDepth = Math.max(0, dropDepth - 1);
+                if (!dropDepth) { hideDropHint(); }
+            });
+            target.addEventListener('drop', receiveDrop);
+        }
+        // A drop can cross a descendant of the video element without a
+        // matching dragleave on older Safari builds.  This final listener
+        // keeps the browser from navigating the console to a dropped file.
+        document.addEventListener('dragover', (event) => {
+            if (acceptsFiles(event)) { event.preventDefault(); }
         });
+        document.addEventListener('drop', (event) => {
+            if (acceptsFiles(event)) { receiveDrop(event); }
+        });
+        refreshFiles.addEventListener('click', () => refreshGuestFiles());
         const sendPointer = (value) => {
             if (pointer && pointer.readyState === 'open') { pointer.send(JSON.stringify(value)); }
         };
@@ -511,6 +731,10 @@
             }
             guestRequests.clear();
             guestDownloads.clear();
+            for (const transfer of guestFileUrls.values()) {
+                if (transfer && transfer.ready) { URL.revokeObjectURL(transfer.url); }
+            }
+            guestFileUrls.clear();
         };
         const closeForStoppedVm = () => {
             if (closed) { return; }

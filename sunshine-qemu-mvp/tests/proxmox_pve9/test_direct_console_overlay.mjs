@@ -79,6 +79,14 @@ assert.match(source, /const guestUploadChunkBytes = 32 \* 1024/,
     'each upload fragment must fit beneath the common 64 KiB SCTP ceiling');
 assert.match(source, /qsm_guest_file_download_chunk/,
     'guest file downloads must be reassembled from SCTP-safe fragments');
+assert.match(source, /qsm_guest_file_list/,
+    'the Files panel must enumerate the guest exchange manifest rather than prompt for a filename');
+assert.match(source, /for \(const target of \[video, localDrop\]\)/,
+    'dropping local files directly on the guest image must start a QSM exchange upload');
+assert.match(source, /setData\('DownloadURL'/,
+    'prepared guest items must expose Chromium\'s host drag-out transfer when available');
+assert.match(source, /Files/,
+    'the compact floating toolbar must expose the Files panel');
 assert.doesNotMatch(source, /Ext\.create\('Ext\.window\.Window'/,
     'the direct console must not be trapped inside the PVE browser page');
 
