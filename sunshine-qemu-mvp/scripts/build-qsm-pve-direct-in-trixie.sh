@@ -41,7 +41,7 @@ sudo install -D -m 0644 "$ROOT_DIR/scripts/proxmox-pve9-no-subscription.sources"
     "$CHROOT_DIR/etc/apt/sources.list.d/qsm-direct-pve9.sources"
 
 tar --create --file "$SOURCE_ARCHIVE" --exclude-vcs --directory "$ROOT_DIR" \
-    CMakeLists.txt LICENSE src tools packaging/debian extensions/browser_bridge extensions/direct_terminal \
+    CMakeLists.txt LICENSE src tools packaging/debian extensions/browser_bridge extensions/direct_guest extensions/direct_terminal \
     integration/proxmox/pve9/api integration/proxmox/pve9/direct_api integration/proxmox/pve9/direct_ui \
     integration/proxmox/pve9/ui \
     lab/proxmox9/qualify-qsm-direct-worker-media-e2e.py \

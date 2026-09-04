@@ -100,6 +100,18 @@ class PveApiPackagingTests(unittest.TestCase):
         for command in checks:
             subprocess.run([str(item) for item in command], check=True, capture_output=True, text=True)
 
+    def test_direct_package_validates_its_pve9_ffmpeg_abi(self) -> None:
+        source = (PACKAGE_ROOT / "build-qsm-pve-direct-deb.sh").read_text(encoding="utf-8")
+        for library in ("libavcodec.so.61", "libavutil.so.59", "libswscale.so.8"):
+            self.assertIn(library, source)
+        self.assertIn('readelf --dynamic "$worker"', source)
+
+    def test_trixie_driver_stages_the_direct_guest_channel(self) -> None:
+        source = (PROJECT_ROOT / "scripts" / "build-qsm-pve-direct-in-trixie.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("extensions/direct_guest", source)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

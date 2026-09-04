@@ -18,7 +18,7 @@ if [[ "${QSM_DIRECT_DEB_ALLOW_NONTRIXIE:-0}" != 1 ]]; then
     source /etc/os-release
     [[ "${VERSION_CODENAME:-}" == trixie ]] || die "build in Debian 13/Trixie or use the clean-chroot driver"
 fi
-for command in cmake ninja dpkg dpkg-deb install find sed tar sha256sum strings pkg-config; do
+for command in cmake ninja dpkg dpkg-deb install find sed tar sha256sum strings pkg-config readelf; do
     command -v "$command" >/dev/null 2>&1 || die "missing command: $command"
 done
 pkg-config --exists libavcodec libavutil libswscale || \
@@ -57,6 +57,15 @@ cmake -S "$ROOT_DIR" -B "$build_root/cmake" -G Ninja \
 cmake --build "$build_root/cmake" --target qsm-direct-media-worker --parallel "$BUILD_JOBS"
 worker="$build_root/cmake/qsm-direct-media-worker"
 [[ -x "$worker" ]] || die "direct media worker was not built"
+
+# This package targets the PVE 9 / Debian 13 FFmpeg ABI.  A worker built on an
+# arbitrary workstation may link to an older libavcodec and pass dpkg-deb, but
+# then fails only when a user opens a console.  Check the actual ELF payload
+# before staging it, so an incorrectly bypassed host build cannot be released.
+for library in libavcodec.so.61 libavutil.so.59 libswscale.so.8; do
+    readelf --dynamic "$worker" | grep -Fq "Shared library: [$library]" || \
+        die "worker is not linked to the PVE 9 FFmpeg ABI ($library)"
+done
 
 package_name=qsm-pve-direct
 package_root="$stage_root/usr/lib/$package_name"
