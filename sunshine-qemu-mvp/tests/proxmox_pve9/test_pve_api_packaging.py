@@ -111,6 +111,8 @@ class PveApiPackagingTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("extensions/direct_guest", source)
+        for package in ("libavcodec-dev", "libavutil-dev", "libswscale-dev"):
+            self.assertIn(package, source)
 
 
 if __name__ == "__main__":

@@ -53,7 +53,7 @@ sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive /bin/bash 
   apt-get update
   apt-get install -y --no-install-recommends \
     build-essential ca-certificates cmake dbus dpkg-dev ffmpeg libdrm-dev libepoxy-dev libgbm-dev \
-    libopus-dev libsystemd-dev ninja-build pkg-config python3 python3-aiortc python3-av \
+    libavcodec-dev libavutil-dev libswscale-dev libopus-dev libsystemd-dev ninja-build pkg-config python3 python3-aiortc python3-av \
     pve-manager qemu-server
 '
 sudo chroot "$CHROOT_DIR" /usr/bin/env \
