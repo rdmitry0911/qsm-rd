@@ -33,14 +33,22 @@ class BrowserPeer:
             environment.append(f"DISPLAY={arguments.browser_display}")
         if arguments.browser_ice_server:
             environment.append(f"QSM_BROWSER_E2E_ICE_SERVER={arguments.browser_ice_server}")
-        command = [
-            "ssh", "-i", arguments.browser_key,
-            "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            f"{arguments.browser_user}@{arguments.browser_host}",
-            *environment,
-            "node", arguments.browser_script,
-        ]
+        if arguments.browser_local:
+            # A separate browser VM is the normal network qualification
+            # topology.  Retain a local Chrome mode for recovery testing of
+            # a PVE node when that disposable VM's SSH key was deliberately
+            # rotated or removed: it still exercises Chrome's H.264 decoder,
+            # WebRTC jitter buffer, DTLS-SRTP and both input channels.
+            command = [*environment, "node", arguments.browser_script]
+        else:
+            command = [
+                "ssh", "-i", arguments.browser_key,
+                "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                f"{arguments.browser_user}@{arguments.browser_host}",
+                *environment,
+                "node", arguments.browser_script,
+            ]
         self._process = subprocess.Popen(
             command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, bufsize=1,
@@ -185,6 +193,8 @@ def geometry(value: str) -> tuple[int, int]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--browser-host", default="192.168.76.2")
+    parser.add_argument("--browser-local", action="store_true",
+                        help="run the real Chrome peer locally when the disposable browser VM is unavailable")
     parser.add_argument("--browser-user", default="root")
     parser.add_argument("--browser-key", default="/root/.ssh/qsm-browser-gate")
     parser.add_argument("--browser-script", default="/opt/qsm-browser/browser-webrtc-receiver.cjs")
