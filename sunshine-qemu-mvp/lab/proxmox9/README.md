@@ -124,7 +124,7 @@ QSM package.  A successful run emits one bounded
 | --- | --- |
 | Window and fullscreen geometry | fresh 1280×798 and 1920×1080 sessions, plus window → fullscreen → window and fullscreen → window → fullscreen in the same WebRTC Console; Chrome verifies the visible video content fills each viewport. With `--guest-display-*`, KScreen also proves the actual guest Wayland output mode equals the settled viewport. |
 | Video and input | real Chrome H.264 pixels, progressing decoded frames, ordered control and lossy pointer channels; optional full lane requires physical tablet and keyboard `evdev` records in the guest |
-| Several Console windows | two simultaneous Chrome subscribers to one QEMU scanout |
+| Several Console windows | two simultaneous Chrome subscribers to one QEMU scanout; a fullscreen viewer followed by a windowed viewer proves the last real window resize remains authoritative and a passive older popup cannot restore its stale mode |
 | Clipboard and files | browser ↔ private virtio guest channel, UTF-8 clipboard and both file directions |
 | VM reboot while viewing | old WebRTC peer must disconnect; a new Console must decode current pixels |
 | Terminal-service restart while viewing | old peer must disconnect; private Display1 bus remains usable and a new Console succeeds |

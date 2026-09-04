@@ -103,6 +103,17 @@ def _check_live(result: dict[str, Any], name: str, width: int, height: int) -> N
         raise StressFailure(f"{name}: decoded frame does not fill its final browser viewport")
 
 
+def _check_settled_viewport(state: object, name: str, width: int, height: int) -> None:
+    """Assert that a held Console still shows the last requested Display1 mode."""
+    if not isinstance(state, dict) or state.get("connectionState") != "connected":
+        raise StressFailure(f"{name}: Console was not connected after the competing resize")
+    if state.get("videoWidth") != width or state.get("videoHeight") != height:
+        raise StressFailure(f"{name}: another Console restored a stale {state.get('videoWidth')}x{state.get('videoHeight')} mode")
+    layout = state.get("layout")
+    if not isinstance(layout, dict) or layout.get("contentFillsViewport") is not True:
+        raise StressFailure(f"{name}: last-resized Console is letterboxed after a competing viewer")
+
+
 EVENT_DEVICE = re.compile(r"^/dev/input/event[0-9]{1,4}$")
 
 
@@ -367,6 +378,43 @@ def _concurrent_case(arguments: argparse.Namespace) -> None:
         _check_live(_result(stdout, name), name, *expected)
 
 
+def _competing_resolution_case(arguments: argparse.Namespace) -> dict[str, Any]:
+    """The last actual popup resize wins; passive viewers must not fight it.
+
+    A VM exposes one scanout, so separate Console windows cannot retain
+    independent guest modes.  This specifically catches the regression where
+    a first, fullscreen-sized popup received the new frame and treated that
+    decoded-video event as if its own OS window had changed size.
+    """
+    first = subprocess.Popen(
+        _command(arguments, width=arguments.fullscreen_size[0], height=arguments.fullscreen_size[1], hold_seconds=7),
+        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8",
+    )
+    try:
+        # Let the first peer establish its own display mode before opening
+        # the windowed Console that must become authoritative.
+        time.sleep(2.0)
+        second = subprocess.run(
+            _command(arguments, width=arguments.window_size[0], height=arguments.window_size[1], hold_seconds=4),
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", timeout=90, check=False,
+        )
+        if second.returncode != 0:
+            raise StressFailure(f"competing-window: {second.stderr.strip()[-400:]}")
+        result = _result(second.stdout, "competing-window")
+        _check_live(result, "competing-window", *arguments.window_size)
+        _check_settled_viewport(result.get("afterHold"), "competing-window", *arguments.window_size)
+        guest_display = _guest_wayland_geometry(arguments, arguments.window_size, "competing-window")
+        return {"guestDisplay": guest_display, "lastViewer": result.get("afterHold")}
+    finally:
+        try:
+            first.communicate(timeout=90)
+        except subprocess.TimeoutExpired:
+            first.kill()
+            first.communicate()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--vmid", type=int, required=True)
@@ -463,6 +511,7 @@ def main() -> int:
         if fullscreen_geometry is not None:
             display_evidence["fullscreen"] = fullscreen_geometry
         _concurrent_case(arguments)
+        evidence["competingWindow"] = _competing_resolution_case(arguments)
         evidence["vmRestart"] = _run_held_case(arguments, "vm-restart", restart_vm=True)
         evidence["afterVmRestart"] = _run_case(arguments, "after-vm-restart", *arguments.window_size)
         evidence["serviceRestart"] = _run_held_case(arguments, "service-restart", restart_vm=False)
@@ -475,6 +524,7 @@ def main() -> int:
             "guestTransfer": evidence["window"].get("guestTransfer"),
             "guestInput": input_evidence,
             "guestDisplay": display_evidence or None,
+            "competingWindow": evidence["competingWindow"],
         }
     except (OSError, StressFailure, subprocess.SubprocessError, subprocess.TimeoutExpired) as error:
         print(f"QSM_DIRECT_STRESS_SUITE_FAILED: {error}", file=sys.stderr)
