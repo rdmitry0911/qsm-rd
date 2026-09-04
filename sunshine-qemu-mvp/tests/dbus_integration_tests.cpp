@@ -94,6 +94,10 @@ int main() {
             return stats.width == 426U && stats.height == 242U &&
                    stats.idr_requests >= 1U;
         }));
+        CHECK(wait_until(2s, [&] {
+            const auto stats = qemu_server.stats();
+            return stats.width_mm == 113U && stats.height_mm == 64U;
+        }));
         std::this_thread::sleep_for(500ms);
 
         session.stop();

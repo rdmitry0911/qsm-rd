@@ -50,6 +50,8 @@ public:
         std::uint64_t audio_frames_sent {};
         std::uint32_t width {};
         std::uint32_t height {};
+        std::uint16_t width_mm {};
+        std::uint16_t height_mm {};
         bool listener_connected {};
         bool audio_listener_connected {};
         std::string last_error;
@@ -95,6 +97,8 @@ private:
 
     std::atomic<std::uint32_t> requested_width_ {};
     std::atomic<std::uint32_t> requested_height_ {};
+    std::atomic<std::uint16_t> requested_width_mm_ {};
+    std::atomic<std::uint16_t> requested_height_mm_ {};
     std::atomic<std::uint64_t> listeners_registered_ {};
     std::atomic<std::uint64_t> scanouts_sent_ {};
     std::atomic<std::uint64_t> updates_sent_ {};

@@ -333,8 +333,6 @@ int MockQemuDbusServer::handle_main_message(sd_bus_message *message) {
                                         &width,
                                         &height),
                     "read Console.SetUIInfo");
-        (void) width_mm;
-        (void) height_mm;
         (void) xoff;
         (void) yoff;
         if (width == 0U || height == 0U || width > 4096U || height > 4096U) {
@@ -345,6 +343,8 @@ int MockQemuDbusServer::handle_main_message(sd_bus_message *message) {
         }
         requested_width_ = width;
         requested_height_ = height;
+        requested_width_mm_ = width_mm;
+        requested_height_mm_ = height_mm;
         ++resize_requests_;
         dbus::check(sd_bus_reply_method_return(message, ""),
                     "reply Console.SetUIInfo");
@@ -852,6 +852,8 @@ MockQemuDbusServer::Stats MockQemuDbusServer::stats() const {
         .audio_frames_sent = audio_frames_sent_.load(),
         .width = requested_width_.load(),
         .height = requested_height_.load(),
+        .width_mm = requested_width_mm_.load(),
+        .height_mm = requested_height_mm_.load(),
         .listener_connected = listener_connected_.load(),
         .audio_listener_connected = audio_listener_connected_.load(),
         .last_error = std::move(error),

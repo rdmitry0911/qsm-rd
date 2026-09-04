@@ -37,6 +37,21 @@ constexpr std::string_view properties_interface = "org.freedesktop.DBus.Properti
 constexpr std::string_view introspect_interface = "org.freedesktop.DBus.Introspectable";
 constexpr std::string_view peer_interface = "org.freedesktop.DBus.Peer";
 
+// Display1.SetUIInfo contains an EDID-like physical size as well as a pixel
+// mode.  A zero physical size leaves some Wayland display managers with a
+// stale scanout after a mode switch.  Publish a conventional 96-DPI virtual
+// monitor so every compositor receives a complete mode description.
+constexpr std::uint32_t virtual_display_dpi = 96U;
+
+std::uint16_t physical_millimetres(std::uint32_t pixels) noexcept {
+    constexpr std::uint64_t millimetres_per_inch_times_ten = 254U;
+    const std::uint64_t numerator =
+        static_cast<std::uint64_t>(pixels) * millimetres_per_inch_times_ten;
+    const std::uint64_t denominator = static_cast<std::uint64_t>(virtual_display_dpi) * 10U;
+    const std::uint64_t rounded = (numerator + denominator / 2U) / denominator;
+    return static_cast<std::uint16_t>(std::clamp<std::uint64_t>(rounded, 1U, 65535U));
+}
+
 constexpr const char listener_introspection_xml[] = R"xml(
 <node>
   <interface name="org.qemu.Display1.Listener">
@@ -392,8 +407,8 @@ void QemuDbusDisplay::ensure_started() const {
 
 void QemuDbusDisplay::set_ui_info(const ViewportRequest& request) {
     main_bus_call([&] {
-        const std::uint16_t width_mm = 0U;
-        const std::uint16_t height_mm = 0U;
+        const std::uint16_t width_mm = physical_millimetres(request.width);
+        const std::uint16_t height_mm = physical_millimetres(request.height);
         const std::int32_t xoff = 0;
         const std::int32_t yoff = 0;
         dbus::Error error;

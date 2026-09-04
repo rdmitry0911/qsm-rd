@@ -218,6 +218,8 @@ def main() -> int:
                         help="resize the actual Chrome viewport and Display1 in this live session (WIDTHxHEIGHT)")
     parser.add_argument("--screenshot", default="",
                         help="optional /tmp/qsm-browser-e2e-*.png path on the disposable Chrome host")
+    parser.add_argument("--screenshot-after-hold", default="",
+                        help="capture after --hold-seconds; useful for a live compositor transition")
     arguments = parser.parse_args()
     if not 0 <= arguments.guest_file_bytes <= 2 * 1024 * 1024:
         parser.error("--guest-file-bytes must be in 0..2097152")
@@ -230,8 +232,10 @@ def main() -> int:
     if not (64 <= arguments.width <= 16384 and 64 <= arguments.height <= 16384 and
             arguments.width % 2 == 0 and arguments.height % 2 == 0):
         parser.error("--width/--height must be even and within 64..16384")
-    if arguments.screenshot and not re.fullmatch(r"/tmp/qsm-browser-e2e-[A-Za-z0-9._-]{1,80}\.png", arguments.screenshot):
-        parser.error("--screenshot must be a bounded /tmp/qsm-browser-e2e-*.png path")
+    for option, path in (("--screenshot", arguments.screenshot),
+                         ("--screenshot-after-hold", arguments.screenshot_after_hold)):
+        if path and not re.fullmatch(r"/tmp/qsm-browser-e2e-[A-Za-z0-9._-]{1,80}\.png", path):
+            parser.error(f"{option} must be a bounded /tmp/qsm-browser-e2e-*.png path")
 
     peer = BrowserPeer(arguments)
     started = time.monotonic()
@@ -386,6 +390,8 @@ def main() -> int:
         elif arguments.hold_seconds:
             time.sleep(arguments.hold_seconds)
             result["afterHold"] = peer.request({"op": "status"}, timeout=10.0)
+        if arguments.screenshot_after_hold:
+            peer.request({"op": "screenshot", "path": arguments.screenshot_after_hold})
         print("QSM_LAB_DIRECT_CHROME_E2E " + json.dumps(result, separators=(",", ":"), sort_keys=True))
         return 0
     finally:
