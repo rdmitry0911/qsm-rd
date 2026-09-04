@@ -216,10 +216,14 @@ def main() -> int:
                         help="require this many bytes from the guest download during --guest-transfer")
     parser.add_argument("--viewport-resize", type=geometry, action="append", default=[],
                         help="resize the actual Chrome viewport and Display1 in this live session (WIDTHxHEIGHT)")
+    parser.add_argument("--resize-settle-seconds", type=float, default=0.0,
+                        help="wait after each Display1 resize before issuing the next one (0..30)")
     parser.add_argument("--screenshot", default="",
                         help="optional /tmp/qsm-browser-e2e-*.png path on the disposable Chrome host")
     parser.add_argument("--screenshot-after-hold", default="",
                         help="capture after --hold-seconds; useful for a live compositor transition")
+    parser.add_argument("--max-edge-luma", type=int,
+                        help="optional lab-fixture limit for every decoded-frame corner (0..255)")
     arguments = parser.parse_args()
     if not 0 <= arguments.guest_file_bytes <= 2 * 1024 * 1024:
         parser.error("--guest-file-bytes must be in 0..2097152")
@@ -227,6 +231,10 @@ def main() -> int:
         parser.error("--guest-download-bytes must be in 0..2097152")
     if not 0 <= arguments.hold_seconds <= 120:
         parser.error("--hold-seconds must be in 0..120")
+    if not 0 <= arguments.resize_settle_seconds <= 30:
+        parser.error("--resize-settle-seconds must be in 0..30")
+    if arguments.max_edge_luma is not None and not 0 <= arguments.max_edge_luma <= 255:
+        parser.error("--max-edge-luma must be in 0..255")
     if arguments.expect_disconnect and arguments.hold_seconds < 1:
         parser.error("--expect-disconnect requires --hold-seconds of at least one second")
     if not (64 <= arguments.width <= 16384 and 64 <= arguments.height <= 16384 and
@@ -295,12 +303,22 @@ def main() -> int:
                                            require_geometry=True)
             require_viewport(resized_video, width, height, f"Display1 resize {index}")
             viewport_resizes.append({"width": width, "height": height, "video": resized_video})
+            if arguments.resize_settle_seconds:
+                time.sleep(arguments.resize_settle_seconds)
         first_video_ms = (time.monotonic() - started) * 1000.0
         before = peer.request({"op": "webrtc_stats"})
         time.sleep(arguments.warmup_seconds)
         after = peer.request({"op": "webrtc_stats"})
         after_video = peer.request({"op": "status"})
         pixels = peer.request({"op": "frame_stats"})
+        if arguments.max_edge_luma is not None:
+            edge_luma = pixels.get("edgeLuma")
+            corners = ("topLeft", "topRight", "bottomLeft", "bottomRight")
+            if not isinstance(edge_luma, dict) or any(
+                    not isinstance(edge_luma.get(corner), (int, float)) or
+                    edge_luma[corner] > arguments.max_edge_luma for corner in corners):
+                raise RuntimeError(
+                    f"decoded-frame edge luma exceeds {arguments.max_edge_luma}: {edge_luma}")
         if arguments.screenshot:
             peer.request({"op": "screenshot", "path": arguments.screenshot})
         result = {

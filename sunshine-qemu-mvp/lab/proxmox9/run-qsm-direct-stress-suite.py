@@ -47,6 +47,7 @@ def _command(arguments: argparse.Namespace, *, width: int, height: int,
         "--width", str(width), "--height", str(height),
         "--fps", str(arguments.fps),
         "--warmup-seconds", str(arguments.warmup_seconds),
+        "--resize-settle-seconds", str(arguments.resize_settle_seconds),
         "--hold-seconds", str(hold_seconds),
         "--browser-host", arguments.browser_host,
         "--browser-user", arguments.browser_user,
@@ -66,6 +67,8 @@ def _command(arguments: argparse.Namespace, *, width: int, height: int,
         command.append("--expect-disconnect")
     if screenshot:
         command.extend(["--screenshot", screenshot])
+    if arguments.max_edge_luma is not None:
+        command.extend(["--max-edge-luma", str(arguments.max_edge_luma)])
     for resize_width, resize_height in viewport_resizes:
         command.extend(["--viewport-resize", f"{resize_width}x{resize_height}"])
     return command
@@ -447,8 +450,12 @@ def main() -> int:
                         help="X display for a visible browser qualification, for example :97")
     parser.add_argument("--visual-evidence", action="store_true",
                         help="save each headful Chrome Console frame on the browser peer for visual review")
+    parser.add_argument("--max-edge-luma", type=int,
+                        help="optional fixture assertion for each decoded-frame corner (0..255)")
     parser.add_argument("--fps", type=int, default=60)
     parser.add_argument("--warmup-seconds", type=float, default=2.0)
+    parser.add_argument("--resize-settle-seconds", type=float, default=1.0,
+                        help="minimum seconds between distinct Display1 modes (0..30)")
     parser.add_argument("--hold-seconds", type=float, default=30.0)
     parser.add_argument("--restart-timeout", type=float, default=90.0)
     parser.add_argument("--guest-file-bytes", type=int, default=65536)
@@ -479,10 +486,13 @@ def main() -> int:
             return result
         arguments.window_size = geometry(arguments.window_size)
         arguments.fullscreen_size = geometry(arguments.fullscreen_size)
-        if not 0 <= arguments.warmup_seconds <= 30 or not 10 <= arguments.hold_seconds <= 120:
-            raise StressFailure("warm-up/hold bounds are invalid")
+        if not 0 <= arguments.warmup_seconds <= 30 or not 0 <= arguments.resize_settle_seconds <= 30 or \
+                not 10 <= arguments.hold_seconds <= 120:
+            raise StressFailure("warm-up/resize-settle/hold bounds are invalid")
         if not 0 <= arguments.guest_file_bytes <= 2 * 1024 * 1024:
             raise StressFailure("guest file size is invalid")
+        if arguments.max_edge_luma is not None and not 0 <= arguments.max_edge_luma <= 255:
+            raise StressFailure("max edge luma is invalid")
         if arguments.visual_evidence and not arguments.browser_headful:
             raise StressFailure("visual evidence needs --browser-headful")
         if arguments.browser_headful and not re.fullmatch(r":[0-9]{1,4}", arguments.browser_display):

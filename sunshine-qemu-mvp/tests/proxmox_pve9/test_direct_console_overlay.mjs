@@ -81,8 +81,12 @@ assert.match(source, /playoutDelayHint\s*=\s*0/,
     'the browser receiver must request interactive rather than conference playout delay');
 assert.match(source, /requestAnimationFrame\(flushPointer\)/,
     'browser mousemove bursts must be coalesced to the display refresh cadence');
-assert.match(source, /popup\.setTimeout\(dispatch, 150\)/,
-    'window dragging must debounce guest resolution changes');
+assert.match(source, /const resizeDebounceMs = 400/,
+    'window dragging must debounce guest resolution changes until it has ended');
+assert.match(source, /const resizeSettleMs = 1000/,
+    'different guest modes must be serialized while a Wayland compositor applies the previous one');
+assert.match(source, /lastResizeSentAt \+ resizeSettleMs - Date\.now\(\)/,
+    'a final viewport request must wait for an in-flight guest mode transition');
 assert.match(source, /if \(video\.width !== value\.width\) \{ video\.width = value\.width; \}/,
     'a native popup resize must update the accelerated video layer presentation width');
 assert.match(source, /if \(video\.height !== value\.height\) \{ video\.height = value\.height; \}/,

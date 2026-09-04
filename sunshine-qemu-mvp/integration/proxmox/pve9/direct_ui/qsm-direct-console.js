@@ -400,6 +400,7 @@
         let resizeRetryTimer = null;
         let resizeRetryIdentity = '';
         let resizeRetryAttempts = 0;
+        let lastResizeSentAt = 0;
         let firstFrameTimer = null;
         let toolbarTimer = null;
         let guestRequestNumber = 0;
@@ -854,6 +855,15 @@
             };
             video.addEventListener('loadeddata', updateMediaStatus);
             video.addEventListener('playing', updateMediaStatus);
+            // KWin/SDDM applies a virtio-gpu hotplug event asynchronously.
+            // QEMU exposes its new scanout almost immediately, but a second
+            // distinct mode sent during that compositor transition can leave
+            // the greeter painting its previous canvas into the new buffer.
+            // Treat an operating-system resize as an end-of-drag action and
+            // serialize mode changes.  The initial/full-screen request still
+            // dispatches immediately when no transition is pending.
+            const resizeDebounceMs = 400;
+            const resizeSettleMs = 1000;
             const resize = (immediate = false) => {
                 const dispatch = () => {
                     resizeTimer = null;
@@ -868,9 +878,18 @@
                     if (video.width !== value.width) { video.width = value.width; }
                     if (video.height !== value.height) { video.height = value.height; }
                     if (identity !== lastResize) {
+                        const remainingSettle = Math.max(0,
+                            lastResizeSentAt + resizeSettleMs - Date.now());
+                        if (remainingSettle > 0) {
+                            // Read dimensions again when the compositor has
+                            // settled: a user may have continued dragging.
+                            resizeTimer = popup.setTimeout(dispatch, remainingSettle);
+                            return;
+                        }
                         if (identity !== resizeRetryIdentity) { resizeRetryAttempts = 0; }
                         resizeRetryIdentity = identity;
                         lastResize = identity;
+                        lastResizeSentAt = Date.now();
                         send({ op: 'resize', ...value });
                     }
                     // Control SCTP is reliable, but a D-Bus/guest mode
@@ -900,7 +919,7 @@
                 };
                 if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); resizeTimer = null; }
                 if (immediate) { dispatch(); }
-                else { resizeTimer = popup.setTimeout(dispatch, 150); }
+                else { resizeTimer = popup.setTimeout(dispatch, resizeDebounceMs); }
             };
             resizeConsole = resize;
             const flushPointer = () => {

@@ -366,6 +366,22 @@ async function frameStats() {
         let lumaMin = 255;
         let lumaMax = 0;
         let nonBlack = 0;
+        const edgeLuma = {};
+        const lumaAt = (x, y) => {
+            const offset = 4 * (y * width + x);
+            return (77 * pixels[offset] + 150 * pixels[offset + 1] + 29 * pixels[offset + 2]) >> 8;
+        };
+        const cornerMean = (startX, startY) => {
+            let sum = 0;
+            let count = 0;
+            for (let y = startY; y < Math.min(height, startY + 4); y += 1) {
+                for (let x = startX; x < Math.min(width, startX + 4); x += 1) {
+                    sum += lumaAt(x, y);
+                    count += 1;
+                }
+            }
+            return count ? sum / count : 0;
+        };
         for (let index = 0; index < pixels.length; index += 4) {
             // Integer BT.601 luma; alpha is deliberately ignored.
             const luma = (77 * pixels[index] + 150 * pixels[index + 1] + 29 * pixels[index + 2]) >> 8;
@@ -377,12 +393,17 @@ async function frameStats() {
             }
         }
         const samples = width * height;
+        edgeLuma.topLeft = cornerMean(0, 0);
+        edgeLuma.topRight = cornerMean(Math.max(0, width - 4), 0);
+        edgeLuma.bottomLeft = cornerMean(0, Math.max(0, height - 4));
+        edgeLuma.bottomRight = cornerMean(Math.max(0, width - 4), Math.max(0, height - 4));
         return {
             samples,
             lumaMin,
             lumaMax,
             lumaMean: lumaSum / samples,
             nonBlack,
+            edgeLuma,
         };
     });
 }
