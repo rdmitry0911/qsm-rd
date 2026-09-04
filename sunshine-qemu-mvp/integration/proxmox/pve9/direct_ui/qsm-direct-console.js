@@ -324,12 +324,11 @@
         // deterministically; audio can be enabled explicitly afterwards.
         video.muted = true;
         video.tabIndex = 0;
-        // Display1 is resized to this exact box. Fill immediately so neither
-        // a browser full-screen transition nor its first in-flight frame
-        // leaves a letterboxed fragment of the guest on screen.  Once the
-        // ordered resize is acknowledged, source and box have identical
-        // geometry and no aspect-ratio distortion remains.
-        video.style.cssText = 'display:block;width:100%;height:100%;background:#000;object-fit:fill;outline:none';
+        // Preserve the guest's pixel aspect ratio.  Resize retry/acknowledge
+        // below converges Display1 to this exact box; after convergence
+        // `contain` occupies it completely without stretching an image just
+        // because a user dragged one window edge.
+        video.style.cssText = 'display:block;width:100%;height:100%;background:#000;object-fit:contain;outline:none';
         const audio = document.createElement('button');
         audio.type = 'button';
         audio.style.cssText = 'padding:4px 9px;cursor:pointer';
@@ -398,6 +397,9 @@
         let pointerFrame = null;
         let pendingPointer = null;
         let resizeTimer = null;
+        let resizeRetryTimer = null;
+        let resizeRetryIdentity = '';
+        let resizeRetryAttempts = 0;
         let firstFrameTimer = null;
         let toolbarTimer = null;
         let guestRequestNumber = 0;
@@ -757,6 +759,7 @@
             if (closeWatcher !== null) { window.clearInterval(closeWatcher); }
             if (pointerFrame !== null) { popup.cancelAnimationFrame(pointerFrame); }
             if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); }
+            if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); }
             if (firstFrameTimer !== null) { popup.clearTimeout(firstFrameTimer); }
             if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); }
             for (const request of guestRequests.values()) {
@@ -857,9 +860,35 @@
                     const value = dimensions(video);
                     const identity = `${value.width}x${value.height}@${value.fps}`;
                     if (identity !== lastResize) {
+                        if (identity !== resizeRetryIdentity) { resizeRetryAttempts = 0; }
+                        resizeRetryIdentity = identity;
                         lastResize = identity;
                         send({ op: 'resize', ...value });
                     }
+                    // Control SCTP is reliable, but a D-Bus/guest mode
+                    // change can race a resize immediately after a window or
+                    // full-screen transition. Do not permanently letterbox
+                    // the Console after one early request: retry until the
+                    // decoded frame itself confirms the target geometry.
+                    if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); }
+                    resizeRetryTimer = popup.setTimeout(() => {
+                        resizeRetryTimer = null;
+                        if (closed || resizeRetryIdentity !== identity) { return; }
+                        const current = dimensions(video);
+                        const currentIdentity = `${current.width}x${current.height}@${current.fps}`;
+                        if (currentIdentity !== identity) { resize(false); return; }
+                        if (video.videoWidth === current.width && video.videoHeight === current.height) {
+                            resizeRetryAttempts = 0;
+                            return;
+                        }
+                        if (resizeRetryAttempts >= 16) {
+                            status.textContent = gettext('Guest display did not acknowledge this window size.');
+                            return;
+                        }
+                        resizeRetryAttempts += 1;
+                        lastResize = '';
+                        resize(true);
+                    }, 250);
                 };
                 if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); resizeTimer = null; }
                 if (immediate) { dispatch(); }
@@ -944,6 +973,7 @@
             observer = new ResizeObserver(() => resize(false));
             observer.observe(video);
             popup.addEventListener('resize', () => resize(false));
+            video.addEventListener('resize', () => resize(false));
             video.addEventListener('mousemove', (event) => {
                 revealToolbar();
                 hideToolbarSoon();

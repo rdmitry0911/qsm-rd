@@ -30,7 +30,7 @@ async function startLocalPage() {
     // reject a stream whose pixels decode correctly but occupy only part of
     // a resized or full-screen browser viewport.
     await fs.writeFile(pagePath, `<!doctype html>
-<style>html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#000}#remote{display:block;width:100%;height:100%;background:#000;object-fit:fill}</style>
+<style>html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#000}#remote{display:block;width:100%;height:100%;background:#000;object-fit:contain}</style>
 <video id="remote" autoplay muted playsinline></video>`);
     return `file://${pagePath}`;
 }
@@ -230,6 +230,14 @@ async function status() {
         const rect = video.getBoundingClientRect();
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
+        const objectFit = getComputedStyle(video).objectFit;
+        let contentWidth = rect.width;
+        let contentHeight = rect.height;
+        if (objectFit === 'contain' && video.videoWidth > 0 && video.videoHeight > 0) {
+            const scale = Math.min(rect.width / video.videoWidth, rect.height / video.videoHeight);
+            contentWidth = video.videoWidth * scale;
+            contentHeight = video.videoHeight * scale;
+        }
         return {
             connectionState: window.qsmPeerConnection.connectionState,
             iceConnectionState: window.qsmPeerConnection.iceConnectionState,
@@ -249,9 +257,13 @@ async function status() {
                 renderedTop: rect.top,
                 renderedWidth: rect.width,
                 renderedHeight: rect.height,
-                objectFit: getComputedStyle(video).objectFit,
+                objectFit,
                 fillsViewport: Math.abs(rect.left) < 0.5 && Math.abs(rect.top) < 0.5 &&
                     Math.abs(rect.width - viewportWidth) < 0.5 && Math.abs(rect.height - viewportHeight) < 0.5,
+                contentWidth,
+                contentHeight,
+                contentFillsViewport: Math.abs(contentWidth - viewportWidth) < 1.5 &&
+                    Math.abs(contentHeight - viewportHeight) < 1.5,
             },
         };
     });

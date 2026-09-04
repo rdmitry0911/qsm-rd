@@ -98,8 +98,8 @@ def _check_live(result: dict[str, Any], name: str, width: int, height: int) -> N
         raise StressFailure(f"{name}: browser did not exercise all direct input lanes")
     layout = video.get("layout")
     if not isinstance(layout, dict) or layout.get("viewportWidth") != width or \
-            layout.get("viewportHeight") != height or layout.get("objectFit") != "fill" or \
-            layout.get("fillsViewport") is not True:
+            layout.get("viewportHeight") != height or layout.get("objectFit") != "contain" or \
+            layout.get("fillsViewport") is not True or layout.get("contentFillsViewport") is not True:
         raise StressFailure(f"{name}: decoded frame does not fill its final browser viewport")
 
 

@@ -53,12 +53,16 @@ assert.match(source, /document\.documentElement\.requestFullscreen\(\)/,
     'the popup must provide a full-screen action for the entire display');
 assert.match(source, /position:absolute;z-index:10;top:0;left:0;right:0/,
     'the console controls must overlay, rather than consume, guest video pixels');
-assert.match(source, /video\.style\.cssText = 'display:block;width:100%;height:100%;background:#000;object-fit:fill;outline:none'/,
-    'the guest video viewport must fill the popup beneath the floating controls');
+assert.match(source, /video\.style\.cssText = 'display:block;width:100%;height:100%;background:#000;object-fit:contain;outline:none'/,
+    'the guest image must retain its aspect ratio while filling the popup after Display1 resize');
 assert.match(source, /document\.addEventListener\('fullscreenchange', \(\) => \{\s*setFullscreenLabel\(\);\s*resizeConsole\(true\);/,
     'full screen must force an immediate Display1 resize even when ResizeObserver is not notified');
 assert.match(source, /sourceWidth = Math\.max\(1, video\.videoWidth \|\| Math\.floor\(box\.width\)\)/,
     'pointer coordinates must be mapped to decoded source pixels during a resize');
+assert.match(source, /Guest display did not acknowledge this window size\./,
+    'a missed guest resize must be visible rather than silently leaving a letterboxed console');
+assert.match(source, /resizeRetryAttempts >= 16/,
+    'a direct Console must retry an early Display1 resize until its frame confirms the requested geometry');
 assert.match(source, /const hideToolbarSoon = \(\) =>/,
     'an idle connected console must auto-hide its floating controls');
 assert.match(source, /toolbar\.style\.transform = 'translateY\(-100%\)'/,

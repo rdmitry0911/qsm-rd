@@ -147,15 +147,18 @@ def wait_for_disconnect(peer: BrowserPeer, timeout: float) -> dict[str, Any]:
     raise RuntimeError(f"Chrome Console remained connected after lifecycle action: {last}")
 
 
-def require_viewport(status: dict[str, Any], width: int, height: int, label: str) -> None:
+def require_viewport(status: dict[str, Any], width: int, height: int, label: str,
+                     *, require_content: bool = True) -> None:
     """Reject a decoded stream that leaves the Console viewport unused."""
     layout = status.get("layout")
     if not isinstance(layout, dict):
         raise RuntimeError(f"{label}: browser did not report video layout")
     expected = {
         "viewportWidth": width, "viewportHeight": height,
-        "objectFit": "fill", "fillsViewport": True,
+        "objectFit": "contain", "fillsViewport": True,
     }
+    if require_content:
+        expected["contentFillsViewport"] = True
     if any(layout.get(key) != value for key, value in expected.items()):
         raise RuntimeError(f"{label}: video does not fill {width}x{height} browser viewport: {layout}")
 
@@ -264,7 +267,11 @@ def main() -> int:
         viewport_resizes: list[dict[str, Any]] = []
         for index, (width, height) in enumerate(arguments.viewport_resize, start=1):
             resized_viewport = peer.request({"op": "viewport", "width": width, "height": height})
-            require_viewport(resized_viewport, width, height, f"viewport resize {index}")
+            # The old frame deliberately remains aspect-correct during this
+            # short transition. Only the post-ack Display1 frame is required
+            # to occupy the whole viewport.
+            require_viewport(resized_viewport, width, height, f"viewport resize {index}",
+                             require_content=False)
             peer.request({"op": "control", "message": {
                 "op": "resize", "width": width, "height": height, "fps": arguments.fps,
             }}, timeout=5.0)
