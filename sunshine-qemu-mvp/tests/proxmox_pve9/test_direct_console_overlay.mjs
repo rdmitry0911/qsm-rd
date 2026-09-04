@@ -53,8 +53,8 @@ assert.match(source, /document\.documentElement\.requestFullscreen\(\)/,
     'the popup must provide a full-screen action for the entire display');
 assert.match(source, /position:absolute;z-index:10;top:0;left:0;right:0/,
     'the console controls must overlay, rather than consume, guest video pixels');
-assert.match(source, /video\.style\.cssText = 'display:block;width:100%;height:100%;background:#000;object-fit:contain;outline:none'/,
-    'the guest image must retain its aspect ratio while filling the popup after Display1 resize');
+assert.match(source, /video\.style\.cssText = 'position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain;outline:none'/,
+    'the guest image must use the browser viewport rather than a stale percentage-layout box after resize');
 assert.match(source, /document\.addEventListener\('fullscreenchange', \(\) => \{\s*setFullscreenLabel\(\);\s*resizeConsole\(true\);/,
     'full screen must force an immediate Display1 resize even when ResizeObserver is not notified');
 assert.match(source, /sourceWidth = Math\.max\(1, video\.videoWidth \|\| Math\.floor\(box\.width\)\)/,
@@ -83,6 +83,10 @@ assert.match(source, /requestAnimationFrame\(flushPointer\)/,
     'browser mousemove bursts must be coalesced to the display refresh cadence');
 assert.match(source, /popup\.setTimeout\(dispatch, 150\)/,
     'window dragging must debounce guest resolution changes');
+assert.match(source, /if \(video\.width !== value\.width\) \{ video\.width = value\.width; \}/,
+    'a native popup resize must update the accelerated video layer presentation width');
+assert.match(source, /if \(video\.height !== value\.height\) \{ video\.height = value\.height; \}/,
+    'a native popup resize must update the accelerated video layer presentation height');
 assert.match(source, /A VM has one Display1 scanout, while several PVE Console\n\s*\/\/ windows may observe it\./,
     'a decoded resize from another Console must not be treated as this popup being resized');
 assert.doesNotMatch(source, /video\.addEventListener\('resize', \(\) => resize\(false\)\)/,

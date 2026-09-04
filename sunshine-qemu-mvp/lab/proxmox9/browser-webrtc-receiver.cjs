@@ -17,6 +17,8 @@ let browser;
 let page;
 let pageDirectory;
 let closing = false;
+let nativeWindowSession;
+let nativeWindowId;
 
 async function startLocalPage() {
     // A file origin is potentially trustworthy and does not require Chrome's
@@ -30,7 +32,7 @@ async function startLocalPage() {
     // reject a stream whose pixels decode correctly but occupy only part of
     // a resized or full-screen browser viewport.
     await fs.writeFile(pagePath, `<!doctype html>
-<style>html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#000}#remote{display:block;width:100%;height:100%;background:#000;object-fit:contain}</style>
+<style>html{width:100%;height:100%;background:#000}body{width:100vw;height:100vh;min-width:100vw;min-height:100vh;margin:0;position:relative;overflow:hidden;background:#000}#remote{position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain}</style>
 <video id="remote" autoplay muted playsinline></video>`);
     return `file://${pagePath}`;
 }
@@ -98,8 +100,20 @@ async function createOffer() {
             '--force-webrtc-ip-handling-policy=default',
         ],
     });
-    page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    // `page.setViewportSize()` is a DevTools emulation primitive. In headed
+    // Chromium it can enlarge the screenshot canvas without resizing the
+    // native video compositor surface, which is the opposite of an operator
+    // dragging a Console popup edge. For visual qualification use an actual
+    // browser window and set its native bounds below.
+    page = headful ? await browser.newPage({ viewport: null }) :
+        await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await page.goto(await startLocalPage());
+    if (headful) {
+        nativeWindowSession = await page.context().newCDPSession(page);
+        const result = await nativeWindowSession.send('Browser.getWindowForTarget');
+        nativeWindowId = result.windowId;
+        await setNativeViewport({ width: 1280, height: 800 });
+    }
     const iceServer = process.env.QSM_BROWSER_E2E_ICE_SERVER;
     const offer = await page.evaluate(async (iceUrl) => {
         const video = document.getElementById('remote');
@@ -250,6 +264,7 @@ async function status() {
             controlReady: window.qsmControl?.readyState === 'open',
             pointerReady: window.qsmPointer?.readyState === 'open',
             playoutDelayHint: window.qsmVideoReceiver?.playoutDelayHint ?? null,
+            renderer: 'native-video',
             layout: {
                 viewportWidth,
                 viewportHeight,
@@ -278,8 +293,48 @@ async function setViewport(message) {
         width > 16384 || height > 16384 || width % 2 !== 0 || height % 2 !== 0) {
         throw new Error('invalid browser viewport geometry');
     }
-    await page.setViewportSize({ width, height });
+    if (nativeWindowSession && nativeWindowId !== undefined) {
+        await setNativeViewport({ width, height });
+    } else {
+        await page.setViewportSize({ width, height });
+    }
+    await page.evaluate(({ width: targetWidth, height: targetHeight }) => {
+        const video = document.getElementById('remote');
+        video.width = targetWidth;
+        video.height = targetHeight;
+    }, { width, height });
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
+    return status();
+}
+
+async function setNativeViewport({ width, height }) {
+    if (!page || !nativeWindowSession || nativeWindowId === undefined) {
+        throw new Error('native browser window is unavailable');
+    }
+    const chrome = await page.evaluate(() => ({
+        width: window.outerWidth - window.innerWidth,
+        height: window.outerHeight - window.innerHeight,
+    }));
+    await nativeWindowSession.send('Browser.setWindowBounds', {
+        windowId: nativeWindowId,
+        bounds: { width: width + Math.max(0, chrome.width), height: height + Math.max(0, chrome.height) },
+    });
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+        const actual = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
+        if (actual.width === width && actual.height === height) {
+            return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error('native browser window did not reach the requested viewport');
+}
+
+async function screenshot(message) {
+    if (!page || !message || typeof message.path !== 'string' ||
+        !/^\/tmp\/qsm-browser-e2e-[A-Za-z0-9._-]{1,80}\.png$/.test(message.path)) {
+        throw new Error('invalid browser screenshot path');
+    }
+    await page.screenshot({ path: message.path });
     return status();
 }
 
@@ -602,6 +657,8 @@ async function close() {
     page = undefined;
     browser = undefined;
     pageDirectory = undefined;
+    nativeWindowSession = undefined;
+    nativeWindowId = undefined;
 }
 
 async function terminate() {
@@ -626,6 +683,7 @@ const commands = {
     frame_stats: async () => frameStats(),
     webrtc_stats: async () => webrtcStats(),
     viewport: async (message) => setViewport(message),
+    screenshot: async (message) => screenshot(message),
     measure_hover: async (message) => measureHover(message.message),
     control: async (message) => control(message.message),
     pointer: async (message) => pointer(message.message),

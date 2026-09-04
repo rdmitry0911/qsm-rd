@@ -109,10 +109,14 @@ python3 /path/to/run-qsm-direct-stress-suite.py \
   --browser-user dima \
   --browser-key /root/.ssh/id_ed25519 \
   --browser-script /home/dima/Projects/q-sunshine/sunshine-qemu-mvp/lab/proxmox9/browser-webrtc-receiver.cjs \
+  --browser-headful --browser-display :97 --visual-evidence \
   --guest-input-host 192.168.64.159 \
   --guest-input-user dima \
   --guest-tablet-device /dev/input/event2 \
-  --guest-keyboard-device /dev/input/event1
+  --guest-keyboard-device /dev/input/event1 \
+  --guest-display-host 192.168.64.159 \
+  --guest-display-user dima \
+  --guest-desktop-user dima
 ```
 
 The browser account needs only an SSH key limited to the PVE node.  The script
@@ -122,19 +126,21 @@ QSM package.  A successful run emits one bounded
 
 | Contract | Exercise |
 | --- | --- |
-| Window and fullscreen geometry | fresh 1280×798 and 1920×1080 sessions, plus window → fullscreen → window and fullscreen → window → fullscreen in the same WebRTC Console; Chrome verifies the visible video content fills each viewport. With `--guest-display-*`, KScreen also proves the actual guest Wayland output mode equals the settled viewport. |
+| Window and fullscreen geometry | fresh 1280×798 and 1920×1080 sessions, plus window → fullscreen → window and fullscreen → window → fullscreen in the same WebRTC Console; Chrome verifies the visible video content fills each viewport. `--browser-headful --visual-evidence` saves each actual native-video frame on the browser peer for inspection. With `--guest-display-* --guest-desktop-user NAME`, KScreen also proves the actual named desktop's Wayland output mode equals the settled viewport. |
 | Video and input | real Chrome H.264 pixels, progressing decoded frames, ordered control and lossy pointer channels; optional full lane requires physical tablet and keyboard `evdev` records in the guest |
 | Several Console windows | two simultaneous Chrome subscribers to one QEMU scanout; a fullscreen viewer followed by a windowed viewer proves the last real window resize remains authoritative and a passive older popup cannot restore its stale mode |
 | Clipboard and files | browser ↔ private virtio guest channel, UTF-8 clipboard and both file directions |
 | VM reboot while viewing | old WebRTC peer must disconnect; a new Console must decode current pixels |
 | Terminal-service restart while viewing | old peer must disconnect; private Display1 bus remains usable and a new Console succeeds |
 
-The full-screen row qualifies the remote scanout geometry.  Browser chrome
+The full-screen row qualifies the remote scanout geometry. Browser chrome
 fullscreen is a local UI action and therefore does not create a second
-transport mode.  The suite never attempts to log in to a guest desktop; GUI
-clipboard bridging additionally requires an active Wayland/X11 user session
-inside that guest, whereas the private guest-agent clipboard/file contract is
-available as soon as the virtio agent is ready.
+transport mode. The suite never attempts to log in to a guest desktop; when
+KScreen proof is selected it requires an already active named desktop session
+and explicitly rejects a display-manager greeter, because a greeter can report
+a mode change without repainting a usable desktop. GUI clipboard bridging also
+requires an active Wayland/X11 user session, whereas the private guest-agent
+clipboard/file contract is available as soon as the virtio agent is ready.
 
 ## Display1 Advanced-form qualification
 

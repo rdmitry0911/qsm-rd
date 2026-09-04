@@ -263,13 +263,18 @@ def load_supported_templates(path: Path, *, require_root_owner: bool) -> dict[st
     return supported
 
 
-def render_patched_template(original: bytes) -> bytes:
+def render_patched_template(original: bytes, overlay_digest: str) -> bytes:
+    """Inject the Console asset with a content-addressed browser cache key."""
     if MARKER in original or original.count(ANCHOR) != 1:
         raise UnsupportedPve("PVE Web UI layout is unsupported")
+    if _HASH_PATTERN.fullmatch(overlay_digest) is None:
+        raise UnsafeUiState("q-sunshine Console overlay digest is invalid")
     injected = (
         ANCHOR
         + MARKER
-        + b'    <script type="text/javascript" src="/pve2/js/q-sunshine-console.js?ver=[% version %]-qsm1"></script>\n'
+        + b'    <script type="text/javascript" src="/pve2/js/q-sunshine-console.js?ver=[% version %]-qsm-overlay-'
+        + overlay_digest[:16].encode("ascii")
+        + b'"></script>\n'
     )
     return original.replace(ANCHOR, injected, 1)
 
@@ -400,7 +405,7 @@ class UiIntegration:
             raise UnsupportedPve("installed PVE Web UI template hash is not supported")
         return supported, original_path, original
 
-    def _check_overlay_asset(self) -> None:
+    def _check_overlay_asset(self) -> str:
         # The static overlay is package-owned; allow only a safe regular file
         # before adding a template reference to it.
         content = _read_regular(
@@ -410,6 +415,10 @@ class UiIntegration:
         )
         if not content.startswith(b"/*\n * q-sunshine Console menu integration"):
             raise UnsafeUiState("q-sunshine Console overlay is invalid")
+        # PVE's own version field does not change when just this package is
+        # upgraded.  Tie the browser URL to the actual immutable payload so a
+        # normal PVE page reload cannot reuse an older Console implementation.
+        return _sha256(content)
 
     def _write_state(self, supported: SupportedTemplate) -> None:
         self.paths.state.parent.mkdir(parents=True, exist_ok=True)
@@ -465,11 +474,11 @@ class UiIntegration:
             raise UnsafeUiState("q-sunshine PVE UI diversion is incomplete") from error
         if current.count(MARKER) != 1:
             raise UnsafeUiState("refusing to overwrite an unmanaged PVE UI template")
-        self._check_overlay_asset()
+        overlay_digest = self._check_overlay_asset()
         self._remove_legacy_config_asset()
         _atomic_write(
             self.paths.template,
-            render_patched_template(original),
+            render_patched_template(original, overlay_digest),
             mode=0o644,
             require_root_owner=self.require_root_owner,
         )
@@ -484,7 +493,7 @@ class UiIntegration:
             raise UnsafeUiState("PVE Web UI template has another diversion")
 
         supported, _original_path, original = self._supported_original()
-        self._check_overlay_asset()
+        overlay_digest = self._check_overlay_asset()
         self._remove_legacy_config_asset()
         self.diversions.add(self.paths.template, self.paths.diversion)
         try:
@@ -497,7 +506,7 @@ class UiIntegration:
                 raise UnsafeUiState("PVE Web UI diversion changed its source unexpectedly")
             _atomic_write(
                 self.paths.template,
-                render_patched_template(diverted),
+                render_patched_template(diverted, overlay_digest),
                 mode=0o644,
                 require_root_owner=self.require_root_owner,
             )

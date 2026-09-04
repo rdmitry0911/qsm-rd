@@ -37,7 +37,8 @@ MARKER = "QSM_LAB_DIRECT_CHROME_E2E "
 def _command(arguments: argparse.Namespace, *, width: int, height: int,
              hold_seconds: float = 0.0, guest_transfer: bool = False,
              expect_disconnect: bool = False,
-             viewport_resizes: tuple[tuple[int, int], ...] = ()) -> list[str]:
+             viewport_resizes: tuple[tuple[int, int], ...] = (),
+             screenshot: str = "") -> list[str]:
     command = [
         sys.executable, os.fspath(MEASURE),
         "--socket", arguments.socket,
@@ -55,12 +56,16 @@ def _command(arguments: argparse.Namespace, *, width: int, height: int,
     ]
     if arguments.browser_headful:
         command.append("--browser-headful")
+    if arguments.browser_display:
+        command.extend(["--browser-display", arguments.browser_display])
     if arguments.browser_ice_server:
         command.extend(["--browser-ice-server", arguments.browser_ice_server])
     if guest_transfer:
         command.extend(["--guest-transfer", "--guest-file-bytes", str(arguments.guest_file_bytes)])
     if expect_disconnect:
         command.append("--expect-disconnect")
+    if screenshot:
+        command.extend(["--screenshot", screenshot])
     for resize_width, resize_height in viewport_resizes:
         command.extend(["--viewport-resize", f"{resize_width}x{resize_height}"])
     return command
@@ -197,11 +202,13 @@ def _guest_wayland_geometry(arguments: argparse.Namespace, expected: tuple[int, 
         uid, user = properties.get("User", ""), properties.get("Name", "")
         if (properties.get("Remote") == "no" and properties.get("Type") == "wayland" and
                 properties.get("State") == "active" and uid.isdecimal() and
-                re.fullmatch(r"[A-Za-z0-9._-]+", user or "")):
+                re.fullmatch(r"[A-Za-z0-9._-]+", user or "") and
+                user == arguments.guest_desktop_user):
             selected = session_id, uid, user
             break
     if selected is None:
-        raise StressFailure(f"{name}: guest has no active local Wayland session")
+        raise StressFailure(
+            f"{name}: guest has no active local Wayland session for {arguments.guest_desktop_user!r}")
     session_id, uid, user = selected
 
     def read_geometry() -> tuple[int, int] | None:
@@ -257,9 +264,11 @@ def _guest_wayland_geometry(arguments: argparse.Namespace, expected: tuple[int, 
 def _run_case(arguments: argparse.Namespace, name: str, width: int, height: int,
               *, guest_transfer: bool = False,
               viewport_resizes: tuple[tuple[int, int], ...] = ()) -> dict[str, Any]:
+    screenshot = (f"/tmp/qsm-browser-e2e-vm{arguments.vmid}-{name}.png"
+                  if arguments.visual_evidence else "")
     completed = subprocess.run(
         _command(arguments, width=width, height=height, guest_transfer=guest_transfer,
-                 viewport_resizes=viewport_resizes),
+                 viewport_resizes=viewport_resizes, screenshot=screenshot),
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, encoding="utf-8", timeout=90, check=False,
     )
@@ -278,6 +287,8 @@ def _run_case(arguments: argparse.Namespace, name: str, width: int, height: int,
                 {"width": value.get("width"), "height": value.get("height")}
                 for value in observed if isinstance(value, dict)] != expected:
             raise StressFailure(f"{name}: browser viewport/Display1 resize sequence was incomplete")
+    if screenshot:
+        result["screenshot"] = screenshot
     return result
 
 
@@ -346,10 +357,14 @@ def _run_held_case(arguments: argparse.Namespace, name: str, *, restart_vm: bool
     if process.returncode != 0:
         raise StressFailure(f"{name}: held Chrome peer failed: {stderr.strip()[-400:]}")
     result = _result(stdout, name)
-    # The measure process actively waits for this state.  A remaining connected
-    # peer could still show a stale firmware frame and accept dead input.
+    # The measure process actively waits for the browser-visible lifecycle
+    # signal: a PeerConnection state transition or the closure of either
+    # control channel. The shipped popup closes on that channel event, which
+    # arrives before Chromium's unrelated ICE timeout.
     held = result.get("afterHold")
-    if not isinstance(held, dict) or held.get("connectionState") == "connected":
+    if (not isinstance(held, dict) or
+            (held.get("connectionState") == "connected" and
+             held.get("controlReady") is True and held.get("pointerReady") is True)):
         raise StressFailure(f"{name}: old WebRTC Console was not retired")
     return result
 
@@ -428,6 +443,10 @@ def main() -> int:
     parser.add_argument("--browser-ice-server", default="",
                         help="optional lab-only STUN/TURN URL passed only to the Chrome test peer")
     parser.add_argument("--browser-headful", action="store_true")
+    parser.add_argument("--browser-display", default="",
+                        help="X display for a visible browser qualification, for example :97")
+    parser.add_argument("--visual-evidence", action="store_true",
+                        help="save each headful Chrome Console frame on the browser peer for visual review")
     parser.add_argument("--fps", type=int, default=60)
     parser.add_argument("--warmup-seconds", type=float, default=2.0)
     parser.add_argument("--hold-seconds", type=float, default=30.0)
@@ -443,6 +462,8 @@ def main() -> int:
                         help="optional guest SSH host for KScreen proof of the settled Wayland geometry")
     parser.add_argument("--guest-display-user", default="root")
     parser.add_argument("--guest-display-key", default="")
+    parser.add_argument("--guest-desktop-user", default="",
+                        help="required graphical Wayland user to prove; do not use the display-manager greeter")
     parser.add_argument("--window-size", default="1280x798")
     parser.add_argument("--fullscreen-size", default="1920x1080")
     arguments = parser.parse_args()
@@ -462,10 +483,18 @@ def main() -> int:
             raise StressFailure("warm-up/hold bounds are invalid")
         if not 0 <= arguments.guest_file_bytes <= 2 * 1024 * 1024:
             raise StressFailure("guest file size is invalid")
+        if arguments.visual_evidence and not arguments.browser_headful:
+            raise StressFailure("visual evidence needs --browser-headful")
+        if arguments.browser_headful and not re.fullmatch(r":[0-9]{1,4}", arguments.browser_display):
+            raise StressFailure("headful browser qualification needs --browser-display :N")
         if bool(arguments.guest_input_host) and (not arguments.guest_input_user or
                                                  not EVENT_DEVICE.fullmatch(arguments.guest_tablet_device) or
                                                  not EVENT_DEVICE.fullmatch(arguments.guest_keyboard_device)):
             raise StressFailure("guest input proof needs user and valid tablet/keyboard event devices")
+        if arguments.guest_display_host and (
+                not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,31}", arguments.guest_desktop_user)):
+            raise StressFailure(
+                "guest display proof needs --guest-desktop-user for a real graphical desktop, not a greeter")
         if os.geteuid() != 0:
             raise StressFailure("run this PVE acceptance suite as root")
         if not MEASURE.is_file():

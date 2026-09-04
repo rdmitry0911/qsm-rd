@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import re
 import select
 import socket
 import subprocess
@@ -141,7 +142,14 @@ def wait_for_disconnect(peer: BrowserPeer, timeout: float) -> dict[str, Any]:
     last: dict[str, Any] = {}
     while time.monotonic() < deadline:
         last = peer.request({"op": "status"}, timeout=5.0)
-        if last.get("connectionState") != "connected":
+        # Chromium can keep the ICE/DTLS transport in ``connected`` briefly
+        # after aiortc has closed the two server data channels.  The shipped
+        # popup treats either channel's close event as the authoritative VM
+        # lifecycle signal and closes itself immediately; a test peer must
+        # model that same browser-visible contract instead of waiting for an
+        # unrelated ICE timeout (often tens of seconds).
+        if (last.get("connectionState") != "connected" or
+                last.get("controlReady") is not True or last.get("pointerReady") is not True):
             return last
         time.sleep(0.1)
     raise RuntimeError(f"Chrome Console remained connected after lifecycle action: {last}")
@@ -208,6 +216,8 @@ def main() -> int:
                         help="require this many bytes from the guest download during --guest-transfer")
     parser.add_argument("--viewport-resize", type=geometry, action="append", default=[],
                         help="resize the actual Chrome viewport and Display1 in this live session (WIDTHxHEIGHT)")
+    parser.add_argument("--screenshot", default="",
+                        help="optional /tmp/qsm-browser-e2e-*.png path on the disposable Chrome host")
     arguments = parser.parse_args()
     if not 0 <= arguments.guest_file_bytes <= 2 * 1024 * 1024:
         parser.error("--guest-file-bytes must be in 0..2097152")
@@ -220,6 +230,8 @@ def main() -> int:
     if not (64 <= arguments.width <= 16384 and 64 <= arguments.height <= 16384 and
             arguments.width % 2 == 0 and arguments.height % 2 == 0):
         parser.error("--width/--height must be even and within 64..16384")
+    if arguments.screenshot and not re.fullmatch(r"/tmp/qsm-browser-e2e-[A-Za-z0-9._-]{1,80}\.png", arguments.screenshot):
+        parser.error("--screenshot must be a bounded /tmp/qsm-browser-e2e-*.png path")
 
     peer = BrowserPeer(arguments)
     started = time.monotonic()
@@ -285,6 +297,8 @@ def main() -> int:
         after = peer.request({"op": "webrtc_stats"})
         after_video = peer.request({"op": "status"})
         pixels = peer.request({"op": "frame_stats"})
+        if arguments.screenshot:
+            peer.request({"op": "screenshot", "path": arguments.screenshot})
         result = {
             "firstVideoMs": first_video_ms,
             "initialVideo": initial_video,

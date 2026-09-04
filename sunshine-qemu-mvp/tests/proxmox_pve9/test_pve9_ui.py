@@ -25,6 +25,7 @@ SAMPLE_TEMPLATE = b"""<!DOCTYPE html>
     <script type=\"text/javascript\" src=\"/pve2/ext6/locale/locale-[% lang %].js?ver=7.0.0\"></script>
 </head></html>
 """
+OVERLAY_DIGEST = "a" * 64
 
 
 class Pve9UiTests(unittest.TestCase):
@@ -69,14 +70,14 @@ class Pve9UiTests(unittest.TestCase):
         self.assertIn("q-sunshine-pve-launch", source)
 
     def test_patched_template_preserves_stock_library_before_overlay(self) -> None:
-        patched = ui.render_patched_template(SAMPLE_TEMPLATE)
+        patched = ui.render_patched_template(SAMPLE_TEMPLATE, OVERLAY_DIGEST)
         self.assertEqual(patched.count(ui.MARKER), 1)
         self.assertLess(
             patched.index(b"pvemanagerlib.js"),
             patched.index(b"q-sunshine-console.js"),
         )
         with self.assertRaises(ui.UnsupportedPve):
-            ui.render_patched_template(patched)
+            ui.render_patched_template(patched, OVERLAY_DIGEST)
 
     def test_sandbox_install_reconcile_and_remove_restore_the_exact_template(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -95,9 +96,16 @@ class Pve9UiTests(unittest.TestCase):
             self.assertEqual(paths.diversion.read_bytes(), SAMPLE_TEMPLATE)
             patched = paths.template.read_bytes()
             self.assertIn(ui.MARKER, patched)
-            self.assertIn(b"q-sunshine-console.js?ver=[% version %]-qsm1", patched)
+            overlay_digest = ui._sha256(paths.overlay.read_bytes())[:16].encode("ascii")
+            self.assertIn(b"q-sunshine-console.js?ver=[% version %]-qsm-overlay-" + overlay_digest, patched)
             self.assertFalse(paths.legacy_config_asset.exists())
             self.assertEqual(integration.reconcile(), "refreshed")
+
+            self.write_file(paths.overlay, paths.overlay.read_bytes() + b"\n/* changed package payload */\n")
+            self.assertEqual(integration.reconcile(), "refreshed")
+            refreshed = paths.template.read_bytes()
+            self.assertNotEqual(patched, refreshed)
+            self.assertIn(ui._sha256(paths.overlay.read_bytes())[:16].encode("ascii"), refreshed)
 
             integration.remove()
             self.assertEqual(integration.status(), "inactive")

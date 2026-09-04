@@ -295,11 +295,11 @@
         }
         const document = popup.document;
         document.title = gettext('QSM Direct Console');
-        document.documentElement.style.cssText = 'height:100%;background:#000';
+        document.documentElement.style.cssText = 'width:100%;height:100%;background:#000';
         // Keep the video viewport equal to the entire popup.  The controls
         // deliberately float above it: a desktop console must not silently
         // lose a row of guest pixels merely because its window has controls.
-        document.body.style.cssText = 'height:100%;margin:0;position:relative;overflow:hidden;background:#000;color:#fff;font:13px sans-serif';
+        document.body.style.cssText = 'width:100vw;height:100vh;min-width:100vw;min-height:100vh;margin:0;position:relative;overflow:hidden;background:#000;color:#fff;font:13px sans-serif';
         const toolbar = document.createElement('div');
         toolbar.setAttribute('aria-label', gettext('Console controls'));
         toolbar.style.cssText = 'position:absolute;z-index:10;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(17,24,39,.88);box-shadow:0 1px 6px rgba(0,0,0,.55);opacity:1;transform:translateY(0);transition:opacity .16s ease,transform .16s ease';
@@ -328,7 +328,7 @@
         // below converges Display1 to this exact box; after convergence
         // `contain` occupies it completely without stretching an image just
         // because a user dragged one window edge.
-        video.style.cssText = 'display:block;width:100%;height:100%;background:#000;object-fit:contain;outline:none';
+        video.style.cssText = 'position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain;outline:none';
         const audio = document.createElement('button');
         audio.type = 'button';
         audio.style.cssText = 'padding:4px 9px;cursor:pointer';
@@ -859,6 +859,14 @@
                     resizeTimer = null;
                     const value = dimensions(video);
                     const identity = `${value.width}x${value.height}@${value.fps}`;
+                    // In addition to CSS layout, update the media element's
+                    // intrinsic presentation box. Chromium allocates the
+                    // accelerated video layer from these dimensions on some
+                    // platforms; CSS alone can leave the decoded plane at a
+                    // previous popup size although getBoundingClientRect()
+                    // already reports the new one.
+                    if (video.width !== value.width) { video.width = value.width; }
+                    if (video.height !== value.height) { video.height = value.height; }
                     if (identity !== lastResize) {
                         if (identity !== resizeRetryIdentity) { resizeRetryAttempts = 0; }
                         resizeRetryIdentity = identity;
