@@ -22,7 +22,7 @@ SPEC.loader.exec_module(qsm)
 
 
 class GuestAgent:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, announce_ready: bool = True) -> None:
         self.clipboard = b""
         self.incoming: dict[str, bytes] = {}
         self.outgoing = {"guest.bin": b"guest\x00file"}
@@ -30,6 +30,7 @@ class GuestAgent:
         self._listener.bind(str(path))
         self._listener.listen(1)
         self._connection: socket.socket | None = None
+        self._announce_ready = announce_ready
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
 
@@ -55,7 +56,8 @@ class GuestAgent:
         try:
             connection, _ = self._listener.accept()
             self._connection = connection
-            self._reply("READY QSF1")
+            if self._announce_ready:
+                self._reply("READY QSF1")
             buffered = bytearray()
             while True:
                 block = connection.recv(65536)
@@ -95,7 +97,10 @@ class DirectGuestChannelTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="qsm-direct-guest-test-")
         self.path = Path(self.temporary.name) / "agent.sock"
-        self.agent = GuestAgent(self.path)
+        # A QEMU socket chardev can drop the guest agent's READY line before
+        # the host controller attaches. Requests must work in that normal
+        # ordering and prove liveness through their own reply.
+        self.agent = GuestAgent(self.path, announce_ready=False)
         self.channel = qsm.QsmGuestChannel(self.path)
 
     def tearDown(self) -> None:

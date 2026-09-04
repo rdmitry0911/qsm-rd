@@ -118,7 +118,6 @@ class QsmGuestChannel:
         self._socket: socket.socket | None = None
         self._reader: threading.Thread | None = None
         self._generation = 0
-        self._ready_generation: int | None = None
         self._responses: deque[str] = deque()
         self._listeners: set[Callable[[str], None]] = set()
 
@@ -140,7 +139,6 @@ class QsmGuestChannel:
             self._socket = None
             self._reader = None
             self._generation += 1
-            self._ready_generation = None
             self._responses.clear()
             self._listeners.clear()
             self._condition.notify_all()
@@ -159,7 +157,6 @@ class QsmGuestChannel:
                 return
             self._socket = None
             self._reader = None
-            self._ready_generation = None
             self._responses.clear()
             self._condition.notify_all()
         try:
@@ -204,11 +201,14 @@ class QsmGuestChannel:
                     except UnicodeDecodeError:
                         continue
                     if line == "READY QSF1":
-                        with self._condition:
-                            if self._socket is channel and self._generation == generation:
-                                self._ready_generation = generation
-                                self._condition.notify_all()
-                    elif line.startswith("EVENT_CLIP "):
+                        # A QEMU socket chardev can discard the guest's one-off
+                        # greeting when its host-side controller is not yet
+                        # connected.  It is informational only: a response to
+                        # the actual bounded request below is the liveness
+                        # proof, so an early/lost READY must not disable guest
+                        # clipboard and file transfer for this VM lifetime.
+                        continue
+                    if line.startswith("EVENT_CLIP "):
                         self._publish_clipboard(line[11:])
                     else:
                         with self._condition:
@@ -225,17 +225,7 @@ class QsmGuestChannel:
             with self._condition:
                 active, generation = self._socket, self._generation
             if active is not None:
-                with self._condition:
-                    while self._socket is active and self._generation == generation and \
-                            self._ready_generation != generation:
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0:
-                            raise GuestChannelError("guest agent is unavailable")
-                        self._condition.wait(remaining)
-                    if self._socket is active and self._generation == generation and \
-                            self._ready_generation == generation:
-                        return active, generation
-                continue
+                return active, generation
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise GuestChannelError("guest agent is unavailable")
@@ -255,11 +245,11 @@ class QsmGuestChannel:
                 self._generation += 1
                 generation = self._generation
                 self._socket = candidate
-                self._ready_generation = None
                 self._responses.clear()
                 self._reader = threading.Thread(target=self._read_loop, args=(candidate, generation),
                                                 name="qsm-guest-channel", daemon=True)
                 self._reader.start()
+                return candidate, generation
 
     def _request(self, command: str, prefix: str) -> str:
         if "\n" in command or "\r" in command:
