@@ -42,7 +42,19 @@ selects a node-specific encoder without changing the display setup:
 For VA-API additionally set
 `QSM_DIRECT_VAAPI_RENDER_NODE=/dev/dri/renderD128`.
 
-The direct WebRTC console currently provides video, guest audio, keyboard,
-pointer, scrolling and dynamic Display1 resolution. Guest clipboard and file
-transfer require the QSF agent path and are intentionally not represented as
-completed features by this package yet.
+The direct WebRTC console provides video, guest audio, keyboard, pointer,
+scrolling, dynamic Display1 resolution, and optional guest clipboard/file
+exchange. For the latter install the matching `qsm-guest-agent` package inside
+the Linux VM, then run `sudo qsm-guest-agent-setup USER` once for its logged-in
+desktop user. On Wayland, also enable `qsm-guest-clipboard.service` in that
+user's session.
+
+The browser's **Files** panel lists only
+`~/.local/share/qsm-guest-agent/outgoing`; place a guest file there to make it
+available for Download. Dragging a local file directly onto the console image
+stores it in the matching `incoming` directory. Chromium can prepare an
+outgoing item for host drag-out; Download is the portable browser path because
+a website is not permitted to write an arbitrary local filesystem path without
+the user's consent. Clipboard is UTF-8 text up to 1 MiB; each exchange file is
+limited to 2 MiB and must have a plain safe basename. Neither the console nor
+the agent exposes arbitrary guest filesystem paths.
