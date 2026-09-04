@@ -10,6 +10,8 @@ const managedGuestArgs = (vmid) =>
     ` -chardev socket,id=qsm-direct-agent,path=/run/qsm-pve-direct/${vmid}/qsm-agent.sock,server=on,wait=off` +
     ' -device virtio-serial-pci,id=qsm-direct-serial' +
     ' -device virtserialport,chardev=qsm-direct-agent,name=org.qsm.direct.agent';
+const managedDirectInputArguments =
+    ' -machine vmport=off -machine i8042=off -device usb-kbd,id=qsm-direct-keyboard';
 
 globalThis.gettext = (text) => text;
 globalThis.Ext = {
@@ -118,7 +120,7 @@ assert.deepEqual(
     }),
     {
         vga: 'type=none',
-        args: '-cpu host -device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD129' + managedGuestArgs(321),
+        args: '-cpu host -device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD129' + managedGuestArgs(321) + managedDirectInputArguments,
     },
     'enabling Display1 must replace PVE VNC with one managed VirGL/Display1 pair',
 );
@@ -144,6 +146,9 @@ for (const type of stockDisplayTypes) {
         assert.match(enabledResult.args, /-device virtio-vga-gl,id=qsm-direct-gpu/);
         assert.equal((enabledResult.args.match(/(?:^|\s)-display(?:\s|$)/g) || []).length, 1);
         assert.equal((enabledResult.args.match(/(?:^|\s)-device\s+virtio-vga-gl(?:,|\s|$)/g) || []).length, 1);
+        assert.match(enabledResult.args, /-machine vmport=off/);
+        assert.match(enabledResult.args, /-machine i8042=off/);
+        assert.match(enabledResult.args, /-device usb-kbd,id=qsm-direct-keyboard/);
 
         vmWindow.vmconfig.args = enabledResult.args;
         const disabledResult = displayOverlay.onGetValues.call(displayPanel, {
@@ -166,7 +171,7 @@ assert.deepEqual(
     }),
     {
         vga: 'type=none',
-        args: '-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128 -device virtio-vga-gl,id=qsm-direct-gpu' + managedGuestArgs(321),
+        args: '-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128 -device virtio-vga-gl,id=qsm-direct-gpu' + managedGuestArgs(321) + managedDirectInputArguments,
     },
     'saving an old Display1-only setting must migrate it away from PVE VNC',
 );
@@ -181,7 +186,7 @@ assert.deepEqual(
     }),
     {
         vga: 'type=none',
-        args: '-cpu host -device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD129' + managedGuestArgs(321),
+        args: '-cpu host -device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD129' + managedGuestArgs(321) + managedDirectInputArguments,
     },
     'the old unlabelled QSM GPU must migrate in place instead of adding a second adapter',
 );

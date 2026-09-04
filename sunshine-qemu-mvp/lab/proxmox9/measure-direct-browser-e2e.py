@@ -120,10 +120,16 @@ def wait_for_video(peer: BrowserPeer, timeout: float, *, width: int, height: int
             # channels are live even if a totally idle guest has not yet
             # painted a second frame. Exercise the real pointer route rather
             # than treating a static initial scanout as a Chrome failure.
-            peer.request({"op": "pointer", "message": {
-                "op": "mouse_position", "x": 40, "y": 40,
-                "width": width, "height": height,
-            }}, timeout=5.0)
+            # The QEMU Display1 mouse can legitimately expose relative mode.
+            # Send a short ordered-in-time sweep rather than a lone first
+            # coordinate: the first sample establishes the baseline and the
+            # next samples prove that movement reaches the guest device.
+            for x, y in ((40, 40), (80, 72), (120, 104)):
+                peer.request({"op": "pointer", "message": {
+                    "op": "mouse_position", "x": x, "y": y,
+                    "width": width, "height": height,
+                }}, timeout=5.0)
+                time.sleep(0.03)
             nudge_sent = True
         time.sleep(0.1)
     raise RuntimeError(f"Chrome did not present video: {last}")
@@ -206,6 +212,23 @@ def main() -> int:
         }}, timeout=5.0)
         video = wait_for_video(peer, timeout=30.0, width=arguments.width, height=arguments.height,
                                require_geometry=True)
+        # Exercise the reliable input lane too. Shift (set-1 42) changes no
+        # text in a greeter or desktop, while still proving key press and
+        # release traverse Chrome -> SCTP -> Display1 -> guest USB keyboard.
+        # The matching button click proves that a direct Console has both its
+        # lossy pointer samples and ordered button events after a reconnect.
+        peer.request({"op": "control", "message": {
+            "op": "mouse_button", "button": 1, "down": True,
+        }}, timeout=5.0)
+        peer.request({"op": "control", "message": {
+            "op": "mouse_button", "button": 1, "down": False,
+        }}, timeout=5.0)
+        peer.request({"op": "control", "message": {
+            "op": "keyboard", "key": 42, "down": True, "modifiers": 0,
+        }}, timeout=5.0)
+        peer.request({"op": "control", "message": {
+            "op": "keyboard", "key": 42, "down": False, "modifiers": 0,
+        }}, timeout=5.0)
         first_video_ms = (time.monotonic() - started) * 1000.0
         before = peer.request({"op": "webrtc_stats"})
         time.sleep(arguments.warmup_seconds)
@@ -221,6 +244,7 @@ def main() -> int:
             "afterVideo": after_video,
             "deltaFramesDecoded": after.get("framesDecoded", 0) - before.get("framesDecoded", 0),
             "pixels": pixels,
+            "inputExercise": {"pointerSweep": 3, "mouseClick": True, "keyboard": "left-shift"},
         }
         if arguments.guest_transfer:
             clipboard = "browser direct clipboard → guest\nПривет".encode("utf-8")

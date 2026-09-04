@@ -12,6 +12,18 @@
     const DEFAULT_RENDER_NODE = '/dev/dri/renderD128';
     const DIRECT_GPU_ID = 'qsm-direct-gpu';
     const DIRECT_AGENT_ID = 'qsm-direct-agent';
+    // Display1 injects into QEMU's *active* input devices.  q35 normally
+    // supplies PS/2 plus VMware's vmmouse; a guest can select either one and
+    // make Display1 pointer events disappear even though the WebRTC channel
+    // is healthy.  A direct console owns one explicit USB keyboard and the
+    // existing PVE USB tablet, and removes both legacy alternatives.  Keep
+    // these exact args managed with the Display1 lifecycle: changing back to
+    // a normal PVE display restores PVE's normal input topology.
+    const DIRECT_INPUT_ARGUMENTS = [
+        '-machine vmport=off',
+        '-machine i8042=off',
+        '-device usb-kbd,id=qsm-direct-keyboard',
+    ];
 
     const validNode = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$/.test(value);
     const validVmid = (value) => Number.isInteger(value) && value >= MIN_VMID && value <= MAX_VMID;
@@ -47,6 +59,7 @@
         `(?:^|\\s)${escapeRegExp(value)}(?=\\s|$)`,
     ).test(args);
     const managedGuestChannel = (args, vmid) => guestArguments(vmid).every((value) => containsArgument(args, value));
+    const managedDirectInput = (args) => DIRECT_INPUT_ARGUMENTS.every((value) => containsArgument(args, value));
     const removeManagedGuestChannel = (args, vmid) => guestArguments(vmid).reduce((current, value) =>
         current.replace(new RegExp(`(?:^|\\s)${escapeRegExp(value)}(?=\\s|$)`), ''), args,
     ).trim().replace(/\s{2,}/g, ' ');
@@ -56,6 +69,11 @@
         }
         return managedGuestChannel(args, vmid) ? args : `${args} ${guestArguments(vmid).join(' ')}`.trim();
     };
+    const addManagedDirectInput = (args) => managedDirectInput(args)
+        ? args : `${args} ${DIRECT_INPUT_ARGUMENTS.filter((value) => !containsArgument(args, value)).join(' ')}`.trim();
+    const removeManagedDirectInput = (args) => DIRECT_INPUT_ARGUMENTS.reduce((current, value) => current.replace(
+        new RegExp(`(?:^|\\s)${escapeRegExp(value)}(?=\\s|$)`), '',
+    ), args).trim().replace(/\s{2,}/g, ' ');
     const displayState = (args, vmid) => {
         if (typeof args !== 'string' || !validVmid(vmid)) {
             return { managed: false, legacy: false, legacyGpu: false, rendernode: DEFAULT_RENDER_NODE };
@@ -64,17 +82,20 @@
         const gpu = virtioVgaGlArguments(args).map(normaliseArgument);
         if (match && displayCount(args) === 1) {
             if (gpu.length === 1 && gpu[0] === gpuArgument()) {
-                return { managed: true, legacy: false, legacyGpu: false, guest: managedGuestChannel(args, vmid), rendernode: match[1] };
+                return { managed: true, legacy: false, legacyGpu: false, guest: managedGuestChannel(args, vmid),
+                    input: managedDirectInput(args), rendernode: match[1] };
             }
             // git20 emitted the unlabelled VirtIO-GPU argument. It is safe to
             // migrate only that exact historical form; any device options or
             // a second adapter belong to an administrator and must not be
             // silently claimed or duplicated by this UI overlay.
             if (gpu.length === 1 && gpu[0] === '-device virtio-vga-gl') {
-                return { managed: false, legacy: true, legacyGpu: true, guest: managedGuestChannel(args, vmid), rendernode: match[1] };
+                return { managed: false, legacy: true, legacyGpu: true, guest: managedGuestChannel(args, vmid),
+                    input: managedDirectInput(args), rendernode: match[1] };
             }
             if (gpu.length === 0) {
-                return { managed: false, legacy: true, legacyGpu: false, guest: managedGuestChannel(args, vmid), rendernode: match[1] };
+                return { managed: false, legacy: true, legacyGpu: false, guest: managedGuestChannel(args, vmid),
+                    input: managedDirectInput(args), rendernode: match[1] };
             }
         }
         return { managed: false, legacy: false, legacyGpu: false, rendernode: DEFAULT_RENDER_NODE };
@@ -91,7 +112,7 @@
         if (want) {
             if (count === 0) {
                 if (gpu.length !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
-                const added = `${gpuArgument()} ${wanted} ${guestArguments(vmid).join(' ')}`;
+                const added = `${gpuArgument()} ${wanted} ${guestArguments(vmid).join(' ')} ${DIRECT_INPUT_ARGUMENTS.join(' ')}`;
                 return args ? `${args} ${added}` : added;
             }
             if (!existing.managed && !existing.legacy) {
@@ -100,14 +121,14 @@
             const previous = displayArgument(vmid, existing.rendernode);
             const updated = args.replace(new RegExp(`(?:^|\\s)${escapeRegExp(previous)}(?=\\s|$)`), (value) =>
                 value.startsWith(' ') ? ` ${wanted}` : wanted);
-            if (existing.managed) { return addManagedGuestChannel(updated, vmid); }
+            if (existing.managed) { return addManagedDirectInput(addManagedGuestChannel(updated, vmid)); }
             if (existing.legacyGpu) {
-                return addManagedGuestChannel(updated.replace(
+                return addManagedDirectInput(addManagedGuestChannel(updated.replace(
                     /(?:^|\s)-device\s+virtio-vga-gl(?=\s|$)/,
                     (value) => value.startsWith(' ') ? ` ${gpuArgument()}` : gpuArgument(),
-                ), vmid);
+                ), vmid));
             }
-            return addManagedGuestChannel(`${updated} ${gpuArgument()}`, vmid);
+            return addManagedDirectInput(addManagedGuestChannel(`${updated} ${gpuArgument()}`, vmid));
         }
         if (!existing.managed && !existing.legacy) {
             if (gpu.length !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
@@ -120,7 +141,7 @@
             ? withoutDisplay.replace(/(?:^|\s)-device\s+virtio-vga-gl(?=\s|$)/, '')
             : withoutDisplay.replace(
                 new RegExp(`(?:^|\\s)${escapeRegExp(gpuArgument())}(?=\\s|$)`), '');
-        return removeManagedGuestChannel(withoutGpu, vmid);
+        return removeManagedDirectInput(removeManagedGuestChannel(withoutGpu, vmid));
     };
 
     const displayFields = () => [

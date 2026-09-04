@@ -20,6 +20,7 @@ import os
 import subprocess
 import sys
 import time
+import re
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +89,48 @@ def _check_live(result: dict[str, Any], name: str, width: int, height: int) -> N
         raise StressFailure(f"{name}: Chrome did not decode a progressing video stream")
     if int(pixels.get("nonBlack", 0)) < 8 or int(pixels.get("lumaMax", 0)) <= int(pixels.get("lumaMin", 0)):
         raise StressFailure(f"{name}: Chrome received an empty or black Display1 frame")
+    exercise = result.get("inputExercise")
+    if not isinstance(exercise, dict) or exercise.get("pointerSweep") != 3 or \
+            exercise.get("mouseClick") is not True or exercise.get("keyboard") != "left-shift":
+        raise StressFailure(f"{name}: browser did not exercise all direct input lanes")
+
+
+EVENT_DEVICE = re.compile(r"^/dev/input/event[0-9]{1,4}$")
+
+
+def _guest_capture(arguments: argparse.Namespace, device: str) -> subprocess.Popen[bytes] | None:
+    """Read exactly one evdev record while the first real Chrome case runs.
+
+    The optional lane belongs to the disposable guest image, not to the QSM
+    product.  It makes a WebRTC input assertion physically observable beyond
+    the browser data-channel state.  No guest command beyond a bounded,
+    read-only event-device read is issued.
+    """
+    if not arguments.guest_input_host:
+        return None
+    if not EVENT_DEVICE.fullmatch(device):
+        raise StressFailure("guest input device must be /dev/input/eventN")
+    command = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=no",
+               "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"]
+    if arguments.guest_input_key:
+        command.extend(["-i", arguments.guest_input_key])
+    command.extend([
+        f"{arguments.guest_input_user}@{arguments.guest_input_host}",
+        "sudo", "-n", "timeout", "45", "dd", f"if={device}", "bs=24", "count=1", "status=none",
+    ])
+    return subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def _await_guest_capture(process: subprocess.Popen[bytes], label: str) -> int:
+    try:
+        stdout, stderr = process.communicate(timeout=50)
+    except subprocess.TimeoutExpired as error:
+        process.kill()
+        process.communicate()
+        raise StressFailure(f"guest {label}: evdev read timed out") from error
+    if process.returncode != 0 or len(stdout) != 24 or stderr:
+        raise StressFailure(f"guest {label}: direct input did not reach its evdev device")
+    return len(stdout)
 
 
 def _run_case(arguments: argparse.Namespace, name: str, width: int, height: int,
@@ -222,6 +265,12 @@ def main() -> int:
     parser.add_argument("--hold-seconds", type=float, default=30.0)
     parser.add_argument("--restart-timeout", type=float, default=90.0)
     parser.add_argument("--guest-file-bytes", type=int, default=65536)
+    parser.add_argument("--guest-input-host", default="",
+                        help="optional disposable-guest SSH host for physical evdev input proof")
+    parser.add_argument("--guest-input-user", default="root")
+    parser.add_argument("--guest-input-key", default="")
+    parser.add_argument("--guest-tablet-device", default="/dev/input/event2")
+    parser.add_argument("--guest-keyboard-device", default="/dev/input/event1")
     parser.add_argument("--window-size", default="1280x798")
     parser.add_argument("--fullscreen-size", default="1920x1080")
     arguments = parser.parse_args()
@@ -241,6 +290,10 @@ def main() -> int:
             raise StressFailure("warm-up/hold bounds are invalid")
         if not 0 <= arguments.guest_file_bytes <= 2 * 1024 * 1024:
             raise StressFailure("guest file size is invalid")
+        if bool(arguments.guest_input_host) and (not arguments.guest_input_user or
+                                                 not EVENT_DEVICE.fullmatch(arguments.guest_tablet_device) or
+                                                 not EVENT_DEVICE.fullmatch(arguments.guest_keyboard_device)):
+            raise StressFailure("guest input proof needs user and valid tablet/keyboard event devices")
         if os.geteuid() != 0:
             raise StressFailure("run this PVE acceptance suite as root")
         if not MEASURE.is_file():
@@ -251,7 +304,26 @@ def main() -> int:
             raise StressFailure("target VM is not running")
 
         evidence: dict[str, Any] = {}
-        evidence["window"] = _run_case(arguments, "window", *arguments.window_size, guest_transfer=True)
+        tablet_capture = _guest_capture(arguments, arguments.guest_tablet_device)
+        keyboard_capture = _guest_capture(arguments, arguments.guest_keyboard_device)
+        try:
+            evidence["window"] = _run_case(arguments, "window", *arguments.window_size, guest_transfer=True)
+        except BaseException:
+            # A failed browser case must not leave a 45-second SSH reader
+            # behind in a continuous lab run.  On success the readers finish
+            # naturally after the pointer and key exercise and are asserted
+            # below.
+            if tablet_capture is not None and tablet_capture.poll() is None:
+                tablet_capture.terminate()
+            if keyboard_capture is not None and keyboard_capture.poll() is None:
+                keyboard_capture.terminate()
+            raise
+        input_evidence: dict[str, int] | None = None
+        if tablet_capture is not None and keyboard_capture is not None:
+            input_evidence = {
+                "tabletEventBytes": _await_guest_capture(tablet_capture, "tablet"),
+                "keyboardEventBytes": _await_guest_capture(keyboard_capture, "keyboard"),
+            }
         evidence["fullscreen"] = _run_case(arguments, "fullscreen", *arguments.fullscreen_size)
         _concurrent_case(arguments)
         evidence["vmRestart"] = _run_held_case(arguments, "vm-restart", restart_vm=True)
@@ -264,6 +336,7 @@ def main() -> int:
             "window": arguments.window_size,
             "fullscreen": arguments.fullscreen_size,
             "guestTransfer": evidence["window"].get("guestTransfer"),
+            "guestInput": input_evidence,
         }
     except (OSError, StressFailure, subprocess.SubprocessError, subprocess.TimeoutExpired) as error:
         print(f"QSM_DIRECT_STRESS_SUITE_FAILED: {error}", file=sys.stderr)

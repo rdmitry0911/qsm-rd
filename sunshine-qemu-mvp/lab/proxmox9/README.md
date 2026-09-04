@@ -108,7 +108,11 @@ python3 /path/to/run-qsm-direct-stress-suite.py \
   --browser-host 192.168.64.25 \
   --browser-user dima \
   --browser-key /root/.ssh/id_ed25519 \
-  --browser-script /home/dima/Projects/q-sunshine/sunshine-qemu-mvp/lab/proxmox9/browser-webrtc-receiver.cjs
+  --browser-script /home/dima/Projects/q-sunshine/sunshine-qemu-mvp/lab/proxmox9/browser-webrtc-receiver.cjs \
+  --guest-input-host 192.168.64.159 \
+  --guest-input-user dima \
+  --guest-tablet-device /dev/input/event2 \
+  --guest-keyboard-device /dev/input/event1
 ```
 
 The browser account needs only an SSH key limited to the PVE node.  The script
@@ -119,7 +123,7 @@ QSM package.  A successful run emits one bounded
 | Contract | Exercise |
 | --- | --- |
 | Window and fullscreen geometry | fresh 1280×798 and 1920×1080 Display1 sessions |
-| Video and input | real Chrome H.264 pixels, progressing decoded frames, ordered control and lossy pointer channels |
+| Video and input | real Chrome H.264 pixels, progressing decoded frames, ordered control and lossy pointer channels; optional full lane requires physical tablet and keyboard `evdev` records in the guest |
 | Several Console windows | two simultaneous Chrome subscribers to one QEMU scanout |
 | Clipboard and files | browser ↔ private virtio guest channel, UTF-8 clipboard and both file directions |
 | VM reboot while viewing | old WebRTC peer must disconnect; a new Console must decode current pixels |
