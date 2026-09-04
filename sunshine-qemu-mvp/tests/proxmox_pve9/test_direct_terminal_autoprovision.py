@@ -24,15 +24,34 @@ if str(IMPORT_ROOT) not in sys.path:
 if PACKAGE_LIBRARY:
     from direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
                                                      DirectVmTransport, _managed_guest_channel_enabled,
-                                                     _qemu_process_generation)
+                                                     _qemu_process_generation, _load_optional_instance)
 else:
     from extensions.direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
                                                                  DirectVmTransport, _managed_guest_channel_enabled,
-                                                                 _qemu_process_generation)
+                                                                 _qemu_process_generation, _load_optional_instance)
 
 
 @unittest.skipUnless(shutil.which("dbus-daemon"), "dbus-daemon is required")
 class DirectTerminalAutoprovisionTests(unittest.TestCase):
+    def test_absent_encoder_policy_uses_verified_auto_selection(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-auto-policy.") as temporary:
+            root = Path(temporary)
+            instances = root / "instances"
+            runtime = root / "display"
+            instances.mkdir(mode=0o700)
+            policy = _load_optional_instance(instances, 321, runtime)
+            self.assertEqual(policy["QSM_DIRECT_ENCODER"], "auto")
+
+            explicit = instances / "321.conf"
+            explicit.write_text(
+                "QSM_DIRECT_QEMU_DBUS_ADDRESS="
+                f"unix:path={runtime}/321/qemu-display1.bus\n"
+                "QSM_DIRECT_ENCODER=auto\n",
+                encoding="utf-8")
+            os.chmod(explicit, 0o600)
+            self.assertEqual(
+                _load_optional_instance(instances, 321, runtime)["QSM_DIRECT_ENCODER"], "auto")
+
     @staticmethod
     def _qemu_lookalike(vmid: int) -> subprocess.Popen[bytes]:
         """Run a harmless process whose argv follows PVE's ``kvm -id`` form."""

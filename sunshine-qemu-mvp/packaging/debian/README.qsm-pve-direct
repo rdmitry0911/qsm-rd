@@ -16,8 +16,10 @@ Install:
     sudo systemctl enable --now qsm-pve-direct-terminal.service
 
 The service reads PVE's saved VM configuration and creates the private
-Display1 bus before the VM is started. No per-VM policy file is required for
-the portable `libx264` default. After saving a Display1 setting, the service
+Display1 bus before the VM is started. No per-VM policy file is required: the
+portable `auto` policy initializes NVENC, QSV, and VA-API in that order and
+uses the first working low-latency H.264 encoder, falling back to `libx264`.
+After saving a Display1 setting, the service
 reconciles the bus automatically. Package upgrades may restart the terminal
 service, but preserve every live private Display1 bus: a running configured
 VM does not need to be rebooted solely for this package update.
@@ -34,7 +36,8 @@ fullscreen sends the selected even viewport to QEMU Display1 and causes a
 fresh H.264 configuration/IDR boundary.
 
 An optional root-owned `/etc/qsm-pve-direct/instances.d/<VMID>.conf` (0600)
-selects a node-specific encoder without changing the display setup:
+pins a node-specific encoder without changing the display setup. An explicit
+setting is never replaced automatically:
 
     QSM_DIRECT_QEMU_DBUS_ADDRESS=unix:path=/run/qsm-pve-direct/<VMID>/qemu-display1.bus
     QSM_DIRECT_ENCODER=h264_nvenc

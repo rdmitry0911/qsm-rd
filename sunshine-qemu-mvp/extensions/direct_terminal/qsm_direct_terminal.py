@@ -38,6 +38,9 @@ if str(PACKAGE_DIRECTORY) not in sys.path:
 from browser_bridge.qsm_browser_bridge import (BrowserWebRtcBridge, BridgeError,
                                                 SharedMediaIngress, UnixInputEgress)  # noqa: E402
 from direct_guest.qsm_guest_channel import QsmGuestChannel  # noqa: E402
+from direct_terminal.qsm_direct_encoder_probe import (DirectEncoderProbeError,
+                                                       DirectEncoderSelection,
+                                                       select_auto_h264_encoder)  # noqa: E402
 
 
 MIN_VMID = 100
@@ -55,7 +58,7 @@ PROTOCOL_VERSION = 1
 _NODE_PATTERN = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9.-]{0,62}\Z")
 _SUBJECT_PATTERN = re.compile(r"\A[^\s\x00]{1,64}\Z")
 _VMID_PATTERN = re.compile(r"\A[1-9][0-9]{1,8}\Z")
-_ENCODER_PATTERN = re.compile(r"\A(?:h264_nvenc|h264_qsv|h264_vaapi|libx264)\Z")
+_ENCODER_PATTERN = re.compile(r"\A(?:auto|h264_nvenc|h264_qsv|h264_vaapi|libx264)\Z")
 _RENDER_NODE_PATTERN = re.compile(r"\A/dev/dri/renderD[0-9]{1,4}\Z")
 _PVE_VM_CONFIG_PATTERN = re.compile(r"\A([1-9][0-9]{1,8})\.conf\Z")
 _ENVIRONMENT_KEYS = frozenset({
@@ -146,6 +149,7 @@ def _load_optional_instance(instance_directory: Path, vmid: int,
         return {
             "QSM_DIRECT_QEMU_DBUS_ADDRESS":
                 f"unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus",
+            "QSM_DIRECT_ENCODER": "auto",
         }
     return _load_instance(instance_directory, vmid, vm_runtime_directory)
 
@@ -449,6 +453,7 @@ class DirectSessionManager:
         # worker and fans its encoded media out to all PVE-authorized browser
         # sessions for the VM; it is not a single-viewer limitation.
         self._transports: dict[int, DirectVmTransport] = {}
+        self._auto_encoder: DirectEncoderSelection | None = None
         self._vm_locks: dict[int, asyncio.Lock] = {}
         self._closed = False
         self._transport_reconcile_future: Future[None] | None = None
@@ -647,7 +652,18 @@ class DirectSessionManager:
         try:
             media.start()
             input_egress.start()
-            encoder = policy.get("QSM_DIRECT_ENCODER") or "libx264"
+            configured_encoder = policy.get("QSM_DIRECT_ENCODER") or "auto"
+            if configured_encoder == "auto":
+                if self._auto_encoder is None:
+                    try:
+                        self._auto_encoder = select_auto_h264_encoder()
+                    except DirectEncoderProbeError as error:
+                        raise DirectTerminalError("direct-terminal has no usable H.264 encoder") from error
+                encoder = self._auto_encoder.encoder
+                vaapi_device = self._auto_encoder.vaapi_device
+            else:
+                encoder = configured_encoder
+                vaapi_device = policy.get("QSM_DIRECT_VAAPI_RENDER_NODE")
             arguments = [
                 "/usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker",
                 "--dbus-address", policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"],
@@ -659,7 +675,9 @@ class DirectSessionManager:
                 "--initial-size", f"{width}x{height}",
             ]
             if encoder == "h264_vaapi":
-                arguments.extend(["--vaapi-device", policy["QSM_DIRECT_VAAPI_RENDER_NODE"]])
+                if not vaapi_device:
+                    raise DirectTerminalError("direct-terminal VA-API encoder lacks a render node")
+                arguments.extend(["--vaapi-device", vaapi_device])
             worker = subprocess.Popen(
                 arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=None,
                 env=self._child_environment(), close_fds=True, start_new_session=True,

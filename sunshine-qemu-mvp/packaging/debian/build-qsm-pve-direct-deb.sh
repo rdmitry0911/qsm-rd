@@ -29,6 +29,7 @@ for required in \
     "$ROOT_DIR/extensions/browser_bridge/qsm_browser_bridge.py" \
     "$ROOT_DIR/extensions/direct_guest/__init__.py" \
     "$ROOT_DIR/extensions/direct_guest/qsm_guest_channel.py" \
+    "$ROOT_DIR/extensions/direct_terminal/qsm_direct_encoder_probe.py" \
     "$ROOT_DIR/extensions/direct_terminal/qsm_direct_terminal.py" \
     "$ROOT_DIR/integration/proxmox/pve9/direct_api/PVE/API2/QsmDirect.pm" \
     "$ROOT_DIR/integration/proxmox/pve9/direct_ui/qsm-direct-console.js" \
@@ -81,6 +82,7 @@ install -m 0644 "$ROOT_DIR/extensions/browser_bridge/__init__.py" "$package_root
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/qsm_browser_bridge.py" "$package_root/browser_bridge/qsm_browser_bridge.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/__init__.py" "$package_root/direct_guest/__init__.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_guest_channel.py" "$package_root/direct_guest/qsm_guest_channel.py"
+install -m 0644 "$ROOT_DIR/extensions/direct_terminal/qsm_direct_encoder_probe.py" "$package_root/direct_terminal/qsm_direct_encoder_probe.py"
 install -m 0755 "$ROOT_DIR/extensions/direct_terminal/qsm_direct_terminal.py" "$package_root/direct_terminal/qsm_direct_terminal.py"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-terminal" "$stage_root/usr/bin/qsm-pve-direct-terminal"
 install -m 0644 "$PACKAGE_DIR/qsm-pve-direct-terminal.service" \
