@@ -28,6 +28,10 @@ PACKET_END = 0x02
 PACKET_IDR = 0x04
 PACKET_AUDIO = 0x08
 PACKET_CONFIG = 0x10
+PACKET_CURSOR = 0x20
+CURSOR_HEADER = struct.Struct("!BBQQiiHHHH")
+CURSOR_VISIBLE = 0x01
+CURSOR_HAS_SHAPE = 0x02
 INPUT_MAGIC = 0x51534D49
 INPUT_HEADER = struct.Struct("!IBBH")
 INPUT_RESIZE = 5
@@ -169,6 +173,8 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
             video_records = 0
             idr_frames: set[int] = set()
             audio_configuration = False
+            cursor_shape = False
+            cursor_movement = False
             deadline = time.monotonic() + 8
             while time.monotonic() < deadline:
                 if fake.poll() is not None:
@@ -182,6 +188,28 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
                         continue
                     if flags & PACKET_AUDIO:
                         raise QualificationError("video tap received an audio record")
+                    if flags & PACKET_CURSOR:
+                        if flags != (PACKET_FIRST | PACKET_END | PACKET_CURSOR) or \
+                                len(body) < CURSOR_HEADER.size:
+                            raise QualificationError("worker sent a malformed guest cursor record")
+                        version, cursor_flags, sequence, shape_id, x, y, width_cursor, height_cursor, hot_x, hot_y = \
+                            CURSOR_HEADER.unpack_from(body)
+                        if version != 1 or shape_id == 0 or \
+                                not 1 <= width_cursor <= 64 or not 1 <= height_cursor <= 64 or \
+                                hot_x >= width_cursor or hot_y >= height_cursor:
+                            raise QualificationError(
+                                "worker changed the Display1 guest cursor: "
+                                f"v={version} flags={cursor_flags} shape={shape_id} "
+                                f"size={width_cursor}x{height_cursor} hotspot={hot_x}x{hot_y}")
+                        if cursor_flags & CURSOR_HAS_SHAPE:
+                            if len(body) != CURSOR_HEADER.size + width_cursor * height_cursor * 4:
+                                raise QualificationError("worker sent an incomplete guest cursor shape")
+                            cursor_shape = True
+                        elif len(body) != CURSOR_HEADER.size:
+                            raise QualificationError("worker sent unexpected guest cursor bytes")
+                        cursor_movement = cursor_movement or (sequence >= 2 and
+                                                               bool(cursor_flags & CURSOR_VISIBLE) and x > 0 and y > 0)
+                        continue
                     first, last = video_frames.get(frame, (False, False))
                     video_frames[frame] = (first or bool(flags & PACKET_FIRST), last or bool(flags & PACKET_END))
                     if flags & PACKET_IDR:
@@ -198,6 +226,8 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
                 raise QualificationError("FFmpeg did not produce complete H.264 access units")
             if not audio_configuration:
                 raise QualificationError("worker did not publish its Opus configuration")
+            if not cursor_shape or not cursor_movement:
+                raise QualificationError("worker did not publish an out-of-band Display1 guest cursor")
             trace = fake_stdout.decode("utf-8", "replace").strip()
             if not all(marker in trace for marker in (
                     "FAKE_QEMU_RESULT", f"frames={frames}", f"requested={width}x{height}", "keyboard=2", "mouse=4",

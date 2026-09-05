@@ -90,7 +90,12 @@ async function measurePopupDrag(popup, timeout) {
         y: box.y + ((y + 0.5) * box.height / fixture.height),
     });
     const start = { x: Math.round(fixture.initial), y: 215 };
-    const target = { x: fixture.initial < fixture.width / 2 ? 1000 : 200, y: 215 };
+    // The fixture's window cannot cross either desktop edge. A former
+    // 200↔1000 target selected its direction from the initial side and could
+    // demand an impossible final position when the guest started at 200.
+    // Its central 600 px marker is reachable from both fixture placements
+    // and still crosses enough pixels to expose a coalesced or stale drag.
+    const target = { x: Math.round(fixture.width / 2), y: 215 };
     await popup.mouse.move(toCss(start.x, start.y).x, toCss(start.x, start.y).y);
     // Let mouse positioning reach the guest before the button edge. A human
     // naturally performs this same short approach before beginning a drag;
@@ -147,7 +152,80 @@ async function measurePopupDrag(popup, timeout) {
         !Number.isFinite(result.largestMotionGapMs) || result.largestMotionGapMs > 140 ||
         !Number.isInteger(result.observedMotionFrames) || result.observedMotionFrames < 20 ||
         !Number.isFinite(result.finalCenter) || Math.abs(result.finalCenter - target.x) > 24) {
+        if (result) {
+            process.stderr.write(`QSM_POPUP_DRAG_METRICS first_ms=${Math.round(result.firstMotionLatencyMs || -1)} gap_ms=${Math.round(result.largestMotionGapMs || -1)} frames=${result.observedMotionFrames || 0} final=${Math.round(result.finalCenter || -1)} target=${Math.round(result.targetX || -1)}\n`);
+        }
         fail('POPUP_DRAG_NOT_SMOOTH');
+    }
+}
+
+async function verifyPopupControls(popup) {
+    /*
+     * This is deliberately against the delivered PVE popup rather than a
+     * DOM mock. It proves that ordinary pointer motion cannot reveal the
+     * toolbar, while a sustained dwell in the small top strip can, and that
+     * all browser-local tuning controls remain reachable afterwards.
+     */
+    const result = await popup.evaluate(async () => {
+        const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+        const video = document.querySelector('video');
+        const toolbar = document.querySelector('[aria-label="Console controls"]');
+        if (!video || !toolbar) return null;
+        const visible = () => Number.parseFloat(getComputedStyle(toolbar).opacity || '0') > 0.5;
+        const move = (x, y) => video.dispatchEvent(new MouseEvent('mousemove', {
+            clientX: x, clientY: y, bubbles: true, cancelable: true,
+        }));
+        const box = video.getBoundingClientRect();
+        // The initial status may be visible until the first decoded frame.
+        // Wait through its documented default auto-hide interval and CSS
+        // transition, then test real event handlers rather than CSS text.
+        await wait(2200);
+        const initiallyHidden = !visible();
+        move(Math.floor(box.width / 2), Math.floor(box.height / 2));
+        await wait(180);
+        const centerStayedHidden = !visible();
+        move(Math.floor(box.width / 2), Math.max(1, Math.floor(box.top) + 1));
+        await wait(350);
+        const hiddenBeforeDwell = !visible();
+        await wait(450);
+        const shownAfterDwell = visible();
+        const settings = [...toolbar.querySelectorAll('button')].find((button) => button.textContent === 'Settings');
+        if (!settings) return { initiallyHidden, centerStayedHidden, hiddenBeforeDwell, shownAfterDwell };
+        settings.click();
+        await wait(40);
+        const panel = document.querySelector('[aria-label="Console settings"]');
+        const inputNames = [
+            'toolbarHotZonePx', 'toolbarRevealDelayMs', 'toolbarHideDelayMs', 'targetFps',
+            'playoutDelayMs', 'resizeDebounceMs', 'resizeSettleMs',
+        ];
+        const settingsInputs = inputNames.every((name) => {
+            const input = document.getElementById(`qsm-direct-setting-${name}`);
+            return input && input.type === 'number' && Number(input.min) >= 0 && Number(input.max) >= Number(input.min);
+        });
+        const guestCursor = document.querySelector('canvas[aria-hidden="true"]');
+        return {
+            initiallyHidden,
+            centerStayedHidden,
+            hiddenBeforeDwell,
+            shownAfterDwell,
+            settingsOpen: !!panel && getComputedStyle(panel).display !== 'none',
+            settingsInputs,
+            localResizeHandles: document.querySelectorAll('[data-qsm-resize-edge]').length,
+            guestCursorLayer: !!guestCursor && getComputedStyle(guestCursor).pointerEvents === 'none',
+            guestCursorVisible: !!guestCursor && guestCursor.width > 0 && guestCursor.height > 0 &&
+                getComputedStyle(guestCursor).display !== 'none',
+        };
+    });
+    if (!result || !result.initiallyHidden || !result.centerStayedHidden || !result.hiddenBeforeDwell ||
+        !result.shownAfterDwell || !result.settingsOpen || !result.settingsInputs ||
+        !result.guestCursorLayer || result.localResizeHandles !== 0) {
+        // These are fixed booleans from the popup DOM, not PVE credentials,
+        // SDP, guest pixels, or user input. They make a failed lab gate
+        // actionable without widening its deliberately redacted diagnostics.
+        if (result) {
+            process.stderr.write(`QSM_POPUP_CONTROL_FLAGS toolbar=${Number(result.initiallyHidden)}${Number(result.centerStayedHidden)}${Number(result.hiddenBeforeDwell)}${Number(result.shownAfterDwell)} settings=${Number(result.settingsOpen)}${Number(result.settingsInputs)} cursor=${Number(result.guestCursorLayer)}${Number(result.guestCursorVisible)} resize=${result.localResizeHandles}\n`);
+        }
+        fail('POPUP_CONTROLS_INVALID');
     }
 }
 
@@ -271,6 +349,8 @@ async function main() {
             const video = document.querySelector('video');
             return !!video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0 && video.videoHeight > 0;
         }, undefined, { timeout: config.timeout });
+        phase = 'VERIFYING_POPUP_CONTROLS';
+        await verifyPopupControls(popup);
         if (config.dragFixture) {
             phase = 'MEASURING_POPUP_DRAG';
             await measurePopupDrag(popup, config.timeout);

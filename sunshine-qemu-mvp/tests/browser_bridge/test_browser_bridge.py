@@ -20,6 +20,10 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     AUDIO_TIME_BASE,
     BrowserWebRtcBridge,
     BridgeError,
+    CURSOR_HAS_SHAPE,
+    CURSOR_HEADER,
+    CURSOR_VERSION,
+    CURSOR_VISIBLE,
     EncodedUnit,
     INPUT_HEADER,
     INPUT_KEYBOARD,
@@ -31,6 +35,7 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     INPUT_VERSION,
     PACKET_AUDIO,
     PACKET_CONFIG,
+    PACKET_CURSOR,
     PACKET_END,
     PACKET_FIRST,
     PACKET_HEADER,
@@ -183,6 +188,47 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(any(payload.endswith(b"\x65\x88") for payload in payloads))
             await bridge.close()
 
+    async def test_private_video_tap_publishes_display1_cursor_without_video_frame(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="qsm-browser-cursor.") as directory:
+            bridge = BrowserWebRtcBridge(Path(directory), fps=60)
+            try:
+                video_context, _audio_context = bridge.start_taps()
+                video_path = video_context.removeprefix("unix:")
+                # QEMU Display1 uses BGRA bytes for its native little-endian
+                # pixman ARGB cursor. This must not be mistaken for an H.264
+                # access unit or wait for one to reach the bridge.
+                pixels = bytes((0x11, 0x22, 0x33, 0xff) * 4)
+                shape = CURSOR_HEADER.pack(
+                    CURSOR_VERSION, CURSOR_VISIBLE | CURSOR_HAS_SHAPE,
+                    7, 0x1234, 120, 80, 2, 2, 0, 1) + pixels
+                self._send(video_path, 1, 0, PACKET_FIRST | PACKET_END | PACKET_CURSOR, shape)
+                deadline = time.monotonic() + 2
+                while bridge._latest_cursor is None and time.monotonic() < deadline:
+                    await asyncio.sleep(0.01)
+                cursor = bridge._latest_cursor
+                self.assertIsNotNone(cursor)
+                assert cursor is not None
+                self.assertEqual((cursor.sequence, cursor.shape_id, cursor.x, cursor.y),
+                                 (7, 0x1234, 120, 80))
+                self.assertTrue(cursor.visible)
+                self.assertEqual((cursor.width, cursor.height, cursor.hotspot_x, cursor.hotspot_y),
+                                 (2, 2, 0, 1))
+                self.assertEqual(cursor.bgra, pixels)
+
+                movement = CURSOR_HEADER.pack(
+                    CURSOR_VERSION, CURSOR_VISIBLE, 8, 0x1234, 121, 81, 2, 2, 0, 1)
+                self._send(video_path, 2, 0, PACKET_FIRST | PACKET_END | PACKET_CURSOR, movement)
+                deadline = time.monotonic() + 2
+                while (bridge._latest_cursor is None or bridge._latest_cursor.sequence != 8) and \
+                        time.monotonic() < deadline:
+                    await asyncio.sleep(0.01)
+                self.assertIsNotNone(bridge._latest_cursor)
+                self.assertEqual((bridge._latest_cursor.sequence, bridge._latest_cursor.x,
+                                  bridge._latest_cursor.y), (8, 121, 81))
+                bridge.ingress.raise_if_failed()
+            finally:
+                await bridge.close()
+
     async def test_one_worker_media_ingress_fans_out_to_two_browser_tracks(self) -> None:
         with tempfile.TemporaryDirectory(prefix="qsm-browser-fanout.") as directory:
             source = SharedMediaIngress(Path(directory), asyncio.get_running_loop(), fps=60)
@@ -296,6 +342,13 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
             browser = RTCPeerConnection()
             browser.addTransceiver("video", direction="recvonly")
             browser.addTransceiver("audio", direction="recvonly")
+            browser.createDataChannel("qsm-control", ordered=True)
+            browser.createDataChannel("qsm-pointer", ordered=False, maxRetransmits=0)
+            server_channels: list[str] = []
+
+            @browser.on("datachannel")
+            def on_datachannel(channel: object) -> None:
+                server_channels.append(str(getattr(channel, "label", "")))
             try:
                 offer = await browser.createOffer()
                 await browser.setLocalDescription(offer)
@@ -306,6 +359,10 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("H264/90000", answer["sdp"])
                 self.assertIn("opus/48000", answer["sdp"])
                 await browser.setRemoteDescription(RTCSessionDescription(**answer))
+                deadline = time.monotonic() + 3
+                while "qsm-guest-cursor" not in server_channels and time.monotonic() < deadline:
+                    await asyncio.sleep(0.01)
+                self.assertIn("qsm-guest-cursor", server_channels)
                 with self.assertRaisesRegex(BridgeError, "already consumed"):
                     await bridge.answer_offer(browser.localDescription.sdp)
                 await bridge.close()

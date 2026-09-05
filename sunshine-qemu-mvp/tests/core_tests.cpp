@@ -192,6 +192,27 @@ void test_stale_damage_is_detected_without_mutating_the_framebuffer() {
           qmdp::CpuFramebuffer::DamageCompatibility::malformed);
 }
 
+void test_cursor_state_is_published_without_a_scanout_frame() {
+    qmdp::CpuFramebuffer framebuffer;
+    const std::vector<std::uint8_t> cursor{
+        0x10U, 0x20U, 0x30U, 0xffU,
+        0x40U, 0x50U, 0x60U, 0xffU,
+        0x70U, 0x80U, 0x90U, 0xffU,
+        0xa0U, 0xb0U, 0xc0U, 0xffU,
+    };
+    framebuffer.set_cursor_shape(2, 2, 1, 0, cursor);
+    framebuffer.set_cursor_position(101, 202, true);
+    const auto state = framebuffer.cursor_state();
+    CHECK(state.visible);
+    CHECK(state.x == 101);
+    CHECK(state.y == 202);
+    CHECK(state.sequence == 2U);
+    CHECK(state.shape != nullptr);
+    CHECK(state.shape && state.shape->width == 2U && state.shape->height == 2U);
+    CHECK(state.shape && state.shape->hotspot_x == 1U && state.shape->hotspot_y == 0U);
+    CHECK(state.shape && state.shape->argb == cursor);
+}
+
 void test_session_state_machine() {
     qmdp::SessionStateMachine machine;
     CHECK(machine.state() == qmdp::SessionState::idle);
@@ -231,6 +252,7 @@ int main() {
     test_resize_coalescer();
     test_audio_fifo();
     test_stale_damage_is_detected_without_mutating_the_framebuffer();
+    test_cursor_state_is_published_without_a_scanout_frame();
     test_session_state_machine();
     test_same_geometry_remap_does_not_request_an_idr();
 

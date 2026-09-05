@@ -19,6 +19,10 @@ public:
     virtual void stop() noexcept = 0;
 
     virtual void submit_frame(const FrameToken& frame) = 0;
+    // A transport that has an out-of-band cursor path can override this.
+    // Keeping the default preserves adapters which deliberately composite a
+    // cursor into their video or do not expose one to their client.
+    virtual void submit_cursor(const CursorState&) {}
     virtual void submit_audio(std::span<const float> interleaved_samples,
                               std::uint32_t sample_rate,
                               std::uint16_t channels) = 0;

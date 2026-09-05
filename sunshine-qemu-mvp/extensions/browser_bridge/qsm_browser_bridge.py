@@ -42,6 +42,11 @@ PACKET_END = 0x00000002
 PACKET_IDR = 0x00000004
 PACKET_AUDIO = 0x00000008
 PACKET_CONFIG = 0x00000010
+PACKET_CURSOR = 0x00000020
+CURSOR_HEADER = struct.Struct("!BBQQiiHHHH")
+CURSOR_VERSION = 1
+CURSOR_VISIBLE = 0x01
+CURSOR_HAS_SHAPE = 0x02
 INPUT_MAGIC = 0x51534D49  # "QSMI", encoded as a network-order u32.
 INPUT_VERSION = 1
 INPUT_HEADER = struct.Struct("!IBBH")
@@ -52,6 +57,8 @@ INPUT_SCROLL = 4
 INPUT_RESIZE = 5
 MAX_FRAGMENT_BYTES = 256 * 1024
 MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024
+MAX_CURSOR_EDGE = 64
+MAX_CURSOR_BYTES = MAX_CURSOR_EDGE * MAX_CURSOR_EDGE * 4
 MAX_SDP_BYTES = 128 * 1024
 MAX_CONTROL_MESSAGE_BYTES = 1024
 MAX_GUEST_CONTROL_MESSAGE_BYTES = 3 * 1024 * 1024
@@ -83,6 +90,26 @@ class EncodedUnit:
     data: bytes
     keyframe: bool
     duration: int
+
+
+@dataclass(frozen=True)
+class GuestCursor:
+    """One complete QEMU Display1 guest cursor state.
+
+    ``bgra`` is QEMU's native little-endian ARGB pixel storage. It is kept
+    out of the video stream and converted to canvas RGBA only by the browser.
+    """
+
+    sequence: int
+    shape_id: int
+    visible: bool
+    x: int
+    y: int
+    width: int
+    height: int
+    hotspot_x: int
+    hotspot_y: int
+    bgra: bytes
 
 
 @dataclass
@@ -280,6 +307,42 @@ class _TrackFanout:
         self._bootstrap = None
 
 
+class _CursorFanout:
+    """Fan out the latest complete guest cursor without retaining a queue.
+
+    Cursor coordinates are replaceable state. A newly opened PVE Console gets
+    the last complete shape/position immediately, while a stalled viewer can
+    never make Display1, H.264, or another viewer wait behind it.
+    """
+
+    def __init__(self) -> None:
+        self._listeners: set[Callable[[GuestCursor], None]] = set()
+        self._latest: GuestCursor | None = None
+        self._closed = False
+
+    def subscribe(self, listener: Callable[[GuestCursor], None]) -> None:
+        if self._closed:
+            raise BridgeError("shared browser media source is closed")
+        self._listeners.add(listener)
+        if self._latest is not None:
+            listener(self._latest)
+
+    def unsubscribe(self, listener: Callable[[GuestCursor], None]) -> None:
+        self._listeners.discard(listener)
+
+    def put_nowait(self, cursor: GuestCursor) -> None:
+        if self._closed:
+            return
+        self._latest = cursor
+        for listener in tuple(self._listeners):
+            listener(cursor)
+
+    def close(self) -> None:
+        self._closed = True
+        self._listeners.clear()
+        self._latest = None
+
+
 class UnixTapIngress:
     """Own two private Unix sequenced-packet taps and feed encoded tracks.
 
@@ -292,13 +355,16 @@ class UnixTapIngress:
 
     def __init__(self, runtime_directory: Path, loop: asyncio.AbstractEventLoop,
                  video_track: _PacketTrack, audio_track: _PacketTrack, *, fps: int,
-                 expected_uid: int | None = None) -> None:
+                 expected_uid: int | None = None,
+                 on_cursor: Callable[[GuestCursor], None] | None = None) -> None:
         self._runtime_directory = runtime_directory
         self._loop = loop
         self._video_track = video_track
         self._audio_track = audio_track
         self._video_assembler = _VideoAssembler(fps)
         self._audio_assembler = _AudioAssembler()
+        self._on_cursor = on_cursor
+        self._cursor_shapes: dict[int, GuestCursor] = {}
         self._expected_uid = os.geteuid() if expected_uid is None else expected_uid
         if not isinstance(self._expected_uid, int) or self._expected_uid < 0:
             raise BridgeError("invalid local producer identity")
@@ -384,6 +450,50 @@ class UnixTapIngress:
     def _publish(self, track: _PacketTrack, unit: EncodedUnit) -> None:
         self._loop.call_soon_threadsafe(track.put_nowait, unit)
 
+    def _publish_cursor(self, cursor: GuestCursor) -> None:
+        if self._on_cursor is not None:
+            self._loop.call_soon_threadsafe(self._on_cursor, cursor)
+
+    def _decode_cursor(self, frame: int, fragment: int, flags: int,
+                       data: bytes) -> GuestCursor | None:
+        expected = PACKET_CURSOR | PACKET_FIRST | PACKET_END
+        if flags != expected or fragment != 0 or len(data) < CURSOR_HEADER.size:
+            raise BridgeError("malformed guest cursor packet")
+        version, cursor_flags, sequence, shape_id, x, y, width, height, hotspot_x, hotspot_y = \
+            CURSOR_HEADER.unpack_from(data)
+        if version != CURSOR_VERSION or cursor_flags & ~(CURSOR_VISIBLE | CURSOR_HAS_SHAPE):
+            raise BridgeError("unsupported guest cursor packet")
+        visible = bool(cursor_flags & CURSOR_VISIBLE)
+        has_shape = bool(cursor_flags & CURSOR_HAS_SHAPE)
+        if width > MAX_CURSOR_EDGE or height > MAX_CURSOR_EDGE or \
+                (width == 0) != (height == 0) or \
+                (width and (hotspot_x >= width or hotspot_y >= height)):
+            raise BridgeError("invalid guest cursor geometry")
+        pixels = data[CURSOR_HEADER.size:]
+        if has_shape:
+            expected_bytes = width * height * 4
+            if shape_id == 0 or not width or len(pixels) != expected_bytes or \
+                    expected_bytes > MAX_CURSOR_BYTES:
+                raise BridgeError("invalid guest cursor shape")
+            cursor = GuestCursor(sequence, shape_id, visible, x, y, width, height,
+                                 hotspot_x, hotspot_y, pixels)
+            self._cursor_shapes = {shape_id: cursor}
+            return cursor
+        if pixels:
+            raise BridgeError("unexpected guest cursor pixels")
+        shape = self._cursor_shapes.get(shape_id)
+        if shape is None:
+            # A Unix SOCK_SEQPACKET record is local and reliable. Still, a
+            # producer reconnect can make a movement arrive before its new
+            # CursorDefine; wait for that definition rather than paint a
+            # potentially wrong host pointer.
+            return None
+        if (shape.width, shape.height, shape.hotspot_x, shape.hotspot_y) != \
+                (width, height, hotspot_x, hotspot_y):
+            raise BridgeError("guest cursor shape identity changed")
+        return GuestCursor(sequence, shape_id, visible, x, y, width, height,
+                           hotspot_x, hotspot_y, shape.bgra)
+
     def _serve(self, listener: socket.socket, is_audio: bool) -> None:
         assembler = self._audio_assembler if is_audio else self._video_assembler
         track = self._audio_track if is_audio else self._video_track
@@ -412,6 +522,12 @@ class UnixTapIngress:
                     if magic != PACKET_MAGIC or length > MAX_FRAGMENT_BYTES or \
                             len(packet) != PACKET_HEADER.size + length:
                         raise BridgeError("invalid local media packet")
+                    if not is_audio and packet_flags & PACKET_CURSOR:
+                        cursor = self._decode_cursor(
+                            frame, fragment, packet_flags, packet[PACKET_HEADER.size:])
+                        if cursor is not None:
+                            self._publish_cursor(cursor)
+                        continue
                     if bool(packet_flags & PACKET_AUDIO) != is_audio:
                         raise BridgeError("local media packet arrived on the wrong socket")
                     unit = assembler.add(frame, fragment, packet_flags, packet[PACKET_HEADER.size:])
@@ -671,9 +787,10 @@ class SharedMediaIngress:
                  *, fps: int, expected_producer_uid: int | None = None) -> None:
         self._video = _TrackFanout()
         self._audio = _TrackFanout()
+        self._cursors = _CursorFanout()
         self._ingress = UnixTapIngress(
             runtime_directory, loop, self._video, self._audio, fps=fps,
-            expected_uid=expected_producer_uid)
+            expected_uid=expected_producer_uid, on_cursor=self._cursors.put_nowait)
         self._started = False
         self._closed = False
 
@@ -697,23 +814,31 @@ class SharedMediaIngress:
             raise BridgeError("shared browser media source is not started")
         self._ingress.raise_if_failed()
 
-    def subscribe(self) -> tuple[_PacketTrack, _PacketTrack]:
+    def subscribe(self, on_cursor: Callable[[GuestCursor], None] | None = None) \
+            -> tuple[_PacketTrack, _PacketTrack]:
         if not self._started:
             raise BridgeError("shared browser media source is not started")
-        return (
+        tracks = (
             self._video.subscribe(kind="video", maximum_queue=VIDEO_QUEUE_DEPTH),
             self._audio.subscribe(kind="audio", maximum_queue=AUDIO_QUEUE_DEPTH),
         )
+        if on_cursor is not None:
+            self._cursors.subscribe(on_cursor)
+        return tracks
 
-    def unsubscribe(self, video_track: _PacketTrack, audio_track: _PacketTrack) -> None:
+    def unsubscribe(self, video_track: _PacketTrack, audio_track: _PacketTrack,
+                    on_cursor: Callable[[GuestCursor], None] | None = None) -> None:
         self._video.unsubscribe(video_track)
         self._audio.unsubscribe(audio_track)
+        if on_cursor is not None:
+            self._cursors.unsubscribe(on_cursor)
 
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
         self._ingress.close()
+        self._cursors.close()
 
 
 class BrowserWebRtcBridge:
@@ -738,14 +863,19 @@ class BrowserWebRtcBridge:
         self._pc = RTCPeerConnection()
         self._shared_media = shared_media
         self._owns_media = shared_media is None
+        self._latest_cursor: GuestCursor | None = None
+        self._sent_cursor_shape_id: int | None = None
+        self._cursor_channel: object | None = None
+        self._cursor_listener = self._receive_cursor
         if shared_media is None:
             self.video_track = _PacketTrack("video", maximum_queue=VIDEO_QUEUE_DEPTH)
             self.audio_track = _PacketTrack("audio", maximum_queue=AUDIO_QUEUE_DEPTH)
             self.ingress = UnixTapIngress(runtime_directory, self._loop, self.video_track,
                                            self.audio_track, fps=fps,
-                                           expected_uid=expected_producer_uid)
+                                           expected_uid=expected_producer_uid,
+                                           on_cursor=self._cursor_listener)
         else:
-            self.video_track, self.audio_track = shared_media.subscribe()
+            self.video_track, self.audio_track = shared_media.subscribe(self._cursor_listener)
             self.ingress = None
         self._owns_input = shared_input is None
         self.input = shared_input or UnixInputEgress(
@@ -811,15 +941,57 @@ class BrowserWebRtcBridge:
     def input_context(self) -> str:
         return f"unix:{self.input.path}"
 
-    def _send_control(self, payload: dict[str, Any]) -> None:
+    def _send_control(self, payload: dict[str, Any]) -> bool:
         """Send a bounded, server-originated guest-side-channel event."""
         channel = self._control_channel
         if self._closed or channel is None or getattr(channel, "readyState", None) != "open":
-            return
+            return False
         try:
             channel.send(json.dumps(payload, separators=(",", ":"), ensure_ascii=True))
+            return True
         except Exception:
             # SCTP closure is ordinary browser lifecycle, not a media failure.
+            return False
+
+    def _receive_cursor(self, cursor: GuestCursor) -> None:
+        """Accept an ingress-loop cursor update and publish latest state.
+
+        The private tap has already fully validated the QEMU packet. All
+        browser peers still receive only a bounded JSON envelope.
+        """
+        if self._closed:
+            return
+        self._latest_cursor = cursor
+        self._publish_cursor()
+
+    def _publish_cursor(self) -> None:
+        cursor = self._latest_cursor
+        if self._closed or cursor is None:
+            return
+        # Cursor definitions are stateful and travel over qsm-control once;
+        # movements then use an unordered/unreliable server-created channel.
+        # Thus an H.264 decoder, an SCTP retransmit, or a file transfer cannot
+        # make a new host mouse location wait behind an obsolete one.
+        if cursor.shape_id and cursor.shape_id != self._sent_cursor_shape_id:
+            if self._send_control({
+                    "op": "qsm_guest_cursor_shape", "shape_id": cursor.shape_id,
+                    "width": cursor.width, "height": cursor.height,
+                    "hotspot_x": cursor.hotspot_x, "hotspot_y": cursor.hotspot_y,
+                    "bgra_b64": base64.b64encode(cursor.bgra).decode("ascii"),
+            }):
+                self._sent_cursor_shape_id = cursor.shape_id
+        channel = self._cursor_channel
+        if channel is None or getattr(channel, "readyState", None) != "open":
+            return
+        try:
+            channel.send(json.dumps({
+                "op": "qsm_guest_cursor", "sequence": cursor.sequence,
+                "shape_id": cursor.shape_id, "visible": cursor.visible,
+                "x": cursor.x, "y": cursor.y,
+            }, separators=(",", ":"), ensure_ascii=True))
+        except Exception:
+            # This channel deliberately carries replaceable state. A later
+            # MouseSet will supersede a dropped/closing record.
             pass
 
     def notify_guest_clipboard(self, text: str) -> None:
@@ -1007,6 +1179,11 @@ class BrowserWebRtcBridge:
         if control:
             self._control_channel_seen = True
             self._control_channel = channel
+
+            @channel.on("open")
+            def on_control_open() -> None:
+                self._sent_cursor_shape_id = None
+                self._publish_cursor()
         else:
             self._pointer_channel_seen = True
 
@@ -1132,6 +1309,18 @@ class BrowserWebRtcBridge:
                     raise BridgeError("WebRTC Opus packetizer is unavailable")
                 transceiver.setCodecPreferences(opus)
         await self._pc.setRemoteDescription(RTCSessionDescription(sdp=sdp, type=sdp_type))
+        # This is server-to-browser only. It is intentionally separate from
+        # qsm-control so pointer feedback remains latest-state data rather
+        # than sitting behind reliable keyboard/file traffic. The browser
+        # receives it through RTCPeerConnection.ondatachannel.
+        cursor_channel = self._pc.createDataChannel(
+            "qsm-guest-cursor", ordered=False, maxRetransmits=0)
+        self._cursor_channel = cursor_channel
+
+        @cursor_channel.on("open")
+        def on_cursor_open() -> None:
+            self._publish_cursor()
+
         answer = await self._pc.createAnswer()
         await self._pc.setLocalDescription(answer)
         if self._pc.localDescription is None:
@@ -1148,7 +1337,8 @@ class BrowserWebRtcBridge:
             self.ingress.close()
         else:
             assert self._shared_media is not None
-            self._shared_media.unsubscribe(self.video_track, self.audio_track)
+            self._shared_media.unsubscribe(self.video_track, self.audio_track,
+                                           self._cursor_listener)
         if self._owns_input:
             self.input.close()
         await self._pc.close()
@@ -1158,7 +1348,12 @@ __all__ = [
     "AUDIO_TIME_BASE",
     "BrowserWebRtcBridge",
     "BridgeError",
+    "CURSOR_HAS_SHAPE",
+    "CURSOR_HEADER",
+    "CURSOR_VERSION",
+    "CURSOR_VISIBLE",
     "EncodedUnit",
+    "GuestCursor",
     "MAX_FRAGMENT_BYTES",
     "MAX_CONTROL_MESSAGE_BYTES",
     "INPUT_HEADER",
@@ -1171,6 +1366,7 @@ __all__ = [
     "INPUT_VERSION",
     "PACKET_AUDIO",
     "PACKET_CONFIG",
+    "PACKET_CURSOR",
     "PACKET_END",
     "PACKET_FIRST",
     "PACKET_HEADER",

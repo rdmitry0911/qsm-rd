@@ -956,6 +956,9 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
         dbus::check(sd_bus_message_read(message, "iii", &x, &y, &on),
                     "read Listener.MouseSet");
         framebuffer_.set_cursor_position(x, y, on != 0);
+        if (callbacks_.on_cursor) {
+            callbacks_.on_cursor(framebuffer_.cursor_state());
+        }
         {
             std::lock_guard lock(stats_mutex_);
             ++cursor_moves_;
@@ -988,6 +991,9 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
             hot_x,
             hot_y,
             {static_cast<const std::uint8_t *>(data), size});
+        if (callbacks_.on_cursor) {
+            callbacks_.on_cursor(framebuffer_.cursor_state());
+        }
         {
             std::lock_guard lock(stats_mutex_);
             ++cursor_definitions_;

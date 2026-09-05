@@ -12,6 +12,11 @@ namespace qmdp {
 
 struct QemuDisplayCallbacks {
     std::function<void(FrameToken)> on_frame;
+    // Cursor state is intentionally independent from scanout damage.  QEMU
+    // emits MouseSet even while the desktop pixels are unchanged; making it
+    // wait for a video frame gives the pointer the same avoidable latency as
+    // H.264 presentation.
+    std::function<void(CursorState)> on_cursor;
     std::function<void(std::span<const float>, std::uint32_t, std::uint16_t)> on_audio;
     std::function<void(std::string)> on_error;
 };

@@ -60,6 +60,15 @@ void DesktopSession::start() {
             .on_frame = [this](FrameToken frame) {
                 (void) mailbox_.publish(std::move(frame));
             },
+            .on_cursor = [this](CursorState cursor) {
+                try {
+                    media_.submit_cursor(cursor);
+                } catch (const std::exception& ex) {
+                    record_error(std::string("cursor submission: ") + ex.what());
+                } catch (...) {
+                    record_error("cursor submission: unknown exception");
+                }
+            },
             .on_audio = [this](std::span<const float> samples,
                                std::uint32_t sample_rate,
                                std::uint16_t channels) {

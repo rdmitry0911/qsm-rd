@@ -364,6 +364,11 @@ void CpuFramebuffer::set_cursor_shape(std::int32_t width,
     ++cursor_.sequence;
 }
 
+CursorState CpuFramebuffer::cursor_state() const {
+    std::lock_guard lock(mutex_);
+    return cursor_;
+}
+
 CpuFramebuffer::Stats CpuFramebuffer::stats() const {
     std::lock_guard lock(mutex_);
     return {

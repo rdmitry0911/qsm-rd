@@ -75,6 +75,9 @@ constexpr std::uint32_t packet_end = 0x00000002U;
 constexpr std::uint32_t packet_idr = 0x00000004U;
 constexpr std::uint32_t packet_audio = 0x00000008U;
 constexpr std::uint32_t packet_config = 0x00000010U;
+// A Display1 cursor is state, not video. It travels on the existing private
+// video socket but bypasses H.264 and video presentation latency.
+constexpr std::uint32_t packet_cursor = 0x00000020U;
 constexpr std::uint32_t input_magic = 0x51534d49U; // QSMI
 constexpr std::uint8_t input_version = 1U;
 constexpr std::uint8_t input_mouse_position = 1U;
@@ -86,6 +89,11 @@ constexpr std::size_t packet_header_size = 20U;
 constexpr std::size_t input_header_size = 8U;
 constexpr std::size_t max_fragment_bytes = 256U * 1024U;
 constexpr std::size_t max_access_unit_bytes = 4U * 1024U * 1024U;
+constexpr std::uint16_t max_cursor_edge = 64U;
+constexpr std::size_t cursor_wire_header_size = 34U;
+constexpr std::uint8_t cursor_wire_version = 1U;
+constexpr std::uint8_t cursor_visible = 0x01U;
+constexpr std::uint8_t cursor_has_shape = 0x02U;
 constexpr std::uint32_t opus_sample_rate = 48'000U;
 constexpr std::uint16_t opus_channels = 2U;
 constexpr std::uint16_t opus_samples_per_frame = 960U; // 20 ms
@@ -217,6 +225,23 @@ void append_u32(std::array<std::uint8_t, packet_header_size> &output,
     output[offset + 3U] = static_cast<std::uint8_t>(value);
 }
 
+void append_u16(std::vector<std::uint8_t> &output, std::uint16_t value) {
+    output.push_back(static_cast<std::uint8_t>(value >> 8U));
+    output.push_back(static_cast<std::uint8_t>(value));
+}
+
+void append_u32(std::vector<std::uint8_t> &output, std::uint32_t value) {
+    output.push_back(static_cast<std::uint8_t>(value >> 24U));
+    output.push_back(static_cast<std::uint8_t>(value >> 16U));
+    output.push_back(static_cast<std::uint8_t>(value >> 8U));
+    output.push_back(static_cast<std::uint8_t>(value));
+}
+
+void append_u64(std::vector<std::uint8_t> &output, std::uint64_t value) {
+    append_u32(output, static_cast<std::uint32_t>(value >> 32U));
+    append_u32(output, static_cast<std::uint32_t>(value));
+}
+
 std::uint32_t read_u32(std::span<const std::uint8_t> input, std::size_t offset) {
     return (static_cast<std::uint32_t>(input[offset]) << 24U) |
            (static_cast<std::uint32_t>(input[offset + 1U]) << 16U) |
@@ -261,6 +286,59 @@ public:
 
     void send_audio(std::span<const std::uint8_t> data) noexcept {
         send(audio_, ++audio_number_, packet_audio, data);
+    }
+
+    void send_cursor(const qmdp::CursorState &cursor, bool include_shape,
+                     std::uint64_t shape_id) noexcept {
+        try {
+            std::uint16_t width = 0U;
+            std::uint16_t height = 0U;
+            std::uint16_t hotspot_x = 0U;
+            std::uint16_t hotspot_y = 0U;
+            std::span<const std::uint8_t> pixels;
+            bool usable_shape = false;
+            if (cursor.shape) {
+                const auto &shape = *cursor.shape;
+                const auto expected = static_cast<std::size_t>(shape.width) * shape.height * 4U;
+                usable_shape = shape.width > 0U && shape.height > 0U &&
+                    shape.width <= max_cursor_edge && shape.height <= max_cursor_edge &&
+                    shape.hotspot_x < shape.width && shape.hotspot_y < shape.height &&
+                    shape.argb.size() == expected;
+                if (usable_shape) {
+                    width = static_cast<std::uint16_t>(shape.width);
+                    height = static_cast<std::uint16_t>(shape.height);
+                    hotspot_x = static_cast<std::uint16_t>(shape.hotspot_x);
+                    hotspot_y = static_cast<std::uint16_t>(shape.hotspot_y);
+                    if (include_shape) {
+                        pixels = shape.argb;
+                    }
+                }
+            }
+            // A custom cursor beyond the browser's bounded wire format is
+            // represented as hidden rather than risking a large payload in a
+            // latency-sensitive local media queue.
+            const bool visible = cursor.visible && usable_shape;
+            std::vector<std::uint8_t> payload;
+            payload.reserve(cursor_wire_header_size + pixels.size());
+            payload.push_back(cursor_wire_version);
+            payload.push_back(static_cast<std::uint8_t>((visible ? cursor_visible : 0U) |
+                                                        (!pixels.empty() ? cursor_has_shape : 0U)));
+            append_u64(payload, cursor.sequence);
+            // This is a VM-local monotonic cursor-shape generation, never a
+            // pointer or an implementation address exposed to a browser.
+            append_u64(payload, shape_id);
+            append_u32(payload, static_cast<std::uint32_t>(cursor.x));
+            append_u32(payload, static_cast<std::uint32_t>(cursor.y));
+            append_u16(payload, width);
+            append_u16(payload, height);
+            append_u16(payload, hotspot_x);
+            append_u16(payload, hotspot_y);
+            payload.insert(payload.end(), pixels.begin(), pixels.end());
+            send(video_, cursor_number_.fetch_add(1U) + 1U, packet_cursor, payload);
+        } catch (...) {
+            // Cursor publication must never backpressure or terminate the
+            // Display1 event loop. The next mouse event will retry it.
+        }
     }
 
     [[nodiscard]] Stats stats() const noexcept {
@@ -350,6 +428,7 @@ private:
     mutable std::mutex mutex_;
     std::uint32_t video_number_ {};
     std::uint32_t audio_number_ {};
+    std::atomic<std::uint32_t> cursor_number_ {};
     std::uint64_t video_access_units_ {};
     std::uint64_t video_records_ {};
     std::uint64_t video_send_failures_ {};
@@ -555,6 +634,25 @@ public:
             frame_changed_ = true;
         }
         video_cv_.notify_one();
+    }
+
+    void submit_cursor(const qmdp::CursorState &cursor) override {
+        if (!running_.load()) {
+            return;
+        }
+        bool include_shape = false;
+        std::uint64_t shape_id = 0U;
+        {
+            std::lock_guard lock(cursor_mutex_);
+            include_shape = cursor.shape.get() != last_cursor_shape_.get();
+            last_cursor_shape_ = cursor.shape;
+            if (include_shape && cursor.shape) {
+                ++cursor_shape_id_;
+                if (cursor_shape_id_ == 0U) { ++cursor_shape_id_; }
+            }
+            shape_id = cursor.shape ? cursor_shape_id_ : 0U;
+        }
+        sink_.send_cursor(cursor, include_shape, shape_id);
     }
 
     void submit_audio(std::span<const float> interleaved_samples, std::uint32_t sample_rate,
@@ -992,6 +1090,9 @@ private:
     std::uint32_t height_ {};
     mutable std::mutex stats_mutex_;
     VideoStats video_stats_;
+    std::mutex cursor_mutex_;
+    std::shared_ptr<const qmdp::CursorShape> last_cursor_shape_;
+    std::uint64_t cursor_shape_id_ {};
     std::mutex audio_mutex_;
     std::unique_ptr<OpusEncoder, OpusDeleter> opus_;
     std::vector<float> audio_pending_;

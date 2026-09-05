@@ -100,6 +100,7 @@ public:
                           std::int32_t hotspot_x,
                           std::int32_t hotspot_y,
                           std::span<const std::uint8_t> argb);
+    [[nodiscard]] CursorState cursor_state() const;
 
     struct Stats {
         std::uint64_t generations {};

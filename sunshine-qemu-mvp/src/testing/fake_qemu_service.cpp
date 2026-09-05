@@ -513,10 +513,14 @@ void FakeQemuService::send_cursor(dbus::Bus& peer) {
     for (std::int32_t y = 0; y < cursor_height; ++y) {
         for (std::int32_t x = 0; x <= y && x < cursor_width; ++x) {
             const auto offset = static_cast<std::size_t>(y * cursor_width + x) * 4U;
-            cursor[offset + 0U] = 255U;  // A
-            cursor[offset + 1U] = 255U;  // R
-            cursor[offset + 2U] = 255U;  // G
-            cursor[offset + 3U] = 255U;  // B
+            // QEMU's PIXMAN_a8r8g8b8 cursor words are laid out as BGRA on
+            // the little-endian PVE hosts supported by the browser bridge.
+            // Keep this non-grey so the browser cursor conversion is covered
+            // by the worker-to-WebRTC qualification path.
+            cursor[offset + 0U] = 0x11U;  // B
+            cursor[offset + 1U] = 0x22U;  // G
+            cursor[offset + 2U] = 0x33U;  // R
+            cursor[offset + 3U] = 0xffU;  // A
         }
     }
     const std::array<std::int32_t, 4> geometry {

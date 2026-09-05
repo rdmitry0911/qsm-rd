@@ -55,7 +55,7 @@ assert.match(source, /position:absolute;z-index:10;top:0;left:0;right:0/,
     'the console controls must overlay, rather than consume, guest video pixels');
 assert.match(source, /video\.style\.cssText = 'position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain;outline:none'/,
     'the guest image must use the browser viewport rather than a stale percentage-layout box after resize');
-assert.match(source, /document\.addEventListener\('fullscreenchange', \(\) => \{\s*setFullscreenLabel\(\);\s*resizeConsole\(true\);/,
+assert.match(source, /document\.addEventListener\('fullscreenchange', \(\) => \{\s*setFullscreenLabel\(\);[\s\S]*?resizeConsole\(true\);/,
     'full screen must force an immediate Display1 resize even when ResizeObserver is not notified');
 assert.match(source, /sourceWidth = Math\.max\(1, video\.videoWidth \|\| Math\.floor\(box\.width\)\)/,
     'pointer coordinates must be mapped to decoded source pixels during a resize');
@@ -67,6 +67,34 @@ assert.match(source, /const hideToolbarSoon = \(\) =>/,
     'an idle connected console must auto-hide its floating controls');
 assert.match(source, /toolbar\.style\.transform = 'translateY\(-100%\)'/,
     'auto-hiding controls must move completely outside the guest picture');
+assert.match(source, /toolbarHotZonePx: \{ defaultValue: 32, minimum: 4, maximum: 160 \}/,
+    'the toolbar activation strip must be a bounded user preference');
+assert.match(source, /toolbarRevealDelayMs: \{ defaultValue: 650, minimum: 0, maximum: 5000 \}/,
+    'the top-edge hold time must be configurable rather than showing controls on any mousemove');
+assert.match(source, /const observeToolbarZone = \(event\) =>/,
+    'only the top activation strip may schedule a hidden toolbar reveal');
+assert.match(source, /settings\.toolbarRevealDelayMs/,
+    'the toolbar reveal timer must use the saved dwell setting');
+assert.match(source, /settingsButton\.textContent = gettext\('Settings'\)/,
+    'the compact toolbar must expose settings beside full screen');
+assert.match(source, /CONSOLE_SETTINGS_STORAGE_KEY/,
+    'console preferences must persist per browser without entering VM configuration');
+assert.doesNotMatch(source, /qsmResizeEdge|popup\.resizeBy\(/,
+    'the browser must not overlay host resize controls which would intercept guest cursor input');
+assert.match(source, /const guestCursor = document\.createElement\('canvas'\)/,
+    'the guest cursor must be rendered separately from the delayed H.264 picture');
+assert.match(source, /guestCursor\.style\.cssText = 'display:none;position:fixed;z-index:5;pointer-events:none/,
+    'the rendered guest cursor must never intercept pointer input or emulate a resize edge');
+assert.match(source, /peer\.addEventListener\('datachannel'/,
+    'the browser must accept the server-created guest cursor channel');
+assert.match(source, /qsm-guest-cursor/,
+    'guest cursor positions must use their own latest-state WebRTC channel');
+assert.match(source, /qsm_guest_cursor_shape/,
+    'guest cursor shape changes must be delivered independently of video frames');
+assert.match(source, /video\.style\.cursor = 'none'/,
+    'the local browser arrow must be hidden only when a valid guest cursor is present');
+assert.match(source, /Display1's pixman ARGB word is stored as BGRA bytes/,
+    'the browser must convert QEMU cursor pixels to canvas RGBA explicitly');
 assert.match(source, /connectionstatechange/,
     'the popup must follow WebRTC shutdown when its VM Display1 source disappears');
 assert.match(source, /The virtual machine was stopped\. Closing console…/,
@@ -77,15 +105,15 @@ assert.match(source, /qsm-pointer/,
     'latest-state pointer samples must not queue behind reliable keyboard input');
 assert.match(source, /maxRetransmits: 0/,
     'the pointer channel must discard stale samples rather than retransmit them');
-assert.match(source, /playoutDelayHint\s*=\s*0/,
-    'the browser receiver must request interactive rather than conference playout delay');
-assert.match(source, /requestAnimationFrame\(flushPointer\)/,
-    'browser mousemove bursts must be coalesced to the display refresh cadence');
-assert.match(source, /const resizeDebounceMs = 400/,
-    'window dragging must debounce guest resolution changes until it has ended');
-assert.match(source, /const resizeSettleMs = 1000/,
-    'different guest modes must be serialized while a Wayland compositor applies the previous one');
-assert.match(source, /lastResizeSentAt \+ resizeSettleMs - Date\.now\(\)/,
+assert.match(source, /videoReceiver\.playoutDelayHint = settings\.playoutDelayMs \/ 1000/,
+    'the browser receiver must retain an interactive, user-configurable playout delay');
+assert.match(source, /pointerFrame = popup\.requestAnimationFrame\(\(\) => flushPointer\(false\)\)/,
+    'pointer motion must use the popup compositor clock, which remains active while accelerated video is presented');
+assert.match(source, /settings\.resizeDebounceMs/,
+    'window dragging must use the configurable end-of-resize debounce');
+assert.match(source, /settings\.resizeSettleMs/,
+    'different guest modes must use the configurable settle interval');
+assert.match(source, /lastResizeSentAt \+ settings\.resizeSettleMs - Date\.now\(\)/,
     'a final viewport request must wait for an in-flight guest mode transition');
 assert.match(source, /if \(video\.width !== value\.width\) \{ video\.width = value\.width; \}/,
     'a native popup resize must update the accelerated video layer presentation width');

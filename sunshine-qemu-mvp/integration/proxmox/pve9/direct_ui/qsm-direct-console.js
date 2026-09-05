@@ -12,6 +12,47 @@
     const DEFAULT_RENDER_NODE = '/dev/dri/renderD128';
     const DIRECT_GPU_ID = 'qsm-direct-gpu';
     const DIRECT_AGENT_ID = 'qsm-direct-agent';
+    // Console preferences are deliberately browser-local.  They do not
+    // contain a credential, VM identifier, SDP, or any host policy: the PVE
+    // Console route remains the sole authority for those.  Keeping the UI
+    // tuning here also means an administrator can use the same node with a
+    // conservative desktop profile while a LAN user selects an interactive
+    // one without changing a VM configuration.
+    const CONSOLE_SETTINGS_STORAGE_KEY = 'qsm-direct-console-settings-v1';
+    const CONSOLE_SETTING_SCHEMA = Object.freeze({
+        toolbarHotZonePx: { defaultValue: 32, minimum: 4, maximum: 160 },
+        toolbarRevealDelayMs: { defaultValue: 650, minimum: 0, maximum: 5000 },
+        toolbarHideDelayMs: { defaultValue: 1800, minimum: 250, maximum: 30000 },
+        targetFps: { defaultValue: 60, minimum: 10, maximum: 240 },
+        playoutDelayMs: { defaultValue: 0, minimum: 0, maximum: 1000 },
+        resizeDebounceMs: { defaultValue: 400, minimum: 100, maximum: 3000 },
+        resizeSettleMs: { defaultValue: 1000, minimum: 250, maximum: 5000 },
+    });
+
+    const defaultConsoleSettings = () => Object.fromEntries(Object.entries(CONSOLE_SETTING_SCHEMA).map(
+        ([name, definition]) => [name, definition.defaultValue],
+    ));
+    const readConsoleSettings = (storage) => {
+        const settings = defaultConsoleSettings();
+        try {
+            if (!storage) { return settings; }
+            const stored = JSON.parse(storage.getItem(CONSOLE_SETTINGS_STORAGE_KEY) || '{}');
+            if (!stored || typeof stored !== 'object' || Array.isArray(stored)) { return settings; }
+            for (const [name, definition] of Object.entries(CONSOLE_SETTING_SCHEMA)) {
+                const value = stored[name];
+                if (Number.isInteger(value) && value >= definition.minimum && value <= definition.maximum) {
+                    settings[name] = value;
+                }
+            }
+        } catch (_error) { /* A disabled/private localStorage uses defaults. */ }
+        return settings;
+    };
+    const writeConsoleSettings = (storage, settings) => {
+        try {
+            if (storage) { storage.setItem(CONSOLE_SETTINGS_STORAGE_KEY, JSON.stringify(settings)); }
+        }
+        catch (_error) { /* The active popup remains usable without persistence. */ }
+    };
     // Display1 injects into QEMU's *active* input devices.  q35 normally
     // supplies PS/2 plus VMware's vmmouse; a guest can select either one and
     // make Display1 pointer events disappear even though the WebRTC channel
@@ -273,11 +314,11 @@
             }, failure: () => reject(new Error('PVE rejected direct console launch')),
         });
     });
-    const dimensions = (video) => {
+    const dimensions = (video, fps) => {
         const box = video.getBoundingClientRect();
         const width = Math.max(64, Math.min(16384, Math.floor(box.width / 2) * 2));
         const height = Math.max(64, Math.min(16384, Math.floor(box.height / 2) * 2));
-        return { width, height, fps: 60 };
+        return { width, height, fps };
     };
 
     const openConsole = function (button, node, vmid) {
@@ -296,6 +337,14 @@
         const document = popup.document;
         document.title = gettext('QSM Direct Console');
         document.documentElement.style.cssText = 'width:100%;height:100%;background:#000';
+        let browserStorage = null;
+        try { browserStorage = popup.localStorage; } catch (_error) { /* Defaults remain available. */ }
+        const settings = readConsoleSettings(browserStorage);
+        // A media worker is shared by every Console watching the same VM, so
+        // its RTP clock cannot be mutated under an existing viewer. Freeze
+        // the selected FPS for this session; a changed preference applies
+        // when the next fresh worker is launched, as stated in the panel.
+        const sessionFps = settings.targetFps;
         // Keep the video viewport equal to the entire popup.  The controls
         // deliberately float above it: a desktop console must not silently
         // lose a row of guest pixels merely because its window has controls.
@@ -309,6 +358,11 @@
         const fullscreen = document.createElement('button');
         fullscreen.type = 'button';
         fullscreen.style.cssText = 'padding:4px 9px;cursor:pointer';
+        const settingsButton = document.createElement('button');
+        settingsButton.type = 'button';
+        settingsButton.textContent = gettext('Settings');
+        settingsButton.title = gettext('Console settings');
+        settingsButton.style.cssText = 'padding:4px 9px;cursor:pointer';
         // Assigned once the WebRTC control channel is created.  A full-screen
         // transition is not consistently reported by ResizeObserver across
         // Chromium/Safari, so this explicit hook is part of the resize
@@ -329,6 +383,14 @@
         // `contain` occupies it completely without stretching an image just
         // because a user dragged one window edge.
         video.style.cssText = 'position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain;outline:none';
+        // QEMU Display1 supplies the cursor shape and position separately
+        // from scanout damage. This canvas is deliberately visual-only: it
+        // never participates in hit testing, resize, or input forwarding.
+        // The operating system still owns the cursor on the actual browser
+        // window frame, while the guest owns it inside this video rectangle.
+        const guestCursor = document.createElement('canvas');
+        guestCursor.setAttribute('aria-hidden', 'true');
+        guestCursor.style.cssText = 'display:none;position:fixed;z-index:5;pointer-events:none;image-rendering:auto';
         const audio = document.createElement('button');
         audio.type = 'button';
         audio.style.cssText = 'padding:4px 9px;cursor:pointer';
@@ -384,13 +446,64 @@
         const filePanel = document.createElement('aside');
         filePanel.setAttribute('aria-label', gettext('File transfer'));
         filePanel.style.cssText = 'display:none;position:absolute;z-index:21;right:12px;top:48px;width:min(430px,calc(100% - 24px));max-height:calc(100% - 60px);overflow:auto;box-sizing:border-box;padding:12px;border:1px solid rgba(148,163,184,.55);border-radius:8px;background:rgba(15,23,42,.97);box-shadow:0 8px 28px rgba(0,0,0,.65);color:#f8fafc';
-        toolbar.append(status, copy, paste, files, audio, fullscreen);
-        document.body.append(video, toolbar, fileInput, dropHint, filePanel);
+        const settingsPanel = document.createElement('aside');
+        settingsPanel.setAttribute('aria-label', gettext('Console settings'));
+        settingsPanel.style.cssText = 'display:none;position:absolute;z-index:21;right:12px;top:48px;width:min(440px,calc(100% - 24px));max-height:calc(100% - 60px);overflow:auto;box-sizing:border-box;padding:12px;border:1px solid rgba(148,163,184,.55);border-radius:8px;background:rgba(15,23,42,.97);box-shadow:0 8px 28px rgba(0,0,0,.65);color:#f8fafc';
+        const settingsTitle = document.createElement('div');
+        settingsTitle.textContent = gettext('Console settings');
+        settingsTitle.style.cssText = 'font-weight:600;font-size:15px;margin:0 0 8px';
+        const settingsHint = document.createElement('p');
+        settingsHint.textContent = gettext('Changes are saved only in this browser. Frame rate is applied to the next new console session for this virtual machine.');
+        settingsHint.style.cssText = 'margin:0 0 10px;color:#cbd5e1;line-height:1.35';
+        const settingsForm = document.createElement('div');
+        settingsForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:center';
+        const settingLabels = {
+            toolbarHotZonePx: gettext('Top activation zone (px)'),
+            toolbarRevealDelayMs: gettext('Top hold delay (ms)'),
+            toolbarHideDelayMs: gettext('Controls hide delay (ms)'),
+            targetFps: gettext('Target frame rate (FPS)'),
+            playoutDelayMs: gettext('Decoder playout delay (ms)'),
+            resizeDebounceMs: gettext('Resize end delay (ms)'),
+            resizeSettleMs: gettext('Guest resize settle time (ms)'),
+        };
+        const settingInputs = new Map();
+        for (const [name, definition] of Object.entries(CONSOLE_SETTING_SCHEMA)) {
+            const label = document.createElement('label');
+            const input = document.createElement('input');
+            const inputId = `qsm-direct-setting-${name}`;
+            label.htmlFor = inputId;
+            label.textContent = settingLabels[name];
+            label.style.cssText = 'min-width:0';
+            input.id = inputId;
+            input.type = 'number';
+            input.min = String(definition.minimum);
+            input.max = String(definition.maximum);
+            input.step = '1';
+            input.value = String(settings[name]);
+            input.style.cssText = 'width:100%;box-sizing:border-box;padding:4px 6px';
+            settingsForm.append(label, input);
+            settingInputs.set(name, input);
+        }
+        const settingsActions = document.createElement('div');
+        settingsActions.style.cssText = 'display:flex;gap:8px;margin-top:12px;justify-content:flex-end';
+        const resetSettings = document.createElement('button');
+        resetSettings.type = 'button';
+        resetSettings.textContent = gettext('Reset defaults');
+        resetSettings.style.cssText = 'padding:4px 9px;cursor:pointer';
+        const closeSettings = document.createElement('button');
+        closeSettings.type = 'button';
+        closeSettings.textContent = gettext('Close');
+        closeSettings.style.cssText = 'padding:4px 9px;cursor:pointer';
+        settingsActions.append(resetSettings, closeSettings);
+        settingsPanel.append(settingsTitle, settingsHint, settingsForm, settingsActions);
+        toolbar.append(status, copy, paste, files, audio, fullscreen, settingsButton);
+        document.body.append(video, guestCursor, toolbar, fileInput, dropHint, filePanel, settingsPanel);
         popup.focus();
 
         let peer = null;
         let control = null;
         let pointer = null;
+        let videoReceiver = null;
         let observer = null;
         let closed = false;
         let closeWatcher = null;
@@ -409,32 +522,76 @@
         let lastResizeSentAt = 0;
         let firstFrameTimer = null;
         let toolbarTimer = null;
+        let toolbarRevealTimer = null;
+        let toolbarVisible = true;
+        let pointerInToolbarZone = false;
+        let pointerInToolbar = false;
+        let settingsPanelOpen = false;
         let guestRequestNumber = 0;
         const guestRequests = new Map();
         const guestDownloads = new Map();
         const guestFileUrls = new Map();
+        const guestCursorShapes = new Map();
+        let latestGuestCursor = null;
         const guestUploadChunkBytes = 32 * 1024;
         let dropDepth = 0;
         let filePanelOpen = false;
         let filePanelRefreshing = false;
         let lastResize = '';
+        const cancelToolbarReveal = () => {
+            if (toolbarRevealTimer !== null) {
+                popup.clearTimeout(toolbarRevealTimer);
+                toolbarRevealTimer = null;
+            }
+        };
         const revealToolbar = () => {
             if (closed) { return; }
+            cancelToolbarReveal();
             if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); toolbarTimer = null; }
+            toolbarVisible = true;
             toolbar.style.opacity = '1';
             toolbar.style.transform = 'translateY(0)';
         };
         const hideToolbarSoon = () => {
-            if (closed || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) { return; }
+            if (closed || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+                pointerInToolbarZone || pointerInToolbar || filePanelOpen || settingsPanelOpen) { return; }
             if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); }
             toolbarTimer = popup.setTimeout(() => {
                 toolbarTimer = null;
+                if (pointerInToolbarZone || pointerInToolbar || filePanelOpen || settingsPanelOpen) { return; }
+                toolbarVisible = false;
                 toolbar.style.opacity = '0';
                 toolbar.style.transform = 'translateY(-100%)';
-            }, 1800);
+            }, settings.toolbarHideDelayMs);
         };
-        toolbar.addEventListener('pointerenter', revealToolbar);
-        toolbar.addEventListener('pointerleave', hideToolbarSoon);
+        const observeToolbarZone = (event) => {
+            const box = video.getBoundingClientRect();
+            const inside = event.clientY >= box.top && event.clientY < box.top + settings.toolbarHotZonePx;
+            pointerInToolbarZone = inside;
+            if (!inside) {
+                cancelToolbarReveal();
+                hideToolbarSoon();
+                return;
+            }
+            if (toolbarVisible) {
+                if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); toolbarTimer = null; }
+                return;
+            }
+            if (toolbarRevealTimer === null) {
+                toolbarRevealTimer = popup.setTimeout(() => {
+                    toolbarRevealTimer = null;
+                    if (pointerInToolbarZone && !closed) { revealToolbar(); }
+                }, settings.toolbarRevealDelayMs);
+            }
+        };
+        toolbar.addEventListener('pointerenter', () => {
+            pointerInToolbar = true;
+            revealToolbar();
+        });
+        toolbar.addEventListener('pointerleave', () => {
+            pointerInToolbar = false;
+            hideToolbarSoon();
+        });
         const send = (value) => {
             if (control && control.readyState === 'open') { control.send(JSON.stringify(value)); }
         };
@@ -451,6 +608,75 @@
             const result = new Uint8Array(binary.length);
             for (let index = 0; index < binary.length; index += 1) { result[index] = binary.charCodeAt(index); }
             return result;
+        };
+        const hideGuestCursor = () => {
+            guestCursor.style.display = 'none';
+            video.style.cursor = 'default';
+        };
+        const placeGuestCursor = () => {
+            const state = latestGuestCursor;
+            const shape = state && guestCursorShapes.get(state.shape_id);
+            if (!state || !state.visible || !shape || !video.videoWidth || !video.videoHeight) {
+                hideGuestCursor();
+                return;
+            }
+            const box = video.getBoundingClientRect();
+            const scale = Math.min(box.width / video.videoWidth, box.height / video.videoHeight);
+            if (!Number.isFinite(scale) || scale <= 0) { hideGuestCursor(); return; }
+            const contentLeft = box.left + (box.width - video.videoWidth * scale) / 2;
+            const contentTop = box.top + (box.height - video.videoHeight * scale) / 2;
+            guestCursor.style.left = `${Math.round(contentLeft + (state.x - shape.hotspot_x) * scale)}px`;
+            guestCursor.style.top = `${Math.round(contentTop + (state.y - shape.hotspot_y) * scale)}px`;
+            guestCursor.style.width = `${Math.max(1, Math.round(shape.width * scale))}px`;
+            guestCursor.style.height = `${Math.max(1, Math.round(shape.height * scale))}px`;
+            guestCursor.style.display = 'block';
+            video.style.cursor = 'none';
+        };
+        const acceptGuestCursorShape = (message) => {
+            if (!Number.isSafeInteger(message.shape_id) || message.shape_id <= 0 ||
+                !Number.isInteger(message.width) || !Number.isInteger(message.height) ||
+                !Number.isInteger(message.hotspot_x) || !Number.isInteger(message.hotspot_y) ||
+                message.width < 1 || message.width > 64 || message.height < 1 || message.height > 64 ||
+                message.hotspot_x < 0 || message.hotspot_x >= message.width ||
+                message.hotspot_y < 0 || message.hotspot_y >= message.height ||
+                typeof message.bgra_b64 !== 'string') { return; }
+            let bgra;
+            try { bgra = b64ToBytes(message.bgra_b64); } catch (_error) { return; }
+            if (bgra.length !== message.width * message.height * 4) { return; }
+            const context = guestCursor.getContext('2d', { alpha: true });
+            if (!context) { return; }
+            const rgba = context.createImageData(message.width, message.height);
+            // Display1's pixman ARGB word is stored as BGRA bytes on the
+            // little-endian PVE hosts we support. Canvas expects RGBA.
+            for (let index = 0; index < bgra.length; index += 4) {
+                rgba.data[index] = bgra[index + 2];
+                rgba.data[index + 1] = bgra[index + 1];
+                rgba.data[index + 2] = bgra[index];
+                rgba.data[index + 3] = bgra[index + 3];
+            }
+            guestCursor.width = message.width;
+            guestCursor.height = message.height;
+            context.putImageData(rgba, 0, 0);
+            guestCursorShapes.set(message.shape_id, {
+                width: message.width, height: message.height,
+                hotspot_x: message.hotspot_x, hotspot_y: message.hotspot_y,
+            });
+            // Keep a bounded cache in case a compositor switches cursor
+            // types while a late, unordered position is in flight.
+            while (guestCursorShapes.size > 4) {
+                guestCursorShapes.delete(guestCursorShapes.keys().next().value);
+            }
+            placeGuestCursor();
+        };
+        const acceptGuestCursorPosition = (message) => {
+            if (!Number.isSafeInteger(message.sequence) || !Number.isSafeInteger(message.shape_id) ||
+                !Number.isInteger(message.x) || !Number.isInteger(message.y) ||
+                typeof message.visible !== 'boolean') { return; }
+            latestGuestCursor = {
+                sequence: message.sequence, shape_id: message.shape_id,
+                visible: message.visible, x: message.x, y: message.y,
+            };
+            placeGuestCursor();
         };
         const guestRequest = (op, fields = {}) => new Promise((resolve, reject) => {
             if (!control || control.readyState !== 'open') {
@@ -583,7 +809,52 @@
             filePanelOpen = open;
             filePanel.style.display = open ? 'block' : 'none';
             if (open) { revealToolbar(); }
+            else { hideToolbarSoon(); }
         };
+        const applyConsoleSettings = () => {
+            writeConsoleSettings(browserStorage, settings);
+            if (videoReceiver && 'playoutDelayHint' in videoReceiver) {
+                try { videoReceiver.playoutDelayHint = settings.playoutDelayMs / 1000; }
+                catch (_error) { /* The browser may clamp an unsupported hint. */ }
+            }
+            if (toolbarTimer !== null) {
+                popup.clearTimeout(toolbarTimer);
+                toolbarTimer = null;
+                hideToolbarSoon();
+            }
+        };
+        const setSettingsPanelOpen = (open) => {
+            settingsPanelOpen = open;
+            settingsPanel.style.display = open ? 'block' : 'none';
+            if (open) {
+                setFilePanelOpen(false);
+                revealToolbar();
+            } else {
+                hideToolbarSoon();
+            }
+        };
+        const commitSetting = (name) => {
+            const input = settingInputs.get(name);
+            const definition = CONSOLE_SETTING_SCHEMA[name];
+            if (!input || !definition) { return; }
+            const value = Number(input.value);
+            if (!Number.isInteger(value) || value < definition.minimum || value > definition.maximum) {
+                input.value = String(settings[name]);
+                return;
+            }
+            settings[name] = value;
+            applyConsoleSettings();
+        };
+        for (const [name, input] of settingInputs) {
+            input.addEventListener('change', () => commitSetting(name));
+        }
+        resetSettings.addEventListener('click', () => {
+            Object.assign(settings, defaultConsoleSettings());
+            for (const [name, input] of settingInputs) { input.value = String(settings[name]); }
+            applyConsoleSettings();
+        });
+        settingsButton.addEventListener('click', () => setSettingsPanelOpen(!settingsPanelOpen));
+        closeSettings.addEventListener('click', () => setSettingsPanelOpen(false));
         const renderGuestFiles = (entries) => {
             guestFiles.replaceChildren();
             if (!entries.length) {
@@ -769,6 +1040,7 @@
             if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); }
             if (firstFrameTimer !== null) { popup.clearTimeout(firstFrameTimer); }
             if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); }
+            if (toolbarRevealTimer !== null) { popup.clearTimeout(toolbarRevealTimer); }
             for (const request of guestRequests.values()) {
                 popup.clearTimeout(request.timer);
                 request.reject(new Error('console closed'));
@@ -821,6 +1093,21 @@
             // later gesture visibly stale, while keys/clicks must remain
             // ordered and reliable on qsm-control.
             pointer = peer.createDataChannel('qsm-pointer', { ordered: false, maxRetransmits: 0 });
+            peer.addEventListener('datachannel', (event) => {
+                const channel = event.channel;
+                if (!channel || channel.label !== 'qsm-guest-cursor' ||
+                    channel.ordered !== false || channel.maxRetransmits !== 0) { return; }
+                channel.addEventListener('message', (cursorEvent) => {
+                    if (typeof cursorEvent.data !== 'string') { return; }
+                    try {
+                        const message = JSON.parse(cursorEvent.data);
+                        if (message && message.op === 'qsm_guest_cursor') {
+                            acceptGuestCursorPosition(message);
+                        }
+                    } catch (_error) { /* An unordered cursor sample is disposable. */ }
+                });
+                channel.addEventListener('close', hideGuestCursor, { once: true });
+            });
             peer.addEventListener('connectionstatechange', () => {
                 if (peer.connectionState === 'failed' || peer.connectionState === 'closed') {
                     closeForStoppedVm();
@@ -842,9 +1129,12 @@
                 // picture over WebRTC's conference-call playout cushion.
                 // This is an optional Chromium API, hence feature-detect it
                 // rather than making an older browser unable to connect.
-                if (event.track.kind === 'video' && event.receiver &&
-                    'playoutDelayHint' in event.receiver) {
-                    event.receiver.playoutDelayHint = 0;
+                if (event.track.kind === 'video' && event.receiver) {
+                    videoReceiver = event.receiver;
+                    if ('playoutDelayHint' in videoReceiver) {
+                        try { videoReceiver.playoutDelayHint = settings.playoutDelayMs / 1000; }
+                        catch (_error) { /* Older browsers may reject the hint. */ }
+                    }
                 }
                 let stream = event.streams && event.streams[0];
                 if (!stream) {
@@ -868,12 +1158,10 @@
             // Treat an operating-system resize as an end-of-drag action and
             // serialize mode changes.  The initial/full-screen request still
             // dispatches immediately when no transition is pending.
-            const resizeDebounceMs = 400;
-            const resizeSettleMs = 1000;
             const resize = (immediate = false) => {
                 const dispatch = () => {
                     resizeTimer = null;
-                    const value = dimensions(video);
+                    const value = dimensions(video, sessionFps);
                     const identity = `${value.width}x${value.height}@${value.fps}`;
                     // In addition to CSS layout, update the media element's
                     // intrinsic presentation box. Chromium allocates the
@@ -885,7 +1173,7 @@
                     if (video.height !== value.height) { video.height = value.height; }
                     if (identity !== lastResize) {
                         const remainingSettle = Math.max(0,
-                            lastResizeSentAt + resizeSettleMs - Date.now());
+                            lastResizeSentAt + settings.resizeSettleMs - Date.now());
                         if (remainingSettle > 0) {
                             // Read dimensions again when the compositor has
                             // settled: a user may have continued dragging.
@@ -907,7 +1195,7 @@
                     resizeRetryTimer = popup.setTimeout(() => {
                         resizeRetryTimer = null;
                         if (closed || resizeRetryIdentity !== identity) { return; }
-                        const current = dimensions(video);
+                        const current = dimensions(video, sessionFps);
                         const currentIdentity = `${current.width}x${current.height}@${current.fps}`;
                         if (currentIdentity !== identity) { resize(false); return; }
                         if (video.videoWidth === current.width && video.videoHeight === current.height) {
@@ -925,7 +1213,7 @@
                 };
                 if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); resizeTimer = null; }
                 if (immediate) { dispatch(); }
-                else { resizeTimer = popup.setTimeout(dispatch, resizeDebounceMs); }
+                else { resizeTimer = popup.setTimeout(dispatch, settings.resizeDebounceMs); }
             };
             resizeConsole = resize;
             const flushPointer = (reliable = false) => {
@@ -949,6 +1237,10 @@
                 latestPointer = sample;
                 pendingPointer = sample;
                 if (pointerFrame === null) {
+                    // Input delivery is coupled to the browser compositor,
+                    // rather than to its separately throttleable timer queue.
+                    // Retain one latest sample per presented frame; click
+                    // edges flush it synchronously below.
                     pointerFrame = popup.requestAnimationFrame(() => flushPointer(false));
                 }
             };
@@ -1029,6 +1321,8 @@
                 } else if (message.op === 'qsm_guest_clipboard' && typeof message.text_b64 === 'string') {
                     try { copyToBrowser(new TextDecoder('utf-8', { fatal: true }).decode(b64ToBytes(message.text_b64))).catch(() => undefined); }
                     catch (_error) { /* Ignore malformed guest clipboard notifications. */ }
+                } else if (message.op === 'qsm_guest_cursor_shape') {
+                    acceptGuestCursorShape(message);
                 }
             });
             // aiortc closes every server-side data channel while retiring a
@@ -1037,7 +1331,7 @@
             // browsers that postpone a track's `ended` event.
             control.addEventListener('close', closeForStoppedVm, { once: true });
             pointer.addEventListener('close', closeForStoppedVm, { once: true });
-            observer = new ResizeObserver(() => resize(false));
+            observer = new ResizeObserver(() => { placeGuestCursor(); resize(false); });
             observer.observe(video);
             popup.addEventListener('resize', () => resize(false));
             // A VM has one Display1 scanout, while several PVE Console
@@ -1051,6 +1345,7 @@
             // mode.  The video event merely lets its outstanding retry yield
             // to the newer Console request.
             video.addEventListener('resize', () => {
+                placeGuestCursor();
                 const visible = `${video.videoWidth}x${video.videoHeight}@60`;
                 if (visible === resizeRetryIdentity) {
                     resizeRetryAttempts = 0;
@@ -1064,9 +1359,13 @@
                 resizeRetryAttempts = 0;
             });
             video.addEventListener('mousemove', (event) => {
-                revealToolbar();
-                hideToolbarSoon();
+                observeToolbarZone(event);
                 queuePointer(pointerForMouseEvent(event));
+            });
+            video.addEventListener('mouseleave', () => {
+                pointerInToolbarZone = false;
+                cancelToolbarReveal();
+                hideToolbarSoon();
             });
             video.addEventListener('mousedown', (event) => {
                 queuePointer(pointerForMouseEvent(event));
@@ -1109,7 +1408,7 @@
             const offer = await peer.createOffer();
             await peer.setLocalDescription(offer);
             await waitForIce(peer);
-            const requestSize = dimensions(video);
+            const requestSize = dimensions(video, sessionFps);
             const answer = await api(`/nodes/${encodeURIComponent(node)}/qemu/${encodeURIComponent(vmid)}/qsm-direct`, {
                 sdp: peer.localDescription.sdp, width: requestSize.width, height: requestSize.height, fps: requestSize.fps,
             }, button);
