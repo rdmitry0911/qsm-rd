@@ -45,6 +45,31 @@ class QsmGuestPackageTests(unittest.TestCase):
         self.assertNotIn('[ -S "$runtime_dir/wayland-0" ] || fail wayland_socket_missing', bridge)
         self.assertIn('rm -f "$ready_file" "$candidate" "$validated"', bridge)
 
+    def test_plasma_clipboard_is_event_driven_not_a_wayland_poll_storm(self) -> None:
+        bridge = (ROOT / "guest/qsf_wayland_clipboard_bridge.sh").read_text(encoding="utf-8")
+        # KWin makes each wl-paste connection observable.  Do not turn an
+        # idle Direct Console into a stream of clipboard offers/repaints.
+        self.assertIn('busctl --user monitor org.kde.klipper', bridge)
+        self.assertIn('clipboardHistoryUpdated', bridge)
+        self.assertIn("QSF_WAYLAND_BRIDGE_NATIVE_WATCHER=kde_dbus", bridge)
+        self.assertIn("while IFS= read -r bridge_event <\"$event_pipe\"", bridge)
+        self.assertIn("native) synchronise_native_clipboard", bridge)
+        self.assertNotIn('if wl-paste --no-newline --type', bridge)
+        self.assertIn('qsm-state-watcher', bridge)
+        self.assertIn('start_qsf_state_watcher', bridge)
+        self.assertIn('state_poll_interval=0.10', bridge)
+        self.assertIn("wl-copy --foreground --type 'text/plain;charset=utf-8'", bridge)
+        self.assertIn('wl_copy_pid=$!', bridge)
+        self.assertIn("timeout --foreground 1s wl-paste", bridge)
+
+    def test_package_builds_the_event_driven_state_watcher(self) -> None:
+        build = (ROOT / "packaging/guest/build-qsm-guest-agent-deb.sh").read_text(encoding="utf-8")
+        self.assertIn('guest/qsf_state_watcher.c', build)
+        self.assertIn('qsm-state-watcher', build)
+        watcher = (ROOT / "guest/qsf_state_watcher.c").read_text(encoding="utf-8")
+        self.assertIn('inotify_init1(IN_CLOEXEC)', watcher)
+        self.assertIn('IN_MOVED_TO', watcher)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

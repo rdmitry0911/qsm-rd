@@ -46,20 +46,56 @@ ready_file="$state_dir/wayland-clipboard-bridge.ready"
 failure_file="$state_dir/wayland-clipboard-bridge.failed"
 candidate="$state_dir/.wayland-clipboard-candidate"
 validated="$state_dir/.wayland-clipboard-validated"
+event_pipe="$state_dir/.wayland-clipboard-events"
+state_event="$state_dir/.qsf-clipboard-state-event"
 maximum_bytes=1048576
+clipboard_watcher_pid=''
+state_watcher_pid=''
+wl_copy_pid=''
+clipboard_backend='generic-poll'
+state_poll_interval=0.10
+bridge_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd) || exit 1
+state_watcher_binary="$bridge_directory/qsm-state-watcher"
+
+stop_watchers() {
+  if [ -n "$wl_copy_pid" ]; then
+    kill "$wl_copy_pid" 2>/dev/null || true
+    wait "$wl_copy_pid" 2>/dev/null || true
+    wl_copy_pid=''
+  fi
+  if [ -n "$clipboard_watcher_pid" ]; then
+    # The monitor is a child of this per-user systemd service.  Stop the
+    # direct shell first; systemd's cgroup cleanup is the final safeguard for
+    # the pipe reader it owns.
+    kill "$clipboard_watcher_pid" 2>/dev/null || true
+    wait "$clipboard_watcher_pid" 2>/dev/null || true
+    clipboard_watcher_pid=''
+  fi
+  if [ -n "$state_watcher_pid" ]; then
+    kill "$state_watcher_pid" 2>/dev/null || true
+    wait "$state_watcher_pid" 2>/dev/null || true
+    state_watcher_pid=''
+  fi
+}
+
+cleanup() {
+  stop_watchers
+  rm -f "$event_pipe" "$state_event"
+}
 
 report() {
   printf '%s\n' "$*" >"$telemetry" 2>/dev/null || true
 }
 
 fail() {
+  stop_watchers
   report "QSF_VIRGL_WAYLAND_GUEST_E2E_FAILED=wayland_bridge_$*"
   : >"$failure_file" 2>/dev/null || true
   chmod 600 "$failure_file" 2>/dev/null || true
   # Never leave a readiness sentinel from an earlier compositor behind: the
   # direct Console must not report GUI clipboard support while this bridge is
   # no longer attached to a Wayland selection.
-  rm -f "$ready_file" "$candidate" "$validated"
+  rm -f "$ready_file" "$candidate" "$validated" "$event_pipe" "$state_event"
   exit 1
 }
 
@@ -93,8 +129,28 @@ valid_utf8_text() {
 
 copy_state_to_wayland() {
   valid_utf8_text "$clipboard" || fail qsf_state_is_not_valid_utf8_text
-  wl-copy --type 'text/plain;charset=utf-8' <"$clipboard" \
-    >"$state_dir/.wayland-wl-copy.log" 2>&1 || fail wl_copy_rejected_qsf_state
+  if [ "$clipboard_backend" = 'kde-dbus' ]; then
+    # qdbus prints text results with one record-terminating newline, but its
+    # setter accepts a normal D-Bus string.  xargs -0 transports the file as
+    # precisely one argv item, including embedded and trailing newlines.
+    { cat "$clipboard"; printf '\0'; } |
+      xargs -0 qdbus6 org.kde.klipper /klipper \
+        org.kde.klipper.klipper.setClipboardContents \
+      >/dev/null 2>"$state_dir/.wayland-klipper-set.log" || fail klipper_rejected_qsf_state
+    return
+  fi
+  # Own exactly one selection source.  The default wl-copy daemonizes, which
+  # makes consecutive clipboard changes accumulate orphaned owners on some
+  # Plasma versions.  A managed foreground child gives the bridge explicit
+  # replacement and shutdown semantics without blocking its event loop.
+  if [ -n "$wl_copy_pid" ]; then
+    kill "$wl_copy_pid" 2>/dev/null || true
+    wait "$wl_copy_pid" 2>/dev/null || true
+    wl_copy_pid=''
+  fi
+  wl-copy --foreground --type 'text/plain;charset=utf-8' <"$clipboard" \
+    >"$state_dir/.wayland-wl-copy.log" 2>&1 &
+  wl_copy_pid=$!
 }
 
 publish_wayland_to_state() {
@@ -106,8 +162,129 @@ publish_wayland_to_state() {
   mv -f "$temporary" "$clipboard" || fail cannot_publish_wayland_selection
 }
 
+capture_wayland_to_candidate() {
+  # This call is deliberately event-driven for Plasma.  Invoking wl-paste
+  # periodically opens a fresh Wayland selection offer; KWin/Plasma reacts to
+  # that traffic visibly (including its clipboard indicator) even when the
+  # text is unchanged.  A single read after a genuine clipboard notification
+  # preserves the exact no-newline payload and avoids that compositor churn.
+  if [ "$clipboard_backend" = 'kde-dbus' ]; then
+    qdbus6 org.kde.klipper /klipper org.kde.klipper.klipper.getClipboardContents \
+      >"$candidate" 2>"$state_dir/.wayland-klipper-get.log" || return 1
+    # qdbus appends exactly one output separator after a string reply. Remove
+    # that separator only; a newline genuinely contained in the clipboard
+    # remains present.
+    [ -s "$candidate" ] && truncate -s -1 "$candidate"
+    return 0
+  fi
+  # A broken/vanished selection owner must not freeze input, file transfer or
+  # later clipboard events behind an unbounded Wayland read.
+  timeout --foreground 1s wl-paste --no-newline --type 'text/plain;charset=utf-8' >"$candidate" \
+    2>"$state_dir/.wayland-wl-paste.log"
+}
+
+kde_clipboard_watcher() {
+  # Klipper is Plasma's supported clipboard authority.  Its signal contains
+  # no clipboard data, so it is safe to consume here; the payload itself is
+  # still fetched from Klipper only after the signal. Keep the matcher
+  # narrow: busctl also prints method calls and unrelated KDirNotify traffic.
+  busctl --user monitor org.kde.klipper 2>>"$state_dir/.wayland-klipper-monitor.log" |
+    while IFS= read -r line; do
+      case "$line" in
+        *'Interface=org.kde.klipper.klipper  Member=clipboardHistoryUpdated'*)
+          printf '%s\n' native >"$event_pipe"
+          ;;
+      esac
+    done
+}
+
+qsf_state_watcher() {
+  "$state_watcher_binary" --directory "$state_dir" --name qsf-clipboard.txt \
+    2>>"$state_dir/.qsf-state-watcher.log" |
+    while IFS= read -r event; do
+      if [ "$event" = changed ]; then
+        if [ "$clipboard_backend" = 'kde-dbus' ]; then
+          printf '%s\n' state >"$event_pipe"
+        else
+          : >"$state_event"
+          chmod 600 "$state_event" 2>/dev/null || true
+        fi
+      fi
+    done
+}
+
+start_qsf_state_watcher() {
+  [ -x "$state_watcher_binary" ] || fail qsf_state_watcher_missing
+  qsf_state_watcher &
+  state_watcher_pid=$!
+}
+
+prepare_event_channel() {
+  if [ "$clipboard_backend" = 'kde-dbus' ]; then
+    rm -f "$event_pipe"
+    mkfifo -m 600 "$event_pipe" || fail cannot_create_event_pipe
+  fi
+}
+
+synchronise_qsf_state() {
+  current_state_hash=$(hash_file "$clipboard") || fail cannot_hash_qsf_state
+  if [ "$current_state_hash" != "$last_state_hash" ]; then
+    if [ "$current_state_hash" != "$last_wayland_hash" ]; then
+      copy_state_to_wayland
+      last_wayland_hash=$current_state_hash
+      report "QSF_WAYLAND_BRIDGE_QSF_TO_WAYLAND_SHA256=$current_state_hash"
+    fi
+    last_state_hash=$current_state_hash
+  fi
+}
+
+start_native_clipboard_watcher() {
+  # wl-paste --watch needs the wlroots data-control extension, which Plasma
+  # intentionally does not expose.  Prefer Klipper's event API when present.
+  # Generic compositors retain a low-frequency fallback below instead of
+  # hammering their Wayland clipboard ten times per second.
+  if [ "$clipboard_backend" = 'kde-dbus' ]; then
+    kde_clipboard_watcher &
+    clipboard_watcher_pid=$!
+    report 'QSF_WAYLAND_BRIDGE_NATIVE_WATCHER=kde_dbus'
+  else
+    report 'QSF_WAYLAND_BRIDGE_NATIVE_WATCHER=poll'
+  fi
+}
+
+synchronise_native_clipboard() {
+  current_state_hash=$last_state_hash
+  if ! capture_wayland_to_candidate; then
+    return
+  fi
+  candidate_hash=$(hash_file "$candidate") || fail cannot_hash_wayland_selection
+  if [ "$candidate_hash" != "$last_wayland_hash" ]; then
+    if [ "$candidate_hash" != "$current_state_hash" ]; then
+      publish_wayland_to_state
+      last_state_hash=$candidate_hash
+      report "QSF_WAYLAND_BRIDGE_WAYLAND_TO_QSF_SHA256=$candidate_hash"
+    fi
+    last_wayland_hash=$candidate_hash
+  fi
+}
+
+detect_clipboard_backend() {
+  # Plasma intentionally does not expose wlroots data-control to unfocused
+  # clients. Klipper is its supported selection authority, and the D-Bus
+  # method both works for a user service and reports selection changes.
+  if command -v qdbus6 >/dev/null 2>&1 &&
+      busctl --user --quiet introspect org.kde.klipper /klipper 2>/dev/null |
+      grep -Fq 'clipboardHistoryUpdated'; then
+    clipboard_backend='kde-dbus'
+  fi
+}
+
 command -v wl-copy >/dev/null 2>&1 || fail wl_copy_missing
 command -v wl-paste >/dev/null 2>&1 || fail wl_paste_missing
+command -v timeout >/dev/null 2>&1 || fail timeout_missing
+command -v xargs >/dev/null 2>&1 || fail xargs_missing
+command -v truncate >/dev/null 2>&1 || fail truncate_missing
+command -v mkfifo >/dev/null 2>&1 || fail mkfifo_missing
 command -v gnu-iconv >/dev/null 2>&1 || command -v iconv >/dev/null 2>&1 || fail iconv_missing
 
 wait_for_graphical_session() {
@@ -132,8 +309,9 @@ wait_for_graphical_session() {
 
 export XDG_RUNTIME_DIR="$runtime_dir"
 wait_for_graphical_session
+trap 'cleanup; exit 0' HUP INT TERM
 chmod 700 "$state_dir" 2>/dev/null || fail cannot_protect_state_directory
-rm -f "$failure_file" "$candidate" "$validated"
+rm -f "$failure_file" "$candidate" "$validated" "$event_pipe" "$state_event"
 : >"$ready_file" || fail cannot_create_ready_file
 chmod 600 "$ready_file" || fail cannot_protect_ready_file
 
@@ -141,34 +319,44 @@ initial_state_hash=$(hash_file "$clipboard") || fail cannot_hash_initial_qsf_sta
 # A compositor restart loses the Wayland selection while QSF state persists.
 # Seed the newly created Wayland server before entering the change loop so the
 # adapter remains a mirror across an explicit desktop reconfiguration.
-copy_state_to_wayland
 last_state_hash=$initial_state_hash
 last_wayland_hash=$initial_state_hash
 report 'QSF_WAYLAND_BRIDGE_READY'
 report "QSF_WAYLAND_BRIDGE_QSF_TO_WAYLAND_SHA256=$initial_state_hash"
+detect_clipboard_backend
+report "QSF_WAYLAND_BRIDGE_CLIPBOARD_BACKEND=$clipboard_backend"
+copy_state_to_wayland
+prepare_event_channel
+start_qsf_state_watcher
+synchronise_qsf_state
+start_native_clipboard_watcher
 
-while :; do
-  current_state_hash=$(hash_file "$clipboard") || fail cannot_hash_qsf_state
-  if [ "$current_state_hash" != "$last_state_hash" ]; then
-    if [ "$current_state_hash" != "$last_wayland_hash" ]; then
-      copy_state_to_wayland
-      last_wayland_hash=$current_state_hash
-      report "QSF_WAYLAND_BRIDGE_QSF_TO_WAYLAND_SHA256=$current_state_hash"
+if [ "$clipboard_backend" = 'kde-dbus' ]; then
+  # Plasma needs no idle poll at all: inotify reports host/client writes to
+  # QSF state and Klipper reports native selection changes. A FIFO preserves
+  # ordering between those two event sources without spawning a process every
+  # 100 ms or generating compositor-visible clipboard traffic.
+  while IFS= read -r bridge_event <"$event_pipe"; do
+    case "$bridge_event" in
+      state) synchronise_qsf_state ;;
+      native) synchronise_native_clipboard ;;
+    esac
+  done
+else
+  fallback_ticks=0
+  while :; do
+    if [ -e "$state_event" ]; then
+      rm -f "$state_event"
+      synchronise_qsf_state
     fi
-    last_state_hash=$current_state_hash
-  fi
-
-  if wl-paste --no-newline --type 'text/plain;charset=utf-8' >"$candidate" \
-      2>"$state_dir/.wayland-wl-paste.log"; then
-    candidate_hash=$(hash_file "$candidate") || fail cannot_hash_wayland_selection
-    if [ "$candidate_hash" != "$last_wayland_hash" ]; then
-      if [ "$candidate_hash" != "$current_state_hash" ]; then
-        publish_wayland_to_state
-        last_state_hash=$candidate_hash
-        report "QSF_WAYLAND_BRIDGE_WAYLAND_TO_QSF_SHA256=$candidate_hash"
-      fi
-      last_wayland_hash=$candidate_hash
+    # No standard unfocused Wayland clipboard change notification exists.
+    # One probe per second is intentionally conservative: it preserves the
+    # generic fallback without continuously waking/compositing the desktop.
+    fallback_ticks=$((fallback_ticks + 1))
+    if [ "$fallback_ticks" -ge 4 ]; then
+      fallback_ticks=0
+      synchronise_native_clipboard
     fi
-  fi
-  sleep 0.1
-done
+    sleep "$state_poll_interval"
+  done
+fi

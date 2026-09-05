@@ -25,3 +25,9 @@ The agent transfers only plain UTF-8 clipboard text (up to 1 MiB) and files
 with a plain basename (up to 2 MiB). It lists only these two exchange folders;
 it never exposes the guest home directory. `wl-clipboard` is required for the
 Wayland clipboard bridge; install it with `sudo apt install wl-clipboard`.
+
+On KDE Plasma Wayland, the bridge uses Klipper's user-session D-Bus interface
+and inotify notifications. It does not poll the Wayland clipboard while idle,
+so no clipboard indicator or compositor repaint is generated without an
+actual copy/paste event. Other Wayland compositors retain the portable,
+low-frequency `wl-clipboard` fallback.

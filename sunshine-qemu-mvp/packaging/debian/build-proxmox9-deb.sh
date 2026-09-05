@@ -143,7 +143,7 @@ done
 require_file "$ROOT_DIR/extensions/qsf_control/README.md"
 require_file "$ROOT_DIR/docs/QSF_STREAM_NEGOTIATION.md"
 require_file "$ROOT_DIR/docs/SUNSHINE_QEMU_INTEGRATION.md"
-for required_guest_file in qsf_guest_agent.c qsf_input_watcher.c qsf_wayland_clipboard_bridge.sh \
+for required_guest_file in qsf_guest_agent.c qsf_input_watcher.c qsf_state_watcher.c qsf_wayland_clipboard_bridge.sh \
                            qsf_virgl_display_adapter.sh; do
     require_file "$ROOT_DIR/guest/$required_guest_file"
 done
@@ -370,7 +370,7 @@ done
 install -Dm755 "$PACKAGE_DIR/q-sunshine-qsf-control" "$stage_dir/usr/bin/q-sunshine-qsf-control"
 install -Dm755 "$PACKAGE_DIR/q-sunshine-qsf-terminal-gateway" \
     "$stage_dir/usr/bin/q-sunshine-qsf-terminal-gateway"
-for guest_file in qsf_guest_agent.c qsf_input_watcher.c qsf_wayland_clipboard_bridge.sh; do
+for guest_file in qsf_guest_agent.c qsf_input_watcher.c qsf_state_watcher.c qsf_wayland_clipboard_bridge.sh; do
     install -Dm644 "$ROOT_DIR/guest/$guest_file" "$stage_dir/usr/share/q-sunshine/guest/$guest_file"
 done
 install -Dm755 "$ROOT_DIR/guest/qsf_virgl_display_adapter.sh" \

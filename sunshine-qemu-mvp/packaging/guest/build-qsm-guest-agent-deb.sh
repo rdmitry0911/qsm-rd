@@ -16,11 +16,14 @@ trap 'status=$?; if [ "$status" -ne 0 ]; then echo "qsm guest package build reta
 
 gcc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic -Werror \
     "$ROOT_DIR/guest/qsf_guest_agent.c" -o "$build_root/qsm-guest-agent"
+gcc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic -Werror \
+    "$ROOT_DIR/guest/qsf_state_watcher.c" -o "$build_root/qsm-state-watcher"
 package_root="$stage_root/usr/lib/qsm-guest-agent"
 install -d "$package_root" "$stage_root/usr/bin" "$stage_root/usr/lib/systemd/system" \
     "$stage_root/usr/lib/systemd/user" "$stage_root/usr/lib/udev/rules.d" \
     "$stage_root/usr/share/doc/qsm-guest-agent" "$stage_root/DEBIAN"
 install -m 0755 "$build_root/qsm-guest-agent" "$package_root/qsm-guest-agent"
+install -m 0755 "$build_root/qsm-state-watcher" "$package_root/qsm-state-watcher"
 install -m 0755 "$ROOT_DIR/guest/qsf_wayland_clipboard_bridge.sh" "$package_root/qsm-wayland-clipboard-bridge"
 install -m 0755 "$ROOT_DIR/packaging/guest/qsm-guest-agent-setup" "$stage_root/usr/bin/qsm-guest-agent-setup"
 install -m 0644 "$ROOT_DIR/packaging/guest/qsm-guest-agent@.service" "$stage_root/usr/lib/systemd/system/qsm-guest-agent@.service"
