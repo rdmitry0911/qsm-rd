@@ -39,7 +39,11 @@ public:
         std::uint64_t frames_sent {};
         std::uint64_t ui_info_calls {};
         std::uint64_t keyboard_calls {};
+        std::uint64_t keyboard_presses {};
+        std::uint64_t keyboard_releases {};
         std::uint64_t mouse_calls {};
+        std::uint64_t button_presses {};
+        std::uint64_t button_releases {};
         std::uint32_t last_absolute_x {};
         std::uint32_t last_absolute_y {};
         bool has_absolute_position {};
@@ -78,7 +82,11 @@ private:
     std::uint64_t frames_sent_ {};
     std::uint64_t ui_info_calls_ {};
     std::uint64_t keyboard_calls_ {};
+    std::uint64_t keyboard_presses_ {};
+    std::uint64_t keyboard_releases_ {};
     std::uint64_t mouse_calls_ {};
+    std::uint64_t button_presses_ {};
+    std::uint64_t button_releases_ {};
     std::uint32_t last_absolute_x_ {};
     std::uint32_t last_absolute_y_ {};
     bool has_absolute_position_ {false};

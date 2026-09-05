@@ -39,6 +39,12 @@ assert.ok(consoleOverlay, 'PVE Console menu must receive the qsm Direct entry');
 assert.ok(qemuConfigOverlay, 'PVE VM view must gate QSM Direct on saved Display1 args');
 assert.match(source, /window\.open\('', windowId,/,
     'QSM Direct must create a separate browser popup synchronously from the menu action');
+assert.match(source, /const vmStatusUrl = \(\) => `\/nodes\/\$\{encodeURIComponent\(node\)\}\/qemu\/\$\{encodeURIComponent\(vmid\)\}\/status\/current`;/,
+    'a popup opened before Power On must use the protected PVE status route before creating WebRTC');
+assert.match(source, /Virtual machine is stopped\. Waiting for it to start…/,
+    'a stopped VM must leave the popup open with an explicit start wait state');
+assert.match(source, /if \(!await waitForVmStart\(\)\) \{ return; \}/,
+    'the single-use WebRTC offer must wait until the VM is running');
 assert.match(source, /popup=yes,width=1280,height=800,resizable=yes/,
     'the separate console window must be resizable by the operating system');
 assert.match(source, /video\.muted = true/,
@@ -55,10 +61,26 @@ assert.match(source, /position:absolute;z-index:10;top:0;left:0;right:0/,
     'the console controls must overlay, rather than consume, guest video pixels');
 assert.match(source, /video\.style\.cssText = 'position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain;outline:none'/,
     'the guest image must use the browser viewport rather than a stale percentage-layout box after resize');
-assert.match(source, /document\.addEventListener\('fullscreenchange', \(\) => \{\s*setFullscreenLabel\(\);[\s\S]*?resizeConsole\(true\);/,
-    'full screen must force an immediate Display1 resize even when ResizeObserver is not notified');
-assert.match(source, /sourceWidth = Math\.max\(1, video\.videoWidth \|\| Math\.floor\(box\.width\)\)/,
-    'pointer coordinates must be mapped to decoded source pixels during a resize');
+assert.match(source, /document\.addEventListener\('fullscreenchange', \(\) => \{\s*releaseHeldInput\(\);\s*setFullscreenLabel\(\);[\s\S]*?resizeConsole\(true\);/,
+    'full screen must release interrupted input before forcing an immediate Display1 resize');
+assert.match(source, /const guestContentBox = \(\) => \{[\s\S]*?const scale = Math\.min\(box\.width \/ sourceWidth, box\.height \/ sourceHeight\);/,
+    'cursor and input mapping must account for the real object-fit content rectangle');
+assert.match(source, /Math\.floor\(\(event\.clientX - content\.left\) \/ usableScale\)/,
+    'pointer X must be mapped through the letterbox-free source rectangle during a resize');
+assert.match(source, /Math\.floor\(\(event\.clientY - content\.top\) \/ usableScale\)/,
+    'pointer Y must be mapped through the letterbox-free source rectangle during a resize');
+assert.doesNotMatch(source, /localGuestCursorAnchor|rememberLocalGuestCursor/,
+    'the guest cursor must not use a delayed, separately positioned canvas overlay');
+assert.match(source, /popup\.addEventListener\('blur', releaseHeldInput\)/,
+    'losing popup focus must release held guest input');
+assert.match(source, /video\.addEventListener\('pointercancel', releaseHeldInput\)/,
+    'browser pointer cancellation must release held guest input');
+assert.match(source, /for \(const button of \[\.\.\.heldMouseButtons\]\) \{ sendMouseButton\(button, false\); \}/,
+    'a native transition must send releases for each held mouse button');
+assert.match(source, /const fullscreenEscape = event\.code === 'Escape' &&[\s\S]*?document\.fullscreenElement \|\| fullscreenEscapePending/,
+    'Escape must be recognized as a browser full-screen action before generic guest-key handling');
+assert.match(source, /const action = document\.exitFullscreen\(\);/,
+    'Escape in full screen must explicitly request the native popup exit');
 assert.match(source, /Guest display did not acknowledge this window size\./,
     'a missed guest resize must be visible rather than silently leaving a letterboxed console');
 assert.match(source, /resizeRetryAttempts >= 16/,
@@ -79,20 +101,50 @@ assert.match(source, /settingsButton\.textContent = gettext\('Settings'\)/,
     'the compact toolbar must expose settings beside full screen');
 assert.match(source, /CONSOLE_SETTINGS_STORAGE_KEY/,
     'console preferences must persist per browser without entering VM configuration');
+assert.match(source, /const KEYBOARD_PRIORITY = Object\.freeze\(\{[\s\S]*?guest: 'guest-first',[\s\S]*?client: 'client-first'/,
+    'the console must expose explicit guest-first and client-first keyboard policies');
+assert.match(source, /keyboardPriority: KEYBOARD_PRIORITY\.guest/,
+    'a remote desktop console must default to forwarding received keys to the guest');
+assert.match(source, /Guest first — forward received keys/,
+    'the settings panel must let a user choose guest shortcut priority');
+assert.match(source, /Client first — browser shortcuts win/,
+    'the settings panel must let a user choose client shortcut priority');
+assert.match(source, /Ctrl\+Alt\+Shift\+Esc/,
+    'guest-first capture must document an explicit local escape chord');
+assert.match(source, /const leaveGuestKeyboardCapture = \(\) => \{[\s\S]*?releaseHeldInput\(\);[\s\S]*?settingsButton\.focus/,
+    'the local escape chord must release held guest modifiers before moving focus to client controls');
+assert.match(source, /restoreClientFocusAfterFullscreen/,
+    'guest-first capture exit must restore client focus after leaving full screen');
+assert.match(source, /const leaveGuestKeyboardCapture = \(\) => \{[\s\S]*?document\.fullscreenElement[\s\S]*?document\.exitFullscreen\(\)/,
+    'the guest-first capture-exit chord must also leave native full screen');
+assert.match(source, /if \(!clientFirst && guestCaptureExitShortcut\(event\)\)/,
+    'the escape chord must be local only while guest-first capture is active');
+assert.match(source, /if \(clientFirst && pasteShortcut\)/,
+    'browser clipboard shortcuts must remain local only in client-first mode');
+assert.match(source, /else if \(clientFirst && clientFirstShortcut\(event\)\)/,
+    'client-first mode must leave its other browser shortcuts untouched before forwarding remaining keys');
+assert.match(source, /macOS Cmd\+Tab, Cmd\+Space, Cmd\+Q,[\s\S]*?Windows Ctrl\+Alt\+Del and Win\+L/,
+    'settings must name OS shortcuts which no web console can capture');
 assert.doesNotMatch(source, /qsmResizeEdge|popup\.resizeBy\(/,
     'the browser must not overlay host resize controls which would intercept guest cursor input');
 assert.match(source, /const guestCursor = document\.createElement\('canvas'\)/,
-    'the guest cursor must be rendered separately from the delayed H.264 picture');
+    'a bounded canvas must convert a Display1 cursor image to a browser cursor URL');
 assert.match(source, /guestCursor\.style\.cssText = 'display:none;position:fixed;z-index:5;pointer-events:none/,
-    'the rendered guest cursor must never intercept pointer input or emulate a resize edge');
+    'the conversion canvas must never intercept pointer input or emulate a resize edge');
 assert.match(source, /peer\.addEventListener\('datachannel'/,
     'the browser must accept the server-created guest cursor channel');
 assert.match(source, /qsm-guest-cursor/,
     'guest cursor positions must use their own latest-state WebRTC channel');
 assert.match(source, /qsm_guest_cursor_shape/,
     'guest cursor shape changes must be delivered independently of video frames');
-assert.match(source, /video\.style\.cursor = 'none'/,
-    'the local browser arrow must be hidden only when a valid guest cursor is present');
+assert.match(source, /message\.sequence < latestGuestCursorSequence/,
+    'an unordered stale Display1 cursor position must not pin the cursor at its initial origin');
+assert.match(source, /cursor_url: guestCursor\.toDataURL\('image\/png'\)/,
+    'the guest cursor image must become a browser-native PNG cursor');
+assert.match(source, /const cursor = `url\("\$\{shape\.cursor_url\}"\) \$\{shape\.hotspot_x\} \$\{shape\.hotspot_y\}, default`/,
+    'the browser must position the guest cursor image at the physical OS pointer with its guest hotspot');
+assert.match(source, /if \(cursor !== appliedGuestCursor\)/,
+    'identical mouse-position updates must not repeatedly mutate the browser cursor style');
 assert.match(source, /Display1's pixman ARGB word is stored as BGRA bytes/,
     'the browser must convert QEMU cursor pixels to canvas RGBA explicitly');
 assert.match(source, /connectionstatechange/,
@@ -137,6 +189,18 @@ assert.match(source, /setData\('DownloadURL'/,
     'prepared guest items must expose Chromium\'s host drag-out transfer when available');
 assert.match(source, /Files/,
     'the compact floating toolbar must expose the Files panel');
+assert.match(source, /new popup\.ClipboardItem/,
+    'guest-to-browser copy must reserve clipboard permission during the initiating click or keydown');
+assert.match(source, /sendGuestShortcut\(47\)/,
+    'browser-to-guest paste must invoke Ctrl+V after the guest clipboard bridge is updated');
+assert.match(source, /sendGuestShortcut\(46\)/,
+    'Ctrl+C must ask the focused guest application to publish its selection before browser copy resolves');
+assert.match(source, /qsm-direct-settings/,
+    'codec and encoder settings must be persisted through a VM-scoped PVE endpoint, not browser storage');
+assert.match(source, /Hardware only/,
+    'the VM policy must distinguish a required hardware encoder from automatic fallback');
+assert.match(source, /HEVC — not available yet/,
+    'the UI must not claim HEVC is usable before the browser WebRTC stack can negotiate it');
 assert.doesNotMatch(source, /Ext\.create\('Ext\.window\.Window'/,
     'the direct console must not be trapped inside the PVE browser page');
 

@@ -9,7 +9,7 @@ use warnings;
 use IO::Select;
 use IO::Socket::UNIX qw(SOCK_STREAM);
 use JSON qw(decode_json encode_json);
-use Fcntl qw(S_ISSOCK);
+use Fcntl qw(S_ISSOCK O_CREAT O_EXCL O_WRONLY);
 
 use PVE::API2::Qemu;
 use PVE::JSONSchema qw(get_standard_option);
@@ -23,6 +23,7 @@ my $MAX_RESPONSE_BYTES = 160 * 1024;
 my $MAX_SDP_BYTES = 128 * 1024;
 my $MIN_VMID = 100;
 my $MAX_VMID = 999_999_999;
+my $INSTANCE_DIRECTORY = '/etc/qsm-pve-direct/instances.d';
 
 sub _unavailable {
     die "qsm direct console is unavailable\n";
@@ -75,6 +76,57 @@ sub _positive_integer {
     return 0 if !defined($value) || ref($value) || $value !~ /\A[0-9]+\z/;
     return 0 if $value < $minimum || $value > $maximum;
     return 1;
+}
+
+sub _policy_defaults {
+    return { codec => 'h264', encoder => 'auto' };
+}
+
+sub _policy_path {
+    my ($vmid) = @_;
+    _unavailable() if !_positive_integer($vmid, $MIN_VMID, $MAX_VMID);
+    return "$INSTANCE_DIRECTORY/$vmid.conf";
+}
+
+sub _read_vm_policy {
+    my ($vmid) = @_;
+    my $path = _policy_path($vmid);
+    my @stat = lstat($path);
+    return _policy_defaults() if !@stat && $!{ENOENT};
+    _unavailable() if !@stat || !-f _ || $stat[4] != 0 || ($stat[2] & 0o077) || $stat[7] > 16384;
+    open(my $file, '<', $path) or _unavailable();
+    my %values;
+    while (my $line = <$file>) {
+        chomp($line);
+        next if $line =~ /\A\s*(?:#|\z)/;
+        _unavailable() if $line !~ /\A([A-Z0-9_]+)=([^\r\n\x00]*)\z/ || exists($values{$1});
+        $values{$1} = $2;
+    }
+    close($file) or _unavailable();
+    my $codec = $values{QSM_DIRECT_CODEC} // 'h264';
+    my $encoder = $values{QSM_DIRECT_ENCODER_MODE} // 'auto';
+    _unavailable() if $codec ne 'h264' || $encoder !~ /\A(?:auto|hardware|software)\z/;
+    return { codec => $codec, encoder => $encoder };
+}
+
+sub _write_vm_policy {
+    my ($vmid, $codec, $encoder) = @_;
+    _unavailable() if $codec ne 'h264' || $encoder !~ /\A(?:auto|hardware|software)\z/;
+    my $path = _policy_path($vmid);
+    _unavailable() if !-d $INSTANCE_DIRECTORY || !-O $INSTANCE_DIRECTORY;
+    my $temporary = "$path.$$.new";
+    sysopen(my $file, $temporary, O_WRONLY | O_CREAT | O_EXCL, 0600) or _unavailable();
+    my $content = join('',
+        "QSM_DIRECT_QEMU_DBUS_ADDRESS=unix:path=/run/qsm-pve-direct/$vmid/qemu-display1.bus\n",
+        "QSM_DIRECT_CODEC=$codec\n",
+        "QSM_DIRECT_ENCODER=auto\n",
+        "QSM_DIRECT_ENCODER_MODE=$encoder\n",
+    );
+    if (!print($file $content) || !close($file) || !chmod(0600, $temporary) || !rename($temporary, $path)) {
+        unlink($temporary);
+        _unavailable();
+    }
+    return _read_vm_policy($vmid);
 }
 
 sub _valid_answer {
@@ -151,6 +203,67 @@ PVE::API2::Qemu->register_method({
             1;
         } or _unavailable();
         return _answer_from_terminal($node, $vmid, $subject, $sdp, $width, $height, $fps);
+    },
+});
+
+# Codec/encoder policy is VM-scoped node configuration, deliberately separate
+# from PVE's unsupported QEMU config keys.  The direct WebRTC implementation
+# currently exposes only H.264: common browser WebRTC implementations (and
+# aiortc's server RTP stack) do not provide a portable HEVC negotiated codec.
+# Keep this endpoint explicit rather than accepting HEVC and silently encoding
+# the wrong stream.  A future HEVC transport can extend the enum atomically.
+PVE::API2::Qemu->register_method({
+    name => 'qsm_direct_settings_get',
+    path => '{vmid}/qsm-direct-settings',
+    method => 'GET',
+    protected => 1,
+    proxyto => 'node',
+    permissions => { check => ['perm', '/vms/{vmid}', ['VM.Console']] },
+    description => 'Read the VM-scoped QSM Direct browser codec policy.',
+    parameters => {
+        additionalProperties => 0,
+        properties => {
+            node => get_standard_option('pve-node'),
+            vmid => get_standard_option('pve-vmid'),
+        },
+    },
+    returns => { type => 'object' },
+    code => sub {
+        my ($param) = @_;
+        _unavailable() if $> != 0;
+        my ($node, $vmid) = @{$param}{qw(node vmid)};
+        _unavailable() if !defined($node) || $node !~ /\A[A-Za-z0-9][A-Za-z0-9.-]{0,62}\z/ ||
+            !_positive_integer($vmid, $MIN_VMID, $MAX_VMID);
+        return _read_vm_policy($vmid);
+    },
+});
+
+PVE::API2::Qemu->register_method({
+    name => 'qsm_direct_settings_set',
+    path => '{vmid}/qsm-direct-settings',
+    method => 'PUT',
+    protected => 1,
+    proxyto => 'node',
+    permissions => { check => ['perm', '/vms/{vmid}', ['VM.Config.Options']] },
+    description => 'Set the VM-scoped QSM Direct browser codec policy.',
+    parameters => {
+        additionalProperties => 0,
+        properties => {
+            node => get_standard_option('pve-node'),
+            vmid => get_standard_option('pve-vmid'),
+            codec => { type => 'string', enum => ['h264'] },
+            encoder => { type => 'string', enum => ['auto', 'hardware', 'software'] },
+        },
+    },
+    returns => { type => 'object' },
+    code => sub {
+        my ($param) = @_;
+        _unavailable() if $> != 0;
+        my ($node, $vmid, $codec, $encoder) = @{$param}{qw(node vmid codec encoder)};
+        _unavailable() if !defined($node) || $node !~ /\A[A-Za-z0-9][A-Za-z0-9.-]{0,62}\z/ ||
+            !_positive_integer($vmid, $MIN_VMID, $MAX_VMID) ||
+            !defined($codec) || !defined($encoder);
+        return _write_vm_policy($vmid, $codec, $encoder);
     },
 });
 

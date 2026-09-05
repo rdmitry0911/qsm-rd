@@ -61,6 +61,7 @@ extern "C" {
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <thread>
+#include <unordered_set>
 #include <unistd.h>
 #include <utility>
 #include <vector>
@@ -103,6 +104,25 @@ constexpr std::uint16_t opus_samples_per_frame = 960U; // 20 ms
 // malformed/delayed packet can never turn a current pointer stream backwards.
 bool pointer_sequence_is_newer(std::uint32_t candidate, std::uint32_t previous) noexcept {
     return candidate != previous && static_cast<std::uint32_t>(candidate - previous) < 0x8000'0000U;
+}
+
+// QEMU is permitted to announce the same cursor shape repeatedly.  Its D-Bus
+// Display1 implementation creates a fresh backing object for every
+// CursorDefine, so pointer identity is not a shape generation.  Treating that
+// allocation as a new browser cursor sends another BGRA image over the ordered
+// WebRTC control channel and can starve the much smaller MouseSet updates.
+// Compare the actual, bounded Display1 value instead.
+bool same_cursor_shape(const std::shared_ptr<const qmdp::CursorShape> &left,
+                       const std::shared_ptr<const qmdp::CursorShape> &right) noexcept {
+    if (left == right) {
+        return true;
+    }
+    if (!left || !right || left->width != right->width || left->height != right->height ||
+        left->hotspot_x != right->hotspot_x || left->hotspot_y != right->hotspot_y ||
+        left->argb.size() != right->argb.size()) {
+        return false;
+    }
+    return std::equal(left->argb.begin(), left->argb.end(), right->argb.begin());
 }
 
 class WorkerError final : public std::runtime_error {
@@ -264,6 +284,8 @@ public:
         std::uint64_t video_access_units {};
         std::uint64_t video_records {};
         std::uint64_t video_send_failures {};
+        std::uint64_t cursor_records {};
+        std::uint64_t cursor_shape_records {};
     };
 
     PacketSink(std::string video_path, std::string audio_path)
@@ -334,7 +356,13 @@ public:
             append_u16(payload, hotspot_x);
             append_u16(payload, hotspot_y);
             payload.insert(payload.end(), pixels.begin(), pixels.end());
-            send(video_, cursor_number_.fetch_add(1U) + 1U, packet_cursor, payload);
+            if (send(video_, cursor_number_.fetch_add(1U) + 1U, packet_cursor, payload)) {
+                std::lock_guard lock(mutex_);
+                ++cursor_records_;
+                if (!pixels.empty()) {
+                    ++cursor_shape_records_;
+                }
+            }
         } catch (...) {
             // Cursor publication must never backpressure or terminate the
             // Display1 event loop. The next mouse event will retry it.
@@ -347,6 +375,8 @@ public:
             .video_access_units = video_access_units_,
             .video_records = video_records_,
             .video_send_failures = video_send_failures_,
+            .cursor_records = cursor_records_,
+            .cursor_shape_records = cursor_shape_records_,
         };
     }
 
@@ -432,6 +462,8 @@ private:
     std::uint64_t video_access_units_ {};
     std::uint64_t video_records_ {};
     std::uint64_t video_send_failures_ {};
+    std::uint64_t cursor_records_ {};
+    std::uint64_t cursor_shape_records_ {};
 };
 
 #if defined(QMDP_HAS_LIBAVCODEC)
@@ -644,7 +676,7 @@ public:
         std::uint64_t shape_id = 0U;
         {
             std::lock_guard lock(cursor_mutex_);
-            include_shape = cursor.shape.get() != last_cursor_shape_.get();
+            include_shape = !same_cursor_shape(cursor.shape, last_cursor_shape_);
             last_cursor_shape_ = cursor.shape;
             if (include_shape && cursor.shape) {
                 ++cursor_shape_id_;
@@ -710,9 +742,13 @@ private:
         // Sunshine deliberately keeps its encoder active even for a static
         // desktop.  A browser WebRTC receiver also needs that regularity, but
         // unlike GameStream it cannot use the client's presentation queue to
-        // hide a half-rate source.  Repeat at the negotiated cadence. A new
-        // damage frame wakes this loop at once; it never waits for the next
-        // periodic tick.
+        // hide a half-rate source. Repeat at the negotiated cadence. Damage
+        // replaces the pending frame, but it must not bypass the next tick:
+        // Display1 is damage-driven and can report more than the negotiated
+        // FPS while KWin repaints a hover or an active-window decoration.
+        // Emitting those extra access units while assigning each a 1/fps RTP
+        // duration makes Chromium present alternating stale/current frames
+        // as a visibly shaking desktop.
         const auto repeat_interval = std::chrono::microseconds(1'000'000U / fps_);
         auto next_frame = std::chrono::steady_clock::now();
         std::unique_lock lock(video_mutex_);
@@ -722,15 +758,17 @@ private:
                 next_frame = std::chrono::steady_clock::now();
                 continue;
             }
-            if (!frame_changed_) {
-                (void) video_cv_.wait_until(lock, next_frame, [this] {
-                    return !running_.load() || frame_changed_;
-                });
-            }
+            // Do not make frame_changed_ a wake predicate here. A busy guest
+            // may replace latest_bgra_ arbitrarily often, but one negotiated
+            // media tick selects exactly one newest frame. The stopping
+            // predicate still makes close immediate.
+            (void) video_cv_.wait_until(lock, next_frame, [this] {
+                return !running_.load();
+            });
             if (!running_.load()) {
                 break;
             }
-            if (!frame_changed_ && std::chrono::steady_clock::now() < next_frame) {
+            if (std::chrono::steady_clock::now() < next_frame) {
                 continue;
             }
 
@@ -773,7 +811,18 @@ private:
                 break;
             }
             lock.lock();
-            next_frame = std::chrono::steady_clock::now() + repeat_interval;
+            // Keep the media cadence measured from the preceding presentation
+            // deadline, not from the end of BGRA conversion and encoding.
+            // Starting a new interval after libx264 work turns a nominal
+            // 60-FPS console into ~48 FPS on the reference VirGL desktop.
+            // A genuine encoder stall is not allowed to create a catch-up
+            // burst: it resumes from the current time and the latest-frame
+            // mailbox discards obsolete damage in the meantime.
+            next_frame += repeat_interval;
+            const auto now = std::chrono::steady_clock::now();
+            if (next_frame < now) {
+                next_frame = now;
+            }
         }
     }
 
@@ -1124,6 +1173,11 @@ public:
             (void) ::shutdown(descriptor_, SHUT_RDWR);
         }
         if (thread_.joinable()) { thread_.join(); }
+        // A browser may disappear while a mouse or key is held (notably when
+        // Escape leaves browser full screen).  Display1 owns the emulated
+        // input state, not the Unix peer, so merely closing this socket does
+        // not synthesize the corresponding Release call in QEMU.
+        release_held_input();
         if (descriptor_ >= 0) { ::close(descriptor_); descriptor_ = -1; }
     }
 
@@ -1134,6 +1188,22 @@ private:
         }
         session_.set_ui_info({.request_id = ++resize_id_, .width = width, .height = height,
                               .refresh_millihz = fps * 1000U, .remote_scale_percent = 100U});
+    }
+
+    void release_held_input() noexcept {
+        // This method runs after the receiver thread has stopped, therefore
+        // it cannot race a Press from handle().  Best-effort release is the
+        // safety boundary: an already disconnected Display1 peer must not
+        // turn a normal console close into a process failure.
+        for (std::uint8_t button = 0U; button < pressed_buttons_.size(); ++button) {
+            if (!pressed_buttons_[button]) { continue; }
+            try { session_.button(button, false); } catch (...) {}
+            pressed_buttons_[button] = false;
+        }
+        for (const auto key : pressed_keys_) {
+            try { session_.key(key, false); } catch (...) {}
+        }
+        pressed_keys_.clear();
     }
 
     void handle(std::span<const std::uint8_t> data) {
@@ -1165,9 +1235,16 @@ private:
             last_x_ = x; last_y_ = y;
         } else if (op == input_mouse_button && payload.size() == 2U && payload[0] >= 1U && payload[0] <= 5U &&
                    (payload[1] == 0U || payload[1] == 1U)) {
-            session_.button(static_cast<std::uint8_t>(payload[0] - 1U), payload[1] == 1U);
+            const auto button = static_cast<std::uint8_t>(payload[0] - 1U);
+            const auto down = payload[1] == 1U;
+            session_.button(button, down);
+            pressed_buttons_[button] = down;
         } else if (op == input_keyboard && payload.size() == 4U && (payload[2] == 0U || payload[2] == 1U)) {
-            session_.key(read_u16(payload, 0U), payload[2] == 1U);
+            const auto key = read_u16(payload, 0U);
+            const auto down = payload[2] == 1U;
+            session_.key(key, down);
+            if (down) { pressed_keys_.insert(key); }
+            else { pressed_keys_.erase(key); }
         } else if (op == input_scroll && payload.size() == 4U) {
             const auto vertical = read_i16(payload, 0U);
             // Display1 represents wheel movement with the conventional extra
@@ -1186,10 +1263,11 @@ private:
         std::array<std::uint8_t, 1024U> data {};
         while (!stopping_.load()) {
             const auto received = ::recv(descriptor_, data.data(), data.size(), 0);
-            if (received <= 0) { return; }
+            if (received <= 0) { break; }
             try { handle({data.data(), static_cast<std::size_t>(received)}); }
-            catch (const std::exception &) { return; }
+            catch (const std::exception &) { break; }
         }
+        release_held_input();
     }
 
     std::string path_;
@@ -1201,6 +1279,8 @@ private:
     std::optional<std::uint16_t> last_x_;
     std::optional<std::uint16_t> last_y_;
     std::optional<std::uint32_t> last_pointer_sequence_;
+    std::array<bool, 5U> pressed_buttons_ {};
+    std::unordered_set<std::uint16_t> pressed_keys_;
     bool absolute_pointer_ {false};
     std::uint64_t resize_id_ {};
 };
@@ -1247,6 +1327,8 @@ void write_session_diagnostic(std::string_view event,
               << " dmabuf_readback_samples=" << display.dmabuf_readback_samples
               << " dmabuf_readback_mean_us=" << dmabuf_readback_mean
               << " dmabuf_readback_max_us=" << display.dmabuf_readback_max_microseconds
+              << " cursor_definitions=" << display.cursor_definitions
+              << " cursor_moves=" << display.cursor_moves
               << " source_frames=" << source.submitted_frames
               << " source_luma_min=" << static_cast<unsigned int>(source.luma_min)
               << " source_luma_max=" << static_cast<unsigned int>(source.luma_max)
@@ -1256,6 +1338,8 @@ void write_session_diagnostic(std::string_view event,
               << " h264_access_units=" << egress.video_access_units
               << " h264_records=" << egress.video_records
               << " h264_send_failures=" << egress.video_send_failures
+              << " cursor_records=" << egress.cursor_records
+              << " cursor_shape_records=" << egress.cursor_shape_records
               << " recent_error=" << recent_error_summary(stats)
               << '\n' << std::flush;
 }

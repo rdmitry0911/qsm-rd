@@ -63,6 +63,22 @@ class DirectEncoderProbeTests(unittest.TestCase):
                 which=lambda _: "/usr/bin/ffmpeg",
                 candidates=(probe.DirectEncoderSelection("libx264"),))
 
+    def test_hardware_mode_never_selects_libx264(self) -> None:
+        original = probe._candidates
+        try:
+            probe._candidates = lambda: (  # type: ignore[assignment]
+                probe.DirectEncoderSelection("h264_nvenc"),
+                probe.DirectEncoderSelection("libx264"),
+            )
+            selected = probe.select_hardware_h264_encoder(
+                run=lambda command, **_: subprocess.CompletedProcess(command, 1, b"", b"unavailable"),
+                which=lambda _: "/usr/bin/ffmpeg")
+        except probe.DirectEncoderProbeError:
+            selected = None
+        finally:
+            probe._candidates = original  # type: ignore[assignment]
+        self.assertIsNone(selected, "hardware-only policy must fail rather than fall back to CPU")
+
 
 if __name__ == "__main__":
     unittest.main()

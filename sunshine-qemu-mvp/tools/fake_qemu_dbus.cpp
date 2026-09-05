@@ -74,7 +74,11 @@ int main(int argc, char **argv) {
                   << " frames=" << stats.frames_sent
                   << " ui_info=" << stats.ui_info_calls
                   << " keyboard=" << stats.keyboard_calls
+                  << " keyboard_press=" << stats.keyboard_presses
+                  << " keyboard_release=" << stats.keyboard_releases
                   << " mouse=" << stats.mouse_calls
+                  << " button_press=" << stats.button_presses
+                  << " button_release=" << stats.button_releases
                   << " absolute=" << (stats.has_absolute_position ? 1 : 0) << ':'
                   << stats.last_absolute_x << 'x' << stats.last_absolute_y
                   << " relative=" << (stats.has_relative_motion ? 1 : 0) << ':'

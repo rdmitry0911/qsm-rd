@@ -35,9 +35,21 @@ then choose the enabled menu item. Resizing the console window or entering/leavi
 fullscreen sends the selected even viewport to QEMU Display1 and causes a
 fresh H.264 configuration/IDR boundary.
 
-An optional root-owned `/etc/qsm-pve-direct/instances.d/<VMID>.conf` (0600)
-pins a node-specific encoder without changing the display setup. An explicit
-setting is never replaced automatically:
+The Console window's **Settings** panel stores the media policy per VM on the
+node in root-owned `/etc/qsm-pve-direct/instances.d/<VMID>.conf` (0600), not
+in browser storage or unsupported `qm.conf` keys. Its choices are
+**Automatic** (probe NVENC, QSV, VA-API, then `libx264`), **Hardware only**
+(fail clearly rather than consume CPU when no accelerator works), and
+**Software** (`libx264`). Close all QSM Direct windows for the VM and reopen
+one after saving: one worker is shared by its active viewers.
+
+The browser transport currently negotiates H.264/Opus only. HEVC is therefore
+shown as unavailable in Settings rather than being accepted and silently
+encoded as H.264. This is a browser/WebRTC and server-RTP capability boundary,
+not a VirGL limitation.
+
+An administrator may still create a root-owned policy file directly to pin a
+specific node encoder without changing the display setup:
 
     QSM_DIRECT_QEMU_DBUS_ADDRESS=unix:path=/run/qsm-pve-direct/<VMID>/qemu-display1.bus
     QSM_DIRECT_ENCODER=h264_nvenc
@@ -51,6 +63,14 @@ exchange. For the latter install the matching `qsm-guest-agent` package inside
 the Linux VM, then run `sudo qsm-guest-agent-setup USER` once for its logged-in
 desktop user. On Wayland, also enable `qsm-guest-clipboard.service` in that
 user's session.
+
+The browser's **Copy** button copies the guest's current plain-text selection
+to the local system clipboard; `Ctrl/Cmd+C` first sends `Ctrl+C` to the focused
+Linux guest application, then copies the resulting selection. **Paste** and
+`Ctrl/Cmd+V` read the browser clipboard, update the guest selection, then send
+`Ctrl+V` to the focused guest application. Browser security requires this
+explicit user gesture; a guest clipboard update cannot silently overwrite the
+host system clipboard.
 
 The browser's **Files** panel lists only
 `~/.local/share/qsm-guest-agent/outgoing`; place a guest file there to make it

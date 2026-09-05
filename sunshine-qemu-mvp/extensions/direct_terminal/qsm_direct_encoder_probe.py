@@ -144,3 +144,17 @@ def select_auto_h264_encoder(*, run: Run = subprocess.run,
             return selection
         failures.append(f"{selection.encoder}: exit {completed.returncode}")
     raise DirectEncoderProbeError("no direct H.264 encoder initialized (" + "; ".join(failures) + ")")
+
+
+def select_hardware_h264_encoder(*, run: Run = subprocess.run,
+                                 which: Which = shutil.which,
+                                 timeout_seconds: float = _PROBE_TIMEOUT_SECONDS) -> DirectEncoderSelection:
+    """Select a proven accelerator, without silently falling back to CPU.
+
+    This is intentionally distinct from ``auto``.  A VM administrator who
+    chooses the hardware lane wants an actionable failure on a node without a
+    usable encoder, not an unnoticed change in capacity planning to libx264.
+    """
+    candidates = tuple(candidate for candidate in _candidates() if candidate.encoder != "libx264")
+    return select_auto_h264_encoder(run=run, which=which, timeout_seconds=timeout_seconds,
+                                    candidates=candidates)

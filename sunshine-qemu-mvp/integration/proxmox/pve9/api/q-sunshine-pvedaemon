@@ -48,15 +48,14 @@ if (!$compatibility_checked || !$supported) {
 }
 
 my $pve_loaded = eval {
+    # PVE::API2 builds its child routing table while the service module is
+    # compiled. Register the extension first: otherwise pveproxy recognizes
+    # this protected route and forwards it, but pvedaemon's already-built
+    # registry replies with HTTP 501 ("Method not implemented").
+    require PVE::API2::QSunshine;
     require PVE::SafeSyslog;
     PVE::SafeSyslog->import();
     require PVE::Service::pvedaemon;
-    # pvedaemon is the root half of PVE's protected-route forwarding.  Load
-    # its stock API registry first, then attach our method.  Importing the
-    # extension before the service has initialized PVE::API2 makes the
-    # unprivileged pveproxy see the route, while pvedaemon workers answer the
-    # forwarded request with "Method not implemented".
-    require PVE::API2::QSunshine;
     1;
 };
 _exec_stock_pvedaemon('PVE extension could not be loaded') if !$pve_loaded;

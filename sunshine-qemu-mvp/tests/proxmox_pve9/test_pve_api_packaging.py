@@ -68,12 +68,9 @@ class PveApiPackagingTests(unittest.TestCase):
             self.assertLess(source.index("->supported("), source.index("require PVE::API2::QSunshine"))
             self.assertIn("compatibility stock fallback failed", source)
 
-    def test_pvedaemon_initializes_the_stock_registry_before_the_extension(self) -> None:
+    def test_pvedaemon_registers_the_extension_before_initializing_the_registry(self) -> None:
         source = (API_ROOT / "q-sunshine-pvedaemon").read_text(encoding="utf-8")
-        self.assertLess(
-            source.index("require PVE::Service::pvedaemon"),
-            source.index("require PVE::API2::QSunshine"),
-        )
+        self.assertLess(source.index("require PVE::API2::QSunshine"), source.index("require PVE::Service::pvedaemon"))
 
     def test_descriptor_response_normalizes_only_browser_numeric_fields(self) -> None:
         source = (API_ROOT / "PVE" / "API2" / "QSunshine.pm").read_text(encoding="utf-8")

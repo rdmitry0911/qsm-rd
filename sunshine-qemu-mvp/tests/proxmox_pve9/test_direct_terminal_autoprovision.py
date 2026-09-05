@@ -24,11 +24,13 @@ if str(IMPORT_ROOT) not in sys.path:
 if PACKAGE_LIBRARY:
     from direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
                                                      DirectVmTransport, _managed_guest_channel_enabled,
-                                                     _qemu_process_generation, _load_optional_instance)
+                                                     _qemu_process_generation, _load_optional_instance,
+                                                     DirectTerminalError)
 else:
     from extensions.direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
                                                                  DirectVmTransport, _managed_guest_channel_enabled,
-                                                                 _qemu_process_generation, _load_optional_instance)
+                                                                 _qemu_process_generation, _load_optional_instance,
+                                                                 DirectTerminalError)
 
 
 @unittest.skipUnless(shutil.which("dbus-daemon"), "dbus-daemon is required")
@@ -51,6 +53,15 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             os.chmod(explicit, 0o600)
             self.assertEqual(
                 _load_optional_instance(instances, 321, runtime)["QSM_DIRECT_ENCODER"], "auto")
+
+            explicit.write_text(
+                "QSM_DIRECT_QEMU_DBUS_ADDRESS="
+                f"unix:path={runtime}/321/qemu-display1.bus\n"
+                "QSM_DIRECT_CODEC=hevc\n"
+                "QSM_DIRECT_ENCODER_MODE=hardware\n",
+                encoding="utf-8")
+            with self.assertRaisesRegex(DirectTerminalError, "unsupported browser codec"):
+                _load_optional_instance(instances, 321, runtime)
 
     @staticmethod
     def _qemu_lookalike(vmid: int) -> subprocess.Popen[bytes]:

@@ -10,6 +10,7 @@ Chrome's own network sandbox cannot open ICE UDP sockets.
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import re
 import select
@@ -98,7 +99,7 @@ def read_record(connection: socket.socket) -> tuple[int, int, int, bytes]:
 
 
 def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
-            width: int, height: int, frames: int, fps: int) -> str:
+            width: int, height: int, frames: int, fps: int, source_fps: int) -> str:
     if not worker_binary.is_file() or not os.access(worker_binary, os.X_OK):
         raise QualificationError("direct worker binary is unavailable")
     if not fake_qemu_binary.is_file() or not os.access(fake_qemu_binary, os.X_OK):
@@ -123,7 +124,7 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
             listeners = [video_listener, audio_listener, input_listener]
             fake = subprocess.Popen(
                 [os.fspath(fake_qemu_binary), "--bus-address", address, "--width", str(width), "--height", str(height),
-                 "--frames", str(frames), "--fps", str(fps), "--inline"],
+                 "--frames", str(frames), "--fps", str(source_fps), "--inline"],
                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             )
             time.sleep(0.15)
@@ -166,6 +167,15 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
             input_connection.sendall(packet(INPUT_MOUSE_BUTTON, b"\x01\x00"))
             input_connection.sendall(packet(INPUT_KEYBOARD, b"\x00\x1e\x01\x00"))
             input_connection.sendall(packet(INPUT_KEYBOARD, b"\x00\x1e\x00\x00"))
+            # Browser full-screen/close can interrupt DOM before mouseup or
+            # keyup.  Close the real worker input peer with both states held;
+            # its QEMU Display1 receiver must synthesize one matching release
+            # for each, otherwise every later Console starts with a stuck
+            # drag/click or modifier.
+            input_connection.sendall(packet(INPUT_MOUSE_BUTTON, b"\x01\x01"))
+            input_connection.sendall(packet(INPUT_KEYBOARD, b"\x00\x1e\x01\x00"))
+            input_connection.close()
+            connections.remove(input_connection)
 
             video.setblocking(False)
             audio.setblocking(False)
@@ -173,7 +183,8 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
             video_records = 0
             idr_frames: set[int] = set()
             audio_configuration = False
-            cursor_shape = False
+            cursor_shape_records = 0
+            cursor_shape_ids: set[int] = set()
             cursor_movement = False
             deadline = time.monotonic() + 8
             while time.monotonic() < deadline:
@@ -204,7 +215,8 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
                         if cursor_flags & CURSOR_HAS_SHAPE:
                             if len(body) != CURSOR_HEADER.size + width_cursor * height_cursor * 4:
                                 raise QualificationError("worker sent an incomplete guest cursor shape")
-                            cursor_shape = True
+                            cursor_shape_records += 1
+                            cursor_shape_ids.add(shape_id)
                         elif len(body) != CURSOR_HEADER.size:
                             raise QualificationError("worker sent unexpected guest cursor bytes")
                         cursor_movement = cursor_movement or (sequence >= 2 and
@@ -224,13 +236,27 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
             complete_frames = sum(first and last for first, last in video_frames.values())
             if complete_frames < 10 or not idr_frames or video_records < complete_frames:
                 raise QualificationError("FFmpeg did not produce complete H.264 access units")
+            if source_fps > fps:
+                # Display1 damage may arrive much faster than the negotiated
+                # media rate. The worker must coalesce it before H.264/RTP;
+                # otherwise each extra AU receives a nominal 1/fps timestamp
+                # and Chrome eventually jitters between old and new desktop
+                # pictures. Permit a small start/stop scheduling margin only.
+                maximum_frames = math.ceil(frames * fps / source_fps) + 6
+                if complete_frames > maximum_frames:
+                    raise QualificationError(
+                        "worker emitted Display1 damage faster than its negotiated media clock: "
+                        f"complete={complete_frames} maximum={maximum_frames} "
+                        f"source_fps={source_fps} fps={fps}")
             if not audio_configuration:
                 raise QualificationError("worker did not publish its Opus configuration")
-            if not cursor_shape or not cursor_movement:
+            if cursor_shape_records != 1 or cursor_shape_ids != {1} or not cursor_movement:
                 raise QualificationError("worker did not publish an out-of-band Display1 guest cursor")
             trace = fake_stdout.decode("utf-8", "replace").strip()
             if not all(marker in trace for marker in (
-                    "FAKE_QEMU_RESULT", f"frames={frames}", f"requested={width}x{height}", "keyboard=2", "mouse=4",
+                    "FAKE_QEMU_RESULT", f"frames={frames}", f"requested={width}x{height}",
+                    "keyboard=4", "keyboard_press=2", "keyboard_release=2",
+                    "mouse=6", "button_press=2", "button_release=2",
                     # The mock deliberately exposes relative mode. The
                     # retained +5,+2 delta proves the stale FFFE packet was
                     # discarded and that the FFFF -> 0 serial wrap advanced.
@@ -257,14 +283,18 @@ def main() -> int:
     parser.add_argument("--height", type=int, default=180)
     parser.add_argument("--frames", type=int, default=120)
     parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument("--source-fps", type=int,
+                        help="optional fake Display1 damage rate; defaults to --fps")
     arguments = parser.parse_args()
     try:
+        source_fps = arguments.source_fps if arguments.source_fps is not None else arguments.fps
         if (arguments.width < 64 or arguments.height < 64 or arguments.frames < 10 or
-                arguments.fps < 10 or arguments.width % 2 or arguments.height % 2):
+                not 10 <= arguments.fps <= 240 or not 10 <= source_fps <= 240 or
+                arguments.width % 2 or arguments.height % 2):
             raise QualificationError("invalid media qualification dimensions")
         trace = qualify(arguments.worker, arguments.fake_qemu, encoder=arguments.encoder,
                         width=arguments.width, height=arguments.height,
-                        frames=arguments.frames, fps=arguments.fps)
+                        frames=arguments.frames, fps=arguments.fps, source_fps=source_fps)
     except (OSError, QualificationError, subprocess.SubprocessError) as error:
         print(f"QSM_DIRECT_WORKER_MEDIA_E2E_FAILED: {error}")
         return 1

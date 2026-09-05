@@ -19,6 +19,10 @@
     // conservative desktop profile while a LAN user selects an interactive
     // one without changing a VM configuration.
     const CONSOLE_SETTINGS_STORAGE_KEY = 'qsm-direct-console-settings-v1';
+    const KEYBOARD_PRIORITY = Object.freeze({
+        guest: 'guest-first',
+        client: 'client-first',
+    });
     const CONSOLE_SETTING_SCHEMA = Object.freeze({
         toolbarHotZonePx: { defaultValue: 32, minimum: 4, maximum: 160 },
         toolbarRevealDelayMs: { defaultValue: 650, minimum: 0, maximum: 5000 },
@@ -29,9 +33,15 @@
         resizeSettleMs: { defaultValue: 1000, minimum: 250, maximum: 5000 },
     });
 
-    const defaultConsoleSettings = () => Object.fromEntries(Object.entries(CONSOLE_SETTING_SCHEMA).map(
-        ([name, definition]) => [name, definition.defaultValue],
-    ));
+    const defaultConsoleSettings = () => ({
+        ...Object.fromEntries(Object.entries(CONSOLE_SETTING_SCHEMA).map(
+            ([name, definition]) => [name, definition.defaultValue],
+        )),
+        // The direct Console is a remote-desktop window, so the guest gets
+        // received keys by default. The explicit client-first mode remains
+        // available for users who want browser/OS shortcuts to win.
+        keyboardPriority: KEYBOARD_PRIORITY.guest,
+    });
     const readConsoleSettings = (storage) => {
         const settings = defaultConsoleSettings();
         try {
@@ -43,6 +53,9 @@
                 if (Number.isInteger(value) && value >= definition.minimum && value <= definition.maximum) {
                     settings[name] = value;
                 }
+            }
+            if (Object.values(KEYBOARD_PRIORITY).includes(stored.keyboardPriority)) {
+                settings.keyboardPriority = stored.keyboardPriority;
             }
         } catch (_error) { /* A disabled/private localStorage uses defaults. */ }
         return settings;
@@ -295,6 +308,23 @@
         ArrowUp: 0x148, ArrowLeft: 0x14b, ArrowRight: 0x14d, ArrowDown: 0x150,
     };
     const qemuKey = (event) => scanCodes[event.code] || extendedScanCodes[event.code] || null;
+    // A guest-first console forwards every DOM key the browser actually
+    // delivers. These chords are the intentionally local set in client-first
+    // mode; shortcuts claimed by an OS/compositor before the browser are
+    // documented in the console Settings panel and cannot be recovered here.
+    const clientFirstShortcut = (event) => {
+        const primary = event.ctrlKey || event.metaKey;
+        if (primary && [
+            'KeyC', 'KeyV', 'KeyL', 'KeyT', 'KeyW', 'KeyR', 'KeyN', 'KeyP', 'KeyF',
+            'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyD', 'Equal', 'Minus', 'Digit0',
+            'BracketLeft', 'BracketRight',
+        ].includes(event.code)) { return true; }
+        if (['F5', 'F6', 'F11', 'F12'].includes(event.code)) { return true; }
+        if (event.altKey && ['ArrowLeft', 'ArrowRight'].includes(event.code)) { return true; }
+        return event.ctrlKey && ['Tab', 'PageUp', 'PageDown'].includes(event.code);
+    };
+    const guestCaptureExitShortcut = (event) => event.code === 'Escape' &&
+        event.ctrlKey && event.altKey && event.shiftKey && !event.metaKey;
 
     const waitForIce = (peer) => new Promise((resolve) => {
         if (peer.iceGatheringState === 'complete') { resolve(); return; }
@@ -312,6 +342,12 @@
                 }
                 resolve(answer);
             }, failure: () => reject(new Error('PVE rejected direct console launch')),
+        });
+    });
+    const apiValue = (url, method, params, target) => new Promise((resolve, reject) => {
+        Proxmox.Utils.API2Request({ url, method, params, waitMsgTarget: target,
+            success: ({ result }) => resolve(result && result.data),
+            failure: () => reject(new Error('PVE rejected direct console settings')),
         });
     });
     const dimensions = (video, fps) => {
@@ -368,6 +404,12 @@
         // Chromium/Safari, so this explicit hook is part of the resize
         // contract rather than merely a toolbar-label update.
         let resizeConsole = () => undefined;
+        // Browser full-screen transitions can cancel a DOM mouse/key
+        // sequence before its corresponding `up` event.  This hook is
+        // assigned once the authenticated control channel exists; keeping a
+        // harmless early default makes an Escape pressed during connection
+        // setup safe too.
+        let releaseHeldInput = () => undefined;
         const video = document.createElement('video');
         video.autoplay = true;
         video.playsInline = true;
@@ -416,9 +458,23 @@
                 : document.documentElement.requestFullscreen();
             if (action && typeof action.catch === 'function') { action.catch(() => undefined); }
         });
+        let restoreClientFocusAfterFullscreen = false;
         document.addEventListener('fullscreenchange', () => {
+            releaseHeldInput();
             setFullscreenLabel();
             resizeConsole(true);
+            // Safari and Chromium can leave the video without focus after
+            // Escape restores the native popup.  Re-focus after the browser
+            // has completed its layout transition, otherwise the pointer can
+            // still move while clicks and keys go to the parent page.
+            popup.setTimeout(() => {
+                if (restoreClientFocusAfterFullscreen) {
+                    restoreClientFocusAfterFullscreen = false;
+                    settingsButton.focus({ preventScroll: true });
+                } else {
+                    video.focus({ preventScroll: true });
+                }
+            }, 0);
         });
         const copy = document.createElement('button');
         copy.type = 'button';
@@ -453,8 +509,79 @@
         settingsTitle.textContent = gettext('Console settings');
         settingsTitle.style.cssText = 'font-weight:600;font-size:15px;margin:0 0 8px';
         const settingsHint = document.createElement('p');
-        settingsHint.textContent = gettext('Changes are saved only in this browser. Frame rate is applied to the next new console session for this virtual machine.');
+        settingsHint.textContent = gettext('Display controls are saved only in this browser. The VM media policy is saved on this Proxmox node and is applied after this console is closed and reopened.');
         settingsHint.style.cssText = 'margin:0 0 10px;color:#cbd5e1;line-height:1.35';
+        const mediaPolicyTitle = document.createElement('div');
+        mediaPolicyTitle.textContent = gettext('This virtual machine — media policy');
+        mediaPolicyTitle.style.cssText = 'font-weight:600;margin:0 0 8px';
+        const mediaPolicyHint = document.createElement('p');
+        mediaPolicyHint.textContent = gettext('H.264 is the portable browser WebRTC codec. HEVC is shown for clarity but is unavailable until the browser and server RTP stack negotiate it. Hardware mode never silently falls back to CPU.');
+        mediaPolicyHint.style.cssText = 'margin:0 0 8px;color:#cbd5e1;line-height:1.35';
+        const mediaPolicyForm = document.createElement('div');
+        mediaPolicyForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 170px;gap:8px;align-items:center';
+        const codecLabel = document.createElement('label');
+        codecLabel.htmlFor = 'qsm-direct-vm-codec';
+        codecLabel.textContent = gettext('Video codec');
+        const codecInput = document.createElement('select');
+        codecInput.id = 'qsm-direct-vm-codec';
+        codecInput.style.cssText = 'width:100%;box-sizing:border-box;padding:4px 6px';
+        const h264Option = document.createElement('option');
+        h264Option.value = 'h264';
+        h264Option.textContent = gettext('H.264 (browser WebRTC)');
+        const hevcOption = document.createElement('option');
+        hevcOption.value = 'hevc';
+        hevcOption.textContent = gettext('HEVC — not available yet');
+        hevcOption.disabled = true;
+        codecInput.append(h264Option, hevcOption);
+        const encoderLabel = document.createElement('label');
+        encoderLabel.htmlFor = 'qsm-direct-vm-encoder';
+        encoderLabel.textContent = gettext('Encoder');
+        const encoderInput = document.createElement('select');
+        encoderInput.id = 'qsm-direct-vm-encoder';
+        encoderInput.style.cssText = 'width:100%;box-sizing:border-box;padding:4px 6px';
+        for (const [value, label] of [
+            ['auto', gettext('Automatic (tested backend)')],
+            ['hardware', gettext('Hardware only')],
+            ['software', gettext('Software (libx264)')],
+        ]) {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            encoderInput.append(option);
+        }
+        mediaPolicyForm.append(codecLabel, codecInput, encoderLabel, encoderInput);
+        const saveMediaPolicy = document.createElement('button');
+        saveMediaPolicy.type = 'button';
+        saveMediaPolicy.textContent = gettext('Save VM media policy');
+        saveMediaPolicy.style.cssText = 'margin:0 0 14px;padding:4px 9px;cursor:pointer';
+        const keyboardPolicyTitle = document.createElement('div');
+        keyboardPolicyTitle.textContent = gettext('Keyboard shortcut priority');
+        keyboardPolicyTitle.style.cssText = 'font-weight:600;margin:0 0 8px';
+        const keyboardPolicyForm = document.createElement('div');
+        keyboardPolicyForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 170px;gap:8px;align-items:center';
+        const keyboardPriorityLabel = document.createElement('label');
+        keyboardPriorityLabel.htmlFor = 'qsm-direct-keyboard-priority';
+        keyboardPriorityLabel.textContent = gettext('When guest picture has focus');
+        const keyboardPriorityInput = document.createElement('select');
+        keyboardPriorityInput.id = 'qsm-direct-keyboard-priority';
+        keyboardPriorityInput.style.cssText = 'width:100%;box-sizing:border-box;padding:4px 6px';
+        for (const [value, label] of [
+            [KEYBOARD_PRIORITY.guest, gettext('Guest first — forward received keys')],
+            [KEYBOARD_PRIORITY.client, gettext('Client first — browser shortcuts win')],
+        ]) {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            keyboardPriorityInput.append(option);
+        }
+        keyboardPriorityInput.value = settings.keyboardPriority;
+        keyboardPolicyForm.append(keyboardPriorityLabel, keyboardPriorityInput);
+        const keyboardPolicyHint = document.createElement('p');
+        keyboardPolicyHint.textContent = gettext('Guest first forwards every key event received by this window, including Ctrl/Alt/Meta. To leave guest keyboard capture, press Ctrl+Alt+Shift+Esc; focus moves to Settings. Click the guest picture to resume. In client-first mode, browser Copy/Paste, tab/window/navigation, refresh, full-screen and developer-tool shortcuts stay local; all other received keys go to the guest.');
+        keyboardPolicyHint.style.cssText = 'margin:8px 0;color:#cbd5e1;line-height:1.35';
+        const keyboardUnavailableHint = document.createElement('p');
+        keyboardUnavailableHint.textContent = gettext('Always unavailable to a web console when claimed before the browser: macOS Cmd+Tab, Cmd+Space, Cmd+Q, Ctrl+Cmd+Q and Cmd+Option+Esc; Windows Ctrl+Alt+Del and Win+L; compositor Super/secure-attention shortcuts. Browser policy can also reserve its own full-screen or window-management shortcuts.');
+        keyboardUnavailableHint.style.cssText = 'margin:0 0 14px;color:#fbbf24;line-height:1.35';
         const settingsForm = document.createElement('div');
         settingsForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:center';
         const settingLabels = {
@@ -495,7 +622,9 @@
         closeSettings.textContent = gettext('Close');
         closeSettings.style.cssText = 'padding:4px 9px;cursor:pointer';
         settingsActions.append(resetSettings, closeSettings);
-        settingsPanel.append(settingsTitle, settingsHint, settingsForm, settingsActions);
+        settingsPanel.append(settingsTitle, settingsHint, mediaPolicyTitle, mediaPolicyHint,
+            mediaPolicyForm, saveMediaPolicy, keyboardPolicyTitle, keyboardPolicyForm,
+            keyboardPolicyHint, keyboardUnavailableHint, settingsForm, settingsActions);
         toolbar.append(status, copy, paste, files, audio, fullscreen, settingsButton);
         document.body.append(video, guestCursor, toolbar, fileInput, dropHint, filePanel, settingsPanel);
         popup.focus();
@@ -510,6 +639,9 @@
         let pointerFrame = null;
         let pendingPointer = null;
         let latestPointer = null;
+        const heldMouseButtons = new Set();
+        const heldKeys = new Set();
+        let fullscreenEscapePending = false;
         // `qsm-pointer` is deliberately unordered and non-retransmitted.
         // Preserve an explicit sequence number with every latest-state sample
         // so a packet which took a longer SCTP path cannot move a held window
@@ -533,11 +665,18 @@
         const guestFileUrls = new Map();
         const guestCursorShapes = new Map();
         let latestGuestCursor = null;
+        let appliedGuestCursor = 'default';
+        // ``qsm-guest-cursor`` is intentionally unordered.  A delayed first
+        // MouseSet is commonly (0,0); without a sequence guard it could land
+        // after the actual pointer position and pin a resize/edge cursor in
+        // the top-left corner of the guest image.
+        let latestGuestCursorSequence = -1;
         const guestUploadChunkBytes = 32 * 1024;
         let dropDepth = 0;
         let filePanelOpen = false;
         let filePanelRefreshing = false;
         let lastResize = '';
+        let mediaPolicyLoading = false;
         const cancelToolbarReveal = () => {
             if (toolbarRevealTimer !== null) {
                 popup.clearTimeout(toolbarRevealTimer);
@@ -610,8 +749,26 @@
             return result;
         };
         const hideGuestCursor = () => {
+            // The image is chosen by the guest, but its physical location is
+            // drawn by the browser/OS. A canvas overlay needs delayed
+            // Display1 MouseSet coordinates and visibly jumps at a native
+            // window edge when the operator moves only one pixel.
             guestCursor.style.display = 'none';
-            video.style.cursor = 'default';
+            if (appliedGuestCursor !== 'default') {
+                appliedGuestCursor = 'default';
+                video.style.cursor = appliedGuestCursor;
+            }
+        };
+        const guestContentBox = () => {
+            const box = video.getBoundingClientRect();
+            const sourceWidth = Math.max(1, video.videoWidth || Math.floor(box.width));
+            const sourceHeight = Math.max(1, video.videoHeight || Math.floor(box.height));
+            const scale = Math.min(box.width / sourceWidth, box.height / sourceHeight);
+            return {
+                box, sourceWidth, sourceHeight, scale,
+                left: box.left + (box.width - sourceWidth * scale) / 2,
+                top: box.top + (box.height - sourceHeight * scale) / 2,
+            };
         };
         const placeGuestCursor = () => {
             const state = latestGuestCursor;
@@ -620,17 +777,12 @@
                 hideGuestCursor();
                 return;
             }
-            const box = video.getBoundingClientRect();
-            const scale = Math.min(box.width / video.videoWidth, box.height / video.videoHeight);
-            if (!Number.isFinite(scale) || scale <= 0) { hideGuestCursor(); return; }
-            const contentLeft = box.left + (box.width - video.videoWidth * scale) / 2;
-            const contentTop = box.top + (box.height - video.videoHeight * scale) / 2;
-            guestCursor.style.left = `${Math.round(contentLeft + (state.x - shape.hotspot_x) * scale)}px`;
-            guestCursor.style.top = `${Math.round(contentTop + (state.y - shape.hotspot_y) * scale)}px`;
-            guestCursor.style.width = `${Math.max(1, Math.round(shape.width * scale))}px`;
-            guestCursor.style.height = `${Math.max(1, Math.round(shape.height * scale))}px`;
-            guestCursor.style.display = 'block';
-            video.style.cursor = 'none';
+            guestCursor.style.display = 'none';
+            const cursor = `url("${shape.cursor_url}") ${shape.hotspot_x} ${shape.hotspot_y}, default`;
+            if (cursor !== appliedGuestCursor) {
+                appliedGuestCursor = cursor;
+                video.style.cursor = cursor;
+            }
         };
         const acceptGuestCursorShape = (message) => {
             if (!Number.isSafeInteger(message.shape_id) || message.shape_id <= 0 ||
@@ -643,6 +795,8 @@
             let bgra;
             try { bgra = b64ToBytes(message.bgra_b64); } catch (_error) { return; }
             if (bgra.length !== message.width * message.height * 4) { return; }
+            guestCursor.width = message.width;
+            guestCursor.height = message.height;
             const context = guestCursor.getContext('2d', { alpha: true });
             if (!context) { return; }
             const rgba = context.createImageData(message.width, message.height);
@@ -654,12 +808,11 @@
                 rgba.data[index + 2] = bgra[index];
                 rgba.data[index + 3] = bgra[index + 3];
             }
-            guestCursor.width = message.width;
-            guestCursor.height = message.height;
             context.putImageData(rgba, 0, 0);
             guestCursorShapes.set(message.shape_id, {
                 width: message.width, height: message.height,
                 hotspot_x: message.hotspot_x, hotspot_y: message.hotspot_y,
+                cursor_url: guestCursor.toDataURL('image/png'),
             });
             // Keep a bounded cache in case a compositor switches cursor
             // types while a late, unordered position is in flight.
@@ -672,6 +825,8 @@
             if (!Number.isSafeInteger(message.sequence) || !Number.isSafeInteger(message.shape_id) ||
                 !Number.isInteger(message.x) || !Number.isInteger(message.y) ||
                 typeof message.visible !== 'boolean') { return; }
+            if (message.sequence < latestGuestCursorSequence) { return; }
+            latestGuestCursorSequence = message.sequence;
             latestGuestCursor = {
                 sequence: message.sequence, shape_id: message.shape_id,
                 visible: message.visible, x: message.x, y: message.y,
@@ -829,6 +984,7 @@
             if (open) {
                 setFilePanelOpen(false);
                 revealToolbar();
+                loadVmMediaPolicy();
             } else {
                 hideToolbarSoon();
             }
@@ -848,13 +1004,73 @@
         for (const [name, input] of settingInputs) {
             input.addEventListener('change', () => commitSetting(name));
         }
+        keyboardPriorityInput.addEventListener('change', () => {
+            const value = keyboardPriorityInput.value;
+            if (!Object.values(KEYBOARD_PRIORITY).includes(value)) {
+                keyboardPriorityInput.value = settings.keyboardPriority;
+                return;
+            }
+            settings.keyboardPriority = value;
+            applyConsoleSettings();
+        });
         resetSettings.addEventListener('click', () => {
             Object.assign(settings, defaultConsoleSettings());
             for (const [name, input] of settingInputs) { input.value = String(settings[name]); }
+            keyboardPriorityInput.value = settings.keyboardPriority;
             applyConsoleSettings();
         });
         settingsButton.addEventListener('click', () => setSettingsPanelOpen(!settingsPanelOpen));
         closeSettings.addEventListener('click', () => setSettingsPanelOpen(false));
+        const vmMediaPolicyUrl = () => `/nodes/${encodeURIComponent(node)}/qemu/${encodeURIComponent(vmid)}/qsm-direct-settings`;
+        const validVmMediaPolicy = (value) => value && value.codec === 'h264' &&
+            ['auto', 'hardware', 'software'].includes(value.encoder);
+        const loadVmMediaPolicy = async () => {
+            if (mediaPolicyLoading || closed) { return; }
+            mediaPolicyLoading = true;
+            codecInput.disabled = true;
+            encoderInput.disabled = true;
+            saveMediaPolicy.disabled = true;
+            try {
+                const value = await apiValue(vmMediaPolicyUrl(), 'GET', {}, button);
+                if (!validVmMediaPolicy(value)) { throw new Error('invalid VM media policy'); }
+                codecInput.value = value.codec;
+                encoderInput.value = value.encoder;
+            } catch (_error) {
+                // A Console-only user may read an older node during a rolling
+                // upgrade. Keep the active console usable and make the policy
+                // failure explicit instead of pretending a browser-local value
+                // was saved to the VM.
+                status.textContent = gettext('VM media policy is unavailable on this node.');
+            } finally {
+                mediaPolicyLoading = false;
+                codecInput.disabled = false;
+                encoderInput.disabled = false;
+                saveMediaPolicy.disabled = false;
+            }
+        };
+        saveMediaPolicy.addEventListener('click', async () => {
+            if (mediaPolicyLoading || codecInput.value !== 'h264' ||
+                !['auto', 'hardware', 'software'].includes(encoderInput.value)) { return; }
+            mediaPolicyLoading = true;
+            codecInput.disabled = true;
+            encoderInput.disabled = true;
+            saveMediaPolicy.disabled = true;
+            try {
+                const value = await apiValue(vmMediaPolicyUrl(), 'PUT', {
+                    codec: codecInput.value, encoder: encoderInput.value,
+                }, button);
+                if (!validVmMediaPolicy(value)) { throw new Error('invalid saved VM media policy'); }
+                encoderInput.value = value.encoder;
+                status.textContent = gettext('VM media policy saved. Close and reopen this console to apply it.');
+            } catch (_error) {
+                status.textContent = gettext('Could not save VM media policy. You need VM configuration permission.');
+            } finally {
+                mediaPolicyLoading = false;
+                codecInput.disabled = false;
+                encoderInput.disabled = false;
+                saveMediaPolicy.disabled = false;
+            }
+        });
         const renderGuestFiles = (entries) => {
             guestFiles.replaceChildren();
             if (!entries.length) {
@@ -938,26 +1154,93 @@
             }
             await popup.navigator.clipboard.writeText(text);
         };
+        const guestClipboardText = async () => {
+            const result = await guestRequest('qsm_guest_clipboard_get');
+            if (!result || typeof result.text_b64 !== 'string') {
+                throw new Error('invalid guest clipboard');
+            }
+            return new TextDecoder('utf-8', { fatal: true }).decode(b64ToBytes(result.text_b64));
+        };
+        const waitForGuestClipboard = () => new Promise((resolve) => {
+            // The guest agent has no GUI dependency; its Wayland companion
+            // mirrors its atomic state file at a short cadence.  Do not send
+            // Ctrl+V until that companion has had one turn, otherwise an app
+            // can paste the previous selection even though CLIP_SET succeeded.
+            popup.setTimeout(resolve, 150);
+        });
+        const sendGuestShortcut = (key) => {
+            // Display1 receives physical set-1 codes.  The host shortcut may
+            // be Cmd on macOS, but the Linux guest's desktop clipboard action
+            // is always Ctrl+C/Ctrl+V.
+            send({ op: 'keyboard', key: 29, down: true, modifiers: 0 });
+            send({ op: 'keyboard', key, down: true, modifiers: 0 });
+            send({ op: 'keyboard', key, down: false, modifiers: 0 });
+            send({ op: 'keyboard', key: 29, down: false, modifiers: 0 });
+        };
+        const writePendingClipboard = (textPromise) => {
+            if (!popup.navigator.clipboard) {
+                return Promise.reject(new Error('browser clipboard access is unavailable'));
+            }
+            // Clipboard permission is tied to the *initial* click/keydown.
+            // Calling writeText only after a WebRTC guest round-trip loses
+            // that user activation in Chromium. ClipboardItem accepts a
+            // promise, so authorize the write now and resolve its contents
+            // only once the guest agent returns the UTF-8 text.
+            if (popup.navigator.clipboard.write && typeof popup.ClipboardItem === 'function') {
+                const item = new popup.ClipboardItem({
+                    'text/plain': Promise.resolve(textPromise).then((text) => new Blob([text], {
+                        type: 'text/plain;charset=utf-8',
+                    })),
+                });
+                return popup.navigator.clipboard.write([item]);
+            }
+            // Older engines may allow writeText after an asynchronous click;
+            // retain it as a portable fallback, but never claim that a denied
+            // browser permission reached the local clipboard.
+            return Promise.resolve(textPromise).then(copyToBrowser);
+        };
         const pasteFromBrowser = async () => {
             if (!popup.navigator.clipboard || !popup.navigator.clipboard.readText) {
                 throw new Error('browser clipboard access is unavailable');
             }
             const text = await popup.navigator.clipboard.readText();
             await guestRequest('qsm_guest_clipboard_set', { text_b64: bytesToB64(new TextEncoder().encode(text)) });
+            await waitForGuestClipboard();
+            sendGuestShortcut(47); // Ctrl+V in the focused guest application.
             status.textContent = gettext('Clipboard pasted into guest');
         };
         const guestClipboardToBrowser = async () => {
-            const result = await guestRequest('qsm_guest_clipboard_get');
-            if (!result || typeof result.text_b64 !== 'string') { throw new Error('invalid guest clipboard'); }
-            await copyToBrowser(new TextDecoder('utf-8', { fatal: true }).decode(b64ToBytes(result.text_b64)));
+            await writePendingClipboard(guestClipboardText());
             status.textContent = gettext('Guest clipboard copied');
         };
-        copy.addEventListener('click', () => { guestClipboardToBrowser().catch(() => {
-            status.textContent = gettext('Guest clipboard is unavailable. Install and start QSM Guest Agent.');
-        }); });
-        paste.addEventListener('click', () => { pasteFromBrowser().catch(() => {
-            status.textContent = gettext('Browser clipboard is unavailable.');
-        }); });
+        const guestSelectionToBrowser = async () => {
+            // Start the authorized browser write before asking the guest to
+            // copy its selected text.  The delayed read is intentional: the
+            // guest's native clipboard bridge observes Ctrl+C asynchronously.
+            const text = new Promise((resolve, reject) => {
+                sendGuestShortcut(46); // Ctrl+C in the focused guest application.
+                popup.setTimeout(() => { guestClipboardText().then(resolve, reject); }, 180);
+            });
+            await writePendingClipboard(text);
+            status.textContent = gettext('Guest selection copied');
+        };
+        copy.addEventListener('click', () => {
+            // Toolbar Copy is the same operation as Cmd/Ctrl+C: request the
+            // focused guest application's current selection, not an old
+            // clipboard value captured before the user made that selection.
+            video.focus({ preventScroll: true });
+            guestSelectionToBrowser().catch(() => {
+                status.textContent = gettext('Guest clipboard is unavailable. Install and start QSM Guest Agent.');
+            });
+        });
+        paste.addEventListener('click', () => {
+            // Retain this click's Clipboard API activation while restoring
+            // the guest surface before synthesizing Ctrl+V.
+            video.focus({ preventScroll: true });
+            pasteFromBrowser().catch(() => {
+                status.textContent = gettext('Browser clipboard is unavailable.');
+            });
+        });
         files.addEventListener('click', () => {
             setFilePanelOpen(!filePanelOpen);
             if (filePanelOpen) { refreshGuestFiles(); }
@@ -1029,8 +1312,51 @@
         const sendPointer = (value) => {
             if (pointer && pointer.readyState === 'open') { pointer.send(JSON.stringify(value)); }
         };
+        const sendMouseButton = (button, down) => {
+            if (!Number.isInteger(button) || button < 1 || button > 5) { return; }
+            if (down) { heldMouseButtons.add(button); }
+            else { heldMouseButtons.delete(button); }
+            send({ op: 'mouse_button', button, down });
+        };
+        const sendKeyboard = (key, down) => {
+            if (!Number.isInteger(key) || key < 0 || key > 0xffff) { return; }
+            if (down) { heldKeys.add(key); }
+            else { heldKeys.delete(key); }
+            send({ op: 'keyboard', key, down, modifiers: 0 });
+        };
+        releaseHeldInput = () => {
+            // Do not rely on the browser to deliver mouseup/keyup when a
+            // native full-screen, focus, or close transition interrupts the
+            // DOM sequence.  The ordered control channel preserves these
+            // release edges ahead of a transport close.
+            for (const button of [...heldMouseButtons]) { sendMouseButton(button, false); }
+            for (const key of [...heldKeys]) { sendKeyboard(key, false); }
+        };
+        const leaveGuestKeyboardCapture = () => {
+            // The escape chord is intentionally local only in guest-first
+            // mode. Releasing modifiers before moving focus prevents a
+            // half-held Ctrl/Alt/Shift from affecting the next client action.
+            releaseHeldInput();
+            if (document.fullscreenElement) {
+                // Guest-first deliberately gives ordinary Escape to the VM.
+                // The capture-exit chord is therefore also the reliable way
+                // to return from a native full-screen guest to client UI.
+                restoreClientFocusAfterFullscreen = true;
+                const action = document.exitFullscreen();
+                if (action && typeof action.catch === 'function') {
+                    action.catch(() => {
+                        restoreClientFocusAfterFullscreen = false;
+                        settingsButton.focus({ preventScroll: true });
+                    });
+                }
+            } else {
+                settingsButton.focus({ preventScroll: true });
+            }
+            status.textContent = gettext('Client keyboard shortcuts active — click the guest picture to resume.');
+        };
         const close = () => {
             if (closed) { return; }
+            releaseHeldInput();
             closed = true;
             if (observer) { observer.disconnect(); }
             if (peer) { peer.close(); }
@@ -1069,6 +1395,31 @@
             if (popup.closed) { close(); }
         }, 500);
 
+        const vmStatusUrl = () => `/nodes/${encodeURIComponent(node)}/qemu/${encodeURIComponent(vmid)}/status/current`;
+        const waitForVmStart = async () => {
+            // Opening Console is a valid action before Power On.  Do not
+            // create a single-use WebRTC offer until QEMU exists: PVE would
+            // correctly reject that offer, but reporting it as a console
+            // failure forces an operator to close and reopen the popup.
+            // Keep this window alive and begin negotiation as soon as the
+            // normal protected PVE status route reports the VM as running.
+            while (!closed) {
+                try {
+                    const state = await apiValue(vmStatusUrl(), 'GET', {}, null);
+                    if (state && state.status === 'running') { return true; }
+                    status.textContent = gettext('Virtual machine is stopped. Waiting for it to start…');
+                } catch (_error) {
+                    // A node that is still finishing its own start-up has no
+                    // useful display yet either. Keep the same Console
+                    // popup rather than mislabelling a transient status read
+                    // as a WebRTC or permission error.
+                    status.textContent = gettext('Waiting for virtual machine status…');
+                }
+                await new Promise((resolve) => popup.setTimeout(resolve, 1000));
+            }
+            return false;
+        };
+
         const updateMediaStatus = () => {
             if (closed || !peer) { return; }
             if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
@@ -1086,6 +1437,7 @@
 
         const connect = async () => {
             try {
+            if (!await waitForVmStart()) { return; }
             peer = new RTCPeerConnection();
             control = peer.createDataChannel('qsm-control', { ordered: true });
             // Cursor positions are latest-state samples. Sending them as a
@@ -1245,19 +1597,24 @@
                 }
             };
             const pointerForMouseEvent = (event) => {
-                const box = video.getBoundingClientRect();
+                const content = guestContentBox();
+                const { box, sourceWidth, sourceHeight, scale } = content;
                 // Pointer coordinates must describe the decoded source, not
                 // CSS pixels.  During the few frames while a full-screen
                 // resize is in flight these can differ; using the old CSS box
                 // made click targets shift or disappear precisely then.
-                const sourceWidth = Math.max(1, video.videoWidth || Math.floor(box.width));
-                const sourceHeight = Math.max(1, video.videoHeight || Math.floor(box.height));
+                // `object-fit:contain` additionally creates a real black
+                // letterbox while the guest is converging to a new aspect.
+                // Map through that content rectangle, not through the whole
+                // popup, or a cursor at a guest window corner is displaced
+                // toward the upper-left by the letterbox margin.
+                const usableScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
                 return {
                     op: 'mouse_position',
                     x: Math.max(0, Math.min(sourceWidth - 1,
-                        Math.floor((event.clientX - box.left) * sourceWidth / Math.max(1, box.width)))),
+                        Math.floor((event.clientX - content.left) / usableScale))),
                     y: Math.max(0, Math.min(sourceHeight - 1,
-                        Math.floor((event.clientY - box.top) * sourceHeight / Math.max(1, box.height)))),
+                        Math.floor((event.clientY - content.top) / usableScale))),
                     width: sourceWidth,
                     height: sourceHeight,
                 };
@@ -1319,8 +1676,14 @@
                         request.resolve({ name: transfer.name, data_b64: bytesToB64(bytes), bytes: bytes.length });
                     }
                 } else if (message.op === 'qsm_guest_clipboard' && typeof message.text_b64 === 'string') {
-                    try { copyToBrowser(new TextDecoder('utf-8', { fatal: true }).decode(b64ToBytes(message.text_b64))).catch(() => undefined); }
-                    catch (_error) { /* Ignore malformed guest clipboard notifications. */ }
+                    try {
+                        // A website is not permitted to replace the user's
+                        // system clipboard without a click/key gesture. Keep
+                        // the notification for the explicit Copy action
+                        // rather than silently discarding a browser rejection.
+                        new TextDecoder('utf-8', { fatal: true }).decode(b64ToBytes(message.text_b64));
+                        status.textContent = gettext('Guest clipboard changed — press Copy to copy it here');
+                    } catch (_error) { /* Ignore malformed guest clipboard notifications. */ }
                 } else if (message.op === 'qsm_guest_cursor_shape') {
                     acceptGuestCursorShape(message);
                 }
@@ -1360,6 +1723,10 @@
             });
             video.addEventListener('mousemove', (event) => {
                 observeToolbarZone(event);
+                // A missed button-up from a previous native full-screen
+                // transition becomes observable on the next ordinary move.
+                // Clear it before it can make every later click a drag.
+                if (event.buttons === 0 && heldMouseButtons.size) { releaseHeldInput(); }
                 queuePointer(pointerForMouseEvent(event));
             });
             video.addEventListener('mouseleave', () => {
@@ -1371,17 +1738,39 @@
                 queuePointer(pointerForMouseEvent(event));
                 flushPointer(true);
                 video.focus();
-                send({ op: 'mouse_button', button: event.button + 1, down: true });
+                sendMouseButton(event.button + 1, true);
                 event.preventDefault();
             });
             video.addEventListener('mouseup', (event) => {
                 queuePointer(pointerForMouseEvent(event));
                 flushPointer(true);
-                send({ op: 'mouse_button', button: event.button + 1, down: false });
+                sendMouseButton(event.button + 1, false);
                 event.preventDefault();
+            });
+            // Mouseup often targets the document instead of the video after
+            // Escape leaves native full screen.  Preserve a captured guest
+            // button only until that document-level release arrives.
+            document.addEventListener('mouseup', (event) => {
+                const button = event.button + 1;
+                if (!heldMouseButtons.has(button)) { return; }
+                queuePointer(pointerForMouseEvent(event));
+                flushPointer(true);
+                sendMouseButton(button, false);
+            });
+            video.addEventListener('pointercancel', releaseHeldInput);
+            popup.addEventListener('blur', releaseHeldInput);
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) { releaseHeldInput(); }
             });
             video.addEventListener('wheel', (event) => { send({ op: 'scroll', vertical: Math.max(-32768, Math.min(32767, Math.trunc(event.deltaY))), horizontal: Math.max(-32768, Math.min(32767, Math.trunc(event.deltaX))) }); event.preventDefault(); }, { passive: false });
             video.addEventListener('paste', (event) => {
+                // In guest-first mode Ctrl/Cmd+V is a real guest keystroke.
+                // Do not silently replace native guest clipboard state with
+                // the browser clipboard behind that user's back.
+                if (settings.keyboardPriority !== KEYBOARD_PRIORITY.client) {
+                    event.preventDefault();
+                    return;
+                }
                 const text = event.clipboardData && event.clipboardData.getData('text/plain');
                 if (typeof text !== 'string') { return; }
                 event.preventDefault();
@@ -1392,14 +1781,51 @@
             for (const name of ['keydown', 'keyup']) {
                 video.addEventListener(name, (event) => {
                     const key = qemuKey(event);
+                    const clientFirst = settings.keyboardPriority === KEYBOARD_PRIORITY.client;
+                    if (!clientFirst && guestCaptureExitShortcut(event)) {
+                        event.preventDefault();
+                        leaveGuestKeyboardCapture();
+                        return;
+                    }
+                    // Escape belongs to the browser chrome only while this
+                    // Console owns native full screen.  Previously the
+                    // generic guest-key handler called preventDefault(),
+                    // leaving full screen in an ambiguous focus/input state
+                    // on Chromium and Safari. Guest-first deliberately tries
+                    // to forward Escape; a browser/OS may still reserve it
+                    // before DOM, as documented in Settings.
+                    const fullscreenEscape = event.code === 'Escape' &&
+                        (document.fullscreenElement || fullscreenEscapePending);
+                    if (clientFirst && fullscreenEscape) {
+                        event.preventDefault();
+                        if (name === 'keydown') {
+                            fullscreenEscapePending = true;
+                            releaseHeldInput();
+                            const action = document.exitFullscreen();
+                            if (action && typeof action.catch === 'function') { action.catch(() => undefined); }
+                        } else {
+                            fullscreenEscapePending = false;
+                        }
+                        return;
+                    }
                     const pasteShortcut = event.code === 'KeyV' && (event.ctrlKey || event.metaKey);
-                    if (pasteShortcut) {
+                    const copyShortcut = event.code === 'KeyC' && (event.ctrlKey || event.metaKey);
+                    if (clientFirst && pasteShortcut) {
                         event.preventDefault();
                         if (name === 'keydown') { pasteFromBrowser().catch(() => {
                             status.textContent = gettext('Browser clipboard is unavailable.');
                         }); }
+                    } else if (clientFirst && copyShortcut) {
+                        event.preventDefault();
+                        if (name === 'keydown') { guestSelectionToBrowser().catch(() => {
+                            status.textContent = gettext('Guest clipboard is unavailable.');
+                        }); }
+                    } else if (clientFirst && clientFirstShortcut(event)) {
+                        // Leave the event untouched: the browser receives its
+                        // native shortcut and the guest sees no partial key.
+                        return;
                     } else if (key !== null) {
-                        send({ op: 'keyboard', key, down: name === 'keydown', modifiers: 0 }); event.preventDefault();
+                        sendKeyboard(key, name === 'keydown'); event.preventDefault();
                     }
                 });
             }

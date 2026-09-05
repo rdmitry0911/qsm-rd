@@ -390,8 +390,9 @@ int FakeQemuService::handle_main_message(sd_bus_message *message) {
         return 1;
     }
 
-    if (sd_bus_message_is_method_call(message, keyboard_interface.data(), "Press") ||
-        sd_bus_message_is_method_call(message, keyboard_interface.data(), "Release")) {
+    const bool keyboard_press = sd_bus_message_is_method_call(message, keyboard_interface.data(), "Press") > 0;
+    const bool keyboard_release = sd_bus_message_is_method_call(message, keyboard_interface.data(), "Release") > 0;
+    if (keyboard_press || keyboard_release) {
         std::uint32_t keycode = 0U;
         dbus::check(sd_bus_message_read(message, "u", &keycode),
                     "read fake keyboard event");
@@ -399,14 +400,17 @@ int FakeQemuService::handle_main_message(sd_bus_message *message) {
         {
             std::lock_guard lock(state_mutex_);
             ++keyboard_calls_;
+            if (keyboard_press) { ++keyboard_presses_; }
+            else { ++keyboard_releases_; }
         }
         dbus::check(sd_bus_reply_method_return(message, ""),
                     "reply fake keyboard event");
         return 1;
     }
 
-    if (sd_bus_message_is_method_call(message, mouse_interface.data(), "Press") ||
-        sd_bus_message_is_method_call(message, mouse_interface.data(), "Release")) {
+    const bool button_press = sd_bus_message_is_method_call(message, mouse_interface.data(), "Press") > 0;
+    const bool button_release = sd_bus_message_is_method_call(message, mouse_interface.data(), "Release") > 0;
+    if (button_press || button_release) {
         std::uint32_t button = 0U;
         dbus::check(sd_bus_message_read(message, "u", &button),
                     "read fake mouse button");
@@ -414,6 +418,8 @@ int FakeQemuService::handle_main_message(sd_bus_message *message) {
         {
             std::lock_guard lock(state_mutex_);
             ++mouse_calls_;
+            if (button_press) { ++button_presses_; }
+            else { ++button_releases_; }
         }
         dbus::check(sd_bus_reply_method_return(message, ""),
                     "reply fake mouse button");
@@ -526,12 +532,17 @@ void FakeQemuService::send_cursor(dbus::Bus& peer) {
     const std::array<std::int32_t, 4> geometry {
         cursor_width, cursor_height, 0, 0
     };
-    call_byte_array(peer,
-                    listener_interface.data(),
-                    "CursorDefine",
-                    cursor,
-                    {},
-                    geometry);
+    // QEMU may redraw/reannounce the same pointer shape without a visual
+    // change.  The worker must deduplicate those freshly allocated D-Bus
+    // payloads before they congest the browser's ordered cursor channel.
+    for (int repeat = 0; repeat < 3; ++repeat) {
+        call_byte_array(peer,
+                        listener_interface.data(),
+                        "CursorDefine",
+                        cursor,
+                        {},
+                        geometry);
+    }
 
     dbus::Error error;
     dbus::Message reply;
@@ -767,7 +778,11 @@ FakeQemuService::Stats FakeQemuService::stats() const {
         .frames_sent = frames_sent_,
         .ui_info_calls = ui_info_calls_,
         .keyboard_calls = keyboard_calls_,
+        .keyboard_presses = keyboard_presses_,
+        .keyboard_releases = keyboard_releases_,
         .mouse_calls = mouse_calls_,
+        .button_presses = button_presses_,
+        .button_releases = button_releases_,
         .last_absolute_x = last_absolute_x_,
         .last_absolute_y = last_absolute_y_,
         .has_absolute_position = has_absolute_position_,

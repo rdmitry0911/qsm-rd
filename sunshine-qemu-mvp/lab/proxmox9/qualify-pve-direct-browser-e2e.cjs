@@ -16,7 +16,10 @@ const fail = (code) => { const error = new Error(code); error.code = code; throw
 const nodePattern = /^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$/;
 const userPattern = /^[^\s@/:\\\x00-\x1f]{1,64}@[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 let phase = 'INITIALIZING';
-let diagnostic = { requests: 0, responses: 0, classes: new Set(), failures: 0, outcome: 'none' };
+let diagnostic = {
+    requests: 0, responses: 0, classes: new Set(), failures: 0, outcome: 'none', envelope: 'none',
+    contentType: 'none', responseBytes: -1, apiSuccess: 'none', apiStatus: 'none', messageBytes: -1,
+};
 
 function options(argv) {
     const result = { timeout: 45_000, chrome: process.env.QSM_DIRECT_CHROME || '' };
@@ -28,6 +31,18 @@ function options(argv) {
             if (seen.has(key)) { fail('INVALID_ARGUMENTS'); }
             seen.add(key);
             result.dragFixture = true;
+            continue;
+        }
+        if (key === '--wait-for-vm-start') {
+            if (seen.has(key)) { fail('INVALID_ARGUMENTS'); }
+            seen.add(key);
+            result.waitForVmStart = true;
+            continue;
+        }
+        if (key === '--headful') {
+            if (seen.has(key)) { fail('INVALID_ARGUMENTS'); }
+            seen.add(key);
+            result.headful = true;
             continue;
         }
         if (!keys.has(key) || index + 1 === argv.length || seen.has(key)) { fail('INVALID_ARGUMENTS'); }
@@ -159,6 +174,146 @@ async function measurePopupDrag(popup, timeout) {
     }
 }
 
+async function verifyFullscreenRecoveryAndGuestCursor(popup) {
+    /*
+     * Reproduce the failure reported by users: native popup full screen,
+     * Escape back to a window, and then normal mouse input.  The following
+     * drag fixture is deliberately executed only after this round trip, so a
+     * successful result proves the visible guest still receives button edges
+     * instead of merely proving that the browser exited full screen.
+     *
+     * The guest supplies the cursor shape, but the browser draws it at the
+     * physical OS pointer. This avoids a delayed Display1 MouseSet canvas
+     * jumping away from a native popup edge.
+     */
+    const setKeyboardPriority = (priority) => popup.evaluate((value) => {
+        const select = document.getElementById('qsm-direct-keyboard-priority');
+        if (!select) return false;
+        select.value = value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        return select.value === value;
+    }, priority);
+    const guestFirstReady = await setKeyboardPriority('guest-first');
+    if (!guestFirstReady) fail('KEYBOARD_PRIORITY_CONTROL_UNAVAILABLE');
+    const fullscreen = popup.locator('button').filter({ hasText: /^Full Screen$/ }).last();
+    if (await fullscreen.count() !== 1) fail('FULLSCREEN_CONTROL_UNAVAILABLE');
+    // Guest-first gives ordinary Escape to the VM. Its explicit capture-exit
+    // chord must instead leave browser full screen and focus a client control.
+    await fullscreen.click();
+    const guestEntered = await popup.waitForFunction(() => !!document.fullscreenElement, undefined, { timeout: 5000 })
+        .then(() => true).catch(() => false);
+    if (!guestEntered) fail('GUEST_FIRST_FULLSCREEN_ENTRY_NOT_OBSERVED');
+    const guestFirstVideo = popup.locator('video');
+    await guestFirstVideo.focus();
+    await guestFirstVideo.press('Control+Alt+Shift+Escape');
+    const guestExited = await popup.waitForFunction(() => !document.fullscreenElement, undefined, { timeout: 5000 })
+        .then(() => true).catch(() => false);
+    const guestCaptureReleased = guestExited && await popup.waitForFunction(() =>
+        document.activeElement?.textContent === 'Settings', undefined, { timeout: 1000 })
+        .then(() => true).catch(() => false);
+    if (!guestCaptureReleased) fail('GUEST_FIRST_CAPTURE_EXIT_NOT_OBSERVED');
+
+    // This second scenario proves the documented client-first route: browser
+    // Escape leaves native full screen and the guest cannot retain a pressed
+    // button.
+    const clientFirstReady = await setKeyboardPriority('client-first');
+    if (!clientFirstReady) fail('KEYBOARD_PRIORITY_CONTROL_UNAVAILABLE');
+    await fullscreen.click();
+    const entered = await popup.waitForFunction(() => !!document.fullscreenElement, undefined, { timeout: 5000 })
+        .then(() => true).catch(() => false);
+    if (!entered) {
+        const state = await popup.evaluate(() => ({
+            enabled: document.fullscreenEnabled === true,
+            active: document.fullscreenElement !== null,
+            visible: document.visibilityState === 'visible',
+        }));
+        process.stderr.write(`QSM_FULLSCREEN_ENTRY_FLAGS enabled=${Number(state.enabled)} active=${Number(state.active)} visible=${Number(state.visible)}\n`);
+        fail('FULLSCREEN_ENTRY_NOT_OBSERVED');
+    }
+    // The product full-screenchange handler deliberately restores focus to
+    // the video after the toolbar click. Wait one browser task and assert it
+    // before sending Escape; Playwright otherwise can target the stale
+    // toolbar button while a real user already has the Console surface.
+    await wait(80);
+    const fullscreenVideo = popup.locator('video');
+    await fullscreenVideo.focus();
+    const fullscreenBox = await fullscreenVideo.boundingBox();
+    if (!fullscreenBox || fullscreenBox.width < 128 || fullscreenBox.height < 128) {
+        fail('FULLSCREEN_VIDEO_UNAVAILABLE');
+    }
+    // Escape frequently interrupts a real drag, rather than an idle cursor.
+    // Hold a button in an inert lower-right part of the fixture and exit
+    // before mouseup. The Console must synthesize the release over its
+    // ordered control channel; the subsequent normal drag is the causal
+    // proof that the guest did not retain a grabbed pointer.
+    await popup.mouse.move(fullscreenBox.x + Math.round(fullscreenBox.width * 0.88),
+        fullscreenBox.y + Math.round(fullscreenBox.height * 0.88));
+    await popup.evaluate(() => {
+        const video = document.querySelector('video');
+        window.qsmFullscreenEscapeE2e = [];
+        video.addEventListener('keydown', (event) => {
+            if (event.code !== 'Escape') return;
+            queueMicrotask(() => window.qsmFullscreenEscapeE2e.push({
+                prevented: event.defaultPrevented,
+                fullscreen: !!document.fullscreenElement,
+                focused: document.activeElement === video,
+            }));
+        }, { once: true });
+    });
+    await popup.mouse.down();
+    // A browser popup is an independent top-level page. Locator.press()
+    // targets its focused guest surface explicitly; Page.keyboard can remain
+    // attached to the PVE opener after a native-fullscreen transition.
+    await fullscreenVideo.press('Escape');
+    const exited = await popup.waitForFunction(() => !document.fullscreenElement, undefined, { timeout: 5000 })
+        .then(() => true).catch(() => false);
+    if (!exited) {
+        const flags = await popup.evaluate(() => ({
+            keyboard: document.getElementById('qsm-direct-keyboard-priority')?.value || 'missing',
+            escape: window.qsmFullscreenEscapeE2e || [],
+            fullscreen: !!document.fullscreenElement,
+            videoFocused: document.activeElement === document.querySelector('video'),
+        }));
+        process.stderr.write(`QSM_FULLSCREEN_ESCAPE_FLAGS keyboard=${flags.keyboard} event=${flags.escape.length ? Number(flags.escape[0].prevented) : -1}${flags.escape.length ? Number(flags.escape[0].fullscreen) : -1}${flags.escape.length ? Number(flags.escape[0].focused) : -1} fullscreen=${Number(flags.fullscreen)} focus=${Number(flags.videoFocused)}\n`);
+        fail('FULLSCREEN_EXIT_NOT_OBSERVED');
+    }
+    await popup.mouse.up();
+    const video = popup.locator('video');
+    const box = await video.boundingBox();
+    if (!box || box.width < 128 || box.height < 128) fail('FULLSCREEN_VIDEO_UNAVAILABLE');
+    // Verify both native-window resize corners as well as an ordinary inner
+    // point. The video must retain a browser-native cursor at every point;
+    // the actual OS frame outside it remains free to choose its resize cursor.
+    const targets = [
+        { x: box.x + Math.round(box.width * 0.04), y: box.y + Math.round(box.height * 0.04) },
+        { x: box.x + Math.round(box.width * 0.96), y: box.y + Math.round(box.height * 0.96) },
+        { x: box.x + Math.round(box.width * 0.73), y: box.y + Math.round(box.height * 0.67) },
+    ];
+    for (const target of targets) {
+        await popup.mouse.move(target.x, target.y);
+        await wait(25);
+        const result = await popup.evaluate((point) => {
+            const video = document.querySelector('video');
+            if (!video) return null;
+            const videoBox = video.getBoundingClientRect();
+            return {
+                videoFocused: document.activeElement === video,
+                nativeCursor: getComputedStyle(video).cursor !== 'none',
+                videoContainsPointer: point.x >= videoBox.left && point.x <= videoBox.right &&
+                    point.y >= videoBox.top && point.y <= videoBox.bottom,
+            };
+        }, target);
+        if (!result || !result.videoFocused ||
+            !result.nativeCursor ||
+            !result.videoContainsPointer) {
+            if (result) {
+                process.stderr.write(`QSM_FULLSCREEN_CURSOR_FLAGS focus=${Number(result.videoFocused)} native=${Number(result.nativeCursor)} video=${Number(result.videoContainsPointer)}\n`);
+            }
+            fail('FULLSCREEN_INPUT_OR_CURSOR_RECOVERY_FAILED');
+        }
+    }
+}
+
 async function verifyPopupControls(popup) {
     /*
      * This is deliberately against the delivered PVE popup rather than a
@@ -202,6 +357,22 @@ async function verifyPopupControls(popup) {
             const input = document.getElementById(`qsm-direct-setting-${name}`);
             return input && input.type === 'number' && Number(input.min) >= 0 && Number(input.max) >= Number(input.min);
         });
+        const keyboardPriority = document.getElementById('qsm-direct-keyboard-priority');
+        const dispatchKey = (options) => {
+            const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...options });
+            video.dispatchEvent(event);
+            return event.defaultPrevented;
+        };
+        const guestFirstDefault = keyboardPriority && keyboardPriority.value === 'guest-first';
+        const guestFirstPreventsF5 = dispatchKey({ code: 'F5', key: 'F5' });
+        const escapeCapture = dispatchKey({ code: 'Escape', key: 'Escape', ctrlKey: true, altKey: true, shiftKey: true });
+        const captureEscapeMovesFocus = escapeCapture && document.activeElement === settings;
+        keyboardPriority.value = 'client-first';
+        keyboardPriority.dispatchEvent(new Event('change', { bubbles: true }));
+        video.focus();
+        const clientFirstLeavesF5 = !dispatchKey({ code: 'F5', key: 'F5' });
+        keyboardPriority.value = 'guest-first';
+        keyboardPriority.dispatchEvent(new Event('change', { bubbles: true }));
         const guestCursor = document.querySelector('canvas[aria-hidden="true"]');
         return {
             initiallyHidden,
@@ -210,6 +381,10 @@ async function verifyPopupControls(popup) {
             shownAfterDwell,
             settingsOpen: !!panel && getComputedStyle(panel).display !== 'none',
             settingsInputs,
+            guestFirstDefault,
+            guestFirstPreventsF5,
+            captureEscapeMovesFocus,
+            clientFirstLeavesF5,
             localResizeHandles: document.querySelectorAll('[data-qsm-resize-edge]').length,
             guestCursorLayer: !!guestCursor && getComputedStyle(guestCursor).pointerEvents === 'none',
             guestCursorVisible: !!guestCursor && guestCursor.width > 0 && guestCursor.height > 0 &&
@@ -218,12 +393,14 @@ async function verifyPopupControls(popup) {
     });
     if (!result || !result.initiallyHidden || !result.centerStayedHidden || !result.hiddenBeforeDwell ||
         !result.shownAfterDwell || !result.settingsOpen || !result.settingsInputs ||
+        !result.guestFirstDefault || !result.guestFirstPreventsF5 ||
+        !result.captureEscapeMovesFocus || !result.clientFirstLeavesF5 ||
         !result.guestCursorLayer || result.localResizeHandles !== 0) {
         // These are fixed booleans from the popup DOM, not PVE credentials,
         // SDP, guest pixels, or user input. They make a failed lab gate
         // actionable without widening its deliberately redacted diagnostics.
         if (result) {
-            process.stderr.write(`QSM_POPUP_CONTROL_FLAGS toolbar=${Number(result.initiallyHidden)}${Number(result.centerStayedHidden)}${Number(result.hiddenBeforeDwell)}${Number(result.shownAfterDwell)} settings=${Number(result.settingsOpen)}${Number(result.settingsInputs)} cursor=${Number(result.guestCursorLayer)}${Number(result.guestCursorVisible)} resize=${result.localResizeHandles}\n`);
+            process.stderr.write(`QSM_POPUP_CONTROL_FLAGS toolbar=${Number(result.initiallyHidden)}${Number(result.centerStayedHidden)}${Number(result.hiddenBeforeDwell)}${Number(result.shownAfterDwell)} settings=${Number(result.settingsOpen)}${Number(result.settingsInputs)} keyboard=${Number(result.guestFirstDefault)}${Number(result.guestFirstPreventsF5)}${Number(result.captureEscapeMovesFocus)}${Number(result.clientFirstLeavesF5)} cursor=${Number(result.guestCursorLayer)}${Number(result.guestCursorVisible)} resize=${result.localResizeHandles}\n`);
         }
         fail('POPUP_CONTROLS_INVALID');
     }
@@ -280,7 +457,7 @@ async function main() {
             remoteBrowser = true;
             browser = await chromium.connectOverCDP(config['cdp-url']);
         } else {
-            browser = await chromium.launch({ headless: true, executablePath: config.chrome || undefined,
+            browser = await chromium.launch({ headless: !config.headful, executablePath: config.chrome || undefined,
                 // The lab process must reach its local PVE endpoint directly.
                 // A workstation-wide HTTPS proxy can reject loopback before
                 // Playwright has even loaded the authenticated PVE page.
@@ -318,12 +495,40 @@ async function main() {
             if (!isTarget(response.request())) { return; }
             observed.responses += 1;
             observed.classes.add(`${Math.floor(response.status() / 100)}xx`);
-            response.json().then((body) => {
-                if (body && (body.success === true || body.success === 1)) { observed.outcome = 'success'; }
+            const rawContentType = response.headers()['content-type'] || 'none';
+            observed.contentType = /^[A-Za-z0-9./;=+ -]{1,120}$/.test(rawContentType)
+                ? rawContentType.replace(/\s+/g, '_') : 'invalid';
+            response.text().then((text) => {
+                observed.responseBytes = Buffer.byteLength(text, 'utf8');
+                let body;
+                try { body = JSON.parse(text); } catch (_) {
+                    observed.outcome = 'invalid';
+                    // This is deliberately just a format signature, never
+                    // payload data. PVE's XSSI prefix is valid for ExtJS but
+                    // is not accepted by JSON.parse/Playwright Response.json.
+                    observed.envelope = /^\s*\)\]\}',/.test(text) ? 'xssi-prefix' : 'non-json';
+                    return;
+                }
+                // Keep diagnostics safe for a protected WebRTC endpoint: the
+                // SDP and response body never leave this process.  The
+                // envelope class is sufficient to distinguish an ExtJS API
+                // handoff from an HTML/login fallback or a malformed proxy
+                // response.
+                const keys = body && typeof body === 'object' && !Array.isArray(body)
+                    ? Object.keys(body).sort().join('+') : typeof body;
+                observed.envelope = /^[a-z+]{1,80}$/.test(keys) ? keys : 'invalid';
+                observed.apiSuccess = body && typeof body.success === 'boolean' ? String(body.success) : typeof body?.success;
+                observed.apiStatus = body && Number.isInteger(body.status) ? String(body.status) : typeof body?.status;
+                observed.messageBytes = body && typeof body.message === 'string'
+                    ? Buffer.byteLength(body.message, 'utf8') : -1;
+                if (body && (body.success === true || body.success === 1 ||
+                    (body.data && body.data.type === 'answer' && typeof body.data.sdp === 'string'))) {
+                    observed.outcome = 'success';
+                }
                 else if (body && typeof body.message === 'string' && body.message === 'qsm direct console is unavailable') { observed.outcome = 'unavailable'; }
                 else if (body && body.errors && typeof body.errors === 'object') { observed.outcome = 'validation'; }
                 else { observed.outcome = 'other'; }
-            }).catch(() => { observed.outcome = 'invalid'; });
+            }).catch(() => { observed.outcome = 'invalid'; observed.envelope = 'unreadable'; });
         });
         page.on('requestfailed', (request) => { if (isTarget(request)) { observed.failures += 1; } });
         phase = 'OPENING_CONSOLE_MENU';
@@ -344,6 +549,12 @@ async function main() {
         await item.click();
         const popup = await popupPromise;
         popup.setDefaultTimeout(config.timeout);
+        if (config.waitForVmStart) {
+            phase = 'VERIFYING_VM_START_WAIT';
+            await popup.waitForFunction(() => document.body &&
+                document.body.textContent.includes('Virtual machine is stopped. Waiting for it to start…'),
+            undefined, { timeout: config.timeout });
+        }
         phase = 'WAITING_FOR_GUEST_VIDEO';
         await popup.waitForFunction(() => {
             const video = document.querySelector('video');
@@ -352,6 +563,8 @@ async function main() {
         phase = 'VERIFYING_POPUP_CONTROLS';
         await verifyPopupControls(popup);
         if (config.dragFixture) {
+            phase = 'VERIFYING_FULLSCREEN_INPUT_RECOVERY';
+            await verifyFullscreenRecoveryAndGuestCursor(popup);
             phase = 'MEASURING_POPUP_DRAG';
             await measurePopupDrag(popup, config.timeout);
         }
@@ -359,7 +572,7 @@ async function main() {
             fail('INVALID_PVE_DIRECT_HANDOFF');
         }
         phase = 'PASS';
-        process.stdout.write(`QSM_PVE_DIRECT_BROWSER_E2E_OK protected_route=1 popup_video=1 response=2xx drag=${config.dragFixture ? 1 : 0}\n`);
+        process.stdout.write(`QSM_PVE_DIRECT_BROWSER_E2E_OK protected_route=1 popup_video=1 response=2xx fullscreen=${config.dragFixture ? 1 : 0} drag=${config.dragFixture ? 1 : 0}\n`);
     } finally {
         password = '';
         if (context) { await context.close(); }
@@ -376,6 +589,6 @@ async function main() {
 main().catch((error) => {
     const code = error && /^[A-Z0-9_]+$/.test(error.code || '') ? error.code : 'FAILED';
     const classes = [...diagnostic.classes].sort().join('+') || 'none';
-    process.stderr.write(`QSM_PVE_DIRECT_BROWSER_E2E_FAIL code=${code} phase=${phase} requests=${diagnostic.requests} responses=${diagnostic.responses} response_classes=${classes} outcome=${diagnostic.outcome} failures=${diagnostic.failures}\n`);
+    process.stderr.write(`QSM_PVE_DIRECT_BROWSER_E2E_FAIL code=${code} phase=${phase} requests=${diagnostic.requests} responses=${diagnostic.responses} response_classes=${classes} outcome=${diagnostic.outcome} envelope=${diagnostic.envelope} api_success=${diagnostic.apiSuccess} api_status=${diagnostic.apiStatus} message_bytes=${diagnostic.messageBytes} content_type=${diagnostic.contentType} bytes=${diagnostic.responseBytes} failures=${diagnostic.failures}\n`);
     process.exitCode = 1;
 });

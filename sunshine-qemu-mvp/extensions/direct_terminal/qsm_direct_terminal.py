@@ -40,7 +40,8 @@ from browser_bridge.qsm_browser_bridge import (BrowserWebRtcBridge, BridgeError,
 from direct_guest.qsm_guest_channel import QsmGuestChannel  # noqa: E402
 from direct_terminal.qsm_direct_encoder_probe import (DirectEncoderProbeError,
                                                        DirectEncoderSelection,
-                                                       select_auto_h264_encoder)  # noqa: E402
+                                                       select_auto_h264_encoder,
+                                                       select_hardware_h264_encoder)  # noqa: E402
 
 
 MIN_VMID = 100
@@ -61,10 +62,14 @@ _SUBJECT_PATTERN = re.compile(r"\A[^\s\x00]{1,64}\Z")
 _VMID_PATTERN = re.compile(r"\A[1-9][0-9]{1,8}\Z")
 _ENCODER_PATTERN = re.compile(r"\A(?:auto|h264_nvenc|h264_qsv|h264_vaapi|libx264)\Z")
 _RENDER_NODE_PATTERN = re.compile(r"\A/dev/dri/renderD[0-9]{1,4}\Z")
+_CODEC_PATTERN = re.compile(r"\Ah264\Z")
+_ENCODER_MODE_PATTERN = re.compile(r"\A(?:auto|hardware|software)\Z")
 _PVE_VM_CONFIG_PATTERN = re.compile(r"\A([1-9][0-9]{1,8})\.conf\Z")
 _ENVIRONMENT_KEYS = frozenset({
     "QSM_DIRECT_QEMU_DBUS_ADDRESS",
+    "QSM_DIRECT_CODEC",
     "QSM_DIRECT_ENCODER",
+    "QSM_DIRECT_ENCODER_MODE",
     "QSM_DIRECT_VAAPI_RENDER_NODE",
 })
 
@@ -127,6 +132,15 @@ def _load_instance(instance_directory: Path, vmid: int, vm_runtime_directory: Pa
     encoder = values.get("QSM_DIRECT_ENCODER", "")
     if encoder and not _ENCODER_PATTERN.fullmatch(encoder):
         raise DirectTerminalError("direct-terminal VM has an invalid encoder")
+    codec = values.get("QSM_DIRECT_CODEC", "h264")
+    if not _CODEC_PATTERN.fullmatch(codec):
+        # The browser WebRTC route deliberately has one portable codec.  Do
+        # not accept an on-disk HEVC preference and then start an H.264 worker
+        # behind the administrator's back.
+        raise DirectTerminalError("direct-terminal VM has an unsupported browser codec")
+    encoder_mode = values.get("QSM_DIRECT_ENCODER_MODE", "auto")
+    if not _ENCODER_MODE_PATTERN.fullmatch(encoder_mode):
+        raise DirectTerminalError("direct-terminal VM has an invalid encoder mode")
     render_node = values.get("QSM_DIRECT_VAAPI_RENDER_NODE", "")
     if render_node and not _RENDER_NODE_PATTERN.fullmatch(render_node):
         raise DirectTerminalError("direct-terminal VM has an invalid render node")
@@ -150,6 +164,8 @@ def _load_optional_instance(instance_directory: Path, vmid: int,
         return {
             "QSM_DIRECT_QEMU_DBUS_ADDRESS":
                 f"unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus",
+            "QSM_DIRECT_CODEC": "h264",
+            "QSM_DIRECT_ENCODER_MODE": "auto",
             "QSM_DIRECT_ENCODER": "auto",
         }
     return _load_instance(instance_directory, vmid, vm_runtime_directory)
@@ -674,14 +690,25 @@ class DirectSessionManager:
             media.start()
             input_egress.start()
             configured_encoder = policy.get("QSM_DIRECT_ENCODER") or "auto"
+            encoder_mode = policy.get("QSM_DIRECT_ENCODER_MODE") or "auto"
             if configured_encoder == "auto":
-                if self._auto_encoder is None:
-                    try:
-                        self._auto_encoder = select_auto_h264_encoder()
-                    except DirectEncoderProbeError as error:
-                        raise DirectTerminalError("direct-terminal has no usable H.264 encoder") from error
-                encoder = self._auto_encoder.encoder
-                vaapi_device = self._auto_encoder.vaapi_device
+                if encoder_mode == "software":
+                    encoder = "libx264"
+                    vaapi_device = None
+                else:
+                    if self._auto_encoder is None or encoder_mode == "hardware":
+                        try:
+                            selection = (select_hardware_h264_encoder() if encoder_mode == "hardware"
+                                         else select_auto_h264_encoder())
+                        except DirectEncoderProbeError as error:
+                            detail = "hardware H.264 encoder" if encoder_mode == "hardware" else "H.264 encoder"
+                            raise DirectTerminalError(f"direct-terminal has no usable {detail}") from error
+                        if encoder_mode == "auto":
+                            self._auto_encoder = selection
+                    else:
+                        selection = self._auto_encoder
+                    encoder = selection.encoder
+                    vaapi_device = selection.vaapi_device
             else:
                 encoder = configured_encoder
                 vaapi_device = policy.get("QSM_DIRECT_VAAPI_RENDER_NODE")
