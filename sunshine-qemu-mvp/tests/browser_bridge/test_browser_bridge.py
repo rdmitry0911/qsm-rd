@@ -15,6 +15,7 @@ from pathlib import Path
 
 from aiortc import RTCPeerConnection, RTCRtpSender, RTCSessionDescription
 from aiortc.codecs.h264 import H264Encoder
+from aiortc.rtp import RTCP_PSFB_PLI, RtcpPsfbPacket
 
 from extensions.browser_bridge.qsm_browser_bridge import (
     AUDIO_TIME_BASE,
@@ -26,6 +27,7 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     CURSOR_VISIBLE,
     EncodedUnit,
     INPUT_HEADER,
+    INPUT_KEYFRAME_REQUEST,
     INPUT_KEYBOARD,
     INPUT_MAGIC,
     INPUT_MOUSE_BUTTON,
@@ -145,6 +147,34 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
 
 
 class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
+    async def test_rtcp_pli_requests_an_external_worker_idr(self) -> None:
+        """Pre-encoded H.264 needs an explicit PLI-to-worker handoff."""
+        class Sender:
+            def __init__(self) -> None:
+                self.feedback: list[object] = []
+
+            async def _handle_rtcp_packet(self, packet: object) -> None:
+                self.feedback.append(packet)
+
+        with tempfile.TemporaryDirectory(prefix="qsm-browser-pli.") as directory:
+            bridge = BrowserWebRtcBridge(Path(directory), fps=60)
+            requested: list[str] = []
+            bridge.input.request_keyframe = lambda: requested.append("idr")  # type: ignore[method-assign]
+            sender = Sender()
+            try:
+                bridge._attach_video_recovery(sender)
+                pli = RtcpPsfbPacket(fmt=RTCP_PSFB_PLI, ssrc=1, media_ssrc=2)
+                await sender._handle_rtcp_packet(pli)
+                self.assertEqual(requested, ["idr"])
+                self.assertEqual(sender.feedback, [pli])
+
+                non_pli = RtcpPsfbPacket(fmt=15, ssrc=1, media_ssrc=2)
+                await sender._handle_rtcp_packet(non_pli)
+                self.assertEqual(requested, ["idr"])
+                self.assertEqual(sender.feedback, [pli, non_pli])
+            finally:
+                await bridge.close()
+
     @staticmethod
     def _send(path: str, frame: int, fragment: int, flags: int, body: bytes) -> None:
         message = PACKET_HEADER.pack(PACKET_MAGIC, frame, fragment, flags, len(body)) + body
@@ -277,6 +307,10 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(INPUT_HEADER.unpack_from(packet),
                                  (INPUT_MAGIC, INPUT_VERSION, INPUT_MOUSE_BUTTON, 2))
                 self.assertEqual(packet[INPUT_HEADER.size:], b"\x01\x01")
+                bridge.input.request_keyframe()
+                packet = receiver.recv(64)
+                self.assertEqual(INPUT_HEADER.unpack_from(packet),
+                                 (INPUT_MAGIC, INPUT_VERSION, INPUT_KEYFRAME_REQUEST, 0))
                 bridge.input.send_browser_pointer_message(
                     '{"op":"mouse_position","x":20,"y":10,"width":1920,"height":1080}')
                 packet = receiver.recv(64)

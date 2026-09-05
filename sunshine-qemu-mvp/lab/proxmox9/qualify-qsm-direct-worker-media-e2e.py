@@ -39,6 +39,7 @@ INPUT_RESIZE = 5
 INPUT_MOUSE_POSITION = 1
 INPUT_MOUSE_BUTTON = 2
 INPUT_KEYBOARD = 3
+INPUT_KEYFRAME_REQUEST = 6
 
 
 class QualificationError(RuntimeError):
@@ -167,6 +168,10 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
             input_connection.sendall(packet(INPUT_MOUSE_BUTTON, b"\x01\x00"))
             input_connection.sendall(packet(INPUT_KEYBOARD, b"\x00\x1e\x01\x00"))
             input_connection.sendall(packet(INPUT_KEYBOARD, b"\x00\x1e\x00\x00"))
+            # Browser RTCP PLI reaches the worker over a server-private input
+            # opcode. It must force recovery without becoming a browser JSON
+            # capability or disturbing ordinary Display1 input.
+            input_connection.sendall(packet(INPUT_KEYFRAME_REQUEST, b""))
             # Browser full-screen/close can interrupt DOM before mouseup or
             # keyup.  Close the real worker input peer with both states held;
             # its QEMU Display1 receiver must synthesize one matching release
@@ -233,6 +238,25 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
                 raise QualificationError("fake QEMU did not finish its Display1 stream") from error
             if fake.returncode != 0:
                 raise QualificationError(f"fake QEMU failed: {fake_stderr.decode('utf-8', 'replace')}")
+            # The worker's regular three-second diagnostic is emitted while
+            # the fixture still owns its D-Bus listener. QEMU deliberately
+            # has no reconnect/EOF contract, so do not require it to exit
+            # merely because this test producer has finished.
+            assert worker.stderr is not None
+            worker_diagnostic = b""
+            diagnostic_deadline = time.monotonic() + 3
+            while time.monotonic() < diagnostic_deadline:
+                ready, _unused, _exceptional = select.select([worker.stderr], [], [], 0.1)
+                if not ready:
+                    continue
+                block = os.read(worker.stderr.fileno(), 64 * 1024)
+                if not block:
+                    break
+                worker_diagnostic += block
+                if b"QSM_DIRECT_MEDIA_CAPTURE_AFTER_3S" in worker_diagnostic:
+                    break
+            if b"idr_requests=1" not in worker_diagnostic:
+                raise QualificationError("RTCP PLI recovery request did not reach the direct media worker")
             complete_frames = sum(first and last for first, last in video_frames.values())
             if complete_frames < 10 or not idr_frames or video_records < complete_frames:
                 raise QualificationError("FFmpeg did not produce complete H.264 access units")

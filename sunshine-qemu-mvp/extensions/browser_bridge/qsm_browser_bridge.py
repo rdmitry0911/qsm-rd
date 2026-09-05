@@ -32,6 +32,7 @@ import av
 from aiortc import (MediaStreamTrack, RTCPeerConnection, RTCSessionDescription,
                     RTCRtpSender)
 from aiortc.mediastreams import MediaStreamError
+from aiortc.rtp import RTCP_PSFB_PLI, RtcpPsfbPacket
 from aiortc.sdp import SessionDescription
 
 
@@ -55,6 +56,7 @@ INPUT_MOUSE_BUTTON = 2
 INPUT_KEYBOARD = 3
 INPUT_SCROLL = 4
 INPUT_RESIZE = 5
+INPUT_KEYFRAME_REQUEST = 6
 MAX_FRAGMENT_BYTES = 256 * 1024
 MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024
 MAX_CURSOR_EDGE = 64
@@ -728,6 +730,11 @@ class UnixInputEgress:
             raise BridgeError("browser pointer channel received a non-pointer message")
         self._send_packet(packet)
 
+    def request_keyframe(self) -> None:
+        """Ask the local worker for a fresh IDR after authenticated RTCP PLI."""
+        self._send_packet(INPUT_HEADER.pack(
+            INPUT_MAGIC, INPUT_VERSION, INPUT_KEYFRAME_REQUEST, 0))
+
     def _send_packet(self, packet: bytes) -> None:
         with self._lock:
             if self._error is not None:
@@ -1242,6 +1249,33 @@ class BrowserWebRtcBridge:
             if codec.mimeType.lower() == "video/h264"
         ]
 
+    def _attach_video_recovery(self, sender: object) -> None:
+        """Bridge RTCP PLI to the external Display1 encoder.
+
+        aiortc normally reacts to PLI by setting its internal force-keyframe
+        flag. QSM gives it already encoded H.264 packets, so that flag cannot
+        affect the external NVENC/QSV/VA-API/libx264 worker. Without this
+        handoff, a damaged predictive chain survives until the next periodic
+        IDR.
+        """
+        receive_rtcp = getattr(sender, "_handle_rtcp_packet", None)
+        if not callable(receive_rtcp):
+            raise BridgeError("WebRTC H.264 sender cannot process RTCP feedback")
+
+        async def receive_with_recovery(packet: object) -> None:
+            if isinstance(packet, RtcpPsfbPacket) and packet.fmt == RTCP_PSFB_PLI:
+                try:
+                    self.input.request_keyframe()
+                except BridgeError:
+                    # The worker may be retiring with its VM. Preserve the
+                    # sender's ordinary RTCP state transition in that case.
+                    pass
+            await receive_rtcp(packet)
+
+        # Install before SDP application can start RTP/RTCP tasks. The hook is
+        # per-video-sender, therefore it cannot pace or perturb audio/control.
+        setattr(sender, "_handle_rtcp_packet", receive_with_recovery)
+
     @staticmethod
     def _validate_offer_codecs(sdp: str) -> None:
         """Reject an incompatible browser before mutating the peer connection.
@@ -1294,6 +1328,7 @@ class BrowserWebRtcBridge:
         self.input.raise_if_failed()
         video_sender = self._pc.addTrack(self.video_track)
         audio_sender = self._pc.addTrack(self.audio_track)
+        self._attach_video_recovery(video_sender)
         h264 = self._h264_codecs()
         if not h264:
             raise BridgeError("WebRTC H.264 packetizer is unavailable")

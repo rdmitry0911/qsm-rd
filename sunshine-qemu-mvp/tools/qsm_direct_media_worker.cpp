@@ -86,6 +86,9 @@ constexpr std::uint8_t input_mouse_button = 2U;
 constexpr std::uint8_t input_keyboard = 3U;
 constexpr std::uint8_t input_scroll = 4U;
 constexpr std::uint8_t input_resize = 5U;
+// Private server-to-worker recovery request. It is emitted only after an
+// authenticated WebRTC peer sends RTCP PLI, never from browser JSON input.
+constexpr std::uint8_t input_keyframe_request = 6U;
 constexpr std::size_t packet_header_size = 20U;
 constexpr std::size_t input_header_size = 8U;
 constexpr std::size_t max_fragment_bytes = 256U * 1024U;
@@ -600,6 +603,7 @@ class DirectMediaAdapter final : public qmdp::IMediaAdapter {
 public:
     struct VideoStats {
         std::uint64_t submitted_frames {};
+        std::uint64_t keyframe_requests {};
         std::uint64_t sampled_pixels {};
         std::uint64_t non_black_pixels {};
         std::uint64_t luma_sum {};
@@ -709,13 +713,16 @@ public:
     }
 
     void request_idr() override {
+        ++keyframe_requests_;
         force_idr_ = true;
         video_cv_.notify_one();
     }
 
     [[nodiscard]] VideoStats video_stats() const noexcept {
         std::lock_guard lock(stats_mutex_);
-        return video_stats_;
+        auto result = video_stats_;
+        result.keyframe_requests = keyframe_requests_.load();
+        return result;
     }
 
 private:
@@ -1121,6 +1128,7 @@ private:
     std::uint32_t fps_ {};
     std::atomic<bool> running_ {false};
     std::atomic<bool> force_idr_ {false};
+    std::atomic<std::uint64_t> keyframe_requests_ {};
     std::mutex video_mutex_;
     std::condition_variable video_cv_;
     std::thread video_thread_;
@@ -1149,8 +1157,9 @@ private:
 
 class InputReceiver {
 public:
-    InputReceiver(std::string path, qmdp::DesktopSession &session, std::uint32_t fps)
-        : path_(std::move(path)), session_(session), fps_(fps) {}
+    InputReceiver(std::string path, qmdp::DesktopSession &session,
+                  DirectMediaAdapter &media, std::uint32_t fps)
+        : path_(std::move(path)), session_(session), media_(media), fps_(fps) {}
 
     ~InputReceiver() { stop(); }
 
@@ -1256,6 +1265,11 @@ private:
             }
         } else if (op == input_resize && payload.size() == 10U) {
             set_size(read_u32(payload, 0U), read_u32(payload, 4U), read_u16(payload, 8U));
+        } else if (op == input_keyframe_request && payload.empty()) {
+            // The browser decoder lost H.264 reference data. The following
+            // media tick publishes an independently decodable IDR instead of
+            // leaving visible macroblocks until the periodic keyframe.
+            media_.request_idr();
         }
     }
 
@@ -1272,6 +1286,7 @@ private:
 
     std::string path_;
     qmdp::DesktopSession &session_;
+    DirectMediaAdapter &media_;
     std::uint32_t fps_ {};
     int descriptor_ {-1};
     std::atomic<bool> stopping_ {false};
@@ -1330,6 +1345,7 @@ void write_session_diagnostic(std::string_view event,
               << " cursor_definitions=" << display.cursor_definitions
               << " cursor_moves=" << display.cursor_moves
               << " source_frames=" << source.submitted_frames
+              << " idr_requests=" << source.keyframe_requests
               << " source_luma_min=" << static_cast<unsigned int>(source.luma_min)
               << " source_luma_max=" << static_cast<unsigned int>(source.luma_max)
               << " source_luma_mean=" << source_luma_mean
@@ -1358,7 +1374,7 @@ int run(const Options &options) {
     qmdp::QemuDbusDisplay display(std::move(display_options));
     qmdp::DesktopSession session(display, media, {.frame_wait = 20ms});
     session.start();
-    InputReceiver input(options.input_socket, session, options.fps);
+    InputReceiver input(options.input_socket, session, media, options.fps);
     try {
         input.start();
         if (options.initial_size) {
