@@ -75,6 +75,10 @@ int main(int argc, char **argv) {
                   << " ui_info=" << stats.ui_info_calls
                   << " keyboard=" << stats.keyboard_calls
                   << " mouse=" << stats.mouse_calls
+                  << " absolute=" << (stats.has_absolute_position ? 1 : 0) << ':'
+                  << stats.last_absolute_x << 'x' << stats.last_absolute_y
+                  << " relative=" << (stats.has_relative_motion ? 1 : 0) << ':'
+                  << stats.last_relative_dx << 'x' << stats.last_relative_dy
                   << " requested=" << stats.requested_width << 'x'
                   << stats.requested_height
                   << " listener=" << (stats.listener_registered ? 1 : 0)

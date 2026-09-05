@@ -537,12 +537,14 @@ class UnixInputEgress:
             value = json.loads(raw)
         except json.JSONDecodeError as error:
             raise BridgeError("invalid browser control message") from error
-        if not isinstance(value, dict) or set(value) - {"op", "x", "y", "width", "height", "button", "down", "key", "modifiers", "vertical", "horizontal", "fps"}:
+        if not isinstance(value, dict) or set(value) - {"op", "x", "y", "width", "height", "sequence", "button", "down", "key", "modifiers", "vertical", "horizontal", "fps"}:
             raise BridgeError("invalid browser control message")
         op = value.get("op")
         payload: bytes
         opcode: int
-        if op == "mouse_position" and set(value) == {"op", "x", "y", "width", "height"}:
+        if op == "mouse_position" and set(value) in (
+                {"op", "x", "y", "width", "height"},
+                {"op", "x", "y", "width", "height", "sequence"}):
             x = cls._integer(value["x"], 0, 32767)
             y = cls._integer(value["y"], 0, 32767)
             width = cls._integer(value["width"], 1, 32767)
@@ -550,7 +552,16 @@ class UnixInputEgress:
             if x >= width or y >= height:
                 raise BridgeError("invalid browser control message")
             opcode = INPUT_MOUSE_POSITION
-            payload = struct.pack("!hhhh", x, y, width, height)
+            if "sequence" in value:
+                # qsm-pointer is unordered/unreliable by design.  Include a
+                # browser-local serial so the media worker can discard a
+                # late coordinate instead of visibly moving a dragged guest
+                # window backwards.  The legacy eight-byte shape remains
+                # accepted for a rolling package upgrade.
+                sequence = cls._integer(value["sequence"], 0, 0xFFFF_FFFF)
+                payload = struct.pack("!hhhhI", x, y, width, height, sequence)
+            else:
+                payload = struct.pack("!hhhh", x, y, width, height)
         elif op == "mouse_button" and set(value) == {"op", "button", "down"}:
             button = cls._integer(value["button"], 1, 5)
             if type(value["down"]) is not bool:

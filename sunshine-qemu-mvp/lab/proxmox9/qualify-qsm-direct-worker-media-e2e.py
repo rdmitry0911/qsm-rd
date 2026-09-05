@@ -146,8 +146,18 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
                 raise QualificationError("direct worker exited during startup")
 
             input_connection.sendall(packet(INPUT_RESIZE, struct.pack("!IIH", width, height, fps)))
-            input_connection.sendall(packet(INPUT_MOUSE_POSITION, struct.pack("!hhhh", 20, 10, width, height)))
-            input_connection.sendall(packet(INPUT_MOUSE_POSITION, struct.pack("!hhhh", 25, 14, width, height)))
+            # The product pointer channel is unordered/non-retransmitted.
+            # Feed a deliberate stale sample after a newer coordinate and a
+            # serial wrap: Display1 must retain the newest position rather
+            # than visibly snapping a held guest window backwards.
+            input_connection.sendall(packet(INPUT_MOUSE_POSITION,
+                                            struct.pack("!hhhhI", 20, 10, width, height, 0xFFFF_FFFE)))
+            input_connection.sendall(packet(INPUT_MOUSE_POSITION,
+                                            struct.pack("!hhhhI", 25, 14, width, height, 0xFFFF_FFFF)))
+            input_connection.sendall(packet(INPUT_MOUSE_POSITION,
+                                            struct.pack("!hhhhI", 1, 1, width, height, 0xFFFF_FFFE)))
+            input_connection.sendall(packet(INPUT_MOUSE_POSITION,
+                                            struct.pack("!hhhhI", 30, 16, width, height, 0)))
             input_connection.sendall(packet(INPUT_MOUSE_BUTTON, b"\x01\x01"))
             input_connection.sendall(packet(INPUT_MOUSE_BUTTON, b"\x01\x00"))
             input_connection.sendall(packet(INPUT_KEYBOARD, b"\x00\x1e\x01\x00"))
@@ -190,7 +200,11 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
                 raise QualificationError("worker did not publish its Opus configuration")
             trace = fake_stdout.decode("utf-8", "replace").strip()
             if not all(marker in trace for marker in (
-                    "FAKE_QEMU_RESULT", f"frames={frames}", f"requested={width}x{height}", "keyboard=2", "mouse=3",
+                    "FAKE_QEMU_RESULT", f"frames={frames}", f"requested={width}x{height}", "keyboard=2", "mouse=4",
+                    # The mock deliberately exposes relative mode. The
+                    # retained +5,+2 delta proves the stale FFFE packet was
+                    # discarded and that the FFFF -> 0 serial wrap advanced.
+                    "relative=1:5x2",
                     "listener=1", "peer_completed=1")):
                 raise QualificationError(f"direct input/resize did not reach Display1: {trace}")
             return trace

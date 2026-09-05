@@ -827,6 +827,142 @@ async function measurePasswordFieldKey(message) {
     }, message);
 }
 
+async function measureDrag(message) {
+    if (!page || !message || typeof message !== 'object') {
+        throw new Error('invalid drag measurement command');
+    }
+    return page.evaluate(async (payload) => {
+        const integer = (name, minimum, maximum) => {
+            const value = payload[name];
+            if (!Number.isInteger(value) || value < minimum || value > maximum) {
+                throw new Error(`invalid drag measurement ${name}`);
+            }
+            return value;
+        };
+        const width = integer('width', 64, 16384);
+        const height = integer('height', 64, 16384);
+        const startX = integer('startX', 0, width - 1);
+        const startY = integer('startY', 0, height - 1);
+        const targetX = integer('targetX', 0, width - 1);
+        const targetY = integer('targetY', 0, height - 1);
+        const scanY = integer('scanY', 0, height - 1);
+        const samples = integer('samples', 8, 240);
+        const sampleIntervalMs = integer('sampleIntervalMs', 4, 50);
+        const timeoutMs = integer('timeoutMs', 500, 15000);
+        const video = document.getElementById('remote');
+        if (!video || video.videoWidth !== width || video.videoHeight !== height ||
+            !window.qsmControl || window.qsmControl.readyState !== 'open' ||
+            !window.qsmPointer || window.qsmPointer.readyState !== 'open') {
+            throw new Error('browser drag peer is not ready');
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = 1;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (!context) throw new Error('drag measurement canvas is unavailable');
+        const cardCenter = () => {
+            // Sampling only the card's horizontal centre row makes this an
+            // actual decoded-pixel test without the full-frame canvas cost
+            // itself becoming the source of an apparent drag stutter.
+            context.drawImage(video, 0, scanY, width, 1, 0, 0, width, 1);
+            const pixels = context.getImageData(0, 0, width, 1).data;
+            let first = -1;
+            let last = -1;
+            for (let x = 0; x < width; x += 1) {
+                const offset = x * 4;
+                // #ff9f00, with room for H.264's chroma conversion.
+                if (pixels[offset] > 170 && pixels[offset + 1] > 80 &&
+                    pixels[offset + 1] < 235 && pixels[offset + 2] < 105) {
+                    if (first < 0) first = x;
+                    last = x;
+                }
+            }
+            return first < 0 ? null : (first + last) / 2;
+        };
+        const awaitFrame = (remainingMs) => new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('video did not present a drag frame')), remainingMs);
+            const callback = (now, metadata) => {
+                clearTimeout(timer);
+                resolve({ now, presentedFrames: Number(metadata?.presentedFrames) });
+            };
+            if (typeof video.requestVideoFrameCallback === 'function') video.requestVideoFrameCallback(callback);
+            else requestAnimationFrame((now) => callback(now, {}));
+        });
+        const sendPointer = (x, y, sequence) => window.qsmPointer.send(JSON.stringify({
+            op: 'mouse_position', x, y, width, height, sequence,
+        }));
+        // The card is an ordinary guest Chromium PointerEvent target. A
+        // visible initial location guards against measuring a stale fixture
+        // or a failed tablet mapping as a networking problem.
+        const initial = cardCenter();
+        if (initial === null || Math.abs(initial - startX) > 80) {
+            throw new Error('guest drag fixture is not at its initial position');
+        }
+        let sequence = 1;
+        sendPointer(startX, startY, sequence++);
+        window.qsmControl.send(JSON.stringify({ op: 'mouse_position', x: startX, y: startY, width, height, sequence: sequence - 1 }));
+        window.qsmControl.send(JSON.stringify({ op: 'mouse_button', button: 1, down: true }));
+        const started = performance.now();
+        const observations = [];
+        let observing = true;
+        const observe = async () => {
+            while (observing) {
+                const frame = await awaitFrame(timeoutMs);
+                const center = cardCenter();
+                if (center !== null) observations.push({ at: performance.now(), center, presentedFrames: frame.presentedFrames });
+            }
+        };
+        const observer = observe();
+        for (let index = 1; index <= samples; index += 1) {
+            const fraction = index / samples;
+            sendPointer(Math.round(startX + (targetX - startX) * fraction),
+                Math.round(startY + (targetY - startY) * fraction), sequence++);
+            await new Promise((resolve) => setTimeout(resolve, sampleIntervalMs));
+        }
+        // As in the product popup, repeat the final latest-state sample on
+        // the ordered lane before releasing the button. This makes the drag
+        // endpoint independent of cross-channel SCTP scheduling.
+        const finalSequence = sequence - 1;
+        window.qsmControl.send(JSON.stringify({ op: 'mouse_position', x: targetX, y: targetY,
+            width, height, sequence: finalSequence }));
+        window.qsmControl.send(JSON.stringify({ op: 'mouse_button', button: 1, down: false }));
+        const sentFinalAt = performance.now();
+        const deadline = sentFinalAt + timeoutMs;
+        let finalCenter = cardCenter();
+        while ((finalCenter === null || Math.abs(finalCenter - targetX) > 18) && performance.now() < deadline) {
+            await awaitFrame(Math.max(1, deadline - performance.now()));
+            finalCenter = cardCenter();
+        }
+        observing = false;
+        await Promise.race([observer, new Promise((resolve) => setTimeout(resolve, 100))]);
+        if (finalCenter === null || Math.abs(finalCenter - targetX) > 18) {
+            throw new Error('dragged guest window did not reach its endpoint');
+        }
+        const transitions = [];
+        for (const item of observations) {
+            const previous = transitions[transitions.length - 1];
+            if (!previous || Math.abs(item.center - previous.center) >= 3) transitions.push(item);
+        }
+        const motion = transitions.filter((item) => Math.abs(item.center - initial) >= 8);
+        if (motion.length < Math.max(4, Math.floor(samples / 5))) {
+            throw new Error('guest window was not presented as a continuous drag');
+        }
+        let largestGapMs = 0;
+        for (let index = 1; index < motion.length; index += 1) {
+            largestGapMs = Math.max(largestGapMs, motion[index].at - motion[index - 1].at);
+        }
+        return {
+            firstMotionLatencyMs: motion[0].at - started,
+            finalSettleLatencyMs: performance.now() - sentFinalAt,
+            observedMotionFrames: motion.length,
+            largestMotionGapMs: largestGapMs,
+            finalCenter,
+            samples,
+            sampleIntervalMs,
+        };
+    }, message);
+}
+
 async function control(message) {
     if (!page || !message || typeof message !== 'object') {
         throw new Error('invalid browser control command');
@@ -948,6 +1084,7 @@ const commands = {
     measure_hover: async (message) => measureHover(message.message),
     measure_password_key: async (message) => measurePasswordKey(message.message),
     measure_password_field_key: async (message) => measurePasswordFieldKey(message.message),
+    measure_drag: async (message) => measureDrag(message.message),
     control: async (message) => control(message.message),
     pointer: async (message) => pointer(message.message),
     guest: async (message) => guest(message.message),

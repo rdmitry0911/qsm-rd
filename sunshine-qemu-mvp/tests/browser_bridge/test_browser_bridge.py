@@ -103,6 +103,13 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
                          (INPUT_MAGIC, INPUT_VERSION, INPUT_MOUSE_POSITION, 8))
         self.assertEqual(packet[INPUT_HEADER.size:], b"\x00\x14\x00\x0a\x07\x80\x04\x38")
 
+        sequenced_pointer = UnixInputEgress.encode_browser_message(
+            '{"op":"mouse_position","x":20,"y":10,"width":1920,"height":1080,"sequence":4294967295}')
+        self.assertEqual(INPUT_HEADER.unpack_from(sequenced_pointer),
+                         (INPUT_MAGIC, INPUT_VERSION, INPUT_MOUSE_POSITION, 12))
+        self.assertEqual(sequenced_pointer[INPUT_HEADER.size:],
+                         b"\x00\x14\x00\x0a\x07\x80\x04\x38\xff\xff\xff\xff")
+
         button = UnixInputEgress.encode_browser_message(
             '{"op":"mouse_button","button":1,"down":true}')
         self.assertEqual(INPUT_HEADER.unpack_from(button)[2], INPUT_MOUSE_BUTTON)
@@ -121,6 +128,7 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
 
         for raw in (
             '{"op":"mouse_position","x":1920,"y":0,"width":1920,"height":1080}',
+            '{"op":"mouse_position","x":20,"y":10,"width":1920,"height":1080,"sequence":4294967296}',
             '{"op":"mouse_button","button":6,"down":true}',
             '{"op":"keyboard","key":30,"down":1,"modifiers":0}',
             '{"op":"scroll","vertical":0,"horizontal":0,"extra":1}',

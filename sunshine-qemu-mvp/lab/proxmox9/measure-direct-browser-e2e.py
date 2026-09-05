@@ -235,6 +235,12 @@ def main() -> int:
                         help="run the real guest password-field key-to-pixel measurement N times")
     parser.add_argument("--password-field", type=password_field_geometry,
                         help="FOCUS_X,FOCUS_Y,FIELD_X,FIELD_Y,FIELD_WIDTH,FIELD_HEIGHT in guest pixels")
+    parser.add_argument("--drag-runs", type=int, default=0,
+                        help="run the guest window-drag continuity measurement once (0 or 1)")
+    parser.add_argument("--max-drag-first-motion-ms", type=float, default=180.0,
+                        help="fail if mouse-down to first drawn drag motion exceeds this threshold")
+    parser.add_argument("--max-drag-gap-ms", type=float, default=100.0,
+                        help="fail if consecutive drawn drag positions have a larger gap")
     parser.add_argument("--guest-transfer", action="store_true",
                         help="exercise browser-to-guest clipboard and both file directions")
     parser.add_argument("--guest-file-bytes", type=int, default=22,
@@ -268,6 +274,12 @@ def main() -> int:
         parser.error("--password-field-runs must be in 0..20")
     if arguments.password_field_runs and arguments.password_field is None:
         parser.error("--password-field-runs requires --password-field")
+    if arguments.drag_runs not in (0, 1):
+        parser.error("--drag-runs must be 0 or 1: the fixture intentionally preserves the dragged endpoint")
+    if not 1 <= arguments.max_drag_first_motion_ms <= 10000:
+        parser.error("--max-drag-first-motion-ms must be in 1..10000")
+    if not 1 <= arguments.max_drag_gap_ms <= 10000:
+        parser.error("--max-drag-gap-ms must be in 1..10000")
     if arguments.password_field is not None:
         focus_x, focus_y, field_x, field_y, field_width, field_height = arguments.password_field
         if (not (0 <= focus_x < arguments.width and 0 <= focus_y < arguments.height) or
@@ -510,6 +522,27 @@ def main() -> int:
                     "key": 30, "timeoutMs": 8000,
                 }}, timeout=15.0))
             result["passwordFieldKey"] = password_field_key
+        if arguments.drag_runs:
+            if arguments.width != 1280 or arguments.height < 480:
+                raise RuntimeError("the drag target requires a 1280-pixel-wide desktop at least 480 pixels high")
+            drag = peer.request({"op": "measure_drag", "message": {
+                # The orange card starts at x=110..290, y=160..270. Hold its
+                # centre while traversing a long horizontal path at a display
+                # cadence: this catches backtracking, coalescing and delayed
+                # input that an isolated click or key test cannot observe.
+                "width": arguments.width, "height": arguments.height,
+                "startX": 200, "startY": 215,
+                "targetX": 1000, "targetY": 215,
+                "scanY": 215, "samples": 60, "sampleIntervalMs": 16,
+                "timeoutMs": 8000,
+            }}, timeout=20.0)
+            if (not isinstance(drag.get("firstMotionLatencyMs"), (int, float)) or
+                    drag["firstMotionLatencyMs"] > arguments.max_drag_first_motion_ms):
+                raise RuntimeError(f"guest drag first motion exceeded {arguments.max_drag_first_motion_ms} ms: {drag}")
+            if (not isinstance(drag.get("largestMotionGapMs"), (int, float)) or
+                    drag["largestMotionGapMs"] > arguments.max_drag_gap_ms):
+                raise RuntimeError(f"guest drag was not visually continuous within {arguments.max_drag_gap_ms} ms: {drag}")
+            result["drag"] = drag
         if arguments.expect_disconnect:
             result["afterHold"] = wait_for_disconnect(peer, arguments.hold_seconds)
         elif arguments.hold_seconds:

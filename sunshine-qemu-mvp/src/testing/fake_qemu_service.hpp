@@ -40,6 +40,12 @@ public:
         std::uint64_t ui_info_calls {};
         std::uint64_t keyboard_calls {};
         std::uint64_t mouse_calls {};
+        std::uint32_t last_absolute_x {};
+        std::uint32_t last_absolute_y {};
+        bool has_absolute_position {};
+        std::int32_t last_relative_dx {};
+        std::int32_t last_relative_dy {};
+        bool has_relative_motion {};
         std::uint32_t requested_width {};
         std::uint32_t requested_height {};
         bool listener_registered {};
@@ -73,6 +79,12 @@ private:
     std::uint64_t ui_info_calls_ {};
     std::uint64_t keyboard_calls_ {};
     std::uint64_t mouse_calls_ {};
+    std::uint32_t last_absolute_x_ {};
+    std::uint32_t last_absolute_y_ {};
+    bool has_absolute_position_ {false};
+    std::int32_t last_relative_dx_ {};
+    std::int32_t last_relative_dy_ {};
+    bool has_relative_motion_ {false};
     std::uint32_t requested_width_ {};
     std::uint32_t requested_height_ {};
     bool listener_registered_ {false};

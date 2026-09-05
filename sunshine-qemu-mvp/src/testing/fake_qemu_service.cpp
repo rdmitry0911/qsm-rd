@@ -427,11 +427,12 @@ int FakeQemuService::handle_main_message(sd_bus_message *message) {
         std::uint32_t y = 0U;
         dbus::check(sd_bus_message_read(message, "uu", &x, &y),
                     "read fake absolute pointer");
-        (void) x;
-        (void) y;
         {
             std::lock_guard lock(state_mutex_);
             ++mouse_calls_;
+            last_absolute_x_ = x;
+            last_absolute_y_ = y;
+            has_absolute_position_ = true;
         }
         dbus::check(sd_bus_reply_method_return(message, ""),
                     "reply fake absolute pointer");
@@ -445,11 +446,12 @@ int FakeQemuService::handle_main_message(sd_bus_message *message) {
         std::int32_t dy = 0;
         dbus::check(sd_bus_message_read(message, "ii", &dx, &dy),
                     "read fake relative pointer");
-        (void) dx;
-        (void) dy;
         {
             std::lock_guard lock(state_mutex_);
             ++mouse_calls_;
+            last_relative_dx_ = dx;
+            last_relative_dy_ = dy;
+            has_relative_motion_ = true;
         }
         dbus::check(sd_bus_reply_method_return(message, ""),
                     "reply fake relative pointer");
@@ -762,6 +764,12 @@ FakeQemuService::Stats FakeQemuService::stats() const {
         .ui_info_calls = ui_info_calls_,
         .keyboard_calls = keyboard_calls_,
         .mouse_calls = mouse_calls_,
+        .last_absolute_x = last_absolute_x_,
+        .last_absolute_y = last_absolute_y_,
+        .has_absolute_position = has_absolute_position_,
+        .last_relative_dx = last_relative_dx_,
+        .last_relative_dy = last_relative_dy_,
+        .has_relative_motion = has_relative_motion_,
         .requested_width = requested_width_,
         .requested_height = requested_height_,
         .listener_registered = listener_registered_,

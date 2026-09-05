@@ -90,6 +90,13 @@ constexpr std::uint32_t opus_sample_rate = 48'000U;
 constexpr std::uint16_t opus_channels = 2U;
 constexpr std::uint16_t opus_samples_per_frame = 960U; // 20 ms
 
+// RFC 1982-style comparison for the browser's wrapping u32 pointer serial.
+// Half the serial space is intentionally not considered newer, so one
+// malformed/delayed packet can never turn a current pointer stream backwards.
+bool pointer_sequence_is_newer(std::uint32_t candidate, std::uint32_t previous) noexcept {
+    return candidate != previous && static_cast<std::uint32_t>(candidate - previous) < 0x8000'0000U;
+}
+
 class WorkerError final : public std::runtime_error {
 public:
     using std::runtime_error::runtime_error;
@@ -1035,12 +1042,19 @@ private:
         }
         const auto op = data[5U];
         const auto payload = data.subspan(input_header_size);
-        if (op == input_mouse_position && payload.size() == 8U) {
+        if (op == input_mouse_position && (payload.size() == 8U || payload.size() == 12U)) {
             const auto x = read_u16(payload, 0U);
             const auto y = read_u16(payload, 2U);
             const auto width = read_u16(payload, 4U);
             const auto height = read_u16(payload, 6U);
             if (width == 0U || height == 0U || x >= width || y >= height) { return; }
+            if (payload.size() == 12U) {
+                const auto sequence = read_u32(payload, 8U);
+                if (last_pointer_sequence_ && !pointer_sequence_is_newer(sequence, *last_pointer_sequence_)) {
+                    return;
+                }
+                last_pointer_sequence_ = sequence;
+            }
             if (absolute_pointer_) {
                 session_.absolute_pointer(x, y);
             } else if (last_x_ && last_y_) {
@@ -1085,6 +1099,7 @@ private:
     std::thread thread_;
     std::optional<std::uint16_t> last_x_;
     std::optional<std::uint16_t> last_y_;
+    std::optional<std::uint32_t> last_pointer_sequence_;
     bool absolute_pointer_ {false};
     std::uint64_t resize_id_ {};
 };

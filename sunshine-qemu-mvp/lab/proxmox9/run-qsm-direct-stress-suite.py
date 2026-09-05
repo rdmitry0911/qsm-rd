@@ -38,7 +38,7 @@ def _command(arguments: argparse.Namespace, *, width: int, height: int,
              hold_seconds: float = 0.0, guest_transfer: bool = False,
              expect_disconnect: bool = False,
              viewport_resizes: tuple[tuple[int, int], ...] = (),
-             screenshot: str = "") -> list[str]:
+             screenshot: str = "", drag_runs: int = 0) -> list[str]:
     command = [
         sys.executable, os.fspath(MEASURE),
         "--socket", arguments.socket,
@@ -71,6 +71,12 @@ def _command(arguments: argparse.Namespace, *, width: int, height: int,
         command.extend(["--screenshot", screenshot])
     if arguments.max_edge_luma is not None:
         command.extend(["--max-edge-luma", str(arguments.max_edge_luma)])
+    if drag_runs:
+        command.extend([
+            "--drag-runs", str(drag_runs),
+            "--max-drag-first-motion-ms", str(arguments.max_drag_first_motion_ms),
+            "--max-drag-gap-ms", str(arguments.max_drag_gap_ms),
+        ])
     for resize_width, resize_height in viewport_resizes:
         command.extend(["--viewport-resize", f"{resize_width}x{resize_height}"])
     return command
@@ -278,12 +284,13 @@ def _guest_wayland_geometry(arguments: argparse.Namespace, expected: tuple[int, 
 
 def _run_case(arguments: argparse.Namespace, name: str, width: int, height: int,
               *, guest_transfer: bool = False,
-              viewport_resizes: tuple[tuple[int, int], ...] = ()) -> dict[str, Any]:
+              viewport_resizes: tuple[tuple[int, int], ...] = (),
+              drag_runs: int = 0) -> dict[str, Any]:
     screenshot = (f"/tmp/qsm-browser-e2e-vm{arguments.vmid}-{name}.png"
                   if arguments.visual_evidence else "")
     completed = subprocess.run(
         _command(arguments, width=width, height=height, guest_transfer=guest_transfer,
-                 viewport_resizes=viewport_resizes, screenshot=screenshot),
+                 viewport_resizes=viewport_resizes, screenshot=screenshot, drag_runs=drag_runs),
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, encoding="utf-8", timeout=90, check=False,
     )
@@ -477,6 +484,10 @@ def main() -> int:
     parser.add_argument("--hold-seconds", type=float, default=30.0)
     parser.add_argument("--restart-timeout", type=float, default=90.0)
     parser.add_argument("--guest-file-bytes", type=int, default=65536)
+    parser.add_argument("--drag-fixture", action="store_true",
+                        help="require the reviewed qsm-hover-gate-102 continuous drag fixture")
+    parser.add_argument("--max-drag-first-motion-ms", type=float, default=180.0)
+    parser.add_argument("--max-drag-gap-ms", type=float, default=100.0)
     parser.add_argument("--guest-input-host", default="",
                         help="optional disposable-guest SSH host for physical evdev input proof")
     parser.add_argument("--guest-input-user", default="root")
@@ -512,6 +523,9 @@ def main() -> int:
             raise StressFailure("steady-state browser latency bounds are invalid")
         if not 0 <= arguments.guest_file_bytes <= 2 * 1024 * 1024:
             raise StressFailure("guest file size is invalid")
+        if not 1 <= arguments.max_drag_first_motion_ms <= 10_000 or \
+                not 1 <= arguments.max_drag_gap_ms <= 10_000:
+            raise StressFailure("drag continuity bounds are invalid")
         if arguments.max_edge_luma is not None and not 0 <= arguments.max_edge_luma <= 255:
             raise StressFailure("max edge luma is invalid")
         if arguments.visual_evidence and not arguments.browser_headful:
@@ -543,6 +557,7 @@ def main() -> int:
             evidence["window"] = _run_case(
                 arguments, "window", *arguments.window_size, guest_transfer=True,
                 viewport_resizes=(arguments.fullscreen_size, arguments.window_size),
+                drag_runs=1 if arguments.drag_fixture else 0,
             )
         except BaseException:
             # A failed browser case must not leave a 45-second SSH reader

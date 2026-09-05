@@ -32,6 +32,9 @@ write_files:
         #icon-label { position: absolute; left: 548px; top: 466px; width: 184px; text-align: center; font-size: 18px; }
         #probe { display: none; position: absolute; left: 764px; top: 334px; width: 280px; height: 78px; padding: 18px 22px; border-radius: 12px; color: #18001d; background: #ff00ff; font-size: 22px; font-weight: 700; }
         #icon:hover ~ #probe { display: block; }
+        #drag-instructions { position: absolute; left: 108px; top: 122px; color: #f8d58a; font-size: 15px; }
+        #drag-card { position: absolute; left: 110px; top: 160px; width: 180px; height: 110px; display: grid; place-items: center; border: 3px solid #ffe2a6; border-radius: 14px; color: #1d1300; background: #ff9f00; box-shadow: 0 10px 26px #0008; cursor: grab; font-size: 20px; font-weight: 700; touch-action: none; user-select: none; }
+        #drag-card:active { cursor: grabbing; }
         #password-panel { position: absolute; left: 440px; top: 570px; width: 400px; height: 146px; padding: 18px 22px; border: 1px solid #63708c; border-radius: 14px; background: #202838; }
         #password-label { display: block; margin-bottom: 10px; color: #dbe5ff; font-size: 16px; }
         #password { display: block; width: 100%; height: 46px; padding: 8px 12px; border: 2px solid #87a9ff; border-radius: 8px; outline: none; background: #0c111a; color: #f4f7ff; font-size: 24px; letter-spacing: 3px; }
@@ -44,12 +47,37 @@ write_files:
       <div id="icon" aria-label="QSM test application"></div>
       <div id="icon-label">QSM Test App</div>
       <div id="probe">Hover popover ready</div>
+      <div id="drag-instructions">Drag the orange card: continuous input-to-pixel probe</div>
+      <div id="drag-card" aria-label="QSM draggable window">Drag window</div>
       <div id="password-panel">
         <label id="password-label" for="password">Password</label>
         <input id="password" type="password" placeholder="Password" autocomplete="off" autofocus aria-label="Password">
         <span id="password-probe" aria-hidden="true"></span>
       </div>
-      <script>window.addEventListener('load', () => document.getElementById('password').focus());</script>
+      <script>
+        window.addEventListener('load', () => {
+          document.getElementById('password').focus();
+          const card = document.getElementById('drag-card');
+          let drag = null;
+          card.addEventListener('pointerdown', (event) => {
+            drag = { x: event.clientX - card.offsetLeft, y: event.clientY - card.offsetTop };
+            card.setPointerCapture(event.pointerId);
+            event.preventDefault();
+          });
+          card.addEventListener('pointermove', (event) => {
+            if (!drag) return;
+            card.style.left = `${Math.max(0, Math.min(window.innerWidth - card.offsetWidth, event.clientX - drag.x))}px`;
+            card.style.top = `${Math.max(0, Math.min(window.innerHeight - card.offsetHeight, event.clientY - drag.y))}px`;
+          });
+          const finish = (event) => {
+            if (!drag) return;
+            drag = null;
+            if (card.hasPointerCapture(event.pointerId)) card.releasePointerCapture(event.pointerId);
+          };
+          card.addEventListener('pointerup', finish);
+          card.addEventListener('pointercancel', finish);
+        });
+      </script>
   - path: /usr/local/sbin/qsm-hover-session
     permissions: '0755'
     content: |

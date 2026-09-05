@@ -396,6 +396,12 @@
         let closeWatcher = null;
         let pointerFrame = null;
         let pendingPointer = null;
+        let latestPointer = null;
+        // `qsm-pointer` is deliberately unordered and non-retransmitted.
+        // Preserve an explicit sequence number with every latest-state sample
+        // so a packet which took a longer SCTP path cannot move a held window
+        // backwards after a newer coordinate already reached the guest.
+        let pointerSequence = 0;
         let resizeTimer = null;
         let resizeRetryTimer = null;
         let resizeRetryIdentity = '';
@@ -922,13 +928,47 @@
                 else { resizeTimer = popup.setTimeout(dispatch, resizeDebounceMs); }
             };
             resizeConsole = resize;
-            const flushPointer = () => {
-                pointerFrame = null;
-                if (pendingPointer) { sendPointer(pendingPointer); pendingPointer = null; }
+            const flushPointer = (reliable = false) => {
+                if (pointerFrame !== null) {
+                    popup.cancelAnimationFrame(pointerFrame);
+                    pointerFrame = null;
+                }
+                const value = pendingPointer || latestPointer;
+                pendingPointer = null;
+                if (!value) { return; }
+                // The position immediately preceding a button edge is sent
+                // on the ordered channel.  SCTP does not order different
+                // data channels, therefore only flushing `qsm-pointer` here
+                // could press on the old position under loss or reordering.
+                if (reliable) { send(value); }
+                else { sendPointer(value); }
             };
             const queuePointer = (value) => {
-                pendingPointer = value;
-                if (pointerFrame === null) { pointerFrame = popup.requestAnimationFrame(flushPointer); }
+                const sample = { ...value, sequence: pointerSequence };
+                pointerSequence = (pointerSequence + 1) >>> 0;
+                latestPointer = sample;
+                pendingPointer = sample;
+                if (pointerFrame === null) {
+                    pointerFrame = popup.requestAnimationFrame(() => flushPointer(false));
+                }
+            };
+            const pointerForMouseEvent = (event) => {
+                const box = video.getBoundingClientRect();
+                // Pointer coordinates must describe the decoded source, not
+                // CSS pixels.  During the few frames while a full-screen
+                // resize is in flight these can differ; using the old CSS box
+                // made click targets shift or disappear precisely then.
+                const sourceWidth = Math.max(1, video.videoWidth || Math.floor(box.width));
+                const sourceHeight = Math.max(1, video.videoHeight || Math.floor(box.height));
+                return {
+                    op: 'mouse_position',
+                    x: Math.max(0, Math.min(sourceWidth - 1,
+                        Math.floor((event.clientX - box.left) * sourceWidth / Math.max(1, box.width)))),
+                    y: Math.max(0, Math.min(sourceHeight - 1,
+                        Math.floor((event.clientY - box.top) * sourceHeight / Math.max(1, box.height)))),
+                    width: sourceWidth,
+                    height: sourceHeight,
+                };
             };
             control.addEventListener('open', () => resize(true));
             control.addEventListener('message', (event) => {
@@ -1026,21 +1066,21 @@
             video.addEventListener('mousemove', (event) => {
                 revealToolbar();
                 hideToolbarSoon();
-                const box = video.getBoundingClientRect();
-                // Pointer coordinates must describe the decoded source, not
-                // CSS pixels.  During the few frames while a full-screen
-                // resize is in flight these can differ; using the old CSS box
-                // made click targets shift or disappear precisely then.
-                const sourceWidth = Math.max(1, video.videoWidth || Math.floor(box.width));
-                const sourceHeight = Math.max(1, video.videoHeight || Math.floor(box.height));
-                const x = Math.max(0, Math.min(sourceWidth - 1,
-                    Math.floor((event.clientX - box.left) * sourceWidth / Math.max(1, box.width))));
-                const y = Math.max(0, Math.min(sourceHeight - 1,
-                    Math.floor((event.clientY - box.top) * sourceHeight / Math.max(1, box.height))));
-                queuePointer({ op: 'mouse_position', x, y, width: sourceWidth, height: sourceHeight });
+                queuePointer(pointerForMouseEvent(event));
             });
-            video.addEventListener('mousedown', (event) => { flushPointer(); video.focus(); send({ op: 'mouse_button', button: event.button + 1, down: true }); event.preventDefault(); });
-            video.addEventListener('mouseup', (event) => { send({ op: 'mouse_button', button: event.button + 1, down: false }); event.preventDefault(); });
+            video.addEventListener('mousedown', (event) => {
+                queuePointer(pointerForMouseEvent(event));
+                flushPointer(true);
+                video.focus();
+                send({ op: 'mouse_button', button: event.button + 1, down: true });
+                event.preventDefault();
+            });
+            video.addEventListener('mouseup', (event) => {
+                queuePointer(pointerForMouseEvent(event));
+                flushPointer(true);
+                send({ op: 'mouse_button', button: event.button + 1, down: false });
+                event.preventDefault();
+            });
             video.addEventListener('wheel', (event) => { send({ op: 'scroll', vertical: Math.max(-32768, Math.min(32767, Math.trunc(event.deltaY))), horizontal: Math.max(-32768, Math.min(32767, Math.trunc(event.deltaX))) }); event.preventDefault(); }, { passive: false });
             video.addEventListener('paste', (event) => {
                 const text = event.clipboardData && event.clipboardData.getData('text/plain');
