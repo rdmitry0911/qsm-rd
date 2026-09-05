@@ -384,6 +384,58 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_unconnected_browser_peer_does_not_hold_a_vm_worker_for_ten_minutes(self) -> None:
+        """An ICE path which can never connect must release its shared transport."""
+        class RunningWorker:
+            def poll(self) -> None:
+                return None
+
+        class Bridge:
+            def __init__(self, connection_state: str) -> None:
+                self.connection_state = connection_state
+                self.closed = False
+
+            async def close(self) -> None:
+                self.closed = True
+
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-negotiation-timeout.") as temporary:
+            root = Path(temporary)
+            for name in ("instances", "qemu-server", "sessions", "display"):
+                (root / name).mkdir(mode=0o700)
+            manager = DirectSessionManager(
+                instance_directory=root / "instances", runtime_directory=root / "sessions",
+                vm_runtime_directory=root / "display", pve_config_directory=root / "qemu-server",
+                local_node=None,
+            )
+            connecting = Bridge("connecting")
+            connected = Bridge("connected")
+            timed_out_directory = root / "sessions" / "vm-321" / "timed-out"
+            connected_directory = root / "sessions" / "vm-321" / "connected"
+            timed_out_directory.parent.mkdir(mode=0o700)
+            timed_out_directory.mkdir(mode=0o700)
+            connected_directory.mkdir(mode=0o700)
+            try:
+                now = time.monotonic()
+                manager._sessions["timed-out"] = DirectSession(
+                    vmid=321, bridge=connecting, worker=RunningWorker(), directory=timed_out_directory,
+                    expires_at=now + 600, negotiation_expires_at=now - 1)
+                # Keep one real peer on this VM so the test isolates the
+                # failed browser's cleanup from producer shutdown mechanics.
+                manager._sessions["connected"] = DirectSession(
+                    vmid=321, bridge=connected, worker=RunningWorker(), directory=connected_directory,
+                    expires_at=now + 600, negotiation_expires_at=now - 1)
+                future = asyncio.run_coroutine_threadsafe(
+                    manager._watch_session("timed-out"), manager._loop)
+                future.result(timeout=2)
+                self.assertTrue(connecting.closed)
+                self.assertFalse(connected.closed)
+                self.assertNotIn("timed-out", manager._sessions)
+                self.assertIn("connected", manager._sessions)
+                self.assertFalse(timed_out_directory.exists())
+                self.assertTrue(connected_directory.exists())
+            finally:
+                manager.close()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

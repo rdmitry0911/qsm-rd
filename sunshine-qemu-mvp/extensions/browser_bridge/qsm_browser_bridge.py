@@ -778,6 +778,11 @@ class BrowserWebRtcBridge:
         """Whether this browser peer has reached an unrecoverable terminal state."""
         return self._terminal_notified
 
+    @property
+    def connection_state(self) -> str:
+        """Current aiortc connection state for the terminal's bounded watchdog."""
+        return str(self._pc.connectionState)
+
     def _notify_terminal(self) -> None:
         """Ask the terminal owner to release this dead browser peer once."""
         if self._terminal_notified:

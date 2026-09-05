@@ -305,7 +305,7 @@ if(BUILD_TESTING)
     endif()
 
     add_executable(qmdp_core_tests tests/core_tests.cpp)
-    target_link_libraries(qmdp_core_tests PRIVATE qmdp_core Threads::Threads)
+    target_link_libraries(qmdp_core_tests PRIVATE qmdp_core qmdp_pipeline Threads::Threads)
     qmdp_target_defaults(qmdp_core_tests)
     add_test(NAME qmdp_core_tests COMMAND qmdp_core_tests)
 

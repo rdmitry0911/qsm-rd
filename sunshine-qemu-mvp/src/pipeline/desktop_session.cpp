@@ -165,7 +165,6 @@ bool DesktopSession::display_failed() const noexcept {
 void DesktopSession::encoder_loop() noexcept {
     std::uint32_t previous_width = 0U;
     std::uint32_t previous_height = 0U;
-    std::uint64_t previous_generation = 0U;
 
     while (running_.load()) {
         auto frame = mailbox_.wait_pop(options_.frame_wait);
@@ -173,9 +172,16 @@ void DesktopSession::encoder_loop() noexcept {
             continue;
         }
         try {
-            const bool mode_changed = previous_generation != 0U &&
-                (frame->surface->generation != previous_generation ||
-                 frame->surface->width != previous_width ||
+            // A QEMU D-Bus ScanoutMap generation identifies the backing
+            // buffer, not necessarily a new guest display mode.  VirGL can
+            // replace that buffer at the same geometry while a desktop is
+            // being drawn. Treating every replacement as a mode switch makes
+            // a hardware encoder restart on ordinary mouse/keyboard damage,
+            // which discards its in-flight output and creates seconds of
+            // interactive latency.  A fresh H.264 configuration/IDR is
+            // needed only when the visible luma geometry actually changes.
+            const bool mode_changed = previous_width != 0U &&
+                (frame->surface->width != previous_width ||
                  frame->surface->height != previous_height);
             media_.submit_frame(*frame);
             ++encoded_frames_;
@@ -185,7 +191,6 @@ void DesktopSession::encoder_loop() noexcept {
             }
             previous_width = frame->surface->width;
             previous_height = frame->surface->height;
-            previous_generation = frame->surface->generation;
         } catch (const std::exception& ex) {
             record_error(std::string("frame submission: ") + ex.what());
         } catch (...) {

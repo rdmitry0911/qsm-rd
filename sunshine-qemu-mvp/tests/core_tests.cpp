@@ -5,12 +5,17 @@
 #include "core/session.hpp"
 #include "core/unix_fd.hpp"
 #include "capture/cpu_framebuffer.hpp"
+#include "interfaces/media_adapter.hpp"
+#include "interfaces/qemu_display.hpp"
+#include "pipeline/desktop_session.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string_view>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -27,11 +32,11 @@ int failures = 0;
         }                                                                       \
     } while (false)
 
-qmdp::FrameToken frame(std::uint64_t sequence) {
+qmdp::FrameToken frame(std::uint64_t sequence, std::uint64_t generation = 1U) {
     auto surface = std::make_shared<qmdp::FrameSurface>();
     surface->width = 2U;
     surface->height = 2U;
-    surface->generation = 1U;
+    surface->generation = generation;
     auto bytes = std::make_shared<const std::vector<std::uint8_t>>(16U, 0U);
     surface->storage = qmdp::CpuPixels{
         .stride = 8U,
@@ -44,6 +49,64 @@ qmdp::FrameToken frame(std::uint64_t sequence) {
     token.produced_at = std::chrono::steady_clock::now();
     return token;
 }
+
+class ReMappingDisplay final : public qmdp::IQemuDisplay {
+public:
+    ~ReMappingDisplay() override { stop(); }
+
+    void start(qmdp::QemuDisplayCallbacks callbacks) override {
+        callbacks_ = std::move(callbacks);
+        running_ = true;
+        worker_ = std::thread([this] {
+            for (std::uint64_t generation = 1U; generation <= 3U && running_; ++generation) {
+                auto token = frame(generation, generation);
+                // A new D-Bus ScanoutMap backing buffer can have the same
+                // visible mode. This is the condition which formerly forced
+                // a hardware encoder restart for every ordinary repaint.
+                callbacks_.on_frame(std::move(token));
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+        });
+    }
+
+    void stop() noexcept override {
+        running_ = false;
+        if (worker_.joinable()) {
+            worker_.join();
+        }
+    }
+
+    void set_ui_info(const qmdp::ViewportRequest&) override {}
+    void key(std::uint32_t, bool) override {}
+    void button(std::uint8_t, bool) override {}
+    [[nodiscard]] bool is_absolute_pointer() override { return true; }
+    void absolute_pointer(std::uint32_t, std::uint32_t) override {}
+    void relative_pointer(std::int32_t, std::int32_t) override {}
+
+private:
+    std::atomic<bool> running_ {false};
+    std::thread worker_;
+    qmdp::QemuDisplayCallbacks callbacks_;
+};
+
+class RecordingMediaAdapter final : public qmdp::IMediaAdapter {
+public:
+    void start() override { running_ = true; }
+    void stop() noexcept override { running_ = false; }
+    void submit_frame(const qmdp::FrameToken&) override {
+        if (running_) { ++frames_; }
+    }
+    void submit_audio(std::span<const float>, std::uint32_t, std::uint16_t) override {}
+    void request_idr() override { ++idr_requests_; }
+
+    [[nodiscard]] std::uint64_t frames() const noexcept { return frames_; }
+    [[nodiscard]] std::uint64_t idr_requests() const noexcept { return idr_requests_; }
+
+private:
+    std::atomic<bool> running_ {false};
+    std::atomic<std::uint64_t> frames_ {0U};
+    std::atomic<std::uint64_t> idr_requests_ {0U};
+};
 
 void test_unique_fd() {
     int pipe_fds[2] {-1, -1};
@@ -147,6 +210,19 @@ void test_session_state_machine() {
     CHECK(!machine.dispatch(qmdp::SessionEvent::resize_begin));
 }
 
+void test_same_geometry_remap_does_not_request_an_idr() {
+    using namespace std::chrono_literals;
+    ReMappingDisplay display;
+    RecordingMediaAdapter media;
+    qmdp::DesktopSession session(display, media, {.frame_wait = 5ms});
+    session.start();
+    std::this_thread::sleep_for(80ms);
+    session.stop();
+
+    CHECK(media.frames() == 3U);
+    CHECK(media.idr_requests() == 0U);
+}
+
 }  // namespace
 
 int main() {
@@ -156,6 +232,7 @@ int main() {
     test_audio_fifo();
     test_stale_damage_is_detected_without_mutating_the_framebuffer();
     test_session_state_machine();
+    test_same_geometry_remap_does_not_request_an_idr();
 
     if (failures == 0) {
         std::cout << "all qmdp core tests passed\n";

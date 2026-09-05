@@ -451,7 +451,9 @@ def main() -> int:
     parser.add_argument("--node", default=os.uname().nodename)
     parser.add_argument("--socket", default="/run/qsm-pve-direct-terminal/pve-webrtc.sock")
     parser.add_argument("--browser-host", required=True)
-    parser.add_argument("--browser-user", default="qsm-browser")
+    # The disposable browser cloud image authorizes its dedicated gate key
+    # for root; callers using a workstation still pass their ordinary user.
+    parser.add_argument("--browser-user", default="root")
     parser.add_argument("--browser-key", default="/root/.ssh/qsm-browser-gate")
     parser.add_argument("--browser-script", required=True)
     parser.add_argument("--browser-executable", default="/usr/bin/google-chrome")

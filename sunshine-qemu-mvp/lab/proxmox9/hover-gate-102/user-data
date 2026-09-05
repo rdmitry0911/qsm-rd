@@ -21,7 +21,7 @@ write_files:
     content: |
       <!doctype html>
       <meta charset="utf-8">
-      <title>QSM Direct hover latency target</title>
+      <title>QSM Direct input-to-pixel target</title>
       <style>
         * { box-sizing: border-box; }
         html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #151923; color: #f4f7ff; font-family: sans-serif; }
@@ -32,12 +32,24 @@ write_files:
         #icon-label { position: absolute; left: 548px; top: 466px; width: 184px; text-align: center; font-size: 18px; }
         #probe { display: none; position: absolute; left: 764px; top: 334px; width: 280px; height: 78px; padding: 18px 22px; border-radius: 12px; color: #18001d; background: #ff00ff; font-size: 22px; font-weight: 700; }
         #icon:hover ~ #probe { display: block; }
+        #password-panel { position: absolute; left: 440px; top: 570px; width: 400px; height: 146px; padding: 18px 22px; border: 1px solid #63708c; border-radius: 14px; background: #202838; }
+        #password-label { display: block; margin-bottom: 10px; color: #dbe5ff; font-size: 16px; }
+        #password { display: block; width: 100%; height: 46px; padding: 8px 12px; border: 2px solid #87a9ff; border-radius: 8px; outline: none; background: #0c111a; color: #f4f7ff; font-size: 24px; letter-spacing: 3px; }
+        #password:focus { border-color: #00b7ff; box-shadow: 0 0 0 3px #00b7ff44; }
+        #password-probe { position: absolute; right: 20px; top: 18px; width: 18px; height: 18px; border-radius: 50%; background: #00ff00; opacity: 0; }
+        #password:not(:placeholder-shown) ~ #password-probe { opacity: 1; }
       </style>
       <div id="title">QSM Direct input-to-pixel laboratory</div>
-      <div id="subtitle">Move the pointer over the blue application icon.</div>
+      <div id="subtitle">Move over the blue icon or type in the focused password field.</div>
       <div id="icon" aria-label="QSM test application"></div>
       <div id="icon-label">QSM Test App</div>
       <div id="probe">Hover popover ready</div>
+      <div id="password-panel">
+        <label id="password-label" for="password">Password</label>
+        <input id="password" type="password" placeholder="Password" autocomplete="off" autofocus aria-label="Password">
+        <span id="password-probe" aria-hidden="true"></span>
+      </div>
+      <script>window.addEventListener('load', () => document.getElementById('password').focus());</script>
   - path: /usr/local/sbin/qsm-hover-session
     permissions: '0755'
     content: |

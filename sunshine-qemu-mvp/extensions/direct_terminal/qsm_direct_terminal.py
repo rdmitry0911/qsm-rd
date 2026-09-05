@@ -49,6 +49,7 @@ MAX_SDP_BYTES = 128 * 1024
 MAX_REQUEST_BYTES = MAX_SDP_BYTES + 4096
 REQUEST_TIMEOUT_SECONDS = 15.0
 SESSION_IDLE_SECONDS = 10 * 60
+SESSION_NEGOTIATION_SECONDS = 20.0
 SESSION_WATCH_SECONDS = 0.25
 MAX_SESSIONS = 16
 PVE_CONFIG_MAX_BYTES = 256 * 1024
@@ -415,6 +416,7 @@ class DirectSession:
     directory: Path
     expires_at: float
     remove_guest_listener: Callable[[], None] | None = None
+    negotiation_expires_at: float = 0.0
 
 
 @dataclass
@@ -626,7 +628,8 @@ class DirectSessionManager:
             self._sessions[identifier] = DirectSession(
                 vmid=vmid, bridge=bridge, worker=transport.worker, directory=directory,
                 expires_at=time.monotonic() + SESSION_IDLE_SECONDS,
-                remove_guest_listener=remove_guest_listener)
+                remove_guest_listener=remove_guest_listener,
+                negotiation_expires_at=time.monotonic() + SESSION_NEGOTIATION_SECONDS)
             asyncio.create_task(self._watch_session(identifier))
             return answer
         except BaseException:
@@ -805,6 +808,16 @@ class DirectSessionManager:
                 await self._close_vmid_sessions(session.vmid)
                 return
             if session.expires_at <= time.monotonic():
+                await self._close_session(identifier)
+                return
+            if (session.negotiation_expires_at and
+                    session.bridge.connection_state != "connected" and
+                    session.negotiation_expires_at <= time.monotonic()):
+                print(
+                    f"qsm-direct-terminal: WebRTC negotiation timed out vmid={session.vmid}",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 await self._close_session(identifier)
                 return
             await asyncio.sleep(SESSION_WATCH_SECONDS)

@@ -587,6 +587,246 @@ async function measureHover(message) {
     }, message);
 }
 
+async function measurePasswordKey(message) {
+    if (!page || !message || typeof message !== 'object') {
+        throw new Error('invalid password-key measurement command');
+    }
+    return page.evaluate(async (payload) => {
+        const integer = (name, minimum, maximum) => {
+            const value = payload[name];
+            if (!Number.isInteger(value) || value < minimum || value > maximum) {
+                throw new Error(`invalid password-key measurement ${name}`);
+            }
+            return value;
+        };
+        const width = integer('width', 1, 32767);
+        const height = integer('height', 1, 32767);
+        const probeX = integer('probeX', 0, width - 1);
+        const probeY = integer('probeY', 0, height - 1);
+        const key = integer('key', 1, 255);
+        const timeoutMs = integer('timeoutMs', 50, 10000);
+        const video = document.getElementById('remote');
+        if (!video || video.videoWidth !== width || video.videoHeight !== height ||
+            !window.qsmControl || window.qsmControl.readyState !== 'open' ||
+            !window.qsmPointer || window.qsmPointer.readyState !== 'open') {
+            throw new Error('browser password-key peer is not ready');
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (!context) {
+            throw new Error('password-key measurement canvas is unavailable');
+        }
+        const probeVisible = () => {
+            context.drawImage(video, 0, 0, width, height);
+            const pixel = context.getImageData(probeX, probeY, 1, 1).data;
+            // #00ff00 is an interior pixel of the fixture's password probe.
+            // A high threshold tolerates H.264 4:2:0 conversion while still
+            // rejecting the dark panel and the blue focus ring.
+            return pixel[0] < 100 && pixel[1] > 180 && pixel[2] < 100;
+        };
+        if (probeVisible()) {
+            throw new Error('password probe was already visible before key press');
+        }
+        // The generic lane smoke test deliberately clicks at (120,104), away
+        // from the input. Re-focus this real guest password field before the
+        // timed part; that preparation is intentionally excluded from the
+        // keyboard-to-pixel interval below.
+        window.qsmPointer.send(JSON.stringify({
+            op: 'mouse_position', x: 640, y: 640, width, height,
+        }));
+        window.qsmControl.send(JSON.stringify({ op: 'mouse_button', button: 1, down: true }));
+        window.qsmControl.send(JSON.stringify({ op: 'mouse_button', button: 1, down: false }));
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        if (probeVisible()) {
+            throw new Error('password probe changed during focus preparation');
+        }
+        const awaitFrame = (remainingMs) => new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('video did not present a new frame')), remainingMs);
+            const complete = (now, metadata) => {
+                clearTimeout(timer);
+                resolve({
+                    callbackMs: now,
+                    callbackEpochMs: performance.timeOrigin + now,
+                    expectedDisplayTimeMs: Number(metadata?.expectedDisplayTime),
+                    presentationTimeMs: Number(metadata?.presentationTime),
+                    presentedFrames: Number(metadata?.presentedFrames),
+                    processingDurationMs: Number(metadata?.processingDuration) * 1000,
+                    receiveTimeMs: Number(metadata?.receiveTime),
+                    receiveEpochMs: Number.isFinite(Number(metadata?.receiveTime))
+                        ? performance.timeOrigin + Number(metadata.receiveTime) : null,
+                });
+            };
+            if (typeof video.requestVideoFrameCallback === 'function') {
+                video.requestVideoFrameCallback(complete);
+            } else {
+                requestAnimationFrame(complete);
+            }
+        });
+        const started = performance.now();
+        const startedEpochMs = Date.now();
+        window.qsmControl.send(JSON.stringify({ op: 'keyboard', key, down: true, modifiers: 0 }));
+        window.qsmControl.send(JSON.stringify({ op: 'keyboard', key, down: false, modifiers: 0 }));
+        let observedFrames = 0;
+        let presentation = null;
+        while (!probeVisible()) {
+            const elapsed = performance.now() - started;
+            if (elapsed >= timeoutMs) {
+                throw new Error('password character was not presented before timeout');
+            }
+            presentation = await awaitFrame(Math.max(1, timeoutMs - elapsed));
+            observedFrames += 1;
+        }
+        // Leave the deterministic guest fixture ready for the next sample.
+        // Backspace itself traverses the same reliable keyboard lane, so this
+        // is also a cheap guard against a test accidentally measuring a
+        // character left by a previous run.
+        window.qsmControl.send(JSON.stringify({ op: 'keyboard', key: 14, down: true, modifiers: 0 }));
+        window.qsmControl.send(JSON.stringify({ op: 'keyboard', key: 14, down: false, modifiers: 0 }));
+        const cleanupDeadline = performance.now() + timeoutMs;
+        let cleanupFrames = 0;
+        while (probeVisible()) {
+            if (performance.now() >= cleanupDeadline) {
+                throw new Error('password probe did not clear after backspace');
+            }
+            await awaitFrame(Math.max(1, cleanupDeadline - performance.now()));
+            cleanupFrames += 1;
+        }
+        return {
+            latencyMs: performance.now() - started,
+            videoArrivalLatencyMs: presentation && Number.isFinite(presentation.receiveEpochMs)
+                ? presentation.receiveEpochMs - startedEpochMs : null,
+            startedEpochMs,
+            completedEpochMs: Date.now(),
+            observedFrames,
+            cleanupFrames,
+            presentation,
+        };
+    }, message);
+}
+
+async function measurePasswordFieldKey(message) {
+    if (!page || !message || typeof message !== 'object') {
+        throw new Error('invalid password-field measurement command');
+    }
+    return page.evaluate(async (payload) => {
+        const integer = (name, minimum, maximum) => {
+            const value = payload[name];
+            if (!Number.isInteger(value) || value < minimum || value > maximum) {
+                throw new Error(`invalid password-field measurement ${name}`);
+            }
+            return value;
+        };
+        const width = integer('width', 64, 16384);
+        const height = integer('height', 64, 16384);
+        const focusX = integer('focusX', 0, width - 1);
+        const focusY = integer('focusY', 0, height - 1);
+        const fieldX = integer('fieldX', 0, width - 1);
+        const fieldY = integer('fieldY', 0, height - 1);
+        const fieldWidth = integer('fieldWidth', 8, width - fieldX);
+        const fieldHeight = integer('fieldHeight', 8, height - fieldY);
+        const key = integer('key', 1, 255);
+        const timeoutMs = integer('timeoutMs', 50, 10000);
+        const video = document.getElementById('remote');
+        if (!video || video.videoWidth !== width || video.videoHeight !== height ||
+            !window.qsmControl || window.qsmControl.readyState !== 'open' ||
+            !window.qsmPointer || window.qsmPointer.readyState !== 'open') {
+            throw new Error('browser password-field peer is not ready');
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (!context) {
+            throw new Error('password-field measurement canvas is unavailable');
+        }
+        const captureField = () => {
+            context.drawImage(video, 0, 0, width, height);
+            return context.getImageData(fieldX, fieldY, fieldWidth, fieldHeight).data;
+        };
+        // Count only substantial RGB changes.  This rejects sub-threshold
+        // H.264 texture noise while accepting the visibly painted password
+        // bullet.  The threshold is deliberately expressed as pixels, not a
+        // single probe coordinate: real greeters differ in glyph placement.
+        const changedPixels = (baseline, current) => {
+            let changed = 0;
+            for (let index = 0; index < baseline.length; index += 4) {
+                if (Math.abs(baseline[index] - current[index]) +
+                    Math.abs(baseline[index + 1] - current[index + 1]) +
+                    Math.abs(baseline[index + 2] - current[index + 2]) >= 90) {
+                    changed += 1;
+                }
+            }
+            return changed;
+        };
+        const awaitFrame = (remainingMs) => new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('video did not present a new frame')), remainingMs);
+            video.requestVideoFrameCallback((_, metadata) => {
+                clearTimeout(timer);
+                resolve({ receiveEpochMs: Date.now(), mediaTime: metadata.mediaTime });
+            });
+        });
+        // Make the real password input active before starting the stopwatch;
+        // focus delivery is intentionally not charged to key-to-pixel delay.
+        window.qsmPointer.send(JSON.stringify({
+            op: 'mouse_position', x: focusX, y: focusY, width, height,
+        }));
+        window.qsmControl.send(JSON.stringify({ op: 'mouse_button', button: 1, down: true }));
+        window.qsmControl.send(JSON.stringify({ op: 'mouse_button', button: 1, down: false }));
+        // Flush video which may have preceded the focus event.  Without this
+        // barrier a delayed focus-border repaint can be mistaken for the
+        // subsequent key's password bullet, especially in a stream already
+        // suffering from the latency this test is meant to expose.
+        for (let frame = 0; frame < 3; frame += 1) {
+            await awaitFrame(timeoutMs);
+        }
+        const baseline = captureField();
+        const started = performance.now();
+        const startedEpochMs = Date.now();
+        window.qsmControl.send(JSON.stringify({ op: 'keyboard', key, down: true, modifiers: 0 }));
+        window.qsmControl.send(JSON.stringify({ op: 'keyboard', key, down: false, modifiers: 0 }));
+        let observedFrames = 0;
+        let presentation = null;
+        let changed = 0;
+        while (changed < 50) {
+            const elapsed = performance.now() - started;
+            if (elapsed >= timeoutMs) {
+                throw new Error(`password character was not presented before timeout (changed=${changed})`);
+            }
+            presentation = await awaitFrame(Math.max(1, timeoutMs - elapsed));
+            observedFrames += 1;
+            changed = changedPixels(baseline, captureField());
+        }
+        const completed = performance.now();
+        // Restore the guest's password field without submitting it.  This is
+        // deliberately sent after the result has been observed, therefore it
+        // cannot shorten the measured input-to-photon interval.
+        window.qsmControl.send(JSON.stringify({ op: 'keyboard', key: 14, down: true, modifiers: 0 }));
+        window.qsmControl.send(JSON.stringify({ op: 'keyboard', key: 14, down: false, modifiers: 0 }));
+        const cleanupStarted = performance.now();
+        let cleanupFrames = 0;
+        while (changedPixels(baseline, captureField()) >= 50) {
+            const elapsed = performance.now() - cleanupStarted;
+            if (elapsed >= timeoutMs) {
+                throw new Error('password character did not clear after backspace');
+            }
+            await awaitFrame(Math.max(1, timeoutMs - elapsed));
+            cleanupFrames += 1;
+        }
+        return {
+            latencyMs: completed - started,
+            videoArrivalLatencyMs: presentation && Number.isFinite(presentation.receiveEpochMs)
+                ? presentation.receiveEpochMs - startedEpochMs : null,
+            observedFrames,
+            changedPixels: changed,
+            cleanupFrames,
+            startedEpochMs,
+            completedEpochMs: Date.now(),
+        };
+    }, message);
+}
+
 async function control(message) {
     if (!page || !message || typeof message !== 'object') {
         throw new Error('invalid browser control command');
@@ -706,6 +946,8 @@ const commands = {
     viewport: async (message) => setViewport(message),
     screenshot: async (message) => screenshot(message),
     measure_hover: async (message) => measureHover(message.message),
+    measure_password_key: async (message) => measurePasswordKey(message.message),
+    measure_password_field_key: async (message) => measurePasswordFieldKey(message.message),
     control: async (message) => control(message.message),
     pointer: async (message) => pointer(message.message),
     guest: async (message) => guest(message.message),

@@ -39,7 +39,7 @@ class BrowserPeer:
             # a PVE node when that disposable VM's SSH key was deliberately
             # rotated or removed: it still exercises Chrome's H.264 decoder,
             # WebRTC jitter buffer, DTLS-SRTP and both input channels.
-            command = [*environment, "node", arguments.browser_script]
+            command = [*environment, arguments.browser_node, arguments.browser_script]
         else:
             command = [
                 "ssh", "-i", arguments.browser_key,
@@ -47,7 +47,7 @@ class BrowserPeer:
                 "-o", "UserKnownHostsFile=/dev/null",
                 f"{arguments.browser_user}@{arguments.browser_host}",
                 *environment,
-                "node", arguments.browser_script,
+                arguments.browser_node, arguments.browser_script,
             ]
         self._process = subprocess.Popen(
             command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -190,6 +190,15 @@ def geometry(value: str) -> tuple[int, int]:
     return result
 
 
+def password_field_geometry(value: str) -> tuple[int, int, int, int, int, int]:
+    """Parse FOCUS_X,FOCUS_Y,FIELD_X,FIELD_Y,FIELD_WIDTH,FIELD_HEIGHT."""
+    parts = value.split(",")
+    if len(parts) != 6 or any(not part.isdecimal() for part in parts):
+        raise argparse.ArgumentTypeError(
+            "password field must be FOCUS_X,FOCUS_Y,FIELD_X,FIELD_Y,FIELD_WIDTH,FIELD_HEIGHT")
+    return tuple(int(part) for part in parts)  # type: ignore[return-value]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--browser-host", default="192.168.76.2")
@@ -198,6 +207,8 @@ def main() -> int:
     parser.add_argument("--browser-user", default="root")
     parser.add_argument("--browser-key", default="/root/.ssh/qsm-browser-gate")
     parser.add_argument("--browser-script", default="/opt/qsm-browser/browser-webrtc-receiver.cjs")
+    parser.add_argument("--browser-node", default="node",
+                        help="Node.js executable on the disposable Chrome peer")
     parser.add_argument("--browser-executable", default="/usr/bin/google-chrome")
     parser.add_argument("--browser-headful", action="store_true",
                         help="run Chrome in an isolated visible X display")
@@ -218,6 +229,12 @@ def main() -> int:
                         help="require a lifecycle action to disconnect the live browser peer within --hold-seconds")
     parser.add_argument("--hover-runs", type=int, default=0,
                         help="run the 1280x800 laboratory hover-popover measurement N times")
+    parser.add_argument("--password-key-runs", type=int, default=0,
+                        help="run the 1280-wide laboratory password-key-to-pixel measurement N times")
+    parser.add_argument("--password-field-runs", type=int, default=0,
+                        help="run the real guest password-field key-to-pixel measurement N times")
+    parser.add_argument("--password-field", type=password_field_geometry,
+                        help="FOCUS_X,FOCUS_Y,FIELD_X,FIELD_Y,FIELD_WIDTH,FIELD_HEIGHT in guest pixels")
     parser.add_argument("--guest-transfer", action="store_true",
                         help="exercise browser-to-guest clipboard and both file directions")
     parser.add_argument("--guest-file-bytes", type=int, default=22,
@@ -245,6 +262,18 @@ def main() -> int:
         parser.error("--guest-download-bytes must be in 0..2097152")
     if not 0 <= arguments.hold_seconds <= 120:
         parser.error("--hold-seconds must be in 0..120")
+    if not 0 <= arguments.password_key_runs <= 20:
+        parser.error("--password-key-runs must be in 0..20")
+    if not 0 <= arguments.password_field_runs <= 20:
+        parser.error("--password-field-runs must be in 0..20")
+    if arguments.password_field_runs and arguments.password_field is None:
+        parser.error("--password-field-runs requires --password-field")
+    if arguments.password_field is not None:
+        focus_x, focus_y, field_x, field_y, field_width, field_height = arguments.password_field
+        if (not (0 <= focus_x < arguments.width and 0 <= focus_y < arguments.height) or
+                field_width < 8 or field_height < 8 or field_x < 0 or field_y < 0 or
+                field_x + field_width > arguments.width or field_y + field_height > arguments.height):
+            parser.error("--password-field is outside the requested guest geometry")
     if not 0 <= arguments.resize_settle_seconds <= 30:
         parser.error("--resize-settle-seconds must be in 0..30")
     if arguments.max_edge_luma is not None and not 0 <= arguments.max_edge_luma <= 255:
@@ -453,6 +482,34 @@ def main() -> int:
                     "timeoutMs": 8000,
                 }}, timeout=15.0))
             result["hover"] = hover
+        if arguments.password_key_runs:
+            if arguments.width != 1280 or arguments.height not in (720, 800):
+                raise RuntimeError("the password-key target requires the 1280x720 or 1280x800 laboratory fixture")
+            password_key: list[dict[str, Any]] = []
+            for _ in range(arguments.password_key_runs):
+                password_key.append(peer.request({"op": "measure_password_key", "message": {
+                    # The guest fixture focuses a real type=password element.
+                    # Its 18x18 green probe is inside the panel at 802..819,
+                    # 588..605 and only becomes visible after the input event
+                    # which produces the obscured password character.
+                    "width": arguments.width, "height": arguments.height,
+                    "probeX": 810, "probeY": 596,
+                    "key": 30, "timeoutMs": 8000,
+                }}, timeout=15.0))
+            result["passwordKey"] = password_key
+        if arguments.password_field_runs:
+            assert arguments.password_field is not None
+            focus_x, focus_y, field_x, field_y, field_width, field_height = arguments.password_field
+            password_field_key: list[dict[str, Any]] = []
+            for _ in range(arguments.password_field_runs):
+                password_field_key.append(peer.request({"op": "measure_password_field_key", "message": {
+                    "width": arguments.width, "height": arguments.height,
+                    "focusX": focus_x, "focusY": focus_y,
+                    "fieldX": field_x, "fieldY": field_y,
+                    "fieldWidth": field_width, "fieldHeight": field_height,
+                    "key": 30, "timeoutMs": 8000,
+                }}, timeout=15.0))
+            result["passwordFieldKey"] = password_field_key
         if arguments.expect_disconnect:
             result["afterHold"] = wait_for_disconnect(peer, arguments.hold_seconds)
         elif arguments.hold_seconds:

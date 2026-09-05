@@ -86,12 +86,6 @@ constexpr std::size_t packet_header_size = 20U;
 constexpr std::size_t input_header_size = 8U;
 constexpr std::size_t max_fragment_bytes = 256U * 1024U;
 constexpr std::size_t max_access_unit_bytes = 4U * 1024U * 1024U;
-// FFmpeg writes an H.264 access unit without an explicit packet-length
-// wrapper.  The next AUD normally closes the prior unit, but an idle desktop
-// may produce exactly one initial IDR and then no second AUD for minutes.
-// A tiny quiet interval after draining the pipe therefore closes its final
-// NAL and makes a newly opened static console present a first picture.
-constexpr int h264_access_unit_quiet_ms = 2;
 constexpr std::uint32_t opus_sample_rate = 48'000U;
 constexpr std::uint16_t opus_channels = 2U;
 constexpr std::uint16_t opus_samples_per_frame = 960U; // 20 ms
@@ -767,7 +761,15 @@ private:
             if (encoder_ == "h264_nvenc") {
                 arguments.insert(arguments.end(), {"-preset", "p1", "-tune", "ll", "-forced-idr", "1",
                                                    "-zerolatency", "1", "-delay", "0", "-rc-lookahead", "0",
-                                                   "-rc", "cbr_ld_hq", "-b:v", "20M", "-maxrate", "20M",
+                                                   // A CBR NVENC stream pads a motionless desktop with H.264
+                                                   // filler NALs up to its configured rate.  aiortc then has to
+                                                   // pace bytes which carry no new pixels; on the real Chrome
+                                                   // route that accumulated an approximately one-second queue
+                                                   // before a password bullet could be presented.  Low-latency
+                                                   // VBR retains the same 20 Mbps ceiling for changed desktops,
+                                                   // but lets static and sparse GUI frames stay small enough for
+                                                   // WebRTC's congestion controller to send immediately.
+                                                   "-rc", "vbr", "-cq", "19", "-b:v", "8M", "-maxrate", "20M",
                                                    "-bufsize", "333k", "-g", "30", "-bf", "0"});
             } else if (encoder_ == "libx264") {
                 // Keep software H.264 on slice, rather than frame, threads.
@@ -868,15 +870,18 @@ private:
         bool have_aud = false;
         bool keyframe = false;
         std::array<std::uint8_t, 64U * 1024U> bytes {};
-        const auto flush_trailing_access_unit = [&]() noexcept {
+        const auto flush_final_access_unit = [&]() noexcept {
             const auto prefix = start_code(buffer, 0U);
             if (!prefix || prefix->first != 0U) {
                 return;
             }
-            // The pipe had no bytes for a small interval after it was fully
-            // drained.  FFmpeg writes one encoded packet contiguously, so the
-            // remaining NAL is complete even though there is no following
-            // Annex-B start code yet.
+            // This runs only after FFmpeg has closed its stdout.  A pipe
+            // becoming briefly empty is *not* an Annex-B boundary: NVENC can
+            // emit a large NAL in several writes with scheduler gaps greater
+            // than 2 ms. Flushing on such a gap used to split the NAL and
+            // make Chrome discard otherwise received RTP frames. Steady
+            // capture repeats at the negotiated FPS, so the next AUD closes
+            // every live access unit with at most one frame of delay.
             flush_nal({buffer.data(), buffer.size()}, prefix->second,
                       leading, access_unit, have_aud, keyframe);
             buffer.clear();
@@ -889,11 +894,7 @@ private:
         };
         while (true) {
             pollfd wait_for_data {.fd = descriptor, .events = POLLIN, .revents = 0};
-            const auto ready = ::poll(&wait_for_data, 1, h264_access_unit_quiet_ms);
-            if (ready == 0) {
-                flush_trailing_access_unit();
-                continue;
-            }
+            const auto ready = ::poll(&wait_for_data, 1, -1);
             if (ready < 0) {
                 if (errno == EINTR) { continue; }
                 break;
@@ -925,6 +926,7 @@ private:
                 buffer.erase(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(next->first));
             }
         }
+        flush_final_access_unit();
         if (have_aud && !access_unit.empty()) {
             sink_.send_video(keyframe, access_unit);
         }
