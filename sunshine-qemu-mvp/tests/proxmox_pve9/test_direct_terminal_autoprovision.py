@@ -345,6 +345,45 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_closed_browser_peer_retires_its_own_session_immediately(self) -> None:
+        class RunningWorker:
+            def poll(self) -> None:
+                return None
+
+        class ClosingBridge:
+            def __init__(self) -> None:
+                self.closed = False
+
+            async def close(self) -> None:
+                self.closed = True
+
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-browser-close.") as temporary:
+            root = Path(temporary)
+            for name in ("instances", "qemu-server", "sessions", "display"):
+                (root / name).mkdir(mode=0o700)
+            manager = DirectSessionManager(
+                instance_directory=root / "instances", runtime_directory=root / "sessions",
+                vm_runtime_directory=root / "display", pve_config_directory=root / "qemu-server",
+                local_node=None,
+            )
+            bridge = ClosingBridge()
+            directory = root / "sessions" / "vm-321" / "closed"
+            directory.parent.mkdir(mode=0o700)
+            directory.mkdir(mode=0o700)
+            try:
+                manager._sessions["closed"] = DirectSession(
+                    vmid=321, bridge=bridge, worker=RunningWorker(), directory=directory,
+                    expires_at=time.monotonic() + 600)
+                manager._loop.call_soon_threadsafe(manager._schedule_browser_retirement, "closed")
+                deadline = time.monotonic() + 2
+                while "closed" in manager._sessions and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(bridge.closed)
+                self.assertNotIn("closed", manager._sessions)
+                self.assertFalse(directory.exists())
+            finally:
+                manager.close()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

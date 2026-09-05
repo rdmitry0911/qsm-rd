@@ -601,15 +601,28 @@ class DirectSessionManager:
         directory = self._runtime_directory / f"vm-{vmid}" / identifier
         _safe_runtime_directory(directory.parent)
         _safe_runtime_directory(directory)
+
+        def retire_browser_peer() -> None:
+            # aiortc invokes connection-state callbacks on this manager's
+            # event loop.  Schedule rather than await so a remote tab close
+            # cannot re-enter RTCPeerConnection.close().  If a browser fails
+            # during the small SDP-answer window the identifier is not yet in
+            # _sessions; the post-answer terminal check below handles it.
+            if not self._closed:
+                self._loop.call_soon(self._schedule_browser_retirement, identifier)
+
         bridge = BrowserWebRtcBridge(
             directory, fps=fps, expected_producer_uid=os.geteuid(),
             shared_media=transport.media, shared_input=transport.input,
-            guest_dispatch=transport.guest.dispatch if transport.guest is not None else None)
+            guest_dispatch=transport.guest.dispatch if transport.guest is not None else None,
+            on_terminal=retire_browser_peer)
         remove_guest_listener = (transport.guest.add_clipboard_listener(bridge.notify_guest_clipboard)
                                  if transport.guest is not None else None)
         try:
             bridge.start_taps()
             answer = await bridge.answer_offer(sdp)
+            if bridge.terminal:
+                raise DirectTerminalError("direct-terminal browser peer ended during negotiation")
             self._sessions[identifier] = DirectSession(
                 vmid=vmid, bridge=bridge, worker=transport.worker, directory=directory,
                 expires_at=time.monotonic() + SESSION_IDLE_SECONDS,
@@ -624,6 +637,11 @@ class DirectSessionManager:
             if not any(session.vmid == vmid for session in self._sessions.values()):
                 await self._close_transport(vmid)
             raise
+
+    def _schedule_browser_retirement(self, identifier: str) -> None:
+        """Release one closed browser peer and its producer if it was last."""
+        if identifier in self._sessions and not self._closed:
+            asyncio.create_task(self._close_session(identifier))
 
     async def _transport_for(self, vmid: int, policy: dict[str, str], width: int, height: int,
                              fps: int) -> DirectVmTransport:

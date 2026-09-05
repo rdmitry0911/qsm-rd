@@ -45,6 +45,24 @@ from extensions.browser_bridge.qsm_browser_bridge import (
 
 
 class BrowserBridgeAssemblerTests(unittest.TestCase):
+    def test_terminal_callback_is_idempotent(self) -> None:
+        """A closed browser must not retain duplicate media subscriptions."""
+        notified: list[str] = []
+
+        async def exercise() -> None:
+            with tempfile.TemporaryDirectory(prefix="qsm-browser-terminal.") as directory:
+                bridge = BrowserWebRtcBridge(Path(directory), fps=60,
+                                              on_terminal=lambda: notified.append("closed"))
+                try:
+                    bridge._notify_terminal()
+                    bridge._notify_terminal()
+                    self.assertTrue(bridge.terminal)
+                    self.assertEqual(notified, ["closed"])
+                finally:
+                    await bridge.close()
+
+        asyncio.run(exercise())
+
     def test_guest_file_manifest_is_a_narrow_browser_command(self) -> None:
         self.assertEqual(BrowserWebRtcBridge._guest_request(
             '{"op":"qsm_guest_file_list","request_id":"files-1","area":"outgoing"}'),

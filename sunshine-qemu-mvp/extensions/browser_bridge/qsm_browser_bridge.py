@@ -718,7 +718,8 @@ class BrowserWebRtcBridge:
                  expected_producer_uid: int | None = None,
                  shared_media: SharedMediaIngress | None = None,
                  shared_input: UnixInputEgress | None = None,
-                 guest_dispatch: Callable[[Any], dict[str, Any]] | None = None) -> None:
+                 guest_dispatch: Callable[[Any], dict[str, Any]] | None = None,
+                 on_terminal: Callable[[], None] | None = None) -> None:
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError as error:
@@ -739,6 +740,13 @@ class BrowserWebRtcBridge:
         self.input = shared_input or UnixInputEgress(
             runtime_directory, expected_uid=expected_producer_uid)
         self._guest_dispatch = guest_dispatch
+        # The terminal service owns the lifetime of the shared producer.  A
+        # browser closing its tab used to leave this bridge subscribed until
+        # the coarse ten-minute lease expired.  Besides leaking a WebRTC peer,
+        # that made every new encoded frame fan out to old RTP senders.  Keep
+        # the notification local and idempotent; it conveys no browser data.
+        self._on_terminal = on_terminal
+        self._terminal_notified = False
         self._closed = False
         # A PVE console session has exactly one SDP offer and one pair of
         # tracks.  In particular, do not let a caller append another sender
@@ -762,6 +770,26 @@ class BrowserWebRtcBridge:
                 file=sys.stderr,
                 flush=True,
             )
+            if self._pc.connectionState in {"closed", "failed"}:
+                self._notify_terminal()
+
+    @property
+    def terminal(self) -> bool:
+        """Whether this browser peer has reached an unrecoverable terminal state."""
+        return self._terminal_notified
+
+    def _notify_terminal(self) -> None:
+        """Ask the terminal owner to release this dead browser peer once."""
+        if self._terminal_notified:
+            return
+        self._terminal_notified = True
+        if self._on_terminal is not None:
+            try:
+                self._on_terminal()
+            except Exception:
+                # Browser lifecycle cleanup is best-effort.  A callback must
+                # never turn an ordinary DTLS close into a bridge crash.
+                pass
 
     @property
     def input_context(self) -> str:
