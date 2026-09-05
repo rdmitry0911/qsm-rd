@@ -186,38 +186,18 @@ async function verifyFullscreenRecoveryAndGuestCursor(popup) {
      * physical OS pointer. This avoids a delayed Display1 MouseSet canvas
      * jumping away from a native popup edge.
      */
-    const setKeyboardPriority = (priority) => popup.evaluate((value) => {
+    // This scenario proves the documented client-first route: browser Escape
+    // leaves native full screen and the guest cannot retain a pressed button.
+    const clientFirstReady = await popup.evaluate(() => {
         const select = document.getElementById('qsm-direct-keyboard-priority');
         if (!select) return false;
-        select.value = value;
+        select.value = 'client-first';
         select.dispatchEvent(new Event('change', { bubbles: true }));
-        return select.value === value;
-    }, priority);
-    const guestFirstReady = await setKeyboardPriority('guest-first');
-    if (!guestFirstReady) fail('KEYBOARD_PRIORITY_CONTROL_UNAVAILABLE');
+        return select.value === 'client-first';
+    });
+    if (!clientFirstReady) fail('KEYBOARD_PRIORITY_CONTROL_UNAVAILABLE');
     const fullscreen = popup.locator('button').filter({ hasText: /^Full Screen$/ }).last();
     if (await fullscreen.count() !== 1) fail('FULLSCREEN_CONTROL_UNAVAILABLE');
-    // Guest-first gives ordinary Escape to the VM. Its explicit capture-exit
-    // chord must instead leave browser full screen and focus a client control.
-    await fullscreen.click();
-    const guestEntered = await popup.waitForFunction(() => !!document.fullscreenElement, undefined, { timeout: 5000 })
-        .then(() => true).catch(() => false);
-    if (!guestEntered) fail('GUEST_FIRST_FULLSCREEN_ENTRY_NOT_OBSERVED');
-    const guestFirstVideo = popup.locator('video');
-    await guestFirstVideo.focus();
-    await guestFirstVideo.press('Control+Alt+Shift+Escape');
-    const guestExited = await popup.waitForFunction(() => !document.fullscreenElement, undefined, { timeout: 5000 })
-        .then(() => true).catch(() => false);
-    const guestCaptureReleased = guestExited && await popup.waitForFunction(() =>
-        document.activeElement?.textContent === 'Settings', undefined, { timeout: 1000 })
-        .then(() => true).catch(() => false);
-    if (!guestCaptureReleased) fail('GUEST_FIRST_CAPTURE_EXIT_NOT_OBSERVED');
-
-    // This second scenario proves the documented client-first route: browser
-    // Escape leaves native full screen and the guest cannot retain a pressed
-    // button.
-    const clientFirstReady = await setKeyboardPriority('client-first');
-    if (!clientFirstReady) fail('KEYBOARD_PRIORITY_CONTROL_UNAVAILABLE');
     await fullscreen.click();
     const entered = await popup.waitForFunction(() => !!document.fullscreenElement, undefined, { timeout: 5000 })
         .then(() => true).catch(() => false);
@@ -312,6 +292,38 @@ async function verifyFullscreenRecoveryAndGuestCursor(popup) {
             fail('FULLSCREEN_INPUT_OR_CURSOR_RECOVERY_FAILED');
         }
     }
+}
+
+async function verifyGuestFirstCaptureExit(popup) {
+    /*
+     * Run this after the drag metric: full-screen mode changes deliberately
+     * resize the guest, whereas the metric needs one stable fixture geometry.
+     * It is still a real popup/browser test of the guest-first handoff, not a
+     * synthetic DOM event.
+     */
+    const ready = await popup.evaluate(() => {
+        const select = document.getElementById('qsm-direct-keyboard-priority');
+        if (!select) return false;
+        select.value = 'guest-first';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        return select.value === 'guest-first';
+    });
+    if (!ready) fail('KEYBOARD_PRIORITY_CONTROL_UNAVAILABLE');
+    const fullscreen = popup.locator('button').filter({ hasText: /^Full Screen$/ }).last();
+    if (await fullscreen.count() !== 1) fail('FULLSCREEN_CONTROL_UNAVAILABLE');
+    await fullscreen.click();
+    const entered = await popup.waitForFunction(() => !!document.fullscreenElement, undefined, { timeout: 5000 })
+        .then(() => true).catch(() => false);
+    if (!entered) fail('GUEST_FIRST_FULLSCREEN_ENTRY_NOT_OBSERVED');
+    const video = popup.locator('video');
+    await video.focus();
+    await video.press('Control+Alt+Shift+Escape');
+    const exited = await popup.waitForFunction(() => !document.fullscreenElement, undefined, { timeout: 5000 })
+        .then(() => true).catch(() => false);
+    const clientFocused = exited && await popup.waitForFunction(() =>
+        document.activeElement?.textContent === 'Settings', undefined, { timeout: 1000 })
+        .then(() => true).catch(() => false);
+    if (!clientFocused) fail('GUEST_FIRST_CAPTURE_EXIT_NOT_OBSERVED');
 }
 
 async function verifyPopupControls(popup) {
@@ -567,6 +579,8 @@ async function main() {
             await verifyFullscreenRecoveryAndGuestCursor(popup);
             phase = 'MEASURING_POPUP_DRAG';
             await measurePopupDrag(popup, config.timeout);
+            phase = 'VERIFYING_GUEST_FIRST_CAPTURE_EXIT';
+            await verifyGuestFirstCaptureExit(popup);
         }
         if (observed.requests !== 1 || observed.responses !== 1 || observed.failures !== 0 || !observed.classes.has('2xx') || observed.outcome !== 'success') {
             fail('INVALID_PVE_DIRECT_HANDOFF');
