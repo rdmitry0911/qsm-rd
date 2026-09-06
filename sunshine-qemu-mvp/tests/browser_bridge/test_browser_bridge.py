@@ -30,11 +30,13 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     INPUT_KEYFRAME_REQUEST,
     INPUT_KEYBOARD,
     INPUT_MAGIC,
+    LOCAL_MEDIA_SOCKET_BUFFER_BYTES,
     INPUT_MOUSE_BUTTON,
     INPUT_MOUSE_POSITION,
     INPUT_RESIZE,
     INPUT_SCROLL,
     INPUT_VERSION,
+    MAX_FRAGMENT_BYTES,
     PACKET_AUDIO,
     PACKET_CONFIG,
     PACKET_CURSOR,
@@ -52,6 +54,12 @@ from extensions.browser_bridge.qsm_browser_bridge import (
 
 
 class BrowserBridgeAssemblerTests(unittest.TestCase):
+    def test_local_media_socket_buffer_is_large_enough_for_fragmented_idr(self) -> None:
+        # The producer and receiver intentionally reserve space for several
+        # 256 KiB private records, so a busy asyncio turn cannot cut a large
+        # IDR in half before WebRTC packetization starts.
+        self.assertGreaterEqual(LOCAL_MEDIA_SOCKET_BUFFER_BYTES, 2 * MAX_FRAGMENT_BYTES)
+
     def test_terminal_callback_is_idempotent(self) -> None:
         """A closed browser must not retain duplicate media subscriptions."""
         notified: list[str] = []

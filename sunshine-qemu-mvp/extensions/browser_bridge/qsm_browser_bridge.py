@@ -71,6 +71,10 @@ MAX_GUEST_FILE_BYTES = 2 * 1024 * 1024
 MAX_GUEST_UPLOAD_CHUNK_BYTES = 32 * 1024
 VIDEO_TIME_BASE = Fraction(1, 90_000)
 AUDIO_TIME_BASE = Fraction(1, 48_000)
+# The matching worker requests the same node-local socket capacity.  It holds
+# a burst of an H.264 IDR while the ingress thread queues its previous record
+# into asyncio; it is never exposed as a browser presentation queue.
+LOCAL_MEDIA_SOCKET_BUFFER_BYTES = 2 * 1024 * 1024
 _GUEST_FILE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 # This route is an interactive console, not a recorder.  A browser which is
 # temporarily behind must receive the current encoded picture rather than a
@@ -423,6 +427,17 @@ class UnixTapIngress:
         try:
             for path in (self.video_path, self.audio_path):
                 listener = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+                # A large IDR can span multiple private packet records.  The
+                # worker must not drop the tail merely because this ingress
+                # thread is scheduling the preceding record into asyncio.
+                # This best-effort request remains within PVE's normal 4 MiB
+                # system cap and preserves the old bounded behaviour on an
+                # unusually restrictive host.
+                try:
+                    listener.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF,
+                                        LOCAL_MEDIA_SOCKET_BUFFER_BYTES)
+                except OSError:
+                    pass
                 listener.bind(os.fspath(path))
                 os.chmod(path, 0o600)
                 listener.listen(1)
@@ -509,6 +524,11 @@ class UnixTapIngress:
             try:
                 if self._peer_uid(connection) != self._expected_uid:
                     raise BridgeError("unexpected local media producer identity")
+                try:
+                    connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF,
+                                          LOCAL_MEDIA_SOCKET_BUFFER_BYTES)
+                except OSError:
+                    pass
                 connection.settimeout(0.25)
                 while not self._stopping.is_set():
                     try:

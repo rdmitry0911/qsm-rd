@@ -93,6 +93,13 @@ constexpr std::size_t packet_header_size = 20U;
 constexpr std::size_t input_header_size = 8U;
 constexpr std::size_t max_fragment_bytes = 256U * 1024U;
 constexpr std::size_t max_access_unit_bytes = 4U * 1024U * 1024U;
+// A large H.264 IDR is emitted as several private SOCK_SEQPACKET records.
+// Keep enough headroom for one complete current access unit while the Python
+// bridge is handing a preceding packet to asyncio.  This is strictly a
+// node-local buffer; it is not a browser/WebRTC playout queue.  The PVE 9
+// default wmem/rmem maximum is 4 MiB, so Linux applies this 2 MiB request
+// without privileged sysctl changes.
+constexpr int media_socket_buffer_bytes = 2 * 1024 * 1024;
 constexpr std::uint16_t max_cursor_edge = 64U;
 constexpr std::size_t cursor_wire_header_size = 34U;
 constexpr std::uint8_t cursor_wire_version = 1U;
@@ -391,6 +398,13 @@ public:
         if (descriptor < 0) {
             throw WorkerError("cannot create direct media socket");
         }
+        // Do this before connect so the worker never begins writing a large
+        // IDR into the small default Unix socket queue.  A refusal is not a
+        // fatal configuration error: the paired bridge still validates every
+        // record and the fallback preserves the former bounded-drop policy.
+        const int buffer_size = media_socket_buffer_bytes;
+        (void) ::setsockopt(descriptor, SOL_SOCKET, SO_SNDBUF,
+                            &buffer_size, sizeof(buffer_size));
         sockaddr_un address {};
         address.sun_family = AF_UNIX;
         std::memcpy(address.sun_path, path.c_str(), path.size() + 1U);
