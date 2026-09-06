@@ -130,11 +130,18 @@ const openDisplayEditor = async (page, timeout) => {
             candidate.down && candidate.down('[name=qsm_direct_display1]') &&
             candidate.down('[name=qsm_direct_rendernode]'));
         const display = editor && editor.down && editor.down('[name=qsm_direct_display1]');
+        const profile = editor && editor.down && editor.down('[name=qsm_direct_profile]');
         const renderNode = editor && editor.down && editor.down('[name=qsm_direct_rendernode]');
         const graphicCard = editor && editor.down && editor.down('[name=type]');
-        if (!display || !renderNode) return null;
+        if (!display || !profile || !renderNode) return null;
+        const store = profile.getStore && profile.getStore();
+        const profiles = store && store.getRange ? store.getRange().map((record) => String(
+            record.get ? record.get('value') : record.data && record.data.value,
+        )) : [];
         return {
             displayEnabled: display.getValue() === true || display.getValue() === 1 || display.getValue() === '1',
+            profile: String(profile.getValue() || ''),
+            profiles,
             renderNode: String(renderNode.getValue() || ''),
             renderNodeDisabled: renderNode.disabled === true,
             graphicCard: graphicCard ? String(graphicCard.getValue() || '') : '',
@@ -178,12 +185,14 @@ const main = async () => {
         await selectLiveQemuVm(page, options.vmid, options.timeout);
         status('opening Display editor');
         const result = await openDisplayEditor(page, options.timeout);
-        if (!result || result.displayEnabled !== true || result.renderNodeDisabled ||
+        if (!result || result.displayEnabled !== true || result.profile !== 'virgl' ||
+            !Array.isArray(result.profiles) || !result.profiles.includes('virgl') ||
+            !result.profiles.includes('cpu') || result.renderNodeDisabled ||
             !RENDER_NODE_PATTERN.test(result.renderNode) || result.graphicCard !== 'none') {
             fail('PVE_DISPLAY1_FIELDS_INVALID');
         }
         process.stdout.write(
-            `QSM_DIRECT_PVE_DISPLAY1_UI_E2E_OK vmid=${options.vmid} rendernode=${result.renderNode} vga=${result.graphicCard}\n`,
+            `QSM_DIRECT_PVE_DISPLAY1_UI_E2E_OK vmid=${options.vmid} profile=${result.profile} cpu_profile=yes rendernode=${result.renderNode} vga=${result.graphicCard}\n`,
         );
     } finally {
         if (password) {

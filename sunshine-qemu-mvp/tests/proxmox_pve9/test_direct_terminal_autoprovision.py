@@ -23,18 +23,39 @@ if str(IMPORT_ROOT) not in sys.path:
 
 if PACKAGE_LIBRARY:
     from direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
-                                                     DirectVmTransport, _managed_guest_channel_enabled,
+                                                     DirectVmTransport, _managed_display_enabled,
+                                                     _managed_guest_channel_enabled,
                                                      _qemu_process_generation, _load_optional_instance,
                                                      DirectTerminalError)
 else:
     from extensions.direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
-                                                                 DirectVmTransport, _managed_guest_channel_enabled,
+                                                                 DirectVmTransport, _managed_display_enabled,
+                                                                 _managed_guest_channel_enabled,
                                                                  _qemu_process_generation, _load_optional_instance,
                                                                  DirectTerminalError)
 
 
 @unittest.skipUnless(shutil.which("dbus-daemon"), "dbus-daemon is required")
 class DirectTerminalAutoprovisionTests(unittest.TestCase):
+    def test_cpu_display1_accepts_only_stock_non_gl_vga_profiles(self) -> None:
+        runtime = Path("/run/qsm-pve-direct")
+        argument = (
+            "-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=off"
+        )
+        self.assertTrue(_managed_display_enabled(f"vga: std\nargs: {argument}\n", 321, runtime))
+        self.assertTrue(_managed_display_enabled(
+            f"vga: virtio,memory=256\nargs: {argument}\n", 321, runtime))
+        self.assertTrue(_managed_display_enabled(
+            f"args: {argument}\n", 321, runtime), "PVE's absent vga key is Standard VGA")
+        for vga in ("none", "virtio-gl", "qxl"):
+            self.assertFalse(_managed_display_enabled(
+                f"vga: {vga}\nargs: {argument}\n", 321, runtime), vga)
+        self.assertFalse(_managed_display_enabled(
+            f"vga: std\nargs: {argument} -device virtio-vga-gl,id=foreign\n", 321, runtime))
+        self.assertFalse(_managed_display_enabled(
+            "vga: std\nargs: -display dbus,addr=unix:path=/run/qsm-pve-direct/321/"
+            "qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128\n", 321, runtime))
+
     def test_absent_encoder_policy_uses_verified_auto_selection(self) -> None:
         with tempfile.TemporaryDirectory(prefix="qsm-direct-auto-policy.") as temporary:
             root = Path(temporary)

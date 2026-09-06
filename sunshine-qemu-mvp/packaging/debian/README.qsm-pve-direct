@@ -24,16 +24,27 @@ reconciles the bus automatically. Package upgrades may restart the terminal
 service, but preserve every live private Display1 bus: a running configured
 VM does not need to be rebooted solely for this package update.
 
-In the PVE VM's **Hardware → Display → Advanced**, enable **QSM Display1**.
-It disables PVE's VNC display for that VM, then writes one private D-Bus
-Display1 argument and one VirtIO-GPU (VirGL) device. PVE VNC cannot coexist
-with QEMU's GL Display1 backend; use QSM Direct as the VM's browser console
-while this setting is enabled. Reopening the dialog restores the checkbox and
+In the PVE VM's **Hardware → Display → Advanced**, enable **QSM Display1**
+and select one profile:
+
+* **VirGL GPU (GL)** saves PVE Graphic card as `none`, then owns one private
+  `virtio-vga-gl` device and `-display dbus,...,gl=on,rendernode=...`. PVE VNC
+  cannot coexist with that GL Display1 backend.
+* **CPU — Standard VGA or VirtIO (no GL)** keeps the selected PVE `std` or
+  non-GL `virtio` graphic adapter and writes only
+  `-display dbus,...,gl=off`. It needs neither a render node nor a host GPU;
+  normal PVE VNC remains usable alongside QSM Direct.
+
+Reopening the dialog restores the checkbox, profile, and (for VirGL only)
 render node from the saved arguments. **QSM Direct** in the Console menu is
-enabled only for a VM with that exact Display1 configuration. Start the VM,
-then choose the enabled menu item. Resizing the console window or entering/leaving
-fullscreen sends the selected even viewport to QEMU Display1 and causes a
-fresh H.264 configuration/IDR boundary.
+enabled only for one of those exact private Display1 configurations. Start the
+VM, then choose the enabled menu item. Resizing the console window or
+entering/leaving fullscreen sends the selected even viewport to QEMU Display1
+and causes a fresh H.264 configuration/IDR boundary when the guest adapter
+implements `Console.SetUIInfo`. Non-GL VirtIO does; QEMU Standard VGA exposes
+a fixed Display1 scanout and rejects that optional method, so QSM keeps the
+video and input connected at its guest-selected mode rather than failing the
+console.
 
 The Console window's **Settings** panel stores the media policy per VM on the
 node in root-owned `/etc/qsm-pve-direct/instances.d/<VMID>.conf` (0600), not

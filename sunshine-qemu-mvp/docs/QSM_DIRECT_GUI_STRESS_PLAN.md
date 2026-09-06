@@ -1,15 +1,15 @@
 # QSM Direct: stress plan for the PVE browser console
 
 This plan qualifies the PVE 9 Display editor and the browser-native console
-as one lifecycle.  A successful API save is not sufficient: PVE must launch
-one GL Display1 backend, the guest must receive input, and the browser must
-retire its popup when that backend disappears.
+as one lifecycle. A successful API save is not sufficient: PVE must launch
+the selected private Display1 backend, the guest must receive input, and the
+browser must retire its popup when that backend disappears.
 
 ## Configuration matrix
 
-For every stock PVE 9 Graphic card value (`std`, `vmware`, `qxl`, `qxl2`,
-`qxl3`, `qxl4`, `virtio`, `virtio-gl`, `serial0` through `serial3`, and
-`none`), repeat eight transitions:
+For the **VirGL GPU (GL)** profile, repeat eight transitions for every stock
+PVE 9 Graphic card value (`std`, `vmware`, `qxl`, `qxl2`, `qxl3`, `qxl4`,
+`virtio`, `virtio-gl`, `serial0` through `serial3`, and `none`):
 
 1. choose the stock value and save it;
 2. enable QSM Display1 with a valid render node;
@@ -23,10 +23,20 @@ configuration must contain exactly one owned `virtio-vga-gl` and one private
 owned GPU in place, and reject a foreign GPU, duplicate owned GPU, or another
 QEMU display rather than silently modifying it.
 
+For the **CPU — Standard VGA or VirtIO (no GL)** profile, repeat the same
+enable/reopen/disable sequence for `std` and `virtio` only. Each enabled
+configuration must preserve its selected `vga` value, contain exactly one
+private `-display dbus,...,gl=off` argument, and contain no `virtio-vga-gl`
+argument or render node. QEMU Standard VGA is expected to keep a fixed
+scanout because it does not implement `Console.SetUIInfo`: Chrome video and
+input must remain live rather than the worker exiting. Non-GL VirtIO must
+additionally pass window → fullscreen → window geometry transitions.
+
 ## Browser and lifecycle matrix
 
-For a running VirGL guest, exercise each item in both a normal resizable popup
-and browser full screen:
+For a running VirGL guest and non-GL VirtIO guest, exercise each item in both
+a normal resizable popup and browser full screen. For Standard VGA, retain the
+same lifecycle/input checks at its fixed guest mode:
 
 1. first VM-page render enables the Console menu without a reload;
 2. popup blocked by the browser produces an actionable message;

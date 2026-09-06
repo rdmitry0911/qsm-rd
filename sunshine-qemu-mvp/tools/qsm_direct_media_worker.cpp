@@ -154,6 +154,10 @@ struct Options {
     std::optional<std::string> vaapi_device;
     std::uint32_t fps {60U};
     std::optional<Size> initial_size;
+    // Standard VGA exposes Display1 scanout but QEMU deliberately does not
+    // implement Console.SetUIInfo for it. CPU Display1 must keep streaming
+    // that fixed scanout rather than treating a resize hint as a media error.
+    bool allow_unsupported_ui_info {false};
 };
 
 [[noreturn]] void usage(int status) {
@@ -165,7 +169,9 @@ struct Options {
         << "  --encoder NAME              FFmpeg H.264 encoder (default: libx264)\n"
         << "  --vaapi-device /dev/dri/renderD<N>  VA-API node for h264_vaapi\n"
         << "  --fps N                     10..240 (default: 60)\n"
-        << "  --initial-size WIDTHxHEIGHT request initial guest scanout\n";
+        << "  --initial-size WIDTHxHEIGHT request initial guest scanout\n"
+        << "  --allow-unsupported-ui-info retain a fixed scanout when its adapter"
+           " does not implement SetUIInfo\n";
     std::exit(status);
 }
 
@@ -230,6 +236,8 @@ Options parse_options(int argc, char **argv) {
             options.fps = parse_integer<std::uint32_t>(next(index, argument), "frame rate");
         } else if (argument == "--initial-size") {
             options.initial_size = parse_size(next(index, argument));
+        } else if (argument == "--allow-unsupported-ui-info") {
+            options.allow_unsupported_ui_info = true;
         } else if (argument == "--help" || argument == "-h") {
             usage(EXIT_SUCCESS);
         } else {
@@ -1185,8 +1193,10 @@ private:
 class InputReceiver {
 public:
     InputReceiver(std::string path, qmdp::DesktopSession &session,
-                  DirectMediaAdapter &media, std::uint32_t fps)
-        : path_(std::move(path)), session_(session), media_(media), fps_(fps) {}
+                  DirectMediaAdapter &media, std::uint32_t fps,
+                  bool allow_unsupported_ui_info)
+        : path_(std::move(path)), session_(session), media_(media), fps_(fps),
+          allow_unsupported_ui_info_(allow_unsupported_ui_info) {}
 
     ~InputReceiver() { stop(); }
 
@@ -1217,13 +1227,27 @@ public:
         if (descriptor_ >= 0) { ::close(descriptor_); descriptor_ = -1; }
     }
 
+    void set_initial_size(std::uint32_t width, std::uint32_t height) {
+        set_size(width, height, fps_);
+    }
+
 private:
     void set_size(std::uint32_t width, std::uint32_t height, std::uint32_t fps) {
         if (width < 64U || height < 64U || width > 16'384U || height > 16'384U || fps < 10U || fps > 240U) {
             return;
         }
-        session_.set_ui_info({.request_id = ++resize_id_, .width = width, .height = height,
-                              .refresh_millihz = fps * 1000U, .remote_scale_percent = 100U});
+        if (!ui_info_supported_) { return; }
+        try {
+            session_.set_ui_info({.request_id = ++resize_id_, .width = width, .height = height,
+                                  .refresh_millihz = fps * 1000U, .remote_scale_percent = 100U});
+        } catch (...) {
+            if (!allow_unsupported_ui_info_) { throw; }
+            // The browser can still display and map input to the current
+            // scanout. Log only a stable local diagnostic rather than a
+            // D-Bus-provided error string.
+            ui_info_supported_ = false;
+            std::cerr << "QSM_DIRECT_MEDIA_UI_INFO_UNSUPPORTED fixed_scanout=yes\n" << std::flush;
+        }
     }
 
     void release_held_input() noexcept {
@@ -1324,6 +1348,8 @@ private:
     std::array<bool, 5U> pressed_buttons_ {};
     std::unordered_set<std::uint16_t> pressed_keys_;
     bool absolute_pointer_ {false};
+    bool allow_unsupported_ui_info_ {false};
+    bool ui_info_supported_ {true};
     std::uint64_t resize_id_ {};
 };
 
@@ -1401,14 +1427,12 @@ int run(const Options &options) {
     qmdp::QemuDbusDisplay display(std::move(display_options));
     qmdp::DesktopSession session(display, media, {.frame_wait = 20ms});
     session.start();
-    InputReceiver input(options.input_socket, session, media, options.fps);
+    InputReceiver input(options.input_socket, session, media, options.fps,
+                        options.allow_unsupported_ui_info);
     try {
         input.start();
         if (options.initial_size) {
-            session.set_ui_info({.request_id = 1U, .width = options.initial_size->width,
-                                 .height = options.initial_size->height,
-                                 .refresh_millihz = options.fps * 1000U,
-                                 .remote_scale_percent = 100U});
+            input.set_initial_size(options.initial_size->width, options.initial_size->height);
         }
         std::cout << "QSM_DIRECT_MEDIA_READY encoder=" << options.encoder << " fps=" << options.fps << '\n' << std::flush;
         // Display1 has no reconnect protocol. A QEMU stop closes its D-Bus

@@ -201,6 +201,10 @@ assert.match(source, /Hardware only/,
     'the VM policy must distinguish a required hardware encoder from automatic fallback');
 assert.match(source, /HEVC — not available yet/,
     'the UI must not claim HEVC is usable before the browser WebRTC stack can negotiate it');
+assert.match(source, /CPU — Standard VGA or VirtIO \(no GL\)/,
+    'the Display editor must expose a non-GL CPU profile beside VirGL');
+assert.match(source, /gl=off/,
+    'the CPU profile must configure an explicit non-GL QEMU Display1 backend');
 assert.doesNotMatch(source, /Ext\.create\('Ext\.window\.Window'/,
     'the direct console must not be trapped inside the PVE browser page');
 
@@ -236,6 +240,40 @@ assert.deepEqual(
     },
     'enabling Display1 must replace PVE VNC with one managed VirGL/Display1 pair',
 );
+
+// CPU Display1 owns only the D-Bus backend. Standard VGA and non-GL VirtIO
+// remain PVE-owned, so systems without a DRM render node can use the exact
+// same browser transport and retain their ordinary VNC console as well.
+for (const [type, memory] of [['std', undefined], ['virtio', '256']]) {
+    vmWindow.vmconfig.args = '-cpu host';
+    const cpuResult = displayOverlay.onGetValues.call(displayPanel, {
+        type, memory, qsm_direct_display1: 1, qsm_direct_profile: 'cpu',
+    });
+    assert.equal(cpuResult.vga, memory === undefined ? `type=${type}` : `type=${type},memory=${memory}`,
+        `CPU Display1 preserves PVE ${type}`);
+    assert.match(cpuResult.args, /-display dbus,addr=unix:path=\/run\/qsm-pve-direct\/321\/qemu-display1\.bus,gl=off/);
+    assert.doesNotMatch(cpuResult.args, /virtio-vga-gl/,
+        `CPU Display1 must not append a GL GPU for ${type}`);
+    assert.match(cpuResult.args, /-device usb-kbd,id=qsm-direct-keyboard/);
+
+    vmWindow.vmconfig.args = cpuResult.args;
+    const restored = displayOverlay.onGetValues.call(displayPanel, {
+        type, memory, qsm_direct_display1: 0, qsm_direct_profile: 'cpu',
+    });
+    assert.deepEqual(restored, {
+        vga: memory === undefined ? `type=${type}` : `type=${type},memory=${memory}`,
+        args: '-cpu host',
+    }, `disabling CPU Display1 preserves the selected ${type}`);
+}
+vmWindow.vmconfig.args = '-cpu host';
+assert.throws(() => displayOverlay.onGetValues.call(displayPanel, {
+    type: 'none', qsm_direct_display1: 1, qsm_direct_profile: 'cpu',
+}), /CPU Display1 requires PVE Graphic card Standard VGA or VirtIO/,
+    'CPU Display1 rejects a display-less configuration rather than opening a black console');
+assert.throws(() => displayOverlay.onGetValues.call(displayPanel, {
+    type: 'virtio-gl', qsm_direct_display1: 1, qsm_direct_profile: 'cpu',
+}), /CPU Display1 requires PVE Graphic card Standard VGA or VirtIO/,
+    'CPU Display1 must not silently retain a GL PVE adapter');
 
 // PVE's normal list contains display types with and without a memory value.
 // Exercise every non-default form accepted by PVE 9 through repeated
@@ -356,6 +394,7 @@ const displayEdit = {
 displayEditOverlay.initComponent.call(displayEdit);
 assert.deepEqual(restoredValues, {
     qsm_direct_display1: 1,
+    qsm_direct_profile: 'virgl',
     qsm_direct_rendernode: '/dev/dri/renderD130',
 });
 assert.equal(renderNodeDisabled, false, 'reopening a configured VM must preserve the enabled render node');

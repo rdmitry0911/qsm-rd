@@ -160,7 +160,9 @@ node lab/proxmox9/qualify-pve-display1-ui.cjs \
 ```
 
 The result is a bounded marker such as
-`QSM_PVE_DISPLAY1_UI_E2E_OK vmid=100 rendernode=/dev/dri/renderD128`.  It
+`QSM_DIRECT_PVE_DISPLAY1_UI_E2E_OK vmid=100 profile=virgl cpu_profile=yes rendernode=/dev/dri/renderD128`.
+It confirms that both the VirGL and CPU/no-GL choices are present in the live
+PVE Display editor; it does not save a VM change. It
 checks the live PVE UI, not a mocked ExtJS component, and never prints a
 password, PVE ticket, cookie, VM argument string, or API response body.
 

@@ -12,6 +12,14 @@
     const DEFAULT_RENDER_NODE = '/dev/dri/renderD128';
     const DIRECT_GPU_ID = 'qsm-direct-gpu';
     const DIRECT_AGENT_ID = 'qsm-direct-agent';
+    // VirGL is an optional acceleration profile, not a prerequisite for the
+    // browser transport. The CPU profile relies on PVE's stock VGA adapter
+    // and explicitly uses QEMU's non-GL Display1 backend.
+    const DISPLAY_PROFILE = Object.freeze({
+        virgl: 'virgl',
+        cpu: 'cpu',
+    });
+    const CPU_DISPLAY_VGA_TYPES = new Set(['std', 'virtio']);
     // Console preferences are deliberately browser-local.  They do not
     // contain a credential, VM identifier, SDP, or any host policy: the PVE
     // Console route remains the sole authority for those.  Keeping the UI
@@ -83,14 +91,22 @@
     const validVmid = (value) => Number.isInteger(value) && value >= MIN_VMID && value <= MAX_VMID;
     const validRenderNode = (value) => typeof value === 'string' && /^\/dev\/dri\/renderD[0-9]{1,4}$/.test(value);
     const enabled = (value) => value === true || value === 1 || value === '1';
+    const displayProfile = (value) => Object.values(DISPLAY_PROFILE).includes(value)
+        ? value : DISPLAY_PROFILE.virgl;
     const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const windowVmid = (window) => {
         const selected = window && window.pveSelNode && window.pveSelNode.data;
         const vmid = selected ? Number(selected.vmid) : NaN;
         return validVmid(vmid) ? vmid : null;
     };
-    const displayArgument = (vmid, rendernode) => {
-        if (!validVmid(vmid) || !validRenderNode(rendernode)) {
+    const displayArgument = (vmid, profile, rendernode) => {
+        if (!validVmid(vmid)) {
+            throw new Error('invalid direct Display1 settings');
+        }
+        if (profile === DISPLAY_PROFILE.cpu) {
+            return `-display dbus,addr=unix:path=${RUNTIME_PREFIX}/${vmid}/qemu-display1.bus,gl=off`;
+        }
+        if (profile !== DISPLAY_PROFILE.virgl || !validRenderNode(rendernode)) {
             throw new Error('invalid direct Display1 settings');
         }
         return `-display dbus,addr=unix:path=${RUNTIME_PREFIX}/${vmid}/qemu-display1.bus,gl=on,rendernode=${rendernode}`;
@@ -101,8 +117,11 @@
         '-device virtio-serial-pci,id=qsm-direct-serial',
         `-device virtserialport,chardev=${DIRECT_AGENT_ID},name=org.qsm.direct.agent`,
     ];
-    const displayPattern = (vmid) => new RegExp(
+    const virglDisplayPattern = (vmid) => new RegExp(
         `(?:^|\\s)-display\\s+dbus,addr=unix:path=${escapeRegExp(RUNTIME_PREFIX)}/${vmid}/qemu-display1\\.bus,gl=on,rendernode=(/dev/dri/renderD[0-9]{1,4})(?=\\s|$)`,
+    );
+    const cpuDisplayPattern = (vmid) => new RegExp(
+        `(?:^|\\s)-display\\s+dbus,addr=unix:path=${escapeRegExp(RUNTIME_PREFIX)}/${vmid}/qemu-display1\\.bus,gl=off(?=\\s|$)`,
     );
     const displayCount = (args) => (args.match(/(?:^|\s)-display(?:\s|$)/g) || []).length;
     const virtioVgaGlArguments = (args) => args.match(
@@ -130,14 +149,16 @@
     ), args).trim().replace(/\s{2,}/g, ' ');
     const displayState = (args, vmid) => {
         if (typeof args !== 'string' || !validVmid(vmid)) {
-            return { managed: false, legacy: false, legacyGpu: false, rendernode: DEFAULT_RENDER_NODE };
+            return { managed: false, legacy: false, legacyGpu: false, profile: DISPLAY_PROFILE.virgl,
+                rendernode: DEFAULT_RENDER_NODE };
         }
-        const match = args.match(displayPattern(vmid));
+        const virglMatch = args.match(virglDisplayPattern(vmid));
+        const cpuMatch = args.match(cpuDisplayPattern(vmid));
         const gpu = virtioVgaGlArguments(args).map(normaliseArgument);
-        if (match && displayCount(args) === 1) {
+        if (virglMatch && displayCount(args) === 1) {
             if (gpu.length === 1 && gpu[0] === gpuArgument()) {
                 return { managed: true, legacy: false, legacyGpu: false, guest: managedGuestChannel(args, vmid),
-                    input: managedDirectInput(args), rendernode: match[1] };
+                    input: managedDirectInput(args), profile: DISPLAY_PROFILE.virgl, rendernode: virglMatch[1] };
             }
             // git20 emitted the unlabelled VirtIO-GPU argument. It is safe to
             // migrate only that exact historical form; any device options or
@@ -145,36 +166,63 @@
             // silently claimed or duplicated by this UI overlay.
             if (gpu.length === 1 && gpu[0] === '-device virtio-vga-gl') {
                 return { managed: false, legacy: true, legacyGpu: true, guest: managedGuestChannel(args, vmid),
-                    input: managedDirectInput(args), rendernode: match[1] };
+                    input: managedDirectInput(args), profile: DISPLAY_PROFILE.virgl, rendernode: virglMatch[1] };
             }
             if (gpu.length === 0) {
                 return { managed: false, legacy: true, legacyGpu: false, guest: managedGuestChannel(args, vmid),
-                    input: managedDirectInput(args), rendernode: match[1] };
+                    input: managedDirectInput(args), profile: DISPLAY_PROFILE.virgl, rendernode: virglMatch[1] };
             }
         }
-        return { managed: false, legacy: false, legacyGpu: false, rendernode: DEFAULT_RENDER_NODE };
+        // The stock Standard VGA/non-GL VirtIO adapter is owned by PVE and is
+        // not present in `args`. Reject any GL GPU here instead of claiming a
+        // foreign adapter while enabling CPU Display1.
+        if (cpuMatch && displayCount(args) === 1 && gpu.length === 0) {
+            return { managed: true, legacy: false, legacyGpu: false, guest: managedGuestChannel(args, vmid),
+                input: managedDirectInput(args), profile: DISPLAY_PROFILE.cpu,
+                rendernode: DEFAULT_RENDER_NODE };
+        }
+        return { managed: false, legacy: false, legacyGpu: false, profile: DISPLAY_PROFILE.virgl,
+            rendernode: DEFAULT_RENDER_NODE };
     };
-    const updateDisplayArgument = (args, vmid, rendernode, want) => {
+    const removeArgument = (args, argument) => args.replace(
+        new RegExp(`(?:^|\\s)${escapeRegExp(argument)}(?=\\s|$)`), '',
+    ).trim().replace(/\s{2,}/g, ' ');
+    const replaceArgument = (args, previous, wanted) => args.replace(
+        new RegExp(`(?:^|\\s)${escapeRegExp(previous)}(?=\\s|$)`), (value) =>
+            value.startsWith(' ') ? ` ${wanted}` : wanted);
+    const updateDisplayArgument = (args, vmid, profile, rendernode, want) => {
         args = args === undefined || args === null ? '' : args;
         if (typeof args !== 'string' || args.length > MAX_QEMU_ARGS_BYTES || /[\x00-\x1f\x7f]/.test(args)) {
             throw new Error('unsafe QEMU display arguments');
         }
+        profile = displayProfile(profile);
         const existing = displayState(args, vmid);
         const count = displayCount(args);
         const gpu = virtioVgaGlArguments(args).map(normaliseArgument);
-        const wanted = displayArgument(vmid, rendernode);
+        const wanted = displayArgument(vmid, profile, rendernode);
         if (want) {
             if (count === 0) {
                 if (gpu.length !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
-                const added = `${gpuArgument()} ${wanted} ${guestArguments(vmid).join(' ')} ${DIRECT_INPUT_ARGUMENTS.join(' ')}`;
+                const ownedGpu = profile === DISPLAY_PROFILE.virgl ? `${gpuArgument()} ` : '';
+                const added = `${ownedGpu}${wanted} ${guestArguments(vmid).join(' ')} ${DIRECT_INPUT_ARGUMENTS.join(' ')}`;
                 return args ? `${args} ${added}` : added;
             }
             if (!existing.managed && !existing.legacy) {
                 throw new Error('another QEMU display is configured');
             }
-            const previous = displayArgument(vmid, existing.rendernode);
-            const updated = args.replace(new RegExp(`(?:^|\\s)${escapeRegExp(previous)}(?=\\s|$)`), (value) =>
-                value.startsWith(' ') ? ` ${wanted}` : wanted);
+            const previous = displayArgument(vmid, existing.profile, existing.rendernode);
+            let updated = replaceArgument(args, previous, wanted);
+            if (profile === DISPLAY_PROFILE.cpu) {
+                if (existing.profile === DISPLAY_PROFILE.virgl) {
+                    updated = existing.legacyGpu
+                        ? updated.replace(/(?:^|\s)-device\s+virtio-vga-gl(?=\s|$)/, '')
+                        : removeArgument(updated, gpuArgument());
+                }
+                return addManagedDirectInput(addManagedGuestChannel(updated, vmid));
+            }
+            if (existing.profile === DISPLAY_PROFILE.cpu) {
+                return addManagedDirectInput(addManagedGuestChannel(`${updated} ${gpuArgument()}`, vmid));
+            }
             if (existing.managed) { return addManagedDirectInput(addManagedGuestChannel(updated, vmid)); }
             if (existing.legacyGpu) {
                 return addManagedDirectInput(addManagedGuestChannel(updated.replace(
@@ -188,24 +236,45 @@
             if (gpu.length !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
             return args;
         }
-        const previous = displayArgument(vmid, existing.rendernode);
-        const withoutDisplay = args.replace(
-            new RegExp(`(?:^|\\s)${escapeRegExp(previous)}(?=\\s|$)`), '').trim();
+        const previous = displayArgument(vmid, existing.profile, existing.rendernode);
+        const withoutDisplay = removeArgument(args, previous);
+        if (existing.profile === DISPLAY_PROFILE.cpu) {
+            return removeManagedDirectInput(removeManagedGuestChannel(withoutDisplay, vmid));
+        }
         const withoutGpu = existing.legacyGpu
             ? withoutDisplay.replace(/(?:^|\s)-device\s+virtio-vga-gl(?=\s|$)/, '')
-            : withoutDisplay.replace(
-                new RegExp(`(?:^|\\s)${escapeRegExp(gpuArgument())}(?=\\s|$)`), '');
+            : removeArgument(withoutDisplay, gpuArgument());
         return removeManagedDirectInput(removeManagedGuestChannel(withoutGpu, vmid));
+    };
+
+    const updateDisplayFields = (panel, active, profile) => {
+        const rendernode = panel && panel.down('[name=qsm_direct_rendernode]');
+        if (rendernode) { rendernode.setDisabled(!active || profile !== DISPLAY_PROFILE.virgl); }
     };
 
     const displayFields = () => [
         {
             xtype: 'proxmoxcheckbox', name: 'qsm_direct_display1', uncheckedValue: 0,
             defaultValue: 0, deleteDefaultValue: true, fieldLabel: gettext('QSM Display1'),
-            boxLabel: gettext('Replace VNC with D-Bus Display1 and VirGL GPU (PVE display becomes None)'),
+            boxLabel: gettext('Enable the private D-Bus Display1 browser console'),
             listeners: { change: function (_field, value) {
-                const node = this.up('inputpanel').down('[name=qsm_direct_rendernode]');
-                if (node) { node.setDisabled(!enabled(value)); }
+                const panel = this.up('inputpanel');
+                const profileField = panel && panel.down('[name=qsm_direct_profile]');
+                updateDisplayFields(panel, enabled(value), displayProfile(profileField && profileField.getValue()));
+            }},
+        },
+        {
+            xtype: 'combo', name: 'qsm_direct_profile', value: DISPLAY_PROFILE.virgl,
+            fieldLabel: gettext('Display1 profile'), queryMode: 'local', editable: false, forceSelection: true,
+            displayField: 'label', valueField: 'value',
+            store: { fields: ['value', 'label'], data: [
+                { value: DISPLAY_PROFILE.virgl, label: gettext('VirGL GPU (GL)') },
+                { value: DISPLAY_PROFILE.cpu, label: gettext('CPU — Standard VGA or VirtIO (no GL)') },
+            ] },
+            listeners: { change: function (_field, value) {
+                const panel = this.up('inputpanel');
+                const enabledField = panel && panel.down('[name=qsm_direct_display1]');
+                updateDisplayFields(panel, enabled(enabledField && enabledField.getValue()), displayProfile(value));
             }},
         },
         {
@@ -214,7 +283,7 @@
             validator: (value) => validRenderNode(value) || gettext('Use a DRM render node, for example /dev/dri/renderD128.'),
         },
         { xtype: 'displayfield', userCls: 'pmx-hint', value: gettext(
-            'When enabled, PVE Graphic card is intentionally saved as None: this prevents PVE from adding an incompatible VNC backend. QSM Direct owns the private D-Bus display, VirtIO-GPU (VirGL), and an optional guest-tools serial channel for clipboard and files. Restart the VM after changing this setting. To return to VNC, disable QSM Display1 and select a PVE graphic card.'),
+            'VirGL owns a private VirtIO-GPU and saves PVE Graphic card as None, because VNC and GL Display1 are incompatible. CPU Display1 uses gl=off and keeps the selected Standard VGA or non-GL VirtIO adapter, so no render node or host GPU is needed. If an adapter does not implement Display1 resize, QSM keeps its fixed guest scanout connected instead of failing the console. The optional guest-tools serial channel provides clipboard and files. Restart the VM after changing this setting.'),
         },
     ];
 
@@ -228,9 +297,14 @@
             const edit = this.up('proxmoxWindowEdit');
             const vmid = windowVmid(edit);
             const active = enabled(values.qsm_direct_display1);
+            const profile = displayProfile(values.qsm_direct_profile);
             const rendernode = values.qsm_direct_rendernode || DEFAULT_RENDER_NODE;
-            if (!edit || !edit.vmconfig || (active && (!validVmid(vmid) || !validRenderNode(rendernode)))) {
+            if (!edit || !edit.vmconfig || (active && (!validVmid(vmid) ||
+                (profile === DISPLAY_PROFILE.virgl && !validRenderNode(rendernode))))) {
                 throw new Error('direct Display1 configuration is invalid');
+            }
+            if (active && profile === DISPLAY_PROFILE.cpu && !CPU_DISPLAY_VGA_TYPES.has(values.type)) {
+                throw new Error('CPU Display1 requires PVE Graphic card Standard VGA or VirtIO');
             }
             // PVE 9 does not populate `memory` for every VGA type. Passing an
             // explicit `undefined` becomes `vga.memory=undefined` at the API
@@ -238,17 +312,19 @@
             // supplied integer (the ExtJS field may serialize it as a string),
             // but leave the property out when the field is absent.
             // PVE normally appends both egl-headless and VNC for virtio-gl.
-            // QEMU rejects VNC next to a GL Display1 backend. With vga=none,
-            // PVE emits no VNC and the managed args own the single virgl GPU.
-            const result = { type: active ? 'none' : values.type };
+            // QEMU rejects VNC next to a GL Display1 backend. VirGL therefore
+            // owns its GPU and uses vga=none. The CPU DBus backend is gl=off,
+            // works alongside PVE VNC, and preserves std/virtio unchanged.
+            const result = { type: active && profile === DISPLAY_PROFILE.virgl ? 'none' : values.type };
             const rawMemory = values.memory;
-            if (!active && rawMemory !== undefined && rawMemory !== null && rawMemory !== '') {
+            if ((!active || profile === DISPLAY_PROFILE.cpu) &&
+                rawMemory !== undefined && rawMemory !== null && rawMemory !== '') {
                 const memory = Number(rawMemory);
                 if (Number.isInteger(memory)) { result.memory = memory; }
             }
             const printed = PVE.Parser.printPropertyString(result, 'type');
             const response = printed ? { vga: printed } : { delete: 'vga' };
-            const changed = updateDisplayArgument(edit.vmconfig.args, vmid, rendernode, active);
+            const changed = updateDisplayArgument(edit.vmconfig.args, vmid, profile, rendernode, active);
             if (changed !== (edit.vmconfig.args || '')) { response.args = changed; }
             return response;
         },
@@ -272,10 +348,10 @@
                     const state = displayState(data && data.args, windowVmid(me));
                     me.setValues({
                         qsm_direct_display1: state.managed || state.legacy ? 1 : 0,
+                        qsm_direct_profile: state.profile,
                         qsm_direct_rendernode: state.rendernode,
                     });
-                    const rendernode = me.down('[name=qsm_direct_rendernode]');
-                    if (rendernode) { rendernode.setDisabled(!state.managed && !state.legacy); }
+                    updateDisplayFields(me, state.managed || state.legacy, state.profile);
                 };
                 return stockLoad.call(me, chained);
             };

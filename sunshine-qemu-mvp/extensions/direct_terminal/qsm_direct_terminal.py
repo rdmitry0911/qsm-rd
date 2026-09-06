@@ -203,25 +203,55 @@ def _read_pve_vm_config(path: Path) -> str | None:
         os.close(descriptor)
 
 
-def _managed_display_enabled(config: str, vmid: int, vm_runtime_directory: Path) -> bool:
-    """Accept the one GL Display1/GPU pair owned by this transport."""
+def _managed_display_profile(config: str, vmid: int, vm_runtime_directory: Path) -> str | None:
+    """Accept one explicitly owned Display1 profile from the PVE config.
+
+    The VirGL profile owns its ``virtio-vga-gl`` adapter and needs ``gl=on``.
+    The portable CPU profile intentionally owns no adapter in ``args``: PVE
+    supplies Standard VGA or non-GL VirtIO VGA and Display1 uses ``gl=off``.
+    Keeping those forms exact prevents this service from attaching a private
+    bus to an administrator's unrelated QEMU display configuration.
+    """
     if not _valid_vmid(vmid):
-        return False
+        return None
     args: str | None = None
+    vga: str | None = None
     for line in config.splitlines():
         if line.startswith("args:"):
             if args is not None:
-                return False
+                return None
             args = line.removeprefix("args:").strip()
+        if line.startswith("vga:"):
+            if vga is not None:
+                return None
+            vga = line.removeprefix("vga:").strip()
     if args is None or len(args) > 8192 or any(ord(value) < 0x20 or ord(value) == 0x7f for value in args):
-        return False
+        return None
     address = re.escape(f"unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus")
-    display = re.compile(
+    virgl_display = re.compile(
         rf"(?:^|\s)-display\s+dbus,addr={address},gl=on,rendernode=/dev/dri/renderD[0-9]{{1,4}}(?=\s|$)")
+    cpu_display = re.compile(
+        rf"(?:^|\s)-display\s+dbus,addr={address},gl=off(?=\s|$)")
     count = len(re.findall(r"(?:^|\s)-display(?:\s|$)", args))
-    gpu = re.compile(r"(?:^|\s)-device\s+virtio-vga-gl,id=qsm-direct-gpu(?=\s|$)")
-    gpu_count = len(gpu.findall(args))
-    return count == 1 and gpu_count == 1 and display.search(args) is not None
+    gpu = re.compile(r"(?:^|\s)-device\s+virtio-vga-gl(?:,[^\s]+)?(?=\s|$)")
+    gpu_arguments = [value.strip() for value in gpu.findall(args)]
+    if (count == 1 and len(gpu_arguments) == 1 and
+            gpu_arguments[0] == "-device virtio-vga-gl,id=qsm-direct-gpu" and
+            virgl_display.search(args) is not None):
+        return "virgl"
+    # PVE's implicit default is Standard VGA. An explicit vga line may carry
+    # only the stock non-GL `std` or `virtio` profile in this mode.
+    vga_type = "std" if vga is None else vga.split(",", 1)[0]
+    if vga_type.startswith("type="):
+        vga_type = vga_type.removeprefix("type=")
+    if (count == 1 and not gpu_arguments and vga_type in {"std", "virtio"} and
+            cpu_display.search(args) is not None):
+        return "cpu"
+    return None
+
+
+def _managed_display_enabled(config: str, vmid: int, vm_runtime_directory: Path) -> bool:
+    return _managed_display_profile(config, vmid, vm_runtime_directory) is not None
 
 
 def _managed_guest_channel_enabled(config: str, vmid: int, vm_runtime_directory: Path) -> bool:
@@ -689,6 +719,16 @@ class DirectSessionManager:
         try:
             media.start()
             input_egress.start()
+            # Re-read the root-owned config immediately before spawning the
+            # worker.  It is both the race-safe ownership check and the
+            # profile source: CPU Display1 may expose a fixed Standard-VGA
+            # scanout for which QEMU rejects SetUIInfo, while VirGL must keep
+            # treating such a rejection as a real display failure.
+            config = _read_pve_vm_config(self._pve_config_directory / f"{vmid}.conf")
+            profile = (_managed_display_profile(config, vmid, self._vm_runtime_directory)
+                       if config is not None else None)
+            if profile is None:
+                raise DirectTerminalError("direct-terminal VM Display1 configuration changed")
             configured_encoder = policy.get("QSM_DIRECT_ENCODER") or "auto"
             encoder_mode = policy.get("QSM_DIRECT_ENCODER_MODE") or "auto"
             if configured_encoder == "auto":
@@ -722,6 +762,8 @@ class DirectSessionManager:
                 "--fps", str(fps),
                 "--initial-size", f"{width}x{height}",
             ]
+            if profile == "cpu":
+                arguments.append("--allow-unsupported-ui-info")
             if encoder == "h264_vaapi":
                 if not vaapi_device:
                     raise DirectTerminalError("direct-terminal VA-API encoder lacks a render node")
@@ -734,7 +776,6 @@ class DirectSessionManager:
             if worker.poll() is not None:
                 raise DirectTerminalError(
                     f"direct-terminal media worker failed to start (exit code {worker.returncode})")
-            config = _read_pve_vm_config(self._pve_config_directory / f"{vmid}.conf")
             guest = (QsmGuestChannel(self._vm_runtime_directory / str(vmid) / "qsm-agent.sock")
                      if config is not None and _managed_guest_channel_enabled(
                          config, vmid, self._vm_runtime_directory) else None)
