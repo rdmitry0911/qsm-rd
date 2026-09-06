@@ -125,14 +125,22 @@ assert.match(source, /toolbarHotZonePx: \{ defaultValue: 32, minimum: 4, maximum
     'the toolbar activation strip must be a bounded user preference');
 assert.match(source, /toolbarRevealDelayMs: \{ defaultValue: 650, minimum: 0, maximum: 5000 \}/,
     'the left-edge hold time must be configurable rather than showing controls on any mousemove');
+assert.match(source, /toolbarHideDelayMs: \{ defaultValue: 3000, minimum: 250, maximum: 30000 \}/,
+    'the compact toolbar must hide after three seconds by default');
 assert.match(source, /const observeToolbarZone = \(event\) =>/,
     'only the left activation strip may schedule a hidden toolbar reveal');
 assert.match(source, /event\.clientX >= box\.left && event\.clientX < box\.left \+ settings\.toolbarHotZonePx/,
     'the control reveal zone must be measured from the left edge');
 assert.match(source, /settings\.toolbarRevealDelayMs/,
     'the toolbar reveal timer must use the saved dwell setting');
-assert.match(source, /settingsButton\.textContent = gettext\('Settings'\)/,
-    'the compact toolbar must expose settings beside full screen');
+assert.match(source, /settingsButton\.textContent = '⚙'/,
+    'the compact toolbar must expose an icon-only settings control');
+assert.match(source, /fullscreen\.textContent = active \? '⤢' : '⛶'/,
+    'full screen must be represented by an icon-only toggle');
+assert.match(source, /copy\.textContent = '⧉'/,
+    'guest clipboard copy must use an icon while retaining its accessible label');
+assert.match(source, /paste\.textContent = '⇩'/,
+    'guest clipboard paste must use an icon while retaining its accessible label');
 assert.match(source, /CONSOLE_SETTINGS_STORAGE_KEY/,
     'console preferences must persist per browser without entering VM configuration');
 assert.match(source, /const KEYBOARD_PRIORITY = Object\.freeze\(\{[\s\S]*?guest: 'guest-first',[\s\S]*?raw: 'raw-events',[\s\S]*?client: 'client-first'/,

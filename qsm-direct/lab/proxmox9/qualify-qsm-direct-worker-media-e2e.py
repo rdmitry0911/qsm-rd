@@ -100,7 +100,8 @@ def read_record(connection: socket.socket) -> tuple[int, int, int, bytes]:
 
 
 def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
-            width: int, height: int, frames: int, fps: int, source_fps: int) -> str:
+            width: int, height: int, frames: int, fps: int, source_fps: int,
+            force_hardware_failure: bool = False) -> str:
     if not worker_binary.is_file() or not os.access(worker_binary, os.X_OK):
         raise QualificationError("direct worker binary is unavailable")
     if not fake_qemu_binary.is_file() or not os.access(fake_qemu_binary, os.X_OK):
@@ -131,13 +132,28 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
             time.sleep(0.15)
             if fake.poll() is not None:
                 raise QualificationError("fake QEMU did not start")
+            worker_environment = None
+            if force_hardware_failure:
+                if encoder == "libx264":
+                    raise QualificationError("hardware-failure fixture requires a hardware encoder")
+                # The worker invokes FFmpeg only for a hardware encoder. Put
+                # a deterministic failing launcher first: the automatic
+                # fallback must keep the existing media sockets and publish
+                # video through its in-process libx264 encoder.
+                failed_encoder = root / "ffmpeg"
+                failed_encoder.write_text("#!/bin/sh\nexit 1\n", encoding="ascii")
+                failed_encoder.chmod(0o700)
+                worker_environment = os.environ.copy()
+                worker_environment["PATH"] = f"{root}:{worker_environment.get('PATH', '')}"
             worker = subprocess.Popen(
                 [os.fspath(worker_binary), "--dbus-address", address,
                  "--video-socket", f"unix:{root / 'video.sock'}",
                  "--audio-socket", f"unix:{root / 'audio.sock'}",
                  "--input-socket", f"unix:{root / 'input.sock'}", "--encoder", encoder,
-                 "--fps", str(fps), "--initial-size", f"{width}x{height}"],
+                 "--fps", str(fps), "--initial-size", f"{width}x{height}"] +
+                (["--fallback-encoder", "libx264"] if force_hardware_failure else []),
                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                env=worker_environment,
             )
             time.sleep(0.1)
             if worker.poll() is not None:
@@ -257,6 +273,8 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
                     break
             if b"idr_requests=1" not in worker_diagnostic:
                 raise QualificationError("RTCP PLI recovery request did not reach the direct media worker")
+            if force_hardware_failure and b"QSM_DIRECT_MEDIA_ENCODER_FALLBACK from=" not in worker_diagnostic:
+                raise QualificationError("automatic hardware encoder did not recover on libx264")
             complete_frames = sum(first and last for first, last in video_frames.values())
             if complete_frames < 10 or not idr_frames or video_records < complete_frames:
                 raise QualificationError("FFmpeg did not produce complete H.264 access units")
@@ -309,6 +327,8 @@ def main() -> int:
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--source-fps", type=int,
                         help="optional fake Display1 damage rate; defaults to --fps")
+    parser.add_argument("--force-hardware-failure", action="store_true",
+                        help="make FFmpeg fail so --fallback-encoder recovery is exercised")
     arguments = parser.parse_args()
     try:
         source_fps = arguments.source_fps if arguments.source_fps is not None else arguments.fps
@@ -318,7 +338,8 @@ def main() -> int:
             raise QualificationError("invalid media qualification dimensions")
         trace = qualify(arguments.worker, arguments.fake_qemu, encoder=arguments.encoder,
                         width=arguments.width, height=arguments.height,
-                        frames=arguments.frames, fps=arguments.fps, source_fps=source_fps)
+                        frames=arguments.frames, fps=arguments.fps, source_fps=source_fps,
+                        force_hardware_failure=arguments.force_hardware_failure)
     except (OSError, QualificationError, subprocess.SubprocessError) as error:
         print(f"QSM_DIRECT_WORKER_MEDIA_E2E_FAILED: {error}")
         return 1

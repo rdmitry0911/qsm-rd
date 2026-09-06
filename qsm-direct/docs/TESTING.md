@@ -11,6 +11,19 @@ ctest --test-dir build-direct-tests --output-on-failure
 Он включает core/D-Bus тесты, guest channel, package layout, выбор encoder,
 автонастройку terminal service и статическую проверку PVE Console overlay.
 
+Для автоматической политики encoder обязателен отдельный worker‑E2E: он
+искусственно завершает уже выбранный hardware FFmpeg encoder и проверяет, что
+первый и все параллельные viewers продолжают получать H.264 через libx264.
+Режим `Hardware only` в эту проверку не входит и fallback не использует:
+
+```bash
+python3 lab/proxmox9/qualify-qsm-direct-worker-media-e2e.py \
+  --worker /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker \
+  --fake-qemu /path/to/qmdp-fake-qemu \
+  --encoder h264_nvenc --width 1280 --height 798 --frames 180 --fps 60 \
+  --force-hardware-failure
+```
+
 Для PVE-узла используется реальный stress suite. Он не подменяет QEMU,
 WebRTC-пир или browser input:
 

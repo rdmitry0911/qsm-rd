@@ -764,6 +764,14 @@ class DirectSessionManager:
             ]
             if profile == "cpu":
                 arguments.append("--allow-unsupported-ui-info")
+            # The probe proves a hardware encoder is usable at service start,
+            # but a driver reset or a live VirGL scanout replacement can still
+            # kill it after its first frames. Automatic policy may recover to
+            # the package's in-process libx264; a hardware-only choice must
+            # remain strict and report its failure instead.
+            if (configured_encoder == "auto" and encoder_mode == "auto" and
+                    encoder != "libx264"):
+                arguments.extend(["--fallback-encoder", "libx264"])
             if encoder == "h264_vaapi":
                 if not vaapi_device:
                     raise DirectTerminalError("direct-terminal VA-API encoder lacks a render node")

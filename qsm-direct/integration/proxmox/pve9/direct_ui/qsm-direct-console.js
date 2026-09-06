@@ -39,7 +39,7 @@
     const CONSOLE_SETTING_SCHEMA = Object.freeze({
         toolbarHotZonePx: { defaultValue: 32, minimum: 4, maximum: 160 },
         toolbarRevealDelayMs: { defaultValue: 650, minimum: 0, maximum: 5000 },
-        toolbarHideDelayMs: { defaultValue: 1800, minimum: 250, maximum: 30000 },
+        toolbarHideDelayMs: { defaultValue: 3000, minimum: 250, maximum: 30000 },
         targetFps: { defaultValue: 60, minimum: 10, maximum: 240 },
         playoutDelayMs: { defaultValue: 0, minimum: 0, maximum: 1000 },
         resizeDebounceMs: { defaultValue: 400, minimum: 100, maximum: 3000 },
@@ -515,18 +515,19 @@
         document.body.style.cssText = 'width:100vw;height:100vh;min-width:100vw;min-height:100vh;margin:0;position:relative;overflow:hidden;background:#000;color:#fff;font:13px sans-serif';
         const toolbar = document.createElement('div');
         toolbar.setAttribute('aria-label', gettext('Console controls'));
-        toolbar.style.cssText = 'position:absolute;z-index:10;top:12px;left:0;display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:132px;padding:7px;background:rgba(17,24,39,.88);box-shadow:1px 0 6px rgba(0,0,0,.55);border-radius:0 7px 7px 0;opacity:1;transform:translateX(0);transition:opacity .16s ease,transform .16s ease';
+        toolbar.style.cssText = 'position:absolute;z-index:10;top:12px;left:0;display:flex;flex-direction:column;align-items:stretch;gap:5px;padding:6px;background:rgba(17,24,39,.88);box-shadow:1px 0 6px rgba(0,0,0,.55);border-radius:0 7px 7px 0;opacity:1;transform:translateX(0);transition:opacity .16s ease,transform .16s ease';
         const status = document.createElement('span');
         status.textContent = gettext('Connecting…');
         status.style.cssText = 'min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
         const fullscreen = document.createElement('button');
         fullscreen.type = 'button';
-        fullscreen.style.cssText = 'padding:4px 9px;cursor:pointer';
+        fullscreen.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1';
         const settingsButton = document.createElement('button');
         settingsButton.type = 'button';
-        settingsButton.textContent = gettext('Settings');
+        settingsButton.textContent = '⚙';
+        settingsButton.setAttribute('aria-label', gettext('Console settings'));
         settingsButton.title = gettext('Console settings');
-        settingsButton.style.cssText = 'padding:4px 9px;cursor:pointer';
+        settingsButton.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1';
         // Assigned once the WebRTC control channel is created.  A full-screen
         // transition is not consistently reported by ResizeObserver across
         // Chromium/Safari, so this explicit hook is part of the resize
@@ -563,9 +564,12 @@
         guestCursor.style.cssText = 'display:none;position:fixed;z-index:5;pointer-events:none;image-rendering:auto';
         const audio = document.createElement('button');
         audio.type = 'button';
-        audio.style.cssText = 'padding:4px 9px;cursor:pointer';
+        audio.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:16px;line-height:1';
         const setAudioLabel = () => {
-            audio.textContent = video.muted ? gettext('Enable Audio') : gettext('Mute Audio');
+            const label = video.muted ? gettext('Enable Audio') : gettext('Mute Audio');
+            audio.textContent = video.muted ? '🔇' : '🔊';
+            audio.setAttribute('aria-label', label);
+            audio.title = label;
         };
         setAudioLabel();
         audio.addEventListener('click', () => {
@@ -579,7 +583,8 @@
             const active = Boolean(document.fullscreenElement);
             // Keep the compact control's name stable while exposing a real
             // pressed/unpressed state to both assistive technology and CSS.
-            fullscreen.textContent = gettext('Full Screen');
+            fullscreen.textContent = active ? '⤢' : '⛶';
+            fullscreen.setAttribute('aria-label', active ? gettext('Exit Full Screen') : gettext('Enter Full Screen'));
             fullscreen.setAttribute('aria-pressed', String(active));
             fullscreen.title = active ? gettext('Exit Full Screen') : gettext('Enter Full Screen');
             fullscreen.style.background = active ? '#1d4ed8' : '';
@@ -612,14 +617,16 @@
         });
         const copy = document.createElement('button');
         copy.type = 'button';
-        copy.textContent = gettext('Copy');
+        copy.textContent = '⧉';
+        copy.setAttribute('aria-label', gettext('Copy guest clipboard to this browser'));
         copy.title = gettext('Copy guest clipboard to this browser');
-        copy.style.cssText = 'padding:4px 9px;cursor:pointer';
+        copy.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1';
         const paste = document.createElement('button');
         paste.type = 'button';
-        paste.textContent = gettext('Paste');
+        paste.textContent = '⇩';
+        paste.setAttribute('aria-label', gettext('Paste this browser clipboard into the guest'));
         paste.title = gettext('Paste this browser clipboard into the guest');
-        paste.style.cssText = 'padding:4px 9px;cursor:pointer';
+        paste.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1';
         const settingsPanel = document.createElement('aside');
         settingsPanel.setAttribute('aria-label', gettext('Console settings'));
         settingsPanel.style.cssText = 'display:none;position:absolute;z-index:21;left:12px;top:52px;width:min(440px,calc(100% - 24px));max-height:calc(100% - 64px);overflow:auto;box-sizing:border-box;padding:12px;border:1px solid rgba(148,163,184,.55);border-radius:8px;background:rgba(15,23,42,.97);box-shadow:0 8px 28px rgba(0,0,0,.65);color:#f8fafc';

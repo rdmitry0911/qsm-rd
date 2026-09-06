@@ -151,6 +151,12 @@ struct Options {
     std::string audio_socket;
     std::string input_socket;
     std::string encoder {"libx264"};
+    // The terminal supplies this only for its automatic policy. A requested
+    // hardware-only encoder must fail visibly instead of silently consuming
+    // CPU, while an automatically selected accelerator must not leave every
+    // attached browser with a permanently black shared transport after a
+    // driver reset or a rejected live Display1 mode change.
+    std::optional<std::string> fallback_encoder;
     std::optional<std::string> vaapi_device;
     std::uint32_t fps {60U};
     std::optional<Size> initial_size;
@@ -167,6 +173,7 @@ struct Options {
            "--video-socket unix:PATH --audio-socket unix:PATH "
            "--input-socket unix:PATH [options]\n\n"
         << "  --encoder NAME              FFmpeg H.264 encoder (default: libx264)\n"
+        << "  --fallback-encoder libx264  recover an automatic hardware encoder at runtime\n"
         << "  --vaapi-device /dev/dri/renderD<N>  VA-API node for h264_vaapi\n"
         << "  --fps N                     10..240 (default: 60)\n"
         << "  --initial-size WIDTHxHEIGHT request initial guest scanout\n"
@@ -230,6 +237,8 @@ Options parse_options(int argc, char **argv) {
             options.input_socket = socket_path(next(index, argument), argument);
         } else if (argument == "--encoder") {
             options.encoder = next(index, argument);
+        } else if (argument == "--fallback-encoder") {
+            options.fallback_encoder = std::string(next(index, argument));
         } else if (argument == "--vaapi-device") {
             options.vaapi_device = std::string(next(index, argument));
         } else if (argument == "--fps") {
@@ -251,6 +260,10 @@ Options parse_options(int argc, char **argv) {
     if (options.encoder == "h264_vaapi" && (!options.vaapi_device ||
         !std::string_view(*options.vaapi_device).starts_with("/dev/dri/renderD"))) {
         throw WorkerError("h264_vaapi requires a DRM render node");
+    }
+    if (options.fallback_encoder && (*options.fallback_encoder != "libx264" ||
+                                     *options.fallback_encoder == options.encoder)) {
+        throw WorkerError("invalid direct encoder fallback");
     }
     return options;
 }
@@ -636,8 +649,10 @@ public:
     };
 
     DirectMediaAdapter(PacketSink &sink, std::string encoder,
+                       std::optional<std::string> fallback_encoder,
                        std::optional<std::string> vaapi_device, std::uint32_t fps)
-        : sink_(sink), encoder_(std::move(encoder)), vaapi_device_(std::move(vaapi_device)), fps_(fps) {}
+        : sink_(sink), encoder_(std::move(encoder)), fallback_encoder_(std::move(fallback_encoder)),
+          vaapi_device_(std::move(vaapi_device)), fps_(fps) {}
 
     ~DirectMediaAdapter() override { stop(); }
 
@@ -837,6 +852,18 @@ private:
                 }
 #endif
             } catch (...) {
+                // NVENC/VA-API/QSV can pass the startup probe but still
+                // disappear after QEMU replaces a GL scanout. Do not leave
+                // the worker alive with running_ false: that made every
+                // additional Console subscribe to the first viewer's dead
+                // shared transport. Automatic policy may recover on libx264;
+                // hardware-only policy has no fallback and retains explicit
+                // failure behaviour.
+                if (activate_fallback_encoder()) {
+                    lock.lock();
+                    next_frame = std::chrono::steady_clock::now();
+                    continue;
+                }
                 running_ = false;
                 video_cv_.notify_all();
                 break;
@@ -1129,6 +1156,26 @@ private:
         }
     }
 
+    bool activate_fallback_encoder() noexcept {
+        if (!fallback_encoder_ || encoder_ == *fallback_encoder_) {
+            return false;
+        }
+#if !defined(QMDP_HAS_LIBAVCODEC)
+        return false;
+#else
+        const std::string previous = encoder_;
+        close_video_process();
+        encoder_ = *fallback_encoder_;
+        vaapi_device_.reset();
+        // The next software access unit must be independently decodable by
+        // every browser already subscribed to this shared worker.
+        force_idr_ = true;
+        std::cerr << "QSM_DIRECT_MEDIA_ENCODER_FALLBACK from=" << previous
+                  << " to=" << encoder_ << '\n' << std::flush;
+        return true;
+#endif
+    }
+
     void close_video_process() noexcept {
 #if defined(QMDP_HAS_LIBAVCODEC)
         software_encoder_.reset();
@@ -1159,6 +1206,7 @@ private:
 
     PacketSink &sink_;
     std::string encoder_;
+    std::optional<std::string> fallback_encoder_;
     std::optional<std::string> vaapi_device_;
     std::uint32_t fps_ {};
     std::atomic<bool> running_ {false};
@@ -1415,7 +1463,8 @@ void write_session_diagnostic(std::string_view event,
 
 int run(const Options &options) {
     PacketSink sink(options.video_socket, options.audio_socket);
-    DirectMediaAdapter media(sink, options.encoder, options.vaapi_device, options.fps);
+    DirectMediaAdapter media(sink, options.encoder, options.fallback_encoder,
+                             options.vaapi_device, options.fps);
     qmdp::QemuDbusOptions display_options;
     display_options.bus_address = options.dbus_address;
     // The package-owned per-VM endpoint is a private session bus.  QEMU owns
