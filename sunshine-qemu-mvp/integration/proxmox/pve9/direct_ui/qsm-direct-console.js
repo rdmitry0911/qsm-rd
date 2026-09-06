@@ -313,7 +313,7 @@
             value: effectiveDisplayAdapter(false, DISPLAY_PROFILE.virgl, 'none'),
         },
         { xtype: 'displayfield', userCls: 'pmx-hint', value: gettext(
-            'VirGL owns a private VirtIO-GPU and saves PVE Graphic card as None, because VNC and GL Display1 are incompatible. CPU Display1 uses gl=off and keeps the selected Standard VGA or non-GL VirtIO adapter, so no render node or host GPU is needed. If an adapter does not implement Display1 resize, QSM keeps its fixed guest scanout connected instead of failing the console. The optional guest-tools serial channel provides clipboard and files. Restart the VM after changing this setting.'),
+            'VirGL owns a private VirtIO-GPU and saves PVE Graphic card as None, because VNC and GL Display1 are incompatible. CPU Display1 uses gl=off and keeps the selected Standard VGA or non-GL VirtIO adapter, so no render node or host GPU is needed. If an adapter does not implement Display1 resize, QSM keeps its fixed guest scanout connected instead of failing the console. The optional QSM Desktop Agent serial channel provides clipboard and files. Restart the VM after changing this setting.'),
         },
     ];
 
@@ -1266,7 +1266,7 @@
             } catch (_error) {
                 guestFiles.replaceChildren();
                 const unavailable = document.createElement('span');
-                unavailable.textContent = gettext('Guest file list is unavailable. Install and start QSM Guest Agent.');
+                unavailable.textContent = gettext('Guest file list is unavailable. Install and start QSM Desktop Agent.');
                 unavailable.style.color = '#fca5a5';
                 guestFiles.append(unavailable);
             } finally {
@@ -1366,7 +1366,7 @@
             // clipboard value captured before the user made that selection.
             video.focus({ preventScroll: true });
             guestSelectionToBrowser().catch(() => {
-                status.textContent = gettext('Guest clipboard is unavailable. Install and start QSM Guest Agent.');
+                status.textContent = gettext('Guest clipboard is unavailable. Install and start QSM Desktop Agent.');
             });
         });
         paste.addEventListener('click', () => {
@@ -1392,7 +1392,7 @@
             }).catch((error) => {
                 status.textContent = error && error.message === 'file is too large'
                     ? gettext('File transfer is limited to 2 MiB per file.')
-                    : gettext('File upload failed. Install and start QSM Guest Agent.');
+                    : gettext('File upload failed. Install and start QSM Desktop Agent.');
             });
         });
         const acceptsFiles = (event) => event.dataTransfer &&
@@ -1411,7 +1411,7 @@
             }).catch((error) => {
                 status.textContent = error && error.message === 'file is too large'
                     ? gettext('File transfer is limited to 2 MiB per file.')
-                    : gettext('File upload failed. Install and start QSM Guest Agent.');
+                    : gettext('File upload failed. Install and start QSM Desktop Agent.');
             });
         };
         for (const target of [video, localDrop]) {

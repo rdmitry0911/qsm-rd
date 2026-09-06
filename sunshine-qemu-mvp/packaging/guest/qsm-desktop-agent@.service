@@ -1,24 +1,24 @@
 [Unit]
-Description=QSM Guest clipboard and file agent for %i
+Description=QSM Desktop Agent clipboard and file companion for %i
 ConditionPathExists=/dev/virtio-ports/org.qsm.direct.agent
 After=dev-virtio\x2dports-org.qsm.direct.agent.device
 
 [Service]
 Type=simple
 User=%i
-Group=qsm-guest
+Group=qsm-desktop
 # %h is the home of PID 1 (usually /root), not User=%i.  The setup helper
 # overrides this default for an account whose home is not /home/USER.
 Environment=HOME=/home/%i
 Environment=QSM_GUEST_HOME=/home/%i
-ExecStart=/usr/lib/qsm-guest-agent/qsm-guest-agent --device /dev/virtio-ports/org.qsm.direct.agent --state-dir ${QSM_GUEST_HOME}/.local/share/qsm-guest-agent
+ExecStart=/usr/lib/qsm-desktop-agent/qsm-desktop-agent --device /dev/virtio-ports/org.qsm.direct.agent --state-dir ${QSM_GUEST_HOME}/.local/share/qsm-desktop-agent
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/%i/.local/share/qsm-guest-agent
+ReadWritePaths=/home/%i/.local/share/qsm-desktop-agent
 
 [Install]
 WantedBy=multi-user.target

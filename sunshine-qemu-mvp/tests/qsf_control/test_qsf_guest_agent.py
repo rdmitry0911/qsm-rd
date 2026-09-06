@@ -46,9 +46,9 @@ class GuestAgentPtyTest(unittest.TestCase):
             text=True,
             env={
                 **os.environ,
-                "QSUNSHINE_QSF_GUEST_MAX_WIDTH": "2560",
-                "QSUNSHINE_QSF_GUEST_MAX_HEIGHT": "1440",
-                "QSUNSHINE_QSF_GUEST_MAX_FPS": "60",
+                "QSM_DESKTOP_AGENT_MAX_WIDTH": "2560",
+                "QSM_DESKTOP_AGENT_MAX_HEIGHT": "1440",
+                "QSM_DESKTOP_AGENT_MAX_FPS": "60",
             },
         )
         self.assertEqual(self._line(), "READY QSF1")

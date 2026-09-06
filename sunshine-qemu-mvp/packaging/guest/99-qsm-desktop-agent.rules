@@ -1,0 +1,1 @@
+SUBSYSTEM=="virtio-ports", ATTR{name}=="org.qsm.direct.agent", GROUP="qsm-desktop", MODE="0660"

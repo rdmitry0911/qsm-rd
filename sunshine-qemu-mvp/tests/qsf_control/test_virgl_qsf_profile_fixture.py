@@ -28,7 +28,7 @@ class VirglQsfProfileFixtureTest(unittest.TestCase):
 
     def test_guest_ack_is_generation_bound_and_published_after_scanout_proof(self) -> None:
         for fragment in (
-            "QSUNSHINE_QSF_GUEST_REQUIRE_PROFILE_APPLY_ACK=1",
+            "QSM_DESKTOP_AGENT_REQUIRE_PROFILE_APPLY_ACK=1",
             'test "$(sed -n \'$=\' "$connection_profile_file")" = 6',
             'printf \'version=2\\n\'',
             'printf \'generation=%s\\n\' "$connection_profile_generation"',

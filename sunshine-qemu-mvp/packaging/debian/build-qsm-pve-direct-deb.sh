@@ -95,7 +95,7 @@ install -m 0644 "$ROOT_DIR/integration/proxmox/pve9/direct_api/PVE/API2/QsmDirec
 # The compatibility predicate is intentionally the same reviewed PVE ABI as
 # the native package, but the direct package owns different Perl namespaces,
 # launcher paths and service drop-ins. Generate that isolated copy while
-# staging; no q-sunshine-named file or runtime path enters this package.
+# staging; no legacy-named file or runtime path enters this package.
 sed -e 's/QSunshine/QsmDirect/g' -e 's/q-sunshine/qsm-pve-direct/g' \
     "$ROOT_DIR/integration/proxmox/pve9/api/PVE/QSunshine/Compatibility.pm" > \
     "$package_root/pve9-api/PVE/QsmDirect/Compatibility.pm"
@@ -132,8 +132,6 @@ Priority: optional
 Architecture: amd64
 Maintainer: qsm contributors <qsm@users.noreply.github.com>
 Depends: libc6 (>= 2.38), libopus0 (>= 1.3), libstdc++6 (>= 13), libsystemd0, libavcodec61, libavutil59, libswscale8, dbus, ffmpeg, python3, python3-aiortc, python3-av, pve-manager, qemu-server
-Conflicts: q-sunshine-pve
-Replaces: q-sunshine-pve
 Description: browser-only direct QEMU Display1 console for Proxmox VE 9
  qsm-pve-direct adds one PVE VM.Console-protected browser WebRTC Console
  transport. It runs a node-local QEMU Display1 H.264/Opus worker and has no
@@ -150,7 +148,7 @@ printf '%s\n' 'interest-noawait /usr/share/pve-manager/index.html.tpl' \
 # A direct build must be semantically independent as well as dependency-free.
 # This catches accidental staging of compatibility transport code or old UI
 # names before a host ever sees the archive.
-if find "$stage_root/usr" -type f -print0 | xargs -0 -r grep -I -n -E 'sunshine|moonlight|Sunshine|Moonlight'; then
+if find "$stage_root" -type f -print0 | xargs -0 -r grep -I -n -E 'sunshine|moonlight|Sunshine|Moonlight'; then
     die "direct package staging unexpectedly contains a compatibility transport reference"
 fi
 (

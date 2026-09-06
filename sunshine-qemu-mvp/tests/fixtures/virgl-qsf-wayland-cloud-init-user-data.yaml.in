@@ -310,7 +310,7 @@ write_files:
       cp "$payload/qsf-guest-download.txt" "$state/outgoing/guest-download.txt" \
         || fail cannot_seed_guest_download
 
-      QSUNSHINE_QSF_GUEST_REQUIRE_PROFILE_APPLY_ACK=1 \
+      QSM_DESKTOP_AGENT_REQUIRE_PROFILE_APPLY_ACK=1 \
       /usr/local/sbin/qsf-guest-agent --device "$qsf_port" --state-dir "$state" \
         >"$serial" 2>&1 &
       qsf_agent_pid=$!

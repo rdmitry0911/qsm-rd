@@ -61,7 +61,7 @@ state_poll_interval=0.10
 fallback_probe_ticks=20
 backend_retry_ticks=50
 bridge_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd) || exit 1
-state_watcher_binary="$bridge_directory/qsm-state-watcher"
+state_watcher_binary="$bridge_directory/qsm-desktop-state-watcher"
 
 stop_watchers() {
   if [ -n "$wl_copy_pid" ]; then

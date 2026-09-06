@@ -912,11 +912,11 @@ static int initialize_state(struct agent_state *state, const char *device, const
   state->maximum_display_fps = 240L;
   state->require_profile_apply_ack = true;
   state->profile_apply_timeout_ms = 30000L;
-  const char *maximum_width = getenv("QSUNSHINE_QSF_GUEST_MAX_WIDTH");
-  const char *maximum_height = getenv("QSUNSHINE_QSF_GUEST_MAX_HEIGHT");
-  const char *maximum_fps = getenv("QSUNSHINE_QSF_GUEST_MAX_FPS");
-  const char *require_profile_apply_ack = getenv("QSUNSHINE_QSF_GUEST_REQUIRE_PROFILE_APPLY_ACK");
-  const char *profile_apply_timeout_ms = getenv("QSUNSHINE_QSF_GUEST_PROFILE_APPLY_TIMEOUT_MS");
+  const char *maximum_width = getenv("QSM_DESKTOP_AGENT_MAX_WIDTH");
+  const char *maximum_height = getenv("QSM_DESKTOP_AGENT_MAX_HEIGHT");
+  const char *maximum_fps = getenv("QSM_DESKTOP_AGENT_MAX_FPS");
+  const char *require_profile_apply_ack = getenv("QSM_DESKTOP_AGENT_REQUIRE_PROFILE_APPLY_ACK");
+  const char *profile_apply_timeout_ms = getenv("QSM_DESKTOP_AGENT_PROFILE_APPLY_TIMEOUT_MS");
   long require_apply_ack = 1L;
   if ((maximum_width != NULL &&
        !parse_bounded_decimal(maximum_width, 64L, 16384L, &state->maximum_display_width)) ||
@@ -1016,7 +1016,7 @@ static bool serve_transport(struct agent_state *state) {
 }
 
 int main(int argc, char **argv) {
-  const char *device = "/dev/virtio-ports/org.q-sunshine.agent";
+  const char *device = "/dev/virtio-ports/org.qsm.direct.agent";
   const char *state_dir = "/tmp/qsf";
   if (argc == 3 && strcmp(argv[1], "--device") == 0) {
     device = argv[2];
@@ -1032,7 +1032,7 @@ int main(int argc, char **argv) {
 
   struct agent_state state;
   if (initialize_state(&state, device, state_dir) != 0) {
-    fprintf(stderr, "qsf-guest-agent: initialization failed: %s\n", strerror(errno));
+    fprintf(stderr, "qsm-desktop-agent: initialization failed: %s\n", strerror(errno));
     return 1;
   }
   /* A disconnected Unix-socket chardev may otherwise raise SIGPIPE while the

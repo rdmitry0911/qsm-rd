@@ -1,26 +1,6 @@
 #!/bin/sh
 set -e
 
-remove_obsolete_qsunshine_dropins() {
-    # Early q-sunshine-pve builds installed their service override in /etc,
-    # outside dpkg ownership.  A Conflicts/Replaces handover therefore leaves
-    # it behind.  It resets the vendor ExecStart before the direct override
-    # and makes removal of qsm-pve-direct restore a non-existent launcher.
-    # Remove only that exact obsolete generated shape; an administrator's
-    # different override must remain untouched.
-    for file in \
-        /etc/systemd/system/pveproxy.service.d/q-sunshine-api.conf \
-        /etc/systemd/system/pvedaemon.service.d/q-sunshine-api.conf; do
-        [ -f "$file" ] || continue
-        if grep -Fqx 'ExecStart=/usr/lib/q-sunshine/pve9-api/q-sunshine-pveproxy start' "$file" || \
-           grep -Fqx 'ExecStart=/usr/lib/q-sunshine/pve9-api/q-sunshine-pvedaemon start' "$file"; then
-            rm -f -- "$file"
-        else
-            echo "qsm-pve-direct: preserving unowned systemd override $file" >&2
-        fi
-    done
-}
-
 restart_pve_api_services() {
     if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then return 0; fi
     systemctl daemon-reload || return 0
@@ -37,7 +17,6 @@ case "${1:-}" in
         install -d -o root -g root -m 0700 /etc/qsm-pve-direct
         install -d -o root -g root -m 0750 /etc/qsm-pve-direct/instances.d
         install -d -o root -g root -m 0700 /run/qsm-pve-direct
-        remove_obsolete_qsunshine_dropins
         restart_pve_api_services
         /usr/sbin/qsm-pve-direct-ui reconcile || echo "qsm-pve-direct: PVE Console UI was not changed" >&2
         echo "qsm-pve-direct installed; enable qsm-pve-direct-terminal and configure QSM Display1 for each VM."

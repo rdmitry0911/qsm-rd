@@ -1,11 +1,11 @@
 [Unit]
-Description=QSM Wayland clipboard bridge
+Description=QSM Desktop Agent Wayland clipboard bridge
 After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/lib/qsm-guest-agent/qsm-wayland-clipboard-bridge --state-dir %h/.local/share/qsm-guest-agent --telemetry /dev/null --runtime-dir %t
+ExecStart=/usr/lib/qsm-desktop-agent/qsm-desktop-clipboard-bridge --state-dir %h/.local/share/qsm-desktop-agent --telemetry /dev/null --runtime-dir %t
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus
 Restart=on-failure
 RestartSec=2

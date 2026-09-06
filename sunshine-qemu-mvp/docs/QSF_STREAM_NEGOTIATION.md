@@ -107,7 +107,7 @@ change and does not bypass this lifecycle.
 The static agent waits up to 30 seconds by default.  This is intentional:
 the client must not reconnect into a disappearing old scanout.  Disable that
 safety check only for a deliberately non-graphical test endpoint with
-`QSUNSHINE_QSF_GUEST_REQUIRE_PROFILE_APPLY_ACK=0`.
+`QSM_DESKTOP_AGENT_REQUIRE_PROFILE_APPLY_ACK=0`.
 
 The broker serializes display transactions, so a standalone `resize` cannot
 interleave with `connection_optimize`. A timeout or any failed stage leaves QSF
