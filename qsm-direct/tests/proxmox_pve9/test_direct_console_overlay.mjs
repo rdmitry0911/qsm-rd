@@ -51,6 +51,12 @@ assert.match(source, /const openConsole = function \(button, node, vmid, embedde
     'QSM Direct must support an embedded PVE Console surface');
 assert.match(source, /popup = embeddedFrame\.contentWindow;/,
     'the existing Console card must give QSM a same-origin embedded viewport');
+assert.match(source, /Ext\.create\('Ext\.ux\.IFrame', \{\s*itemId: 'qsm-direct-embedded-surface'/,
+    'the embedded Console must be an ExtJS layout child, not a raw iframe');
+assert.match(source, /me\.updateLayout\(\);\s*const frame = surface\.getFrame\(\);/,
+    'the embedded frame must be laid out before its first WebRTC SDP dimensions are read');
+assert.doesNotMatch(source, /host\.appendChild\(frame\);/,
+    'a raw iframe bypasses the Console card fit layout and collapses to its minimum height');
 assert.match(source, /frame\.setAttribute\('allow', 'autoplay; clipboard-read; clipboard-write; fullscreen'\)/,
     'the embedded Console must retain media, clipboard, and native fullscreen permissions');
 assert.match(source, /frame\.setAttribute\('allowfullscreen', ''\)/,

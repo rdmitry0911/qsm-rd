@@ -1810,13 +1810,28 @@
                 if (me.qsmDirectSession) { me.qsmDirectSession.close(); }
                 me.qsmConsoleMode = 'direct';
                 me.removeAll(true);
-                host.style.cssText = 'position:relative;overflow:hidden;background:#000';
-                const frame = document.createElement('iframe');
+                // A raw DOM iframe is invisible to ExtJS's card/fit layout.
+                // The Console card then keeps its empty-panel minimum height
+                // (roughly 150px) and negotiates a tiny Display1 surface.
+                // Use PVE's own fit-aware IFrame component, as noVNC does,
+                // before handing its native frame to the self-contained
+                // WebRTC console.  This keeps the embedded viewport equal to
+                // the whole existing Console card from its first SDP offer.
+                const surface = me.add(Ext.create('Ext.ux.IFrame', {
+                    itemId: 'qsm-direct-embedded-surface',
+                    flex: 1,
+                }));
+                me.updateLayout();
+                const frame = surface.getFrame();
+                if (!frame) {
+                    me.qsmConsoleMode = null;
+                    surface.destroy();
+                    return;
+                }
                 frame.title = gettext('QSM Direct Console');
                 frame.setAttribute('allow', 'autoplay; clipboard-read; clipboard-write; fullscreen');
                 frame.setAttribute('allowfullscreen', '');
                 frame.style.cssText = 'display:block;width:100%;height:100%;border:0;background:#000';
-                host.appendChild(frame);
                 me.qsmDirectFrame = frame;
                 me.qsmDirectSession = openConsole(me, me.nodename, Number(me.vmid), frame);
             };

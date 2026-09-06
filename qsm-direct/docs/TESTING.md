@@ -28,5 +28,16 @@ terminal service. Для visual evidence запускайте peer с `--browser
 
 Проверка именно интеграции PVE UI должна дополнительно подтвердить, что выбор
 левого пункта **Console** создаёт iframe в существующей области, а не popup.
-На реальном PVE 9 узле она уже выполнена с временной учётной записью,
-ограниченной `PVEVMUser` на VM 103: `panel=1 iframe=1 popup=0`.
+Для регрессии порядка запуска embedded Console и отдельного окна есть отдельный
+browser gate. Он обязан удержать две одновременно подключённые сессии в обоих
+порядках (`frame → window` и `window → frame`) и отклоняет iframe с высотой
+пустой ExtJS panel:
+
+```bash
+node lab/proxmox9/qualify-pve-direct-embedded-window-e2e.cjs \
+  --pve-url https://PVE_NODE:8006 --user TEMP_USER@pve \
+  --password-file /secure/pve.password --vmid 103 \
+  --chrome /usr/bin/google-chrome
+```
+
+Временной учётной записи достаточно `PVEVMUser` только на тестовой VM.
