@@ -139,7 +139,7 @@ printf '%s\n' 'interest-noawait /usr/share/pve-manager/index.html.tpl' \
 # A direct build must be semantically independent as well as dependency-free.
 # This catches accidental staging of compatibility transport code or old UI
 # names before a host ever sees the archive.
-legacy_transport_pattern="$(printf '\\163\\165\\156\\163\\150\\151\\156\\145')|$(printf '\\155\\157\\157\\156\\154\\151\\147\\150\\164')"
+legacy_transport_pattern="$(printf '\163\165\156\163\150\151\156\145')|$(printf '\155\157\157\156\154\151\147\150\164')"
 if find "$stage_root" -type f -print0 | xargs -0 -r grep -I -n -E "$legacy_transport_pattern"; then
     die "direct package staging unexpectedly contains a compatibility transport reference"
 fi

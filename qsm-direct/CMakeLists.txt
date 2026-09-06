@@ -224,6 +224,14 @@ if(BUILD_TESTING)
         )
         set_tests_properties(qsm_direct_terminal_autoprovision PROPERTIES TIMEOUT 20)
 
+        add_test(
+            NAME qsm_direct_api_service_integration
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_direct_api_service_integration.py
+                -v
+        )
+        set_tests_properties(qsm_direct_api_service_integration PROPERTIES TIMEOUT 20)
+
         find_program(QSM_DIRECT_NODE_EXECUTABLE node)
         if(QSM_DIRECT_NODE_EXECUTABLE)
             add_test(

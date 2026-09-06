@@ -28,6 +28,7 @@ int main() {
             .on_frame = [&mailbox](qmdp::FrameToken frame) {
                 mailbox.publish(std::move(frame));
             },
+            .on_cursor = nullptr,
             .on_audio = [&audio_fifo](std::span<const float> samples,
                                       std::uint32_t sample_rate,
                                       std::uint16_t channels) {
@@ -36,7 +37,6 @@ int main() {
                     audio_fifo.push(samples);
                 }
             },
-            .on_cursor = nullptr,
             .on_error = [](std::string message) {
                 std::cerr << "QEMU error: " << message << '\n';
             },
