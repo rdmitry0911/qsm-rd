@@ -61,7 +61,7 @@ assert.match(source, /position:absolute;z-index:10;top:0;left:0;right:0/,
     'the console controls must overlay, rather than consume, guest video pixels');
 assert.match(source, /video\.style\.cssText = 'position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain;outline:none'/,
     'the guest image must use the browser viewport rather than a stale percentage-layout box after resize');
-assert.match(source, /document\.addEventListener\('fullscreenchange', \(\) => \{\s*releaseHeldInput\(\);\s*setFullscreenLabel\(\);[\s\S]*?resizeConsole\(true\);/,
+assert.match(source, /document\.addEventListener\('fullscreenchange', \(\) => \{\s*releaseHeldInput\(\);\s*updateGuestKeyboardLock\(\);\s*setFullscreenLabel\(\);[\s\S]*?resizeConsole\(true\);/,
     'full screen must release interrupted input before forcing an immediate Display1 resize');
 assert.match(source, /const guestContentBox = \(\) => \{[\s\S]*?const scale = Math\.min\(box\.width \/ sourceWidth, box\.height \/ sourceHeight\);/,
     'cursor and input mapping must account for the real object-fit content rectangle');
@@ -101,12 +101,16 @@ assert.match(source, /settingsButton\.textContent = gettext\('Settings'\)/,
     'the compact toolbar must expose settings beside full screen');
 assert.match(source, /CONSOLE_SETTINGS_STORAGE_KEY/,
     'console preferences must persist per browser without entering VM configuration');
-assert.match(source, /const KEYBOARD_PRIORITY = Object\.freeze\(\{[\s\S]*?guest: 'guest-first',[\s\S]*?client: 'client-first'/,
-    'the console must expose explicit guest-first and client-first keyboard policies');
+assert.match(source, /const KEYBOARD_PRIORITY = Object\.freeze\(\{[\s\S]*?guest: 'guest-first',[\s\S]*?raw: 'raw-events',[\s\S]*?client: 'client-first'/,
+    'the console must expose explicit guest-first, raw, and client-first keyboard policies');
 assert.match(source, /keyboardPriority: KEYBOARD_PRIORITY\.guest/,
     'a remote desktop console must default to forwarding received keys to the guest');
 assert.match(source, /Guest first — forward received keys/,
     'the settings panel must let a user choose guest shortcut priority');
+assert.match(source, /Raw input — send each key and mouse press\/release/,
+    'the settings panel must expose explicit raw keyboard and mouse edge delivery');
+assert.match(source, /settings\.keyboardPriority !== KEYBOARD_PRIORITY\.client[\s\S]*?keyboard\.lock\(\['Escape'\]\)/,
+    'both guest-priority modes must request Chrome Keyboard Lock for Escape in native full screen');
 assert.match(source, /Client first — browser shortcuts win/,
     'the settings panel must let a user choose client shortcut priority');
 assert.match(source, /Ctrl\+Alt\+Shift\+Esc/,
@@ -117,10 +121,14 @@ assert.match(source, /restoreClientFocusAfterFullscreen/,
     'guest-first capture exit must restore client focus after leaving full screen');
 assert.match(source, /const leaveGuestKeyboardCapture = \(\) => \{[\s\S]*?document\.fullscreenElement[\s\S]*?document\.exitFullscreen\(\)/,
     'the guest-first capture-exit chord must also leave native full screen');
-assert.match(source, /if \(!clientFirst && guestCaptureExitShortcut\(event\)\)/,
-    'the escape chord must be local only while guest-first capture is active');
-assert.match(source, /if \(clientFirst && pasteShortcut\)/,
-    'browser clipboard shortcuts must remain local only in client-first mode');
+assert.match(source, /if \(!clientFirst && !rawInput && guestCaptureExitShortcut\(event\)\)/,
+    'the escape chord must be local only while guest-first capture is active, never Raw input');
+assert.match(source, /if \(!rawInput && pasteShortcut\)/,
+    'browser clipboard shortcuts must work outside Raw input without consuming physical Raw shortcuts');
+assert.match(source, /if \(settings\.keyboardPriority === KEYBOARD_PRIORITY\.raw\) \{ return; \}/,
+    'a browser Paste event must not replace raw Ctrl/Cmd+V delivery');
+assert.match(source, /return pasteTextIntoGuest\(text\);/,
+    'direct browser paste must share one guest clipboard write path');
 assert.match(source, /else if \(clientFirst && clientFirstShortcut\(event\)\)/,
     'client-first mode must leave its other browser shortcuts untouched before forwarding remaining keys');
 assert.match(source, /macOS Cmd\+Tab, Cmd\+Space, Cmd\+Q,[\s\S]*?Windows Ctrl\+Alt\+Del and Win\+L/,
@@ -203,6 +211,10 @@ assert.match(source, /HEVC — not available yet/,
     'the UI must not claim HEVC is usable before the browser WebRTC stack can negotiate it');
 assert.match(source, /CPU — Standard VGA or VirtIO \(no GL\)/,
     'the Display editor must expose a non-GL CPU profile beside VirGL');
+assert.match(source, /Effective display adapter/,
+    'the Display advanced pane must disclose the actual QSM-owned adapter behind PVE vga=none');
+assert.match(source, /QSM VirtIO-GPU \(VirGL, GL\)/,
+    'the effective adapter must identify a VirGL-owned virtual GPU');
 assert.match(source, /gl=off/,
     'the CPU profile must configure an explicit non-GL QEMU Display1 backend');
 assert.doesNotMatch(source, /Ext\.create\('Ext\.window\.Window'/,
@@ -373,6 +385,7 @@ assert.deepEqual(
 
 let restoredValues;
 let renderNodeDisabled;
+let restoredAdapter;
 const displayEdit = {
     pveSelNode: { data: { vmid: 321 } },
     load: (options) => options.success({
@@ -387,8 +400,14 @@ const displayEdit = {
     },
     setValues: (values) => { restoredValues = values; },
     down: (query) => {
-        assert.equal(query, '[name=qsm_direct_rendernode]');
-        return { setDisabled: (value) => { renderNodeDisabled = value; } };
+        if (query === '[name=qsm_direct_rendernode]') {
+            return { setDisabled: (value) => { renderNodeDisabled = value; } };
+        }
+        if (query === '[name=qsm_direct_effective_adapter]') {
+            return { setValue: (value) => { restoredAdapter = value; } };
+        }
+        if (query === '[name=type]') { return { getValue: () => 'none' }; }
+        assert.fail(`unexpected display field query: ${query}`);
     },
 };
 displayEditOverlay.initComponent.call(displayEdit);
@@ -396,8 +415,11 @@ assert.deepEqual(restoredValues, {
     qsm_direct_display1: 1,
     qsm_direct_profile: 'virgl',
     qsm_direct_rendernode: '/dev/dri/renderD130',
+    qsm_direct_effective_adapter: 'QSM VirtIO-GPU (VirGL, GL) — PVE Graphic card is None',
 });
 assert.equal(renderNodeDisabled, false, 'reopening a configured VM must preserve the enabled render node');
+assert.equal(restoredAdapter, 'QSM VirtIO-GPU (VirGL, GL) — PVE Graphic card is None',
+    'reopening a VirGL VM must disclose its effective QSM adapter rather than only PVE vga=none');
 
 let qsmDirectDisabled;
 const consoleButton = {

@@ -52,6 +52,8 @@ class QsmGuestPackageTests(unittest.TestCase):
         self.assertIn('busctl --user monitor org.kde.klipper', bridge)
         self.assertIn('clipboardHistoryUpdated', bridge)
         self.assertIn("QSF_WAYLAND_BRIDGE_NATIVE_WATCHER=kde_dbus", bridge)
+        self.assertIn('for candidate in qdbus6 qdbus-qt6 qdbus', bridge)
+        self.assertIn('qdbus_binary=$(command -v "$candidate")', bridge)
         self.assertIn("while IFS= read -r bridge_event <\"$event_pipe\"", bridge)
         self.assertIn("native) synchronise_native_clipboard", bridge)
         self.assertNotIn('if wl-paste --no-newline --type', bridge)

@@ -133,7 +133,8 @@ const openDisplayEditor = async (page, timeout) => {
         const profile = editor && editor.down && editor.down('[name=qsm_direct_profile]');
         const renderNode = editor && editor.down && editor.down('[name=qsm_direct_rendernode]');
         const graphicCard = editor && editor.down && editor.down('[name=type]');
-        if (!display || !profile || !renderNode) return null;
+        const effectiveAdapter = editor && editor.down && editor.down('[name=qsm_direct_effective_adapter]');
+        if (!display || !profile || !renderNode || !effectiveAdapter) return null;
         const store = profile.getStore && profile.getStore();
         const profiles = store && store.getRange ? store.getRange().map((record) => String(
             record.get ? record.get('value') : record.data && record.data.value,
@@ -145,6 +146,7 @@ const openDisplayEditor = async (page, timeout) => {
             renderNode: String(renderNode.getValue() || ''),
             renderNodeDisabled: renderNode.disabled === true,
             graphicCard: graphicCard ? String(graphicCard.getValue() || '') : '',
+            effectiveAdapter: String(effectiveAdapter.getValue() || ''),
         };
     }, undefined, { timeout });
     try {
@@ -161,7 +163,10 @@ const main = async () => {
     let context;
     try {
         const { chromium } = await loadPlaywright();
-        browser = await chromium.launch({ headless: !options.headed });
+        browser = await chromium.launch({
+            headless: !options.headed,
+            executablePath: process.env.QSM_DIRECT_CHROME || undefined,
+        });
         context = await browser.newContext({
             ignoreHTTPSErrors: options.ignoreHttpsErrors,
             locale: 'en-US',
@@ -188,11 +193,12 @@ const main = async () => {
         if (!result || result.displayEnabled !== true || result.profile !== 'virgl' ||
             !Array.isArray(result.profiles) || !result.profiles.includes('virgl') ||
             !result.profiles.includes('cpu') || result.renderNodeDisabled ||
-            !RENDER_NODE_PATTERN.test(result.renderNode) || result.graphicCard !== 'none') {
+            !RENDER_NODE_PATTERN.test(result.renderNode) || result.graphicCard !== 'none' ||
+            result.effectiveAdapter !== 'QSM VirtIO-GPU (VirGL, GL) — PVE Graphic card is None') {
             fail('PVE_DISPLAY1_FIELDS_INVALID');
         }
         process.stdout.write(
-            `QSM_DIRECT_PVE_DISPLAY1_UI_E2E_OK vmid=${options.vmid} profile=${result.profile} cpu_profile=yes rendernode=${result.renderNode} vga=${result.graphicCard}\n`,
+            `QSM_DIRECT_PVE_DISPLAY1_UI_E2E_OK vmid=${options.vmid} profile=${result.profile} cpu_profile=yes rendernode=${result.renderNode} vga=${result.graphicCard} adapter=virgl\n`,
         );
     } finally {
         if (password) {

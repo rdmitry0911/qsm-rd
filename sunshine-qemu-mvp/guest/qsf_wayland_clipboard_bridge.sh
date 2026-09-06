@@ -53,6 +53,7 @@ clipboard_watcher_pid=''
 state_watcher_pid=''
 wl_copy_pid=''
 clipboard_backend='generic-poll'
+qdbus_binary=''
 state_poll_interval=0.10
 bridge_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd) || exit 1
 state_watcher_binary="$bridge_directory/qsm-state-watcher"
@@ -134,7 +135,7 @@ copy_state_to_wayland() {
     # setter accepts a normal D-Bus string.  xargs -0 transports the file as
     # precisely one argv item, including embedded and trailing newlines.
     { cat "$clipboard"; printf '\0'; } |
-      xargs -0 qdbus6 org.kde.klipper /klipper \
+      xargs -0 "$qdbus_binary" org.kde.klipper /klipper \
         org.kde.klipper.klipper.setClipboardContents \
       >/dev/null 2>"$state_dir/.wayland-klipper-set.log" || fail klipper_rejected_qsf_state
     return
@@ -169,7 +170,7 @@ capture_wayland_to_candidate() {
   # text is unchanged.  A single read after a genuine clipboard notification
   # preserves the exact no-newline payload and avoids that compositor churn.
   if [ "$clipboard_backend" = 'kde-dbus' ]; then
-    qdbus6 org.kde.klipper /klipper org.kde.klipper.klipper.getClipboardContents \
+    "$qdbus_binary" org.kde.klipper /klipper org.kde.klipper.klipper.getClipboardContents \
       >"$candidate" 2>"$state_dir/.wayland-klipper-get.log" || return 1
     # qdbus appends exactly one output separator after a string reply. Remove
     # that separator only; a newline genuinely contained in the clipboard
@@ -272,7 +273,13 @@ detect_clipboard_backend() {
   # Plasma intentionally does not expose wlroots data-control to unfocused
   # clients. Klipper is its supported selection authority, and the D-Bus
   # method both works for a user service and reports selection changes.
-  if command -v qdbus6 >/dev/null 2>&1 &&
+  for candidate in qdbus6 qdbus-qt6 qdbus; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      qdbus_binary=$(command -v "$candidate")
+      break
+    fi
+  done
+  if [ -n "$qdbus_binary" ] &&
       busctl --user --quiet introspect org.kde.klipper /klipper 2>/dev/null |
       grep -Fq 'clipboardHistoryUpdated'; then
     clipboard_backend='kde-dbus'

@@ -29,6 +29,11 @@
     const CONSOLE_SETTINGS_STORAGE_KEY = 'qsm-direct-console-settings-v1';
     const KEYBOARD_PRIORITY = Object.freeze({
         guest: 'guest-first',
+        // Raw delivery is deliberately a third choice rather than an
+        // implementation detail of guest-first. It is useful while setting
+        // up a VM's own shortcuts: every DOM press/release edge is sent to
+        // Display1 and QSM reserves no local capture-exit chord.
+        raw: 'raw-events',
         client: 'client-first',
     });
     const CONSOLE_SETTING_SCHEMA = Object.freeze({
@@ -247,9 +252,29 @@
         return removeManagedDirectInput(removeManagedGuestChannel(withoutGpu, vmid));
     };
 
-    const updateDisplayFields = (panel, active, profile) => {
+    const stockVgaType = (value) => {
+        if (typeof value !== 'string' || !value) { return 'none'; }
+        const typed = /(?:^|,)type=([a-z0-9-]+)/.exec(value);
+        return typed ? typed[1] : value.split(',', 1)[0];
+    };
+    const effectiveDisplayAdapter = (active, profile, vga) => {
+        if (!active) { return gettext('PVE Graphic card: ') + stockVgaType(vga || 'none'); }
+        if (profile === DISPLAY_PROFILE.virgl) {
+            return gettext('QSM VirtIO-GPU (VirGL, GL) — PVE Graphic card is None');
+        }
+        const type = stockVgaType(vga || 'none');
+        return type === 'virtio'
+            ? gettext('PVE VirtIO-GPU + QSM Display1 (CPU, no GL)')
+            : gettext('PVE Standard VGA + QSM Display1 (CPU, no GL)');
+    };
+    const updateDisplayFields = (panel, active, profile, vga) => {
         const rendernode = panel && panel.down('[name=qsm_direct_rendernode]');
         if (rendernode) { rendernode.setDisabled(!active || profile !== DISPLAY_PROFILE.virgl); }
+        const adapter = panel && panel.down('[name=qsm_direct_effective_adapter]');
+        if (adapter) {
+            const type = vga || (panel.down('[name=type]') && panel.down('[name=type]').getValue());
+            adapter.setValue(effectiveDisplayAdapter(active, profile, type));
+        }
     };
 
     const displayFields = () => [
@@ -281,6 +306,11 @@
             xtype: 'textfield', name: 'qsm_direct_rendernode', value: DEFAULT_RENDER_NODE, disabled: true,
             fieldLabel: gettext('Render node'), allowBlank: false,
             validator: (value) => validRenderNode(value) || gettext('Use a DRM render node, for example /dev/dri/renderD128.'),
+        },
+        {
+            xtype: 'displayfield', name: 'qsm_direct_effective_adapter',
+            fieldLabel: gettext('Effective display adapter'),
+            value: effectiveDisplayAdapter(false, DISPLAY_PROFILE.virgl, 'none'),
         },
         { xtype: 'displayfield', userCls: 'pmx-hint', value: gettext(
             'VirGL owns a private VirtIO-GPU and saves PVE Graphic card as None, because VNC and GL Display1 are incompatible. CPU Display1 uses gl=off and keeps the selected Standard VGA or non-GL VirtIO adapter, so no render node or host GPU is needed. If an adapter does not implement Display1 resize, QSM keeps its fixed guest scanout connected instead of failing the console. The optional guest-tools serial channel provides clipboard and files. Restart the VM after changing this setting.'),
@@ -350,8 +380,10 @@
                         qsm_direct_display1: state.managed || state.legacy ? 1 : 0,
                         qsm_direct_profile: state.profile,
                         qsm_direct_rendernode: state.rendernode,
+                        qsm_direct_effective_adapter: effectiveDisplayAdapter(
+                            state.managed || state.legacy, state.profile, data && data.vga),
                     });
-                    updateDisplayFields(me, state.managed || state.legacy, state.profile);
+                    updateDisplayFields(me, state.managed || state.legacy, state.profile, data && data.vga);
                 };
                 return stockLoad.call(me, chained);
             };
@@ -537,6 +569,7 @@
         let restoreClientFocusAfterFullscreen = false;
         document.addEventListener('fullscreenchange', () => {
             releaseHeldInput();
+            updateGuestKeyboardLock();
             setFullscreenLabel();
             resizeConsole(true);
             // Safari and Chromium can leave the video without focus after
@@ -643,6 +676,7 @@
         keyboardPriorityInput.style.cssText = 'width:100%;box-sizing:border-box;padding:4px 6px';
         for (const [value, label] of [
             [KEYBOARD_PRIORITY.guest, gettext('Guest first — forward received keys')],
+            [KEYBOARD_PRIORITY.raw, gettext('Raw input — send each key and mouse press/release')],
             [KEYBOARD_PRIORITY.client, gettext('Client first — browser shortcuts win')],
         ]) {
             const option = document.createElement('option');
@@ -653,7 +687,7 @@
         keyboardPriorityInput.value = settings.keyboardPriority;
         keyboardPolicyForm.append(keyboardPriorityLabel, keyboardPriorityInput);
         const keyboardPolicyHint = document.createElement('p');
-        keyboardPolicyHint.textContent = gettext('Guest first forwards every key event received by this window, including Ctrl/Alt/Meta. To leave guest keyboard capture, press Ctrl+Alt+Shift+Esc; focus moves to Settings. Click the guest picture to resume. In client-first mode, browser Copy/Paste, tab/window/navigation, refresh, full-screen and developer-tool shortcuts stay local; all other received keys go to the guest.');
+        keyboardPolicyHint.textContent = gettext('Guest first forwards every key event received by this window, including Ctrl/Alt/Meta. To leave guest keyboard capture, press Ctrl+Alt+Shift+Esc; focus moves to Settings. Raw input sends one physical down and up edge for every received keyboard or mouse action and reserves no QSM chord; use the Settings button to return to client controls. In native full screen Chrome locks Escape for both guest modes when the browser supports Keyboard Lock. In client-first mode, browser Copy/Paste, tab/window/navigation, refresh, full-screen and developer-tool shortcuts stay local; all other received keys go to the guest.');
         keyboardPolicyHint.style.cssText = 'margin:8px 0;color:#cbd5e1;line-height:1.35';
         const keyboardUnavailableHint = document.createElement('p');
         keyboardUnavailableHint.textContent = gettext('Always unavailable to a web console when claimed before the browser: macOS Cmd+Tab, Cmd+Space, Cmd+Q, Ctrl+Cmd+Q and Cmd+Option+Esc; Windows Ctrl+Alt+Del and Win+L; compositor Super/secure-attention shortcuts. Browser policy can also reserve its own full-screen or window-management shortcuts.');
@@ -736,6 +770,7 @@
         let pointerInToolbar = false;
         let settingsPanelOpen = false;
         let guestRequestNumber = 0;
+        let lastGuestClipboardText = null;
         const guestRequests = new Map();
         const guestDownloads = new Map();
         const guestFileUrls = new Map();
@@ -809,6 +844,20 @@
         });
         const send = (value) => {
             if (control && control.readyState === 'open') { control.send(JSON.stringify(value)); }
+        };
+        const updateGuestKeyboardLock = () => {
+            // Native full screen normally lets the browser reserve Escape.
+            // Chrome's Keyboard Lock API is the standards-based exception:
+            // in either guest-priority mode retain Escape for the VM, so its
+            // own shortcut editor sees the real key edge.
+            const keyboard = popup.navigator && popup.navigator.keyboard;
+            if (!keyboard) { return; }
+            if (document.fullscreenElement && settings.keyboardPriority !== KEYBOARD_PRIORITY.client &&
+                typeof keyboard.lock === 'function') {
+                Promise.resolve(keyboard.lock(['Escape'])).catch(() => undefined);
+            } else if (typeof keyboard.unlock === 'function') {
+                keyboard.unlock();
+            }
         };
         const bytesToB64 = (bytes) => {
             let binary = '';
@@ -1044,6 +1093,7 @@
         };
         const applyConsoleSettings = () => {
             writeConsoleSettings(browserStorage, settings);
+            updateGuestKeyboardLock();
             if (videoReceiver && 'playoutDelayHint' in videoReceiver) {
                 try { videoReceiver.playoutDelayHint = settings.playoutDelayMs / 1000; }
                 catch (_error) { /* The browser may clamp an unsupported hint. */ }
@@ -1280,6 +1330,10 @@
                 throw new Error('browser clipboard access is unavailable');
             }
             const text = await popup.navigator.clipboard.readText();
+            return pasteTextIntoGuest(text);
+        };
+        const pasteTextIntoGuest = async (text) => {
+            if (typeof text !== 'string') { throw new Error('browser clipboard is unavailable'); }
             await guestRequest('qsm_guest_clipboard_set', { text_b64: bytesToB64(new TextEncoder().encode(text)) });
             await waitForGuestClipboard();
             sendGuestShortcut(47); // Ctrl+V in the focused guest application.
@@ -1390,14 +1444,24 @@
         };
         const sendMouseButton = (button, down) => {
             if (!Number.isInteger(button) || button < 1 || button > 5) { return; }
-            if (down) { heldMouseButtons.add(button); }
-            else { heldMouseButtons.delete(button); }
+            if (down) {
+                if (heldMouseButtons.has(button)) { return; }
+                heldMouseButtons.add(button);
+            } else {
+                if (!heldMouseButtons.has(button)) { return; }
+                heldMouseButtons.delete(button);
+            }
             send({ op: 'mouse_button', button, down });
         };
         const sendKeyboard = (key, down) => {
             if (!Number.isInteger(key) || key < 0 || key > 0xffff) { return; }
-            if (down) { heldKeys.add(key); }
-            else { heldKeys.delete(key); }
+            if (down) {
+                if (heldKeys.has(key)) { return; }
+                heldKeys.add(key);
+            } else {
+                if (!heldKeys.has(key)) { return; }
+                heldKeys.delete(key);
+            }
             send({ op: 'keyboard', key, down, modifiers: 0 });
         };
         releaseHeldInput = () => {
@@ -1757,8 +1821,18 @@
                         // system clipboard without a click/key gesture. Keep
                         // the notification for the explicit Copy action
                         // rather than silently discarding a browser rejection.
-                        new TextDecoder('utf-8', { fatal: true }).decode(b64ToBytes(message.text_b64));
-                        status.textContent = gettext('Guest clipboard changed — press Copy to copy it here');
+                        const text = new TextDecoder('utf-8', { fatal: true }).decode(b64ToBytes(message.text_b64));
+                        // Klipper can report a transient selection while a
+                        // window is being dragged. It must not repeatedly
+                        // repaint the console toolbar or look like a local
+                        // clipboard operation. The explicit Copy control
+                        // remains available for the final guest selection.
+                        if (text !== lastGuestClipboardText) {
+                            lastGuestClipboardText = text;
+                            if (!heldMouseButtons.size) {
+                                status.textContent = gettext('Guest clipboard changed — press Copy to copy it here');
+                            }
+                        }
                     } catch (_error) { /* Ignore malformed guest clipboard notifications. */ }
                 } else if (message.op === 'qsm_guest_cursor_shape') {
                     acceptGuestCursorShape(message);
@@ -1840,25 +1914,24 @@
             });
             video.addEventListener('wheel', (event) => { send({ op: 'scroll', vertical: Math.max(-32768, Math.min(32767, Math.trunc(event.deltaY))), horizontal: Math.max(-32768, Math.min(32767, Math.trunc(event.deltaX))) }); event.preventDefault(); }, { passive: false });
             video.addEventListener('paste', (event) => {
-                // In guest-first mode Ctrl/Cmd+V is a real guest keystroke.
-                // Do not silently replace native guest clipboard state with
-                // the browser clipboard behind that user's back.
-                if (settings.keyboardPriority !== KEYBOARD_PRIORITY.client) {
-                    event.preventDefault();
-                    return;
-                }
+                // Raw input is intentionally a literal key/mouse edge mode
+                // for configuring guest shortcuts. Its clipboard controls
+                // remain the explicit toolbar buttons; a browser Paste event
+                // must not turn Ctrl/Cmd+V into a synthetic guest Ctrl+V.
+                if (settings.keyboardPriority === KEYBOARD_PRIORITY.raw) { return; }
                 const text = event.clipboardData && event.clipboardData.getData('text/plain');
                 if (typeof text !== 'string') { return; }
                 event.preventDefault();
-                guestRequest('qsm_guest_clipboard_set', {
-                    text_b64: bytesToB64(new TextEncoder().encode(text)),
-                }).catch(() => { status.textContent = gettext('Guest clipboard is unavailable.'); });
+                pasteTextIntoGuest(text).catch(() => {
+                    status.textContent = gettext('Guest clipboard is unavailable.');
+                });
             });
             for (const name of ['keydown', 'keyup']) {
                 video.addEventListener(name, (event) => {
                     const key = qemuKey(event);
                     const clientFirst = settings.keyboardPriority === KEYBOARD_PRIORITY.client;
-                    if (!clientFirst && guestCaptureExitShortcut(event)) {
+                    const rawInput = settings.keyboardPriority === KEYBOARD_PRIORITY.raw;
+                    if (!clientFirst && !rawInput && guestCaptureExitShortcut(event)) {
                         event.preventDefault();
                         leaveGuestKeyboardCapture();
                         return;
@@ -1884,18 +1957,28 @@
                         }
                         return;
                     }
-                    const pasteShortcut = event.code === 'KeyV' && (event.ctrlKey || event.metaKey);
-                    const copyShortcut = event.code === 'KeyC' && (event.ctrlKey || event.metaKey);
-                    if (clientFirst && pasteShortcut) {
+                    const pasteShortcut = event.code === 'KeyV' && (event.ctrlKey || event.metaKey) && !event.altKey;
+                    const copyShortcut = event.code === 'KeyC' && (event.ctrlKey || event.metaKey) && !event.altKey;
+                    if (!rawInput && pasteShortcut) {
                         event.preventDefault();
-                        if (name === 'keydown') { pasteFromBrowser().catch(() => {
-                            status.textContent = gettext('Browser clipboard is unavailable.');
-                        }); }
-                    } else if (clientFirst && copyShortcut) {
+                        if (name === 'keydown') {
+                            // Release a forwarded Cmd/Ctrl before emitting
+                            // the Linux Ctrl+V sequence. Otherwise macOS Cmd
+                            // can remain held in the guest and turn a paste
+                            // into an unrelated desktop shortcut.
+                            releaseHeldInput();
+                            pasteFromBrowser().catch(() => {
+                                status.textContent = gettext('Browser clipboard is unavailable.');
+                            });
+                        }
+                    } else if (!rawInput && copyShortcut) {
                         event.preventDefault();
-                        if (name === 'keydown') { guestSelectionToBrowser().catch(() => {
-                            status.textContent = gettext('Guest clipboard is unavailable.');
-                        }); }
+                        if (name === 'keydown') {
+                            releaseHeldInput();
+                            guestSelectionToBrowser().catch(() => {
+                                status.textContent = gettext('Guest clipboard is unavailable.');
+                            });
+                        }
                     } else if (clientFirst && clientFirstShortcut(event)) {
                         // Leave the event untouched: the browser receives its
                         // native shortcut and the guest sees no partial key.
