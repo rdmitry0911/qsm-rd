@@ -479,7 +479,7 @@
         if (!popup) {
             Ext.Msg.alert(gettext('QSM Direct'), gettext(
                 'The browser blocked the separate console window. Allow popups for this Proxmox site and try again.'));
-            return;
+            return false;
         }
         const document = popup.document;
         document.title = gettext('QSM Direct Console');
@@ -1736,7 +1736,59 @@
             }
         };
         connect();
+        return true;
     };
+
+    // Keep PVE's one, familiar "Console" card in the left navigation.  Its
+    // configuration is normally a lazy card held in `savedItems`, so the
+    // QEMU Config overlay below can substitute this xtype after it reads the
+    // protected VM config and before the user opens Console.  This card does
+    // not add a second navigation entry; it merely launches the same
+    // separate browser window as the Console split-menu action.
+    Ext.define('PVE.qsmDirect.ConsolePanel', {
+        extend: 'Ext.panel.Panel',
+        alias: 'widget.pveQsmDirectConsole',
+        layout: { type: 'vbox', align: 'center', pack: 'center' },
+        border: false,
+
+        initComponent: function () {
+            const me = this;
+            let launched = false;
+            const launch = () => {
+                if (!validNode(me.nodename) || !validVmid(Number(me.vmid))) { return false; }
+                const opened = openConsole(me, me.nodename, Number(me.vmid));
+                if (opened) { launched = true; }
+                return opened;
+            };
+            Ext.apply(me, {
+                items: [
+                    {
+                        xtype: 'component',
+                        margin: '0 0 12 0',
+                        html: gettext('Opening QSM Direct in a separate browser window…'),
+                    },
+                    {
+                        xtype: 'button',
+                        text: gettext('Open QSM Direct Console'),
+                        iconCls: 'fa fa-desktop',
+                        handler: launch,
+                    },
+                ],
+                listeners: {
+                    // Selecting the existing PVE Console entry is a direct
+                    // user gesture, therefore the browser permits the native
+                    // resizable popup. Restoring a previously selected card
+                    // after a PVE page reload is not a user gesture; leave
+                    // that case quiet and expose the same explicit button.
+                    activate: () => {
+                        const activation = navigator.userActivation;
+                        if (!launched && (!activation || activation.isActive)) { launch(); }
+                    },
+                },
+            });
+            me.callParent();
+        },
+    });
 
     Ext.define('PVE.qsmDirect.ConsoleButtonOverlay', {
         override: 'PVE.button.ConsoleButton',
@@ -1770,19 +1822,38 @@
             me.callParent();
             const vm = me.pveSelNode && me.pveSelNode.data;
             const vmid = vm ? Number(vm.vmid) : NaN;
-            const refreshQsmDirect = () => {
+            const setConsoleProvider = (managed) => {
+                // PVE.panel.Config has already placed the original `console`
+                // definition in savedItems. Preserve its title, itemId and
+                // position (between Summary and Hardware); swap only the
+                // implementation for an exact QSM Display1 configuration.
+                // This overlay applies to PVE.qemu.Config only, never LXC.
+                const console = me.savedItems && me.savedItems.console;
+                if (console) {
+                    console.xtype = managed ? 'pveQsmDirectConsole' : 'pveNoVncConsole';
+                }
+            };
+            const setQsmDirectAvailable = (managed) => {
                 const button = me.down('#qsm-direct-console-button');
-                if (!button || !validNode(vm && vm.node) || !validVmid(vmid)) { return false; }
+                if (button) { button.setEnableQsmDirect(managed); }
+                setConsoleProvider(managed);
+            };
+            const refreshQsmDirect = () => {
+                if (!validNode(vm && vm.node) || !validVmid(vmid)) { return false; }
                 Proxmox.Utils.API2Request({
                     url: `/nodes/${encodeURIComponent(vm.node)}/qemu/${encodeURIComponent(vmid)}/config`,
                     method: 'GET',
                     success: ({ result }) => {
                         const data = result && result.data;
-                        button.setEnableQsmDirect(displayState(data && data.args, vmid).managed);
+                        setQsmDirectAvailable(displayState(data && data.args, vmid).managed);
                     },
-                    failure: () => button.setEnableQsmDirect(false),
+                    failure: () => setQsmDirectAvailable(false),
                 });
-                return true;
+                // The top Console split button is created late on first
+                // visits. The left-navigation Console definition is already
+                // available in savedItems, so it can be switched on this
+                // first request even if the toolbar needs a retry.
+                return Boolean(me.down('#qsm-direct-console-button'));
             };
             // PVE constructs the Console button late on some first visits to
             // a VM view. A direct lookup then sees no component and leaves

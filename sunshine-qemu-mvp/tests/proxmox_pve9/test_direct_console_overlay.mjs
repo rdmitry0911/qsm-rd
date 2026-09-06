@@ -33,10 +33,20 @@ const displayOverlay = definitions.get('PVE.qsmDirect.DisplayInputPanelOverlay')
 const displayEditOverlay = definitions.get('PVE.qsmDirect.DisplayEditOverlay');
 const consoleOverlay = definitions.get('PVE.qsmDirect.ConsoleButtonOverlay');
 const qemuConfigOverlay = definitions.get('PVE.qsmDirect.QemuConfigOverlay');
+const directConsolePanel = definitions.get('PVE.qsmDirect.ConsolePanel');
 assert.ok(displayOverlay, 'PVE Display editor must receive the qsm Display1 overlay');
 assert.ok(displayEditOverlay, 'PVE Display edit loader must restore qsm Display1 state');
 assert.ok(consoleOverlay, 'PVE Console menu must receive the qsm Direct entry');
 assert.ok(qemuConfigOverlay, 'PVE VM view must gate QSM Direct on saved Display1 args');
+assert.ok(directConsolePanel, 'the existing PVE Console card must have a QSM Direct implementation');
+assert.match(source, /const console = me\.savedItems && me\.savedItems\.console;/,
+    'the provider switch must preserve PVE\'s existing Console navigation item');
+assert.match(source, /console\.xtype = managed \? 'pveQsmDirectConsole' : 'pveNoVncConsole';/,
+    'only a managed Display1 VM may replace the existing noVNC Console card');
+assert.doesNotMatch(source, /title: gettext\('QSM Direct'\),\s*itemId: 'qsm-direct-console'/,
+    'QSM Direct must not add a second left-navigation item');
+assert.match(source, /const activation = navigator\.userActivation;\s*if \(!launched && \(!activation \|\| activation\.isActive\)\) \{ launch\(\); \}/,
+    'selecting the existing Console card must open QSM Direct without a second navigation choice');
 assert.match(source, /window\.open\('', windowId,/,
     'QSM Direct must create a separate browser popup synchronously from the menu action');
 assert.match(source, /const vmStatusUrl = \(\) => `\/nodes\/\$\{encodeURIComponent\(node\)\}\/qemu\/\$\{encodeURIComponent\(vmid\)\}\/status\/current`;/,
@@ -449,6 +459,7 @@ consoleOverlay.setEnableQsmDirect.call(consoleButton, true);
 assert.equal(qsmDirectDisabled, false, 'a configured VM enables QSM Direct explicitly');
 
 let qsmDirectEnabled;
+const configuredConsole = { xtype: 'pveNoVncConsole', itemId: 'console' };
 globalThis.Proxmox = {
     Utils: {
         API2Request: (request) => {
@@ -466,6 +477,7 @@ globalThis.Proxmox = {
 };
 qemuConfigOverlay.initComponent.call({
     pveSelNode: { data: { node: 'pve-a', vmid: 321 } },
+    savedItems: { console: configuredConsole },
     callParent: () => undefined,
     down: (query) => {
         assert.equal(query, '#qsm-direct-console-button');
@@ -473,11 +485,16 @@ qemuConfigOverlay.initComponent.call({
     },
 });
 assert.equal(qsmDirectEnabled, true, 'only the managed Display1 argument enables QSM Direct');
+assert.equal(configuredConsole.xtype, 'pveQsmDirectConsole',
+    'the existing Console card, not a new navigation item, selects QSM Direct');
+assert.equal(configuredConsole.itemId, 'console', 'the stock Console card identity is preserved');
 
 let delayedRefresh;
 let delayedEnabled;
+const delayedConsole = { xtype: 'pveNoVncConsole', itemId: 'console' };
 qemuConfigOverlay.initComponent.call({
     pveSelNode: { data: { node: 'pve-a', vmid: 321 } },
+    savedItems: { console: delayedConsole },
     callParent: () => undefined,
     down: () => delayedRefresh ? { setEnableQsmDirect: (value) => { delayedEnabled = value; } } : null,
     on: (event, callback, scope, options) => {
@@ -490,5 +507,7 @@ qemuConfigOverlay.initComponent.call({
 assert.equal(typeof delayedRefresh, 'function', 'a late Console button must be refreshed after rendering');
 delayedRefresh();
 assert.equal(delayedEnabled, true, 'the first VM view must enable QSM Direct without a page reload');
+assert.equal(delayedConsole.xtype, 'pveQsmDirectConsole',
+    'the existing Console card must switch even while the toolbar is rendered late');
 
 console.log('QSM_DIRECT_PVE_UI_OVERLAY_OK');

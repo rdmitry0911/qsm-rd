@@ -133,10 +133,11 @@ Architecture: amd64
 Maintainer: qsm contributors <qsm@users.noreply.github.com>
 Depends: libc6 (>= 2.38), libopus0 (>= 1.3), libstdc++6 (>= 13), libsystemd0, libavcodec61, libavutil59, libswscale8, dbus, ffmpeg, python3, python3-aiortc, python3-av, pve-manager, qemu-server
 Description: browser-only direct QEMU Display1 console for Proxmox VE 9
- qsm-pve-direct adds one PVE VM.Console-protected browser WebRTC Console
- transport. It runs a node-local QEMU Display1 H.264/Opus worker and has no
- pairing, native client, external transport listener, host desktop server, or
- legacy compatibility transport implementation.
+ qsm-pve-direct selects a PVE VM.Console-protected browser WebRTC transport
+ for the existing VM Console entry when the VM has its private Display1
+ configuration. It runs a node-local QEMU Display1 H.264/Opus worker and has
+ no pairing, native client, external transport listener, host desktop server,
+ or legacy compatibility transport implementation.
 EOF
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-postinst" "$stage_root/DEBIAN/postinst"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-prerm" "$stage_root/DEBIAN/prerm"
