@@ -873,9 +873,17 @@ class BrowserWebRtcBridge:
         self._pc = RTCPeerConnection()
         self._shared_media = shared_media
         self._owns_media = shared_media is None
+        # ``SharedMediaIngress.subscribe`` synchronously replays a cached
+        # Display1 cursor to a new viewer.  Every field used by that callback
+        # must therefore exist before subscribing: a VM which already has a
+        # cursor must be just as connectable as a VM with no prior damage.
+        self._closed = False
+        self._on_terminal = on_terminal
+        self._terminal_notified = False
         self._latest_cursor: GuestCursor | None = None
         self._sent_cursor_shape_id: int | None = None
         self._cursor_channel: object | None = None
+        self._control_channel: object | None = None
         self._cursor_listener = self._receive_cursor
         if shared_media is None:
             self.video_track = _PacketTrack("video", maximum_queue=VIDEO_QUEUE_DEPTH)
@@ -896,9 +904,6 @@ class BrowserWebRtcBridge:
         # the coarse ten-minute lease expired.  Besides leaking a WebRTC peer,
         # that made every new encoded frame fan out to old RTP senders.  Keep
         # the notification local and idempotent; it conveys no browser data.
-        self._on_terminal = on_terminal
-        self._terminal_notified = False
-        self._closed = False
         # A PVE console session has exactly one SDP offer and one pair of
         # tracks.  In particular, do not let a caller append another sender
         # to an already-authorized peer connection by replaying signalling.
@@ -906,7 +911,6 @@ class BrowserWebRtcBridge:
         self._offer_consumed = False
         self._control_channel_seen = False
         self._pointer_channel_seen = False
-        self._control_channel: object | None = None
         self._pc.on("datachannel", self._on_datachannel)
 
         @self._pc.on("connectionstatechange")

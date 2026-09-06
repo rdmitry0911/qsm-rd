@@ -25,6 +25,7 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     CURSOR_VERSION,
     CURSOR_VISIBLE,
     EncodedUnit,
+    GuestCursor,
     INPUT_HEADER,
     INPUT_KEYFRAME_REQUEST,
     INPUT_KEYBOARD,
@@ -292,6 +293,34 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(second.is_keyframe)
                 source.raise_if_failed()
             finally:
+                source.close()
+
+    async def test_cached_shared_cursor_is_safe_during_bridge_construction(self) -> None:
+        """A new viewer must accept the cursor published before it connected.
+
+        ``_CursorFanout.subscribe`` deliberately replays latest state
+        synchronously.  This covers the production path where a running VM
+        has already emitted Display1 cursor data before PVE creates the
+        browser WebRTC bridge.
+        """
+        with tempfile.TemporaryDirectory(prefix="qsm-browser-cached-cursor.") as directory:
+            source = SharedMediaIngress(Path(directory), asyncio.get_running_loop(), fps=60)
+            source.start()
+            bridge: BrowserWebRtcBridge | None = None
+            try:
+                cached = GuestCursor(
+                    sequence=9, shape_id=0x1234, visible=True, x=320, y=240,
+                    width=1, height=1, hotspot_x=0, hotspot_y=0,
+                    bgra=b"\x00\x00\x00\xff",
+                )
+                source._cursors.put_nowait(cached)  # cached source state, as from Display1
+                bridge = BrowserWebRtcBridge(Path(directory) / "viewer", fps=60,
+                                              shared_media=source)
+                self.assertEqual(bridge._latest_cursor, cached)
+                self.assertFalse(bridge._closed)
+            finally:
+                if bridge is not None:
+                    await bridge.close()
                 source.close()
 
     async def test_private_input_socket_accepts_one_same_uid_receiver(self) -> None:
