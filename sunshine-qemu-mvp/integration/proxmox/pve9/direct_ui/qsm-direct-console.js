@@ -1287,12 +1287,17 @@
             }
             return new TextDecoder('utf-8', { fatal: true }).decode(b64ToBytes(result.text_b64));
         };
+        const guestClipboardPropagationDelayMs = 700;
         const waitForGuestClipboard = () => new Promise((resolve) => {
-            // The guest agent has no GUI dependency; its Wayland companion
-            // mirrors its atomic state file at a short cadence.  Do not send
-            // Ctrl+V until that companion has had one turn, otherwise an app
-            // can paste the previous selection even though CLIP_SET succeeded.
-            popup.setTimeout(resolve, 150);
+            // CLIP_SET reaches the guest agent synchronously, whereas a
+            // desktop clipboard manager consumes the resulting atomic state
+            // change asynchronously.  In particular, after session resume
+            // or a busy Plasma event loop 150 ms was short enough for the
+            // UI to report success while Ctrl+V still pasted the preceding
+            // native selection.  Keep the interaction bounded, but give the
+            // desktop side a full, measured compositor turn before emitting
+            // the focused application's shortcut.
+            popup.setTimeout(resolve, guestClipboardPropagationDelayMs);
         });
         const sendGuestShortcut = (key) => {
             // Display1 receives physical set-1 codes.  The host shortcut may
@@ -1349,7 +1354,8 @@
             // guest's native clipboard bridge observes Ctrl+C asynchronously.
             const text = new Promise((resolve, reject) => {
                 sendGuestShortcut(46); // Ctrl+C in the focused guest application.
-                popup.setTimeout(() => { guestClipboardText().then(resolve, reject); }, 180);
+                popup.setTimeout(() => { guestClipboardText().then(resolve, reject); },
+                    guestClipboardPropagationDelayMs);
             });
             await writePendingClipboard(text);
             status.textContent = gettext('Guest selection copied');

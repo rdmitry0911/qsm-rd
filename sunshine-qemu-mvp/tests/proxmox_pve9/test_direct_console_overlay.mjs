@@ -201,6 +201,10 @@ assert.match(source, /new popup\.ClipboardItem/,
     'guest-to-browser copy must reserve clipboard permission during the initiating click or keydown');
 assert.match(source, /sendGuestShortcut\(47\)/,
     'browser-to-guest paste must invoke Ctrl+V after the guest clipboard bridge is updated');
+assert.match(source, /const guestClipboardPropagationDelayMs = 700/,
+    'browser clipboard controls must allow the native guest clipboard broker to apply a state update');
+assert.match(source, /popup\.setTimeout\(resolve, guestClipboardPropagationDelayMs\)/,
+    'browser-to-guest paste must not claim success before its bounded clipboard settle interval');
 assert.match(source, /sendGuestShortcut\(46\)/,
     'Ctrl+C must ask the focused guest application to publish its selection before browser copy resolves');
 assert.match(source, /qsm-direct-settings/,
