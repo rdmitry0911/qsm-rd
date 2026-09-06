@@ -1,4 +1,0 @@
-#!/bin/sh
-# SPDX-License-Identifier: GPL-3.0-or-later
-set -eu
-exec /usr/bin/python3 /usr/lib/q-sunshine/pve9-ui/q_sunshine_pve9_ui.py "$@"

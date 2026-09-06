@@ -1,7 +1,0 @@
-root=/mnt/data/sunshine-qemu-mvp
-build_dir=/mnt/data/sunshine-qemu-mvp/build-no-gpu
-build_type=RelWithDebInfo
-date_utc=2026-08-31T15:31:09Z
-cmake version 3.31.6
-c++ (Debian 14.2.0-19) 14.2.0
-ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2026 the FFmpeg developers

@@ -1,3 +1,0 @@
-# A generated mail-format patch retains Git's required "-- " separator.
-integration/sunshine/patches/*.patch whitespace=-trailing-space
-integration/qemu/patches/*.patch whitespace=-trailing-space

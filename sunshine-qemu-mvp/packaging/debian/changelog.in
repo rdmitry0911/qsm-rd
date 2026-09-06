@@ -1,5 +1,0 @@
-q-sunshine-pve (@VERSION@) unstable; urgency=medium
-
-  * Build the headless QEMU Display1 Sunshine integration for Proxmox VE 9.
-
- -- q-sunshine contributors <q-sunshine@users.noreply.github.com>  Tue, 01 Sep 2026 00:00:00 +0000

@@ -1,5 +1,0 @@
-# Sunshine's pinned upstream build-deps release statically links these FFmpeg
-# components into the GPL-3-or-later Sunshine executable. Their provenance
-# and the exact build-deps asset digest are recorded in debian/copyright.
-q-sunshine-pve: embedded-library libavutil [usr/lib/q-sunshine/bin/sunshine]
-q-sunshine-pve: embedded-library libswscale [usr/lib/q-sunshine/bin/sunshine]
