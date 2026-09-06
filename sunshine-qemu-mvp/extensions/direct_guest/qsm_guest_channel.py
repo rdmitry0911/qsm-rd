@@ -288,8 +288,13 @@ class QsmGuestChannel:
         if operation == "clipboard_set" and set(payload) == {"op", "text_b64"}:
             text = _text(_decode_b64(payload["text_b64"], MAX_CLIPBOARD_BYTES, "clipboard"), "clipboard")
             data = text.encode("utf-8")
-            self._request(f"CLIP_SET {_agent_b64(data)}", "OK CLIP_SET")
-            return {"bytes": len(data)}
+            response = self._request(f"CLIP_SET {_agent_b64(data)}", "OK CLIP_SET")
+            # The bare legacy reply only confirms the constrained state file.
+            # A Desktop Agent bridge returns its unique generation after the
+            # actual Wayland/Klipper selection has accepted it.  Expose that
+            # boundary to the browser so it never guesses with a timer before
+            # synthesizing Ctrl+V.
+            return {"bytes": len(data), "applied": response.startswith("OK CLIP_SET ")}
         if operation == "clipboard_get" and set(payload) == {"op"}:
             response = self._request("CLIP_GET", "CLIP ")
             data = _decode_agent_b64(response[5:], MAX_CLIPBOARD_BYTES, "clipboard")

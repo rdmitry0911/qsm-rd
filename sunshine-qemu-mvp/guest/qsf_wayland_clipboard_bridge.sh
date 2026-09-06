@@ -42,6 +42,8 @@ done
 [ -n "$state_dir" ] && [ -n "$telemetry" ] && [ -n "$runtime_dir" ] || usage
 
 clipboard="$state_dir/qsf-clipboard.txt"
+clipboard_generation="$state_dir/qsf-clipboard-generation"
+clipboard_applied="$state_dir/qsf-clipboard-applied"
 ready_file="$state_dir/wayland-clipboard-bridge.ready"
 failure_file="$state_dir/wayland-clipboard-bridge.failed"
 candidate="$state_dir/.wayland-clipboard-candidate"
@@ -86,7 +88,10 @@ stop_watchers() {
 
 cleanup() {
   stop_watchers
-  rm -f "$event_pipe" "$state_event"
+  # A ready marker is part of the clipboard completion protocol.  Removing it
+  # before the user service exits prevents the system agent from waiting for
+  # an acknowledgement from a bridge which is no longer able to send one.
+  rm -f "$ready_file" "$event_pipe" "$state_event"
 }
 
 report() {
@@ -131,6 +136,30 @@ valid_utf8_text() {
     iconv -f UTF-8 -t UTF-8 "$file" >"$validated" 2>/dev/null || return 1
   fi
   cmp -s "$file" "$validated"
+}
+
+clipboard_file_generation() {
+  file=$1
+  [ -f "$file" ] || return 1
+  generation=$(cat "$file" 2>/dev/null) || return 1
+  case "$generation" in
+    ''|0|*[!0-9]*) return 1 ;;
+  esac
+  printf '%s\n' "$generation"
+}
+
+publish_clipboard_applied() {
+  generation=$1
+  case "$generation" in
+    ''|0|*[!0-9]*) return 1 ;;
+  esac
+  temporary="$state_dir/.qsf-clipboard-applied.tmp.$$"
+  umask 077
+  printf '%s\n' "$generation" >"$temporary" || return 1
+  chmod 600 "$temporary" || return 1
+  mv -f "$temporary" "$clipboard_applied" || return 1
+  last_applied_generation=$generation
+  report "QSF_WAYLAND_BRIDGE_CLIPBOARD_APPLIED=$generation"
 }
 
 copy_state_to_wayland() {
@@ -234,6 +263,7 @@ prepare_event_channel() {
 
 synchronise_qsf_state() {
   current_state_hash=$(hash_file "$clipboard") || fail cannot_hash_qsf_state
+  requested_generation=$(clipboard_file_generation "$clipboard_generation" 2>/dev/null || true)
   if [ "$current_state_hash" != "$last_state_hash" ]; then
     if [ "$current_state_hash" != "$last_wayland_hash" ]; then
       copy_state_to_wayland
@@ -241,6 +271,15 @@ synchronise_qsf_state() {
       report "QSF_WAYLAND_BRIDGE_QSF_TO_WAYLAND_SHA256=$current_state_hash"
     fi
     last_state_hash=$current_state_hash
+  fi
+  # The D-Bus setter has completed successfully at this point.  A generation
+  # makes this an acknowledgement of one concrete host write rather than a
+  # timing guess.  The identical-text case still needs an ACK: writing the
+  # same text twice is valid and must not make the second paste wait forever.
+  if [ -n "$requested_generation" ] &&
+      [ "$requested_generation" != "$last_applied_generation" ] &&
+      [ "$current_state_hash" = "$last_wayland_hash" ]; then
+    publish_clipboard_applied "$requested_generation" || fail cannot_acknowledge_clipboard
   fi
 }
 
@@ -330,9 +369,7 @@ export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$runtime_
 wait_for_graphical_session
 trap 'cleanup; exit 0' HUP INT TERM
 chmod 700 "$state_dir" 2>/dev/null || fail cannot_protect_state_directory
-rm -f "$failure_file" "$candidate" "$validated" "$event_pipe" "$state_event"
-: >"$ready_file" || fail cannot_create_ready_file
-chmod 600 "$ready_file" || fail cannot_protect_ready_file
+rm -f "$failure_file" "$candidate" "$validated" "$event_pipe" "$state_event" "$ready_file"
 
 initial_state_hash=$(hash_file "$clipboard") || fail cannot_hash_initial_qsf_state
 # A compositor restart loses the Wayland selection while QSF state persists.
@@ -340,6 +377,7 @@ initial_state_hash=$(hash_file "$clipboard") || fail cannot_hash_initial_qsf_sta
 # adapter remains a mirror across an explicit desktop reconfiguration.
 last_state_hash=$initial_state_hash
 last_wayland_hash=$initial_state_hash
+last_applied_generation=$(clipboard_file_generation "$clipboard_applied" 2>/dev/null || true)
 report 'QSF_WAYLAND_BRIDGE_READY'
 report "QSF_WAYLAND_BRIDGE_QSF_TO_WAYLAND_SHA256=$initial_state_hash"
 detect_clipboard_backend
@@ -349,6 +387,11 @@ prepare_event_channel
 start_qsf_state_watcher
 synchronise_qsf_state
 start_native_clipboard_watcher
+# Mark ready only once the setter, state watcher, and native event watcher all
+# exist.  The system agent treats this as permission to await an event-driven
+# acknowledgement instead of returning a state-file-only result.
+: >"$ready_file" || fail cannot_create_ready_file
+chmod 600 "$ready_file" || fail cannot_protect_ready_file
 
 if [ "$clipboard_backend" = 'kde-dbus' ]; then
   # Plasma needs no idle poll at all: inotify reports host/client writes to

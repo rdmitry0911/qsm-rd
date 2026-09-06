@@ -45,6 +45,9 @@ class QsmDesktopPackageTests(unittest.TestCase):
         self.assertIn('export WAYLAND_DISPLAY="$wayland_socket"', bridge)
         self.assertNotIn('[ -S "$runtime_dir/wayland-0" ] || fail wayland_socket_missing', bridge)
         self.assertIn('rm -f "$ready_file" "$candidate" "$validated"', bridge)
+        self.assertIn('clipboard_applied="$state_dir/qsf-clipboard-applied"', bridge)
+        self.assertIn('publish_clipboard_applied', bridge)
+        self.assertIn('QSF_WAYLAND_BRIDGE_CLIPBOARD_APPLIED=', bridge)
 
     def test_plasma_clipboard_is_event_driven_not_a_wayland_poll_storm(self) -> None:
         bridge = (ROOT / "guest/qsf_wayland_clipboard_bridge.sh").read_text(encoding="utf-8")
@@ -68,6 +71,7 @@ class QsmDesktopPackageTests(unittest.TestCase):
         self.assertIn("wl-copy --foreground --type 'text/plain;charset=utf-8'", bridge)
         self.assertIn('wl_copy_pid=$!', bridge)
         self.assertIn("timeout --foreground 1s wl-paste", bridge)
+        self.assertIn('requested_generation=$(clipboard_file_generation "$clipboard_generation"', bridge)
 
     def test_clipboard_service_has_a_deterministic_session_bus(self) -> None:
         unit = (ROOT / "packaging/guest/qsm-desktop-clipboard.service").read_text(encoding="utf-8")

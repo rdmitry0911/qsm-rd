@@ -204,6 +204,34 @@ class GuestAgentPtyTest(unittest.TestCase):
                 self.assertEqual(self._command("CLIP_SET " + self._wire(payload)), "OK CLIP_SET")
                 self.assertEqual((self.state / "qsf-clipboard.txt").read_bytes(), payload)
 
+    def test_desktop_clipboard_set_waits_for_the_matching_bridge_ack(self) -> None:
+        # The desktop bridge advertises readiness only after it has installed
+        # its Klipper/Wayland event listeners. The agent must not turn a
+        # guessed compositor delay into a Ctrl+V race: wait for the exact
+        # generation it wrote and ignore a stale acknowledgement.
+        (self.state / "wayland-clipboard-bridge.ready").write_text("ready\n", encoding="ascii")
+        payload = "event-driven clipboard".encode("utf-8")
+        os.write(self.master, ("CLIP_SET " + self._wire(payload) + "\n").encode("ascii"))
+        generation_path = self.state / "qsf-clipboard-generation"
+        deadline = time.monotonic() + 2
+        while not generation_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertTrue(generation_path.exists(), "agent did not publish a clipboard generation")
+        generation = generation_path.read_text(encoding="ascii")
+        self.assertRegex(generation, r"^[1-9][0-9]*\n$")
+        self._assert_no_line(0.2)
+
+        stale = self.state / "qsf-clipboard-applied.stale"
+        stale.write_text("1\n", encoding="ascii")
+        os.replace(stale, self.state / "qsf-clipboard-applied")
+        self._assert_no_line(0.2)
+
+        applied = self.state / "qsf-clipboard-applied.next"
+        applied.write_text(generation, encoding="ascii")
+        os.replace(applied, self.state / "qsf-clipboard-applied")
+        self.assertEqual(self._line(timeout=2), "OK CLIP_SET " + generation.strip())
+        self.assertEqual((self.state / "qsf-clipboard.txt").read_bytes(), payload)
+
     def test_reopens_the_virtio_transport_after_peer_disconnect(self) -> None:
         self.assertEqual(self._command("PING"), "OK PONG")
         self._replace_transport()

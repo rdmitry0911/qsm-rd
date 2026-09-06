@@ -24,6 +24,7 @@ SPEC.loader.exec_module(qsm)
 class GuestAgent:
     def __init__(self, path: Path, *, announce_ready: bool = True) -> None:
         self.clipboard = b""
+        self.clipboard_applied = False
         self.incoming: dict[str, bytes] = {}
         self.outgoing = {"guest.bin": b"guest\x00file"}
         self._listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -74,7 +75,7 @@ class GuestAgent:
                         self._reply("CLIP " + self._wire(self.clipboard))
                     elif len(fields) == 2 and fields[0] == "CLIP_SET":
                         self.clipboard = b"" if fields[1] == "-" else base64.b64decode(fields[1])
-                        self._reply("OK CLIP_SET")
+                        self._reply("OK CLIP_SET 42" if self.clipboard_applied else "OK CLIP_SET")
                     elif len(fields) == 3 and fields[0] == "FILE_PUT":
                         self.incoming[fields[1]] = b"" if fields[2] == "-" else base64.b64decode(fields[2])
                         self._reply("OK FILE_PUT " + fields[1])
@@ -115,10 +116,15 @@ class DirectGuestChannelTest(unittest.TestCase):
     def test_clipboard_and_both_file_directions(self) -> None:
         copied = "client → guest\nПривет".encode()
         self.assertEqual(self.channel.dispatch({"op": "clipboard_set", "text_b64": self._b64(copied)}),
-                         {"bytes": len(copied)})
+                         {"bytes": len(copied), "applied": False})
         self.assertEqual(self.agent.clipboard, copied)
         received = self.channel.dispatch({"op": "clipboard_get"})
         self.assertEqual(base64.b64decode(received["text_b64"]), copied)
+
+        self.agent.clipboard_applied = True
+        applied = b"event-driven acknowledgement"
+        self.assertEqual(self.channel.dispatch({"op": "clipboard_set", "text_b64": self._b64(applied)}),
+                         {"bytes": len(applied), "applied": True})
 
         uploaded = b"\x00client-file\xff"
         self.assertEqual(self.channel.dispatch({"op": "file_upload", "name": "client.bin",

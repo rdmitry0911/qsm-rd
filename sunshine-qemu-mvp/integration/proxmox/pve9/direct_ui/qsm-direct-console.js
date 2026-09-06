@@ -771,9 +771,11 @@
         let settingsPanelOpen = false;
         let guestRequestNumber = 0;
         let lastGuestClipboardText = null;
+        let guestClipboardEventSequence = 0;
         const guestRequests = new Map();
         const guestDownloads = new Map();
         const guestFileUrls = new Map();
+        const guestClipboardWaiters = new Set();
         const guestCursorShapes = new Map();
         let latestGuestCursor = null;
         let appliedGuestCursor = 'default';
@@ -1287,18 +1289,27 @@
             }
             return new TextDecoder('utf-8', { fatal: true }).decode(b64ToBytes(result.text_b64));
         };
-        const guestClipboardPropagationDelayMs = 700;
-        const waitForGuestClipboard = () => new Promise((resolve) => {
-            // CLIP_SET reaches the guest agent synchronously, whereas a
-            // desktop clipboard manager consumes the resulting atomic state
-            // change asynchronously.  In particular, after session resume
-            // or a busy Plasma event loop 150 ms was short enough for the
-            // UI to report success while Ctrl+V still pasted the preceding
-            // native selection.  Keep the interaction bounded, but give the
-            // desktop side a full, measured compositor turn before emitting
-            // the focused application's shortcut.
-            popup.setTimeout(resolve, guestClipboardPropagationDelayMs);
+        const waitForNextGuestClipboard = () => new Promise((resolve, reject) => {
+            const baseline = guestClipboardEventSequence;
+            const waiter = { baseline, resolve, reject, timer: null };
+            // This is a fail-safe for an unavailable desktop session, not a
+            // propagation delay. A normal Copy resolves from the guest's
+            // concrete clipboard-change event as soon as it is emitted.
+            waiter.timer = popup.setTimeout(() => {
+                guestClipboardWaiters.delete(waiter);
+                reject(new Error('guest clipboard did not change'));
+            }, 5000);
+            guestClipboardWaiters.add(waiter);
         });
+        const resolveGuestClipboardWaiters = (text) => {
+            guestClipboardEventSequence += 1;
+            for (const waiter of [...guestClipboardWaiters]) {
+                if (guestClipboardEventSequence <= waiter.baseline) { continue; }
+                guestClipboardWaiters.delete(waiter);
+                popup.clearTimeout(waiter.timer);
+                waiter.resolve(text);
+            }
+        };
         const sendGuestShortcut = (key) => {
             // Display1 receives physical set-1 codes.  The host shortcut may
             // be Cmd on macOS, but the Linux guest's desktop clipboard action
@@ -1339,8 +1350,15 @@
         };
         const pasteTextIntoGuest = async (text) => {
             if (typeof text !== 'string') { throw new Error('browser clipboard is unavailable'); }
-            await guestRequest('qsm_guest_clipboard_set', { text_b64: bytesToB64(new TextEncoder().encode(text)) });
-            await waitForGuestClipboard();
+            const result = await guestRequest('qsm_guest_clipboard_set', {
+                text_b64: bytesToB64(new TextEncoder().encode(text)),
+            });
+            if (!result || result.applied !== true) {
+                throw new Error('guest desktop clipboard bridge is not ready');
+            }
+            // The result is a concrete acknowledgement from the desktop
+            // bridge, not a guessed compositor delay. It is now safe to send
+            // Ctrl+V on the ordered control channel.
             sendGuestShortcut(47); // Ctrl+V in the focused guest application.
             status.textContent = gettext('Clipboard pasted into guest');
         };
@@ -1350,13 +1368,11 @@
         };
         const guestSelectionToBrowser = async () => {
             // Start the authorized browser write before asking the guest to
-            // copy its selected text.  The delayed read is intentional: the
-            // guest's native clipboard bridge observes Ctrl+C asynchronously.
-            const text = new Promise((resolve, reject) => {
-                sendGuestShortcut(46); // Ctrl+C in the focused guest application.
-                popup.setTimeout(() => { guestClipboardText().then(resolve, reject); },
-                    guestClipboardPropagationDelayMs);
-            });
+            // Register first, then emit Ctrl+C. The subsequent guest event
+            // carries the selection after the desktop broker has actually
+            // published it; no compositor-duration timer is involved.
+            const text = waitForNextGuestClipboard();
+            sendGuestShortcut(46); // Ctrl+C in the focused guest application.
             await writePendingClipboard(text);
             status.textContent = gettext('Guest selection copied');
         };
@@ -1518,6 +1534,11 @@
                 request.reject(new Error('console closed'));
             }
             guestRequests.clear();
+            for (const waiter of guestClipboardWaiters) {
+                popup.clearTimeout(waiter.timer);
+                waiter.reject(new Error('console closed'));
+            }
+            guestClipboardWaiters.clear();
             guestDownloads.clear();
             for (const transfer of guestFileUrls.values()) {
                 if (transfer && transfer.ready) { URL.revokeObjectURL(transfer.url); }
@@ -1828,6 +1849,7 @@
                         // the notification for the explicit Copy action
                         // rather than silently discarding a browser rejection.
                         const text = new TextDecoder('utf-8', { fatal: true }).decode(b64ToBytes(message.text_b64));
+                        resolveGuestClipboardWaiters(text);
                         // Klipper can report a transient selection while a
                         // window is being dragged. It must not repeatedly
                         // repaint the console toolbar or look like a local
@@ -1902,6 +1924,14 @@
                 flushPointer(true);
                 sendMouseButton(event.button + 1, false);
                 event.preventDefault();
+            });
+            video.addEventListener('contextmenu', (event) => {
+                // Button 3 was already sent on mousedown/mouseup above.
+                // Suppress Chrome's menu without stopping the genuine guest
+                // context-menu click, so one right click maps to one guest
+                // right click rather than a browser menu followed by QEMU.
+                event.preventDefault();
+                event.stopPropagation();
             });
             // Mouseup often targets the document instead of the video after
             // Escape leaves native full screen.  Preserve a captured guest

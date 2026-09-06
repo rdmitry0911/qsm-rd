@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/inotify.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
@@ -38,6 +39,7 @@ enum {
   max_file_list_bytes = 64 * 1024,
   max_wire_bytes = 4 * 1024 * 1024,
   capability_protocol_version = 2,
+  clipboard_apply_timeout_ms = 5000,
   /* A QEMU socket chardev deliberately reports HUP when the host-side
    * controller goes away.  Keep the guest endpoint alive and reopen its
    * virtio port after a short bounded pause instead of treating a terminal
@@ -61,6 +63,9 @@ struct agent_state {
   int fd;
   char state_dir[512];
   char clipboard_path[640];
+  char clipboard_generation_path[640];
+  char clipboard_applied_path[640];
+  char clipboard_ready_path[640];
   char incoming_dir[640];
   char outgoing_dir[640];
   struct timespec clipboard_mtime;
@@ -72,6 +77,7 @@ struct agent_state {
   bool require_profile_apply_ack;
   long profile_apply_timeout_ms;
   uint64_t next_profile_generation;
+  uint64_t next_clipboard_generation;
   struct connection_profile pending_profile;
   char pending_profile_codec[5];
   bool pending_profile_valid;
@@ -336,6 +342,121 @@ static int write_file_atomic(const char *path, const uint8_t *data, size_t size)
     return -1;
   }
   return 0;
+}
+
+static bool clipboard_generation_text(uint64_t generation, char *text, size_t text_size) {
+  return generation != 0U && text != NULL &&
+    snprintf(text, text_size, "%" PRIu64 "\n", generation) < (int) text_size;
+}
+
+static bool clipboard_bridge_ready(const struct agent_state *state) {
+  struct stat metadata;
+  return state != NULL && stat(state->clipboard_ready_path, &metadata) == 0 &&
+    S_ISREG(metadata.st_mode);
+}
+
+static bool clipboard_is_applied(const struct agent_state *state, uint64_t generation) {
+  char expected[64];
+  uint8_t *actual = NULL;
+  size_t actual_size = 0U;
+  if (state == NULL || !clipboard_generation_text(generation, expected, sizeof(expected)) ||
+      read_file(state->clipboard_applied_path, &actual, &actual_size, sizeof(expected)) != 0) {
+    return false;
+  }
+  const bool matches = actual_size == strlen(expected) &&
+    memcmp(actual, expected, actual_size) == 0;
+  free(actual);
+  return matches;
+}
+
+static bool clipboard_applied_event(const struct inotify_event *event,
+                                    const struct agent_state *state) {
+  return event != NULL && state != NULL && event->len > 0U &&
+    strcmp(event->name, "qsf-clipboard-applied") == 0;
+}
+
+static bool await_clipboard_applied(const struct agent_state *state, uint64_t generation) {
+  if (clipboard_is_applied(state, generation)) {
+    return true;
+  }
+  const int descriptor = inotify_init1(IN_CLOEXEC);
+  if (descriptor < 0) {
+    return false;
+  }
+  const int watch = inotify_add_watch(descriptor, state->state_dir,
+                                      IN_CLOSE_WRITE | IN_MOVED_TO | IN_ATTRIB);
+  if (watch < 0) {
+    close(descriptor);
+    return false;
+  }
+  /* The bridge may have completed between the initial read and installing the
+   * watch.  Check once more so this is a completion event, never a sleep. */
+  if (clipboard_is_applied(state, generation)) {
+    inotify_rm_watch(descriptor, watch);
+    close(descriptor);
+    return true;
+  }
+  struct timespec started;
+  if (clock_gettime(CLOCK_MONOTONIC, &started) != 0) {
+    inotify_rm_watch(descriptor, watch);
+    close(descriptor);
+    return false;
+  }
+  bool applied = false;
+  char buffer[8192];
+  while (!applied) {
+    struct timespec current;
+    if (clock_gettime(CLOCK_MONOTONIC, &current) != 0) {
+      break;
+    }
+    const long long elapsed_ms = ((long long) current.tv_sec - (long long) started.tv_sec) * 1000LL +
+      ((long long) current.tv_nsec - (long long) started.tv_nsec) / 1000000LL;
+    if (elapsed_ms >= clipboard_apply_timeout_ms) {
+      break;
+    }
+    const int remaining_ms = (int) (clipboard_apply_timeout_ms - elapsed_ms);
+    const struct pollfd waiter = {.fd = descriptor, .events = POLLIN, .revents = 0};
+    const int ready = poll((struct pollfd *) &waiter, 1U, remaining_ms);
+    if (ready <= 0) {
+      continue;
+    }
+    const ssize_t bytes = read(descriptor, buffer, sizeof(buffer));
+    if (bytes <= 0) {
+      break;
+    }
+    bool relevant = false;
+    for (size_t offset = 0U; offset + sizeof(struct inotify_event) <= (size_t) bytes;) {
+      const struct inotify_event *event = (const struct inotify_event *) (buffer + offset);
+      if ((event->mask & IN_Q_OVERFLOW) != 0U || clipboard_applied_event(event, state)) {
+        relevant = true;
+      }
+      offset += sizeof(*event) + event->len;
+    }
+    if (relevant && clipboard_is_applied(state, generation)) {
+      applied = true;
+    }
+  }
+  inotify_rm_watch(descriptor, watch);
+  close(descriptor);
+  return applied;
+}
+
+static uint64_t next_clipboard_generation(struct agent_state *state) {
+  if (state->next_clipboard_generation == UINT64_MAX) {
+    state->next_clipboard_generation = 1U;
+  } else {
+    ++state->next_clipboard_generation;
+  }
+  return state->next_clipboard_generation;
+}
+
+static bool write_clipboard_request(struct agent_state *state, const uint8_t *data,
+                                    size_t size, uint64_t generation) {
+  char generation_text[64];
+  return state != NULL && clipboard_generation_text(generation, generation_text, sizeof(generation_text)) &&
+    write_file_atomic(state->clipboard_generation_path, (const uint8_t *) generation_text,
+                      strlen(generation_text)) == 0 &&
+    write_file_atomic(state->clipboard_path, data, size) == 0;
 }
 
 /* Return a compact, line-oriented manifest of regular files in one QSM
@@ -616,15 +737,33 @@ static void handle_command(struct agent_state *state, char *line) {
     }
     size_t size = 0;
     uint8_t *data = base64_decode(encoded, &size, max_clipboard_bytes);
+    const uint64_t generation = next_clipboard_generation(state);
     if (data == NULL || !valid_clipboard_utf8(data, size) ||
-        write_file_atomic(state->clipboard_path, data, size) != 0) {
+        !write_clipboard_request(state, data, size, generation)) {
       free(data);
       write_line(state->fd, "ERR ", "BAD_CLIPBOARD");
       return;
     }
     free(data);
     update_clipboard_stamp(state);
-    write_line(state->fd, "OK ", "CLIP_SET");
+    if (!clipboard_bridge_ready(state)) {
+      /* A minimal/headless guest retains the narrow state-file protocol, but
+       * cannot claim that a desktop clipboard was updated.  The browser uses
+       * this distinct reply to avoid emitting Ctrl+V against stale native
+       * clipboard contents. */
+      write_line(state->fd, "OK ", "CLIP_SET");
+      return;
+    }
+    if (!await_clipboard_applied(state, generation)) {
+      write_line(state->fd, "ERR ", "CLIPBOARD_NOT_APPLIED");
+      return;
+    }
+    char reply[96];
+    if (snprintf(reply, sizeof(reply), "CLIP_SET %" PRIu64, generation) >= (int) sizeof(reply)) {
+      write_line(state->fd, "ERR ", "CLIPBOARD_NOT_APPLIED");
+      return;
+    }
+    write_line(state->fd, "OK ", reply);
     return;
   }
   if (strcmp(command, "FILE_PUT") == 0) {
@@ -902,6 +1041,9 @@ static int initialize_state(struct agent_state *state, const char *device, const
   memset(state, 0, sizeof(*state));
   if (strlen(state_dir) >= sizeof(state->state_dir) ||
       snprintf(state->clipboard_path, sizeof(state->clipboard_path), "%s/qsf-clipboard.txt", state_dir) >= (int) sizeof(state->clipboard_path) ||
+      snprintf(state->clipboard_generation_path, sizeof(state->clipboard_generation_path), "%s/qsf-clipboard-generation", state_dir) >= (int) sizeof(state->clipboard_generation_path) ||
+      snprintf(state->clipboard_applied_path, sizeof(state->clipboard_applied_path), "%s/qsf-clipboard-applied", state_dir) >= (int) sizeof(state->clipboard_applied_path) ||
+      snprintf(state->clipboard_ready_path, sizeof(state->clipboard_ready_path), "%s/wayland-clipboard-bridge.ready", state_dir) >= (int) sizeof(state->clipboard_ready_path) ||
       snprintf(state->incoming_dir, sizeof(state->incoming_dir), "%s/incoming", state_dir) >= (int) sizeof(state->incoming_dir) ||
       snprintf(state->outgoing_dir, sizeof(state->outgoing_dir), "%s/outgoing", state_dir) >= (int) sizeof(state->outgoing_dir)) {
     return -1;
@@ -941,6 +1083,11 @@ static int initialize_state(struct agent_state *state, const char *device, const
     (uint64_t) generation_clock.tv_nsec ^ (uint64_t) getpid();
   if (state->next_profile_generation == UINT64_MAX) {
     state->next_profile_generation = 0U;
+  }
+  state->next_clipboard_generation = ((uint64_t) generation_clock.tv_nsec << 32U) ^
+    (uint64_t) generation_clock.tv_sec ^ ((uint64_t) getpid() << 16U);
+  if (state->next_clipboard_generation == UINT64_MAX) {
+    state->next_clipboard_generation = 0U;
   }
   if (ensure_directory(state->state_dir) != 0 || ensure_directory(state->incoming_dir) != 0 || ensure_directory(state->outgoing_dir) != 0) {
     return -1;
