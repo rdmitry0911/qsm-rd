@@ -392,7 +392,7 @@
         },
     });
 
-    // QEMU set-1 scancodes used by the Display1 Keyboard interface. Browser
+    // QEMU key numbers used by the Display1 Keyboard interface. Browser
     // `code` is physical-key based, so keyboard layout does not alter remote
     // shortcut behavior. Unknown keys remain local and are never guessed.
     const scanCodes = {
@@ -411,9 +411,12 @@
         NumpadDecimal: 83, F11: 87, F12: 88,
     };
     const extendedScanCodes = {
-        ControlRight: 0x11d, AltRight: 0x138, MetaLeft: 0x15b, MetaRight: 0x15c,
-        Insert: 0x152, Delete: 0x153, Home: 0x147, End: 0x14f, PageUp: 0x149, PageDown: 0x151,
-        ArrowUp: 0x148, ArrowLeft: 0x14b, ArrowRight: 0x14d, ArrowDown: 0x150,
+        // Display1 takes QEMU's key number, not a raw set-1 byte stream.
+        // The E0 prefix is therefore folded into QEMU's extended number
+        // (for example Insert is 0xd2, not the VNC-style 0x152).
+        ControlRight: 0x9d, AltRight: 0xb8, MetaLeft: 0x5b, MetaRight: 0x5c,
+        Insert: 0xd2, Delete: 0xd3, Home: 0xc7, End: 0xcf, PageUp: 0xc9, PageDown: 0xd1,
+        ArrowUp: 0xc8, ArrowLeft: 0xcb, ArrowRight: 0xcd, ArrowDown: 0xd0,
     };
     const qemuKey = (event) => scanCodes[event.code] || extendedScanCodes[event.code] || null;
     // A guest-first console forwards every DOM key the browser actually
@@ -1310,15 +1313,25 @@
                 waiter.resolve(text);
             }
         };
-        const sendGuestShortcut = (key) => {
-            // Display1 receives physical set-1 codes.  The host shortcut may
-            // be Cmd on macOS, but the Linux guest's desktop clipboard action
-            // is always Ctrl+C/Ctrl+V.
-            send({ op: 'keyboard', key: 29, down: true, modifiers: 0 });
+        const sendGuestChord = (modifiers, key) => {
+            // Send an explicit physical chord.  The reliable control channel
+            // preserves these edges, while the worker serializes them to the
+            // Display1 keyboard endpoint.
+            for (const modifier of modifiers) {
+                send({ op: 'keyboard', key: modifier, down: true, modifiers: 0 });
+            }
             send({ op: 'keyboard', key, down: true, modifiers: 0 });
             send({ op: 'keyboard', key, down: false, modifiers: 0 });
-            send({ op: 'keyboard', key: 29, down: false, modifiers: 0 });
+            for (const modifier of [...modifiers].reverse()) {
+                send({ op: 'keyboard', key: modifier, down: false, modifiers: 0 });
+            }
         };
+        const sendGuestCopyShortcut = () => sendGuestChord([29], 46); // Ctrl+C
+        // Shift+Insert is the standard Linux clipboard paste accelerator in
+        // both graphical editors and terminal emulators.  Ctrl+V is a literal
+        // control character in Konsole/xterm (shown as ^V), so it cannot be
+        // used by a universal remote-desktop Paste action.
+        const sendGuestPasteShortcut = () => sendGuestChord([42], 0xd2); // Shift+Insert
         const writePendingClipboard = (textPromise) => {
             if (!popup.navigator.clipboard) {
                 return Promise.reject(new Error('browser clipboard access is unavailable'));
@@ -1358,8 +1371,8 @@
             }
             // The result is a concrete acknowledgement from the desktop
             // bridge, not a guessed compositor delay. It is now safe to send
-            // Ctrl+V on the ordered control channel.
-            sendGuestShortcut(47); // Ctrl+V in the focused guest application.
+            // the universal Linux Paste accelerator on the ordered channel.
+            sendGuestPasteShortcut();
             status.textContent = gettext('Clipboard pasted into guest');
         };
         const guestClipboardToBrowser = async () => {
@@ -1372,7 +1385,7 @@
             // carries the selection after the desktop broker has actually
             // published it; no compositor-duration timer is involved.
             const text = waitForNextGuestClipboard();
-            sendGuestShortcut(46); // Ctrl+C in the focused guest application.
+            sendGuestCopyShortcut();
             await writePendingClipboard(text);
             status.textContent = gettext('Guest selection copied');
         };
@@ -1387,7 +1400,7 @@
         });
         paste.addEventListener('click', () => {
             // Retain this click's Clipboard API activation while restoring
-            // the guest surface before synthesizing Ctrl+V.
+            // the guest surface before synthesizing the guest Paste action.
             video.focus({ preventScroll: true });
             pasteFromBrowser().catch(() => {
                 status.textContent = gettext('Browser clipboard is unavailable.');
@@ -1953,7 +1966,7 @@
                 // Raw input is intentionally a literal key/mouse edge mode
                 // for configuring guest shortcuts. Its clipboard controls
                 // remain the explicit toolbar buttons; a browser Paste event
-                // must not turn Ctrl/Cmd+V into a synthetic guest Ctrl+V.
+                // must not turn Ctrl/Cmd+V into a synthetic guest Paste action.
                 if (settings.keyboardPriority === KEYBOARD_PRIORITY.raw) { return; }
                 const text = event.clipboardData && event.clipboardData.getData('text/plain');
                 if (typeof text !== 'string') { return; }
@@ -1999,7 +2012,7 @@
                         event.preventDefault();
                         if (name === 'keydown') {
                             // Release a forwarded Cmd/Ctrl before emitting
-                            // the Linux Ctrl+V sequence. Otherwise macOS Cmd
+                            // the Linux Paste sequence. Otherwise macOS Cmd
                             // can remain held in the guest and turn a paste
                             // into an unrelated desktop shortcut.
                             releaseHeldInput();

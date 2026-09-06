@@ -129,6 +129,12 @@ assert.match(source, /if \(settings\.keyboardPriority === KEYBOARD_PRIORITY\.raw
     'a browser Paste event must not replace raw Ctrl/Cmd+V delivery');
 assert.match(source, /return pasteTextIntoGuest\(text\);/,
     'direct browser paste must share one guest clipboard write path');
+assert.match(source, /Insert: 0xd2, Delete: 0xd3, Home: 0xc7/,
+    'Display1 extended keys must use QEMU key numbers, not a VNC E0-prefixed scan code');
+assert.match(source, /const sendGuestPasteShortcut = \(\) => sendGuestChord\(\[42\], 0xd2\)/,
+    'universal guest paste must use Shift+Insert so terminals do not receive literal Ctrl+V');
+assert.doesNotMatch(source, /sendGuestShortcut\(47\)/,
+    'the clipboard action must not inject Ctrl+V into terminal emulators');
 assert.match(source, /else if \(clientFirst && clientFirstShortcut\(event\)\)/,
     'client-first mode must leave its other browser shortcuts untouched before forwarding remaining keys');
 assert.match(source, /macOS Cmd\+Tab, Cmd\+Space, Cmd\+Q,[\s\S]*?Windows Ctrl\+Alt\+Del and Win\+L/,
@@ -199,10 +205,10 @@ assert.match(source, /Files/,
     'the compact floating toolbar must expose the Files panel');
 assert.match(source, /new popup\.ClipboardItem/,
     'guest-to-browser copy must reserve clipboard permission during the initiating click or keydown');
-assert.match(source, /sendGuestShortcut\(47\)/,
-    'browser-to-guest paste must invoke Ctrl+V after the guest clipboard bridge is updated');
+assert.match(source, /sendGuestPasteShortcut\(\);/,
+    'browser-to-guest paste must invoke the terminal-safe paste action after the guest clipboard bridge is updated');
 assert.match(source, /result\.applied !== true/,
-    'browser-to-guest paste must require the Desktop Agent acknowledgement before Ctrl+V');
+    'browser-to-guest paste must require the Desktop Agent acknowledgement before input is injected');
 assert.match(source, /const waitForNextGuestClipboard = \(\) => new Promise/,
     'guest-to-browser Copy must wait for the next concrete guest clipboard event');
 assert.match(source, /resolveGuestClipboardWaiters\(text\)/,
@@ -211,7 +217,7 @@ assert.doesNotMatch(source, /guestClipboardPropagationDelayMs/,
     'clipboard synchronization must not use a fixed compositor-delay timer');
 assert.match(source, /video\.addEventListener\('contextmenu',[\s\S]*?event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);/,
     'the Chrome context menu must be suppressed after forwarding one guest right click');
-assert.match(source, /sendGuestShortcut\(46\)/,
+assert.match(source, /sendGuestCopyShortcut\(\);/,
     'Ctrl+C must ask the focused guest application to publish its selection before browser copy resolves');
 assert.match(source, /qsm-direct-settings/,
     'codec and encoder settings must be persisted through a VM-scoped PVE endpoint, not browser storage');
