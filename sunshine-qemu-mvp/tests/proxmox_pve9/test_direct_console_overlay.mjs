@@ -57,12 +57,14 @@ assert.match(source, /new MediaStream\(\)/,
     'a streamless remote track must be attached to a local MediaStream rather than rendering black');
 assert.match(source, /document\.documentElement\.requestFullscreen\(\)/,
     'the popup must provide a full-screen action for the entire display');
-assert.match(source, /position:absolute;z-index:10;top:0;left:0;right:0/,
-    'the console controls must overlay, rather than consume, guest video pixels');
+assert.match(source, /position:absolute;z-index:10;top:12px;left:0;display:flex;flex-direction:column/,
+    'the console controls must overlay from the left edge without consuming guest video pixels');
 assert.match(source, /video\.style\.cssText = 'position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain;outline:none'/,
     'the guest image must use the browser viewport rather than a stale percentage-layout box after resize');
-assert.match(source, /document\.addEventListener\('fullscreenchange', \(\) => \{\s*releaseHeldInput\(\);\s*updateGuestKeyboardLock\(\);\s*setFullscreenLabel\(\);[\s\S]*?resizeConsole\(true\);/,
-    'full screen must release interrupted input before forcing an immediate Display1 resize');
+assert.match(source, /document\.addEventListener\('fullscreenchange', \(\) => \{\s*releaseHeldInput\(\);\s*updateGuestKeyboardLock\(\);\s*setFullscreenToggle\(\);[\s\S]*?resizeConsole\(true\);/,
+    'the full-screen toggle must release interrupted input before forcing an immediate Display1 resize');
+assert.match(source, /fullscreen\.setAttribute\('aria-pressed', String\(active\)\)/,
+    'the full-screen control must expose an explicit pressed toggle state');
 assert.match(source, /const guestContentBox = \(\) => \{[\s\S]*?const scale = Math\.min\(box\.width \/ sourceWidth, box\.height \/ sourceHeight\);/,
     'cursor and input mapping must account for the real object-fit content rectangle');
 assert.match(source, /Math\.floor\(\(event\.clientX - content\.left\) \/ usableScale\)/,
@@ -87,14 +89,16 @@ assert.match(source, /resizeRetryAttempts >= 16/,
     'a direct Console must retry an early Display1 resize until its frame confirms the requested geometry');
 assert.match(source, /const hideToolbarSoon = \(\) =>/,
     'an idle connected console must auto-hide its floating controls');
-assert.match(source, /toolbar\.style\.transform = 'translateY\(-100%\)'/,
-    'auto-hiding controls must move completely outside the guest picture');
+assert.match(source, /toolbar\.style\.transform = 'translateX\(-100%\)'/,
+    'auto-hiding controls must move completely outside the guest picture on the left');
 assert.match(source, /toolbarHotZonePx: \{ defaultValue: 32, minimum: 4, maximum: 160 \}/,
     'the toolbar activation strip must be a bounded user preference');
 assert.match(source, /toolbarRevealDelayMs: \{ defaultValue: 650, minimum: 0, maximum: 5000 \}/,
-    'the top-edge hold time must be configurable rather than showing controls on any mousemove');
+    'the left-edge hold time must be configurable rather than showing controls on any mousemove');
 assert.match(source, /const observeToolbarZone = \(event\) =>/,
-    'only the top activation strip may schedule a hidden toolbar reveal');
+    'only the left activation strip may schedule a hidden toolbar reveal');
+assert.match(source, /event\.clientX >= box\.left && event\.clientX < box\.left \+ settings\.toolbarHotZonePx/,
+    'the control reveal zone must be measured from the left edge');
 assert.match(source, /settings\.toolbarRevealDelayMs/,
     'the toolbar reveal timer must use the saved dwell setting');
 assert.match(source, /settingsButton\.textContent = gettext\('Settings'\)/,
@@ -189,20 +193,8 @@ assert.match(source, /A VM has one Display1 scanout, while several PVE Console\n
     'a decoded resize from another Console must not be treated as this popup being resized');
 assert.doesNotMatch(source, /video\.addEventListener\('resize', \(\) => resize\(false\)\)/,
     'an inactive differently sized Console must not restore its stale resolution');
-assert.match(source, /qsm_guest_file_upload_chunk/,
-    'file upload must be fragmented for browser WebRTC SCTP message limits');
-assert.match(source, /const guestUploadChunkBytes = 32 \* 1024/,
-    'each upload fragment must fit beneath the common 64 KiB SCTP ceiling');
-assert.match(source, /qsm_guest_file_download_chunk/,
-    'guest file downloads must be reassembled from SCTP-safe fragments');
-assert.match(source, /qsm_guest_file_list/,
-    'the Files panel must enumerate the guest exchange manifest rather than prompt for a filename');
-assert.match(source, /for \(const target of \[video, localDrop\]\)/,
-    'dropping local files directly on the guest image must start a QSM exchange upload');
-assert.match(source, /setData\('DownloadURL'/,
-    'prepared guest items must expose Chromium\'s host drag-out transfer when available');
-assert.match(source, /Files/,
-    'the compact floating toolbar must expose the Files panel');
+assert.doesNotMatch(source, /qsm_guest_file_|filePanel|fileInput|DownloadURL|guestUpload/,
+    'the direct console must not retain browser file-transfer controls or protocol handlers');
 assert.match(source, /new popup\.ClipboardItem/,
     'guest-to-browser copy must reserve clipboard permission during the initiating click or keydown');
 assert.match(source, /sendGuestPasteShortcut\(\);/,

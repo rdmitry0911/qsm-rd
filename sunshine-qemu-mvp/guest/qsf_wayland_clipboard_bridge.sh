@@ -212,8 +212,8 @@ capture_wayland_to_candidate() {
     [ -s "$candidate" ] && truncate -s -1 "$candidate"
     return 0
   fi
-  # A broken/vanished selection owner must not freeze input, file transfer or
-  # later clipboard events behind an unbounded Wayland read.
+  # A broken/vanished selection owner must not freeze input or later clipboard
+  # events behind an unbounded Wayland read.
   timeout --foreground 1s wl-paste --no-newline --type 'text/plain;charset=utf-8' >"$candidate" \
     2>"$state_dir/.wayland-wl-paste.log"
 }

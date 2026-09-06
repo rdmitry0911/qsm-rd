@@ -313,7 +313,7 @@
             value: effectiveDisplayAdapter(false, DISPLAY_PROFILE.virgl, 'none'),
         },
         { xtype: 'displayfield', userCls: 'pmx-hint', value: gettext(
-            'VirGL owns a private VirtIO-GPU and saves PVE Graphic card as None, because VNC and GL Display1 are incompatible. CPU Display1 uses gl=off and keeps the selected Standard VGA or non-GL VirtIO adapter, so no render node or host GPU is needed. If an adapter does not implement Display1 resize, QSM keeps its fixed guest scanout connected instead of failing the console. The optional QSM Desktop Agent serial channel provides clipboard and files. Restart the VM after changing this setting.'),
+            'VirGL owns a private VirtIO-GPU and saves PVE Graphic card as None, because VNC and GL Display1 are incompatible. CPU Display1 uses gl=off and keeps the selected Standard VGA or non-GL VirtIO adapter, so no render node or host GPU is needed. If an adapter does not implement Display1 resize, QSM keeps its fixed guest scanout connected instead of failing the console. The optional QSM Desktop Agent serial channel provides clipboard integration. Restart the VM after changing this setting.'),
         },
     ];
 
@@ -498,10 +498,10 @@
         document.body.style.cssText = 'width:100vw;height:100vh;min-width:100vw;min-height:100vh;margin:0;position:relative;overflow:hidden;background:#000;color:#fff;font:13px sans-serif';
         const toolbar = document.createElement('div');
         toolbar.setAttribute('aria-label', gettext('Console controls'));
-        toolbar.style.cssText = 'position:absolute;z-index:10;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:6px 8px;background:rgba(17,24,39,.88);box-shadow:0 1px 6px rgba(0,0,0,.55);opacity:1;transform:translateY(0);transition:opacity .16s ease,transform .16s ease';
+        toolbar.style.cssText = 'position:absolute;z-index:10;top:12px;left:0;display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:132px;padding:7px;background:rgba(17,24,39,.88);box-shadow:1px 0 6px rgba(0,0,0,.55);border-radius:0 7px 7px 0;opacity:1;transform:translateX(0);transition:opacity .16s ease,transform .16s ease';
         const status = document.createElement('span');
         status.textContent = gettext('Connecting…');
-        status.style.flex = '1 1 auto';
+        status.style.cssText = 'min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
         const fullscreen = document.createElement('button');
         fullscreen.type = 'button';
         fullscreen.style.cssText = 'padding:4px 9px;cursor:pointer';
@@ -558,11 +558,16 @@
             // audio-autoplay policy without making video startup depend on it.
             video.play().catch(() => undefined);
         });
-        const setFullscreenLabel = () => {
-            fullscreen.textContent = document.fullscreenElement
-                ? gettext('Exit Full Screen') : gettext('Full Screen');
+        const setFullscreenToggle = () => {
+            const active = Boolean(document.fullscreenElement);
+            // Keep the compact control's name stable while exposing a real
+            // pressed/unpressed state to both assistive technology and CSS.
+            fullscreen.textContent = gettext('Full Screen');
+            fullscreen.setAttribute('aria-pressed', String(active));
+            fullscreen.title = active ? gettext('Exit Full Screen') : gettext('Enter Full Screen');
+            fullscreen.style.background = active ? '#1d4ed8' : '';
         };
-        setFullscreenLabel();
+        setFullscreenToggle();
         fullscreen.addEventListener('click', () => {
             const action = document.fullscreenElement
                 ? document.exitFullscreen()
@@ -573,7 +578,7 @@
         document.addEventListener('fullscreenchange', () => {
             releaseHeldInput();
             updateGuestKeyboardLock();
-            setFullscreenLabel();
+            setFullscreenToggle();
             resizeConsole(true);
             // Safari and Chromium can leave the video without focus after
             // Escape restores the native popup.  Re-focus after the browser
@@ -598,25 +603,9 @@
         paste.textContent = gettext('Paste');
         paste.title = gettext('Paste this browser clipboard into the guest');
         paste.style.cssText = 'padding:4px 9px;cursor:pointer';
-        const files = document.createElement('button');
-        files.type = 'button';
-        files.textContent = gettext('Files');
-        files.title = gettext('Transfer files and enable drag and drop');
-        files.style.cssText = 'padding:4px 9px;cursor:pointer';
-        const fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.multiple = true;
-        fileInput.style.display = 'none';
-        const dropHint = document.createElement('div');
-        dropHint.setAttribute('aria-live', 'polite');
-        dropHint.textContent = gettext('Drop files to send them to the guest');
-        dropHint.style.cssText = 'display:none;position:absolute;z-index:20;inset:0;align-items:center;justify-content:center;border:4px dashed #60a5fa;background:rgba(15,23,42,.72);color:#fff;font-size:20px;font-weight:600;pointer-events:none';
-        const filePanel = document.createElement('aside');
-        filePanel.setAttribute('aria-label', gettext('File transfer'));
-        filePanel.style.cssText = 'display:none;position:absolute;z-index:21;right:12px;top:48px;width:min(430px,calc(100% - 24px));max-height:calc(100% - 60px);overflow:auto;box-sizing:border-box;padding:12px;border:1px solid rgba(148,163,184,.55);border-radius:8px;background:rgba(15,23,42,.97);box-shadow:0 8px 28px rgba(0,0,0,.65);color:#f8fafc';
         const settingsPanel = document.createElement('aside');
         settingsPanel.setAttribute('aria-label', gettext('Console settings'));
-        settingsPanel.style.cssText = 'display:none;position:absolute;z-index:21;right:12px;top:48px;width:min(440px,calc(100% - 24px));max-height:calc(100% - 60px);overflow:auto;box-sizing:border-box;padding:12px;border:1px solid rgba(148,163,184,.55);border-radius:8px;background:rgba(15,23,42,.97);box-shadow:0 8px 28px rgba(0,0,0,.65);color:#f8fafc';
+        settingsPanel.style.cssText = 'display:none;position:absolute;z-index:21;left:12px;top:52px;width:min(440px,calc(100% - 24px));max-height:calc(100% - 64px);overflow:auto;box-sizing:border-box;padding:12px;border:1px solid rgba(148,163,184,.55);border-radius:8px;background:rgba(15,23,42,.97);box-shadow:0 8px 28px rgba(0,0,0,.65);color:#f8fafc';
         const settingsTitle = document.createElement('div');
         settingsTitle.textContent = gettext('Console settings');
         settingsTitle.style.cssText = 'font-weight:600;font-size:15px;margin:0 0 8px';
@@ -698,8 +687,8 @@
         const settingsForm = document.createElement('div');
         settingsForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:center';
         const settingLabels = {
-            toolbarHotZonePx: gettext('Top activation zone (px)'),
-            toolbarRevealDelayMs: gettext('Top hold delay (ms)'),
+            toolbarHotZonePx: gettext('Left activation zone (px)'),
+            toolbarRevealDelayMs: gettext('Left hold delay (ms)'),
             toolbarHideDelayMs: gettext('Controls hide delay (ms)'),
             targetFps: gettext('Target frame rate (FPS)'),
             playoutDelayMs: gettext('Decoder playout delay (ms)'),
@@ -738,8 +727,8 @@
         settingsPanel.append(settingsTitle, settingsHint, mediaPolicyTitle, mediaPolicyHint,
             mediaPolicyForm, saveMediaPolicy, keyboardPolicyTitle, keyboardPolicyForm,
             keyboardPolicyHint, keyboardUnavailableHint, settingsForm, settingsActions);
-        toolbar.append(status, copy, paste, files, audio, fullscreen, settingsButton);
-        document.body.append(video, guestCursor, toolbar, fileInput, dropHint, filePanel, settingsPanel);
+        toolbar.append(status, copy, paste, audio, fullscreen, settingsButton);
+        document.body.append(video, guestCursor, toolbar, settingsPanel);
         popup.focus();
 
         let peer = null;
@@ -776,8 +765,6 @@
         let lastGuestClipboardText = null;
         let guestClipboardEventSequence = 0;
         const guestRequests = new Map();
-        const guestDownloads = new Map();
-        const guestFileUrls = new Map();
         const guestClipboardWaiters = new Set();
         const guestCursorShapes = new Map();
         let latestGuestCursor = null;
@@ -787,10 +774,6 @@
         // after the actual pointer position and pin a resize/edge cursor in
         // the top-left corner of the guest image.
         let latestGuestCursorSequence = -1;
-        const guestUploadChunkBytes = 32 * 1024;
-        let dropDepth = 0;
-        let filePanelOpen = false;
-        let filePanelRefreshing = false;
         let lastResize = '';
         let mediaPolicyLoading = false;
         const cancelToolbarReveal = () => {
@@ -805,23 +788,23 @@
             if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); toolbarTimer = null; }
             toolbarVisible = true;
             toolbar.style.opacity = '1';
-            toolbar.style.transform = 'translateY(0)';
+            toolbar.style.transform = 'translateX(0)';
         };
         const hideToolbarSoon = () => {
             if (closed || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
-                pointerInToolbarZone || pointerInToolbar || filePanelOpen || settingsPanelOpen) { return; }
+                pointerInToolbarZone || pointerInToolbar || settingsPanelOpen) { return; }
             if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); }
             toolbarTimer = popup.setTimeout(() => {
                 toolbarTimer = null;
-                if (pointerInToolbarZone || pointerInToolbar || filePanelOpen || settingsPanelOpen) { return; }
+                if (pointerInToolbarZone || pointerInToolbar || settingsPanelOpen) { return; }
                 toolbarVisible = false;
                 toolbar.style.opacity = '0';
-                toolbar.style.transform = 'translateY(-100%)';
+                toolbar.style.transform = 'translateX(-100%)';
             }, settings.toolbarHideDelayMs);
         };
         const observeToolbarZone = (event) => {
             const box = video.getBoundingClientRect();
-            const inside = event.clientY >= box.top && event.clientY < box.top + settings.toolbarHotZonePx;
+            const inside = event.clientX >= box.left && event.clientX < box.left + settings.toolbarHotZonePx;
             pointerInToolbarZone = inside;
             if (!inside) {
                 cancelToolbarReveal();
@@ -975,127 +958,6 @@
             guestRequests.set(requestId, { resolve, reject, timer });
             control.send(JSON.stringify({ op, request_id: requestId, ...fields }));
         });
-        const guestUpload = (file, data) => new Promise((resolve, reject) => {
-            if (!control || control.readyState !== 'open') {
-                reject(new Error('guest tools are not connected')); return;
-            }
-            const bytes = new Uint8Array(data);
-            const requestId = `qsm-${Date.now()}-${guestRequestNumber += 1}`;
-            const transferId = `upload-${Date.now()}-${guestRequestNumber}`;
-            const timer = popup.setTimeout(() => {
-                guestRequests.delete(requestId);
-                reject(new Error('guest tools did not respond'));
-            }, 40000);
-            guestRequests.set(requestId, { resolve, reject, timer });
-            // A browser is allowed to negotiate an SCTP max-message-size far
-            // below a file's 2 MiB product limit. Send an ordered sequence
-            // whose JSON/base64 envelope is safely below the 64 KiB baseline.
-            for (let offset = 0; offset < Math.max(1, bytes.length); offset += guestUploadChunkBytes) {
-                const end = Math.min(bytes.length, offset + guestUploadChunkBytes);
-                control.send(JSON.stringify({
-                    op: 'qsm_guest_file_upload_chunk', request_id: requestId, transfer_id: transferId,
-                    name: file.name, size: bytes.length, offset,
-                    data_b64: bytesToB64(bytes.subarray(offset, end)),
-                }));
-            }
-        });
-        const formatBytes = (bytes) => {
-            if (!Number.isFinite(bytes) || bytes < 0) { return ''; }
-            if (bytes < 1024) { return `${bytes} B`; }
-            if (bytes < 1024 * 1024) { return `${(bytes / 1024).toFixed(1)} KiB`; }
-            return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
-        };
-        const prepareGuestDownload = (name) => {
-            const known = guestFileUrls.get(name);
-            if (known && known.ready) { return Promise.resolve(known); }
-            if (known && known.promise) { return known.promise; }
-            const promise = guestRequest('qsm_guest_file_download', { name }).then((result) => {
-                if (!result || result.name !== name || typeof result.data_b64 !== 'string') {
-                    throw new Error('invalid guest file');
-                }
-                const url = URL.createObjectURL(new Blob([b64ToBytes(result.data_b64)], {
-                    type: 'application/octet-stream',
-                }));
-                const transfer = { name, url, ready: true };
-                guestFileUrls.set(name, transfer);
-                return transfer;
-            }).catch((error) => {
-                guestFileUrls.delete(name);
-                throw error;
-            });
-            guestFileUrls.set(name, { promise });
-            return promise;
-        };
-        const startGuestDownload = async (name) => {
-            const transfer = await prepareGuestDownload(name);
-            const link = document.createElement('a');
-            link.href = transfer.url;
-            link.download = transfer.name;
-            link.style.display = 'none';
-            document.body.append(link);
-            link.click();
-            link.remove();
-            status.textContent = gettext('Guest file download started');
-        };
-        const uploadLocalFiles = async (selected) => {
-            const localFiles = Array.from(selected || []);
-            if (!localFiles.length) { return; }
-            for (let index = 0; index < localFiles.length; index += 1) {
-                const file = localFiles[index];
-                if (!file || file.size > 2 * 1024 * 1024) {
-                    throw new Error('file is too large');
-                }
-                status.textContent = localFiles.length > 1
-                    ? gettext(`Uploading ${index + 1}/${localFiles.length}: ${file.name}`)
-                    : gettext(`Uploading ${file.name}`);
-                await guestUpload(file, await file.arrayBuffer());
-            }
-            status.textContent = localFiles.length > 1
-                ? gettext('Files uploaded to guest exchange folder')
-                : gettext('File uploaded to guest exchange folder');
-        };
-
-        const filePanelTitle = document.createElement('strong');
-        filePanelTitle.textContent = gettext('File transfer');
-        const filePanelClose = document.createElement('button');
-        filePanelClose.type = 'button';
-        filePanelClose.textContent = '×';
-        filePanelClose.title = gettext('Close');
-        filePanelClose.style.cssText = 'margin-left:auto;padding:0 6px;font:22px sans-serif;line-height:22px;cursor:pointer';
-        const filePanelHeader = document.createElement('div');
-        filePanelHeader.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px';
-        filePanelHeader.append(filePanelTitle, filePanelClose);
-        const filePanelHelp = document.createElement('p');
-        filePanelHelp.textContent = gettext('Drop local files onto the guest image, or choose files below. The guest exposes only its QSM exchange folders.');
-        filePanelHelp.style.cssText = 'margin:0 0 10px;color:#cbd5e1;line-height:1.4';
-        const chooseFiles = document.createElement('button');
-        chooseFiles.type = 'button';
-        chooseFiles.textContent = gettext('Choose local files');
-        chooseFiles.style.cssText = 'padding:5px 9px;cursor:pointer';
-        const localDrop = document.createElement('div');
-        localDrop.textContent = gettext('Drop local files here to send to guest');
-        localDrop.style.cssText = 'margin:8px 0 14px;padding:12px;border:1px dashed #60a5fa;border-radius:6px;color:#bfdbfe;text-align:center';
-        const guestSection = document.createElement('div');
-        const guestSectionTitle = document.createElement('strong');
-        guestSectionTitle.textContent = gettext('Guest → this computer');
-        const guestSectionHelp = document.createElement('p');
-        guestSectionHelp.textContent = gettext('Drag a prepared item to a local folder where supported, or use Download. Files must be placed in the guest QSM outgoing folder.');
-        guestSectionHelp.style.cssText = 'margin:5px 0 8px;color:#cbd5e1;line-height:1.35';
-        const guestFiles = document.createElement('div');
-        guestFiles.style.cssText = 'display:flex;flex-direction:column;gap:5px;max-height:220px;overflow:auto';
-        const refreshFiles = document.createElement('button');
-        refreshFiles.type = 'button';
-        refreshFiles.textContent = gettext('Refresh guest files');
-        refreshFiles.style.cssText = 'margin-top:10px;padding:5px 9px;cursor:pointer';
-        guestSection.append(guestSectionTitle, guestSectionHelp, guestFiles, refreshFiles);
-        filePanel.append(filePanelHeader, filePanelHelp, chooseFiles, localDrop, guestSection);
-
-        const setFilePanelOpen = (open) => {
-            filePanelOpen = open;
-            filePanel.style.display = open ? 'block' : 'none';
-            if (open) { revealToolbar(); }
-            else { hideToolbarSoon(); }
-        };
         const applyConsoleSettings = () => {
             writeConsoleSettings(browserStorage, settings);
             updateGuestKeyboardLock();
@@ -1113,7 +975,6 @@
             settingsPanelOpen = open;
             settingsPanel.style.display = open ? 'block' : 'none';
             if (open) {
-                setFilePanelOpen(false);
                 revealToolbar();
                 loadVmMediaPolicy();
             } else {
@@ -1202,83 +1063,6 @@
                 saveMediaPolicy.disabled = false;
             }
         });
-        const renderGuestFiles = (entries) => {
-            guestFiles.replaceChildren();
-            if (!entries.length) {
-                const empty = document.createElement('span');
-                empty.textContent = gettext('No transferable files in guest outgoing folder.');
-                empty.style.color = '#cbd5e1';
-                guestFiles.append(empty);
-                return;
-            }
-            for (const entry of entries) {
-                const row = document.createElement('div');
-                row.style.cssText = 'display:flex;align-items:center;gap:7px;padding:6px;border:1px solid rgba(148,163,184,.35);border-radius:5px';
-                const name = document.createElement('span');
-                name.textContent = `${entry.name} (${formatBytes(entry.bytes)})`;
-                name.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
-                const downloadFile = document.createElement('button');
-                downloadFile.type = 'button';
-                downloadFile.textContent = gettext('Download');
-                downloadFile.style.cssText = 'padding:3px 7px;cursor:pointer';
-                const dragFile = document.createElement('span');
-                dragFile.textContent = gettext('Drag');
-                dragFile.title = gettext('Prepare this file, then drag it to a local folder');
-                dragFile.draggable = true;
-                dragFile.style.cssText = 'padding:3px 7px;border:1px solid #64748b;border-radius:4px;cursor:grab;user-select:none';
-                const prepare = () => prepareGuestDownload(entry.name).then(() => {
-                    dragFile.style.borderColor = '#34d399';
-                    dragFile.title = gettext('Drag to a local folder, or use Download');
-                }).catch(() => { status.textContent = gettext('Guest file is unavailable.'); });
-                dragFile.addEventListener('pointerenter', prepare, { once: true });
-                dragFile.addEventListener('dragstart', (event) => {
-                    const transfer = guestFileUrls.get(entry.name);
-                    if (!transfer || !transfer.ready || !event.dataTransfer) {
-                        event.preventDefault();
-                        prepare();
-                        status.textContent = gettext('Preparing guest file for drag. Start the drag again.');
-                        return;
-                    }
-                    event.dataTransfer.effectAllowed = 'copy';
-                    // Chromium recognises DownloadURL when a page item is
-                    // dragged to its host desktop.  blob: is same-origin and
-                    // never exposes the authenticated PVE session.  Other
-                    // browsers retain the explicit Download fallback.
-                    event.dataTransfer.setData('DownloadURL',
-                        `application/octet-stream:${transfer.name}:${transfer.url}`);
-                    event.dataTransfer.setData('text/uri-list', transfer.url);
-                    event.dataTransfer.setData('text/plain', transfer.name);
-                });
-                downloadFile.addEventListener('click', () => startGuestDownload(entry.name).catch(() => {
-                    status.textContent = gettext('Guest file is unavailable.');
-                }));
-                row.append(name, downloadFile, dragFile);
-                guestFiles.append(row);
-            }
-        };
-        const refreshGuestFiles = async () => {
-            if (filePanelRefreshing) { return; }
-            filePanelRefreshing = true;
-            refreshFiles.disabled = true;
-            try {
-                const result = await guestRequest('qsm_guest_file_list', { area: 'outgoing' });
-                if (!result || result.area !== 'outgoing' || !Array.isArray(result.files) ||
-                    result.files.some((entry) => !entry || typeof entry.name !== 'string' ||
-                        !Number.isInteger(entry.bytes) || entry.bytes < 0 || entry.bytes > 2 * 1024 * 1024)) {
-                    throw new Error('invalid guest file list');
-                }
-                renderGuestFiles(result.files);
-            } catch (_error) {
-                guestFiles.replaceChildren();
-                const unavailable = document.createElement('span');
-                unavailable.textContent = gettext('Guest file list is unavailable. Install and start QSM Desktop Agent.');
-                unavailable.style.color = '#fca5a5';
-                guestFiles.append(unavailable);
-            } finally {
-                refreshFiles.disabled = false;
-                filePanelRefreshing = false;
-            }
-        };
         const copyToBrowser = async (text) => {
             if (!popup.navigator.clipboard || !popup.navigator.clipboard.writeText) {
                 throw new Error('browser clipboard access is unavailable');
@@ -1406,74 +1190,6 @@
                 status.textContent = gettext('Browser clipboard is unavailable.');
             });
         });
-        files.addEventListener('click', () => {
-            setFilePanelOpen(!filePanelOpen);
-            if (filePanelOpen) { refreshGuestFiles(); }
-        });
-        filePanelClose.addEventListener('click', () => setFilePanelOpen(false));
-        chooseFiles.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', () => {
-            const selected = fileInput.files;
-            fileInput.value = '';
-            uploadLocalFiles(selected).then(() => {
-                if (filePanelOpen) { return refreshGuestFiles(); }
-                return undefined;
-            }).catch((error) => {
-                status.textContent = error && error.message === 'file is too large'
-                    ? gettext('File transfer is limited to 2 MiB per file.')
-                    : gettext('File upload failed. Install and start QSM Desktop Agent.');
-            });
-        });
-        const acceptsFiles = (event) => event.dataTransfer &&
-            Array.from(event.dataTransfer.types || []).includes('Files');
-        const showDropHint = () => { dropHint.style.display = 'flex'; revealToolbar(); };
-        const hideDropHint = () => { dropHint.style.display = 'none'; };
-        const receiveDrop = (event) => {
-            if (!acceptsFiles(event)) { return; }
-            event.preventDefault();
-            event.stopPropagation();
-            dropDepth = 0;
-            hideDropHint();
-            uploadLocalFiles(event.dataTransfer.files).then(() => {
-                if (filePanelOpen) { return refreshGuestFiles(); }
-                return undefined;
-            }).catch((error) => {
-                status.textContent = error && error.message === 'file is too large'
-                    ? gettext('File transfer is limited to 2 MiB per file.')
-                    : gettext('File upload failed. Install and start QSM Desktop Agent.');
-            });
-        };
-        for (const target of [video, localDrop]) {
-            target.addEventListener('dragenter', (event) => {
-                if (!acceptsFiles(event)) { return; }
-                event.preventDefault();
-                dropDepth += 1;
-                showDropHint();
-            });
-            target.addEventListener('dragover', (event) => {
-                if (!acceptsFiles(event)) { return; }
-                event.preventDefault();
-                if (event.dataTransfer) { event.dataTransfer.dropEffect = 'copy'; }
-                showDropHint();
-            });
-            target.addEventListener('dragleave', (event) => {
-                if (!acceptsFiles(event)) { return; }
-                event.preventDefault();
-                dropDepth = Math.max(0, dropDepth - 1);
-                if (!dropDepth) { hideDropHint(); }
-            });
-            target.addEventListener('drop', receiveDrop);
-        }
-        // A drop can cross a descendant of the video element without a
-        // matching dragleave on older Safari builds.  This final listener
-        // keeps the browser from navigating the console to a dropped file.
-        document.addEventListener('dragover', (event) => {
-            if (acceptsFiles(event)) { event.preventDefault(); }
-        });
-        document.addEventListener('drop', (event) => {
-            if (acceptsFiles(event)) { receiveDrop(event); }
-        });
-        refreshFiles.addEventListener('click', () => refreshGuestFiles());
         const sendPointer = (value) => {
             if (pointer && pointer.readyState === 'open') { pointer.send(JSON.stringify(value)); }
         };
@@ -1552,11 +1268,6 @@
                 waiter.reject(new Error('console closed'));
             }
             guestClipboardWaiters.clear();
-            guestDownloads.clear();
-            for (const transfer of guestFileUrls.values()) {
-                if (transfer && transfer.ready) { URL.revokeObjectURL(transfer.url); }
-            }
-            guestFileUrls.clear();
         };
         const closeForStoppedVm = () => {
             if (closed) { return; }
@@ -1814,46 +1525,6 @@
                         request.resolve(message.result);
                     } else {
                         request.reject(new Error('guest operation failed'));
-                    }
-                } else if (message.op === 'qsm_guest_file_download_chunk' &&
-                    typeof message.request_id === 'string') {
-                    const request = guestRequests.get(message.request_id);
-                    const reject = () => {
-                        if (!request) { return; }
-                        guestRequests.delete(message.request_id);
-                        guestDownloads.delete(message.request_id);
-                        popup.clearTimeout(request.timer);
-                        request.reject(new Error('invalid guest file transfer'));
-                    };
-                    if (!request || typeof message.name !== 'string' || !Number.isInteger(message.size) ||
-                        !Number.isInteger(message.offset) || typeof message.data_b64 !== 'string' ||
-                        message.size < 0 || message.size > 2 * 1024 * 1024 ||
-                        message.offset < 0 || message.offset > message.size) {
-                        reject(); return;
-                    }
-                    let chunk;
-                    try { chunk = b64ToBytes(message.data_b64); } catch (_error) { reject(); return; }
-                    let transfer = guestDownloads.get(message.request_id);
-                    if (!transfer) {
-                        if (message.offset !== 0) { reject(); return; }
-                        transfer = { name: message.name, size: message.size, bytes: [], received: 0 };
-                        guestDownloads.set(message.request_id, transfer);
-                    }
-                    if (transfer.name !== message.name || transfer.size !== message.size ||
-                        transfer.received !== message.offset || chunk.length > transfer.size - transfer.received ||
-                        (chunk.length === 0 && transfer.received !== transfer.size)) {
-                        reject(); return;
-                    }
-                    transfer.bytes.push(chunk);
-                    transfer.received += chunk.length;
-                    if (transfer.received === transfer.size) {
-                        const bytes = new Uint8Array(transfer.size);
-                        let cursor = 0;
-                        for (const part of transfer.bytes) { bytes.set(part, cursor); cursor += part.length; }
-                        guestDownloads.delete(message.request_id);
-                        guestRequests.delete(message.request_id);
-                        popup.clearTimeout(request.timer);
-                        request.resolve({ name: transfer.name, data_b64: bytesToB64(bytes), bytes: bytes.length });
                     }
                 } else if (message.op === 'qsm_guest_clipboard' && typeof message.text_b64 === 'string') {
                     try {

@@ -2,17 +2,25 @@
  * qsf_guest_agent.c - minimal guest endpoint for the QSF companion channel.
  *
  * The agent deliberately accepts only a narrow line protocol over a QEMU
- * virtio-serial port.  It never interprets a filename as a path and it never
- * executes data received from the client.  The state files make the protocol
- * useful on minimal guests; a desktop-specific adapter may mirror
+ * virtio-serial port.  It never executes data received from the client.  The
+ * state files make the protocol useful on minimal guests; a desktop-specific adapter may mirror
  * qsf-clipboard.txt to the guest's native clipboard separately.  This agent
  * itself has no desktop-toolkit dependency.
  */
 
 #define _POSIX_C_SOURCE 200809L
 
+/* The retained QSF test endpoint has a constrained exchange-folder protocol.
+ * qsm-desktop-agent is compiled clipboard-only: its browser transport has no
+ * Files UI or file API, so the binary must not expose those commands either. */
+#ifndef QSM_DESKTOP_CLIPBOARD_ONLY
+#define QSM_DESKTOP_CLIPBOARD_ONLY 0
+#endif
+
 #include <ctype.h>
+#if !QSM_DESKTOP_CLIPBOARD_ONLY
 #include <dirent.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -31,12 +39,14 @@
 
 enum {
   max_clipboard_bytes = 1024 * 1024,
+#if !QSM_DESKTOP_CLIPBOARD_ONLY
   max_file_bytes = 2 * 1024 * 1024,
   /* The exchange folders are deliberately shallow.  Bounding both the
    * number of names and their wire representation prevents a directory with
    * many tiny files from becoming a control-channel denial of service. */
   max_file_list_entries = 256,
   max_file_list_bytes = 64 * 1024,
+#endif
   max_wire_bytes = 4 * 1024 * 1024,
   capability_protocol_version = 2,
   clipboard_apply_timeout_ms = 5000,
@@ -66,8 +76,10 @@ struct agent_state {
   char clipboard_generation_path[640];
   char clipboard_applied_path[640];
   char clipboard_ready_path[640];
+#if !QSM_DESKTOP_CLIPBOARD_ONLY
   char incoming_dir[640];
   char outgoing_dir[640];
+#endif
   struct timespec clipboard_mtime;
   off_t clipboard_size;
   bool clipboard_stamp_valid;
@@ -119,6 +131,7 @@ static void write_line(int fd, const char *prefix, const char *value) {
   (void) write_all(fd, "\n", 1U);
 }
 
+#if !QSM_DESKTOP_CLIPBOARD_ONLY
 static bool safe_name(const char *name) {
   if (name == NULL || name[0] == '\0' || !isalnum((unsigned char) name[0]) || strlen(name) > 128) {
     return false;
@@ -130,6 +143,7 @@ static bool safe_name(const char *name) {
   }
   return strstr(name, "..") == NULL;
 }
+#endif
 
 static int ensure_directory(const char *path) {
   if (mkdir(path, 0700) == 0 || errno == EEXIST) {
@@ -227,7 +241,7 @@ static bool utf8_continuation(uint8_t byte) {
 }
 
 /* Validate non-NUL Unicode scalar-value UTF-8 without a locale or desktop
- * library. CLIP_SET is text-only; FILE_PUT intentionally remains binary-safe. */
+ * library. CLIP_SET is text-only. */
 static bool valid_clipboard_utf8(const uint8_t *data, size_t size) {
   if (data == NULL) {
     return false;
@@ -459,14 +473,10 @@ static bool write_clipboard_request(struct agent_state *state, const uint8_t *da
     write_file_atomic(state->clipboard_path, data, size) == 0;
 }
 
-/* Return a compact, line-oriented manifest of regular files in one QSM
- * exchange folder.  Names have already been constrained to the agent's
- * single-component grammar; fstatat(..., AT_SYMLINK_NOFOLLOW) additionally
- * makes a hostile guest-side symlink invisible to the host controller.
- *
- * Each record is "name<TAB>decimal-bytes<LF>".  It intentionally contains no
- * guest paths: the browser can list the share but cannot explore the guest's
- * home directory or follow a link outside the exchange root. */
+#if !QSM_DESKTOP_CLIPBOARD_ONLY
+/* Return a compact, line-oriented manifest of regular files in one QSF
+ * exchange folder. Names are constrained to one safe component and symlinks
+ * are invisible to the host controller. */
 static int list_exchange_files(const char *directory, char **listing) {
   if (directory == NULL || listing == NULL) {
     return -1;
@@ -511,6 +521,7 @@ static int list_exchange_files(const char *directory, char **listing) {
   *listing = result;
   return 0;
 }
+#endif
 
 /* The capability exchange intentionally uses a short fixed-field ASCII
  * message instead of unbounded JSON. This keeps the guest endpoint usable in
@@ -766,6 +777,7 @@ static void handle_command(struct agent_state *state, char *line) {
     write_line(state->fd, "OK ", reply);
     return;
   }
+#if !QSM_DESKTOP_CLIPBOARD_ONLY
   if (strcmp(command, "FILE_PUT") == 0) {
     char *name = strtok_r(NULL, " ", &save);
     char *encoded = strtok_r(NULL, " ", &save);
@@ -807,9 +819,8 @@ static void handle_command(struct agent_state *state, char *line) {
       return;
     }
     const char *wire_payload = encoded[0] == '\0' ? "-" : encoded;
-    char *reply = NULL;
     const size_t reply_size = strlen(name) + strlen(wire_payload) + 7U;
-    reply = malloc(reply_size);
+    char *reply = malloc(reply_size);
     if (reply == NULL) {
       free(encoded);
       write_line(state->fd, "ERR ", "OUT_OF_MEMORY");
@@ -861,6 +872,7 @@ static void handle_command(struct agent_state *state, char *line) {
     free(encoded);
     return;
   }
+#endif
   if (strcmp(command, "CONNECTION_OPTIMIZE") == 0) {
     if (strtok_r(NULL, " ", &save) != NULL) {
       write_line(state->fd, "ERR ", "BAD_CONNECTION_OPTIMIZE");
@@ -1043,9 +1055,12 @@ static int initialize_state(struct agent_state *state, const char *device, const
       snprintf(state->clipboard_path, sizeof(state->clipboard_path), "%s/qsf-clipboard.txt", state_dir) >= (int) sizeof(state->clipboard_path) ||
       snprintf(state->clipboard_generation_path, sizeof(state->clipboard_generation_path), "%s/qsf-clipboard-generation", state_dir) >= (int) sizeof(state->clipboard_generation_path) ||
       snprintf(state->clipboard_applied_path, sizeof(state->clipboard_applied_path), "%s/qsf-clipboard-applied", state_dir) >= (int) sizeof(state->clipboard_applied_path) ||
-      snprintf(state->clipboard_ready_path, sizeof(state->clipboard_ready_path), "%s/wayland-clipboard-bridge.ready", state_dir) >= (int) sizeof(state->clipboard_ready_path) ||
-      snprintf(state->incoming_dir, sizeof(state->incoming_dir), "%s/incoming", state_dir) >= (int) sizeof(state->incoming_dir) ||
-      snprintf(state->outgoing_dir, sizeof(state->outgoing_dir), "%s/outgoing", state_dir) >= (int) sizeof(state->outgoing_dir)) {
+      snprintf(state->clipboard_ready_path, sizeof(state->clipboard_ready_path), "%s/wayland-clipboard-bridge.ready", state_dir) >= (int) sizeof(state->clipboard_ready_path)
+#if !QSM_DESKTOP_CLIPBOARD_ONLY
+      || snprintf(state->incoming_dir, sizeof(state->incoming_dir), "%s/incoming", state_dir) >= (int) sizeof(state->incoming_dir)
+      || snprintf(state->outgoing_dir, sizeof(state->outgoing_dir), "%s/outgoing", state_dir) >= (int) sizeof(state->outgoing_dir)
+#endif
+      ) {
     return -1;
   }
   strcpy(state->state_dir, state_dir);
@@ -1089,7 +1104,11 @@ static int initialize_state(struct agent_state *state, const char *device, const
   if (state->next_clipboard_generation == UINT64_MAX) {
     state->next_clipboard_generation = 0U;
   }
-  if (ensure_directory(state->state_dir) != 0 || ensure_directory(state->incoming_dir) != 0 || ensure_directory(state->outgoing_dir) != 0) {
+  if (ensure_directory(state->state_dir) != 0
+#if !QSM_DESKTOP_CLIPBOARD_ONLY
+      || ensure_directory(state->incoming_dir) != 0 || ensure_directory(state->outgoing_dir) != 0
+#endif
+      ) {
     return -1;
   }
   if (access(state->clipboard_path, F_OK) != 0 && write_file_atomic(state->clipboard_path, (const uint8_t *) "", 0U) != 0) {

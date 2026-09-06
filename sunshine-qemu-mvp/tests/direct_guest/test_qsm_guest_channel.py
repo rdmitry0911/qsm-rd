@@ -25,8 +25,6 @@ class GuestAgent:
     def __init__(self, path: Path, *, announce_ready: bool = True) -> None:
         self.clipboard = b""
         self.clipboard_applied = False
-        self.incoming: dict[str, bytes] = {}
-        self.outgoing = {"guest.bin": b"guest\x00file"}
         self._listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._listener.bind(str(path))
         self._listener.listen(1)
@@ -76,15 +74,6 @@ class GuestAgent:
                     elif len(fields) == 2 and fields[0] == "CLIP_SET":
                         self.clipboard = b"" if fields[1] == "-" else base64.b64decode(fields[1])
                         self._reply("OK CLIP_SET 42" if self.clipboard_applied else "OK CLIP_SET")
-                    elif len(fields) == 3 and fields[0] == "FILE_PUT":
-                        self.incoming[fields[1]] = b"" if fields[2] == "-" else base64.b64decode(fields[2])
-                        self._reply("OK FILE_PUT " + fields[1])
-                    elif len(fields) == 2 and fields[0] == "FILE_GET" and fields[1] in self.outgoing:
-                        self._reply("FILE " + fields[1] + " " + self._wire(self.outgoing[fields[1]]))
-                    elif len(fields) == 2 and fields[0] == "FILE_LIST" and fields[1] in {"incoming", "outgoing"}:
-                        files = self.incoming if fields[1] == "incoming" else self.outgoing
-                        manifest = "".join(f"{name}\t{len(data)}\n" for name, data in sorted(files.items()))
-                        self._reply("FILES " + fields[1] + " " + self._wire(manifest.encode("ascii")))
                     else:
                         self._reply("ERR BAD")
         except OSError:
@@ -113,7 +102,7 @@ class DirectGuestChannelTest(unittest.TestCase):
     def _b64(value: bytes) -> str:
         return base64.b64encode(value).decode("ascii")
 
-    def test_clipboard_and_both_file_directions(self) -> None:
+    def test_clipboard_operations(self) -> None:
         copied = "client → guest\nПривет".encode()
         self.assertEqual(self.channel.dispatch({"op": "clipboard_set", "text_b64": self._b64(copied)}),
                          {"bytes": len(copied), "applied": False})
@@ -126,20 +115,6 @@ class DirectGuestChannelTest(unittest.TestCase):
         self.assertEqual(self.channel.dispatch({"op": "clipboard_set", "text_b64": self._b64(applied)}),
                          {"bytes": len(applied), "applied": True})
 
-        uploaded = b"\x00client-file\xff"
-        self.assertEqual(self.channel.dispatch({"op": "file_upload", "name": "client.bin",
-                                                 "data_b64": self._b64(uploaded)}),
-                         {"name": "client.bin", "bytes": len(uploaded)})
-        self.assertEqual(self.agent.incoming["client.bin"], uploaded)
-        downloaded = self.channel.dispatch({"op": "file_download", "name": "guest.bin"})
-        self.assertEqual(base64.b64decode(downloaded["data_b64"]), b"guest\x00file")
-        self.assertEqual(self.channel.dispatch({"op": "file_list", "area": "incoming"}), {
-            "area": "incoming", "files": [{"name": "client.bin", "bytes": len(uploaded)}],
-        })
-        self.assertEqual(self.channel.dispatch({"op": "file_list", "area": "outgoing"}), {
-            "area": "outgoing", "files": [{"name": "guest.bin", "bytes": len(b"guest\x00file")}],
-        })
-
     def test_guest_clipboard_event_reaches_every_subscriber(self) -> None:
         received: list[str] = []
         remove = self.channel.add_clipboard_listener(received.append)
@@ -151,13 +126,11 @@ class DirectGuestChannelTest(unittest.TestCase):
         self.assertEqual(received, ["guest → client"])
         remove()
 
-    def test_rejects_paths_and_nul_clipboard(self) -> None:
+    def test_rejects_unsupported_operations_and_nul_clipboard(self) -> None:
         with self.assertRaises(qsm.GuestChannelError):
-            self.channel.dispatch({"op": "file_upload", "name": "../escape", "data_b64": ""})
+            self.channel.dispatch({"op": "file_upload", "name": "client.bin", "data_b64": ""})
         with self.assertRaises(qsm.GuestChannelError):
             self.channel.dispatch({"op": "clipboard_set", "text_b64": self._b64(b"no\x00nul")})
-        with self.assertRaises(qsm.GuestChannelError):
-            self.channel.dispatch({"op": "file_list", "area": "home"})
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Private QSM guest clipboard and file channel for the browser console.
+"""Private QSM guest clipboard channel for the browser console.
 
 The only peer is a QEMU ``socket`` chardev below a root-owned per-VM runtime
 directory.  This is intentionally not a network service: PVE has already
@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import re
 import socket
 import threading
 import time
@@ -19,14 +18,10 @@ from typing import Any, Callable
 
 
 MAX_CLIPBOARD_BYTES = 1024 * 1024
-MAX_FILE_BYTES = 2 * 1024 * 1024
-MAX_FILE_LIST_BYTES = 64 * 1024
 MAX_AGENT_LINE = 4 * 1024 * 1024
 # A missing optional in-guest package must not make a connected desktop
-# console appear frozen for half a minute after Copy, Paste or Upload.
+# console appear frozen for half a minute after Copy or Paste.
 REQUEST_TIMEOUT_SECONDS = 5.0
-_SAFE_FILE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
-_EXCHANGE_AREAS = frozenset(("incoming", "outgoing"))
 
 
 class GuestChannelError(RuntimeError):
@@ -60,46 +55,6 @@ def _text(value: bytes, label: str) -> str:
         return value.decode("utf-8")
     except UnicodeDecodeError as error:
         raise GuestChannelError(f"{label} is not UTF-8") from error
-
-
-def _name(value: Any) -> str:
-    if not isinstance(value, str) or not _SAFE_FILE_NAME.fullmatch(value):
-        raise GuestChannelError("file name is invalid")
-    return value
-
-
-def _area(value: Any) -> str:
-    if not isinstance(value, str) or value not in _EXCHANGE_AREAS:
-        raise GuestChannelError("exchange area is invalid")
-    return value
-
-
-def _file_list(value: str, area: str) -> list[dict[str, int | str]]:
-    """Decode the bounded manifest emitted by the minimal C guest agent."""
-    data = _decode_agent_b64(value, MAX_FILE_LIST_BYTES, "file list")
-    try:
-        text = data.decode("ascii")
-    except UnicodeDecodeError as error:
-        raise GuestChannelError("file list is invalid") from error
-    files: list[dict[str, int | str]] = []
-    names: set[str] = set()
-    if text and not text.endswith("\n"):
-        raise GuestChannelError("file list is invalid")
-    for line in text.splitlines():
-        name, separator, size = line.partition("\t")
-        if not separator or not _SAFE_FILE_NAME.fullmatch(name) or name in names or \
-                not size.isascii() or not size.isdecimal():
-            raise GuestChannelError("file list is invalid")
-        bytes_count = int(size)
-        if bytes_count > MAX_FILE_BYTES:
-            # The agent can safely report a larger guest file, but it must
-            # never lead the browser to offer a transfer it cannot complete.
-            continue
-        names.add(name)
-        files.append({"name": name, "bytes": bytes_count})
-    if len(files) > 256:
-        raise GuestChannelError("file list is invalid")
-    return files
 
 
 class QsmGuestChannel:
@@ -206,7 +161,7 @@ class QsmGuestChannel:
                         # connected.  It is informational only: a response to
                         # the actual bounded request below is the liveness
                         # proof, so an early/lost READY must not disable guest
-                        # clipboard and file transfer for this VM lifetime.
+                        # clipboard synchronization for this VM lifetime.
                         continue
                     if line.startswith("EVENT_CLIP "):
                         self._publish_clipboard(line[11:])
@@ -299,21 +254,7 @@ class QsmGuestChannel:
             response = self._request("CLIP_GET", "CLIP ")
             data = _decode_agent_b64(response[5:], MAX_CLIPBOARD_BYTES, "clipboard")
             return {"text_b64": base64.b64encode(_text(data, "clipboard").encode("utf-8")).decode("ascii")}
-        if operation == "file_upload" and set(payload) == {"op", "name", "data_b64"}:
-            name = _name(payload["name"])
-            data = _decode_b64(payload["data_b64"], MAX_FILE_BYTES, "file")
-            self._request(f"FILE_PUT {name} {_agent_b64(data)}", "OK FILE_PUT")
-            return {"name": name, "bytes": len(data)}
-        if operation == "file_download" and set(payload) == {"op", "name"}:
-            name = _name(payload["name"])
-            response = self._request(f"FILE_GET {name}", f"FILE {name} ")
-            data = _decode_agent_b64(response[len(name) + 6:], MAX_FILE_BYTES, "file")
-            return {"name": name, "data_b64": base64.b64encode(data).decode("ascii"), "bytes": len(data)}
-        if operation == "file_list" and set(payload) == {"op", "area"}:
-            area = _area(payload["area"])
-            response = self._request(f"FILE_LIST {area}", f"FILES {area} ")
-            return {"area": area, "files": _file_list(response[len(area) + 7:], area)}
         if operation == "status" and set(payload) == {"op"}:
             self._request("PING", "OK PONG")
-            return {"agent": "ready", "max_file_bytes": MAX_FILE_BYTES}
+            return {"agent": "ready"}
         raise GuestChannelError("guest request is invalid")

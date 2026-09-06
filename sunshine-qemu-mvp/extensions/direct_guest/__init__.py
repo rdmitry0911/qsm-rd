@@ -1,1 +1,1 @@
-"""Guest-side clipboard and file channel for qsm-pve-direct."""
+"""Guest-side clipboard channel for qsm-pve-direct."""

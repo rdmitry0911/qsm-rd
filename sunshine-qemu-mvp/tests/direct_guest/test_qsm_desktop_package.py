@@ -82,6 +82,7 @@ class QsmDesktopPackageTests(unittest.TestCase):
         self.assertIn('guest/qsf_state_watcher.c', build)
         self.assertIn('qsm-desktop-state-watcher', build)
         self.assertIn('Package: qsm-desktop-agent', build)
+        self.assertIn('-DQSM_DESKTOP_CLIPBOARD_ONLY=1', build)
         self.assertIn('Conflicts: qsm-guest-agent', build)
         watcher = (ROOT / "guest/qsf_state_watcher.c").read_text(encoding="utf-8")
         self.assertIn('inotify_init1(IN_CLOEXEC)', watcher)

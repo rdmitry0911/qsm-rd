@@ -15,7 +15,7 @@ stage_root="$(mktemp -d "$WORK_ROOT/stage.XXXXXX")"
 trap 'status=$?; if [ "$status" -ne 0 ]; then echo "qsm guest package build retained: $build_root $stage_root" >&2; fi; exit "$status"' EXIT
 
 gcc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic -Werror \
-    "$ROOT_DIR/guest/qsf_guest_agent.c" -o "$build_root/qsm-desktop-agent"
+    -DQSM_DESKTOP_CLIPBOARD_ONLY=1 "$ROOT_DIR/guest/qsf_guest_agent.c" -o "$build_root/qsm-desktop-agent"
 gcc -std=c11 -O2 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic -Werror \
     "$ROOT_DIR/guest/qsf_state_watcher.c" -o "$build_root/qsm-desktop-state-watcher"
 package_root="$stage_root/usr/lib/qsm-desktop-agent"
@@ -41,7 +41,7 @@ Depends: libc6 (>= 2.34), systemd, udev
 Recommends: wl-clipboard
 Conflicts: qsm-guest-agent
 Replaces: qsm-guest-agent
-Description: QSM Direct desktop clipboard and file companion
+Description: QSM Direct desktop clipboard companion
  QSM Desktop Agent is the optional in-VM desktop-session companion for
  qsm-pve-direct. It uses a private QEMU virtio-serial port and no network
  listener. It complements, rather than replaces, qemu-guest-agent.

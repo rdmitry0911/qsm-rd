@@ -69,26 +69,16 @@ For VA-API additionally set
 `QSM_DIRECT_VAAPI_RENDER_NODE=/dev/dri/renderD128`.
 
 The direct WebRTC console provides video, guest audio, keyboard, pointer,
-scrolling, dynamic Display1 resolution, and optional guest clipboard/file
-exchange. For the latter install the matching `qsm-desktop-agent` package inside
-the Linux VM, then run `sudo qsm-desktop-agent-setup USER` once for its logged-in
-desktop user. On Wayland, also enable `qsm-guest-clipboard.service` in that
-user's session.
+scrolling, dynamic Display1 resolution, and optional guest clipboard
+integration. For clipboard install the matching `qsm-desktop-agent` package
+inside the Linux VM, then run `sudo qsm-desktop-agent-setup USER` once for its
+logged-in desktop user. On Wayland, also enable `qsm-desktop-clipboard.service`
+in that user's session.
 
 The browser's **Copy** button copies the guest's current plain-text selection
 to the local system clipboard; `Ctrl/Cmd+C` first sends `Ctrl+C` to the focused
 Linux guest application, then copies the resulting selection. **Paste** and
 `Ctrl/Cmd+V` read the browser clipboard, update the guest selection, then send
-`Ctrl+V` to the focused guest application. Browser security requires this
+`Shift+Insert` to the focused guest application. Browser security requires this
 explicit user gesture; a guest clipboard update cannot silently overwrite the
 host system clipboard.
-
-The browser's **Files** panel lists only
-`~/.local/share/qsm-desktop-agent/outgoing`; place a guest file there to make it
-available for Download. Dragging a local file directly onto the console image
-stores it in the matching `incoming` directory. Chromium can prepare an
-outgoing item for host drag-out; Download is the portable browser path because
-a website is not permitted to write an arbitrary local filesystem path without
-the user's consent. Clipboard is UTF-8 text up to 1 MiB; each exchange file is
-limited to 2 MiB and must have a plain safe basename. Neither the console nor
-the agent exposes arbitrary guest filesystem paths.

@@ -1,5 +1,5 @@
 [Unit]
-Description=QSM Desktop Agent clipboard and file companion for %i
+Description=QSM Desktop Agent clipboard companion for %i
 ConditionPathExists=/dev/virtio-ports/org.qsm.direct.agent
 After=dev-virtio\x2dports-org.qsm.direct.agent.device
 

@@ -13,20 +13,10 @@ This package is installed **inside a Linux VM**, not on Proxmox.
    compositor when the VM is at SDDM, and becomes ready as soon as the desktop
    creates its Wayland socket. No second setup command is required.
 
-The agent uses `~/.local/share/qsm-desktop-agent/incoming` for browser uploads
-and `~/.local/share/qsm-desktop-agent/outgoing` for files that the browser may
-download. In the QSM Direct Console, drag a local file onto the guest picture
-to place it in `incoming`; place a guest file in `outgoing`, open **Files**,
-then download it or drag its prepared browser item where the browser supports
-host drag-out. The browser cannot write arbitrary local paths without user
-consent, so **Download** remains the portable guest-to-client action.
-
 The Desktop Agent complements the standard `qemu-guest-agent`; it handles only
-the logged-in desktop's clipboard and the constrained file exchange. The agent
-transfers only plain UTF-8 clipboard text (up to 1 MiB) and files
-with a plain basename (up to 2 MiB). It lists only these two exchange folders;
-it never exposes the guest home directory. `wl-clipboard` is required for the
-Wayland clipboard bridge; install it with `sudo apt install wl-clipboard`.
+the logged-in desktop's plain UTF-8 clipboard (up to 1 MiB). It never exposes
+the guest filesystem. `wl-clipboard` is required for the Wayland clipboard
+bridge; install it with `sudo apt install wl-clipboard`.
 
 On KDE Plasma Wayland, the bridge uses Klipper's user-session D-Bus interface
 and inotify notifications. It does not poll the Wayland clipboard while idle,

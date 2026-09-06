@@ -29,8 +29,8 @@ case "$user_home" in
 esac
 desktop_state="$user_home/.local/share/qsm-desktop-agent"
 legacy_state="$user_home/.local/share/qsm-guest-agent"
-# Preserve the narrowly scoped clipboard/file exchange during the package
-# rename.  Nothing outside this old package-owned state directory is moved.
+# Preserve the narrowly scoped clipboard state during the package rename.
+# Nothing outside this old package-owned state directory is moved.
 if [ -d "$legacy_state" ] && [ ! -e "$desktop_state" ]; then
     mv -- "$legacy_state" "$desktop_state"
 fi
