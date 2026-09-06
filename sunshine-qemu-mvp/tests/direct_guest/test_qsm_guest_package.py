@@ -60,9 +60,17 @@ class QsmGuestPackageTests(unittest.TestCase):
         self.assertIn('qsm-state-watcher', bridge)
         self.assertIn('start_qsf_state_watcher', bridge)
         self.assertIn('state_poll_interval=0.10', bridge)
+        self.assertIn('fallback_probe_ticks=20', bridge)
+        self.assertIn('backend_retry_ticks=50', bridge)
+        self.assertIn("QSF_WAYLAND_BRIDGE_BACKEND_UPGRADE=kde_dbus", bridge)
+        self.assertIn('export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$runtime_dir/bus}"', bridge)
         self.assertIn("wl-copy --foreground --type 'text/plain;charset=utf-8'", bridge)
         self.assertIn('wl_copy_pid=$!', bridge)
         self.assertIn("timeout --foreground 1s wl-paste", bridge)
+
+    def test_clipboard_service_has_a_deterministic_session_bus(self) -> None:
+        unit = (ROOT / "packaging/guest/qsm-guest-clipboard.service").read_text(encoding="utf-8")
+        self.assertIn("Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus", unit)
 
     def test_package_builds_the_event_driven_state_watcher(self) -> None:
         build = (ROOT / "packaging/guest/build-qsm-guest-agent-deb.sh").read_text(encoding="utf-8")

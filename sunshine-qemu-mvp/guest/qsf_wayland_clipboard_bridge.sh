@@ -55,6 +55,11 @@ wl_copy_pid=''
 clipboard_backend='generic-poll'
 qdbus_binary=''
 state_poll_interval=0.10
+# The generic path has no compositor event API.  It is strictly a recovery
+# path for compositors without a clipboard broker; probing too often visibly
+# wakes KWin/Plasma and makes its clipboard indicator flash.
+fallback_probe_ticks=20
+backend_retry_ticks=50
 bridge_directory=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd) || exit 1
 state_watcher_binary="$bridge_directory/qsm-state-watcher"
 
@@ -283,7 +288,9 @@ detect_clipboard_backend() {
       busctl --user --quiet introspect org.kde.klipper /klipper 2>/dev/null |
       grep -Fq 'clipboardHistoryUpdated'; then
     clipboard_backend='kde-dbus'
+    return 0
   fi
+  return 1
 }
 
 command -v wl-copy >/dev/null 2>&1 || fail wl_copy_missing
@@ -315,6 +322,11 @@ wait_for_graphical_session() {
 }
 
 export XDG_RUNTIME_DIR="$runtime_dir"
+# A user service can be started by systemd before the graphical environment
+# has exported its variables.  busctl --user normally derives this path from
+# XDG_RUNTIME_DIR, but giving qdbus and busctl the same explicit address
+# avoids a transient system-bus lookup during Plasma startup.
+export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$runtime_dir/bus}"
 wait_for_graphical_session
 trap 'cleanup; exit 0' HUP INT TERM
 chmod 700 "$state_dir" 2>/dev/null || fail cannot_protect_state_directory
@@ -351,18 +363,36 @@ if [ "$clipboard_backend" = 'kde-dbus' ]; then
   done
 else
   fallback_ticks=0
+  backend_retry_counter=0
   while :; do
     if [ -e "$state_event" ]; then
       rm -f "$state_event"
       synchronise_qsf_state
     fi
     # No standard unfocused Wayland clipboard change notification exists.
-    # One probe per second is intentionally conservative: it preserves the
-    # generic fallback without continuously waking/compositing the desktop.
+    # One probe every two seconds is intentionally conservative: it preserves
+    # the generic fallback without continuously waking/compositing the
+    # desktop.  More importantly, retry Klipper discovery: on Plasma the
+    # Wayland socket normally appears before the Klipper D-Bus object.  The
+    # old one-shot detection permanently selected this noisy fallback in that
+    # normal startup window.
     fallback_ticks=$((fallback_ticks + 1))
-    if [ "$fallback_ticks" -ge 4 ]; then
+    if [ "$fallback_ticks" -ge "$fallback_probe_ticks" ]; then
       fallback_ticks=0
       synchronise_native_clipboard
+    fi
+    backend_retry_counter=$((backend_retry_counter + 1))
+    if [ "$backend_retry_counter" -ge "$backend_retry_ticks" ]; then
+      backend_retry_counter=0
+      if detect_clipboard_backend; then
+        report 'QSF_WAYLAND_BRIDGE_BACKEND_UPGRADE=kde_dbus'
+        # Re-exec gives the D-Bus mode a clean FIFO and watcher.  Explicitly
+        # stop the generic foreground wl-copy owner first so no stale Wayland
+        # owner or polling shell survives the mode transition.
+        stop_watchers
+        rm -f "$event_pipe" "$state_event"
+        exec "$0" --state-dir "$state_dir" --telemetry "$telemetry" --runtime-dir "$runtime_dir"
+      fi
     fi
     sleep "$state_poll_interval"
   done
