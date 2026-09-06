@@ -468,19 +468,36 @@
         return { width, height, fps };
     };
 
-    const openConsole = function (button, node, vmid) {
-        const windowId = `qsm-direct-${node}-${vmid}-${Date.now()}`;
-        // `window.open` must run synchronously in the Console-menu click
-        // handler. Opening it after an await makes ordinary browsers treat it
-        // as an unsolicited popup. It is an about:blank, same-origin popup:
-        // PVE credentials and signalling remain in the parent PVE page.
-        const popup = window.open('', windowId,
-            'popup=yes,width=1280,height=800,resizable=yes,scrollbars=no');
-        if (!popup) {
-            Ext.Msg.alert(gettext('QSM Direct'), gettext(
-                'The browser blocked the separate console window. Allow popups for this Proxmox site and try again.'));
-            return false;
+    const openConsole = function (button, node, vmid, embeddedFrame = null) {
+        const embedded = Boolean(embeddedFrame);
+        let popup;
+        if (embedded) {
+            // The ordinary VM Console card is an in-page PVE area, just as
+            // noVNC is. An about:blank same-origin frame gives the existing
+            // self-contained console DOM a private document and viewport
+            // without opening a system popup or expanding PVE's page scope.
+            popup = embeddedFrame.contentWindow;
+            if (!popup) { return false; }
+        } else {
+            const windowId = `qsm-direct-${node}-${vmid}-${Date.now()}`;
+            // The top Console split-menu remains an optional separate-window
+            // action. `window.open` must execute synchronously in that menu
+            // click, otherwise browsers treat it as an unsolicited popup.
+            popup = window.open('', windowId,
+                'popup=yes,width=1280,height=800,resizable=yes,scrollbars=no');
+            if (!popup) {
+                Ext.Msg.alert(gettext('QSM Direct'), gettext(
+                    'The browser blocked the separate console window. Allow popups for this Proxmox site and try again.'));
+                return false;
+            }
         }
+        const closeSurface = () => {
+            if (embedded) {
+                if (embeddedFrame.parentNode) { embeddedFrame.parentNode.removeChild(embeddedFrame); }
+            } else if (!popup.closed) {
+                popup.close();
+            }
+        };
         const document = popup.document;
         document.title = gettext('QSM Direct Console');
         document.documentElement.style.cssText = 'width:100%;height:100%;background:#000';
@@ -1277,14 +1294,16 @@
             // consistently complete that transition before the popup goes.
             window.setTimeout(() => {
                 close();
-                if (!popup.closed) { popup.close(); }
+                closeSurface();
             }, 0);
         };
         popup.addEventListener('beforeunload', close, { once: true });
         window.addEventListener('beforeunload', close, { once: true });
-        closeWatcher = window.setInterval(() => {
-            if (popup.closed) { close(); }
-        }, 500);
+        if (!embedded) {
+            closeWatcher = window.setInterval(() => {
+                if (popup.closed) { close(); }
+            }, 500);
+        }
 
         const vmStatusUrl = () => `/nodes/${encodeURIComponent(node)}/qemu/${encodeURIComponent(vmid)}/status/current`;
         const waitForVmStart = async () => {
@@ -1731,58 +1750,60 @@
             } catch (_error) {
                 status.textContent = gettext('Could not create a direct browser console.');
                 close();
-                popup.close();
+                closeSurface();
                 Ext.Msg.alert(gettext('QSM Direct'), gettext('Could not create a direct browser console.'));
             }
         };
         connect();
-        return true;
+        return {
+            close: () => {
+                close();
+                closeSurface();
+            },
+        };
     };
 
     // Keep PVE's one, familiar "Console" card in the left navigation.  Its
     // configuration is normally a lazy card held in `savedItems`, so the
     // QEMU Config overlay below can substitute this xtype after it reads the
-    // protected VM config and before the user opens Console.  This card does
-    // not add a second navigation entry; it merely launches the same
-    // separate browser window as the Console split-menu action.
+    // protected VM config and before the user opens Console. This card does
+    // not add a second navigation entry and deliberately renders in PVE's
+    // existing Console area instead of opening a second browser window.
     Ext.define('PVE.qsmDirect.ConsolePanel', {
         extend: 'Ext.panel.Panel',
         alias: 'widget.pveQsmDirectConsole',
-        layout: { type: 'vbox', align: 'center', pack: 'center' },
+        layout: 'fit',
         border: false,
 
         initComponent: function () {
             const me = this;
-            let launched = false;
-            const launch = () => {
-                if (!validNode(me.nodename) || !validVmid(Number(me.vmid))) { return false; }
-                const opened = openConsole(me, me.nodename, Number(me.vmid));
-                if (opened) { launched = true; }
-                return opened;
+            const startEmbeddedConsole = () => {
+                if (!validNode(me.nodename) || !validVmid(Number(me.vmid))) { return; }
+                const host = me.body && me.body.dom;
+                if (!host) { return; }
+                // A stopped VM or failed negotiation retires its iframe.
+                // Returning to the normal PVE Console card must create a
+                // fresh peer after the VM has been started again.
+                if (me.qsmDirectFrame && host.contains(me.qsmDirectFrame)) { return; }
+                if (me.qsmDirectSession) { me.qsmDirectSession.close(); }
+                host.style.cssText = 'position:relative;overflow:hidden;background:#000';
+                const frame = document.createElement('iframe');
+                frame.title = gettext('QSM Direct Console');
+                frame.setAttribute('allow', 'autoplay; clipboard-read; clipboard-write; fullscreen');
+                frame.setAttribute('allowfullscreen', '');
+                frame.style.cssText = 'display:block;width:100%;height:100%;border:0;background:#000';
+                host.appendChild(frame);
+                me.qsmDirectFrame = frame;
+                me.qsmDirectSession = openConsole(me, me.nodename, Number(me.vmid), frame);
             };
             Ext.apply(me, {
-                items: [
-                    {
-                        xtype: 'component',
-                        margin: '0 0 12 0',
-                        html: gettext('Opening QSM Direct in a separate browser window…'),
-                    },
-                    {
-                        xtype: 'button',
-                        text: gettext('Open QSM Direct Console'),
-                        iconCls: 'fa fa-desktop',
-                        handler: launch,
-                    },
-                ],
                 listeners: {
-                    // Selecting the existing PVE Console entry is a direct
-                    // user gesture, therefore the browser permits the native
-                    // resizable popup. Restoring a previously selected card
-                    // after a PVE page reload is not a user gesture; leave
-                    // that case quiet and expose the same explicit button.
-                    activate: () => {
-                        const activation = navigator.userActivation;
-                        if (!launched && (!activation || activation.isActive)) { launch(); }
+                    afterrender: startEmbeddedConsole,
+                    activate: startEmbeddedConsole,
+                    beforedestroy: () => {
+                        if (me.qsmDirectSession) { me.qsmDirectSession.close(); }
+                        me.qsmDirectSession = null;
+                        me.qsmDirectFrame = null;
                     },
                 },
             });

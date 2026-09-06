@@ -29,6 +29,30 @@ The Qt client is off by default; enable it with
 `-DQMDP_BUILD_QT_CLIENT=ON`.
 It likewise adds no X11/Wayland dependency to the Sunshine host.
 
+## QSM Direct and noVNC performance profile
+
+The browser-native `qsm-pve-direct` package replaces the rendering backend of
+the existing Proxmox VM **Console** card only for a VM with its private QEMU
+Display1 configuration; other VM and LXC consoles remain stock noVNC. This
+table compares the two transport models rather than inventing a universal
+latency number: compare measurements only with the same guest resolution,
+browser, workload, and network path.
+
+| Performance property | QSM Direct | Stock PVE noVNC |
+| --- | --- | --- |
+| Browser video path | WebRTC H.264/Opus; browser H.264 hardware decode may be used | RFB rectangles over reliable WebSocket, decoded and painted by noVNC/Canvas |
+| Host work for changing pixels | One low-latency H.264 encode per VM worker, shared by viewers; `Automatic` prefers a verified hardware encoder | QEMU VNC/RFB rectangle updates; no browser video-decoder path |
+| Pointer during congestion | Latest pointer sample uses an unordered, non-retransmitted WebRTC channel, discarding stale motion | Pointer events use the ordered reliable WebSocket stream and wait behind older data |
+| Video during packet loss | Media recovers at an H.264 intra frame while control remains separate | TCP/WebSocket head-of-line recovery delays later framebuffer updates |
+| Resize | Requests a new even QEMU Display1 mode and sends an H.264 configuration/IDR boundary | Rescales or redraws the current RFB framebuffer; it does not request a Display1 mode |
+| Best fit | Interactive desktop, animation, video, or high-latency/lossy links | Firmware text console, installation, recovery, zero-extra-transport baseline |
+
+The QSM stress suite records first-video time, Chrome jitter-buffer delay,
+key-to-pixel and hover latency, plus continuous-drag gaps. noVNC has no
+equivalent PVE telemetry, so a hardware-specific comparison must collect the
+same fixture and geometry on both paths. The packaged operational details are
+in [`packaging/debian/README.qsm-pve-direct`](packaging/debian/README.qsm-pve-direct).
+
 For artifact installation, per-VM system-auth setup, guest/QEMU wiring,
 macOS Tahoe first launch, verification, removal, and signing caveats, see
 [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md). It describes a release

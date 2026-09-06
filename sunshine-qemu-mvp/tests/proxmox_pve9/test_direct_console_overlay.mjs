@@ -45,8 +45,18 @@ assert.match(source, /console\.xtype = managed \? 'pveQsmDirectConsole' : 'pveNo
     'only a managed Display1 VM may replace the existing noVNC Console card');
 assert.doesNotMatch(source, /title: gettext\('QSM Direct'\),\s*itemId: 'qsm-direct-console'/,
     'QSM Direct must not add a second left-navigation item');
-assert.match(source, /const activation = navigator\.userActivation;\s*if \(!launched && \(!activation \|\| activation\.isActive\)\) \{ launch\(\); \}/,
-    'selecting the existing Console card must open QSM Direct without a second navigation choice');
+assert.match(source, /const openConsole = function \(button, node, vmid, embeddedFrame = null\)/,
+    'QSM Direct must support an embedded PVE Console surface');
+assert.match(source, /popup = embeddedFrame\.contentWindow;/,
+    'the existing Console card must give QSM a same-origin embedded viewport');
+assert.match(source, /frame\.setAttribute\('allow', 'autoplay; clipboard-read; clipboard-write; fullscreen'\)/,
+    'the embedded Console must retain media, clipboard, and native fullscreen permissions');
+assert.match(source, /frame\.setAttribute\('allowfullscreen', ''\)/,
+    'the embedded Console must allow fullscreen presentation');
+assert.match(source, /me\.qsmDirectSession = openConsole\(me, me\.nodename, Number\(me\.vmid\), frame\);/,
+    'selecting the existing Console card must start QSM in that card rather than in a popup');
+assert.match(source, /if \(me\.qsmDirectSession\) \{ me\.qsmDirectSession\.close\(\); \}/,
+    'leaving the PVE Console card must retire its embedded WebRTC session');
 assert.match(source, /window\.open\('', windowId,/,
     'QSM Direct must create a separate browser popup synchronously from the menu action');
 assert.match(source, /const vmStatusUrl = \(\) => `\/nodes\/\$\{encodeURIComponent\(node\)\}\/qemu\/\$\{encodeURIComponent\(vmid\)\}\/status\/current`;/,

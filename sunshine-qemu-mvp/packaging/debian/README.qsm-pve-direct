@@ -39,8 +39,10 @@ Reopening the dialog restores the checkbox, profile, and (for VirGL only)
 render node from the saved arguments. The existing VM **Console** entry in the
 left navigation (between **Summary** and **Hardware**) opens QSM Direct only
 for one of those exact private Display1 configurations; otherwise it remains
-the stock noVNC Console. The QSM Direct entry in the top Console split menu is
-enabled under the same condition. Start the VM, then choose **Console**.
+the stock noVNC Console. QSM Direct renders in that same PVE Console area.
+The QSM Direct entry in the top Console split menu remains an optional
+separate-window launch and is enabled under the same condition. Start the VM,
+then choose **Console**.
 Resizing the console window or
 entering/leaving fullscreen sends the selected even viewport to QEMU Display1
 and causes a fresh H.264 configuration/IDR boundary when the guest adapter
