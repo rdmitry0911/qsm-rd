@@ -304,11 +304,13 @@ public:
     PacketSink(const PacketSink &) = delete;
     PacketSink &operator=(const PacketSink &) = delete;
 
-    void send_video(bool keyframe, std::span<const std::uint8_t> data) noexcept {
+    [[nodiscard]] bool send_video(bool keyframe, std::span<const std::uint8_t> data) noexcept {
         if (send(video_, ++video_number_, keyframe ? packet_idr : 0U, data)) {
             std::lock_guard lock(mutex_);
             ++video_access_units_;
+            return true;
         }
+        return false;
     }
 
     void send_audio_config() noexcept {
@@ -807,7 +809,7 @@ private:
                         open_video_process(width, height);
                     }
                     for (auto &packet : software_encoder_->encode(*bgra, force_idr)) {
-                        sink_.send_video(packet.keyframe, packet.bytes);
+                        publish_video(packet.keyframe, packet.bytes);
                     }
                 } else {
 #endif
@@ -1021,7 +1023,7 @@ private:
         const auto type = static_cast<std::uint8_t>(nal[prefix] & 0x1fU);
         if (type == 9U) { // Access-unit delimiter.
             if (have_aud && !access_unit.empty()) {
-                sink_.send_video(keyframe, access_unit);
+                publish_video(keyframe, access_unit);
             }
             access_unit = std::move(leading);
             leading.clear();
@@ -1061,7 +1063,7 @@ private:
                       leading, access_unit, have_aud, keyframe);
             buffer.clear();
             if (have_aud && !access_unit.empty()) {
-                sink_.send_video(keyframe, access_unit);
+                publish_video(keyframe, access_unit);
                 access_unit.clear();
                 have_aud = false;
                 keyframe = false;
@@ -1103,9 +1105,20 @@ private:
         }
         flush_final_access_unit();
         if (have_aud && !access_unit.empty()) {
-            sink_.send_video(keyframe, access_unit);
+            publish_video(keyframe, access_unit);
         }
         ::close(descriptor);
+    }
+
+    void publish_video(bool keyframe, std::span<const std::uint8_t> access_unit) noexcept {
+        if (!sink_.send_video(keyframe, access_unit)) {
+            // A local Unix socket loss invalidates the same H.264 reference
+            // chain as a network loss.  The larger private buffer normally
+            // avoids it, but when a busy browser peer still forces a drop,
+            // make the following access unit independently decodable rather
+            // than leaving macroblocks until the periodic 30-frame IDR.
+            request_idr();
+        }
     }
 
     void close_video_process() noexcept {
