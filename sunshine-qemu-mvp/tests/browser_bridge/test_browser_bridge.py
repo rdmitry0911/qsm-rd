@@ -391,6 +391,11 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                 answer = await bridge.answer_offer(browser.localDescription.sdp)
                 self.assertEqual(answer["type"], "answer")
                 self.assertIn("H264/90000", answer["sdp"])
+                # Keep RTP retransmission alongside H.264.  A browser NACK
+                # must be repaired as a fresh RTX packet rather than waiting
+                # for a full IDR after every individual UDP loss.
+                self.assertIn("rtx/90000", answer["sdp"])
+                self.assertRegex(answer["sdp"], r"a=fmtp:\d+ apt=\d+")
                 self.assertIn("opus/48000", answer["sdp"])
                 await browser.setRemoteDescription(RTCSessionDescription(**answer))
                 deadline = time.monotonic() + 3

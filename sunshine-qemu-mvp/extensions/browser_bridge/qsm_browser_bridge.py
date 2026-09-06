@@ -1244,9 +1244,29 @@ class BrowserWebRtcBridge:
 
     @staticmethod
     def _h264_codecs() -> list[object]:
-        return [
-            codec for codec in RTCRtpSender.getCapabilities("video").codecs
+        """Return H.264 and its RTP retransmission capability.
+
+        ``setCodecPreferences`` does more than select a video format.  Giving
+        it H.264 alone suppresses aiortc's otherwise available RTX entries,
+        leaving NACK recovery to retransmit an old packet with its original
+        sequence number.  Chromium can discard that late packet as already
+        past the jitter-buffer window and then requests a PLI, visibly
+        corrupting a predictive frame chain until the next IDR.
+
+        A generic RTX capability is deliberately paired with every selected
+        H.264 profile by aiortc when it builds SDP.  It remains H.264-only
+        from the browser and encoder perspectives, but makes a NACK carry a
+        fresh RTX sequence number / SSRC and lets Chromium recover individual
+        UDP losses before it needs an IDR.
+        """
+        capabilities = RTCRtpSender.getCapabilities("video").codecs
+        h264 = [
+            codec for codec in capabilities
             if codec.mimeType.lower() == "video/h264"
+        ]
+        return h264 + [
+            codec for codec in capabilities
+            if codec.mimeType.lower() == "video/rtx"
         ]
 
     def _attach_video_recovery(self, sender: object) -> None:

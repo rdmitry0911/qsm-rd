@@ -431,6 +431,17 @@ async function webrtcStats() {
             framesDecoded: number(video.framesDecoded),
             framesDropped: number(video.framesDropped),
             framesReceived: number(video.framesReceived),
+            packetsReceived: number(video.packetsReceived),
+            packetsLost: number(video.packetsLost),
+            // These are receiver-side recovery counters.  They let the
+            // loss-injection gate distinguish a healthy RTX/NACK repair
+            // from a merely connected stream that happened not to lose a
+            // packet during the sample interval.
+            nackCount: number(video.nackCount),
+            pliCount: number(video.pliCount),
+            firCount: number(video.firCount),
+            retransmittedPacketsReceived: number(video.retransmittedPacketsReceived),
+            retransmittedBytesReceived: number(video.retransmittedBytesReceived),
             totalDecodeTime: number(video.totalDecodeTime),
             jitterBufferDelay: delay,
             jitterBufferEmittedCount: emitted,
