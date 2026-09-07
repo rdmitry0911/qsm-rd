@@ -22,12 +22,14 @@ if str(IMPORT_ROOT) not in sys.path:
     sys.path.insert(0, str(IMPORT_ROOT))
 
 if PACKAGE_LIBRARY:
+    from direct_terminal.qsm_direct_encoder_probe import DirectEncoderSelection
     from direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
                                                      DirectVmTransport, _managed_display_enabled,
                                                      _managed_guest_channel_enabled,
                                                      _qemu_process_generation, _load_optional_instance,
                                                      DirectTerminalError)
 else:
+    from extensions.direct_terminal.qsm_direct_encoder_probe import DirectEncoderSelection
     from extensions.direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
                                                                  DirectVmTransport, _managed_display_enabled,
                                                                  _managed_guest_channel_enabled,
@@ -325,6 +327,38 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
                 self.assertTrue(bridge.closed)
                 self.assertNotIn("ended", manager._sessions)
                 self.assertFalse(directory.exists())
+            finally:
+                manager.close()
+
+    def test_automatic_codec_policy_is_h264_even_when_the_browser_offers_hevc(self) -> None:
+        """An H.265 line in the offer must not switch an ``auto`` VM to HEVC."""
+        offer = ("v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
+                 "m=video 9 UDP/TLS/RTP/SAVPF 96 97\r\nc=IN IP4 0.0.0.0\r\n"
+                 "a=rtpmap:96 H265/90000\r\na=rtpmap:97 H264/90000\r\n"
+                 "a=fmtp:97 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f\r\n")
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-codec-policy.") as temporary:
+            root = Path(temporary)
+            for name in ("instances", "qemu-server", "sessions", "display"):
+                (root / name).mkdir(mode=0o700)
+            manager = DirectSessionManager(
+                instance_directory=root / "instances",
+                runtime_directory=root / "sessions",
+                vm_runtime_directory=root / "display",
+                pve_config_directory=root / "qemu-server",
+                local_node=None,
+            )
+            try:
+                # A cached selection stands in for the encoder probe; a HEVC
+                # probe would be a defect here and has no cache entry.
+                manager._auto_encoders["h264"] = DirectEncoderSelection("libx264")
+                codec, selection = manager._codec_for_offer(offer, {"QSM_DIRECT_CODEC": "auto"})
+                self.assertEqual(codec, "h264")
+                self.assertEqual(selection, DirectEncoderSelection("libx264"))
+                codec, selection = manager._codec_for_offer(offer, {})
+                self.assertEqual(codec, "h264")
+                with self.assertRaisesRegex(DirectTerminalError, "does not offer WebRTC HEVC"):
+                    manager._codec_for_offer(offer.replace("a=rtpmap:96 H265/90000\r\n", ""),
+                                             {"QSM_DIRECT_CODEC": "hevc"})
             finally:
                 manager.close()
 

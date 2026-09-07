@@ -758,23 +758,22 @@ class DirectSessionManager:
     def _codec_for_offer(self, sdp: str, policy: dict[str, str]) -> tuple[str, DirectEncoderSelection]:
         """Choose the best mutually usable codec before spawning a worker.
 
-        An offer is the only trustworthy statement of the current browser's
-        decoder support.  ``auto`` therefore tries hardware HEVC only after
-        seeing H.265 in that offer, then falls back to the independently
-        validated H.264 route.  A forced HEVC policy remains explicit.
+        ``auto`` is H.264: it is the lane verified end to end with real
+        browsers.  A browser that advertises H.265 in its offer is not proof
+        that it decodes the node's HEVC stream — Chrome on the reference node
+        negotiated hevc_nvenc, then requested a keyframe thirteen times in
+        three seconds and never presented a picture.  HEVC therefore stays an
+        explicit, per-VM policy for operators who have qualified their
+        browser fleet against their encoder.
         """
         preference = policy.get("QSM_DIRECT_CODEC") or "auto"
         if preference not in {"auto", "h264", "hevc"}:
             raise DirectTerminalError("direct-terminal VM has an unsupported browser codec")
         offered = BrowserWebRtcBridge.offered_video_codecs(sdp)
-        if preference in {"auto", "hevc"} and "hevc" in offered:
-            try:
-                return "hevc", self._select_encoder("hevc", policy)
-            except DirectTerminalError:
-                if preference == "hevc":
-                    raise
         if preference == "hevc":
-            raise DirectTerminalError("browser does not offer WebRTC HEVC")
+            if "hevc" not in offered:
+                raise DirectTerminalError("browser does not offer WebRTC HEVC")
+            return "hevc", self._select_encoder("hevc", policy)
         if "h264" not in offered:
             raise DirectTerminalError("browser does not offer WebRTC H.264")
         return "h264", self._select_encoder("h264", policy)

@@ -35,8 +35,8 @@ Open the **Console** of a VM and:
   unordered, latest-state lane, so a lost or late packet is replaced by the
   next position instead of delaying a click or piling up behind a busy frame.
 - **It uses the hardware you have.** NVENC, QSV, VA-API or `libx264`; H.264
-  everywhere, HEVC when the browser's WebRTC offer contains it and the node
-  has a working hardware HEVC encoder; VirGL/GL guests or plain VGA guests.
+  by default, HEVC as an explicit experimental per-VM choice; VirGL/GL guests
+  or plain VGA guests.
 - **Same login, same ACL.** Same origin, same PVE session, same
   `VM.Console` permission. No pairing PIN, no persistent public service port,
   no native client, no host X11 session.
@@ -198,15 +198,16 @@ above is silent. Treat audio as not available until the profile gains it.
 
 ### Codecs
 
-The VM media policy defaults to **Automatic (HEVC hardware preferred)**.
-Before starting a worker the terminal reads the browser's SDP offer and
-chooses HEVC only if it contains `video/H265` *and* a bounded probe has
-initialized `hevc_nvenc`, `hevc_qsv` or `hevc_vaapi` on the node
-([RFC 7798](https://www.rfc-editor.org/rfc/rfc7798.html) packetization).
-Otherwise it uses the separately verified H.264 lane, which may fall back to
-`libx264` when no accelerator works. The HEVC lane is covered by the encoder
-probe and bridge tests; every measurement on this page used H.264, and no
-browser HEVC session has been qualified yet. HEVC lowers bitrate, not input
+The VM media policy defaults to **Automatic (H.264)**: NVENC, QSV or VA-API
+when one initializes, `libx264` otherwise. HEVC is an explicit, experimental
+per-VM policy: the terminal then requires `video/H265` in the browser's SDP
+offer *and* a bounded probe that initialized `hevc_nvenc`, `hevc_qsv` or
+`hevc_vaapi` on the node, and packetizes the stream per
+[RFC 7798](https://www.rfc-editor.org/rfc/rfc7798.html). The HEVC lane is
+covered by the encoder probe and bridge tests only: the one real browser that
+negotiated it on the reference node (Chrome with hardware HEVC, `hevc_nvenc`)
+requested a keyframe thirteen times in three seconds and never presented a
+picture, so it is not selected automatically. HEVC lowers bitrate, not input
 latency: encoder look-ahead, keyframe cadence, browser decode and jitter
 buffering still decide the interaction delay.
 

@@ -279,9 +279,9 @@ assert.match(source, /qsm-direct-settings/,
     'codec and encoder settings must be persisted through a VM-scoped PVE endpoint, not browser storage');
 assert.match(source, /Hardware only/,
     'the VM policy must distinguish a required hardware encoder from automatic fallback');
-assert.match(source, /Automatic \(HEVC hardware preferred\)/,
-    'the UI must expose the negotiated HEVC-preferred automatic policy');
-assert.match(source, /HEVC \(hardware encoder required\)/,
+assert.match(source, /Automatic \(H\.264\)/,
+    'the automatic policy must be the browser-verified H.264 lane, not an unqualified HEVC preference');
+assert.match(source, /HEVC \(experimental, hardware encoder required\)/,
     "the UI must make HEVC's hardware-only server requirement explicit");
 assert.match(source, /CPU — Standard VGA or VirtIO \(no GL\)/,
     'the Display editor must expose a non-GL CPU profile beside VirGL');
