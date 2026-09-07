@@ -19,6 +19,7 @@ import os
 import socket
 import stat
 import struct
+import re
 import sys
 import threading
 from dataclasses import dataclass
@@ -84,6 +85,13 @@ LOCAL_MEDIA_SOCKET_BUFFER_BYTES = 2 * 1024 * 1024
 VIDEO_QUEUE_DEPTH = 1
 AUDIO_QUEUE_DEPTH = 4
 VIDEO_CODECS = frozenset({"h264", "hevc"})
+# RFC 7798 section 7.1 fmtp keys a browser may put on its H265 offer and that
+# the answer must repeat for the browser to recognise the same codec.  Values
+# are bounded ASCII tokens; anything else in the offer is ignored.
+H265_FMTP_KEYS = ("profile-space", "profile-id", "tier-flag", "level-id",
+                  "interop-constraints", "profile-compatibility-indicator", "tx-mode")
+H265_DEFAULT_PARAMETERS = {"profile-id": "1", "tier-flag": "0", "level-id": "120", "tx-mode": "SRST"}
+_H265_FMTP_VALUE = re.compile(r"\A[A-Za-z0-9]{1,32}\Z")
 _HEVC_CODEC_LOCK = threading.Lock()
 _HEVC_PACKETIZER_INSTALLED = False
 
@@ -194,7 +202,17 @@ def _install_hevc_packetizer() -> None:
                         RTCRtcpFeedback(type="nack", parameter="pli"),
                         RTCRtcpFeedback(type="goog-remb"),
                     ],
-                    parameters={},
+                    # RFC 7798 section 7.1 parameters describing what the
+                    # verified NVENC/QSV/VA-API lane actually emits: Main
+                    # profile, Main tier, level 4 for 1280x800 at 60 fps,
+                    # single RTP stream.  libwebrtc treats an H265 codec
+                    # without fmtp as Main/tier 0/level 3.1 and requires
+                    # profile, tier *and* level to be equal before it counts
+                    # the answer as the codec it offered; an answer without
+                    # these parameters left Chrome with a negotiated codec it
+                    # never decoded.  answer_offer() replaces them with the
+                    # browser's own offered values.
+                    parameters=dict(H265_DEFAULT_PARAMETERS),
                 ),
                 RTCRtpCodecParameters(
                     mimeType="video/rtx", clockRate=90_000, payloadType=104,
@@ -210,6 +228,45 @@ def _install_hevc_packetizer() -> None:
             setattr(get_encoder, "_qsm_hevc_packetizer", True)
             aiortc_rtcrtpsender.get_encoder = get_encoder
         _HEVC_PACKETIZER_INSTALLED = True
+
+
+def _h265_parameters_for_offer(sdp: str) -> dict[str, str]:
+    """Return the fmtp parameters of the browser's first Main-profile H265 line.
+
+    A browser identifies its H265 codec by profile, tier and level.  The
+    answer has to carry the same values, otherwise libwebrtc does not accept
+    the answered payload type as the codec it offered.  Values are copied
+    verbatim within a bounded token alphabet; an offer without parameters
+    keeps the defaults describing the encoder's own stream.
+    """
+    try:
+        description = SessionDescription.parse(sdp)
+    except (TypeError, ValueError) as error:
+        raise BridgeError("invalid browser WebRTC offer") from error
+    candidates: list[dict[str, str]] = []
+    for media in description.media:
+        if media.kind != "video":
+            continue
+        for codec in media.rtp.codecs:
+            if codec.mimeType.lower() not in {"video/h265", "video/hevc"}:
+                continue
+            parameters = {
+                key: str(value) for key, value in (codec.parameters or {}).items()
+                if key in H265_FMTP_KEYS and _H265_FMTP_VALUE.fullmatch(str(value))
+            }
+            candidates.append(parameters)
+    for parameters in candidates:
+        if parameters.get("profile-id", "1") == "1":
+            return {**H265_DEFAULT_PARAMETERS, **parameters}
+    return dict(H265_DEFAULT_PARAMETERS)
+
+
+def _apply_h265_parameters(parameters: dict[str, str]) -> None:
+    """Make the registered H265 capability answer with the browser's parameters."""
+    with _HEVC_CODEC_LOCK:
+        for codec in aiortc_codecs.CODECS["video"]:
+            if codec.mimeType.lower() == "video/h265":
+                codec.parameters = dict(parameters)
 
 
 class BridgeError(RuntimeError):
@@ -1324,6 +1381,25 @@ class BrowserWebRtcBridge:
             if codec.mimeType.lower() == "video/rtx"
         ]
 
+    @staticmethod
+    def _describe_video_answer(sdp: str) -> str:
+        """Fixed-format summary of the answered video codec, never the SDP."""
+        try:
+            description = SessionDescription.parse(sdp)
+        except (TypeError, ValueError):
+            return "codec=unparsed"
+        for media in description.media:
+            if media.kind != "video":
+                continue
+            for codec in media.rtp.codecs:
+                if codec.mimeType.lower() == "video/rtx":
+                    continue
+                parameters = ";".join(
+                    f"{key}={value}" for key, value in sorted((codec.parameters or {}).items())
+                    if _H265_FMTP_VALUE.fullmatch(str(key).replace("-", "")) and _H265_FMTP_VALUE.fullmatch(str(value)))
+                return f"codec={codec.mimeType} pt={codec.payloadType} fmtp={parameters or 'none'}"
+        return "codec=none"
+
     def _attach_video_recovery(self, sender: object) -> None:
         """Bridge RTCP PLI to the external Display1 encoder.
 
@@ -1429,6 +1505,10 @@ class BrowserWebRtcBridge:
         video_sender = self._pc.addTrack(self.video_track)
         audio_sender = self._pc.addTrack(self.audio_track)
         self._attach_video_recovery(video_sender)
+        if self.video_codec == "hevc":
+            # Answer with the browser's own profile/tier/level/tx-mode so it
+            # recognises the negotiated payload type as its H265 codec.
+            _apply_h265_parameters(_h265_parameters_for_offer(sdp))
         video_codecs = self._video_codecs(self.video_codec)
         if not video_codecs:
             requested = "HEVC" if self.video_codec == "hevc" else "H.264"
@@ -1458,6 +1538,11 @@ class BrowserWebRtcBridge:
             self._publish_cursor()
 
         answer = await self._pc.createAnswer()
+        # One fixed-format journal line per session naming the negotiated
+        # video codec and its fmtp: a browser that decodes nothing is then
+        # diagnosable from the node without the browser's own statistics.
+        print(f"qsm-direct-terminal: WebRTC video answer {self._describe_video_answer(answer.sdp)}",
+              file=sys.stderr, flush=True)
         await self._pc.setLocalDescription(answer)
         if self._pc.localDescription is None:
             raise BridgeError("cannot create browser WebRTC answer")

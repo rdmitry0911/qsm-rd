@@ -8,6 +8,7 @@ import os
 import socket
 import tempfile
 import time
+import re
 import unittest
 import av
 from fractions import Fraction
@@ -51,6 +52,7 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     _AudioAssembler,
     _PacketTrack,
     _HevcPacketizer,
+    _h265_parameters_for_offer,
     _VideoAssembler,
 )
 
@@ -176,6 +178,45 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
 
 
 class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
+    async def test_hevc_answer_repeats_the_browsers_profile_tier_level(self) -> None:
+        """libwebrtc matches H265 by profile, tier and level: the answer must echo them."""
+        with tempfile.TemporaryDirectory(prefix="qsm-browser-hevc-fmtp.") as directory:
+            bridge = BrowserWebRtcBridge(Path(directory), fps=60, video_codec="hevc")
+            browser = RTCPeerConnection()
+            try:
+                capabilities = RTCRtpSender.getCapabilities("video").codecs
+                hevc = [codec for codec in capabilities if codec.mimeType.lower() == "video/h265"]
+                video = browser.addTransceiver("video", direction="recvonly")
+                video.setCodecPreferences(hevc)
+                browser.addTransceiver("audio", direction="recvonly")
+                browser.createDataChannel("qsm-control", ordered=True)
+                browser.createDataChannel("qsm-pointer", ordered=False, maxRetransmits=0)
+                await browser.setLocalDescription(await browser.createOffer())
+                sdp = browser.localDescription.sdp
+                payload_type = re.search(r"a=rtpmap:(\d+) H265/90000", sdp).group(1)
+                # Chrome's H265 line: level 6, Main profile, Main tier, one RTP stream.
+                sdp = re.sub(rf"a=fmtp:{payload_type} [^\r\n]*\r\n", "", sdp)
+                sdp = sdp.replace(
+                    f"a=rtpmap:{payload_type} H265/90000\r\n",
+                    f"a=rtpmap:{payload_type} H265/90000\r\n"
+                    f"a=fmtp:{payload_type} level-id=180;profile-id=1;tier-flag=0;tx-mode=SRST\r\n")
+                bridge.start_taps()
+                answer = await bridge.answer_offer(sdp)
+                fmtp = re.search(rf"a=fmtp:{payload_type} ([^\r\n]*)", answer["sdp"])
+                self.assertIsNotNone(fmtp, "the H265 answer must carry an fmtp line")
+                parameters = dict(item.split("=", 1) for item in fmtp.group(1).split(";"))
+                self.assertEqual(parameters, {"level-id": "180", "profile-id": "1",
+                                              "tier-flag": "0", "tx-mode": "SRST"})
+            finally:
+                await browser.close()
+                await bridge.close()
+        # An offer without parameters is answered with the encoder's own
+        # Main / tier 0 / level 4 description rather than nothing.
+        self.assertEqual(_h265_parameters_for_offer(
+            "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
+            "m=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=rtpmap:96 H265/90000\r\n"),
+            {"profile-id": "1", "tier-flag": "0", "level-id": "120", "tx-mode": "SRST"})
+
     async def test_hevc_offer_answer_uses_h265_only_when_offered(self) -> None:
         with tempfile.TemporaryDirectory(prefix="qsm-browser-hevc-sdp.") as directory:
             bridge = BrowserWebRtcBridge(Path(directory), fps=60, video_codec="hevc")
