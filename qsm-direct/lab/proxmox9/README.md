@@ -19,6 +19,7 @@ the noVNC probe on the browser host:
 # PVE node
 python3 measure-direct-browser-e2e.py \
   --vmid VMID --width 1280 --height 800 --warmup-seconds 10 \
+  --drag-runs 1 \
   --browser-host BROWSER_HOST --browser-user USER --browser-key KEY \
   --browser-script /absolute/path/browser-webrtc-receiver.cjs
 

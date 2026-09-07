@@ -6,7 +6,8 @@ sole non-stock console transport on the node.
 
 It uses PVE's existing authenticated Web UI session and `VM.Console` ACL.
 The browser sends a WebRTC SDP offer to a protected PVE route; the node-local
-terminal answers it and starts one QEMU Display1 worker.  H.264/Opus remain
+terminal answers it and starts one QEMU Display1 worker.  Negotiated H.264 or
+HEVC video and Opus remain
 encoded until the browser's WebRTC implementation. There is no pairing PIN,
 native client installer, external listening port, or host desktop server.
 
@@ -17,8 +18,9 @@ Install:
 
 The service reads PVE's saved VM configuration and creates the private
 Display1 bus before the VM is started. No per-VM policy file is required: the
-portable `auto` policy initializes NVENC, QSV, and VA-API in that order and
-uses the first working low-latency H.264 encoder, falling back to `libx264`.
+portable `auto` policy first uses HEVC when the current browser offers H.265
+and a tested NVENC, QSV, or VA-API HEVC encoder is available. Otherwise it
+initializes the H.264 lane (with `libx264` fallback).
 After saving a Display1 setting, the service
 reconciles the bus automatically. Package upgrades may restart the terminal
 service, but preserve every live private Display1 bus: a running configured
@@ -45,7 +47,7 @@ separate-window launch and is enabled under the same condition. Start the VM,
 then choose **Console**.
 Resizing the console window or
 entering/leaving fullscreen sends the selected even viewport to QEMU Display1
-and causes a fresh H.264 configuration/IDR boundary when the guest adapter
+and causes a fresh video configuration/IDR boundary when the guest adapter
 implements `Console.SetUIInfo`. Non-GL VirtIO does; QEMU Standard VGA exposes
 a fixed Display1 scanout and rejects that optional method, so QSM keeps the
 video and input connected at its guest-selected mode rather than failing the
@@ -54,15 +56,17 @@ console.
 The Console window's **Settings** panel stores the media policy per VM on the
 node in root-owned `/etc/qsm-pve-direct/instances.d/<VMID>.conf` (0600), not
 in browser storage or unsupported `qm.conf` keys. Its choices are
-**Automatic** (probe NVENC, QSV, VA-API, then `libx264`), **Hardware only**
+**Automatic** (prefer negotiated, tested hardware HEVC; otherwise probe H.264
+with `libx264` fallback), **Hardware only**
 (fail clearly rather than consume CPU when no accelerator works), and
 **Software** (`libx264`). Close all QSM Direct windows for the VM and reopen
 one after saving: one worker is shared by its active viewers.
 
-The browser transport currently negotiates H.264/Opus only. HEVC is therefore
-shown as unavailable in Settings rather than being accepted and silently
-encoded as H.264. This is a browser/WebRTC and server-RTP capability boundary,
-not a VirGL limitation.
+HEVC is selected only when the current browser SDP offers H.265 and the node
+initializes a hardware HEVC encoder. H.264 remains the automatic fallback.
+This is a browser/WebRTC and server-RTP capability boundary, not a VirGL
+limitation. A VM shares one worker, so mixed viewers must support its active
+codec or reconnect after the existing Console is closed.
 
 ## Performance profile compared with PVE noVNC
 
@@ -77,11 +81,11 @@ publishing a hardware-specific result.
 
 | Performance property | QSM Direct | Stock PVE noVNC |
 | --- | --- | --- |
-| Browser video path | WebRTC H.264/Opus; the browser may use its hardware H.264 decoder | RFB rectangles over a reliable WebSocket, decoded and painted by noVNC/Canvas |
-| Host work for changing pixels | One low-latency H.264 encode per VM worker, shared by its viewers; hardware encoders are preferred by `Automatic` | QEMU VNC/RFB rectangle updates; no video encoder or browser video-decoder path |
+| Browser video path | WebRTC H.264 or negotiated hardware HEVC / Opus; the browser may use its hardware decoder | RFB rectangles over a reliable WebSocket, decoded and painted by noVNC/Canvas |
+| Host work for changing pixels | One low-latency H.264 or HEVC encode per VM worker, shared by its viewers; hardware encoders are preferred by `Automatic` | QEMU VNC/RFB rectangle updates; no video encoder or browser video-decoder path |
 | Pointer behaviour under congestion | Latest pointer samples use an unordered, non-retransmitted WebRTC channel, so stale motion is discarded | Pointer events share the ordered reliable WebSocket stream; a delayed stream cannot skip earlier events |
-| Video under packet loss | Media can recover at the next H.264 intra frame while input keeps its separate control path | TCP/WebSocket head-of-line recovery delays later RFB updates behind a missing packet |
-| Resize | One even Display1 mode request followed by an H.264 configuration/IDR boundary | Rescales or redraws the current RFB framebuffer; it does not request a QEMU Display1 guest mode |
+| Video under packet loss | Media can recover at the next video intra frame while input keeps its separate control path | TCP/WebSocket head-of-line recovery delays later RFB updates behind a missing packet |
+| Resize | One even Display1 mode request followed by a video configuration/IDR boundary | Rescales or redraws the current RFB framebuffer; it does not request a QEMU Display1 guest mode |
 | Best fit | Interactive desktop, animation, video, and high-latency or lossy links | Firmware text console, installation, recovery, and a zero-extra-transport baseline |
 
 For a reproducible QSM result, run the documented
@@ -94,6 +98,11 @@ specific node encoder without changing the display setup:
 
     QSM_DIRECT_QEMU_DBUS_ADDRESS=unix:path=/run/qsm-pve-direct/<VMID>/qemu-display1.bus
     QSM_DIRECT_ENCODER=h264_nvenc
+
+To pin HEVC, pair a hardware encoder with `QSM_DIRECT_CODEC=hevc`, for example:
+
+    QSM_DIRECT_CODEC=hevc
+    QSM_DIRECT_ENCODER=hevc_nvenc
 
 For VA-API additionally set
 `QSM_DIRECT_VAAPI_RENDER_NODE=/dev/dri/renderD128`.

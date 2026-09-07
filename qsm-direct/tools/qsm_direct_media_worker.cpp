@@ -7,12 +7,13 @@
 // terminal broker has already checked VM.Console and starts it with three
 // owner-private Unix sockets owned by the browser WebRTC bridge:
 //
-//   Display1 -> BGRA -> FFmpeg H.264 -> browser-video.sock
+//   Display1 -> BGRA -> FFmpeg H.264/HEVC -> browser-video.sock
 //   Display1 -> float PCM -> libopus -> browser-audio.sock
 //   browser-input.sock -> bounded Display1 input calls
 //
 // The socket record format is shared with qsm_browser_bridge.py.  It
-// keeps H.264 and Opus encoded end to end; aiortc only packetizes them as
+// keeps the selected video elementary stream and Opus encoded end to end;
+// aiortc only packetizes them as
 // SRTP.  The worker is intentionally usable with NVENC, QSV, VA-API, or a
 // software encoder selected by the node policy.
 
@@ -150,6 +151,7 @@ struct Options {
     std::string video_socket;
     std::string audio_socket;
     std::string input_socket;
+    std::string codec {"h264"};
     std::string encoder {"libx264"};
     // The terminal supplies this only for its automatic policy. A requested
     // hardware-only encoder must fail visibly instead of silently consuming
@@ -172,9 +174,10 @@ struct Options {
         << "usage: qsm-direct-media-worker --dbus-address ADDRESS "
            "--video-socket unix:PATH --audio-socket unix:PATH "
            "--input-socket unix:PATH [options]\n\n"
-        << "  --encoder NAME              FFmpeg H.264 encoder (default: libx264)\n"
+        << "  --codec h264|hevc           browser-negotiated video codec (default: h264)\n"
+        << "  --encoder NAME              FFmpeg encoder matching --codec (default: libx264)\n"
         << "  --fallback-encoder libx264  recover an automatic hardware encoder at runtime\n"
-        << "  --vaapi-device /dev/dri/renderD<N>  VA-API node for h264_vaapi\n"
+        << "  --vaapi-device /dev/dri/renderD<N>  VA-API node for *_vaapi\n"
         << "  --fps N                     10..240 (default: 60)\n"
         << "  --initial-size WIDTHxHEIGHT request initial guest scanout\n"
         << "  --allow-unsupported-ui-info retain a fixed scanout when its adapter"
@@ -235,6 +238,8 @@ Options parse_options(int argc, char **argv) {
             options.audio_socket = socket_path(next(index, argument), argument);
         } else if (argument == "--input-socket") {
             options.input_socket = socket_path(next(index, argument), argument);
+        } else if (argument == "--codec") {
+            options.codec = next(index, argument);
         } else if (argument == "--encoder") {
             options.encoder = next(index, argument);
         } else if (argument == "--fallback-encoder") {
@@ -257,11 +262,17 @@ Options parse_options(int argc, char **argv) {
         options.input_socket.empty() || options.encoder.empty() || options.fps < 10U || options.fps > 240U) {
         throw WorkerError("required worker options are missing or invalid");
     }
-    if (options.encoder == "h264_vaapi" && (!options.vaapi_device ||
-        !std::string_view(*options.vaapi_device).starts_with("/dev/dri/renderD"))) {
-        throw WorkerError("h264_vaapi requires a DRM render node");
+    if ((options.codec != "h264" && options.codec != "hevc") ||
+        (options.codec == "h264" && options.encoder != "libx264" &&
+         !std::string_view(options.encoder).starts_with("h264_")) ||
+        (options.codec == "hevc" && !std::string_view(options.encoder).starts_with("hevc_"))) {
+        throw WorkerError("direct video encoder does not match codec");
     }
-    if (options.fallback_encoder && (*options.fallback_encoder != "libx264" ||
+    if (std::string_view(options.encoder).ends_with("_vaapi") && (!options.vaapi_device ||
+        !std::string_view(*options.vaapi_device).starts_with("/dev/dri/renderD"))) {
+        throw WorkerError("VA-API direct encoder requires a DRM render node");
+    }
+    if (options.fallback_encoder && (options.codec != "h264" || *options.fallback_encoder != "libx264" ||
                                      *options.fallback_encoder == options.encoder)) {
         throw WorkerError("invalid direct encoder fallback");
     }
@@ -648,10 +659,10 @@ public:
         std::uint8_t luma_max {};
     };
 
-    DirectMediaAdapter(PacketSink &sink, std::string encoder,
+    DirectMediaAdapter(PacketSink &sink, std::string codec, std::string encoder,
                        std::optional<std::string> fallback_encoder,
                        std::optional<std::string> vaapi_device, std::uint32_t fps)
-        : sink_(sink), encoder_(std::move(encoder)), fallback_encoder_(std::move(fallback_encoder)),
+        : sink_(sink), codec_(std::move(codec)), encoder_(std::move(encoder)), fallback_encoder_(std::move(fallback_encoder)),
           vaapi_device_(std::move(vaapi_device)), fps_(fps) {}
 
     ~DirectMediaAdapter() override { stop(); }
@@ -780,7 +791,7 @@ private:
             if (written < 0 && errno == EINTR) {
                 continue;
             }
-            throw WorkerError("direct H.264 encoder stopped accepting frames");
+            throw WorkerError("direct video encoder stopped accepting frames");
         }
     }
 
@@ -826,7 +837,7 @@ private:
             try {
                 const bool force_idr = force_idr_.exchange(false);
 #if defined(QMDP_HAS_LIBAVCODEC)
-                if (encoder_ == "libx264") {
+                if (codec_ == "h264" && encoder_ == "libx264") {
                     if (!software_encoder_ || width_ != width || height_ != height) {
                         close_video_process();
                         open_video_process(width, height);
@@ -936,12 +947,12 @@ private:
         if (::pipe2(input, O_CLOEXEC) < 0 || ::pipe2(output, O_CLOEXEC) < 0) {
             if (input[0] >= 0) { ::close(input[0]); ::close(input[1]); }
             if (output[0] >= 0) { ::close(output[0]); ::close(output[1]); }
-            throw WorkerError("cannot create direct H.264 encoder pipes");
+            throw WorkerError("cannot create direct video encoder pipes");
         }
         const auto pid = ::fork();
         if (pid < 0) {
             ::close(input[0]); ::close(input[1]); ::close(output[0]); ::close(output[1]);
-            throw WorkerError("cannot start direct H.264 encoder");
+            throw WorkerError("cannot start direct video encoder");
         }
         if (pid == 0) {
             if (::dup2(input[0], STDIN_FILENO) < 0 || ::dup2(output[1], STDOUT_FILENO) < 0) {
@@ -965,12 +976,12 @@ private:
                 "-f", "rawvideo", "-pixel_format", "bgra", "-video_size", dimensions,
                 "-framerate", fps, "-i", "pipe:0", "-an", "-c:v", encoder_, "-flags", "low_delay",
             };
-            if (encoder_ == "h264_vaapi") {
+            if (std::string_view(encoder_).ends_with("_vaapi")) {
                 arguments.insert(arguments.end(), {"-vaapi_device", *vaapi_device_, "-vf", "format=nv12,hwupload"});
-            } else if (encoder_ == "h264_qsv") {
+            } else if (std::string_view(encoder_).ends_with("_qsv")) {
                 arguments.insert(arguments.end(), {"-vf", "format=nv12"});
             }
-            if (encoder_ == "h264_nvenc") {
+            if (std::string_view(encoder_).ends_with("_nvenc")) {
                 arguments.insert(arguments.end(), {"-preset", "p1", "-tune", "ll", "-forced-idr", "1",
                                                    "-zerolatency", "1", "-delay", "0", "-rc-lookahead", "0",
                                                    // A CBR NVENC stream pads a motionless desktop with H.264
@@ -999,7 +1010,7 @@ private:
             // cosmetic tuning flag. The output bitstream filter repeats the
             // encoder's extradata on every IDR, allowing a late WebRTC fanout
             // subscriber to decode its cached bootstrap frame immediately.
-            if (encoder_ == "h264_nvenc") {
+            if (std::string_view(encoder_).ends_with("_nvenc")) {
                 arguments.insert(arguments.end(), {"-bsf:v", "dump_extra=freq=k"});
             }
             // Do not force generic AVCodecContext latency flags here: some
@@ -1007,17 +1018,17 @@ private:
             // reject those flags only after the encoder process has started.
             // libx264 and NVENC receive their documented low-latency knobs
             // above; other approved encoders retain their known-good defaults.
-            // Every supported H.264 encoder can emit an access-unit delimiter.
+            // Every supported H.264 or HEVC encoder can emit an access-unit delimiter.
             // The packetizer uses that unambiguous boundary to keep its private
             // socket records frame-aligned; do not rely on encoder-specific
             // slice layouts or on a compatibility transport framing convention.
             // `pipe:1` otherwise uses FFmpeg's normal AVIO buffering.  That
-            // can retain several H.264 access units before the reader thread
+            // can retain several video access units before the reader thread
             // sees any bytes, turning a low-latency encoder into a visibly
             // delayed desktop. Flush each complete packet into the private
             // sequenced-packet tap instead.
             arguments.insert(arguments.end(), {"-aud", "1", "-pix_fmt", "yuv420p",
-                                               "-flush_packets", "1", "-f", "h264", "pipe:1"});
+                                               "-flush_packets", "1", "-f", codec_, "pipe:1"});
             std::vector<char *> argv;
             argv.reserve(arguments.size() + 1U);
             for (auto &argument : arguments) { argv.push_back(argument.data()); }
@@ -1032,7 +1043,7 @@ private:
         video_output_ = output[0];
         width_ = width;
         height_ = height;
-        h264_thread_ = std::thread(&DirectMediaAdapter::h264_reader, this, video_output_);
+        video_reader_thread_ = std::thread(&DirectMediaAdapter::video_reader, this, video_output_);
     }
 
     static std::optional<std::pair<std::size_t, std::size_t>> start_code(
@@ -1055,8 +1066,11 @@ private:
         if (nal.size() <= prefix) {
             return;
         }
-        const auto type = static_cast<std::uint8_t>(nal[prefix] & 0x1fU);
-        if (type == 9U) { // Access-unit delimiter.
+        const auto type = codec_ == "hevc"
+            ? static_cast<std::uint8_t>((nal[prefix] >> 1U) & 0x3fU)
+            : static_cast<std::uint8_t>(nal[prefix] & 0x1fU);
+        const auto aud_type = codec_ == "hevc" ? 35U : 9U;
+        if (type == aud_type) { // Access-unit delimiter.
             if (have_aud && !access_unit.empty()) {
                 publish_video(keyframe, access_unit);
             }
@@ -1072,10 +1086,10 @@ private:
             return;
         }
         access_unit.insert(access_unit.end(), nal.begin(), nal.end());
-        keyframe = keyframe || type == 5U;
+        keyframe = keyframe || (codec_ == "hevc" ? type >= 16U && type <= 23U : type == 5U);
     }
 
-    void h264_reader(int descriptor) noexcept {
+    void video_reader(int descriptor) noexcept {
         std::vector<std::uint8_t> buffer;
         std::vector<std::uint8_t> leading;
         std::vector<std::uint8_t> access_unit;
@@ -1184,8 +1198,8 @@ private:
             ::close(video_input_);
             video_input_ = -1;
         }
-        if (h264_thread_.joinable()) {
-            h264_thread_.join();
+        if (video_reader_thread_.joinable()) {
+            video_reader_thread_.join();
         }
         if (video_pid_ > 0) {
             int status = 0;
@@ -1205,6 +1219,7 @@ private:
     }
 
     PacketSink &sink_;
+    std::string codec_;
     std::string encoder_;
     std::optional<std::string> fallback_encoder_;
     std::optional<std::string> vaapi_device_;
@@ -1225,7 +1240,7 @@ private:
     int video_input_ {-1};
     int video_output_ {-1};
     pid_t video_pid_ {-1};
-    std::thread h264_thread_;
+    std::thread video_reader_thread_;
     std::uint32_t width_ {};
     std::uint32_t height_ {};
     mutable std::mutex stats_mutex_;
@@ -1452,9 +1467,9 @@ void write_session_diagnostic(std::string_view event,
               << " source_luma_mean=" << source_luma_mean
               << " source_nonblack_samples=" << source.non_black_pixels
               << " source_samples=" << source.sampled_pixels
-              << " h264_access_units=" << egress.video_access_units
-              << " h264_records=" << egress.video_records
-              << " h264_send_failures=" << egress.video_send_failures
+              << " video_access_units=" << egress.video_access_units
+              << " video_records=" << egress.video_records
+              << " video_send_failures=" << egress.video_send_failures
               << " cursor_records=" << egress.cursor_records
               << " cursor_shape_records=" << egress.cursor_shape_records
               << " recent_error=" << recent_error_summary(stats)
@@ -1463,7 +1478,7 @@ void write_session_diagnostic(std::string_view event,
 
 int run(const Options &options) {
     PacketSink sink(options.video_socket, options.audio_socket);
-    DirectMediaAdapter media(sink, options.encoder, options.fallback_encoder,
+    DirectMediaAdapter media(sink, options.codec, options.encoder, options.fallback_encoder,
                              options.vaapi_device, options.fps);
     qmdp::QemuDbusOptions display_options;
     display_options.bus_address = options.dbus_address;
@@ -1483,7 +1498,8 @@ int run(const Options &options) {
         if (options.initial_size) {
             input.set_initial_size(options.initial_size->width, options.initial_size->height);
         }
-        std::cout << "QSM_DIRECT_MEDIA_READY encoder=" << options.encoder << " fps=" << options.fps << '\n' << std::flush;
+        std::cout << "QSM_DIRECT_MEDIA_READY codec=" << options.codec
+                  << " encoder=" << options.encoder << " fps=" << options.fps << '\n' << std::flush;
         // Display1 has no reconnect protocol. A QEMU stop closes its D-Bus
         // listener; terminate this per-console worker immediately so the
         // terminal service closes the corresponding WebRTC peer and the

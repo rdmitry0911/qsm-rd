@@ -81,8 +81,9 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
                 "QSM_DIRECT_CODEC=hevc\n"
                 "QSM_DIRECT_ENCODER_MODE=hardware\n",
                 encoding="utf-8")
-            with self.assertRaisesRegex(DirectTerminalError, "unsupported browser codec"):
-                _load_optional_instance(instances, 321, runtime)
+            policy = _load_optional_instance(instances, 321, runtime)
+            self.assertEqual(policy["QSM_DIRECT_CODEC"], "hevc")
+            self.assertEqual(policy["QSM_DIRECT_ENCODER_MODE"], "hardware")
 
     @staticmethod
     def _qemu_lookalike(vmid: int) -> subprocess.Popen[bytes]:
@@ -181,7 +182,7 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
                 transport_directory.mkdir(parents=True, mode=0o700)
                 manager._transports[vmid] = DirectVmTransport(
                     vmid=vmid, worker=worker, media=media, input=input_egress,
-                    directory=transport_directory, qemu_generation="retired-qemu")
+                    directory=transport_directory, qemu_generation="retired-qemu", codec="h264")
                 bridge = ClosingBridge()
                 session_directory = root / "sessions" / f"vm-{vmid}" / "browser"
                 session_directory.mkdir(mode=0o700)

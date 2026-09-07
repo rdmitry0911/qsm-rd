@@ -1,11 +1,13 @@
-"""Choose a verified low-latency H.264 encoder for QSM Direct.
+"""Choose verified low-latency H.264 and HEVC encoders for QSM Direct.
 
 The QEMU Display1 scanout says nothing about the node which encodes it.  In
 particular, a VirGL guest can run on a node with NVENC, Intel QSV, VA-API, or
 no usable accelerator at all.  This module therefore makes no PCI/device-name
 inference: it initializes each permitted FFmpeg encoder with the same bounded
 low-latency envelope used by the direct media worker and keeps the first one
-which emits H.264.
+which emits the requested elementary stream.  HEVC deliberately has no CPU
+fallback here: the browser route selects it automatically only when a real
+hardware encoder has been initialized.  H.264 remains the portable fallback.
 
 An administrator's explicit per-VM encoder policy is handled by the terminal
 service and is never silently substituted.  This probe is only the portable
@@ -31,7 +33,7 @@ _PROBE_TIMEOUT_SECONDS = 8.0
 
 
 class DirectEncoderProbeError(RuntimeError):
-    """No usable H.264 encoder could be initialized."""
+    """No usable requested direct-video encoder could be initialized."""
 
 
 @dataclass(frozen=True)
@@ -100,6 +102,29 @@ def _command(selection: DirectEncoderSelection, *, ffmpeg: str) -> list[str]:
             "-x264-params", "aud=1:keyint=30:min-keyint=30:scenecut=0:bframes=0:repeat-headers=1",
             "-f", "h264", "pipe:1",
         ]
+    if selection.encoder == "hevc_nvenc":
+        return _base(ffmpeg) + [
+            "-c:v", "hevc_nvenc", "-preset", "p1", "-tune", "ll",
+            "-forced-idr", "1", "-zerolatency", "1", "-delay", "0",
+            "-rc-lookahead", "0", "-rc", "vbr", "-cq", "19",
+            "-b:v", "8M", "-maxrate", "20M", "-bufsize", "333k",
+            "-g", "30", "-bf", "0", "-aud", "1", "-f", "hevc", "pipe:1",
+        ]
+    if selection.encoder == "hevc_qsv":
+        return _base(ffmpeg) + [
+            "-vf", "format=nv12", "-c:v", "hevc_qsv", "-g", "30", "-bf", "0",
+            "-aud", "1", "-f", "hevc", "pipe:1",
+        ]
+    if selection.encoder == "hevc_vaapi" and selection.vaapi_device is not None:
+        return [
+            ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error",
+            "-vaapi_device", selection.vaapi_device,
+            "-f", "lavfi", "-i",
+            f"color=c=black:s={_PROBE_WIDTH}x{_PROBE_HEIGHT}:r=30",
+            "-frames:v", "2", "-an", "-vf", "format=nv12,hwupload",
+            "-c:v", "hevc_vaapi", "-g", "30", "-bf", "0", "-aud", "1",
+            "-f", "hevc", "pipe:1",
+        ]
     raise AssertionError("invalid direct encoder selection")
 
 
@@ -111,6 +136,41 @@ def _candidates() -> tuple[DirectEncoderSelection, ...]:
         *vaapi,
         DirectEncoderSelection("libx264"),
     )
+
+
+def _hevc_candidates() -> tuple[DirectEncoderSelection, ...]:
+    """Return hardware-only HEVC candidates in stable preferred order."""
+    vaapi = tuple(DirectEncoderSelection("hevc_vaapi", node) for node in _usable_render_nodes())
+    return (
+        DirectEncoderSelection("hevc_nvenc"),
+        DirectEncoderSelection("hevc_qsv"),
+        *vaapi,
+    )
+
+
+def _select(*, codec: str, run: Run, which: Which, timeout_seconds: float,
+            candidates: Sequence[DirectEncoderSelection]) -> DirectEncoderSelection:
+    codec_name = "H.264" if codec == "h264" else "HEVC"
+    if not 0.0 < timeout_seconds <= _PROBE_TIMEOUT_SECONDS:
+        raise DirectEncoderProbeError("direct encoder probe timeout is invalid")
+    ffmpeg = which("ffmpeg")
+    if not ffmpeg:
+        raise DirectEncoderProbeError(f"FFmpeg is unavailable for direct {codec_name} encoding")
+    failures: list[str] = []
+    for selection in candidates:
+        command = _command(selection, ffmpeg=ffmpeg)
+        try:
+            completed = run(
+                command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, check=False, timeout=timeout_seconds)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            failures.append(f"{selection.encoder}: {type(error).__name__}")
+            continue
+        if completed.returncode == 0 and completed.stdout:
+            return selection
+        failures.append(f"{selection.encoder}: exit {completed.returncode}")
+    raise DirectEncoderProbeError(
+        f"no direct {codec_name} encoder initialized (" + "; ".join(failures) + ")")
 
 
 def select_auto_h264_encoder(*, run: Run = subprocess.run,
@@ -125,25 +185,8 @@ def select_auto_h264_encoder(*, run: Run = subprocess.run,
     fallback is also initialized rather than assumed available, so a broken
     FFmpeg installation produces a clear startup error.
     """
-    if not 0.0 < timeout_seconds <= _PROBE_TIMEOUT_SECONDS:
-        raise DirectEncoderProbeError("direct encoder probe timeout is invalid")
-    ffmpeg = which("ffmpeg")
-    if not ffmpeg:
-        raise DirectEncoderProbeError("FFmpeg is unavailable for direct H.264 encoding")
-    failures: list[str] = []
-    for selection in candidates if candidates is not None else _candidates():
-        command = _command(selection, ffmpeg=ffmpeg)
-        try:
-            completed = run(
-                command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, check=False, timeout=timeout_seconds)
-        except (OSError, subprocess.TimeoutExpired) as error:
-            failures.append(f"{selection.encoder}: {type(error).__name__}")
-            continue
-        if completed.returncode == 0 and completed.stdout:
-            return selection
-        failures.append(f"{selection.encoder}: exit {completed.returncode}")
-    raise DirectEncoderProbeError("no direct H.264 encoder initialized (" + "; ".join(failures) + ")")
+    return _select(codec="h264", run=run, which=which, timeout_seconds=timeout_seconds,
+                   candidates=candidates if candidates is not None else _candidates())
 
 
 def select_hardware_h264_encoder(*, run: Run = subprocess.run,
@@ -158,3 +201,19 @@ def select_hardware_h264_encoder(*, run: Run = subprocess.run,
     candidates = tuple(candidate for candidate in _candidates() if candidate.encoder != "libx264")
     return select_auto_h264_encoder(run=run, which=which, timeout_seconds=timeout_seconds,
                                     candidates=candidates)
+
+
+def select_hardware_hevc_encoder(*, run: Run = subprocess.run,
+                                 which: Which = shutil.which,
+                                 timeout_seconds: float = _PROBE_TIMEOUT_SECONDS,
+                                 candidates: Sequence[DirectEncoderSelection] | None = None
+                                 ) -> DirectEncoderSelection:
+    """Return a verified hardware HEVC encoder, never a software substitute.
+
+    HEVC is exposed to a browser only after this probe succeeds.  That keeps
+    ``auto`` deterministic: a browser which advertises H.265 never receives
+    an H.264 stream labelled as HEVC, and a node without a working accelerator
+    naturally falls back to the separately probed H.264 lane.
+    """
+    return _select(codec="hevc", run=run, which=which, timeout_seconds=timeout_seconds,
+                   candidates=candidates if candidates is not None else _hevc_candidates())

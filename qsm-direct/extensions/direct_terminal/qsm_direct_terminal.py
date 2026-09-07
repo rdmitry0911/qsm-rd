@@ -41,7 +41,8 @@ from direct_guest.qsm_guest_channel import QsmGuestChannel  # noqa: E402
 from direct_terminal.qsm_direct_encoder_probe import (DirectEncoderProbeError,
                                                        DirectEncoderSelection,
                                                        select_auto_h264_encoder,
-                                                       select_hardware_h264_encoder)  # noqa: E402
+                                                       select_hardware_h264_encoder,
+                                                       select_hardware_hevc_encoder)  # noqa: E402
 
 
 MIN_VMID = 100
@@ -60,9 +61,10 @@ PROTOCOL_VERSION = 1
 _NODE_PATTERN = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9.-]{0,62}\Z")
 _SUBJECT_PATTERN = re.compile(r"\A[^\s\x00]{1,64}\Z")
 _VMID_PATTERN = re.compile(r"\A[1-9][0-9]{1,8}\Z")
-_ENCODER_PATTERN = re.compile(r"\A(?:auto|h264_nvenc|h264_qsv|h264_vaapi|libx264)\Z")
+_ENCODER_PATTERN = re.compile(
+    r"\A(?:auto|h264_nvenc|h264_qsv|h264_vaapi|libx264|hevc_nvenc|hevc_qsv|hevc_vaapi)\Z")
 _RENDER_NODE_PATTERN = re.compile(r"\A/dev/dri/renderD[0-9]{1,4}\Z")
-_CODEC_PATTERN = re.compile(r"\Ah264\Z")
+_CODEC_PATTERN = re.compile(r"\A(?:auto|h264|hevc)\Z")
 _ENCODER_MODE_PATTERN = re.compile(r"\A(?:auto|hardware|software)\Z")
 _PVE_VM_CONFIG_PATTERN = re.compile(r"\A([1-9][0-9]{1,8})\.conf\Z")
 _ENVIRONMENT_KEYS = frozenset({
@@ -132,11 +134,8 @@ def _load_instance(instance_directory: Path, vmid: int, vm_runtime_directory: Pa
     encoder = values.get("QSM_DIRECT_ENCODER", "")
     if encoder and not _ENCODER_PATTERN.fullmatch(encoder):
         raise DirectTerminalError("direct-terminal VM has an invalid encoder")
-    codec = values.get("QSM_DIRECT_CODEC", "h264")
+    codec = values.get("QSM_DIRECT_CODEC", "auto")
     if not _CODEC_PATTERN.fullmatch(codec):
-        # The browser WebRTC route deliberately has one portable codec.  Do
-        # not accept an on-disk HEVC preference and then start an H.264 worker
-        # behind the administrator's back.
         raise DirectTerminalError("direct-terminal VM has an unsupported browser codec")
     encoder_mode = values.get("QSM_DIRECT_ENCODER_MODE", "auto")
     if not _ENCODER_MODE_PATTERN.fullmatch(encoder_mode):
@@ -144,8 +143,13 @@ def _load_instance(instance_directory: Path, vmid: int, vm_runtime_directory: Pa
     render_node = values.get("QSM_DIRECT_VAAPI_RENDER_NODE", "")
     if render_node and not _RENDER_NODE_PATTERN.fullmatch(render_node):
         raise DirectTerminalError("direct-terminal VM has an invalid render node")
-    if encoder == "h264_vaapi" and not render_node:
+    if encoder in {"h264_vaapi", "hevc_vaapi"} and not render_node:
         raise DirectTerminalError("direct-terminal VA-API encoder lacks a render node")
+    if encoder.startswith("h264_") or encoder == "libx264":
+        if codec == "hevc":
+            raise DirectTerminalError("direct-terminal encoder and browser codec disagree")
+    if encoder.startswith("hevc_") and codec == "h264":
+        raise DirectTerminalError("direct-terminal encoder and browser codec disagree")
     return values
 
 
@@ -164,7 +168,7 @@ def _load_optional_instance(instance_directory: Path, vmid: int,
         return {
             "QSM_DIRECT_QEMU_DBUS_ADDRESS":
                 f"unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus",
-            "QSM_DIRECT_CODEC": "h264",
+            "QSM_DIRECT_CODEC": "auto",
             "QSM_DIRECT_ENCODER_MODE": "auto",
             "QSM_DIRECT_ENCODER": "auto",
         }
@@ -475,6 +479,7 @@ class DirectVmTransport:
     input: UnixInputEgress
     directory: Path
     qemu_generation: str
+    codec: str
     guest: QsmGuestChannel | None = None
 
 
@@ -501,7 +506,10 @@ class DirectSessionManager:
         # worker and fans its encoded media out to all PVE-authorized browser
         # sessions for the VM; it is not a single-viewer limitation.
         self._transports: dict[int, DirectVmTransport] = {}
-        self._auto_encoder: DirectEncoderSelection | None = None
+        # A positive probe is cached per codec.  The cache contains an actual
+        # initialized encoder rather than a GPU-name guess, so heterogeneous
+        # nodes naturally advertise HEVC only where it can be used.
+        self._auto_encoders: dict[str, DirectEncoderSelection] = {}
         self._vm_locks: dict[int, asyncio.Lock] = {}
         self._closed = False
         self._transport_reconcile_future: Future[None] | None = None
@@ -644,7 +652,19 @@ class DirectSessionManager:
             raise DirectTerminalError("direct-terminal session capacity is exhausted")
         policy = _load_optional_instance(self._instance_directory, vmid, self._vm_runtime_directory)
         self._dbus.ensure(vmid, policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"])
-        transport = await self._transport_for(vmid, policy, width, height, fps)
+        existing = self._transports.get(vmid)
+        selection: DirectEncoderSelection | None = None
+        if (existing is not None and existing.worker.poll() is None and
+                existing.qemu_generation == _qemu_process_generation(self._qemu_pid_directory, vmid)):
+            codec = existing.codec
+            if not BrowserWebRtcBridge.offer_supports_codec(sdp, codec):
+                raise DirectTerminalError(
+                    f"direct-terminal VM is already streaming {codec.upper()} to another Console; "
+                    "this browser does not support that codec")
+        else:
+            codec, selection = self._codec_for_offer(sdp, policy)
+        transport = await self._transport_for(vmid, policy, width, height, fps,
+                                              codec=codec, selection=selection)
         identifier = secrets.token_hex(16)
         directory = self._runtime_directory / f"vm-{vmid}" / identifier
         _safe_runtime_directory(directory.parent)
@@ -662,6 +682,7 @@ class DirectSessionManager:
         bridge = BrowserWebRtcBridge(
             directory, fps=fps, expected_producer_uid=os.geteuid(),
             shared_media=transport.media, shared_input=transport.input,
+            video_codec=transport.codec,
             guest_dispatch=transport.guest.dispatch if transport.guest is not None else None,
             on_terminal=retire_browser_peer)
         remove_guest_listener = (transport.guest.add_clipboard_listener(bridge.notify_guest_clipboard)
@@ -692,12 +713,81 @@ class DirectSessionManager:
         if identifier in self._sessions and not self._closed:
             asyncio.create_task(self._close_session(identifier))
 
+    def _select_encoder(self, codec: str, policy: dict[str, str]) -> DirectEncoderSelection:
+        """Resolve a verified encoder matching one negotiated browser codec."""
+        configured_encoder = policy.get("QSM_DIRECT_ENCODER") or "auto"
+        encoder_mode = policy.get("QSM_DIRECT_ENCODER_MODE") or "auto"
+        if codec not in {"h264", "hevc"}:
+            raise DirectTerminalError("direct-terminal selected an invalid browser codec")
+        if configured_encoder != "auto":
+            matches = (configured_encoder.startswith(codec + "_") or
+                       (codec == "h264" and configured_encoder == "libx264"))
+            if not matches:
+                raise DirectTerminalError("direct-terminal encoder and browser codec disagree")
+            return DirectEncoderSelection(configured_encoder,
+                                          policy.get("QSM_DIRECT_VAAPI_RENDER_NODE") or None)
+        if codec == "hevc":
+            if encoder_mode == "software":
+                raise DirectTerminalError("direct-terminal HEVC requires a hardware encoder")
+            cached = self._auto_encoders.get("hevc")
+            if cached is not None:
+                return cached
+            try:
+                # HEVC deliberately has no software fallback: its automatic
+                # selection promise means a working accelerator was verified.
+                selection = select_hardware_hevc_encoder()
+            except DirectEncoderProbeError as error:
+                raise DirectTerminalError("direct-terminal has no usable hardware HEVC encoder") from error
+            self._auto_encoders["hevc"] = selection
+            return selection
+        if encoder_mode == "software":
+            return DirectEncoderSelection("libx264")
+        cached = self._auto_encoders.get("h264")
+        if cached is not None and encoder_mode == "auto":
+            return cached
+        try:
+            selection = (select_hardware_h264_encoder() if encoder_mode == "hardware"
+                         else select_auto_h264_encoder())
+        except DirectEncoderProbeError as error:
+            detail = "hardware H.264 encoder" if encoder_mode == "hardware" else "H.264 encoder"
+            raise DirectTerminalError(f"direct-terminal has no usable {detail}") from error
+        if encoder_mode == "auto":
+            self._auto_encoders["h264"] = selection
+        return selection
+
+    def _codec_for_offer(self, sdp: str, policy: dict[str, str]) -> tuple[str, DirectEncoderSelection]:
+        """Choose the best mutually usable codec before spawning a worker.
+
+        An offer is the only trustworthy statement of the current browser's
+        decoder support.  ``auto`` therefore tries hardware HEVC only after
+        seeing H.265 in that offer, then falls back to the independently
+        validated H.264 route.  A forced HEVC policy remains explicit.
+        """
+        preference = policy.get("QSM_DIRECT_CODEC") or "auto"
+        if preference not in {"auto", "h264", "hevc"}:
+            raise DirectTerminalError("direct-terminal VM has an unsupported browser codec")
+        offered = BrowserWebRtcBridge.offered_video_codecs(sdp)
+        if preference in {"auto", "hevc"} and "hevc" in offered:
+            try:
+                return "hevc", self._select_encoder("hevc", policy)
+            except DirectTerminalError:
+                if preference == "hevc":
+                    raise
+        if preference == "hevc":
+            raise DirectTerminalError("browser does not offer WebRTC HEVC")
+        if "h264" not in offered:
+            raise DirectTerminalError("browser does not offer WebRTC H.264")
+        return "h264", self._select_encoder("h264", policy)
+
     async def _transport_for(self, vmid: int, policy: dict[str, str], width: int, height: int,
-                             fps: int) -> DirectVmTransport:
+                             fps: int, *, codec: str,
+                             selection: DirectEncoderSelection | None = None) -> DirectVmTransport:
         """Return the sole capture/encoder worker for this VM, starting it once."""
         generation = _qemu_process_generation(self._qemu_pid_directory, vmid)
         existing = self._transports.get(vmid)
         if existing is not None and generation == existing.qemu_generation and existing.worker.poll() is None:
+            if existing.codec != codec:
+                raise DirectTerminalError("direct-terminal VM transport codec changed while active")
             existing.media.raise_if_failed()
             existing.input.raise_if_failed()
             return existing
@@ -731,33 +821,16 @@ class DirectSessionManager:
                 raise DirectTerminalError("direct-terminal VM Display1 configuration changed")
             configured_encoder = policy.get("QSM_DIRECT_ENCODER") or "auto"
             encoder_mode = policy.get("QSM_DIRECT_ENCODER_MODE") or "auto"
-            if configured_encoder == "auto":
-                if encoder_mode == "software":
-                    encoder = "libx264"
-                    vaapi_device = None
-                else:
-                    if self._auto_encoder is None or encoder_mode == "hardware":
-                        try:
-                            selection = (select_hardware_h264_encoder() if encoder_mode == "hardware"
-                                         else select_auto_h264_encoder())
-                        except DirectEncoderProbeError as error:
-                            detail = "hardware H.264 encoder" if encoder_mode == "hardware" else "H.264 encoder"
-                            raise DirectTerminalError(f"direct-terminal has no usable {detail}") from error
-                        if encoder_mode == "auto":
-                            self._auto_encoder = selection
-                    else:
-                        selection = self._auto_encoder
-                    encoder = selection.encoder
-                    vaapi_device = selection.vaapi_device
-            else:
-                encoder = configured_encoder
-                vaapi_device = policy.get("QSM_DIRECT_VAAPI_RENDER_NODE")
+            resolved = selection or self._select_encoder(codec, policy)
+            encoder = resolved.encoder
+            vaapi_device = resolved.vaapi_device
             arguments = [
                 "/usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker",
                 "--dbus-address", policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"],
                 "--video-socket", f"unix:{media.video_path}",
                 "--audio-socket", f"unix:{media.audio_path}",
                 "--input-socket", f"unix:{input_egress.path}",
+                "--codec", codec,
                 "--encoder", encoder,
                 "--fps", str(fps),
                 "--initial-size", f"{width}x{height}",
@@ -769,10 +842,10 @@ class DirectSessionManager:
             # kill it after its first frames. Automatic policy may recover to
             # the package's in-process libx264; a hardware-only choice must
             # remain strict and report its failure instead.
-            if (configured_encoder == "auto" and encoder_mode == "auto" and
+            if (codec == "h264" and configured_encoder == "auto" and encoder_mode == "auto" and
                     encoder != "libx264"):
                 arguments.extend(["--fallback-encoder", "libx264"])
-            if encoder == "h264_vaapi":
+            if encoder in {"h264_vaapi", "hevc_vaapi"}:
                 if not vaapi_device:
                     raise DirectTerminalError("direct-terminal VA-API encoder lacks a render node")
                 arguments.extend(["--vaapi-device", vaapi_device])
@@ -789,10 +862,10 @@ class DirectSessionManager:
                          config, vmid, self._vm_runtime_directory) else None)
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
-                qemu_generation=generation, guest=guest)
+                qemu_generation=generation, codec=codec, guest=guest)
             self._transports[vmid] = transport
             print(
-                f"qsm-direct-terminal: VM media transport started vmid={vmid} encoder={encoder} pid={worker.pid}",
+                f"qsm-direct-terminal: VM media transport started vmid={vmid} codec={codec} encoder={encoder} pid={worker.pid}",
                 file=sys.stderr,
                 flush=True,
             )

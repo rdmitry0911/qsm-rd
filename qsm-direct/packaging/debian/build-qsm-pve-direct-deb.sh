@@ -125,7 +125,7 @@ Depends: libc6 (>= 2.38), libopus0 (>= 1.3), libstdc++6 (>= 13), libsystemd0, li
 Description: browser-only direct QEMU Display1 console for Proxmox VE 9
  qsm-pve-direct selects a PVE VM.Console-protected browser WebRTC transport
  for the existing VM Console entry when the VM has its private Display1
- configuration. It runs a node-local QEMU Display1 H.264/Opus worker and has
+ configuration. It runs a node-local QEMU Display1 H.264/HEVC/Opus worker and has
  no pairing, native client, external transport listener, host desktop server,
  or legacy compatibility transport implementation.
 EOF

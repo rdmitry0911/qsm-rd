@@ -125,6 +125,42 @@ async function createOffer() {
         window.qsmPeerConnection = pc;
         window.qsmControl = pc.createDataChannel('qsm-control', { ordered: true });
         window.qsmPointer = pc.createDataChannel('qsm-pointer', { ordered: false, maxRetransmits: 0 });
+        // The regular product popup receives browser MouseEvents and maps
+        // them to Display1 packets. Keep the same path in the benchmark so a
+        // drag result begins at a real browser input event, not at a direct
+        // JavaScript write to the SCTP channel.
+        window.qsmMouseSequence = 0;
+        window.qsmMouseInputSamples = [];
+        const sendMousePosition = (event, ordered = false) => {
+            const rect = video.getBoundingClientRect();
+            if (!rect.width || !rect.height || !video.videoWidth || !video.videoHeight) return;
+            const x = Math.max(0, Math.min(video.videoWidth - 1,
+                Math.round((event.clientX - rect.left) * video.videoWidth / rect.width)));
+            const y = Math.max(0, Math.min(video.videoHeight - 1,
+                Math.round((event.clientY - rect.top) * video.videoHeight / rect.height)));
+            const sequence = ++window.qsmMouseSequence;
+            const message = JSON.stringify({ op: 'mouse_position', x, y,
+                width: video.videoWidth, height: video.videoHeight, sequence });
+            const channel = ordered ? window.qsmControl : window.qsmPointer;
+            if (channel?.readyState === 'open') channel.send(message);
+            window.qsmMouseInputSamples.push({ at: performance.now(), x, y, sequence, ordered });
+            if (window.qsmMouseInputSamples.length > 2048) window.qsmMouseInputSamples.shift();
+        };
+        video.addEventListener('mousemove', (event) => sendMousePosition(event));
+        video.addEventListener('mousedown', (event) => {
+            sendMousePosition(event, true);
+            if (window.qsmControl?.readyState === 'open') {
+                window.qsmControl.send(JSON.stringify({ op: 'mouse_button', button: event.button + 1, down: true }));
+            }
+            event.preventDefault();
+        });
+        video.addEventListener('mouseup', (event) => {
+            sendMousePosition(event, true);
+            if (window.qsmControl?.readyState === 'open') {
+                window.qsmControl.send(JSON.stringify({ op: 'mouse_button', button: event.button + 1, down: false }));
+            }
+            event.preventDefault();
+        });
         window.qsmGuestRequests = new Map();
         window.qsmGuestDownloads = new Map();
         window.qsmGuestClipboardEvents = [];
@@ -975,6 +1011,181 @@ async function measureDrag(message) {
     }, message);
 }
 
+async function measureBrowserInputDrag(message) {
+    if (!page || !message || typeof message !== 'object') {
+        throw new Error('invalid browser-input drag measurement command');
+    }
+    const prepared = await page.evaluate((payload) => {
+        const integer = (name, minimum, maximum) => {
+            const value = payload[name];
+            if (!Number.isInteger(value) || value < minimum || value > maximum) {
+                throw new Error(`invalid browser-input drag measurement ${name}`);
+            }
+            return value;
+        };
+        const width = integer('width', 64, 16384);
+        const height = integer('height', 64, 16384);
+        const startX = integer('startX', 0, width - 1);
+        const startY = integer('startY', 0, height - 1);
+        const targetX = integer('targetX', 0, width - 1);
+        const targetY = integer('targetY', 0, height - 1);
+        const scanY = integer('scanY', 0, height - 1);
+        const video = document.getElementById('remote');
+        if (!video || video.videoWidth !== width || video.videoHeight !== height ||
+            !window.qsmControl || window.qsmControl.readyState !== 'open' ||
+            !window.qsmPointer || window.qsmPointer.readyState !== 'open') {
+            throw new Error('browser input drag peer is not ready');
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = 1;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        if (!context) throw new Error('browser-input drag canvas is unavailable');
+        const cardCenter = () => {
+            context.drawImage(video, 0, scanY, width, 1, 0, 0, width, 1);
+            const pixels = context.getImageData(0, 0, width, 1).data;
+            let first = -1;
+            let last = -1;
+            for (let x = 0; x < width; x += 1) {
+                const offset = x * 4;
+                if (pixels[offset] > 170 && pixels[offset + 1] > 80 &&
+                    pixels[offset + 1] < 235 && pixels[offset + 2] < 105) {
+                    if (first < 0) first = x;
+                    last = x;
+                }
+            }
+            return first < 0 ? null : (first + last) / 2;
+        };
+        const initial = cardCenter();
+        if (initial === null || Math.abs(initial - startX) > 80) {
+            throw new Error('guest drag fixture is not at its initial position');
+        }
+        const state = {
+            active: true, width, height, startX, targetX, initial,
+            inputStart: window.qsmMouseInputSamples.length,
+            observations: [], cardCenter,
+        };
+        window.qsmRealDrag = state;
+        const observe = (_now, metadata) => {
+            if (!state.active) return;
+            const center = cardCenter();
+            if (center !== null) state.observations.push({
+                at: performance.now(), center,
+                presentedFrames: Number(metadata?.presentedFrames),
+            });
+            if (state.observations.length < 2048) video.requestVideoFrameCallback(observe);
+        };
+        video.requestVideoFrameCallback(observe);
+        const box = video.getBoundingClientRect();
+        return {
+            startClientX: box.left + startX * box.width / width,
+            startClientY: box.top + startY * box.height / height,
+            targetClientX: box.left + targetX * box.width / width,
+            targetClientY: box.top + targetY * box.height / height,
+        };
+    }, message);
+    await page.mouse.move(prepared.startClientX, prepared.startClientY);
+    // CDP has delivered a real DOM move at this point, but the test still
+    // needs one bounded input round trip before pressing the guest target.
+    // Without it a cold WebRTC data channel can legally deliver the ordered
+    // press before its preceding unordered absolute position, which measures
+    // a missed hit-test rather than drag-to-pixel latency.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await page.mouse.down();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    const samples = message.samples;
+    const interval = message.sampleIntervalMs;
+    for (let index = 1; index <= samples; index += 1) {
+        const fraction = index / samples;
+        await page.mouse.move(
+            prepared.startClientX + (prepared.targetClientX - prepared.startClientX) * fraction,
+            prepared.startClientY + (prepared.targetClientY - prepared.startClientY) * fraction,
+        );
+        await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+    // Mirror the product popup's final ordered pointer flush: retain the
+    // physical drag at its endpoint long enough for QEMU to consume that
+    // position before delivering the physical button-up edge.
+    await page.mouse.move(prepared.targetClientX, prepared.targetClientY);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await page.mouse.up();
+    return page.evaluate(async (payload) => {
+        const state = window.qsmRealDrag;
+        if (!state) throw new Error('browser-input drag state is unavailable');
+        const timeoutMs = payload.timeoutMs;
+        const percentile = (values, fraction) => {
+            if (!values.length) return null;
+            const sorted = values.slice().sort((left, right) => left - right);
+            return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)];
+        };
+        const started = window.qsmMouseInputSamples.slice(state.inputStart);
+        const deadline = performance.now() + timeoutMs;
+        let finalCenter = state.cardCenter();
+        while ((finalCenter === null || Math.abs(finalCenter - state.targetX) > 18) &&
+               performance.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 16));
+            finalCenter = state.cardCenter();
+        }
+        state.active = false;
+        const inputs = started.filter((sample) => sample.x >= state.startX - 8 &&
+            sample.x <= state.targetX + 8 && sample.y >= 0 && sample.y < state.height);
+        const transitions = [];
+        for (const item of state.observations) {
+            const previous = transitions[transitions.length - 1];
+            if (!previous || Math.abs(item.center - previous.center) >= 3) transitions.push(item);
+        }
+        const motion = transitions.filter((item) => Math.abs(item.center - state.initial) >= 8);
+        const endpointErrorPx = finalCenter === null ? null : Math.abs(finalCenter - state.targetX);
+        // The benchmark is driven by physical browser input, so retain an
+        // observable endpoint error rather than "correcting" its coordinates
+        // with a synthetic control message. A severely wrong tablet mapping
+        // remains a failure; a small endpoint tail is reported beside the
+        // input-to-paint latency data for diagnosis.
+        if (finalCenter === null || endpointErrorPx > Math.max(96, state.width * 0.1) ||
+            motion.length < Math.max(4, Math.floor(payload.samples / 5)) || !inputs.length) {
+            throw new Error(`guest browser-input drag was not continuously presented ` +
+                `(final=${finalCenter}, motion=${motion.length}, inputs=${inputs.length}, observations=${state.observations.length})`);
+        }
+        const inputToPaint = [];
+        const visualLag = [];
+        for (const item of motion) {
+            let matching = null;
+            let latest = null;
+            for (const input of inputs) {
+                if (input.at > item.at) break;
+                latest = input;
+                if (!matching || Math.abs(input.x - item.center) < Math.abs(matching.x - item.center)) {
+                    matching = input;
+                }
+            }
+            if (matching && item.at >= matching.at) inputToPaint.push(item.at - matching.at);
+            if (latest) visualLag.push(Math.max(0, latest.x - item.center));
+        }
+        if (!inputToPaint.length || !visualLag.length) {
+            throw new Error('browser-input drag did not yield input-to-paint samples');
+        }
+        let largestGapMs = 0;
+        for (let index = 1; index < motion.length; index += 1) {
+            largestGapMs = Math.max(largestGapMs, motion[index].at - motion[index - 1].at);
+        }
+        return {
+            // This is the benchmark's key interactive metric: the timestamp
+            // is taken in the browser MouseEvent handler, and the end point
+            // is the decoded/presented guest pixel position.
+            browserMouseToFirstPaintMs: motion[0].at - inputs[0].at,
+            browserMouseToPaintMedianMs: percentile(inputToPaint, 0.5),
+            browserMouseToPaintP95Ms: percentile(inputToPaint, 0.95),
+            visualDragLagPxMedian: percentile(visualLag, 0.5),
+            visualDragLagPxP95: percentile(visualLag, 0.95),
+            observedMotionFrames: motion.length,
+            largestMotionGapMs: largestGapMs,
+            finalCenter,
+            endpointErrorPx,
+            inputEvents: inputs.length,
+        };
+    }, message);
+}
+
 async function control(message) {
     if (!page || !message || typeof message !== 'object') {
         throw new Error('invalid browser control command');
@@ -1097,6 +1308,7 @@ const commands = {
     measure_password_key: async (message) => measurePasswordKey(message.message),
     measure_password_field_key: async (message) => measurePasswordFieldKey(message.message),
     measure_drag: async (message) => measureDrag(message.message),
+    measure_browser_input_drag: async (message) => measureBrowserInputDrag(message.message),
     control: async (message) => control(message.message),
     pointer: async (message) => pointer(message.message),
     guest: async (message) => guest(message.message),

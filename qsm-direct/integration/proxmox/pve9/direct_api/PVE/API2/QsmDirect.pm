@@ -79,7 +79,7 @@ sub _positive_integer {
 }
 
 sub _policy_defaults {
-    return { codec => 'h264', encoder => 'auto' };
+    return { codec => 'auto', encoder => 'auto' };
 }
 
 sub _policy_path {
@@ -103,15 +103,19 @@ sub _read_vm_policy {
         $values{$1} = $2;
     }
     close($file) or _unavailable();
-    my $codec = $values{QSM_DIRECT_CODEC} // 'h264';
+    my $codec = $values{QSM_DIRECT_CODEC} // 'auto';
     my $encoder = $values{QSM_DIRECT_ENCODER_MODE} // 'auto';
-    _unavailable() if $codec ne 'h264' || $encoder !~ /\A(?:auto|hardware|software)\z/;
+    _unavailable() if $codec !~ /\A(?:auto|h264|hevc)\z/ ||
+        $encoder !~ /\A(?:auto|hardware|software)\z/ ||
+        ($codec eq 'hevc' && $encoder eq 'software');
     return { codec => $codec, encoder => $encoder };
 }
 
 sub _write_vm_policy {
     my ($vmid, $codec, $encoder) = @_;
-    _unavailable() if $codec ne 'h264' || $encoder !~ /\A(?:auto|hardware|software)\z/;
+    _unavailable() if $codec !~ /\A(?:auto|h264|hevc)\z/ ||
+        $encoder !~ /\A(?:auto|hardware|software)\z/ ||
+        ($codec eq 'hevc' && $encoder eq 'software');
     my $path = _policy_path($vmid);
     _unavailable() if !-d $INSTANCE_DIRECTORY || !-O $INSTANCE_DIRECTORY;
     my $temporary = "$path.$$.new";
@@ -207,11 +211,10 @@ PVE::API2::Qemu->register_method({
 });
 
 # Codec/encoder policy is VM-scoped node configuration, deliberately separate
-# from PVE's unsupported QEMU config keys.  The direct WebRTC implementation
-# currently exposes only H.264: common browser WebRTC implementations (and
-# aiortc's server RTP stack) do not provide a portable HEVC negotiated codec.
-# Keep this endpoint explicit rather than accepting HEVC and silently encoding
-# the wrong stream.  A future HEVC transport can extend the enum atomically.
+# from PVE's unsupported QEMU config keys. ``auto`` selects HEVC only when the
+# current browser SDP advertises H.265 and the terminal has initialized a real
+# hardware HEVC encoder; it otherwise stays on H.264. The policy never labels
+# an H.264 elementary stream as HEVC.
 PVE::API2::Qemu->register_method({
     name => 'qsm_direct_settings_get',
     path => '{vmid}/qsm-direct-settings',
@@ -251,7 +254,7 @@ PVE::API2::Qemu->register_method({
         properties => {
             node => get_standard_option('pve-node'),
             vmid => get_standard_option('pve-vmid'),
-            codec => { type => 'string', enum => ['h264'] },
+            codec => { type => 'string', enum => ['auto', 'h264', 'hevc'] },
             encoder => { type => 'string', enum => ['auto', 'hardware', 'software'] },
         },
     },

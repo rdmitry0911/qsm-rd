@@ -79,6 +79,22 @@ class DirectEncoderProbeTests(unittest.TestCase):
             probe._candidates = original  # type: ignore[assignment]
         self.assertIsNone(selected, "hardware-only policy must fail rather than fall back to CPU")
 
+    def test_hevc_is_advertisable_only_after_a_hardware_probe(self) -> None:
+        calls: list[list[str]] = []
+
+        def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+            del kwargs
+            calls.append(command)
+            return success(command)
+
+        selected = probe.select_hardware_hevc_encoder(
+            run=run, which=lambda _: "/usr/bin/ffmpeg",
+            candidates=(probe.DirectEncoderSelection("hevc_nvenc"),))
+        self.assertEqual(selected, probe.DirectEncoderSelection("hevc_nvenc"))
+        self.assertEqual(calls[0][calls[0].index("-c:v") + 1], "hevc_nvenc")
+        self.assertIn("-zerolatency", calls[0])
+        self.assertEqual(calls[0][-2], "hevc")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,7 @@ import socket
 import tempfile
 import time
 import unittest
+import av
 from fractions import Fraction
 from pathlib import Path
 
@@ -49,11 +50,28 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     VIDEO_TIME_BASE,
     _AudioAssembler,
     _PacketTrack,
+    _HevcPacketizer,
     _VideoAssembler,
 )
 
 
 class BrowserBridgeAssemblerTests(unittest.TestCase):
+    def test_hevc_rfc7798_packetizer_keeps_nal_headers_and_fu_boundaries(self) -> None:
+        packetizer = _HevcPacketizer()
+        packet = av.Packet(
+            b"\x00\x00\x00\x01\x40\x01vps"
+            b"\x00\x00\x01\x26\x01" + b"x" * 1600)
+        packet.pts = 0
+        packet.time_base = Fraction(1, 90_000)
+        payloads, timestamp = packetizer.pack(packet)
+        self.assertEqual(timestamp, 0)
+        self.assertEqual(payloads[0], b"\x40\x01vps")
+        self.assertGreaterEqual(len(payloads), 3)
+        # NAL type 19 becomes FU type 49; S/E delimit the fragmented slice.
+        self.assertEqual(payloads[1][:2], b"\x62\x01")
+        self.assertEqual(payloads[1][2], 0x80 | 19)
+        self.assertEqual(payloads[-1][2], 0x40 | 19)
+
     def test_local_media_socket_buffer_is_large_enough_for_fragmented_idr(self) -> None:
         # The producer and receiver intentionally reserve space for several
         # 256 KiB private records, so a busy asyncio turn cannot cut a large
@@ -158,6 +176,31 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
 
 
 class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
+    async def test_hevc_offer_answer_uses_h265_only_when_offered(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="qsm-browser-hevc-sdp.") as directory:
+            bridge = BrowserWebRtcBridge(Path(directory), fps=60, video_codec="hevc")
+            browser = RTCPeerConnection()
+            try:
+                hevc = [codec for codec in RTCRtpSender.getCapabilities("video").codecs
+                        if codec.mimeType.lower() == "video/h265"]
+                self.assertTrue(hevc)
+                video = browser.addTransceiver("video", direction="recvonly")
+                video.setCodecPreferences(hevc)
+                browser.addTransceiver("audio", direction="recvonly")
+                browser.createDataChannel("qsm-control", ordered=True)
+                browser.createDataChannel("qsm-pointer", ordered=False, maxRetransmits=0)
+                offer = await browser.createOffer()
+                await browser.setLocalDescription(offer)
+                self.assertEqual(BrowserWebRtcBridge.offered_video_codecs(browser.localDescription.sdp),
+                                 frozenset({"hevc"}))
+                bridge.start_taps()
+                answer = await bridge.answer_offer(browser.localDescription.sdp)
+                self.assertIn("H265/90000", answer["sdp"])
+                self.assertNotIn("H264/90000", answer["sdp"])
+            finally:
+                await bridge.close()
+                await browser.close()
+
     async def test_rtcp_pli_requests_an_external_worker_idr(self) -> None:
         """Pre-encoded H.264 needs an explicit PLI-to-worker handoff."""
         class Sender:

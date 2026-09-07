@@ -2,7 +2,7 @@
 """Local direct-media-to-WebRTC bridge for the PVE browser console.
 
 The local producer is the per-VM QEMU Display1 media worker. It sends encoded
-H.264 and Opus over two private Unix ``SOCK_SEQPACKET`` sockets; this module
+H.264 or HEVC and Opus over two private Unix ``SOCK_SEQPACKET`` sockets; this module
 packetizes those elementary streams for WebRTC without decoding or re-encoding
 them. The PVE API / terminal-service adapter owns authorization and passes an
 already-authorized SDP offer to :meth:`BrowserWebRtcBridge.answer_offer`.
@@ -29,7 +29,12 @@ from typing import Any, Callable
 import av
 from aiortc import (MediaStreamTrack, RTCPeerConnection, RTCSessionDescription,
                     RTCRtpSender)
+from aiortc import codecs as aiortc_codecs
+import aiortc.rtcrtpsender as aiortc_rtcrtpsender
+from aiortc.codecs.h264 import PACKET_MAX
+from aiortc.mediastreams import convert_timebase
 from aiortc.mediastreams import MediaStreamError
+from aiortc.rtcrtpparameters import RTCRtcpFeedback, RTCRtpCodecParameters
 from aiortc.rtp import RTCP_PSFB_PLI, RtcpPsfbPacket
 from aiortc.sdp import SessionDescription
 
@@ -78,6 +83,133 @@ LOCAL_MEDIA_SOCKET_BUFFER_BYTES = 2 * 1024 * 1024
 # visible lip-sync delay.
 VIDEO_QUEUE_DEPTH = 1
 AUDIO_QUEUE_DEPTH = 4
+VIDEO_CODECS = frozenset({"h264", "hevc"})
+_HEVC_CODEC_LOCK = threading.Lock()
+_HEVC_PACKETIZER_INSTALLED = False
+
+
+class _HevcPacketizer:
+    """RFC 7798 packetizer for an already encoded Annex-B HEVC access unit.
+
+    QSM never asks aiortc to encode HEVC.  The node's verified hardware
+    encoder writes an Annex-B access unit and this small adapter supplies the
+    part aiortc intentionally does not yet implement: single-NAL and
+    fragmentation-unit RTP payloads.  Keeping it here preserves the
+    no-decode/no-reencode path used by H.264.
+    """
+
+    @staticmethod
+    def _split_annex_b(data: bytes) -> list[bytes]:
+        result: list[bytes] = []
+        start = 0
+        while True:
+            marker = data.find(b"\x00\x00\x01", start)
+            if marker < 0:
+                break
+            nal_start = marker + 3
+            # A four-byte Annex-B marker is the same three-byte marker with
+            # one preceding zero.  Exclude it from the previous NAL rather
+            # than exposing a spurious trailing byte to RFC 7798.
+            if marker > 0 and data[marker - 1] == 0:
+                marker -= 1
+                nal_start = marker + 4
+            next_marker = data.find(b"\x00\x00\x01", nal_start)
+            if next_marker < 0:
+                nal = data[nal_start:]
+                if nal:
+                    result.append(nal)
+                break
+            nal_end = next_marker - 1 if next_marker > 0 and data[next_marker - 1] == 0 else next_marker
+            nal = data[nal_start:nal_end]
+            if nal:
+                result.append(nal)
+            start = next_marker
+        return result
+
+    @staticmethod
+    def _packetize_nal(nal: bytes) -> list[bytes]:
+        if len(nal) < 2:
+            raise BridgeError("malformed HEVC access unit")
+        if len(nal) <= PACKET_MAX:
+            return [nal]
+        # RFC 7798 section 4.4.3: FU PayloadHdr retains F and LayerId/TID,
+        # replaces the NAL type with 49, then carries S/E and the original
+        # six-bit type in a one-byte FU header.
+        fu_indicator = bytes([(nal[0] & 0x81) | (49 << 1), nal[1]])
+        original_type = (nal[0] >> 1) & 0x3f
+        available = PACKET_MAX - 3
+        payload = memoryview(nal)[2:]
+        result: list[bytes] = []
+        offset = 0
+        while offset < len(payload):
+            end = min(len(payload), offset + available)
+            flags = original_type
+            if offset == 0:
+                flags |= 0x80
+            if end == len(payload):
+                flags |= 0x40
+            result.append(fu_indicator + bytes([flags]) + payload[offset:end].tobytes())
+            offset = end
+        return result
+
+    def encode(self, _frame: object, force_keyframe: bool = False) -> tuple[list[bytes], int]:
+        del force_keyframe
+        raise BridgeError("HEVC packetizer accepts only encoded access units")
+
+    def pack(self, packet: av.Packet) -> tuple[list[bytes], int]:
+        if not isinstance(packet, av.Packet):
+            raise BridgeError("HEVC packetizer received an invalid access unit")
+        nals = self._split_annex_b(bytes(packet))
+        if not nals:
+            raise BridgeError("HEVC access unit has no Annex-B NAL")
+        payloads: list[bytes] = []
+        for nal in nals:
+            payloads.extend(self._packetize_nal(nal))
+        return payloads, convert_timebase(packet.pts, packet.time_base, VIDEO_TIME_BASE)
+
+
+def _install_hevc_packetizer() -> None:
+    """Add a narrowly scoped H.265 sender capability to aiortc once.
+
+    aiortc's built-in codecs intentionally omit HEVC.  Its SDP machinery is
+    generic for non-H.264 video codecs, however, and its RTP sender accepts an
+    externally encoded :class:`av.Packet`.  Registering the RFC 7798
+    capability and packetizer at process startup lets normal offer/answer
+    intersection decide whether the *actual browser* supports it.
+    """
+    global _HEVC_PACKETIZER_INSTALLED
+    with _HEVC_CODEC_LOCK:
+        if _HEVC_PACKETIZER_INSTALLED:
+            return
+        codecs = aiortc_codecs.CODECS["video"]
+        if not any(codec.mimeType.lower() == "video/h265" for codec in codecs):
+            # 103/104 follow aiortc's built-in 97..102 dynamic assignments.
+            # During offer/answer aiortc replaces those values with the
+            # browser's offered payload types, just as it does for H.264.
+            codecs.extend([
+                RTCRtpCodecParameters(
+                    mimeType="video/H265", clockRate=90_000, payloadType=103,
+                    rtcpFeedback=[
+                        RTCRtcpFeedback(type="nack"),
+                        RTCRtcpFeedback(type="nack", parameter="pli"),
+                        RTCRtcpFeedback(type="goog-remb"),
+                    ],
+                    parameters={},
+                ),
+                RTCRtpCodecParameters(
+                    mimeType="video/rtx", clockRate=90_000, payloadType=104,
+                    parameters={"apt": 103},
+                ),
+            ])
+        original = aiortc_rtcrtpsender.get_encoder
+        if not getattr(original, "_qsm_hevc_packetizer", False):
+            def get_encoder(codec: RTCRtpCodecParameters) -> object:
+                if codec.mimeType.lower() == "video/h265":
+                    return _HevcPacketizer()
+                return original(codec)
+            setattr(get_encoder, "_qsm_hevc_packetizer", True)
+            aiortc_rtcrtpsender.get_encoder = get_encoder
+        _HEVC_PACKETIZER_INSTALLED = True
 
 
 class BridgeError(RuntimeError):
@@ -865,12 +997,18 @@ class BrowserWebRtcBridge:
                  shared_media: SharedMediaIngress | None = None,
                  shared_input: UnixInputEgress | None = None,
                  guest_dispatch: Callable[[Any], dict[str, Any]] | None = None,
-                 on_terminal: Callable[[], None] | None = None) -> None:
+                 on_terminal: Callable[[], None] | None = None,
+                 video_codec: str = "h264") -> None:
+        if video_codec not in VIDEO_CODECS:
+            raise BridgeError("invalid direct browser video codec")
+        if video_codec == "hevc":
+            _install_hevc_packetizer()
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError as error:
             raise BridgeError("BrowserWebRtcBridge must be created in an event loop") from error
         self._pc = RTCPeerConnection()
+        self.video_codec = video_codec
         self._shared_media = shared_media
         self._owns_media = shared_media is None
         # ``SharedMediaIngress.subscribe`` synchronously replays a cached
@@ -1158,28 +1296,30 @@ class BrowserWebRtcBridge:
         return ("", "")
 
     @staticmethod
-    def _h264_codecs() -> list[object]:
-        """Return H.264 and its RTP retransmission capability.
+    def _video_codecs(codec_name: str) -> list[object]:
+        """Return one negotiated video codec and its RTX capability.
 
         ``setCodecPreferences`` does more than select a video format.  Giving
-        it H.264 alone suppresses aiortc's otherwise available RTX entries,
+        it one video codec alone suppresses aiortc's otherwise available RTX entries,
         leaving NACK recovery to retransmit an old packet with its original
         sequence number.  Chromium can discard that late packet as already
         past the jitter-buffer window and then requests a PLI, visibly
         corrupting a predictive frame chain until the next IDR.
 
         A generic RTX capability is deliberately paired with every selected
-        H.264 profile by aiortc when it builds SDP.  It remains H.264-only
-        from the browser and encoder perspectives, but makes a NACK carry a
-        fresh RTX sequence number / SSRC and lets Chromium recover individual
-        UDP losses before it needs an IDR.
+        H.264 or H.265 profile by aiortc when it builds SDP.  It makes a NACK
+        carry a fresh RTX sequence number / SSRC and lets a browser recover
+        individual UDP losses before it needs an IDR.
         """
+        if codec_name not in VIDEO_CODECS:
+            raise BridgeError("invalid direct browser video codec")
         capabilities = RTCRtpSender.getCapabilities("video").codecs
-        h264 = [
+        mime_type = "video/h264" if codec_name == "h264" else "video/h265"
+        selected = [
             codec for codec in capabilities
-            if codec.mimeType.lower() == "video/h264"
+            if codec.mimeType.lower() == mime_type
         ]
-        return h264 + [
+        return selected + [
             codec for codec in capabilities
             if codec.mimeType.lower() == "video/rtx"
         ]
@@ -1212,7 +1352,35 @@ class BrowserWebRtcBridge:
         setattr(sender, "_handle_rtcp_packet", receive_with_recovery)
 
     @staticmethod
-    def _validate_offer_codecs(sdp: str) -> None:
+    def offered_video_codecs(sdp: str) -> frozenset[str]:
+        """Return codecs expressly advertised by a syntactically valid offer."""
+        try:
+            description = SessionDescription.parse(sdp)
+        except (TypeError, ValueError) as error:
+            raise BridgeError("invalid browser WebRTC offer") from error
+        result: set[str] = set()
+        for media in description.media:
+            if media.kind != "video":
+                continue
+            for codec in media.rtp.codecs:
+                mime = codec.mimeType.lower()
+                if mime == "video/h264":
+                    result.add("h264")
+                elif mime in {"video/h265", "video/hevc"}:
+                    # The IANA/RFC 7798 RTP name is H265. Accept HEVC as an
+                    # offer-side alias for older WebKit builds, while answers
+                    # always use the standard H265 spelling.
+                    result.add("hevc")
+        return frozenset(result)
+
+    @classmethod
+    def offer_supports_codec(cls, sdp: str, codec_name: str) -> bool:
+        if codec_name not in VIDEO_CODECS:
+            return False
+        return codec_name in cls.offered_video_codecs(sdp)
+
+    @classmethod
+    def _validate_offer_codecs(cls, sdp: str, video_codec: str) -> None:
         """Reject an incompatible browser before mutating the peer connection.
 
         The direct route's broadly deployable browser codec is H.264. Some Linux
@@ -1225,18 +1393,15 @@ class BrowserWebRtcBridge:
             description = SessionDescription.parse(sdp)
         except (TypeError, ValueError) as error:
             raise BridgeError("invalid browser WebRTC offer") from error
-        h264 = any(
-            media.kind == "video" and any(
-                codec.mimeType.lower() == "video/h264" for codec in media.rtp.codecs)
-            for media in description.media
-        )
+        offered_video = cls.offered_video_codecs(sdp)
         opus = any(
             media.kind == "audio" and any(
                 codec.mimeType.lower() == "audio/opus" for codec in media.rtp.codecs)
             for media in description.media
         )
-        if not h264:
-            raise BridgeError("browser does not offer WebRTC H.264")
+        if video_codec not in offered_video:
+            requested = "HEVC" if video_codec == "hevc" else "H.264"
+            raise BridgeError(f"browser does not offer WebRTC {requested}")
         if not opus:
             raise BridgeError("browser does not offer WebRTC Opus")
 
@@ -1247,7 +1412,7 @@ class BrowserWebRtcBridge:
             raise BridgeError("invalid browser WebRTC offer")
         if not self._taps_started:
             raise BridgeError("browser bridge taps are not running")
-        self._validate_offer_codecs(sdp)
+        self._validate_offer_codecs(sdp, self.video_codec)
         if self._offer_consumed:
             raise BridgeError("browser bridge already consumed its offer")
         # Set before the first await.  An offer is a single-use authorization
@@ -1264,12 +1429,13 @@ class BrowserWebRtcBridge:
         video_sender = self._pc.addTrack(self.video_track)
         audio_sender = self._pc.addTrack(self.audio_track)
         self._attach_video_recovery(video_sender)
-        h264 = self._h264_codecs()
-        if not h264:
-            raise BridgeError("WebRTC H.264 packetizer is unavailable")
+        video_codecs = self._video_codecs(self.video_codec)
+        if not video_codecs:
+            requested = "HEVC" if self.video_codec == "hevc" else "H.264"
+            raise BridgeError(f"WebRTC {requested} packetizer is unavailable")
         for transceiver in self._pc.getTransceivers():
             if transceiver.sender == video_sender:
-                transceiver.setCodecPreferences(h264)
+                transceiver.setCodecPreferences(video_codecs)
             elif transceiver.sender == audio_sender:
                 # Keep aiortc's built-in Opus capability only.  It packetizes
                 # an av.Packet unchanged rather than re-encoding it.

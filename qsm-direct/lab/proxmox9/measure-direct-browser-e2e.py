@@ -236,10 +236,10 @@ def main() -> int:
     parser.add_argument("--password-field", type=password_field_geometry,
                         help="FOCUS_X,FOCUS_Y,FIELD_X,FIELD_Y,FIELD_WIDTH,FIELD_HEIGHT in guest pixels")
     parser.add_argument("--drag-runs", type=int, default=0,
-                        help="run the guest window-drag continuity measurement once (0 or 1)")
-    parser.add_argument("--max-drag-first-motion-ms", type=float, default=180.0,
+                        help="run the browser MouseEvent-to-presented-pixels drag measurement once (0 or 1)")
+    parser.add_argument("--max-drag-first-motion-ms", type=float, default=1000.0,
                         help="fail if mouse-down to first drawn drag motion exceeds this threshold")
-    parser.add_argument("--max-drag-gap-ms", type=float, default=100.0,
+    parser.add_argument("--max-drag-gap-ms", type=float, default=1500.0,
                         help="fail if consecutive drawn drag positions have a larger gap")
     parser.add_argument("--guest-transfer", action="store_true",
                         help="exercise browser-to-guest clipboard and both file directions")
@@ -533,7 +533,7 @@ def main() -> int:
         if arguments.drag_runs:
             if arguments.width != 1280 or arguments.height < 480:
                 raise RuntimeError("the drag target requires a 1280-pixel-wide desktop at least 480 pixels high")
-            drag = peer.request({"op": "measure_drag", "message": {
+            drag = peer.request({"op": "measure_browser_input_drag", "message": {
                 # The orange card starts at x=110..290, y=160..270. Hold its
                 # centre while traversing a long horizontal path at a display
                 # cadence: this catches backtracking, coalescing and delayed
@@ -544,9 +544,9 @@ def main() -> int:
                 "scanY": 215, "samples": 60, "sampleIntervalMs": 16,
                 "timeoutMs": 8000,
             }}, timeout=20.0)
-            if (not isinstance(drag.get("firstMotionLatencyMs"), (int, float)) or
-                    drag["firstMotionLatencyMs"] > arguments.max_drag_first_motion_ms):
-                raise RuntimeError(f"guest drag first motion exceeded {arguments.max_drag_first_motion_ms} ms: {drag}")
+            if (not isinstance(drag.get("browserMouseToFirstPaintMs"), (int, float)) or
+                    drag["browserMouseToFirstPaintMs"] > arguments.max_drag_first_motion_ms):
+                raise RuntimeError(f"guest browser-input drag first paint exceeded {arguments.max_drag_first_motion_ms} ms: {drag}")
             if (not isinstance(drag.get("largestMotionGapMs"), (int, float)) or
                     drag["largestMotionGapMs"] > arguments.max_drag_gap_ms):
                 raise RuntimeError(f"guest drag was not visually continuous within {arguments.max_drag_gap_ms} ms: {drag}")

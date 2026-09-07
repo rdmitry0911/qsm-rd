@@ -486,8 +486,11 @@ def main() -> int:
     parser.add_argument("--guest-file-bytes", type=int, default=65536)
     parser.add_argument("--drag-fixture", action="store_true",
                         help="require the reviewed qsm-hover-gate-102 continuous drag fixture")
-    parser.add_argument("--max-drag-first-motion-ms", type=float, default=180.0)
-    parser.add_argument("--max-drag-gap-ms", type=float, default=100.0)
+    parser.add_argument("--max-drag-first-motion-ms", type=float, default=1000.0)
+    # The direct path runs this with a real browser MouseEvent rather than a
+    # synthetic SCTP write. Keep the portable nested CPU baseline permissive;
+    # hardware release qualification supplies a tighter explicit threshold.
+    parser.add_argument("--max-drag-gap-ms", type=float, default=1500.0)
     parser.add_argument("--guest-input-host", default="",
                         help="optional disposable-guest SSH host for physical evdev input proof")
     parser.add_argument("--guest-input-user", default="root")

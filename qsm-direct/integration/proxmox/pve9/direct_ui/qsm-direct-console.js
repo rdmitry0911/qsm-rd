@@ -38,6 +38,7 @@
     });
     const CONSOLE_SETTING_SCHEMA = Object.freeze({
         toolbarHotZonePx: { defaultValue: 32, minimum: 4, maximum: 160 },
+        toolbarNearbyPx: { defaultValue: 36, minimum: 0, maximum: 240 },
         toolbarRevealDelayMs: { defaultValue: 650, minimum: 0, maximum: 5000 },
         toolbarHideDelayMs: { defaultValue: 3000, minimum: 250, maximum: 30000 },
         targetFps: { defaultValue: 60, minimum: 10, maximum: 240 },
@@ -640,7 +641,7 @@
         mediaPolicyTitle.textContent = gettext('This virtual machine — media policy');
         mediaPolicyTitle.style.cssText = 'font-weight:600;margin:0 0 8px';
         const mediaPolicyHint = document.createElement('p');
-        mediaPolicyHint.textContent = gettext('H.264 is the portable browser WebRTC codec. HEVC is shown for clarity but is unavailable until the browser and server RTP stack negotiate it. Hardware mode never silently falls back to CPU.');
+        mediaPolicyHint.textContent = gettext('Automatic prefers HEVC only when this browser offers WebRTC H.265 and this node has a tested hardware encoder. Otherwise it uses H.264. Hardware mode never silently falls back to CPU.');
         mediaPolicyHint.style.cssText = 'margin:0 0 8px;color:#cbd5e1;line-height:1.35';
         const mediaPolicyForm = document.createElement('div');
         mediaPolicyForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 170px;gap:8px;align-items:center';
@@ -650,14 +651,16 @@
         const codecInput = document.createElement('select');
         codecInput.id = 'qsm-direct-vm-codec';
         codecInput.style.cssText = 'width:100%;box-sizing:border-box;padding:4px 6px';
+        const autoCodecOption = document.createElement('option');
+        autoCodecOption.value = 'auto';
+        autoCodecOption.textContent = gettext('Automatic (HEVC hardware preferred)');
         const h264Option = document.createElement('option');
         h264Option.value = 'h264';
         h264Option.textContent = gettext('H.264 (browser WebRTC)');
         const hevcOption = document.createElement('option');
         hevcOption.value = 'hevc';
-        hevcOption.textContent = gettext('HEVC — not available yet');
-        hevcOption.disabled = true;
-        codecInput.append(h264Option, hevcOption);
+        hevcOption.textContent = gettext('HEVC (hardware encoder required)');
+        codecInput.append(autoCodecOption, h264Option, hevcOption);
         const encoderLabel = document.createElement('label');
         encoderLabel.htmlFor = 'qsm-direct-vm-encoder';
         encoderLabel.textContent = gettext('Encoder');
@@ -667,7 +670,7 @@
         for (const [value, label] of [
             ['auto', gettext('Automatic (tested backend)')],
             ['hardware', gettext('Hardware only')],
-            ['software', gettext('Software (libx264)')],
+            ['software', gettext('Software (H.264 libx264)')],
         ]) {
             const option = document.createElement('option');
             option.value = value;
@@ -712,6 +715,7 @@
         settingsForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:center';
         const settingLabels = {
             toolbarHotZonePx: gettext('Left activation zone (px)'),
+            toolbarNearbyPx: gettext('Controls nearby area (px)'),
             toolbarRevealDelayMs: gettext('Left hold delay (ms)'),
             toolbarHideDelayMs: gettext('Controls hide delay (ms)'),
             targetFps: gettext('Target frame rate (FPS)'),
@@ -784,6 +788,7 @@
         let toolbarVisible = true;
         let pointerInToolbarZone = false;
         let pointerInToolbar = false;
+        let pointerNearToolbar = false;
         let settingsPanelOpen = false;
         let guestRequestNumber = 0;
         let lastGuestClipboardText = null;
@@ -816,11 +821,10 @@
         };
         const hideToolbarSoon = () => {
             if (closed || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
-                pointerInToolbarZone || pointerInToolbar || settingsPanelOpen) { return; }
-            if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); }
+                pointerNearToolbar || pointerInToolbar || settingsPanelOpen || toolbarTimer !== null) { return; }
             toolbarTimer = popup.setTimeout(() => {
                 toolbarTimer = null;
-                if (pointerInToolbarZone || pointerInToolbar || settingsPanelOpen) { return; }
+                if (pointerNearToolbar || pointerInToolbar || settingsPanelOpen) { return; }
                 toolbarVisible = false;
                 toolbar.style.opacity = '0';
                 toolbar.style.transform = 'translateX(-100%)';
@@ -830,6 +834,19 @@
             const box = video.getBoundingClientRect();
             const inside = event.clientX >= box.left && event.clientX < box.left + settings.toolbarHotZonePx;
             pointerInToolbarZone = inside;
+            // The timeout measures continuous absence from the controls and
+            // their immediate vicinity, not absence of mouse events. Moving
+            // the pointer around the remote desktop therefore cannot keep a
+            // visible toolbar alive indefinitely, while an intentional move
+            // toward its left edge never hides it just before a click.
+            const near = event.clientX >= box.left &&
+                event.clientX <= box.left + toolbar.offsetWidth + settings.toolbarNearbyPx &&
+                event.clientY >= box.top + 12 - settings.toolbarNearbyPx &&
+                event.clientY <= box.top + 12 + toolbar.offsetHeight + settings.toolbarNearbyPx;
+            pointerNearToolbar = near;
+            if (near) {
+                if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); toolbarTimer = null; }
+            }
             if (!inside) {
                 cancelToolbarReveal();
                 hideToolbarSoon();
@@ -848,10 +865,12 @@
         };
         toolbar.addEventListener('pointerenter', () => {
             pointerInToolbar = true;
+            pointerNearToolbar = true;
             revealToolbar();
         });
         toolbar.addEventListener('pointerleave', () => {
             pointerInToolbar = false;
+            pointerNearToolbar = false;
             hideToolbarSoon();
         });
         const send = (value) => {
@@ -1038,7 +1057,7 @@
         settingsButton.addEventListener('click', () => setSettingsPanelOpen(!settingsPanelOpen));
         closeSettings.addEventListener('click', () => setSettingsPanelOpen(false));
         const vmMediaPolicyUrl = () => `/nodes/${encodeURIComponent(node)}/qemu/${encodeURIComponent(vmid)}/qsm-direct-settings`;
-        const validVmMediaPolicy = (value) => value && value.codec === 'h264' &&
+        const validVmMediaPolicy = (value) => value && ['auto', 'h264', 'hevc'].includes(value.codec) &&
             ['auto', 'hardware', 'software'].includes(value.encoder);
         const loadVmMediaPolicy = async () => {
             if (mediaPolicyLoading || closed) { return; }
@@ -1065,8 +1084,9 @@
             }
         };
         saveMediaPolicy.addEventListener('click', async () => {
-            if (mediaPolicyLoading || codecInput.value !== 'h264' ||
-                !['auto', 'hardware', 'software'].includes(encoderInput.value)) { return; }
+            if (mediaPolicyLoading || !['auto', 'h264', 'hevc'].includes(codecInput.value) ||
+                !['auto', 'hardware', 'software'].includes(encoderInput.value) ||
+                (codecInput.value === 'hevc' && encoderInput.value === 'software')) { return; }
             mediaPolicyLoading = true;
             codecInput.disabled = true;
             encoderInput.disabled = true;
@@ -1619,6 +1639,7 @@
             });
             video.addEventListener('mouseleave', () => {
                 pointerInToolbarZone = false;
+                pointerNearToolbar = false;
                 cancelToolbarReveal();
                 hideToolbarSoon();
             });
