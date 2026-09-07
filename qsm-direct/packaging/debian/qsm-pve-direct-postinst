@@ -1,15 +1,16 @@
 #!/bin/sh
 set -e
 
-restart_pve_api_services() {
+restart_services() {
     if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then return 0; fi
     systemctl daemon-reload || return 0
-    # An upgrade can change Display1 bus lifecycle code. Restart only an
-    # already active terminal so its long-lived process picks up that code;
-    # first installation still leaves activation to the documented command.
+    # An upgrade can change Display1 bus lifecycle or signalling code. Restart
+    # only an already active service so its long-lived process picks up the new
+    # code; first installation still leaves activation to the documented
+    # command. pveproxy and pvedaemon are never touched: this package adds no
+    # code to them.
     systemctl try-restart qsm-pve-direct-terminal.service || true
-    systemctl try-restart pvedaemon.service || return 0
-    systemctl try-restart pveproxy.service || true
+    systemctl try-restart qsm-pve-direct-signal.service || true
 }
 
 case "${1:-}" in
@@ -17,12 +18,23 @@ case "${1:-}" in
         install -d -o root -g root -m 0700 /etc/qsm-pve-direct
         install -d -o root -g root -m 0750 /etc/qsm-pve-direct/instances.d
         install -d -o root -g root -m 0700 /run/qsm-pve-direct
-        restart_pve_api_services
+        # Migrate from the retired API-route design: remove its pveproxy and
+        # pvedaemon drop-ins and revert those daemons to stock if present.
+        migrated=0
+        for drop_in in /usr/lib/systemd/system/pveproxy.service.d/qsm-pve-direct-api.conf \
+                       /usr/lib/systemd/system/pvedaemon.service.d/qsm-pve-direct-api.conf; do
+            if [ -e "$drop_in" ]; then rm -f -- "$drop_in"; migrated=1; fi
+        done
+        if [ "$migrated" = 1 ] && command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+            systemctl try-restart pvedaemon.service || true
+            systemctl try-restart pveproxy.service || true
+        fi
+        restart_services
         /usr/sbin/qsm-pve-direct-ui reconcile || echo "qsm-pve-direct: PVE Console UI was not changed" >&2
-        echo "qsm-pve-direct installed; enable qsm-pve-direct-terminal and configure QSM Display1 for each VM."
+        echo "qsm-pve-direct installed; enable qsm-pve-direct-terminal.service and qsm-pve-direct-signal.service, then configure QSM Display1 for each VM."
         ;;
     triggered)
-        restart_pve_api_services
         /usr/sbin/qsm-pve-direct-ui reconcile || echo "qsm-pve-direct: PVE Console UI was not changed" >&2
         ;;
 esac

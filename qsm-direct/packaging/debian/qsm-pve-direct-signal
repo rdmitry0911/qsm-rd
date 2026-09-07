@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""Entry point for the QSM Direct node-local signalling service."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, "/usr/lib/qsm-pve-direct")
+from signal_service.qsm_direct_signal import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -454,21 +454,46 @@
             if (peer.iceGatheringState === 'complete') { window.clearTimeout(timer); resolve(); }
         }, { once: true });
     });
-    const api = (url, params, target) => new Promise((resolve, reject) => {
-        Proxmox.Utils.API2Request({ url, method: 'POST', params, waitMsgTarget: target,
-            success: ({ result }) => {
-                const answer = result && result.data;
-                if (!answer || answer.type !== 'answer' || typeof answer.sdp !== 'string' || answer.sdp.length < 1) {
-                    reject(new Error('invalid direct WebRTC answer')); return;
-                }
-                resolve(answer);
-            }, failure: () => reject(new Error('PVE rejected direct console launch')),
-        });
-    });
+    // The SDP exchange and the per-VM codec policy go to the node-local QSM
+    // signalling service, not to a PVE API route: PVE has no supported route
+    // plug-in ABI, so nothing is registered inside pveproxy/pvedaemon.  The
+    // service runs on the same node with the node's own TLS certificate and
+    // authorises each request by relaying this browser's PVE ticket to the
+    // node's own /access/ticket endpoint.  The ticket travels in an
+    // Authorization header (never the URL) and the endpoints take no ambient
+    // cookie, so they are CSRF-safe.  waitMsgTarget spinners are handled by
+    // the callers; these helpers only perform the cross-origin request.
+    const SIGNAL_PORT = 8007;
+    const signalRequest = async (method, path, params) => {
+        const cookieName = (window.Proxmox && Proxmox.Setup && Proxmox.Setup.auth_cookie_name)
+            || 'PVEAuthCookie';
+        const ticket = Ext.util.Cookies.get(cookieName);
+        const user = window.Proxmox && Proxmox.UserName;
+        if (!ticket || !user) { throw new Error('not authenticated'); }
+        const headers = { 'Authorization': `Bearer ${ticket}`, 'X-QSM-User': user };
+        const options = { method, mode: 'cors', cache: 'no-store', credentials: 'omit', headers };
+        if (method !== 'GET') {
+            headers['Content-Type'] = 'application/json';
+            options.body = JSON.stringify(params || {});
+        }
+        const response = await fetch(`https://${location.hostname}:${SIGNAL_PORT}${path}`, options);
+        if (!response.ok) { throw new Error(`signal ${response.status}`); }
+        const body = await response.json();
+        return body && body.data;
+    };
+    const api = async (url, params) => {
+        const answer = await signalRequest('POST', url, params);
+        if (!answer || answer.type !== 'answer' || typeof answer.sdp !== 'string' || answer.sdp.length < 1) {
+            throw new Error('invalid direct WebRTC answer');
+        }
+        return answer;
+    };
+    // Ordinary PVE reads (VM run state) still use the stock protected API; only
+    // the QSM SDP exchange and codec policy use the signalling service above.
     const apiValue = (url, method, params, target) => new Promise((resolve, reject) => {
         Proxmox.Utils.API2Request({ url, method, params, waitMsgTarget: target,
             success: ({ result }) => resolve(result && result.data),
-            failure: () => reject(new Error('PVE rejected direct console settings')),
+            failure: () => reject(new Error('PVE request failed')),
         });
     });
     const dimensions = (video, fps) => {
@@ -1098,7 +1123,7 @@
             encoderInput.disabled = true;
             saveMediaPolicy.disabled = true;
             try {
-                const value = await apiValue(vmMediaPolicyUrl(), 'GET', {}, button);
+                const value = await signalRequest('GET', vmMediaPolicyUrl(), {});
                 if (!validVmMediaPolicy(value)) { throw new Error('invalid VM media policy'); }
                 codecInput.value = value.codec;
                 encoderInput.value = value.encoder;
@@ -1124,9 +1149,9 @@
             encoderInput.disabled = true;
             saveMediaPolicy.disabled = true;
             try {
-                const value = await apiValue(vmMediaPolicyUrl(), 'PUT', {
+                const value = await signalRequest('PUT', vmMediaPolicyUrl(), {
                     codec: codecInput.value, encoder: encoderInput.value,
-                }, button);
+                });
                 if (!validVmMediaPolicy(value)) { throw new Error('invalid saved VM media policy'); }
                 encoderInput.value = value.encoder;
                 status.textContent = gettext('VM media policy saved. Close and reopen this console to apply it.');

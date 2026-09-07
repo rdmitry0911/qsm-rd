@@ -31,7 +31,9 @@ for required in \
     "$ROOT_DIR/extensions/direct_guest/qsm_guest_channel.py" \
     "$ROOT_DIR/extensions/direct_terminal/qsm_direct_encoder_probe.py" \
     "$ROOT_DIR/extensions/direct_terminal/qsm_direct_terminal.py" \
-    "$ROOT_DIR/integration/proxmox/pve9/direct_api/PVE/API2/QsmDirect.pm" \
+    "$ROOT_DIR/extensions/signal/qsm_direct_signal.py" \
+    "$PACKAGE_DIR/qsm-pve-direct-signal" \
+    "$PACKAGE_DIR/qsm-pve-direct-signal.service" \
     "$ROOT_DIR/integration/proxmox/pve9/direct_ui/qsm-direct-console.js" \
     "$PACKAGE_DIR/qsm-pve-direct-terminal" \
     "$PACKAGE_DIR/qsm-pve-direct-terminal.service" \
@@ -71,11 +73,10 @@ done
 package_name=qsm-pve-direct
 package_root="$stage_root/usr/lib/$package_name"
 install -d "$package_root/bin" "$package_root/browser_bridge" "$package_root/direct_terminal" "$package_root/direct_guest" \
-    "$package_root/pve9-api/PVE/API2" "$package_root/pve9-api/PVE/QsmDirect" "$package_root/pve9-ui" \
+    "$package_root/signal_service" "$package_root/pve9-ui" \
     "$stage_root/usr/bin" "$stage_root/usr/sbin" "$stage_root/usr/share/doc/$package_name" \
     "$stage_root/usr/share/pve-manager/js" "$stage_root/usr/share/$package_name/pve9-ui" \
-    "$stage_root/usr/lib/systemd/system/pveproxy.service.d" \
-    "$stage_root/usr/lib/systemd/system/pvedaemon.service.d" \
+    "$stage_root/usr/lib/systemd/system" \
     "$stage_root/DEBIAN"
 install -m 0755 "$worker" "$package_root/bin/qsm-direct-media-worker"
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/__init__.py" "$package_root/browser_bridge/__init__.py"
@@ -89,21 +90,16 @@ install -m 0644 "$PACKAGE_DIR/qsm-pve-direct-terminal.service" \
     "$stage_root/usr/lib/systemd/system/qsm-pve-direct-terminal.service"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-ui" "$stage_root/usr/sbin/qsm-pve-direct-ui"
 install -m 0644 "$PACKAGE_DIR/README.qsm-pve-direct" "$stage_root/usr/share/doc/$package_name/README.Debian"
-install -m 0644 "$ROOT_DIR/integration/proxmox/pve9/direct_api/PVE/API2/QsmDirect.pm" \
-    "$package_root/pve9-api/PVE/API2/QsmDirect.pm"
 
-# The reviewed PVE ABI predicate and launchers are direct-only sources. They
-# never stage a legacy compatibility name or an alternate console transport.
-install -m 0644 "$ROOT_DIR/integration/proxmox/pve9/direct_api/PVE/QsmDirect/Compatibility.pm" \
-    "$package_root/pve9-api/PVE/QsmDirect/Compatibility.pm"
-for role in pveproxy pvedaemon pvesh; do
-    install -m 0755 "$ROOT_DIR/integration/proxmox/pve9/direct_api/qsm-pve-direct-$role" \
-        "$package_root/pve9-api/qsm-pve-direct-$role"
-done
-for role in pveproxy pvedaemon; do
-    install -m 0644 "$ROOT_DIR/integration/proxmox/pve9/direct_api/systemd/$role.service.d/qsm-pve-direct-api.conf" \
-        "$stage_root/usr/lib/systemd/system/$role.service.d/qsm-pve-direct-api.conf"
-done
+# Signalling is a node-local HTTPS service authorised by PVE's own
+# /access/ticket endpoint.  Nothing is loaded into pveproxy/pvedaemon, so the
+# package needs no PVE ABI allow-list, launcher, or daemon drop-in.
+install -m 0644 "$ROOT_DIR/extensions/signal/__init__.py" "$package_root/signal_service/__init__.py"
+install -m 0644 "$ROOT_DIR/extensions/signal/qsm_direct_signal.py" \
+    "$package_root/signal_service/qsm_direct_signal.py"
+install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-signal" "$stage_root/usr/bin/qsm-pve-direct-signal"
+install -m 0644 "$PACKAGE_DIR/qsm-pve-direct-signal.service" \
+    "$stage_root/usr/lib/systemd/system/qsm-pve-direct-signal.service"
 
 # The guarded diversion manager owns only the direct Console asset and its
 # direct-specific state paths.

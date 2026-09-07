@@ -25,6 +25,7 @@ for file in \
     "$ROOT_DIR/scripts/proxmox-pve9-no-subscription.sources" \
     "$ROOT_DIR/tools/qsm_direct_media_worker.cpp" \
     "$ROOT_DIR/extensions/direct_terminal/qsm_direct_terminal.py" \
+    "$ROOT_DIR/extensions/signal/qsm_direct_signal.py" \
     "$ROOT_DIR/lab/proxmox9/qualify-qsm-direct-worker-media-e2e.py"; do
     [[ -f "$file" ]] || die "missing source: $file"
 done
@@ -43,8 +44,8 @@ sudo install -D -m 0644 "$ROOT_DIR/scripts/proxmox-pve9-no-subscription.sources"
     "$CHROOT_DIR/etc/apt/sources.list.d/qsm-direct-pve9.sources"
 
 tar --create --file "$SOURCE_ARCHIVE" --exclude-vcs --directory "$ROOT_DIR" \
-    CMakeLists.txt LICENSE src tools packaging/debian extensions/browser_bridge extensions/direct_guest extensions/direct_terminal \
-    integration/proxmox/pve9/direct_api integration/proxmox/pve9/direct_ui \
+    CMakeLists.txt LICENSE src tools packaging/debian extensions/browser_bridge extensions/direct_guest extensions/direct_terminal extensions/signal \
+    integration/proxmox/pve9/direct_ui \
     lab/proxmox9/qualify-qsm-direct-worker-media-e2e.py \
     scripts/proxmox-pve9-no-subscription.sources
 sudo tar --extract --file "$SOURCE_ARCHIVE" --directory "$CHROOT_DIR/work/source"

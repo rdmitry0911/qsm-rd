@@ -133,6 +133,16 @@ assert.doesNotMatch(source, /Guest display did not acknowledge this window size\
     'an unadopted resize must not dead-end in a permanent message while the guest may merely be asleep');
 assert.match(source, /Guest display looks asleep\. Move the mouse or press a key here to wake it\./,
     'an all-black decoded picture must be explained as a sleeping guest with the wake action');
+assert.match(source, /const answer = await signalRequest\('POST', url, params\);/,
+    'the SDP offer must go to the node-local signalling service, not a PVE API route');
+assert.match(source, /await signalRequest\('GET', vmMediaPolicyUrl\(\), \{\}\)/,
+    'the codec policy read must use the signalling service');
+assert.match(source, /await signalRequest\('PUT', vmMediaPolicyUrl\(\), \{/,
+    'the codec policy write must use the signalling service');
+assert.match(source, /'Authorization': `Bearer \$\{ticket\}`, 'X-QSM-User': user/,
+    'the ticket must travel in an Authorization header, never the URL or an ambient cookie');
+assert.match(source, /const state = await apiValue\(vmStatusUrl\(\), 'GET'/,
+    'the VM run-state read must still use the stock protected PVE API');
 assert.match(source, /const GUEST_SLEEP_HINT_MS = 4000;/,
     'the sleep hint must wait long enough to exclude a mode-switch black frame');
 assert.match(source, /livenessContext\.drawImage\(video, 0, 0, 32, 18\);/,

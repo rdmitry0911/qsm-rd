@@ -3,13 +3,9 @@ set -eu
 
 case "${1:-}" in
     remove|deconfigure|purge)
-        rm -f -- /usr/lib/systemd/system/pveproxy.service.d/qsm-pve-direct-api.conf \
-            /usr/lib/systemd/system/pvedaemon.service.d/qsm-pve-direct-api.conf
-        /usr/sbin/qsm-pve-direct-ui remove
         if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-            systemctl daemon-reload || true
-            systemctl try-restart pvedaemon.service || true
-            systemctl try-restart pveproxy.service || true
+            systemctl disable --now qsm-pve-direct-signal.service >/dev/null 2>&1 || true
         fi
+        /usr/sbin/qsm-pve-direct-ui remove
         ;;
 esac

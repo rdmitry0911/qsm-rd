@@ -1,0 +1,44 @@
+[Unit]
+Description=QSM direct PVE browser console signalling service
+Documentation=file:/usr/share/doc/qsm-pve-direct/README.Debian
+# It relays browser tickets to the local pveproxy for authorisation and
+# forwards SDP to the terminal, so both must be up first.
+After=pve-cluster.service pveproxy.service qsm-pve-direct-terminal.service
+Wants=qsm-pve-direct-terminal.service
+
+[Service]
+Type=simple
+Environment=QSM_DIRECT_LOCAL_NODE=%H
+UMask=0077
+# Reads the node TLS key (root:www-data 0640) and the terminal's root-only
+# control socket, so it runs as root like the terminal.
+ExecStart=/usr/bin/qsm-pve-direct-signal --local-node %H
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=20s
+TimeoutStopSec=15s
+KillMode=process
+TasksMax=64
+MemoryMax=256M
+LimitNOFILE=1024
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+# One inbound TLS listener (AF_INET/AF_INET6), a loopback client to pveproxy,
+# and the terminal's AF_UNIX control socket.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
