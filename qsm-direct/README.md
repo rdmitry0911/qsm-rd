@@ -4,19 +4,34 @@
 rectangle-by-rectangle noVNC picture with a 60 fps WebRTC stream — encoded in
 hardware where the node has NVENC, QSV or VA-API, on the CPU otherwise — in
 the same browser tab, with the same PVE login and the same `VM.Console`
-permission. Nothing to install on the client; signalling stays on the PVE API
-port, the picture travels directly between browser and node.
+permission. Nothing to install on the client, and nothing patched inside
+pveproxy or pvedaemon: they run stock.
 
-```text
-PVE Web UI / VM.Console
-        │ protected same-origin SDP request
-        ▼
-qsm-pve-direct-terminal ── private Unix sockets ── qsm-direct-media-worker
-        │                                                │
-        └──────────────── QEMU Display1 D-Bus ───────────┘
-                                                         │
-                                             QEMU VM / guest display
+```mermaid
+flowchart LR
+    browser["Browser tab<br/>(PVE web UI)"]
+    subgraph node["Proxmox VE node"]
+        pveproxy["pveproxy :8006<br/>(stock)"]
+        signal["qsm-pve-direct-signal :8007<br/>TLS, node certificate"]
+        terminal["qsm-pve-direct-terminal<br/>(per-VM sessions)"]
+        worker["qsm-direct-media-worker<br/>H.264 / HEVC / Opus"]
+        qemu["QEMU + guest desktop"]
+    end
+    browser -->|"login ticket, VM state, UI"| pveproxy
+    browser -->|"SDP offer/answer, codec policy<br/>Authorization: Bearer ticket"| signal
+    browser <==>|"WebRTC media + input<br/>UDP · DTLS-SRTP"| worker
+    signal -->|"verify ticket + VM.Console<br/>/access/ticket"| pveproxy
+    signal -->|"private Unix socket"| terminal
+    terminal -->|"per-VM Unix sockets"| worker
+    worker <-->|"Display1 D-Bus"| qemu
 ```
+
+The browser reaches the node on two TLS ports: stock pveproxy on 8006 for
+login, VM state and the UI, and the QSM signalling service on 8007 for the
+one SDP exchange and the codec policy. The signalling service authorises
+every call by asking pveproxy's own `/access/ticket` to confirm the browser's
+ticket and `VM.Console`; the audio, video and input then flow directly as
+WebRTC between the browser and the node's media worker.
 
 ## Why it feels like a local desktop
 
@@ -97,21 +112,24 @@ running desktop.
 
 ## Requirements
 
-- **Proxmox VE 9 with `pve-manager` 9.2.11 and `qemu-server` 9.2.7.** The
-  package verifies those versions and the checksums of the PVE Perl files it
-  hooks before loading its API module; on any other version it runs the
-  untouched stock daemons and the QSM console route is simply absent. An
-  `apt upgrade` of PVE therefore disables QSM Direct until a matching package
-  is installed.
+- **Proxmox VE 9** (`pve-manager` 9.x). Nothing is loaded into pveproxy or
+  pvedaemon, so there is no pinned-version requirement: a PVE point-release
+  upgrade does not disable the console. The only PVE contract used is the
+  documented `/access/ticket` authorisation endpoint.
 - **Browser:** any browser whose WebRTC offers H.264 and Opus — Chrome, Edge,
   Chromium with proprietary codecs, Safari; Firefox with its OpenH264 plugin
   enabled. A browser without H.264 is refused (the reason is logged in the
-  node journal).
-- **Network:** signalling goes through the PVE API on port 8006. The picture
-  is WebRTC: for each open console the node binds a UDP socket on a random
-  high port and advertises its own addresses as ICE host candidates (no STUN
-  or TURN, no TCP fallback, DTLS-authenticated). A host firewall must allow
-  inbound UDP from operator networks to the node.
+  node journal). Because the console fetches the signalling port
+  cross-origin, reach PVE by a host name the node certificate is valid for
+  (or install a trusted certificate); a certificate the browser only accepts
+  after a click-through works for the main page but blocks the signalling
+  fetch.
+- **Network:** the browser reaches the node on TCP 8006 (stock pveproxy) and
+  TCP 8007 (the QSM signalling service, TLS with the node certificate). The
+  picture is WebRTC: for each open console the node binds a UDP socket on a
+  random high port and advertises its own addresses as ICE host candidates
+  (no STUN or TURN, no TCP fallback, DTLS-authenticated). A host firewall
+  must allow inbound TCP 8007 and inbound UDP from operator networks.
 - **Encoder:** NVENC, QSV or VA-API with the vendor driver, or the CPU
   (`libx264`, about half a core per open 1280×800 console). HEVC needs a
   hardware encoder.
@@ -132,17 +150,17 @@ development libraries and libopus), then install it on the PVE node:
 
 ```bash
 apt install ./qsm-pve-direct_*.deb
-systemctl enable --now qsm-pve-direct-terminal.service
+systemctl enable --now qsm-pve-direct-terminal.service qsm-pve-direct-signal.service
 ```
 
-What it changes on the node: one new systemd service
-(`qsm-pve-direct-terminal`, Unix sockets only, no listening port); a systemd
-drop-in that starts `pveproxy` and `pvedaemon` through launchers loading one
-extra API module (`PVE::API2::QsmDirect`) — they exec the stock daemons
-unchanged on any other PVE version; a patched `index.html.tpl` that adds one
-script tag (the stock template is restored on removal and on an unknown
-`pve-manager` version); a per-VM policy directory
-`/etc/qsm-pve-direct/instances.d`.
+What it changes on the node: two new systemd services —
+`qsm-pve-direct-terminal` (Unix sockets only, no listening port) and
+`qsm-pve-direct-signal` (one TLS port, 8007, using the node certificate); a
+patched `index.html.tpl` that adds one script tag (the stock template is
+restored on removal and on an unknown `pve-manager` version); and a per-VM
+policy directory `/etc/qsm-pve-direct/instances.d`. It does **not** modify
+`pveproxy`, `pvedaemon` or any PVE Perl file. Removing the package restores
+the template and stops both services.
 
 Log in as `root@pam` (enabling QSM Display1 edits the VM's `args:` line,
 which Proxmox reserves for root), open **Hardware → Display → Advanced** of a
@@ -177,15 +195,21 @@ Details: [installation](docs/INSTALLATION.md), [testing](docs/TESTING.md),
 
 ## How it works
 
-The browser sends a WebRTC offer to a protected PVE API route; a node-local
-terminal service answers it and starts one media worker per VM. The worker
-reads QEMU's Display1 (GL scanouts through DMA-BUF, or plain framebuffers),
-encodes H.264 or HEVC, and hands the elementary stream to the WebRTC bridge,
-which only packetizes — nothing is decoded or re-encoded on the way. Input
-goes back through Display1: keys and clicks on an ordered channel, pointer
-motion on the unordered latest-state lane. A session lives as long as its
-WebRTC peer is connected and is reclaimed ten minutes after a browser
-vanishes.
+The browser sends its WebRTC offer to the node-local signalling service
+(`qsm-pve-direct-signal`, TLS 8007). PVE has no supported way to add an API
+route, so the service does not touch pveproxy or pvedaemon: it authorises the
+request by relaying the browser's ticket to the node's own `/access/ticket`
+with `path=/vms/<vmid>` and the required privilege, and only the username PVE
+confirms is used. The ticket travels in an `Authorization: Bearer` header, not
+an ambient cookie, so the endpoint is CSRF-safe. On success the service hands
+the offer to the terminal over a private Unix socket; the terminal starts one
+media worker per VM. The worker reads QEMU's Display1 (GL scanouts through
+DMA-BUF, or plain framebuffers), encodes H.264 or HEVC, and hands the
+elementary stream to the WebRTC bridge, which only packetizes — nothing is
+decoded or re-encoded on the way. Input goes back through Display1: keys and
+clicks on an ordered channel, pointer motion on the unordered latest-state
+lane. A session lives as long as its WebRTC peer is connected and is reclaimed
+ten minutes after a browser vanishes.
 
 All viewers of one VM share one encoder stream. The first Console picks the
 codec; a later browser that cannot decode it is refused rather than handed

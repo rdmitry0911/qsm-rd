@@ -1,14 +1,14 @@
 # Installing QSM Direct on Proxmox VE 9
 
-Install `qsm-pve-direct` only on the PVE node. An operator needs only a modern browser with WebRTC H.264/Opus support. No client application is installed.
+Install `qsm-pve-direct` only on the PVE node. An operator needs only a modern browser with WebRTC H.264/Opus support. No client application is installed, and nothing is patched inside pveproxy or pvedaemon.
 
 ```bash
 apt install ./qsm-pve-direct_*.deb
-systemctl enable --now qsm-pve-direct-terminal.service
-systemctl status qsm-pve-direct-terminal.service
+systemctl enable --now qsm-pve-direct-terminal.service qsm-pve-direct-signal.service
+systemctl status qsm-pve-direct-signal.service
 ```
 
-The package safely adds a small PVE UI script only for the `pve-manager` versions it knows. On an unsupported version it restores the stock template instead of applying an unsafe patch. The API module is likewise loaded only on the qualified `pve-manager` 9.2.11 / `qemu-server` 9.2.7 with matching checksums of the hooked PVE Perl files; on any other version the stock daemons run untouched and the console route is absent until a matching package is installed.
+Authorisation and signalling run in a standalone node-local HTTPS service (`qsm-pve-direct-signal`, TCP 8007, using the node certificate) that relays the browser's ticket to PVE's own `/access/ticket`; pveproxy and pvedaemon are never modified, so any `pve-manager` 9.x works and a point-release upgrade does not disable the console. The package still adds a small PVE UI script by patching `index.html.tpl` only for the `pve-manager` versions it knows, and restores the stock template on removal or an unknown version. Open TCP 8007 to operator networks in the host firewall, and reach PVE by a host name the node certificate is valid for so the cross-origin signalling fetch is not blocked.
 
 As `root@pam` (the setting edits the VM's `args:` line, which Proxmox reserves for root), open **Hardware → Display → Advanced** and enable **QSM Display1**. Then **stop and start the VM**: the new display devices exist only after QEMU is relaunched, and a reboot from inside the guest is not enough.
 
