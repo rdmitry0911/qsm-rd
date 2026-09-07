@@ -113,10 +113,30 @@ assert.match(source, /const fullscreenEscape = event\.code === 'Escape' &&[\s\S]
     'Escape must be recognized as a browser full-screen action before generic guest-key handling');
 assert.match(source, /const action = document\.exitFullscreen\(\);/,
     'Escape in full screen must explicitly request the native popup exit');
-assert.match(source, /Guest display did not acknowledge this window size\./,
-    'a missed guest resize must be visible rather than silently leaving a letterboxed console');
-assert.match(source, /resizeRetryAttempts >= 16/,
-    'a direct Console must retry an early Display1 resize until its frame confirms the requested geometry');
+assert.match(source, /Guest display kept its own size\. If the guest is asleep or locked, move the mouse or press a key here\./,
+    'a missed guest resize must be visible and name the wake action rather than silently leaving a letterboxed console');
+assert.match(source, /resizeStalled = true;\s*if \(guestAsleepHint \|\| guestFrameIsDark\(\) === null\) \{ return; \}/,
+    'after the fast retry budget the Console must stop re-sending and defer to the sleep hint or to a missing picture');
+assert.match(source, /retryStalledResize = \(\) => \{[\s\S]*?if \(now - lastStalledRetryAt < 3000\) \{ return; \}[\s\S]*?resizeRetryAttempts = 8;/,
+    'a stalled resize must be re-issued once per wake attempt with a short verification burst, not an endless loop');
+for (const hook of ['const queuePointer = (value) => {\n                retryStalledResize();',
+    'retryStalledResize();\n            if (down) {']) {
+    assert.ok(source.includes(hook), 'ordinary pointer and key input must re-issue a stalled Display1 resize');
+}
+assert.doesNotMatch(source, /Guest display did not acknowledge this window size\./,
+    'an unadopted resize must not dead-end in a permanent message while the guest may merely be asleep');
+assert.match(source, /Guest display looks asleep\. Move the mouse or press a key here to wake it\./,
+    'an all-black decoded picture must be explained as a sleeping guest with the wake action');
+assert.match(source, /const GUEST_SLEEP_HINT_MS = 4000;/,
+    'the sleep hint must wait long enough to exclude a mode-switch black frame');
+assert.match(source, /livenessContext\.drawImage\(video, 0, 0, 32, 18\);/,
+    'sleep detection must sample the intrinsic decoded frame, not the letterboxed CSS box');
+assert.match(source, /pixels\[index\] > 8 \|\| pixels\[index \+ 1\] > 8 \|\| pixels\[index \+ 2\] > 8/,
+    'only exact DPMS black may count as a sleeping guest; a dark movie scene must not');
+assert.match(source, /if \(livenessTimer !== null\) \{ popup\.clearInterval\(livenessTimer\); \}/,
+    'closing the console must stop the sleep monitor');
+assert.match(source, /if \(!guestAsleepHint\) \{ status\.textContent = gettext\('Connected'\); \}/,
+    'a decoded frame must not overwrite the wake hint while the guest output is off');
 assert.match(source, /const hideToolbarSoon = \(\) =>/,
     'an idle connected console must auto-hide its floating controls');
 assert.match(source, /toolbar\.style\.transform = 'translateX\(-100%\)'/,

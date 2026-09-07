@@ -1370,11 +1370,16 @@ private:
             else { pressed_keys_.erase(key); }
         } else if (op == input_scroll && payload.size() == 4U) {
             const auto vertical = read_i16(payload, 0U);
-            // Display1 represents wheel movement with the conventional extra
-            // button numbers. One bounded click per browser event prevents a
-            // large DOM delta from becoming an unbounded QEMU call loop.
+            // Display1 represents wheel movement with QEMU's InputButton
+            // numbers: 3 is wheel-up, 4 is wheel-down.  A browser WheelEvent
+            // reports deltaY > 0 when the user scrolls down (content moves
+            // up), which is the guest's wheel-down click.  Verified against
+            // the scenario fixture: the earlier reversed mapping made a
+            // browser scroll-down request wheel-up in the guest.  One
+            // bounded click per browser event prevents a large DOM delta
+            // from becoming an unbounded QEMU call loop.
             if (vertical != 0) {
-                const auto button = static_cast<std::uint8_t>(vertical > 0 ? 3U : 4U);
+                const auto button = static_cast<std::uint8_t>(vertical > 0 ? 4U : 3U);
                 session_.button(button, true); session_.button(button, false);
             }
         } else if (op == input_resize && payload.size() == 10U) {

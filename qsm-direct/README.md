@@ -1,6 +1,10 @@
 # QSM Direct
 
-QSM Direct is a browser-based graphical console for Proxmox VE 9 virtual machines. It reuses the existing PVE session and the `VM.Console` permission: there is no separate account, PIN, public listener, native client, host X11 session, or legacy streaming stack.
+**A real desktop inside the Proxmox web console.** QSM Direct replaces the
+rectangle-by-rectangle noVNC picture with a steady 60 fps, hardware-encoded
+WebRTC stream — video *and* audio — in the same browser tab, with the same PVE
+login and the same `VM.Console` permission. Nothing to install on the client,
+nothing new to open on the network.
 
 ```text
 PVE Web UI / VM.Console
@@ -13,43 +17,131 @@ qsm-pve-direct-terminal ── private Unix sockets ── qsm-direct-media-work
                                              QEMU VM / guest display
 ```
 
-The media transport is WebRTC with Opus audio and negotiated H.264 or HEVC video. Input is sent through QEMU Display1. Pointer motion uses a non-blocking lane, so stale mouse positions do not accumulate during a short overload. QSM Direct supports both VirGL/GL and ordinary `std` or non-GL `virtio` displays. The host chooses an encoder: NVENC, QSV, VA-API, or software `libx264`.
+## Why it feels like a local desktop
 
-## Installation
+Open the **Console** of a VM and:
 
-Build, or download, the PVE 9 `qsm-pve-direct_*.deb` and install it on a PVE node:
+- **Video plays as video.** A 720p clip arrives at its full 30 frames per
+  second. Stock noVNC on the same guest shows about 7 pictures per second and
+  needs six times the bandwidth to do it.
+- **Scrolling, dragging and animation stay smooth.** Every guest frame is
+  encoded at a constant cadence. On a GPU node a scrolling document reaches
+  the browser as 52 distinct pictures per second with a 34 ms p95 gap between
+  pictures; noVNC manages 12 pictures per second with a 134 ms gap.
+- **The pointer never goes stale.** Mouse motion travels on its own
+  low-latency lane, so a busy frame cannot turn into a laggy cursor.
+- **Sound.** Opus audio comes with the picture.
+- **It uses the hardware you have.** NVENC, QSV, VA-API or CPU encoders;
+  H.264 everywhere, HEVC negotiated automatically when both the browser and
+  the node support it; VirGL/GL guests or plain VGA guests.
+- **Same security model.** Same origin, same PVE session, same ACLs. No
+  pairing PIN, no public listener, no native client, no host X11 session.
+- **It copes with a sleeping guest.** When the guest turns its screen off, the
+  console says so and any mouse or key press wakes it — no reconnecting.
+
+## Pick a configuration
+
+Three ways to look at a PVE 9 virtual machine, measured on 2026-09-07 with one
+guest image, one browser host and the same workloads. "Pictures/s" is the
+number of *visibly different* pictures that reached the browser each second;
+the gap is the 95th-percentile pause between two of them. Full tables,
+method and reproduction commands: [docs/COMPARISON.md](docs/COMPARISON.md).
+
+| What you do in the VM | VirGL + QSM Direct | Standard VGA + QSM Direct | Standard VGA + stock noVNC |
+| --- | --- | --- | --- |
+| Watch a 720p clip | **37.5 pictures/s**, 39 ms gap, 18.8 Mbit/s | 26.6 pictures/s, 67 ms gap, 19.6 Mbit/s | 7.4 pictures/s, 175 ms gap, **120 Mbit/s** |
+| Scroll a long document | **36.2 pictures/s**, 39 ms gap, 5.5 Mbit/s | 14.4 pictures/s, 118 ms gap, 12.7 Mbit/s | 12.0 pictures/s, 134 ms gap, 15.4 Mbit/s |
+| Animated UI, dashboards, games | **38.5 pictures/s**, 34 ms gap, 12.8 Mbit/s | 16.2 pictures/s, 115 ms gap, 9.0 Mbit/s | 11.0 pictures/s, 152 ms gap, 31.6 Mbit/s |
+| Hover the mouse over a button | 86 ms until the tooltip shows | 85 ms | **65 ms** |
+| Leave the desktop idle | 0.55 Mbit/s | 0.55 Mbit/s | **≈ 0** |
+| Open the Console | first picture after 3.4 s | 3.4 s | **1.0 s** |
+| Guest OpenGL / 3D applications | **yes, VirGL** | no | no |
+| Audio | **yes** | **yes** | no |
+| Needed on the node | render node + any encoder | any encoder (CPU works) | nothing |
+
+The three columns above come from the CPU-only nested laboratory (4-vCPU
+guests with software rendering, `libx264` on the node), so the guest itself
+caps the frame rate in every column. The same VirGL + QSM Direct workloads on
+a real node with an **RTX 3080** (NVENC H.264, KDE Plasma guest) reached
+28 pictures/s for the clip (the full 30 fps source), **52 pictures/s** for
+the scrolling document and **45 pictures/s** for the animated scene, all with
+a 34–67 ms p95 gap and 0 dropped frames, while the GPU sat at 13 % and its
+encoder at 4 %. Hover latency there was 102 ms.
+
+Where noVNC is still the better tool: the first picture after opening the
+Console (it needs no codec negotiation), a single isolated pointer event (about
+20 ms less), zero bandwidth on an idle screen, and anything before an OS is
+running — firmware, installers, recovery, text consoles. QSM Direct is for the
+hours you spend *inside* a running desktop.
+
+## Install
+
+Build, or download, the PVE 9 `qsm-pve-direct_*.deb` and install it on the
+PVE node:
 
 ```bash
 apt install ./qsm-pve-direct_*.deb
 systemctl enable --now qsm-pve-direct-terminal.service
 ```
 
-In a VM, open **Hardware → Display → Advanced**, enable **QSM Display1**, and select a profile. The VirGL profile adds a private `virtio-vga-gl` and GL D-Bus Display1. The `std`/non-GL `virtio` profile keeps the selected video adapter and adds a non-GL D-Bus Display1. Once saved, use the existing **Console** entry in the left navigation, between **Summary** and **Hardware**. For an eligible VM QSM Direct is embedded in that area; an ineligible VM keeps the ordinary noVNC console.
+In a VM open **Hardware → Display → Advanced**, enable **QSM Display1** and
+pick a profile:
 
-The guest Display1 size changes after a window resize settles. Full screen is the same console at the full viewport size. For bidirectional guest clipboard, install `qsm-desktop-agent` in a Linux VM and run `qsm-desktop-agent-setup USER`. File transfer is deliberately not part of the browser transport: a browser cannot read the local filesystem without an explicit user-selected file.
+- **VirGL GPU (GL)** adds a private `virtio-vga-gl` and a GL D-Bus Display1 —
+  the smooth column above, with guest 3D.
+- **CPU — Standard VGA or VirtIO (no GL)** keeps the selected adapter and adds
+  a non-GL D-Bus Display1 — no GPU or render node required; stock VNC keeps
+  working next to it.
 
-See [installation](docs/INSTALLATION.md) and [testing](docs/TESTING.md) for complete instructions.
+Save, then use the existing **Console** entry in the left navigation, between
+**Summary** and **Hardware**. An eligible VM gets QSM Direct embedded right
+there; the top **Console** split menu opens it in a separate window. The guest
+display follows the window size, full screen is the same console at the full
+viewport, and bidirectional clipboard comes with `qsm-desktop-agent` in a
+Linux guest (`qsm-desktop-agent-setup USER`). File transfer is deliberately
+not part of the browser transport.
 
-## Measured comparison with stock noVNC
+Details: [installation](docs/INSTALLATION.md), [testing](docs/TESTING.md),
+[measured comparison](docs/COMPARISON.md), [PVE 9 laboratory](lab/proxmox9/README.md).
 
-The figures below are measurements, not a latency or bandwidth promise. They were taken on 2026-09-06 in the QSM laboratory: nested PVE 9/QEMU 11, a 4-vCPU/4-GiB VM using Standard VGA plus non-GL Display1, the same 1280×800 input-to-pixel fixture, and a separate Chrome browser VM on the same isolated lab network. QSM Direct used `libx264` at 60 fps. Both routes used the visible PVE Console split menu. Values vary with encoder, browser, guest workload, network, and host load.
+## How it works
 
-| Measurement | QSM Direct | Stock noVNC | What was measured |
-| --- | ---: | ---: | --- |
-| Console click to first visible guest pixels | 4.680 s | 2.308 s | One cold controlled run. QSM requires SDP, DTLS, an H.264 configuration frame, and a decoded video frame; noVNC requires a non-empty RFB Canvas. This is not a WAN result. |
-| Idle desktop receive rate | 0.553 Mbit/s | 0.029 Mbit/s | 10-second receive-side sample after the desktop was stable. QSM continued its 60-fps H.264 cadence; RFB sent only changed rectangles. noVNC is therefore cheaper for an idle screen. |
-| Video/frame delivery | 600 decoded frames / 10 s (60 fps), 0 drops | 30 RFB WebSocket frames / 10 s | These counters are transport-specific and must not be treated as equal display-frame counts. |
-| Browser video playout buffering | 7.65 ms mean | n/a | Chrome `inbound-rtp.jitterBufferDelay` divided by emitted video frames. noVNC has no WebRTC jitter buffer; its RFB data is ordered by TCP. |
-| Pointer hover to changed guest pixels, 3 runs | 86.0–353.3 ms (median 173.5 ms) | 24.2–78.4 ms (median 64.2 ms) | The same blue-icon → magenta-popup guest fixture; measured at the browser canvas/video output. |
-| Browser MouseEvent to painted guest-window drag, 1 run | 386.7 ms first paint; 216.0 ms median; 851.9 ms p95; 80.5 px p95 visual lag | n/a | Mouse is injected through the browser's DOM event path, then the orange guest card is located in decoded video frames. Its maximum presentation gap was 548.8 ms and endpoint error 40 px. This CPU/libx264 nested result is a diagnostic baseline, not a hardware-encoder claim. |
-| Packet/frame loss during the sample | 0 Chrome video frame drops | n/a | noVNC does not expose an equivalent browser RFB drop counter. |
+The browser sends a WebRTC offer to a protected PVE API route; a node-local
+terminal service answers it and starts one media worker per VM. The worker
+reads QEMU's Display1 (GL scanouts through DMA-BUF, or plain framebuffers),
+encodes H.264 or HEVC plus Opus, and hands the elementary streams to the
+WebRTC bridge, which only packetizes — nothing is decoded or re-encoded on the
+way. Input goes back through Display1: keys and clicks on an ordered channel,
+pointer motion on an unordered latest-state lane so a lost packet is replaced
+by the next position instead of delaying a click.
 
-This small desktop fixture deliberately does not claim a result for 1080p/4K video, a WAN, packet loss, or a hardware encoder. It does show why noVNC remains useful for firmware, recovery, installers, text, and an idle screen; and why a codec-backed route needs a separate moving-image benchmark rather than an assumed advantage. Reproduce the measurements with `lab/proxmox9/measure-direct-browser-e2e.py --drag-runs 1` and `lab/proxmox9/measure-novnc-browser-e2e.cjs`; the latter opens PVE's actual stock **noVNC** menu item, not a synthetic RFB client.
+All viewers of one VM share one encoder stream. The first Console picks the
+codec; a later browser that cannot decode it is told so explicitly rather than
+being handed mislabelled video.
 
-## HEVC capability negotiation
+### Codecs
 
-HEVC can provide better compression efficiency, especially for high-resolution or high-motion content. It does not, by itself, reduce input latency: encoder look-ahead, B-frames, keyframe cadence, browser decode, and jitter buffering still determine the interaction delay.
+The VM media policy defaults to **Automatic (HEVC hardware preferred)**.
+Before starting a worker the terminal reads the browser's SDP offer and
+chooses HEVC only if it contains `video/H265` *and* a bounded probe has
+initialized `hevc_nvenc`, `hevc_qsv` or `hevc_vaapi` on the node
+([RFC 7798](https://www.rfc-editor.org/rfc/rfc7798.html) packetization).
+Otherwise it uses the separately verified H.264 lane, which may fall back to
+`libx264` when no accelerator works. Safari on compatible hardware and Chrome
+with hardware HEVC decoding negotiate HEVC; everything else gets H.264. HEVC
+lowers bitrate, not input latency: encoder look-ahead, keyframe cadence,
+browser decode and jitter buffering still decide the interaction delay.
 
-The VM media policy defaults to **Automatic (HEVC hardware preferred)**. Before it starts a worker, the terminal reads the current browser SDP offer. It chooses HEVC only if that offer contains `video/H265` *and* a bounded probe has initialized `hevc_nvenc`, `hevc_qsv`, or `hevc_vaapi` on the PVE node. It then packetizes Annex-B HEVC according to [RFC 7798](https://www.rfc-editor.org/rfc/rfc7798.html) and performs normal WebRTC H.265/RTX negotiation. Otherwise it uses the separately verified H.264 lane; automatic H.264 may still use `libx264` when no accelerator works.
+### When the guest goes to sleep
 
-Safari can receive HEVC WebRTC video on compatible hardware, as documented in [WebKit's Safari 18.4 feature notes](https://webkit.org/blog/16574/webkit-features-in-safari-18-4/). Other browsers and devices must advertise it themselves; H.264 remains the interoperable fallback. A VM has one shared Display1 encoder stream, so its first active Console chooses the shared codec. A later browser which cannot decode that already-active codec is rejected with an explicit compatibility error rather than receiving mislabeled video; close the existing Console or choose H.264 for mixed browser fleets.
+A desktop guest turns its virtual output off after an idle timeout, or locks
+its session. QEMU then keeps emitting the last picture (or a black one) and
+the guest will not change its display mode until it wakes, which used to leave
+the Console with a stale picture and a dead-end "did not acknowledge this
+window size" message. The Console now recognises an all-black decoded picture
+and says *Guest display looks asleep — move the mouse or press a key here to
+wake it*; when a guest keeps its own size it says so and names the same wake
+action instead of retrying forever; every mouse or key event re-issues the
+pending window size once, and the status returns to *Connected* the moment
+the guest adopts it. Measured on a KDE Plasma guest: the desktop is back about
+250 ms after the first mouse or key event, and never without one.

@@ -44,6 +44,10 @@ public:
         std::uint64_t mouse_calls {};
         std::uint64_t button_presses {};
         std::uint64_t button_releases {};
+        // QEMU InputButton 3/4 presses: a browser scroll-down must arrive
+        // as wheel-down, so the worker's wheel direction is observable.
+        std::uint64_t wheel_up_clicks {};
+        std::uint64_t wheel_down_clicks {};
         std::uint32_t last_absolute_x {};
         std::uint32_t last_absolute_y {};
         bool has_absolute_position {};
@@ -87,6 +91,8 @@ private:
     std::uint64_t mouse_calls_ {};
     std::uint64_t button_presses_ {};
     std::uint64_t button_releases_ {};
+    std::uint64_t wheel_up_clicks_ {};
+    std::uint64_t wheel_down_clicks_ {};
     std::uint32_t last_absolute_x_ {};
     std::uint32_t last_absolute_y_ {};
     bool has_absolute_position_ {false};

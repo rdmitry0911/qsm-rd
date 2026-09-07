@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>QSM scenario: video clip</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #0b0d12; color: #e6ebf5; font-family: sans-serif; }
+  video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #label { position: absolute; left: 16px; top: 12px; padding: 6px 10px; border-radius: 8px; background: #0008; font-size: 15px; }
+</style>
+<video id="clip" autoplay loop muted playsinline src="clip.mp4"></video>
+<div id="label">Scenario 2 — looping 1280×720 H.264 clip (Big Buck Bunny, 30 fps)</div>
+<script src="switch.js"></script>
+<script>
+  // Kiosk browsers occasionally block autoplay until a user gesture; the
+  // console's own key press that opened this page is such a gesture, but
+  // retry play() defensively so the measurement never samples a paused clip.
+  const clip = document.getElementById('clip');
+  const kick = () => { clip.play().catch(() => setTimeout(kick, 500)); };
+  clip.addEventListener('loadeddata', kick);
+  kick();
+</script>

@@ -1,0 +1,61 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>QSM scenario: animated scene</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #10141c; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #label { position: absolute; left: 16px; top: 12px; padding: 6px 10px; border-radius: 8px; background: #0009; color: #fff; font: 15px sans-serif; }
+</style>
+<canvas id="scene"></canvas>
+<div id="label">Scenario 4 — animated 2D scene at display refresh (full-window motion)</div>
+<script src="switch.js"></script>
+<script>
+  // A full-window animation with many independently moving objects: every
+  // frame differs from the previous one over most of the surface, which is
+  // the worst case for a rectangle-based remote framebuffer and the typical
+  // case for a game, a 3D viewport or a dashboard with live charts.
+  const canvas = document.getElementById('scene');
+  const context = canvas.getContext('2d');
+  let seed = 424242;
+  const random = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  const balls = [];
+  for (let index = 0; index < 160; index += 1) {
+    balls.push({ x: random(), y: random(), dx: (random() - 0.5) * 0.012, dy: (random() - 0.5) * 0.012,
+      r: 10 + random() * 26, hue: Math.floor(random() * 360) });
+  }
+  let angle = 0;
+  const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight; };
+  window.addEventListener('resize', resize);
+  resize();
+  const frame = () => {
+    const { width, height } = canvas;
+    const gradient = context.createLinearGradient(0, 0, width, height);
+    gradient.addColorStop(0, `hsl(${(angle * 40) % 360} 40% 14%)`);
+    gradient.addColorStop(1, `hsl(${(angle * 40 + 120) % 360} 40% 22%)`);
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, width, height);
+    for (const ball of balls) {
+      ball.x += ball.dx; ball.y += ball.dy;
+      if (ball.x < 0 || ball.x > 1) { ball.dx = -ball.dx; ball.x = Math.max(0, Math.min(1, ball.x)); }
+      if (ball.y < 0 || ball.y > 1) { ball.dy = -ball.dy; ball.y = Math.max(0, Math.min(1, ball.y)); }
+      context.beginPath();
+      context.arc(ball.x * width, ball.y * height, ball.r, 0, Math.PI * 2);
+      context.fillStyle = `hsl(${ball.hue} 85% 60%)`;
+      context.fill();
+    }
+    context.save();
+    context.translate(width / 2, height / 2);
+    context.rotate(angle);
+    context.fillStyle = '#ffffffcc';
+    context.fillRect(-width * 0.22, -18, width * 0.44, 36);
+    context.restore();
+    context.fillStyle = '#fff';
+    context.font = 'bold 28px sans-serif';
+    const textX = ((angle * 160) % (width + 400)) - 200;
+    context.fillText('QSM Direct motion fixture', textX, height - 40);
+    angle += 0.02;
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+</script>

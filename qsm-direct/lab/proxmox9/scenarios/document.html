@@ -1,0 +1,80 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>QSM scenario: office document</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #d9dde3; color: #1b1f26; font: 17px/1.55 Georgia, "DejaVu Serif", serif; }
+  #page { width: 920px; margin: 0 auto; padding: 56px 72px; background: #fff; box-shadow: 0 0 18px #0004; }
+  h1 { font-size: 30px; margin: 0 0 8px; }
+  h2 { font-size: 22px; margin: 34px 0 10px; color: #2b4a7a; }
+  p { margin: 0 0 14px; text-align: justify; }
+  table { border-collapse: collapse; margin: 18px 0; width: 100%; font-size: 15px; }
+  td, th { border: 1px solid #b9c0cc; padding: 6px 10px; }
+  th { background: #eef2f8; }
+  #label { position: fixed; left: 16px; top: 12px; padding: 6px 10px; border-radius: 8px; background: #0009; color: #fff; font: 15px sans-serif; }
+</style>
+<div id="label">Scenario 3 — long text document; scroll with the mouse wheel</div>
+<div id="page"><h1>Quarterly operations review</h1><p><em>Generated fixture text. Scroll to exercise a typical office workload: dense black-on-white text and tables moving vertically.</em></p></div>
+<script src="switch.js"></script>
+<script>
+  // Deterministic pseudo-prose: a fixed word list and a seeded generator,
+  // so every guest renders the same document and the same scroll distance
+  // produces the same pixel changes for each transport under test.
+  const WORDS = ('the quarter delivered stable throughput across regional clusters while migration of the ' +
+    'legacy storage tier completed ahead of schedule engineering capacity remained the primary constraint ' +
+    'support volume declined after the console rollout although latency complaints persisted for remote ' +
+    'sites procurement approved the second hardware batch and finance revised the depreciation model ' +
+    'operations reported fewer incidents per node after the firmware baseline was enforced everywhere').split(' ');
+  let seed = 20260907;
+  const random = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  const sentence = () => {
+    const count = 9 + Math.floor(random() * 14);
+    const words = [];
+    for (let index = 0; index < count; index += 1) { words.push(WORDS[Math.floor(random() * WORDS.length)]); }
+    words[0] = words[0][0].toUpperCase() + words[0].slice(1);
+    return `${words.join(' ')}.`;
+  };
+  const page = document.getElementById('page');
+  for (let section = 1; section <= 40; section += 1) {
+    const heading = document.createElement('h2');
+    heading.textContent = `${section}. ${sentence().replace(/\.$/, '')}`;
+    page.append(heading);
+    for (let paragraph = 0; paragraph < 4; paragraph += 1) {
+      const p = document.createElement('p');
+      const sentences = [];
+      for (let index = 0; index < 5 + Math.floor(random() * 4); index += 1) { sentences.push(sentence()); }
+      p.textContent = sentences.join(' ');
+      page.append(p);
+    }
+    if (section % 4 === 0) {
+      const table = document.createElement('table');
+      table.innerHTML = '<tr><th>Site</th><th>Nodes</th><th>Incidents</th><th>Median latency</th><th>Notes</th></tr>';
+      for (let row = 0; row < 6; row += 1) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>Site ${section}-${row + 1}</td><td>${8 + Math.floor(random() * 40)}</td><td>${Math.floor(random() * 9)}</td><td>${(12 + random() * 60).toFixed(1)} ms</td><td>${sentence()}</td>`;
+        table.append(tr);
+      }
+      page.append(table);
+    }
+  }
+  // The comparison must exercise the transports, not the consoles' wheel
+  // paths, so the document scrolls itself at a reading pace (a smooth
+  // 240 px/s, bouncing between top and bottom) unless the page is opened
+  // with ?manual, which keeps it still for input-direction checks.
+  if (!/[?&]manual\b/.test(location.search)) {
+    document.getElementById('label').textContent = 'Scenario 3 — long text document, continuous smooth scroll (240 px/s)';
+    let direction = 1;
+    let last = performance.now();
+    const step = (now) => {
+      const seconds = Math.min(0.1, (now - last) / 1000);
+      last = now;
+      const limit = document.documentElement.scrollHeight - window.innerHeight;
+      let next = window.scrollY + direction * 240 * seconds;
+      if (next >= limit) { next = limit; direction = -1; }
+      if (next <= 0) { next = 0; direction = 1; }
+      window.scrollTo(0, next);
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+</script>

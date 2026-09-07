@@ -79,6 +79,8 @@ int main(int argc, char **argv) {
                   << " mouse=" << stats.mouse_calls
                   << " button_press=" << stats.button_presses
                   << " button_release=" << stats.button_releases
+                  << " wheel_up=" << stats.wheel_up_clicks
+                  << " wheel_down=" << stats.wheel_down_clicks
                   << " absolute=" << (stats.has_absolute_position ? 1 : 0) << ':'
                   << stats.last_absolute_x << 'x' << stats.last_absolute_y
                   << " relative=" << (stats.has_relative_motion ? 1 : 0) << ':'

@@ -41,3 +41,38 @@ node lab/proxmox9/qualify-pve-direct-embedded-window-e2e.cjs \
 ```
 
 The temporary account needs `PVEVMUser` only on the test VM.
+
+## Sleeping guest
+
+A desktop guest that turned its output off (idle DPMS) or locked its session
+keeps QEMU emitting its last or a black scanout and ignores a requested
+display mode until it wakes. The Console must explain that state and recover
+on ordinary input rather than dead-end on "did not acknowledge this window
+size". The static overlay test asserts the wake hint, the sleep detector, the
+bounded fast retry and the once-per-input re-issue of a stalled size request;
+the behaviour itself is verified on a real guest with the probe below, which
+records the console's own status line and the decoded picture over time:
+
+```bash
+node lab/proxmox9/probe-display-sleep-recovery.cjs \
+  --pve-url https://PVE_NODE:8006 --user TEMP_USER@pve \
+  --password-file /secure/pve.password --vmid 103 --chrome /usr/bin/chromium \
+  --observe-ms 46000 --sleep-after-ms 6000 \
+  --sleep-cmd "qm guest exec 103 -- sudo -u USER XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0 kscreen-doctor --dpms off" \
+  --resize-after-ms 13000 --resize-to 1100x700 --wake-after-ms 27000 --wake mouse
+```
+
+A passing run shows *Guest display looks asleep…* a few seconds after the
+guest blanks, no dead-end size message after the resize, a bright picture
+within about a second of the wake input, and the final size equal to the
+resized popup. Run it once more with `--wake none` to prove that nothing but
+input wakes the guest.
+
+## Wheel direction and scenario comparison
+
+`measure-console-scenarios.cjs --scenarios 5 --wheel-delta 100` holds the
+fixture document still and scrolls it with the console's mouse wheel; a
+browser scroll-down must produce visible motion (distinct pictures per second
+well above zero). The worker E2E additionally asserts `wheel_down=1 wheel_up=0`
+in the fake QEMU trace for one positive-delta scroll. Scenarios 1–4 produce
+the comparison tables in [COMPARISON.md](COMPARISON.md).

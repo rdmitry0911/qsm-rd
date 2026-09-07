@@ -1,0 +1,126 @@
+# Measured comparison: QSM Direct and stock noVNC
+
+Every number on this page was produced by the scripts in `lab/proxmox9/` on
+2026-09-07, through the visible PVE 9 web UI, with the shipped console
+surfaces (the QSM Direct `<video>` and noVNC's RFB `<canvas>`). They are
+single 10-second samples, not a benchmark suite, and they describe the
+laboratory below, not a promise for other hardware or networks.
+
+## Environments
+
+| Label | Node | Guest display | Encoder | Guest | Measuring browser |
+| --- | --- | --- | --- | --- | --- |
+| VirGL + QSM (GPU node) | PVE 9, AMD Ryzen Threadripper PRO 5975WX, NVIDIA RTX 3080 | `virtio-vga-gl`, GL Display1 | `h264_nvenc` (HEVC available, not used by the measuring Chromium) | Ubuntu 26.04, KDE Plasma 6 Wayland, 8 vCPU, Firefox kiosk fixture | Chromium 152.0.7977.75 on the node, headless, 1280×800 |
+| VirGL + QSM (nested lab) | nested PVE 9 VM, 8 vCPU, 7.9 GiB | `virtio-vga-gl`, GL Display1 | `libx264` (CPU) | Debian 13, Weston + Chrome kiosk fixture, 4 vCPU, 4 GiB | Google Chrome 152.0.7977.75 in a 4-vCPU browser VM, headless, 1280×800 |
+| VGA + QSM (nested lab) | same nested node | `std` VGA, non-GL Display1 | `libx264` (CPU) | same fixture image, 4 vCPU, 4 GiB | same browser VM |
+| VGA + noVNC (nested lab) | same nested node | `std` VGA, QEMU VNC | none (RFB rectangles) | the same VM as the row above | same browser VM |
+
+The nested guests render with software GL; their own frame rate is the
+ceiling for both transports. The two VGA rows are the *same* VM measured
+through the two consoles minutes apart.
+
+## Workloads
+
+The guest shows one of four pages, switched from inside the console with
+Alt+1..4 (see `lab/proxmox9/scenarios/`):
+
+1. **Idle fixture** — the static input-to-pixel test page (blinking caret only).
+2. **Video clip** — a looping 1280×720 H.264 clip at 30 fps (Big Buck Bunny, 10 s), letterboxed in a 1280×800 window.
+3. **Document scroll** — a 40-section text document scrolling itself at 240 px/s.
+4. **Animated scene** — 160 moving discs, a rotating bar and scrolling text on a full-window 2D canvas at display refresh.
+
+## Metrics
+
+* **Distinct pictures per second** — how many visibly different pictures reached the browser surface. A picture counts when, in a 160×90 downscale, at least 0.5 % of cells changed their luma by more than 16 *or* the mean absolute luma change is ≥ 0.25. An H.264 repeat frame and an untouched RFB canvas both count as "nothing new".
+* **Picture gap p95 / max** — the 95th percentile and the longest interval between two distinct pictures: the objective counterpart of "smooth" versus "jerky".
+* **Received Mbit/s** — bytes the browser received for the console during the sample: WebRTC inbound-rtp video+audio for QSM Direct, RFB WebSocket payload for noVNC.
+* **Hover latency** — pointer moved from a neutral spot onto the fixture's blue icon; time until the magenta hover popup is visible on the browser surface. Median of five runs. Includes the guest's own repaint in both cases.
+* **Time to first picture** — Console menu click to a decodable/painted picture. noVNC paints a canvas from the first rectangle; QSM Direct needs SDP, DTLS, a configuration frame and a decoded frame.
+
+## Results
+
+### Watching a 720p clip (30 fps source)
+
+| | VirGL + QSM (GPU node) | VirGL + QSM (nested) | VGA + QSM (nested) | VGA + noVNC (nested) |
+| --- | ---: | ---: | ---: | ---: |
+| Distinct pictures / s | 28.2 | 37.5 | 26.6 | 7.4 |
+| Picture gap p95 / max | 67 / 101 ms | 39 / 53 ms | 67 / 148 ms | 175 / 355 ms |
+| Received | 20.1 Mbit/s | 18.8 Mbit/s | 19.6 Mbit/s | 120.4 Mbit/s |
+| Decoded / dropped frames | 60 fps / 0 | 60 fps / 0 | 59.8 fps / 0 | 180 RFB frames/s |
+
+### Scrolling a long document (240 px/s)
+
+| | VirGL + QSM (GPU node) | VirGL + QSM (nested) | VGA + QSM (nested) | VGA + noVNC (nested) |
+| --- | ---: | ---: | ---: | ---: |
+| Distinct pictures / s | 51.7 | 36.2 | 14.4 | 12.0 |
+| Picture gap p95 / max | 34 / 84 ms | 39 / 52 ms | 118 / 158 ms | 134 / 200 ms |
+| Received | 9.8 Mbit/s | 5.5 Mbit/s | 12.7 Mbit/s | 15.4 Mbit/s |
+
+### Animated scene (full-window motion)
+
+| | VirGL + QSM (GPU node) | VirGL + QSM (nested) | VGA + QSM (nested) | VGA + noVNC (nested) |
+| --- | ---: | ---: | ---: | ---: |
+| Distinct pictures / s | 44.8 | 38.5 | 16.2 | 11.0 |
+| Picture gap p95 / max | 34 / 51 ms | 34 / 50 ms | 115 / 184 ms | 152 / 274 ms |
+| Received | 17.0 Mbit/s | 12.8 Mbit/s | 9.0 Mbit/s | 31.6 Mbit/s |
+
+### Everything else
+
+| | VirGL + QSM (GPU node) | VirGL + QSM (nested) | VGA + QSM (nested) | VGA + noVNC (nested) |
+| --- | ---: | ---: | ---: | ---: |
+| Hover latency, median of 5 | 101.8 ms | 86.0 ms | 85.2 ms | 64.5 ms |
+| Idle desktop, received | 0.71 Mbit/s | 0.55 Mbit/s | 0.55 Mbit/s | 0.001 Mbit/s |
+| Jitter buffer, idle mean | 15.8 ms | 7.5 ms | 7.8 ms | n/a |
+| Time to first picture | 3.5 s | 3.4 s | 3.4 s | 1.0 s |
+| GPU during the animated scene | 13 % GPU, 4 % NVENC | n/a | n/a | n/a |
+
+### Earlier input-to-pixel results (same lab, 2026-09-06)
+
+Taken with `measure-direct-browser-e2e.py` and `measure-novnc-browser-e2e.cjs`
+on the VGA guest, before the scenario fixture existed:
+
+| Measurement | VGA + QSM (nested, libx264) | VGA + noVNC (nested) |
+| --- | ---: | ---: |
+| Console click to first visible guest pixels, cold | 4.680 s | 2.308 s |
+| Pointer hover to changed guest pixels, 3 runs | 86.0–353.3 ms (median 173.5 ms) | 24.2–78.4 ms (median 64.2 ms) |
+| Browser MouseEvent to painted guest-window drag, 1 run | 386.7 ms first paint; 216.0 ms median; 851.9 ms p95; 80.5 px p95 visual lag | n/a |
+| Browser video playout buffering | 7.65 ms mean | n/a |
+
+## Reading the numbers
+
+* On every workload with motion, QSM Direct delivers more of the guest's frames with a shorter and steadier gap between them, at a fraction of noVNC's bandwidth for video (19–20 Mbit/s against 120 Mbit/s) and animation (9–17 Mbit/s against 32 Mbit/s).
+* The VirGL guests render more smoothly themselves (36–52 pictures/s against 12–16 for the software-VGA guest), so VirGL + QSM Direct is the configuration that turns a VM into a desktop that feels local.
+* noVNC remains faster for two things: the first picture after opening the Console (about a second, since it needs no codec negotiation) and a single isolated pointer event (about 20 ms less hover latency in the nested lab). It also costs nothing while the screen is idle. Firmware, installers and text consoles stay the natural home of noVNC.
+* The GPU node numbers use H.264 through NVENC because the measuring Chromium does not offer HEVC in WebRTC. A browser that does (Safari on Apple silicon, Chrome with hardware HEVC) negotiates `hevc_nvenc` automatically on that node.
+
+## Reproduce
+
+Provision a scenario guest from the reviewed hover fixture (adds the pages, the
+clip and an SSH key, keeps the fixture's Weston + Chrome kiosk). The clip used
+here is the public 10-second, 5 MB 1280×720 H.264 Big Buck Bunny sample from
+test-videos.co.uk saved as `lab/proxmox9/cache/bbb720.mp4` (`cache/` is not
+in Git; any 720p H.264 MP4 works):
+
+```bash
+python3 lab/proxmox9/build-scenario-seed.py \
+  --fixture-user-data lab/proxmox9/hover-gate-102/user-data \
+  --scenarios lab/proxmox9/scenarios --clip lab/proxmox9/cache/bbb720.mp4 \
+  --ssh-public-key ~/.ssh/id_ed25519.pub --mac bc:24:11:1c:f1:fc \
+  --address 192.168.76.6/24 --instance-id qsm-scenarios-106-v1 --output seed-106
+genisoimage -output /var/lib/vz/template/iso/qsm-scenarios-106.iso -volid cidata -joliet -rock seed-106/*
+qm set 106 --ide2 local:iso/qsm-scenarios-106.iso,media=cdrom && qm stop 106 && qm start 106
+```
+
+Measure both consoles from the browser host (a PVE account with `VM.Console`
+on the VM is enough):
+
+```bash
+node lab/proxmox9/measure-console-scenarios.cjs --transport qsm \
+  --pve-url https://PVE_NODE:8006 --user USER@REALM --password-file /secure/pve.password \
+  --vmid 106 --chrome /usr/bin/google-chrome --scenarios 1,2,3,4 --hover-runs 5 --report qsm.json
+node lab/proxmox9/measure-console-scenarios.cjs --transport novnc ... --report novnc.json
+```
+
+`--scenarios 5` holds the document still and scrolls it with the console's
+own mouse wheel; it verifies the wheel direction rather than the transport.
+The script prints one JSON object and never writes credentials, SDP or pixels.

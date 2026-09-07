@@ -414,12 +414,17 @@ int FakeQemuService::handle_main_message(sd_bus_message *message) {
         std::uint32_t button = 0U;
         dbus::check(sd_bus_message_read(message, "u", &button),
                     "read fake mouse button");
-        (void) button;
         {
             std::lock_guard lock(state_mutex_);
             ++mouse_calls_;
-            if (button_press) { ++button_presses_; }
-            else { ++button_releases_; }
+            if (button_press) {
+                ++button_presses_;
+                // QEMU InputButton: 3 = wheel-up, 4 = wheel-down.
+                if (button == 3U) { ++wheel_up_clicks_; }
+                else if (button == 4U) { ++wheel_down_clicks_; }
+            } else {
+                ++button_releases_;
+            }
         }
         dbus::check(sd_bus_reply_method_return(message, ""),
                     "reply fake mouse button");
@@ -783,6 +788,8 @@ FakeQemuService::Stats FakeQemuService::stats() const {
         .mouse_calls = mouse_calls_,
         .button_presses = button_presses_,
         .button_releases = button_releases_,
+        .wheel_up_clicks = wheel_up_clicks_,
+        .wheel_down_clicks = wheel_down_clicks_,
         .last_absolute_x = last_absolute_x_,
         .last_absolute_y = last_absolute_y_,
         .has_absolute_position = has_absolute_position_,

@@ -46,6 +46,15 @@
         resizeDebounceMs: { defaultValue: 400, minimum: 100, maximum: 3000 },
         resizeSettleMs: { defaultValue: 1000, minimum: 250, maximum: 5000 },
     });
+    // A guest compositor turns its virtual output off after an idle timeout
+    // (DPMS/screen blank).  QEMU Display1 keeps emitting a scanout, but every
+    // pixel is black and no mode change is applied until the guest wakes.
+    // Measured on PVE 9 with a KWin/Wayland guest: the desktop returns about
+    // 256 ms after the first browser mouse or key event, and never without
+    // one.  This constant is how long an all-black picture is tolerated
+    // before the Console explains it; a locked guest that keeps scanning out
+    // its last picture is covered by the stalled-resize path instead.
+    const GUEST_SLEEP_HINT_MS = 4000;
 
     const defaultConsoleSettings = () => ({
         ...Object.fromEntries(Object.entries(CONSOLE_SETTING_SCHEMA).map(
@@ -781,8 +790,22 @@
         let resizeRetryTimer = null;
         let resizeRetryIdentity = '';
         let resizeRetryAttempts = 0;
+        // Set once the fast retry budget is spent without the guest adopting
+        // the requested mode; the next wake attempt (input) re-issues it.
+        let resizeStalled = false;
+        let lastStalledRetryAt = 0;
+        let retryStalledResize = () => undefined;
         let lastResizeSentAt = 0;
         let firstFrameTimer = null;
+        // Guest sleep detection: an all-black decoded picture for longer than
+        // GUEST_SLEEP_HINT_MS means the guest output is off, not that the
+        // transport failed.  The monitor owns the wake hint and clears it
+        // as soon as a non-black frame is decoded again.
+        let livenessTimer = null;
+        let livenessCanvas = null;
+        let livenessContext = null;
+        let darkFrameSince = null;
+        let guestAsleepHint = false;
         let toolbarTimer = null;
         let toolbarRevealTimer = null;
         let toolbarVisible = true;
@@ -1239,6 +1262,7 @@
         };
         const sendMouseButton = (button, down) => {
             if (!Number.isInteger(button) || button < 1 || button > 5) { return; }
+            retryStalledResize();
             if (down) {
                 if (heldMouseButtons.has(button)) { return; }
                 heldMouseButtons.add(button);
@@ -1250,6 +1274,7 @@
         };
         const sendKeyboard = (key, down) => {
             if (!Number.isInteger(key) || key < 0 || key > 0xffff) { return; }
+            retryStalledResize();
             if (down) {
                 if (heldKeys.has(key)) { return; }
                 heldKeys.add(key);
@@ -1300,6 +1325,7 @@
             if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); }
             if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); }
             if (firstFrameTimer !== null) { popup.clearTimeout(firstFrameTimer); }
+            if (livenessTimer !== null) { popup.clearInterval(livenessTimer); }
             if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); }
             if (toolbarRevealTimer !== null) { popup.clearTimeout(toolbarRevealTimer); }
             for (const request of guestRequests.values()) {
@@ -1357,15 +1383,73 @@
             return false;
         };
 
+        // Returns true when the current decoded frame is entirely black,
+        // false when any sampled pixel carries light, and null when there is
+        // no decodable frame yet.  A 32×18 downscale of the intrinsic video
+        // frame is sampled, so CSS letterboxing never counts as darkness.
+        // Only exact DPMS black (every channel ≤ 8) qualifies: an encoded
+        // dark movie scene keeps small non-zero values and does not trigger.
+        const guestFrameIsDark = () => {
+            if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+                !video.videoWidth || !video.videoHeight) { return null; }
+            try {
+                if (!livenessCanvas) {
+                    livenessCanvas = document.createElement('canvas');
+                    livenessCanvas.width = 32;
+                    livenessCanvas.height = 18;
+                    livenessContext = livenessCanvas.getContext('2d', { willReadFrequently: true });
+                }
+                if (!livenessContext) { return null; }
+                livenessContext.drawImage(video, 0, 0, 32, 18);
+                const pixels = livenessContext.getImageData(0, 0, 32, 18).data;
+                for (let index = 0; index < pixels.length; index += 4) {
+                    if (pixels[index] > 8 || pixels[index + 1] > 8 || pixels[index + 2] > 8) { return false; }
+                }
+                return true;
+            } catch (_error) {
+                // A same-origin WebRTC stream is readable; if a browser ever
+                // refuses the readback the monitor simply stays inert.
+                return null;
+            }
+        };
+        const monitorGuestLiveness = () => {
+            if (closed) { return; }
+            const dark = guestFrameIsDark();
+            if (dark === true) {
+                if (darkFrameSince === null) { darkFrameSince = Date.now(); }
+                if (!guestAsleepHint && Date.now() - darkFrameSince >= GUEST_SLEEP_HINT_MS) {
+                    guestAsleepHint = true;
+                    status.textContent = gettext('Guest display looks asleep. Move the mouse or press a key here to wake it.');
+                    revealToolbar();
+                }
+            } else if (dark === false) {
+                darkFrameSince = null;
+                if (guestAsleepHint) {
+                    guestAsleepHint = false;
+                    updateMediaStatus();
+                    // The guest just woke: give a stalled size request its
+                    // one re-issue now rather than waiting for more input.
+                    retryStalledResize();
+                }
+            }
+        };
+        const startLivenessMonitor = () => {
+            if (livenessTimer !== null || closed) { return; }
+            livenessTimer = popup.setInterval(monitorGuestLiveness, 1000);
+        };
         const updateMediaStatus = () => {
             if (closed || !peer) { return; }
             if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
                 video.videoWidth > 0 && video.videoHeight > 0) {
-                status.textContent = gettext('Connected');
+                // The sleep monitor owns the status line while the guest
+                // output is off; a decoded frame alone is not proof of a
+                // visible desktop.
+                if (!guestAsleepHint) { status.textContent = gettext('Connected'); }
                 if (firstFrameTimer !== null) {
                     popup.clearTimeout(firstFrameTimer);
                     firstFrameTimer = null;
                 }
+                startLivenessMonitor();
                 hideToolbarSoon();
             } else if (peer.connectionState === 'connected') {
                 status.textContent = gettext('Connected — waiting for guest video…');
@@ -1489,15 +1573,30 @@
                         if (currentIdentity !== identity) { resize(false); return; }
                         if (video.videoWidth === current.width && video.videoHeight === current.height) {
                             resizeRetryAttempts = 0;
+                            resizeStalled = false;
+                            // The geometry converged: clear a "kept its own
+                            // size" line left behind by an earlier stall.
+                            updateMediaStatus();
                             return;
                         }
-                        if (resizeRetryAttempts >= 16) {
-                            status.textContent = gettext('Guest display did not acknowledge this window size.');
+                        if (resizeRetryAttempts < 16) {
+                            resizeRetryAttempts += 1;
+                            lastResize = '';
+                            resize(true);
                             return;
                         }
-                        resizeRetryAttempts += 1;
-                        lastResize = '';
-                        resize(true);
+                        // Sixteen fast retries cover an ordinary compositor
+                        // transition.  A guest that still keeps its own mode
+                        // is almost always one whose session is locked or
+                        // whose output is off: it applies the pending mode
+                        // when it wakes, and re-sending every 250 ms until
+                        // then only makes it re-evaluate a request it is
+                        // ignoring.  Stop here; the input path re-issues the
+                        // request once per wake attempt (retryStalledResize).
+                        resizeStalled = true;
+                        if (guestAsleepHint || guestFrameIsDark() === null) { return; }
+                        status.textContent = gettext('Guest display kept its own size. If the guest is asleep or locked, move the mouse or press a key here.');
+                        revealToolbar();
                     }, 250);
                 };
                 if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); resizeTimer = null; }
@@ -1505,6 +1604,19 @@
                 else { resizeTimer = popup.setTimeout(dispatch, settings.resizeDebounceMs); }
             };
             resizeConsole = resize;
+            // A locked or sleeping guest adopts the last requested mode when
+            // it wakes.  Ordinary input is the wake signal, so every input
+            // burst re-issues a stalled request exactly once (3 s throttle)
+            // with a short verification burst instead of an endless loop.
+            retryStalledResize = () => {
+                if (!resizeStalled || closed) { return; }
+                const now = Date.now();
+                if (now - lastStalledRetryAt < 3000) { return; }
+                lastStalledRetryAt = now;
+                resizeRetryAttempts = 8;
+                lastResize = '';
+                resize(true);
+            };
             const flushPointer = (reliable = false) => {
                 if (pointerFrame !== null) {
                     popup.cancelAnimationFrame(pointerFrame);
@@ -1521,6 +1633,7 @@
                 else { sendPointer(value); }
             };
             const queuePointer = (value) => {
+                retryStalledResize();
                 const sample = { ...value, sequence: pointerSequence };
                 pointerSequence = (pointerSequence + 1) >>> 0;
                 latestPointer = sample;
@@ -1620,6 +1733,12 @@
                 const visible = `${video.videoWidth}x${video.videoHeight}@60`;
                 if (visible === resizeRetryIdentity) {
                     resizeRetryAttempts = 0;
+                    if (resizeStalled) {
+                        // A guest that woke up adopted the stalled request
+                        // on its own: drop the "kept its own size" line.
+                        resizeStalled = false;
+                        updateMediaStatus();
+                    }
                     return;
                 }
                 if (resizeRetryTimer !== null) {

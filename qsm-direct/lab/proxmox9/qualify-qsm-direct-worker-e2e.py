@@ -171,6 +171,9 @@ async def qualify(worker_binary: Path, fake_qemu_binary: Path,
                             {"op": "mouse_button", "button": 1, "down": False},
                             {"op": "keyboard", "key": 30, "down": True, "modifiers": 0},
                             {"op": "keyboard", "key": 30, "down": False, "modifiers": 0},
+                            # A browser scroll-down (positive deltaY) must reach
+                            # Display1 as one QEMU wheel-down click, button 4.
+                            {"op": "scroll", "vertical": 120, "horizontal": 0},
                         ):
                             browser.request({"op": "control", "message": message}, timeout=3)
                         # Cursor positions must traverse the lossy latest-
@@ -208,7 +211,10 @@ async def qualify(worker_binary: Path, fake_qemu_binary: Path,
             if fake.returncode != 0:
                 raise QualificationError(f"fake QEMU failed: {fake_stderr.decode('utf-8', 'replace')}")
             trace = fake_stdout.decode("utf-8", "replace")
-            if not all(marker in trace for marker in ("FAKE_QEMU_RESULT", "requested=320x180", "keyboard=2", "mouse=3")):
+            # mouse=5: one click press/release, one absolute position, and the
+            # wheel click's press/release pair.
+            if not all(marker in trace for marker in ("FAKE_QEMU_RESULT", "requested=320x180", "keyboard=2", "mouse=5",
+                                                       "wheel_up=0", "wheel_down=1")):
                 raise QualificationError(f"direct input/resize did not reach Display1: {trace}")
             return {"browser": status, "frame_stats": frame_stats, "fake_qemu": trace.strip()}
         finally:
