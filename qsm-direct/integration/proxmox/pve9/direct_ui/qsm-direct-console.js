@@ -2048,26 +2048,43 @@
                     !validNode(me.nodename) || !validVmid(Number(me.vmid))) { return; }
                 me.qsmConsoleLoading = true;
                 showPreparing();
-                Proxmox.Utils.API2Request({
-                    url: `/nodes/${encodeURIComponent(me.nodename)}/qemu/${encodeURIComponent(me.vmid)}/config`,
-                    method: 'GET',
-                    success: ({ result }) => {
-                        me.qsmConsoleLoading = false;
-                        const data = result && result.data;
-                        if (displayState(data && data.args, Number(me.vmid)).managed) {
-                            startEmbeddedConsole();
-                        } else {
+                // The Display1 predicate is read through PVE's protected API.
+                // Right after a page refresh that read can transiently fail
+                // before the app's auth/CSRF state settles.  Committing to
+                // noVNC on the first failure permanently letterboxed a
+                // managed VM's console after F5, so retry a bounded number of
+                // times and only fall back to the stock console once the read
+                // has genuinely failed.  A successful read is authoritative:
+                // an unmanaged VM still goes straight to noVNC.
+                const readConfig = (attempt) => {
+                    if (me.destroyed || me.qsmConsoleMode) { return; }
+                    Proxmox.Utils.API2Request({
+                        url: `/nodes/${encodeURIComponent(me.nodename)}/qemu/${encodeURIComponent(me.vmid)}/config`,
+                        method: 'GET',
+                        success: ({ result }) => {
+                            me.qsmConsoleLoading = false;
+                            const data = result && result.data;
+                            if (displayState(data && data.args, Number(me.vmid)).managed) {
+                                startEmbeddedConsole();
+                            } else {
+                                startNoVnc();
+                            }
+                        },
+                        failure: () => {
+                            if (attempt < 4 && !me.destroyed && !me.qsmConsoleMode) {
+                                setTimeout(() => readConfig(attempt + 1), 750);
+                                return;
+                            }
+                            // A Console-only role must always retain its stock
+                            // PVE console when the optional Display1 predicate
+                            // cannot be read at all. Never expose a blank or
+                            // unauthorised QSM view.
+                            me.qsmConsoleLoading = false;
                             startNoVnc();
-                        }
-                    },
-                    // A Console-only role must always retain its stock PVE
-                    // console when the optional Display1 predicate cannot be
-                    // read. Never expose a blank or unauthorised QSM view.
-                    failure: () => {
-                        me.qsmConsoleLoading = false;
-                        startNoVnc();
-                    },
-                });
+                        },
+                    });
+                };
+                readConfig(0);
             };
             Ext.apply(me, {
                 items: [{

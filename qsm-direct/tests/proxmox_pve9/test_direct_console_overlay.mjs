@@ -45,6 +45,8 @@ assert.match(source, /console\.xtype = 'pveQsmDirectConsole';/,
     'the existing Console card must always use the selector before an asynchronous config read');
 assert.match(source, /if \(displayState\(data && data\.args, Number\(me\.vmid\)\)\.managed\) \{\s*startEmbeddedConsole\(\);\s*\} else \{\s*startNoVnc\(\);/,
     'the selector must render QSM only for managed Display1 and otherwise retain stock noVNC');
+assert.match(source, /if \(attempt < 4 && !me\.destroyed && !me\.qsmConsoleMode\) \{\s*setTimeout\(\(\) => readConfig\(attempt \+ 1\), 750\);/,
+    'a transient config read failure on refresh must retry rather than fall straight to noVNC');
 assert.doesNotMatch(source, /title: gettext\('QSM Direct'\),\s*itemId: 'qsm-direct-console'/,
     'QSM Direct must not add a second left-navigation item');
 assert.match(source, /const openConsole = function \(button, node, vmid, embeddedFrame = null\)/,
