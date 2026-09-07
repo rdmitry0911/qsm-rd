@@ -15,7 +15,7 @@ As `root@pam` (the setting edits the VM's `args:` line, which Proxmox reserves f
 - **VirGL GPU (GL):** QSM creates a private `virtio-vga-gl` and GL D-Bus display. VNC is not used with that GL backend.
 - **CPU — Standard VGA or VirtIO (no GL):** the selected PVE `std` or non-GL `virtio` adapter remains in place and QSM adds a non-GL D-Bus display. No GPU or render node is required; stock VNC may run in parallel.
 
-Encoder settings are stored per VM in `/etc/qsm-pve-direct/instances.d/<VMID>.conf`, mode `0600`. The default codec policy is `auto`, which is H.264: QSM verifies the H.264 path (NVENC, QSV, VA-API, then `libx264`). `QSM_DIRECT_CODEC=hevc` is an explicit, experimental choice that requires H.265 in the browser's offer and a working `hevc_nvenc`, `hevc_qsv` or `hevc_vaapi`; it never silently uses a CPU encoder or emits an H.264 stream labelled as HEVC, and it has not yet been qualified with a real browser.
+Encoder settings are stored per VM in `/etc/qsm-pve-direct/instances.d/<VMID>.conf`, mode `0600`. The default codec policy is `auto`: when the browser's offer contains H.265 and the node has a working `hevc_nvenc`, `hevc_qsv` or `hevc_vaapi`, QSM negotiates HEVC (answering with the browser's own payload type and profile/tier/level); otherwise it uses the H.264 path (NVENC, QSV, VA-API, then `libx264`). `QSM_DIRECT_CODEC=hevc` forces HEVC and requires a hardware encoder; it never silently uses a CPU encoder or emits an H.264 stream labelled as HEVC. HEVC is qualified against Chrome on Apple silicon with `hevc_nvenc`.
 
 For bidirectional clipboard in a Linux guest, install the matching `qsm-desktop-agent_*.deb`, then configure the desktop user once:
 

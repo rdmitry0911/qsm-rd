@@ -758,22 +758,26 @@ class DirectSessionManager:
     def _codec_for_offer(self, sdp: str, policy: dict[str, str]) -> tuple[str, DirectEncoderSelection]:
         """Choose the best mutually usable codec before spawning a worker.
 
-        ``auto`` is H.264: it is the lane verified end to end with real
-        browsers.  A browser that advertises H.265 in its offer is not proof
-        that it decodes the node's HEVC stream — Chrome on the reference node
-        negotiated hevc_nvenc, then requested a keyframe thirteen times in
-        three seconds and never presented a picture.  HEVC therefore stays an
-        explicit, per-VM policy for operators who have qualified their
-        browser fleet against their encoder.
+        An offer is the only trustworthy statement of the current browser's
+        decoder support.  ``auto`` prefers HEVC when the offer contains H.265
+        and the node has a verified hardware HEVC encoder, then falls back to
+        the H.264 lane.  This is qualified end to end against Chrome 151 on
+        macOS with ``hevc_nvenc``: the answer must repeat the browser's own
+        H265 payload type and profile/tier/level, which the bridge now does.
+        A forced HEVC policy remains explicit.
         """
         preference = policy.get("QSM_DIRECT_CODEC") or "auto"
         if preference not in {"auto", "h264", "hevc"}:
             raise DirectTerminalError("direct-terminal VM has an unsupported browser codec")
         offered = BrowserWebRtcBridge.offered_video_codecs(sdp)
+        if preference in {"auto", "hevc"} and "hevc" in offered:
+            try:
+                return "hevc", self._select_encoder("hevc", policy)
+            except DirectTerminalError:
+                if preference == "hevc":
+                    raise
         if preference == "hevc":
-            if "hevc" not in offered:
-                raise DirectTerminalError("browser does not offer WebRTC HEVC")
-            return "hevc", self._select_encoder("hevc", policy)
+            raise DirectTerminalError("browser does not offer WebRTC HEVC")
         if "h264" not in offered:
             raise DirectTerminalError("browser does not offer WebRTC H.264")
         return "h264", self._select_encoder("h264", policy)

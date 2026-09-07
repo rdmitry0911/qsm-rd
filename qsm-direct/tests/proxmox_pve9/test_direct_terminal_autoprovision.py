@@ -330,8 +330,8 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             finally:
                 manager.close()
 
-    def test_automatic_codec_policy_is_h264_even_when_the_browser_offers_hevc(self) -> None:
-        """An H.265 line in the offer must not switch an ``auto`` VM to HEVC."""
+    def test_automatic_codec_policy_prefers_hevc_when_offered_and_probed(self) -> None:
+        """``auto`` picks HEVC when the offer has H.265 and a probe cached one; else H.264."""
         offer = ("v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
                  "m=video 9 UDP/TLS/RTP/SAVPF 96 97\r\nc=IN IP4 0.0.0.0\r\n"
                  "a=rtpmap:96 H265/90000\r\na=rtpmap:97 H264/90000\r\n"
@@ -348,17 +348,20 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
                 local_node=None,
             )
             try:
-                # A cached selection stands in for the encoder probe; a HEVC
-                # probe would be a defect here and has no cache entry.
+                # Cached selections stand in for the ffmpeg probes.
                 manager._auto_encoders["h264"] = DirectEncoderSelection("libx264")
+                manager._auto_encoders["hevc"] = DirectEncoderSelection("hevc_nvenc")
                 codec, selection = manager._codec_for_offer(offer, {"QSM_DIRECT_CODEC": "auto"})
+                self.assertEqual(codec, "hevc")
+                self.assertEqual(selection, DirectEncoderSelection("hevc_nvenc"))
+                # With no H.265 in the offer, auto falls back to H.264.
+                h264_only = offer.replace("a=rtpmap:96 H265/90000\r\n", "")
+                codec, selection = manager._codec_for_offer(h264_only, {})
                 self.assertEqual(codec, "h264")
                 self.assertEqual(selection, DirectEncoderSelection("libx264"))
-                codec, selection = manager._codec_for_offer(offer, {})
-                self.assertEqual(codec, "h264")
+                # Forced HEVC without an H.265 offer is refused.
                 with self.assertRaisesRegex(DirectTerminalError, "does not offer WebRTC HEVC"):
-                    manager._codec_for_offer(offer.replace("a=rtpmap:96 H265/90000\r\n", ""),
-                                             {"QSM_DIRECT_CODEC": "hevc"})
+                    manager._codec_for_offer(h264_only, {"QSM_DIRECT_CODEC": "hevc"})
             finally:
                 manager.close()
 

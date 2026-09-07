@@ -18,8 +18,9 @@ Install:
 
 The service reads PVE's saved VM configuration and creates the private
 Display1 bus before the VM is started. No per-VM policy file is required: the
-portable `auto` policy initializes the H.264 lane (NVENC, QSV, VA-API, then
-`libx264`). HEVC is an explicit, experimental per-VM choice.
+portable `auto` policy prefers HEVC when the current browser offers H.265 and
+a tested NVENC/QSV/VA-API HEVC encoder is available, otherwise the H.264 lane
+(NVENC, QSV, VA-API, then `libx264`).
 After saving a Display1 setting, the service
 reconciles the bus automatically. Package upgrades may restart the terminal
 service, but preserve every live private Display1 bus: a running configured
@@ -55,14 +56,16 @@ console.
 The Console window's **Settings** panel stores the media policy per VM on the
 node in root-owned `/etc/qsm-pve-direct/instances.d/<VMID>.conf` (0600), not
 in browser storage or unsupported `qm.conf` keys. Its choices are
-**Automatic** (H.264: probe hardware encoders, then `libx264`), **Hardware only**
+**Automatic** (prefer negotiated hardware HEVC, otherwise probe H.264 with
+`libx264` fallback), **Hardware only**
 (fail clearly rather than consume CPU when no accelerator works), and
 **Software** (`libx264`). Close all QSM Direct windows for the VM and reopen
 one after saving: one worker is shared by its active viewers.
 
-HEVC is selected only with `QSM_DIRECT_CODEC=hevc`, when the current browser
-SDP offers H.265 and the node initializes a hardware HEVC encoder; it has not
-yet been qualified with a real browser and is never chosen automatically.
+HEVC is negotiated when the current browser SDP offers H.265 and the node
+initializes a hardware HEVC encoder; the answer repeats the browser's own
+H265 payload type and profile/tier/level. Qualified against Chrome on Apple
+silicon with `hevc_nvenc`.
 This is a browser/WebRTC and server-RTP capability boundary, not a VirGL
 limitation. A VM shares one worker, so mixed viewers must support its active
 codec or reconnect after the existing Console is closed.

@@ -650,7 +650,7 @@
         mediaPolicyTitle.textContent = gettext('This virtual machine — media policy');
         mediaPolicyTitle.style.cssText = 'font-weight:600;margin:0 0 8px';
         const mediaPolicyHint = document.createElement('p');
-        mediaPolicyHint.textContent = gettext('Automatic uses H.264, the WebRTC codec every supported browser decodes. HEVC is an explicit, experimental choice: it needs a hardware HEVC encoder on this node and a browser that really decodes H.265 over WebRTC, which has not been qualified yet. Hardware mode never silently falls back to CPU.');
+        mediaPolicyHint.textContent = gettext('Automatic prefers HEVC when this browser offers WebRTC H.265 and this node has a tested hardware encoder, otherwise H.264. Verified with Chrome on Apple silicon and hevc_nvenc. Hardware mode never silently falls back to CPU.');
         mediaPolicyHint.style.cssText = 'margin:0 0 8px;color:#cbd5e1;line-height:1.35';
         const mediaPolicyForm = document.createElement('div');
         mediaPolicyForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 170px;gap:8px;align-items:center';
@@ -662,13 +662,13 @@
         codecInput.style.cssText = 'width:100%;box-sizing:border-box;padding:4px 6px';
         const autoCodecOption = document.createElement('option');
         autoCodecOption.value = 'auto';
-        autoCodecOption.textContent = gettext('Automatic (H.264)');
+        autoCodecOption.textContent = gettext('Automatic (HEVC when supported)');
         const h264Option = document.createElement('option');
         h264Option.value = 'h264';
         h264Option.textContent = gettext('H.264 (browser WebRTC)');
         const hevcOption = document.createElement('option');
         hevcOption.value = 'hevc';
-        hevcOption.textContent = gettext('HEVC (experimental, hardware encoder required)');
+        hevcOption.textContent = gettext('HEVC (hardware encoder required)');
         codecInput.append(autoCodecOption, h264Option, hevcOption);
         const encoderLabel = document.createElement('label');
         encoderLabel.htmlFor = 'qsm-direct-vm-encoder';
