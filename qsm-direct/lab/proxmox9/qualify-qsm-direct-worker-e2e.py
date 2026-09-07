@@ -211,10 +211,14 @@ async def qualify(worker_binary: Path, fake_qemu_binary: Path,
             if fake.returncode != 0:
                 raise QualificationError(f"fake QEMU failed: {fake_stderr.decode('utf-8', 'replace')}")
             trace = fake_stdout.decode("utf-8", "replace")
-            # mouse=5: one click press/release, one absolute position, and the
-            # wheel click's press/release pair.
-            if not all(marker in trace for marker in ("FAKE_QEMU_RESULT", "requested=320x180", "keyboard=2", "mouse=5",
-                                                       "wheel_up=0", "wheel_down=1")):
+            # mouse=5: the click's press and release, one RelMotion (the fake
+            # QEMU reports IsAbsolute=false, so the first pointer sample only
+            # seeds the relative baseline and the second becomes the motion),
+            # and the wheel click's press and release.  Markers are anchored
+            # with spaces so "wheel_up=0" cannot match inside another field.
+            if not all(marker in f" {trace.strip()} " for marker in (
+                    "FAKE_QEMU_RESULT", " requested=320x180 ", " keyboard=2 ", " mouse=5 ",
+                    " wheel_up=0 ", " wheel_down=1 ", " absolute=0:", " relative=1:")):
                 raise QualificationError(f"direct input/resize did not reach Display1: {trace}")
             return {"browser": status, "frame_stats": frame_stats, "fake_qemu": trace.strip()}
         finally:

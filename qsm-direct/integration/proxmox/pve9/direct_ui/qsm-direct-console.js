@@ -793,8 +793,17 @@
         // Set once the fast retry budget is spent without the guest adopting
         // the requested mode; the next wake attempt (input) re-issues it.
         let resizeStalled = false;
+        let stalledRetryCount = 0;
         let lastStalledRetryAt = 0;
         let retryStalledResize = () => undefined;
+        // True while the status line carries the resize text, so convergence
+        // restores "Connected" without overwriting an unrelated message.
+        let resizeStatusShown = false;
+        // Last moment this Console forwarded pointer or key input.  A black
+        // picture right after input is a booting or genuinely black guest,
+        // not a sleeping one, so the wake hint is withheld for a few seconds.
+        let lastInputSentAt = 0;
+        let noteGuestInput = () => undefined;
         let lastResizeSentAt = 0;
         let firstFrameTimer = null;
         // Guest sleep detection: an all-black decoded picture for longer than
@@ -1262,7 +1271,7 @@
         };
         const sendMouseButton = (button, down) => {
             if (!Number.isInteger(button) || button < 1 || button > 5) { return; }
-            retryStalledResize();
+            noteGuestInput();
             if (down) {
                 if (heldMouseButtons.has(button)) { return; }
                 heldMouseButtons.add(button);
@@ -1274,7 +1283,7 @@
         };
         const sendKeyboard = (key, down) => {
             if (!Number.isInteger(key) || key < 0 || key > 0xffff) { return; }
-            retryStalledResize();
+            noteGuestInput();
             if (down) {
                 if (heldKeys.has(key)) { return; }
                 heldKeys.add(key);
@@ -1417,7 +1426,8 @@
             const dark = guestFrameIsDark();
             if (dark === true) {
                 if (darkFrameSince === null) { darkFrameSince = Date.now(); }
-                if (!guestAsleepHint && Date.now() - darkFrameSince >= GUEST_SLEEP_HINT_MS) {
+                if (!guestAsleepHint && Date.now() - darkFrameSince >= GUEST_SLEEP_HINT_MS &&
+                    Date.now() - lastInputSentAt > 5000) {
                     guestAsleepHint = true;
                     status.textContent = gettext('Guest display looks asleep. Move the mouse or press a key here to wake it.');
                     revealToolbar();
@@ -1553,7 +1563,13 @@
                             resizeTimer = popup.setTimeout(dispatch, remainingSettle);
                             return;
                         }
-                        if (identity !== resizeRetryIdentity) { resizeRetryAttempts = 0; }
+                        if (identity !== resizeRetryIdentity) {
+                            // A genuinely new window geometry restarts the
+                            // fast budget and the stalled bookkeeping.
+                            resizeRetryAttempts = 0;
+                            resizeStalled = false;
+                            stalledRetryCount = 0;
+                        }
                         resizeRetryIdentity = identity;
                         lastResize = identity;
                         lastResizeSentAt = Date.now();
@@ -1575,8 +1591,13 @@
                             resizeRetryAttempts = 0;
                             resizeStalled = false;
                             // The geometry converged: clear a "kept its own
-                            // size" line left behind by an earlier stall.
-                            updateMediaStatus();
+                            // size" line left behind by an earlier stall,
+                            // and only that line — a keyboard-capture or
+                            // clipboard message must survive a resize.
+                            if (resizeStatusShown) {
+                                resizeStatusShown = false;
+                                updateMediaStatus();
+                            }
                             return;
                         }
                         if (resizeRetryAttempts < 16) {
@@ -1596,7 +1617,8 @@
                         resizeStalled = true;
                         if (guestAsleepHint || guestFrameIsDark() === null) { return; }
                         status.textContent = gettext('Guest display kept its own size. If the guest is asleep or locked, move the mouse or press a key here.');
-                        revealToolbar();
+                        if (!resizeStatusShown) { revealToolbar(); }
+                        resizeStatusShown = true;
                     }, 250);
                 };
                 if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); resizeTimer = null; }
@@ -1612,10 +1634,20 @@
                 if (!resizeStalled || closed) { return; }
                 const now = Date.now();
                 if (now - lastStalledRetryAt < 3000) { return; }
+                // A guest that keeps its own mode after several wake
+                // attempts is one that cannot follow the window at all
+                // (Standard VGA rejects Display1 resize requests); leave it
+                // letterboxed rather than asking again on every gesture.
+                if (stalledRetryCount >= 6) { return; }
+                stalledRetryCount += 1;
                 lastStalledRetryAt = now;
                 resizeRetryAttempts = 8;
                 lastResize = '';
                 resize(true);
+            };
+            noteGuestInput = () => {
+                lastInputSentAt = Date.now();
+                retryStalledResize();
             };
             const flushPointer = (reliable = false) => {
                 if (pointerFrame !== null) {
@@ -1633,7 +1665,7 @@
                 else { sendPointer(value); }
             };
             const queuePointer = (value) => {
-                retryStalledResize();
+                noteGuestInput();
                 const sample = { ...value, sequence: pointerSequence };
                 pointerSequence = (pointerSequence + 1) >>> 0;
                 latestPointer = sample;
@@ -1730,13 +1762,17 @@
             // to the newer Console request.
             video.addEventListener('resize', () => {
                 placeGuestCursor();
-                const visible = `${video.videoWidth}x${video.videoHeight}@60`;
+                // The retry identity carries the session FPS; a literal
+                // "@60" here left the convergence branch unreachable for
+                // any other target frame rate.
+                const visible = `${video.videoWidth}x${video.videoHeight}@${sessionFps}`;
                 if (visible === resizeRetryIdentity) {
                     resizeRetryAttempts = 0;
-                    if (resizeStalled) {
+                    resizeStalled = false;
+                    if (resizeStatusShown) {
                         // A guest that woke up adopted the stalled request
                         // on its own: drop the "kept its own size" line.
-                        resizeStalled = false;
+                        resizeStatusShown = false;
                         updateMediaStatus();
                     }
                     return;

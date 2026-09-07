@@ -1,23 +1,29 @@
 # Measured comparison: QSM Direct and stock noVNC
 
-Every number on this page was produced by the scripts in `lab/proxmox9/` on
-2026-09-07, through the visible PVE 9 web UI, with the shipped console
-surfaces (the QSM Direct `<video>` and noVNC's RFB `<canvas>`). They are
-single 10-second samples, not a benchmark suite, and they describe the
-laboratory below, not a promise for other hardware or networks.
+Unless stated otherwise, every number on this page was produced by
+`lab/proxmox9/measure-console-scenarios.cjs` on 2026-09-07, through the
+visible PVE 9 web UI, with the shipped console surfaces (the QSM Direct
+`<video>` and noVNC's RFB `<canvas>`). Each workload is one 10-second sample
+and hover latency is the median of five runs; they are not a benchmark suite,
+and they describe the laboratory below, not a promise for other hardware or
+networks. The 2026-09-06 section at the end predates the scenario fixture and
+came from the older scripts named there; the GPU utilisation figures were read
+from `nvidia-smi` on the node.
 
 ## Environments
 
 | Label | Node | Guest display | Encoder | Guest | Measuring browser |
 | --- | --- | --- | --- | --- | --- |
-| VirGL + QSM (GPU node) | PVE 9, AMD Ryzen Threadripper PRO 5975WX, NVIDIA RTX 3080 | `virtio-vga-gl`, GL Display1 | `h264_nvenc` (HEVC available, not used by the measuring Chromium) | Ubuntu 26.04, KDE Plasma 6 Wayland, 8 vCPU, Firefox kiosk fixture | Chromium 152.0.7977.75 on the node, headless, 1280×800 |
+| VirGL + QSM (GPU node) | PVE 9, AMD Ryzen Threadripper PRO 5975WX, NVIDIA RTX 3080 | `virtio-vga-gl`, GL Display1 | `h264_nvenc` (HEVC available, not offered by the measuring Chromium) | Ubuntu 26.04, KDE Plasma 6 Wayland, 8 vCPU, Firefox kiosk fixture | Chromium 152.0.7977.75 on the node, headless, 1280×800 |
 | VirGL + QSM (nested lab) | nested PVE 9 VM, 8 vCPU, 7.9 GiB | `virtio-vga-gl`, GL Display1 | `libx264` (CPU) | Debian 13, Weston + Chrome kiosk fixture, 4 vCPU, 4 GiB | Google Chrome 152.0.7977.75 in a 4-vCPU browser VM, headless, 1280×800 |
 | VGA + QSM (nested lab) | same nested node | `std` VGA, non-GL Display1 | `libx264` (CPU) | same fixture image, 4 vCPU, 4 GiB | same browser VM |
 | VGA + noVNC (nested lab) | same nested node | `std` VGA, QEMU VNC | none (RFB rectangles) | the same VM as the row above | same browser VM |
 
 The nested guests render with software GL; their own frame rate is the
 ceiling for both transports. The two VGA rows are the *same* VM measured
-through the two consoles minutes apart.
+through the two consoles minutes apart. No sample carried audio: the clip is
+played muted and the cached file has no audio track, so every bandwidth figure
+is video plus signalling only.
 
 ## Workloads
 
@@ -31,9 +37,11 @@ Alt+1..4 (see `lab/proxmox9/scenarios/`):
 
 ## Metrics
 
-* **Distinct pictures per second** — how many visibly different pictures reached the browser surface. A picture counts when, in a 160×90 downscale, at least 0.5 % of cells changed their luma by more than 16 *or* the mean absolute luma change is ≥ 0.25. An H.264 repeat frame and an untouched RFB canvas both count as "nothing new".
+* **Distinct pictures per second** — how many visibly different pictures reached the browser surface. A picture counts when, in a 160×90 downscale, at least 0.5 % of cells changed their luma by more than 16 *or* the mean absolute luma change is ≥ 0.25. An H.264 repeat frame and an untouched RFB canvas both count as "nothing new". The detector can exceed a source frame rate when the guest presents partial or torn updates between frames, which is what the 37.5 for the nested VirGL guest below reflects.
 * **Picture gap p95 / max** — the 95th percentile and the longest interval between two distinct pictures: the objective counterpart of "smooth" versus "jerky".
-* **Received Mbit/s** — bytes the browser received for the console during the sample: WebRTC inbound-rtp video+audio for QSM Direct, RFB WebSocket payload for noVNC.
+* **Received Mbit/s** — bytes the browser received for the console during the sample: WebRTC inbound-rtp for QSM Direct, RFB WebSocket payload for noVNC.
+* **Decoded / dropped frames** — WebRTC `inbound-rtp` `framesDecoded` per second and `framesDropped`; the encoder runs at a constant 60 fps, so this is the transport cadence, not the number of different pictures. Only recorded for the clip.
+* **RFB updates per second** — WebSocket frames on noVNC's RFB connection; a transport counter with no QSM Direct equivalent.
 * **Hover latency** — pointer moved from a neutral spot onto the fixture's blue icon; time until the magenta hover popup is visible on the browser surface. Median of five runs. Includes the guest's own repaint in both cases.
 * **Time to first picture** — Console menu click to a decodable/painted picture. noVNC paints a canvas from the first rectangle; QSM Direct needs SDP, DTLS, a configuration frame and a decoded frame.
 
@@ -43,10 +51,11 @@ Alt+1..4 (see `lab/proxmox9/scenarios/`):
 
 | | VirGL + QSM (GPU node) | VirGL + QSM (nested) | VGA + QSM (nested) | VGA + noVNC (nested) |
 | --- | ---: | ---: | ---: | ---: |
-| Distinct pictures / s | 28.2 | 37.5 | 26.6 | 7.4 |
+| Distinct pictures / s | 28.2 | 37.5 (see Metrics) | 26.6 | 7.4 |
 | Picture gap p95 / max | 67 / 101 ms | 39 / 53 ms | 67 / 148 ms | 175 / 355 ms |
 | Received | 20.1 Mbit/s | 18.8 Mbit/s | 19.6 Mbit/s | 120.4 Mbit/s |
-| Decoded / dropped frames | 60 fps / 0 | 60 fps / 0 | 59.8 fps / 0 | 180 RFB frames/s |
+| Decoded fps / dropped (WebRTC) | 60 / 0 | 60 / 0 | 59.8 / 0 | n/a |
+| RFB updates / s | n/a | n/a | n/a | 180 |
 
 ### Scrolling a long document (240 px/s)
 
@@ -72,7 +81,7 @@ Alt+1..4 (see `lab/proxmox9/scenarios/`):
 | Idle desktop, received | 0.71 Mbit/s | 0.55 Mbit/s | 0.55 Mbit/s | 0.001 Mbit/s |
 | Jitter buffer, idle mean | 15.8 ms | 7.5 ms | 7.8 ms | n/a |
 | Time to first picture | 3.5 s | 3.4 s | 3.4 s | 1.0 s |
-| GPU during the animated scene | 13 % GPU, 4 % NVENC | n/a | n/a | n/a |
+| Node cost during the animated scene | 13 % GPU, 4 % NVENC (`nvidia-smi`, read once during the scene) | n/a | ≈ 43 % of one core (`ps` lifetime average of the worker process) | n/a |
 
 ### Earlier input-to-pixel results (same lab, 2026-09-06)
 
@@ -86,12 +95,16 @@ on the VGA guest, before the scenario fixture existed:
 | Browser MouseEvent to painted guest-window drag, 1 run | 386.7 ms first paint; 216.0 ms median; 851.9 ms p95; 80.5 px p95 visual lag | n/a |
 | Browser video playout buffering | 7.65 ms mean | n/a |
 
+The drag row is the only drag measurement so far and it is not good: on the
+CPU-only nested lab a held window trailed the pointer by 80 px at p95. It has
+not been re-measured on a GPU node yet.
+
 ## Reading the numbers
 
 * On every workload with motion, QSM Direct delivers more of the guest's frames with a shorter and steadier gap between them, at a fraction of noVNC's bandwidth for video (19–20 Mbit/s against 120 Mbit/s) and animation (9–17 Mbit/s against 32 Mbit/s).
-* The VirGL guests render more smoothly themselves (36–52 pictures/s against 12–16 for the software-VGA guest), so VirGL + QSM Direct is the configuration that turns a VM into a desktop that feels local.
-* noVNC remains faster for two things: the first picture after opening the Console (about a second, since it needs no codec negotiation) and a single isolated pointer event (about 20 ms less hover latency in the nested lab). It also costs nothing while the screen is idle. Firmware, installers and text consoles stay the natural home of noVNC.
-* The GPU node numbers use H.264 through NVENC because the measuring Chromium does not offer HEVC in WebRTC. A browser that does (Safari on Apple silicon, Chrome with hardware HEVC) negotiates `hevc_nvenc` automatically on that node.
+* On the scrolling and animated workloads the VirGL guests render more smoothly themselves (36–52 pictures/s against 14–16 for the software-VGA guest through QSM Direct and 11–12 through noVNC), so VirGL + QSM Direct is the configuration that turns a VM into a desktop that feels local. For the clip the transport, not the guest, makes the difference: 26.6 against 7.4 on the very same VM.
+* noVNC remains faster for two things: the first picture after opening the Console (about a second, since it needs no codec negotiation) and a single isolated pointer event (about 20 ms less hover latency in the nested lab). It also costs nothing while the screen is idle. Firmware, installers and text consoles stay the natural home of noVNC on a VM that still has a VNC server.
+* The GPU node numbers use H.264 through NVENC because the measuring Chromium does not offer HEVC in WebRTC. A browser whose offer contains `video/H265` negotiates `hevc_nvenc` automatically on that node; no such browser session has been qualified yet.
 
 ## Reproduce
 
@@ -123,4 +136,6 @@ node lab/proxmox9/measure-console-scenarios.cjs --transport novnc ... --report n
 
 `--scenarios 5` holds the document still and scrolls it with the console's
 own mouse wheel; it verifies the wheel direction rather than the transport.
-The script prints one JSON object and never writes credentials, SDP or pixels.
+The script prints one `QSM_SCENARIO_MEASUREMENT {...}` line to stdout and,
+with `--report`, writes the same JSON object to that file; it never writes
+credentials, SDP or pixels.

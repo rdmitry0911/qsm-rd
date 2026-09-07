@@ -956,12 +956,22 @@ class DirectSessionManager:
                 )
                 await self._close_vmid_sessions(session.vmid)
                 return
-            if session.expires_at <= time.monotonic():
+            now = time.monotonic()
+            if session.bridge.connection_state == "connected":
+                # SESSION_IDLE_SECONDS is an idle lease, not a lifetime: a
+                # browser whose WebRTC peer is still connected is not idle.
+                # Without this refresh every Console closed exactly ten
+                # minutes after it opened and reported the VM as stopped.
+                # The lease now runs from the last moment the peer was
+                # connected, which still reclaims a browser that vanished
+                # without an ICE failure.
+                session.expires_at = now + SESSION_IDLE_SECONDS
+            elif session.expires_at <= now:
                 await self._close_session(identifier)
                 return
             if (session.negotiation_expires_at and
                     session.bridge.connection_state != "connected" and
-                    session.negotiation_expires_at <= time.monotonic()):
+                    session.negotiation_expires_at <= now):
                 print(
                     f"qsm-direct-terminal: WebRTC negotiation timed out vmid={session.vmid}",
                     file=sys.stderr,

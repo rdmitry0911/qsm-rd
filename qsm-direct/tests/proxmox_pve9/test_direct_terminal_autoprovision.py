@@ -328,6 +328,61 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             finally:
                 manager.close()
 
+    def test_connected_browser_session_is_not_closed_by_the_idle_lease(self) -> None:
+        """A live WebRTC peer refreshes its lease; a vanished one still expires."""
+        class LiveWorker:
+            def poll(self) -> None:
+                return None
+
+        class StateBridge:
+            closed = False
+
+            def __init__(self, state: str) -> None:
+                self.connection_state = state
+
+            async def close(self) -> None:
+                self.closed = True
+
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-session-lease.") as temporary:
+            root = Path(temporary)
+            for name in ("instances", "qemu-server", "sessions", "display"):
+                (root / name).mkdir(mode=0o700)
+            manager = DirectSessionManager(
+                instance_directory=root / "instances",
+                runtime_directory=root / "sessions",
+                vm_runtime_directory=root / "display",
+                pve_config_directory=root / "qemu-server",
+                local_node=None,
+            )
+            try:
+                sessions = {}
+                for name, state in (("connected", "connected"), ("vanished", "disconnected")):
+                    directory = root / "sessions" / "vm-321" / name
+                    directory.parent.mkdir(mode=0o700, exist_ok=True)
+                    directory.mkdir(mode=0o700)
+                    bridge = StateBridge(state)
+                    # An already expired lease: only a connected peer survives it.
+                    manager._sessions[name] = DirectSession(
+                        vmid=321, bridge=bridge, worker=LiveWorker(), directory=directory,
+                        expires_at=time.monotonic() - 1)
+                    sessions[name] = (bridge, directory)
+                vanished = asyncio.run_coroutine_threadsafe(
+                    manager._watch_session("vanished"), manager._loop)
+                vanished.result(timeout=2)
+                self.assertTrue(sessions["vanished"][0].closed)
+                self.assertNotIn("vanished", manager._sessions)
+
+                connected = asyncio.run_coroutine_threadsafe(
+                    manager._watch_session("connected"), manager._loop)
+                time.sleep(0.8)
+                self.assertFalse(connected.done())
+                self.assertFalse(sessions["connected"][0].closed)
+                self.assertIn("connected", manager._sessions)
+                self.assertGreater(manager._sessions["connected"].expires_at, time.monotonic() + 60)
+                connected.cancel()
+            finally:
+                manager.close()
+
     def test_replacing_a_browser_console_closes_only_that_vms_old_session(self) -> None:
         class ExitedWorker:
             def poll(self) -> int:

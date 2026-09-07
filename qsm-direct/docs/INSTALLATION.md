@@ -8,9 +8,9 @@ systemctl enable --now qsm-pve-direct-terminal.service
 systemctl status qsm-pve-direct-terminal.service
 ```
 
-The package safely adds a small PVE UI script only for the `pve-manager` versions it knows. On an unsupported version it restores the stock template instead of applying an unsafe patch.
+The package safely adds a small PVE UI script only for the `pve-manager` versions it knows. On an unsupported version it restores the stock template instead of applying an unsafe patch. The API module is likewise loaded only on the qualified `pve-manager` 9.2.11 / `qemu-server` 9.2.7 with matching checksums of the hooked PVE Perl files; on any other version the stock daemons run untouched and the console route is absent until a matching package is installed.
 
-In **Hardware → Display → Advanced**, enable **QSM Display1**.
+As `root@pam` (the setting edits the VM's `args:` line, which Proxmox reserves for root), open **Hardware → Display → Advanced** and enable **QSM Display1**. Then **stop and start the VM**: the new display devices exist only after QEMU is relaunched, and a reboot from inside the guest is not enough.
 
 - **VirGL GPU (GL):** QSM creates a private `virtio-vga-gl` and GL D-Bus display. VNC is not used with that GL backend.
 - **CPU — Standard VGA or VirtIO (no GL):** the selected PVE `std` or non-GL `virtio` adapter remains in place and QSM adds a non-GL D-Bus display. No GPU or render node is required; stock VNC may run in parallel.

@@ -117,12 +117,18 @@ assert.match(source, /Guest display kept its own size\. If the guest is asleep o
     'a missed guest resize must be visible and name the wake action rather than silently leaving a letterboxed console');
 assert.match(source, /resizeStalled = true;\s*if \(guestAsleepHint \|\| guestFrameIsDark\(\) === null\) \{ return; \}/,
     'after the fast retry budget the Console must stop re-sending and defer to the sleep hint or to a missing picture');
-assert.match(source, /retryStalledResize = \(\) => \{[\s\S]*?if \(now - lastStalledRetryAt < 3000\) \{ return; \}[\s\S]*?resizeRetryAttempts = 8;/,
-    'a stalled resize must be re-issued once per wake attempt with a short verification burst, not an endless loop');
-for (const hook of ['const queuePointer = (value) => {\n                retryStalledResize();',
-    'retryStalledResize();\n            if (down) {']) {
-    assert.ok(source.includes(hook), 'ordinary pointer and key input must re-issue a stalled Display1 resize');
+assert.match(source, /retryStalledResize = \(\) => \{[\s\S]*?if \(now - lastStalledRetryAt < 3000\) \{ return; \}[\s\S]*?if \(stalledRetryCount >= 6\) \{ return; \}[\s\S]*?resizeRetryAttempts = 8;/,
+    'a stalled resize must be re-issued once per wake attempt, at most six times, with a short verification burst');
+for (const hook of ['const queuePointer = (value) => {\n                noteGuestInput();',
+    'noteGuestInput();\n            if (down) {']) {
+    assert.ok(source.includes(hook), 'ordinary pointer and key input must note guest input and re-issue a stalled Display1 resize');
 }
+assert.match(source, /const visible = `\$\{video\.videoWidth\}x\$\{video\.videoHeight\}@\$\{sessionFps\}`;/,
+    'the decoded-resize identity must carry the session FPS, or convergence is never recognised off 60 FPS');
+assert.match(source, /Date\.now\(\) - lastInputSentAt > 5000\) \{\s*guestAsleepHint = true;/,
+    'a black picture right after input is not a sleeping guest; the wake hint must wait');
+assert.match(source, /if \(resizeStatusShown\) \{\s*resizeStatusShown = false;\s*updateMediaStatus\(\);/,
+    'convergence must restore Connected only when the status line holds the resize text');
 assert.doesNotMatch(source, /Guest display did not acknowledge this window size\./,
     'an unadopted resize must not dead-end in a permanent message while the guest may merely be asleep');
 assert.match(source, /Guest display looks asleep\. Move the mouse or press a key here to wake it\./,
