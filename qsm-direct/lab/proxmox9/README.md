@@ -9,6 +9,7 @@ These tools exercise real PVE 9, QEMU Display1, and a browser WebRTC peer. They 
 - `measure-direct-browser-e2e.py` records Chrome WebRTC receive-side metrics.
 - `measure-novnc-browser-e2e.cjs` records aggregate traffic from PVE's stock noVNC split-menu item for a like-for-like lab comparison.
 - `measure-console-scenarios.cjs` drives the shipped QSM Direct popup or the stock noVNC popup through the PVE UI, switches the guest between the `scenarios/` pages with Alt+1..5 inside the console, and reports visible pictures per second, picture gaps, received bandwidth, WebRTC decoder statistics and hover latency. Its results are collected in [docs/COMPARISON.md](../../docs/COMPARISON.md).
+- `measure-interaction.cjs` measures hover and window-drag redraw latency at the browser surface, timed from the browser's own mouse-event (not from Playwright's injection), for a like-for-like QSM/noVNC interaction comparison.
 - `build-scenario-seed.py` turns the reviewed `hover-gate-102` cloud-init fixture into a scenario guest: it adds the `scenarios/` pages, a local H.264 clip and a maintenance SSH key.
 - `probe-display-sleep-recovery.cjs` opens the QSM Direct popup for a guest whose compositor may have turned its output off, records the console status and decoded-picture timeline, optionally blanks the guest mid-session (`--sleep-cmd`) and resizes the popup, then wakes the guest with real browser mouse or key input.
 

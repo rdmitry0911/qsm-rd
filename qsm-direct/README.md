@@ -70,25 +70,26 @@ commands: [docs/COMPARISON.md](docs/COMPARISON.md).
 
 **Motion — pictures/s, p95 gap**
 
-| Workload in the VM | VirGL + QSM Direct | Standard VGA + QSM Direct | Standard VGA + stock noVNC |
-| --- | ---: | ---: | ---: |
-| 720p clip, 30 fps source | source rate¹, 39 ms | 26.6, 67 ms | 7.4, 175 ms |
-| Scrolling a long document | 36.2, 39 ms | 14.4, 118 ms | 12.0, 134 ms |
-| Animated UI, dashboards | 38.5, 34 ms | 16.2, 115 ms | 11.0, 152 ms |
+| Workload in the VM | VirGL + QSM Direct | Standard VGA + QSM Direct | Standard VGA + stock noVNC | VirGL + stock noVNC |
+| --- | ---: | ---: | ---: | ---: |
+| 720p clip, 30 fps source | source rate¹, 39 ms | 26.6, 67 ms | 7.4, 175 ms | no picture³ |
+| Scrolling a long document | 36.2, 39 ms | 14.4, 118 ms | 12.0, 134 ms | no picture³ |
+| Animated UI, dashboards | 38.5, 34 ms | 16.2, 115 ms | 11.0, 152 ms | no picture³ |
 
 **Cost and capabilities**
 
-| | VirGL + QSM Direct | Standard VGA + QSM Direct | Standard VGA + stock noVNC |
-| --- | ---: | ---: | ---: |
-| Bandwidth, 720p clip | 18.8 Mbit/s | 19.6 Mbit/s | 120 Mbit/s |
-| Bandwidth, animated UI | 12.8 Mbit/s | 9.0 Mbit/s | 31.6 Mbit/s |
-| Bandwidth, idle desktop | 0.55 Mbit/s | 0.55 Mbit/s | ≈ 0 |
-| Hover the pointer over an icon | 86 ms until its popup shows | 85 ms | 65 ms |
-| Console opens to first picture | 3.4 s | 3.4 s | 1.0 s |
-| Guest resolution follows the window | yes | no (fixed mode, scaled) | no |
-| Guest OpenGL / 3D applications | yes | no | no |
-| Node CPU per open console (`libx264`) | ≈ ½ core² | ≈ ½ core² | none |
-| Needed on the node | a DRM render device (`/dev/dri/renderD*`) + any encoder | any encoder | nothing |
+| | VirGL + QSM Direct | Standard VGA + QSM Direct | Standard VGA + stock noVNC | VirGL + stock noVNC |
+| --- | ---: | ---: | ---: | ---: |
+| Bandwidth, 720p clip | 18.8 Mbit/s | 19.6 Mbit/s | 120 Mbit/s | — |
+| Bandwidth, animated UI | 12.8 Mbit/s | 9.0 Mbit/s | 31.6 Mbit/s | — |
+| Bandwidth, idle desktop | 0.55 Mbit/s | 0.55 Mbit/s | ≈ 0 | — |
+| Pointer onto an icon → hover popup⁴ | 65 ms | 76 ms | see note⁴ | no picture³ |
+| Window drag → painted motion⁴ | 81 ms, 39 px lag | 216 ms, 50 px lag | see note⁴ | no picture³ |
+| Console opens to first picture | 3.4 s | 3.4 s | 1.0 s | — |
+| Guest resolution follows the window | yes | no (fixed mode, scaled) | no | — |
+| Guest OpenGL / 3D applications | yes | no | no | no |
+| Node CPU per open console (`libx264`) | ≈ ½ core² | ≈ ½ core² | none | — |
+| Needed on the node | a DRM render device (`/dev/dri/renderD*`) + any encoder | any encoder | nothing | — |
 
 ¹ The sampler counted 37.5 pictures/s on the VirGL guest, above the clip's
 30 fps: the software-GL guest presents intermediate partial updates that the
@@ -96,19 +97,27 @@ change detector counts. Read it as "the full source rate".
 ² Lifetime average of the worker process during the animated scene on the
 nested node; NVENC on the RTX 3080 node used 13 % of the GPU and 4 % of its
 encoder during the same workload.
+³ The VirGL profile sets the PVE graphics card to *none*, so QEMU's VNC
+server has no 2D framebuffer to serve: stock noVNC on a VirGL VM stays black.
+The guest is visible only through QSM Direct while that profile is active.
+⁴ Measured with `lab/proxmox9/measure-interaction.cjs`, timing from the
+browser's own mouse-event to the painted response (median of five hover runs;
+one drag run). The earlier "hover ≈ 65 ms, noVNC faster" figure was a
+measurement artifact — its clock started before the pointer move was even
+injected. With the corrected clock QSM's hover is 65–76 ms; the harness could
+not drive stock noVNC's fixture hover/drag reliably, so its interaction
+latency is not quoted here rather than published as a number we do not trust.
 
 The same VirGL + QSM Direct workloads on a real node with an **RTX 3080**
 (NVENC H.264, an Ubuntu 26.04 KDE guest) reached 28 pictures/s for the 30 fps
 clip with 0 dropped frames, **52 pictures/s** for the scrolling document and
-**45 pictures/s** for the animated scene, with 34–67 ms p95 gaps. Hover latency
-there was 102 ms.
+**45 pictures/s** for the animated scene, with 34–67 ms p95 gaps.
 
 Where noVNC is still the better tool: the first picture after opening the
-Console (it needs no codec negotiation), a single isolated pointer event
-(about 20 ms less), zero bandwidth on an idle screen, and anything before an
-OS is running — firmware, installers, recovery, text consoles — on a VM that
-still has a VNC server. QSM Direct is for the hours you spend *inside* a
-running desktop.
+Console (it needs no codec negotiation), zero bandwidth on an idle screen,
+and anything before an OS is running — firmware, installers, recovery, text
+consoles — on a VM that still has a VNC server (the Standard VGA profile, not
+VirGL). QSM Direct is for the hours you spend *inside* a running desktop.
 
 ## Requirements
 

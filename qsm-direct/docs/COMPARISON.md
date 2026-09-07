@@ -77,11 +77,34 @@ Alt+1..4 (see `lab/proxmox9/scenarios/`):
 
 | | VirGL + QSM (GPU node) | VirGL + QSM (nested) | VGA + QSM (nested) | VGA + noVNC (nested) |
 | --- | ---: | ---: | ---: | ---: |
-| Hover latency, median of 5 | 101.8 ms | 86.0 ms | 85.2 ms | 64.5 ms |
 | Idle desktop, received | 0.71 Mbit/s | 0.55 Mbit/s | 0.55 Mbit/s | 0.001 Mbit/s |
 | Jitter buffer, idle mean | 15.8 ms | 7.5 ms | 7.8 ms | n/a |
 | Time to first picture | 3.5 s | 3.4 s | 3.4 s | 1.0 s |
 | Node cost during the animated scene | 13 % GPU, 4 % NVENC (`nvidia-smi`, read once during the scene) | n/a | ≈ 43 % of one core (`ps` lifetime average of the worker process) | n/a |
+
+### Interaction latency (2026-09-07, corrected method)
+
+Measured with `measure-interaction.cjs`, which times from the browser's own
+mouse-event to the painted response (`requestVideoFrameCallback` on the QSM
+video, `requestAnimationFrame` on the noVNC canvas). This replaces the earlier
+hover figures, whose clock started *before* Playwright injected the pointer
+move — that artefact inflated every number and made noVNC look faster. The
+earlier "Hover latency, median of 5" row (101.8 / 86.0 / 85.2 / 64.5 ms) is
+withdrawn.
+
+| | VirGL + QSM (nested) | VGA + QSM (nested) | noVNC |
+| --- | ---: | ---: | ---: |
+| Pointer onto icon → hover popup, median of 5 | 65.5 ms | 76.3 ms | see note |
+| Window drag → first painted motion | 81 ms | 216 ms | see note |
+| Window drag → p95 visual lag | 39 px | 50 px | see note |
+
+noVNC: on the VirGL VM stock noVNC shows no picture at all (the profile sets
+the PVE graphics card to *none*, so QEMU's VNC server has no framebuffer). On
+the VGA VM the harness could not drive noVNC's guest-side hover and drag
+reliably (the fixture popup would not reset between runs and the drag did not
+register), so no noVNC interaction figure is quoted rather than one we do not
+trust. The corrected numbers already overturn the earlier claim that noVNC was
+faster for a single event: QSM's hover is 65–76 ms end to end.
 
 ### Earlier input-to-pixel results (same lab, 2026-09-06)
 
@@ -103,7 +126,7 @@ not been re-measured on a GPU node yet.
 
 * On every workload with motion, QSM Direct delivers more of the guest's frames with a shorter and steadier gap between them, at a fraction of noVNC's bandwidth for video (19–20 Mbit/s against 120 Mbit/s) and animation (9–17 Mbit/s against 32 Mbit/s).
 * On the scrolling and animated workloads the VirGL guests render more smoothly themselves (36–52 pictures/s against 14–16 for the software-VGA guest through QSM Direct and 11–12 through noVNC), so VirGL + QSM Direct is the configuration that turns a VM into a desktop that feels local. For the clip the transport, not the guest, makes the difference: 26.6 against 7.4 on the very same VM.
-* noVNC remains faster for two things: the first picture after opening the Console (about a second, since it needs no codec negotiation) and a single isolated pointer event (about 20 ms less hover latency in the nested lab). It also costs nothing while the screen is idle. Firmware, installers and text consoles stay the natural home of noVNC on a VM that still has a VNC server.
+* noVNC remains faster for the first picture after opening the Console (about a second, since it needs no codec negotiation) and costs nothing while the screen is idle. The earlier claim that it also won a single isolated pointer event did not survive the corrected interaction measurement above. Firmware, installers and text consoles stay the natural home of noVNC on a VM that still has a VNC server — which excludes the VirGL profile, where noVNC shows nothing.
 * The GPU node numbers use H.264 through NVENC because the measuring Chromium does not offer HEVC in WebRTC. A browser whose offer contains `video/H265` negotiates `hevc_nvenc` automatically on that node; no such browser session has been qualified yet.
 
 ## Reproduce
