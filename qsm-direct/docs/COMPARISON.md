@@ -18,6 +18,7 @@ from `nvidia-smi` on the node.
 | VirGL + QSM (nested lab) | nested PVE 9 VM, 8 vCPU, 7.9 GiB | `virtio-vga-gl`, GL Display1 | `libx264` (CPU) | Debian 13, Weston + Chrome kiosk fixture, 4 vCPU, 4 GiB | Google Chrome 152.0.7977.75 in a 4-vCPU browser VM, headless, 1280×800 |
 | VGA + QSM (nested lab) | same nested node | `std` VGA, non-GL Display1 | `libx264` (CPU) | same fixture image, 4 vCPU, 4 GiB | same browser VM |
 | VGA + noVNC (nested lab) | same nested node | `std` VGA, QEMU VNC | none (RFB rectangles) | the same VM as the row above | same browser VM |
+| VirGL + noVNC (nested lab) | same nested node | `virtio` VirtIO-GPU, QEMU VNC, **QSM Display1 off** | none (RFB rectangles) | the VirGL VM with the QSM profile disabled | same browser VM |
 
 The nested guests render with software GL; their own frame rate is the
 ceiling for both transports. The two VGA rows are the *same* VM measured
@@ -49,29 +50,29 @@ Alt+1..4 (see `lab/proxmox9/scenarios/`):
 
 ### Watching a 720p clip (30 fps source)
 
-| | VirGL + QSM (GPU node) | VirGL + QSM (nested) | VGA + QSM (nested) | VGA + noVNC (nested) |
-| --- | ---: | ---: | ---: | ---: |
-| Distinct pictures / s | 28.2 | 37.5 (see Metrics) | 26.6 | 7.4 |
-| Picture gap p95 / max | 67 / 101 ms | 39 / 53 ms | 67 / 148 ms | 175 / 355 ms |
-| Received | 20.1 Mbit/s | 18.8 Mbit/s | 19.6 Mbit/s | 120.4 Mbit/s |
-| Decoded fps / dropped (WebRTC) | 60 / 0 | 60 / 0 | 59.8 / 0 | n/a |
-| RFB updates / s | n/a | n/a | n/a | 180 |
+| | VirGL + QSM (GPU node) | VirGL + QSM (nested) | VGA + QSM (nested) | VGA + noVNC (nested) | VirGL + noVNC (nested) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Distinct pictures / s | 28.2 | 37.5 (see Metrics) | 26.6 | 7.4 | 6.9 |
+| Picture gap p95 / max | 67 / 101 ms | 39 / 53 ms | 67 / 148 ms | 175 / 355 ms | 197 / 418 ms |
+| Received | 20.1 Mbit/s | 18.8 Mbit/s | 19.6 Mbit/s | 120.4 Mbit/s | 112.8 Mbit/s |
+| Decoded fps / dropped (WebRTC) | 60 / 0 | 60 / 0 | 59.8 / 0 | n/a | n/a |
+| RFB updates / s | n/a | n/a | n/a | 180 | 175 |
 
 ### Scrolling a long document (240 px/s)
 
-| | VirGL + QSM (GPU node) | VirGL + QSM (nested) | VGA + QSM (nested) | VGA + noVNC (nested) |
-| --- | ---: | ---: | ---: | ---: |
-| Distinct pictures / s | 51.7 | 36.2 | 14.4 | 12.0 |
-| Picture gap p95 / max | 34 / 84 ms | 39 / 52 ms | 118 / 158 ms | 134 / 200 ms |
-| Received | 9.8 Mbit/s | 5.5 Mbit/s | 12.7 Mbit/s | 15.4 Mbit/s |
+| | VirGL + QSM (GPU node) | VirGL + QSM (nested) | VGA + QSM (nested) | VGA + noVNC (nested) | VirGL + noVNC (nested) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Distinct pictures / s | 51.7 | 36.2 | 14.4 | 12.0 | 21.6 |
+| Picture gap p95 / max | 34 / 84 ms | 39 / 52 ms | 118 / 158 ms | 134 / 200 ms | 74 / 98 ms |
+| Received | 9.8 Mbit/s | 5.5 Mbit/s | 12.7 Mbit/s | 15.4 Mbit/s | 28.4 Mbit/s |
 
 ### Animated scene (full-window motion)
 
-| | VirGL + QSM (GPU node) | VirGL + QSM (nested) | VGA + QSM (nested) | VGA + noVNC (nested) |
-| --- | ---: | ---: | ---: | ---: |
-| Distinct pictures / s | 44.8 | 38.5 | 16.2 | 11.0 |
-| Picture gap p95 / max | 34 / 51 ms | 34 / 50 ms | 115 / 184 ms | 152 / 274 ms |
-| Received | 17.0 Mbit/s | 12.8 Mbit/s | 9.0 Mbit/s | 31.6 Mbit/s |
+| | VirGL + QSM (GPU node) | VirGL + QSM (nested) | VGA + QSM (nested) | VGA + noVNC (nested) | VirGL + noVNC (nested) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Distinct pictures / s | 44.8 | 38.5 | 16.2 | 11.0 | 11.6 |
+| Picture gap p95 / max | 34 / 51 ms | 34 / 50 ms | 115 / 184 ms | 152 / 274 ms | 116 / 188 ms |
+| Received | 17.0 Mbit/s | 12.8 Mbit/s | 9.0 Mbit/s | 31.6 Mbit/s | 29.1 Mbit/s |
 
 ### Everything else
 
@@ -98,9 +99,11 @@ withdrawn.
 | Window drag → first painted motion | 81 ms | 216 ms | see note |
 | Window drag → p95 visual lag | 39 px | 50 px | see note |
 
-noVNC: on the VirGL VM stock noVNC shows no picture at all (the profile sets
-the PVE graphics card to *none*, so QEMU's VNC server has no framebuffer). On
-the VGA VM the harness could not drive noVNC's guest-side hover and drag
+noVNC: QSM Direct and noVNC are alternatives on one VM, not simultaneous. The
+QSM Display1 profile sets the PVE graphics card to *none*, so noVNC is black
+while that profile is active; the VirGL + noVNC column is the same guest with
+QSM Display1 turned off (a VirtIO-GPU card QEMU's VNC can serve). On the VGA
+VM the harness could not drive noVNC's guest-side hover and drag
 reliably (the fixture popup would not reset between runs and the drag did not
 register), so no noVNC interaction figure is quoted rather than one we do not
 trust. The corrected numbers already overturn the earlier claim that noVNC was
@@ -126,7 +129,8 @@ not been re-measured on a GPU node yet.
 
 * On every workload with motion, QSM Direct delivers more of the guest's frames with a shorter and steadier gap between them, at a fraction of noVNC's bandwidth for video (19–20 Mbit/s against 120 Mbit/s) and animation (9–17 Mbit/s against 32 Mbit/s).
 * On the scrolling and animated workloads the VirGL guests render more smoothly themselves (36–52 pictures/s against 14–16 for the software-VGA guest through QSM Direct and 11–12 through noVNC), so VirGL + QSM Direct is the configuration that turns a VM into a desktop that feels local. For the clip the transport, not the guest, makes the difference: 26.6 against 7.4 on the very same VM.
-* noVNC remains faster for the first picture after opening the Console (about a second, since it needs no codec negotiation) and costs nothing while the screen is idle. The earlier claim that it also won a single isolated pointer event did not survive the corrected interaction measurement above. Firmware, installers and text consoles stay the natural home of noVNC on a VM that still has a VNC server — which excludes the VirGL profile, where noVNC shows nothing.
+* noVNC remains faster for the first picture after opening the Console (about a second, since it needs no codec negotiation) and costs nothing while the screen is idle. The earlier claim that it also won a single isolated pointer event did not survive the corrected interaction measurement above. Firmware, installers and text consoles stay the natural home of noVNC on a VM that still has a VNC server; while the QSM Display1 profile is active noVNC is black for that VM, since the profile removes the PVE graphics card.
+* VirGL + noVNC (QSM off) renders a smoother guest than Standard VGA, so its noVNC scroll (21.6 pictures/s) beats Standard VGA noVNC (12.0) and even Standard VGA QSM (14.4); but it still ships whole changed rectangles, costing 113 Mbit/s for the clip against QSM Direct's encoded 18.8 Mbit/s on the same guest.
 * The GPU node numbers use H.264 through NVENC because the measuring Chromium does not offer HEVC in WebRTC. A browser whose offer contains `video/H265` negotiates `hevc_nvenc` automatically on that node; no such browser session has been qualified yet.
 
 ## Reproduce
