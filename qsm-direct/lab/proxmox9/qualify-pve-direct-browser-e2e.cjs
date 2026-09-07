@@ -16,6 +16,7 @@ const fail = (code) => { const error = new Error(code); error.code = code; throw
 const nodePattern = /^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$/;
 const userPattern = /^[^\s@/:\\\x00-\x1f]{1,64}@[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 let phase = 'INITIALIZING';
+let firstVideoMetricMs = -1;
 let diagnostic = {
     requests: 0, responses: 0, classes: new Set(), failures: 0, outcome: 'none', envelope: 'none',
     contentType: 'none', responseBytes: -1, apiSuccess: 'none', apiStatus: 'none', messageBytes: -1,
@@ -196,7 +197,7 @@ async function verifyFullscreenRecoveryAndGuestCursor(popup) {
         return select.value === 'client-first';
     });
     if (!clientFirstReady) fail('KEYBOARD_PRIORITY_CONTROL_UNAVAILABLE');
-    const fullscreen = popup.locator('button').filter({ hasText: /^Full Screen$/ }).last();
+    const fullscreen = popup.getByLabel('Enter Full Screen').last();
     if (await fullscreen.count() !== 1) fail('FULLSCREEN_CONTROL_UNAVAILABLE');
     await fullscreen.click();
     const entered = await popup.waitForFunction(() => !!document.fullscreenElement, undefined, { timeout: 5000 })
@@ -309,7 +310,7 @@ async function verifyGuestFirstCaptureExit(popup) {
         return select.value === 'guest-first';
     });
     if (!ready) fail('KEYBOARD_PRIORITY_CONTROL_UNAVAILABLE');
-    const fullscreen = popup.locator('button').filter({ hasText: /^Full Screen$/ }).last();
+    const fullscreen = popup.getByLabel('Enter Full Screen').last();
     if (await fullscreen.count() !== 1) fail('FULLSCREEN_CONTROL_UNAVAILABLE');
     await fullscreen.click();
     const entered = await popup.waitForFunction(() => !!document.fullscreenElement, undefined, { timeout: 5000 })
@@ -330,7 +331,7 @@ async function verifyPopupControls(popup) {
     /*
      * This is deliberately against the delivered PVE popup rather than a
      * DOM mock. It proves that ordinary pointer motion cannot reveal the
-     * toolbar, while a sustained dwell in the small top strip can, and that
+     * toolbar, while a sustained dwell in the small left strip can, and that
      * all browser-local tuning controls remain reachable afterwards.
      */
     const result = await popup.evaluate(async () => {
@@ -346,17 +347,18 @@ async function verifyPopupControls(popup) {
         // The initial status may be visible until the first decoded frame.
         // Wait through its documented default auto-hide interval and CSS
         // transition, then test real event handlers rather than CSS text.
-        await wait(2200);
+        await wait(3400);
         const initiallyHidden = !visible();
         move(Math.floor(box.width / 2), Math.floor(box.height / 2));
         await wait(180);
         const centerStayedHidden = !visible();
-        move(Math.floor(box.width / 2), Math.max(1, Math.floor(box.top) + 1));
+        move(Math.max(1, Math.floor(box.left) + 1), Math.floor(box.top + box.height / 2));
         await wait(350);
         const hiddenBeforeDwell = !visible();
         await wait(450);
         const shownAfterDwell = visible();
-        const settings = [...toolbar.querySelectorAll('button')].find((button) => button.textContent === 'Settings');
+        const settings = [...toolbar.querySelectorAll('button')].find((button) =>
+            button.getAttribute('aria-label') === 'Console settings');
         if (!settings) return { initiallyHidden, centerStayedHidden, hiddenBeforeDwell, shownAfterDwell };
         settings.click();
         await wait(40);
@@ -558,6 +560,7 @@ async function main() {
         if (await item.count() !== 1) { fail('QSM_DIRECT_MENU_UNAVAILABLE'); }
         phase = 'REQUESTING_DIRECT_CONSOLE';
         const popupPromise = page.waitForEvent('popup');
+        const consoleOpenedAt = performance.now();
         await item.click();
         const popup = await popupPromise;
         popup.setDefaultTimeout(config.timeout);
@@ -572,6 +575,8 @@ async function main() {
             const video = document.querySelector('video');
             return !!video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0 && video.videoHeight > 0;
         }, undefined, { timeout: config.timeout });
+        const firstVideoMs = performance.now() - consoleOpenedAt;
+        firstVideoMetricMs = Math.round(firstVideoMs);
         phase = 'VERIFYING_POPUP_CONTROLS';
         await verifyPopupControls(popup);
         if (config.dragFixture) {
@@ -586,7 +591,7 @@ async function main() {
             fail('INVALID_PVE_DIRECT_HANDOFF');
         }
         phase = 'PASS';
-        process.stdout.write(`QSM_PVE_DIRECT_BROWSER_E2E_OK protected_route=1 popup_video=1 response=2xx fullscreen=${config.dragFixture ? 1 : 0} drag=${config.dragFixture ? 1 : 0}\n`);
+        process.stdout.write(`QSM_PVE_DIRECT_BROWSER_E2E_OK protected_route=1 popup_video=1 response=2xx first_video_ms=${firstVideoMetricMs} fullscreen=${config.dragFixture ? 1 : 0} drag=${config.dragFixture ? 1 : 0}\n`);
     } finally {
         password = '';
         if (context) { await context.close(); }
@@ -603,6 +608,6 @@ async function main() {
 main().catch((error) => {
     const code = error && /^[A-Z0-9_]+$/.test(error.code || '') ? error.code : 'FAILED';
     const classes = [...diagnostic.classes].sort().join('+') || 'none';
-    process.stderr.write(`QSM_PVE_DIRECT_BROWSER_E2E_FAIL code=${code} phase=${phase} requests=${diagnostic.requests} responses=${diagnostic.responses} response_classes=${classes} outcome=${diagnostic.outcome} envelope=${diagnostic.envelope} api_success=${diagnostic.apiSuccess} api_status=${diagnostic.apiStatus} message_bytes=${diagnostic.messageBytes} content_type=${diagnostic.contentType} bytes=${diagnostic.responseBytes} failures=${diagnostic.failures}\n`);
+    process.stderr.write(`QSM_PVE_DIRECT_BROWSER_E2E_FAIL code=${code} phase=${phase} first_video_ms=${firstVideoMetricMs} requests=${diagnostic.requests} responses=${diagnostic.responses} response_classes=${classes} outcome=${diagnostic.outcome} envelope=${diagnostic.envelope} api_success=${diagnostic.apiSuccess} api_status=${diagnostic.apiStatus} message_bytes=${diagnostic.messageBytes} content_type=${diagnostic.contentType} bytes=${diagnostic.responseBytes} failures=${diagnostic.failures}\n`);
     process.exitCode = 1;
 });

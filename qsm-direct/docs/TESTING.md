@@ -1,6 +1,6 @@
-# Проверка QSM Direct
+# Testing QSM Direct
 
-Быстрый source-level набор:
+Run the fast source-level suite:
 
 ```bash
 cmake -S . -B build-direct-tests -G Ninja -DBUILD_TESTING=ON
@@ -8,13 +8,9 @@ cmake --build build-direct-tests
 ctest --test-dir build-direct-tests --output-on-failure
 ```
 
-Он включает core/D-Bus тесты, guest channel, package layout, выбор encoder,
-автонастройку terminal service и статическую проверку PVE Console overlay.
+It covers core/D-Bus code, the guest channel, package layout, encoder choice, terminal-service auto configuration, and the static PVE Console overlay check.
 
-Для автоматической политики encoder обязателен отдельный worker‑E2E: он
-искусственно завершает уже выбранный hardware FFmpeg encoder и проверяет, что
-первый и все параллельные viewers продолжают получать H.264 через libx264.
-Режим `Hardware only` в эту проверку не входит и fallback не использует:
+The automatic encoder policy also requires a worker E2E test. It forces an already-selected hardware FFmpeg encoder to fail, then verifies that the first and all concurrent viewers continue on `libx264`. `Hardware only` is not part of this case and does not fall back:
 
 ```bash
 python3 lab/proxmox9/qualify-qsm-direct-worker-media-e2e.py \
@@ -24,8 +20,7 @@ python3 lab/proxmox9/qualify-qsm-direct-worker-media-e2e.py \
   --force-hardware-failure
 ```
 
-Для PVE-узла используется реальный stress suite. Он не подменяет QEMU,
-WebRTC-пир или browser input:
+Use the real stress suite on a PVE node. It does not substitute QEMU, the WebRTC peer, or browser input:
 
 ```bash
 python3 lab/proxmox9/run-qsm-direct-stress-suite.py \
@@ -34,17 +29,9 @@ python3 lab/proxmox9/run-qsm-direct-stress-suite.py \
   --browser-script /absolute/path/browser-webrtc-receiver.cjs
 ```
 
-Набор покрывает первичное видео, несколько одновременных viewers, mouse/keys,
-window ↔ fullscreen, изменение viewport, clipboard, VM reboot и restart
-terminal service. Для visual evidence запускайте peer с `--browser-headful
---visual-evidence`.
+The suite covers first video, concurrent viewers, mouse/keyboard input, window ↔ full-screen transitions, viewport changes, clipboard, VM reboot, and terminal-service restart. Add `--browser-headful --visual-evidence` for visual evidence.
 
-Проверка именно интеграции PVE UI должна дополнительно подтвердить, что выбор
-левого пункта **Console** создаёт iframe в существующей области, а не popup.
-Для регрессии порядка запуска embedded Console и отдельного окна есть отдельный
-browser gate. Он обязан удержать две одновременно подключённые сессии в обоих
-порядках (`frame → window` и `window → frame`) и отклоняет iframe с высотой
-пустой ExtJS panel:
+The PVE UI integration must separately prove that selecting **Console** in the left navigation creates an iframe in the existing content area rather than a popup. A dedicated browser gate also covers the order-dependent embedded and separate-window cases (`frame → window` and `window → frame`) and rejects an iframe with the height of an empty ExtJS panel:
 
 ```bash
 node lab/proxmox9/qualify-pve-direct-embedded-window-e2e.cjs \
@@ -53,4 +40,4 @@ node lab/proxmox9/qualify-pve-direct-embedded-window-e2e.cjs \
   --chrome /usr/bin/google-chrome
 ```
 
-Временной учётной записи достаточно `PVEVMUser` только на тестовой VM.
+The temporary account needs `PVEVMUser` only on the test VM.

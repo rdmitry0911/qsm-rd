@@ -382,6 +382,7 @@ def main() -> int:
                         if jitter_delay is not None and emitted is not None and emitted > 0 else None)
         steady_drops = delta("framesDropped")
         steady_state = {
+            "receivedBytes": delta("bytesReceived"),
             "decodedFrames": delta("framesDecoded"),
             "droppedFrames": steady_drops,
             "jitterBufferEmittedFrames": emitted,
@@ -389,6 +390,11 @@ def main() -> int:
             "freezeCount": delta("freezeCount"),
             "freezeDurationSeconds": delta("totalFreezesDuration"),
         }
+        received_bytes = steady_state["receivedBytes"]
+        steady_state["receivedMbps"] = (
+            received_bytes * 8.0 / (arguments.warmup_seconds * 1_000_000.0)
+            if isinstance(received_bytes, float) and arguments.warmup_seconds > 0 else None
+        )
         if (arguments.max_steady_jitter_buffer_mean_ms is not None and
                 (steady_delay is None or steady_delay > arguments.max_steady_jitter_buffer_mean_ms)):
             raise RuntimeError(
@@ -425,7 +431,9 @@ def main() -> int:
             "viewportResizes": viewport_resizes,
         }
         if arguments.guest_transfer:
-            clipboard = "browser direct clipboard → guest\nПривет".encode("utf-8")
+            # Keep a non-ASCII round trip in the fixture without making a
+            # user-facing test document depend on one written language.
+            clipboard = "browser direct clipboard → guest\n\u041f\u0440\u0438\u0432\u0435\u0442".encode("utf-8")
             set_result = peer.request({"op": "guest", "message": {
                 "op": "qsm_guest_clipboard_set",
                 "text_b64": base64.b64encode(clipboard).decode("ascii"),

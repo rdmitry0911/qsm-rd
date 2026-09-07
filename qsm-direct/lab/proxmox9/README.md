@@ -1,19 +1,32 @@
 # PVE 9 laboratory checks
 
-Эти инструменты работают с реальным PVE 9, QEMU Display1 и браузерным WebRTC
-peer. Они не устанавливают runtime-пакеты автоматически и не требуют
-клиентского приложения.
+These tools exercise real PVE 9, QEMU Display1, and a browser WebRTC peer. They do not install runtime packages automatically and require no client application.
 
-- `qualify-pve-direct-browser-e2e.cjs` проверяет защищённый same-origin
-  browser transport.
-- `qualify-pve-display1-ui.cjs` проверяет поля Display1 в реальном диалоге
-  Hardware → Display.
-- `qualify-qsm-direct-worker-e2e.py` и `qualify-qsm-direct-worker-media-e2e.py`
-  проверяют worker против настоящего QEMU Display1.
-- `run-qsm-direct-stress-suite.py` — release gate для video, input, resize,
-  fullscreen, clipboard, reconnect и нескольких viewers.
+- `qualify-pve-direct-browser-e2e.cjs` checks the protected same-origin browser transport.
+- `qualify-pve-display1-ui.cjs` checks the Display1 fields in the real **Hardware → Display** dialog.
+- `qualify-qsm-direct-worker-e2e.py` and `qualify-qsm-direct-worker-media-e2e.py` exercise the worker against a real QEMU Display1.
+- `run-qsm-direct-stress-suite.py` is the release gate for video, input, resize, full screen, clipboard, reconnect, and concurrent viewers.
+- `measure-direct-browser-e2e.py` records Chrome WebRTC receive-side metrics.
+- `measure-novnc-browser-e2e.cjs` records aggregate traffic from PVE's stock noVNC split-menu item for a like-for-like lab comparison.
 
-Для точного UI-регресса создайте временную PVE-учётную запись только с
-`PVEVMUser` на тестовой VM, войдите в UI через браузер и выберите левый пункт
-**Console**. Условие успеха: в Console card ровно один QSM iframe, а число
-вызовов `window.open` равно нулю.
+For a precise UI regression, create a temporary PVE account with `PVEVMUser` only on the test VM, sign in through the browser, and select the left **Console** item. Success requires exactly one QSM iframe in the Console card and zero calls to `window.open`.
+
+For a numerical QSM/noVNC comparison, use one stable guest fixture and the
+same browser host for both probes. Run the WebRTC probe on the PVE node and
+the noVNC probe on the browser host:
+
+```bash
+# PVE node
+python3 measure-direct-browser-e2e.py \
+  --vmid VMID --width 1280 --height 800 --warmup-seconds 10 \
+  --browser-host BROWSER_HOST --browser-user USER --browser-key KEY \
+  --browser-script /absolute/path/browser-webrtc-receiver.cjs
+
+# browser host
+node measure-novnc-browser-e2e.cjs \
+  --pve-url https://PVE_NODE:8006 --user USER@REALM \
+  --password-file /secure/pve.password --vmid VMID --duration-ms 10000
+```
+
+`measure-novnc-browser-e2e.cjs` reads only aggregate WebSocket frame sizes; it
+never writes tickets, cookies, credentials, or RFB payloads to its output.

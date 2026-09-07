@@ -428,6 +428,7 @@ async function webrtcStats() {
         const emitted = number(video.jitterBufferEmittedCount);
         const delay = number(video.jitterBufferDelay);
         return {
+            bytesReceived: number(video.bytesReceived),
             framesDecoded: number(video.framesDecoded),
             framesDropped: number(video.framesDropped),
             framesReceived: number(video.framesReceived),
