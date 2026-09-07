@@ -230,20 +230,24 @@ def _install_hevc_packetizer() -> None:
         _HEVC_PACKETIZER_INSTALLED = True
 
 
-def _h265_parameters_for_offer(sdp: str) -> dict[str, str]:
-    """Return the fmtp parameters of the browser's first Main-profile H265 line.
+def _h265_offer_details(sdp: str) -> tuple[dict[str, str], int | None]:
+    """Return the fmtp parameters and payload type of the browser's H265 line.
 
-    A browser identifies its H265 codec by profile, tier and level.  The
-    answer has to carry the same values, otherwise libwebrtc does not accept
-    the answered payload type as the codec it offered.  Values are copied
-    verbatim within a bounded token alphabet; an offer without parameters
-    keeps the defaults describing the encoder's own stream.
+    A browser identifies its H265 codec by profile, tier and level, and it
+    binds its receiver to the payload type *it* offered.  Chrome allocates
+    H265 below the 96..127 dynamic range (49 with RTX 50, Main 10 on 51) and
+    reuses 103 for an H.264 RTX stream; aiortc only adopts an offered payload
+    type from the dynamic range, so an answer had to be pinned to the
+    browser's number explicitly or every RTP packet was discarded as an
+    unknown type (packetsReceived climbing, framesReceived 0, no PLI).
+    Values are copied verbatim within a bounded token alphabet; an offer
+    without parameters keeps the defaults describing the encoder's stream.
     """
     try:
         description = SessionDescription.parse(sdp)
     except (TypeError, ValueError) as error:
         raise BridgeError("invalid browser WebRTC offer") from error
-    candidates: list[dict[str, str]] = []
+    candidates: list[tuple[dict[str, str], int]] = []
     for media in description.media:
         if media.kind != "video":
             continue
@@ -254,19 +258,37 @@ def _h265_parameters_for_offer(sdp: str) -> dict[str, str]:
                 key: str(value) for key, value in (codec.parameters or {}).items()
                 if key in H265_FMTP_KEYS and _H265_FMTP_VALUE.fullmatch(str(value))
             }
-            candidates.append(parameters)
-    for parameters in candidates:
+            payload_type = codec.payloadType
+            if type(payload_type) is not int or not 0 <= payload_type <= 127:
+                continue
+            candidates.append((parameters, payload_type))
+    for parameters, payload_type in candidates:
         if parameters.get("profile-id", "1") == "1":
-            return {**H265_DEFAULT_PARAMETERS, **parameters}
-    return dict(H265_DEFAULT_PARAMETERS)
+            return {**H265_DEFAULT_PARAMETERS, **parameters}, payload_type
+    return dict(H265_DEFAULT_PARAMETERS), None
 
 
-def _apply_h265_parameters(parameters: dict[str, str]) -> None:
-    """Make the registered H265 capability answer with the browser's parameters."""
+def _apply_h265_offer(parameters: dict[str, str], payload_type: int | None) -> None:
+    """Make the registered H265 capability answer with the browser's values.
+
+    aiortc keeps one process-wide codec list, so the H265 entry and its RTX
+    companion are rewritten under the lock right before negotiation.  A
+    payload type outside aiortc's dynamic range would otherwise never be
+    adopted from the offer.
+    """
     with _HEVC_CODEC_LOCK:
+        hevc = None
         for codec in aiortc_codecs.CODECS["video"]:
             if codec.mimeType.lower() == "video/h265":
                 codec.parameters = dict(parameters)
+                if payload_type is not None:
+                    codec.payloadType = payload_type
+                hevc = codec
+        if hevc is None:
+            return
+        for codec in aiortc_codecs.CODECS["video"]:
+            if codec.mimeType.lower() == "video/rtx" and codec.parameters.get("apt") in {103, hevc.payloadType}:
+                codec.parameters = {"apt": hevc.payloadType}
 
 
 class BridgeError(RuntimeError):
@@ -1506,9 +1528,10 @@ class BrowserWebRtcBridge:
         audio_sender = self._pc.addTrack(self.audio_track)
         self._attach_video_recovery(video_sender)
         if self.video_codec == "hevc":
-            # Answer with the browser's own profile/tier/level/tx-mode so it
-            # recognises the negotiated payload type as its H265 codec.
-            _apply_h265_parameters(_h265_parameters_for_offer(sdp))
+            # Answer with the browser's own payload type and its
+            # profile/tier/level/tx-mode, so its receiver binds the packets
+            # we send to the H265 decoder it offered.
+            _apply_h265_offer(*_h265_offer_details(sdp))
         video_codecs = self._video_codecs(self.video_codec)
         if not video_codecs:
             requested = "HEVC" if self.video_codec == "hevc" else "H.264"

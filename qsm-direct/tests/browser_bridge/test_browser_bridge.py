@@ -52,7 +52,7 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     _AudioAssembler,
     _PacketTrack,
     _HevcPacketizer,
-    _h265_parameters_for_offer,
+    _h265_offer_details,
     _VideoAssembler,
 )
 
@@ -193,16 +193,32 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                 browser.createDataChannel("qsm-pointer", ordered=False, maxRetransmits=0)
                 await browser.setLocalDescription(await browser.createOffer())
                 sdp = browser.localDescription.sdp
-                payload_type = re.search(r"a=rtpmap:(\d+) H265/90000", sdp).group(1)
-                # Chrome's H265 line: level 6, Main profile, Main tier, one RTP stream.
-                sdp = re.sub(rf"a=fmtp:{payload_type} [^\r\n]*\r\n", "", sdp)
-                sdp = sdp.replace(
-                    f"a=rtpmap:{payload_type} H265/90000\r\n",
-                    f"a=rtpmap:{payload_type} H265/90000\r\n"
-                    f"a=fmtp:{payload_type} level-id=180;profile-id=1;tier-flag=0;tx-mode=SRST\r\n")
+                # Replace the offer's video codec list with Chrome 151's layout:
+                # H.264 on 102 with RTX 103 (apt=102), H265 Main on payload type
+                # 49 with RTX 50 - below the 96..127 dynamic range - level 6,
+                # Main tier, SRST.  103 is therefore a decoy that an answer must
+                # not reuse for H265.
+                head, video = sdp.split("m=video", 1)
+                video, tail = (video.split("\r\nm=", 1) + [""])[:2]
+                video_lines = [line for line in video.split("\r\n")
+                               if not re.match(r"a=(rtpmap|fmtp|rtcp-fb):", line)]
+                video_lines[0] = re.sub(r"^( \d+ [^ ]+ ).*$", r"\g<1>102 103 49 50", video_lines[0])
+                video_lines += [
+                    "a=rtpmap:102 H264/90000",
+                    "a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f",
+                    "a=rtpmap:103 rtx/90000", "a=fmtp:103 apt=102",
+                    "a=rtpmap:49 H265/90000", "a=rtcp-fb:49 nack", "a=rtcp-fb:49 nack pli",
+                    "a=fmtp:49 level-id=180;profile-id=1;tier-flag=0;tx-mode=SRST",
+                    "a=rtpmap:50 rtx/90000", "a=fmtp:50 apt=49",
+                ]
+                sdp = head + "m=video" + "\r\n".join(video_lines) + "\r\n" + ("m=" + tail if tail else "")
                 bridge.start_taps()
                 answer = await bridge.answer_offer(sdp)
-                fmtp = re.search(rf"a=fmtp:{payload_type} ([^\r\n]*)", answer["sdp"])
+                self.assertRegex(answer["sdp"], r"m=video \d+ UDP/TLS/RTP/SAVPF 49 50\r\n")
+                self.assertIn("a=rtpmap:49 H265/90000\r\n", answer["sdp"])
+                self.assertIn("a=rtpmap:50 rtx/90000\r\na=fmtp:50 apt=49\r\n", answer["sdp"])
+                self.assertNotIn("a=rtpmap:103", answer["sdp"])
+                fmtp = re.search(r"a=fmtp:49 ([^\r\n]*)", answer["sdp"])
                 self.assertIsNotNone(fmtp, "the H265 answer must carry an fmtp line")
                 parameters = dict(item.split("=", 1) for item in fmtp.group(1).split(";"))
                 self.assertEqual(parameters, {"level-id": "180", "profile-id": "1",
@@ -212,10 +228,10 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                 await bridge.close()
         # An offer without parameters is answered with the encoder's own
         # Main / tier 0 / level 4 description rather than nothing.
-        self.assertEqual(_h265_parameters_for_offer(
+        self.assertEqual(_h265_offer_details(
             "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n"
             "m=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=rtpmap:96 H265/90000\r\n"),
-            {"profile-id": "1", "tier-flag": "0", "level-id": "120", "tx-mode": "SRST"})
+            ({"profile-id": "1", "tier-flag": "0", "level-id": "120", "tx-mode": "SRST"}, 96))
 
     async def test_hevc_offer_answer_uses_h265_only_when_offered(self) -> None:
         with tempfile.TemporaryDirectory(prefix="qsm-browser-hevc-sdp.") as directory:
