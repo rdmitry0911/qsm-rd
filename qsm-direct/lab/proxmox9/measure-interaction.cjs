@@ -176,41 +176,52 @@ const PROBE_SCRIPT = `
 
 async function measureHover(popup) {
     const runs = [];
+    // Guest source pixel -> client pixel (object-fit: contain), for the moves.
+    const guestPoint = (gx, gy) => popup.evaluate(([x, y]) => {
+        const s = window.__qsmProbe; const scale = Math.min(s.box.width / s.source.w, s.box.height / s.source.h);
+        return { x: s.box.left + (s.box.width - s.source.w * scale) / 2 + x * scale,
+                 y: s.box.top + (s.box.height - s.source.h * scale) / 2 + y * scale };
+    }, [gx, gy]);
+    // Read the magenta popup pixel with a *fresh* redraw. The rAF sampler and
+    // Playwright's rAF poll can run in either order within a frame, so a poll
+    // that does not redraw may read a stale canvas — the cause of the noVNC
+    // "leftover magenta at ~2 ms" runs. Redrawing in the poll fixes both
+    // transports (drawing a <video> or an RFB <canvas> is equally cheap here).
+    const magentaCleared = () => popup.evaluate(() => {
+        const s = window.__qsmProbe;
+        try { s.context.drawImage(s.element, 0, 0, s.source.w, s.source.h); } catch (_e) { return false; }
+        const p = s.context.getImageData(780, 350, 1, 1).data;
+        return !(p[0] > 180 && p[1] < 100 && p[2] > 180);
+    });
+    // Move well off the icon (560..720,290..450) and its popup (764..1044,
+    // 334..412) and confirm the popup has actually gone, trying alternate
+    // neutral points if the first does not clear it.
+    const clearPopup = async () => {
+        for (const [gx, gy] of [[40, 740], [1240, 60], [40, 60]]) {
+            const reset = await guestPoint(gx, gy);
+            await popup.mouse.move(reset.x, reset.y);
+            await popup.mouse.move(reset.x + 4, reset.y + 4);
+            for (let i = 0; i < 40; i += 1) { if (await magentaCleared()) { return true; } await wait(50); }
+        }
+        return magentaCleared();
+    };
     for (let run = 0; run < popup.__hoverRuns; run += 1) {
-        // Reset off the icon and let the popup disappear.
-        const guestPoint = (gx, gy) => popup.evaluate(([x, y]) => {
-            const s = window.__qsmProbe; const scale = Math.min(s.box.width / s.source.w, s.box.height / s.source.h);
-            return { x: s.box.left + (s.box.width - s.source.w * scale) / 2 + x * scale,
-                     y: s.box.top + (s.box.height - s.source.h * scale) / 2 + y * scale };
-        }, [gx, gy]);
-        // Move to an empty area far from the icon (560..720,290..450) and its
-        // popup (764..1044,334..412), nudging so the guest emits a fresh frame.
-        let reset = await guestPoint(40, 740);
-        await popup.mouse.move(reset.x, reset.y);
-        await popup.mouse.move(reset.x + 3, reset.y + 3);
-        // Wait until the hover popup has actually cleared in the guest,
-        // otherwise the next run detects leftover magenta at ~0 ms.
         await popup.evaluate(() => window.__qsmProbe.start());
-        await popup.waitForFunction(() => {
-            const p = window.__qsmProbe.context.getImageData(780, 350, 1, 1).data;
-            return !(p[0] > 180 && p[1] < 100 && p[2] > 180);
-        }, undefined, { timeout: 4000, polling: 'raf' }).catch(() => undefined);
-        await popup.evaluate(() => window.__qsmProbe.stop());
-        await wait(400);
-        await popup.evaluate(() => { const s = window.__qsmProbe; s.input = null; s.frames = []; s.magentaAt = null; s.start(); });
+        const cleared = await clearPopup();
+        await wait(300);
+        // Do not record a run whose popup never cleared: it would read as ~0 ms.
+        if (!cleared) { runs.push(null); await popup.evaluate(() => window.__qsmProbe.stop()); continue; }
+        await popup.evaluate(() => { const s = window.__qsmProbe; s.input = null; s.frames = []; });
         // Move onto the icon centre (guest 640,370). The mousemove DOM event
         // the console receives is the input timestamp.
-        const target = await popup.evaluate(() => {
-            const s = window.__qsmProbe; const scale = Math.min(s.box.width / s.source.w, s.box.height / s.source.h);
-            const cx = s.box.left + (s.box.width - s.source.w * scale) / 2 + 640 * scale;
-            const cy = s.box.top + (s.box.height - s.source.h * scale) / 2 + 370 * scale;
-            return { x: cx, y: cy };
-        });
+        const target = await guestPoint(640, 370);
         await popup.mouse.move(target.x, target.y);
         const latency = await popup.waitForFunction(() => {
             const s = window.__qsmProbe;
             if (!s.input || s.input.type !== 'mousemove') { return false; }
-            // Interior of the #ff00ff hover popup at guest (780, 350).
+            // Interior of the #ff00ff hover popup at guest (780, 350), read
+            // from a fresh redraw so the paint time is not a stale frame.
+            try { s.context.drawImage(s.element, 0, 0, s.source.w, s.source.h); } catch (_e) { return false; }
             const p = s.context.getImageData(780, 350, 1, 1).data;
             if (p[0] > 180 && p[1] < 100 && p[2] > 180) { return performance.now() - s.input.at; }
             return false;
