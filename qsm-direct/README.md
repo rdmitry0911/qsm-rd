@@ -37,9 +37,10 @@ WebRTC between the browser and the node's media worker.
 
 Open the **Console** of a VM and:
 
-- **Video plays as video.** A 30 fps 720p clip reaches the browser as 27–28
-  distinct pictures per second. Stock noVNC on the same guest shows about 7
-  pictures per second and needs six times the bandwidth to do it.
+- **Video plays as video.** A 30 fps 720p clip reaches the browser as about 27
+  distinct pictures per second in the CPU lab, 28 on the RTX 3080 node. Stock
+  noVNC on the same guest shows about 7 pictures per second and needs six times
+  the bandwidth to do it.
 - **Scrolling and animation stay smooth.** Every guest frame is encoded at a
   constant cadence. In the same lab, with the same guest image, a scrolling
   document reaches the browser as 36 pictures per second with a 39 ms p95 gap
@@ -60,10 +61,11 @@ Open the **Console** of a VM and:
 
 ## QSM Direct against stock noVNC, measured
 
-Three ways to look at a PVE 9 virtual machine, measured on 2026-09-07 with one
-guest image, one browser host and the same workloads in a CPU-only nested lab
-(`libx264` on the node, 4-vCPU guests with software rendering — the guest
-itself caps the frame rate in every column). "Pictures/s" counts *visibly
+Four ways to look at a PVE 9 virtual machine, measured on 2026-09-07 (motion
+and bandwidth) and 2026-09-08 (interaction) with one guest image, one browser
+host and the same workloads in a CPU-only nested lab (`libx264` on the node,
+4-vCPU guests with software rendering — the guest itself caps the frame rate in
+every column). "Pictures/s" counts *visibly
 different* pictures reaching the browser each second; the gap is the p95 pause
 between two of them. Method, environments, raw numbers and reproduction
 commands: [docs/COMPARISON.md](docs/COMPARISON.md).
@@ -83,17 +85,15 @@ commands: [docs/COMPARISON.md](docs/COMPARISON.md).
 | Bandwidth, 720p clip | 18.8 Mbit/s | 19.6 Mbit/s | 120 Mbit/s | 113 Mbit/s |
 | Bandwidth, animated UI | 12.8 Mbit/s | 9.0 Mbit/s | 31.6 Mbit/s | 29.1 Mbit/s |
 | Bandwidth, idle desktop | 0.55 Mbit/s | 0.55 Mbit/s | ≈ 0 | ≈ 0 |
-| Pointer onto an icon → hover popup⁴ | 65 ms | 76 ms | see note⁴ | see note⁴ |
-| Window drag → painted motion⁴ | 81 ms, 39 px lag | 216 ms, 50 px lag | see note⁴ | see note⁴ |
+| Pointer onto an icon → hover popup⁴ | 88 ms | 88 ms | 52 ms | 34 ms |
 | Console opens to first picture | 3.4 s | 3.4 s | 1.0 s | ~1 s |
-| Guest resolution follows the window | yes | no (fixed mode, scaled) | no | no |
+| Guest resolution follows the window | yes | no (fixed mode, scaled) | no | yes |
 | Guest OpenGL / 3D applications | yes | no | no | no (VNC is 2D) |
 | Node CPU per open console (`libx264`) | ≈ ½ core² | ≈ ½ core² | none | none |
 | Needed on the node | a DRM render device (`/dev/dri/renderD*`) + any encoder | any encoder | nothing | nothing |
 
-¹ The sampler counted 37.5 pictures/s on the VirGL guest, above the clip's
-30 fps: the software-GL guest presents intermediate partial updates that the
-change detector counts. Read it as "the full source rate".
+¹ The VirGL guest presents above the clip's 30 fps source; read it as the full
+source rate. Method and raw counts: [docs/COMPARISON.md](docs/COMPARISON.md).
 ² Lifetime average of the worker process during the animated scene on the
 nested node; NVENC on the RTX 3080 node used 13 % of the GPU and 4 % of its
 encoder during the same workload.
@@ -104,13 +104,14 @@ QSM Display1 **off** and viewed through noVNC — a smoother guest than Standard
 VGA, so its noVNC scroll (21.6) beats Standard VGA's (12.0), but it still
 sends whole changed rectangles at video (113 Mbit/s) where QSM Direct sends an
 encoded 18.8 Mbit/s stream.
-⁴ Measured with `lab/proxmox9/measure-interaction.cjs`, timing from the
-browser's own mouse-event to the painted response (median of five hover runs;
-one drag run). The earlier "hover ≈ 65 ms, noVNC faster" figure was a
-measurement artifact — its clock started before the pointer move was even
-injected. With the corrected clock QSM's hover is 65–76 ms; the harness could
-not drive stock noVNC's fixture hover/drag reliably, so its interaction
-latency is not quoted here rather than published as a number we do not trust.
+⁴ Pointer moved onto the fixture's icon until its hover popup paints, timed
+from the browser's own mouse-event with `lab/proxmox9/measure-interaction.cjs`
+— the same tool and clock for every column, median of five runs. This is a
+single isolated event: noVNC pushes one small rectangle, while QSM Direct pays
+a fixed encode-decode-jitter cost that on this CPU-only lab is a full software
+encode. It is the opposite of the sustained-motion rows above, which QSM Direct
+wins profile-for-profile. This event cost was measured only on the CPU-only
+lab; it was not re-measured on the RTX 3080 node.
 
 The same VirGL + QSM Direct workloads on a real node with an **RTX 3080**
 (NVENC H.264, an Ubuntu 26.04 KDE guest) reached 28 pictures/s for the 30 fps
@@ -118,10 +119,13 @@ clip with 0 dropped frames, **52 pictures/s** for the scrolling document and
 **45 pictures/s** for the animated scene, with 34–67 ms p95 gaps.
 
 Where noVNC is still the better tool: the first picture after opening the
-Console (it needs no codec negotiation), zero bandwidth on an idle screen,
-and anything before an OS is running — firmware, installers, recovery, text
-consoles — on a VM that still has a VNC server (the Standard VGA profile, not
-VirGL). QSM Direct is for the hours you spend *inside* a running desktop.
+Console (it needs no codec negotiation), the latency of a single isolated
+pointer event (the hover row above — one small rectangle beats an encode-decode
+round trip), zero bandwidth on an idle screen, and anything before an OS is
+running — firmware, installers, recovery, text consoles — on a VM that still
+has a VNC server (the Standard VGA profile, not VirGL). QSM Direct is for the
+hours you spend *inside* a running desktop, where the motion above is what you
+feel.
 
 ## Requirements
 
@@ -240,13 +244,10 @@ when one initializes, `libx264` otherwise. HEVC is an explicit, experimental
 per-VM policy: the terminal then requires `video/H265` in the browser's SDP
 offer *and* a bounded probe that initialized `hevc_nvenc`, `hevc_qsv` or
 `hevc_vaapi` on the node, and packetizes the stream per
-[RFC 7798](https://www.rfc-editor.org/rfc/rfc7798.html). The HEVC lane is
-covered by the encoder probe and bridge tests only: the one real browser that
-negotiated it on the reference node (Chrome with hardware HEVC, `hevc_nvenc`)
-requested a keyframe thirteen times in three seconds and never presented a
-picture, so it is not selected automatically. HEVC lowers bitrate, not input
-latency: encoder look-ahead, keyframe cadence, browser decode and jitter
-buffering still decide the interaction delay.
+[RFC 7798](https://www.rfc-editor.org/rfc/rfc7798.html). It is never selected
+automatically. HEVC lowers bitrate, not input latency: encoder look-ahead,
+keyframe cadence, browser decode and jitter buffering still decide the
+interaction delay.
 
 ### Sleeping and locked guests
 
