@@ -2128,6 +2128,34 @@
         },
     });
 
+    // The active VM sub-tab is remembered globally (PVE.qemu.Config uses the
+    // shared `kvmtab` state), so switching from another VM whose Console tab
+    // was open makes the new VM's PVE.panel.Config activate its `console` card
+    // *inside* initComponent — insertNodes() -> menu.setSelection() ->
+    // activateCard('console') — before PVE.qemu.Config's own initComponent has
+    // returned. QemuConfigOverlay below swaps the card xtype only after that
+    // callParent(), which is too late in this path: the card was already built
+    // as stock noVNC, so arriving from another VM's console landed on noVNC
+    // even for a managed VM. insertNodes() populates savedItems from the item
+    // definitions and runs before any card is activated, so rewrite the QEMU
+    // KVM console xtype here. The guard keeps this to the QEMU console only
+    // (never LXC, whose console carries consoleType 'lxc'); the QSM selector
+    // then still mounts stock noVNC for an unmanaged VM or a failed predicate.
+    Ext.define('PVE.qsmDirect.PanelConfigConsoleOverlay', {
+        override: 'PVE.panel.Config',
+        insertNodes: function (items) {
+            if (Array.isArray(items)) {
+                items.forEach((item) => {
+                    if (item && item.itemId === 'console' &&
+                        item.xtype === 'pveNoVncConsole' && item.consoleType === 'kvm') {
+                        item.xtype = 'pveQsmDirectConsole';
+                    }
+                });
+            }
+            this.callParent([items]);
+        },
+    });
+
     // Unlike stock Spice/serial capability bits, PVE's status endpoint does
     // not expose arbitrary QEMU `args`. Read the ordinary protected config
     // once when a VM view opens and only enable this menu item if the exact
@@ -2140,13 +2168,12 @@
             const vm = me.pveSelNode && me.pveSelNode.data;
             const vmid = vm ? Number(vm.vmid) : NaN;
             const setConsoleProvider = (managed) => {
-                // PVE.panel.Config has already placed the original `console`
-                // definition in savedItems. Preserve its title, itemId and
-                // position (between Summary and Hardware). Use one selector
-                // xtype for every QEMU VM so a fast click cannot instantiate
-                // noVNC before this asynchronous predicate returns; the card
-                // itself then mounts QSM Direct only for a managed Display1.
-                // This overlay applies to PVE.qemu.Config only, never LXC.
+                // insertNodes (PanelConfigConsoleOverlay above) has already
+                // rewritten the QEMU console card to the QSM selector in
+                // savedItems, even when the card was activated during this
+                // callParent(). Reassert it defensively and record the managed
+                // predicate; the card itself mounts QSM Direct only for a
+                // managed Display1 and otherwise keeps stock noVNC.
                 const console = me.savedItems && me.savedItems.console;
                 if (console) {
                     console.xtype = 'pveQsmDirectConsole';

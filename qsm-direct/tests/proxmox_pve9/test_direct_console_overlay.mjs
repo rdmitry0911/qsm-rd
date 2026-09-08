@@ -578,4 +578,32 @@ assert.equal(delayedEnabled, true, 'the first VM view must enable QSM Direct wit
 assert.equal(delayedConsole.xtype, 'pveQsmDirectConsole',
     'the existing Console card must switch even while the toolbar is rendered late');
 
+// Cross-VM console selection. PVE remembers the active sub-tab globally
+// (kvmtab), so switching from another VM whose Console tab is open activates
+// the new VM's console card inside PVE.panel.Config.initComponent — via
+// insertNodes() -> activateCard() — before PVE.qemu.Config's callParent()
+// returns and the later xtype swap runs. The QEMU console xtype must therefore
+// already be the QSM selector by the time insertNodes stores it in savedItems,
+// or a managed VM reached from another VM's console renders stock noVNC.
+const panelConfigOverlay = definitions.get('PVE.qsmDirect.PanelConfigConsoleOverlay');
+assert.ok(panelConfigOverlay, 'PVE.panel.Config must rewrite the QEMU console card before it is activated');
+assert.equal(typeof panelConfigOverlay.insertNodes, 'function',
+    'the fix must hook insertNodes, which runs before any card is activated');
+{
+    const qemuConsole = { itemId: 'console', xtype: 'pveNoVncConsole', consoleType: 'kvm', vmid: 321 };
+    const summary = { itemId: 'summary', xtype: 'pveGuestSummary' };
+    let forwarded = null;
+    panelConfigOverlay.insertNodes.call({ callParent: (args) => { forwarded = args[0]; } },
+        [summary, qemuConsole]);
+    assert.equal(qemuConsole.xtype, 'pveQsmDirectConsole',
+        'the QEMU KVM console must become the QSM selector during insertNodes, before activation');
+    assert.equal(summary.xtype, 'pveGuestSummary', 'non-console cards must be left untouched');
+    assert.ok(forwarded && forwarded[1] === qemuConsole,
+        'insertNodes must forward the same items to callParent so PVE still builds the menu');
+    // The LXC console (consoleType 'lxc') must keep stock noVNC.
+    const lxcConsole = { itemId: 'console', xtype: 'pveNoVncConsole', consoleType: 'lxc', vmid: 321 };
+    panelConfigOverlay.insertNodes.call({ callParent: () => undefined }, [lxcConsole]);
+    assert.equal(lxcConsole.xtype, 'pveNoVncConsole', 'the LXC console must not be rewritten');
+}
+
 console.log('QSM_DIRECT_PVE_UI_OVERLAY_OK');
