@@ -243,12 +243,14 @@ def _managed_display_profile(config: str, vmid: int, vm_runtime_directory: Path)
             gpu_arguments[0] == "-device virtio-vga-gl,id=qsm-direct-gpu" and
             virgl_display.search(args) is not None):
         return "virgl"
-    # PVE's implicit default is Standard VGA. An explicit vga line may carry
-    # only the stock non-GL `std` or `virtio` profile in this mode.
+    # PVE's implicit default is Standard VGA. An explicit vga line may carry a
+    # stock non-GL 2D adapter — `std`, `virtio` (no GL) or `vmware` — each of
+    # which renders to an ordinary QEMU console that the device-agnostic non-GL
+    # Display1 captures the same way (verified with a VMware-SVGA macOS guest).
     vga_type = "std" if vga is None else vga.split(",", 1)[0]
     if vga_type.startswith("type="):
         vga_type = vga_type.removeprefix("type=")
-    if (count == 1 and not gpu_arguments and vga_type in {"std", "virtio"} and
+    if (count == 1 and not gpu_arguments and vga_type in {"std", "virtio", "vmware"} and
             cpu_display.search(args) is not None):
         return "cpu"
     return None

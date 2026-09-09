@@ -49,6 +49,9 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             f"vga: virtio,memory=256\nargs: {argument}\n", 321, runtime))
         self.assertTrue(_managed_display_enabled(
             f"args: {argument}\n", 321, runtime), "PVE's absent vga key is Standard VGA")
+        self.assertTrue(_managed_display_enabled(
+            f"vga: vmware,memory=128\nargs: {argument}\n", 321, runtime),
+            "VMware SVGA is a stock non-GL 2D adapter the CPU profile captures")
         for vga in ("none", "virtio-gl", "qxl"):
             self.assertFalse(_managed_display_enabled(
                 f"vga: {vga}\nargs: {argument}\n", 321, runtime), vga)
