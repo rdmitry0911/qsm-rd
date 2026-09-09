@@ -1249,7 +1249,13 @@ static bool serve_transport(struct agent_state *state) {
 }
 
 int main(int argc, char **argv) {
+#if defined(__APPLE__)
+  /* macOS exposes a QEMU virtio-serial port by its name as a callout serial
+   * device, not under Linux's /dev/virtio-ports. */
+  const char *device = "/dev/cu.org.qsm.direct.agent";
+#else
   const char *device = "/dev/virtio-ports/org.qsm.direct.agent";
+#endif
   const char *state_dir = "/tmp/qsf";
   if (argc == 3 && strcmp(argv[1], "--device") == 0) {
     device = argv[2];

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- QSM Desktop Agent LaunchAgent for a macOS guest.
+     Install to ~/Library/LaunchAgents/org.qsm.desktop-agent.plist so it runs
+     inside the user's Aqua (GUI) session — NSPasteboard is only reachable
+     there, never from a system LaunchDaemon. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.qsm.desktop-agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/qsm-desktop-agent</string>
+        <string>--device</string>
+        <string>/dev/cu.org.qsm.direct.agent</string>
+        <string>--state-dir</string>
+        <string>/tmp/qsf</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+    <key>StandardOutPath</key>
+    <string>/tmp/qsm-desktop-agent.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/qsm-desktop-agent.log</string>
+</dict>
+</plist>

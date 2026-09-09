@@ -32,7 +32,24 @@ line tools: `clang`, Foundation and AppKit). macOS has a single, synchronous,
 system-wide clipboard, so the macOS build talks to `NSPasteboard` directly
 (`guest/qsm_macos_clipboard.m`) and needs none of the Linux state file, Wayland
 bridge, `wl-clipboard`, or inotify: CLIP_SET applies at once and EVENT_CLIP is
-driven by the pasteboard `changeCount`. Point it at the guest's virtio-serial
-device with `qsm-desktop-agent --device /dev/... --state-dir /tmp/qsf`, from a
-LaunchAgent inside the user's GUI session (NSPasteboard needs a logged-in Aqua
-session). Only plain UTF-8 text is carried, as on Linux.
+driven by the pasteboard `changeCount`. Only plain UTF-8 text is carried.
+
+macOS exposes the QEMU virtio-serial port by its name as a callout serial
+device — `/dev/cu.org.qsm.direct.agent`, not Linux's `/dev/virtio-ports/...` —
+so no driver is needed on macOS 26. That path is the agent's default there.
+
+Install it in the macOS guest (verified on macOS 26.1, VMware SVGA + QSM CPU
+Display1):
+
+```sh
+# In the guest, after building qsm-desktop-agent:
+sudo install -m 0755 qsm-desktop-agent /usr/local/bin/qsm-desktop-agent
+cp org.qsm.desktop-agent.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/org.qsm.desktop-agent.plist
+```
+
+The LaunchAgent (`packaging/guest/org.qsm.desktop-agent.plist`) must live in
+`~/Library/LaunchAgents` so it runs inside the user's Aqua session — a system
+LaunchDaemon cannot reach `NSPasteboard`. `RunAtLoad`/`KeepAlive` keep it up
+across logins and console reconnects. Unload with
+`launchctl bootout gui/$(id -u)/org.qsm.desktop-agent`.
