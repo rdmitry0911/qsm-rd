@@ -23,3 +23,16 @@ and inotify notifications. It does not poll the Wayland clipboard while idle,
 so no clipboard indicator or compositor repaint is generated without an
 actual copy/paste event. Other Wayland compositors retain the portable,
 low-frequency `wl-clipboard` fallback.
+
+## macOS guest
+
+The same agent and QSF1 wire protocol build for a macOS guest with
+`packaging/guest/build-qsm-desktop-agent-macos.sh` (needs the Xcode command
+line tools: `clang`, Foundation and AppKit). macOS has a single, synchronous,
+system-wide clipboard, so the macOS build talks to `NSPasteboard` directly
+(`guest/qsm_macos_clipboard.m`) and needs none of the Linux state file, Wayland
+bridge, `wl-clipboard`, or inotify: CLIP_SET applies at once and EVENT_CLIP is
+driven by the pasteboard `changeCount`. Point it at the guest's virtio-serial
+device with `qsm-desktop-agent --device /dev/... --state-dir /tmp/qsf`, from a
+LaunchAgent inside the user's GUI session (NSPasteboard needs a logged-in Aqua
+session). Only plain UTF-8 text is carried, as on Linux.

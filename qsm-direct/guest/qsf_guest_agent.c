@@ -31,7 +31,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(__APPLE__)
+/* macOS has no inotify; the clipboard backend below uses NSPasteboard, which
+ * needs neither a state file, an external bridge, nor a filesystem watch. */
+long qsm_macos_clipboard_change_count(void);
+int qsm_macos_clipboard_read(uint8_t **data, size_t *size, size_t maximum);
+int qsm_macos_clipboard_write(const uint8_t *data, size_t size);
+#else
 #include <sys/inotify.h>
+#endif
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
@@ -82,6 +90,7 @@ struct agent_state {
 #endif
   struct timespec clipboard_mtime;
   off_t clipboard_size;
+  long clipboard_change_count;
   bool clipboard_stamp_valid;
   long maximum_display_width;
   long maximum_display_height;
@@ -358,6 +367,10 @@ static int write_file_atomic(const char *path, const uint8_t *data, size_t size)
   return 0;
 }
 
+#if !defined(__APPLE__)
+/* Linux clipboard-apply handshake: the agent writes a per-user state file that
+ * the Wayland/Klipper bridge mirrors to the real selection and acknowledges by
+ * generation. macOS drives NSPasteboard directly and needs none of this. */
 static bool clipboard_generation_text(uint64_t generation, char *text, size_t text_size) {
   return generation != 0U && text != NULL &&
     snprintf(text, text_size, "%" PRIu64 "\n", generation) < (int) text_size;
@@ -454,6 +467,7 @@ static bool await_clipboard_applied(const struct agent_state *state, uint64_t ge
   close(descriptor);
   return applied;
 }
+#endif /* !__APPLE__ */
 
 static uint64_t next_clipboard_generation(struct agent_state *state) {
   if (state->next_clipboard_generation == UINT64_MAX) {
@@ -464,6 +478,7 @@ static uint64_t next_clipboard_generation(struct agent_state *state) {
   return state->next_clipboard_generation;
 }
 
+#if !defined(__APPLE__)
 static bool write_clipboard_request(struct agent_state *state, const uint8_t *data,
                                     size_t size, uint64_t generation) {
   char generation_text[64];
@@ -472,6 +487,7 @@ static bool write_clipboard_request(struct agent_state *state, const uint8_t *da
                       strlen(generation_text)) == 0 &&
     write_file_atomic(state->clipboard_path, data, size) == 0;
 }
+#endif /* !__APPLE__ */
 
 #if !QSM_DESKTOP_CLIPBOARD_ONLY
 /* Return a compact, line-oriented manifest of regular files in one QSF
@@ -675,7 +691,11 @@ static uint64_t next_profile_generation(struct agent_state *state) {
 static bool update_clipboard_stamp(struct agent_state *state) {
   struct stat metadata;
   if (stat(state->clipboard_path, &metadata) == 0) {
+#if !defined(__APPLE__)
+    /* macOS detects guest-side changes through NSPasteboard's changeCount, so
+     * the file mtime is never consulted there and need not be recorded. */
     state->clipboard_mtime = metadata.st_mtim;
+#endif
     state->clipboard_size = metadata.st_size;
     state->clipboard_stamp_valid = true;
     return true;
@@ -687,7 +707,11 @@ static bool update_clipboard_stamp(struct agent_state *state) {
 static void emit_clipboard(struct agent_state *state, const char *prefix, bool report_errors) {
   uint8_t *data = NULL;
   size_t size = 0;
+#if defined(__APPLE__)
+  if (qsm_macos_clipboard_read(&data, &size, max_clipboard_bytes) != 0) {
+#else
   if (read_file(state->clipboard_path, &data, &size, max_clipboard_bytes) != 0) {
+#endif
     if (report_errors) {
       write_line(state->fd, "ERR ", "CLIPBOARD_UNAVAILABLE");
     }
@@ -711,6 +735,16 @@ static void emit_clipboard(struct agent_state *state, const char *prefix, bool r
 }
 
 static void poll_guest_clipboard(struct agent_state *state) {
+#if defined(__APPLE__)
+  /* NSPasteboard has no filesystem to stat; its monotonic changeCount is the
+   * authoritative "something copied in the guest" signal. */
+  const long count = qsm_macos_clipboard_change_count();
+  if (!state->clipboard_stamp_valid || count != state->clipboard_change_count) {
+    state->clipboard_change_count = count;
+    state->clipboard_stamp_valid = true;
+    emit_clipboard(state, "EVENT_CLIP ", false);
+  }
+#else
   struct stat metadata;
   if (stat(state->clipboard_path, &metadata) != 0) {
     return;
@@ -724,6 +758,7 @@ static void poll_guest_clipboard(struct agent_state *state) {
      * as EVENT_CLIP; a later synchronous CLIP_GET reports the rejection. */
     emit_clipboard(state, "EVENT_CLIP ", false);
   }
+#endif
 }
 
 static void handle_command(struct agent_state *state, char *line) {
@@ -749,8 +784,33 @@ static void handle_command(struct agent_state *state, char *line) {
     size_t size = 0;
     uint8_t *data = base64_decode(encoded, &size, max_clipboard_bytes);
     const uint64_t generation = next_clipboard_generation(state);
-    if (data == NULL || !valid_clipboard_utf8(data, size) ||
-        !write_clipboard_request(state, data, size, generation)) {
+    if (data == NULL || !valid_clipboard_utf8(data, size)) {
+      free(data);
+      write_line(state->fd, "ERR ", "BAD_CLIPBOARD");
+      return;
+    }
+#if defined(__APPLE__)
+    /* NSPasteboard applies synchronously and unifies every app's clipboard,
+     * so there is no bridge to wait for: set it and acknowledge at once. */
+    const bool applied = qsm_macos_clipboard_write(data, size) == 0;
+    free(data);
+    if (!applied) {
+      write_line(state->fd, "ERR ", "CLIPBOARD_NOT_APPLIED");
+      return;
+    }
+    /* Record the resulting change count so our own write is not echoed back
+     * to the host as EVENT_CLIP on the next poll. */
+    state->clipboard_change_count = qsm_macos_clipboard_change_count();
+    state->clipboard_stamp_valid = true;
+    char reply[96];
+    if (snprintf(reply, sizeof(reply), "CLIP_SET %" PRIu64, generation) >= (int) sizeof(reply)) {
+      write_line(state->fd, "ERR ", "CLIPBOARD_NOT_APPLIED");
+      return;
+    }
+    write_line(state->fd, "OK ", reply);
+    return;
+#else
+    if (!write_clipboard_request(state, data, size, generation)) {
       free(data);
       write_line(state->fd, "ERR ", "BAD_CLIPBOARD");
       return;
@@ -776,6 +836,7 @@ static void handle_command(struct agent_state *state, char *line) {
     }
     write_line(state->fd, "OK ", reply);
     return;
+#endif
   }
 #if !QSM_DESKTOP_CLIPBOARD_ONLY
   if (strcmp(command, "FILE_PUT") == 0) {
@@ -1115,6 +1176,12 @@ static int initialize_state(struct agent_state *state, const char *device, const
     return -1;
   }
   update_clipboard_stamp(state);
+#if defined(__APPLE__)
+  /* Seed the change count so the current guest selection is not immediately
+   * echoed to the host as EVENT_CLIP the moment a session connects. */
+  state->clipboard_change_count = qsm_macos_clipboard_change_count();
+  state->clipboard_stamp_valid = true;
+#endif
   state->fd = open(device, O_RDWR | O_CLOEXEC | O_NOCTTY);
   return state->fd < 0 ? -1 : 0;
 }
