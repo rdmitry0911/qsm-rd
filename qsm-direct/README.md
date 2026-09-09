@@ -16,14 +16,17 @@ flowchart LR
         terminal["qsm-pve-direct-terminal<br/>(per-VM sessions)"]
         worker["qsm-direct-media-worker<br/>H.264 / HEVC / Opus"]
         qemu["QEMU + guest desktop"]
+        agent["qsm-desktop-agent<br/>(in the guest, optional)"]
     end
     browser -->|"login ticket, VM state, UI"| pveproxy
     browser -->|"SDP offer/answer, codec policy<br/>Authorization: Bearer ticket"| signal
-    browser <==>|"WebRTC media + input<br/>UDP · DTLS-SRTP"| worker
+    browser <==>|"WebRTC media + input,<br/>clipboard on the control channel<br/>UDP · DTLS-SRTP"| worker
     signal -->|"verify ticket + VM.Console<br/>/access/ticket"| pveproxy
     signal -->|"private Unix socket"| terminal
     terminal -->|"per-VM Unix sockets"| worker
     worker <-->|"Display1 D-Bus"| qemu
+    terminal -.->|"clipboard text<br/>virtio-serial socket"| agent
+    agent -.->|"desktop selection<br/>wl-clipboard / KDE Klipper"| qemu
 ```
 
 The browser reaches the node on two TLS ports: stock pveproxy on 8006 for
@@ -204,8 +207,8 @@ menu opens QSM Direct in a separate window. Opening the console needs
 Full screen is the same console at the full viewport. Bidirectional clipboard
 comes with `qsm-desktop-agent` in a Linux guest running a Wayland desktop
 (KDE Plasma Wayland, or another compositor with `wl-clipboard` installed):
-`qsm-desktop-agent-setup USER`. File transfer is deliberately not part of the
-browser transport.
+`qsm-desktop-agent-setup USER`. How it works is described under
+[Clipboard](#clipboard) below.
 
 Details: [installation](docs/INSTALLATION.md), [testing](docs/TESTING.md),
 [measured comparison](docs/COMPARISON.md), [PVE 9 laboratory](lab/proxmox9/README.md).
@@ -236,6 +239,30 @@ mislabelled video (the reason is logged in the node journal).
 Display1 audio interface, but the PVE Display profile does not yet add a QEMU
 audio device or `audiodev` to the VM, so a console configured as described
 above is silent. Treat audio as not available until the profile gains it.
+
+### Clipboard
+
+Copy and paste between the browser and the guest desktop travel on the same
+WebRTC connection as the video, over its ordered control channel — never a
+network service. The Console toolbar carries two buttons: **⧉** copies the
+guest's current selection into the browser clipboard, and **⇩** pastes the
+browser clipboard into the guest. Browsers only grant clipboard access from a
+real user gesture, so each transfer is a button press, not silent background
+sync.
+
+Inside the guest, the optional `qsm-desktop-agent` owns a private QEMU
+virtio-serial port (`org.qsm.direct.agent`) — no network, no listening port. It
+keeps a small per-user clipboard state file that a per-user bridge mirrors both
+ways against the real desktop selection: KDE Plasma through Klipper's D-Bus
+API, other Wayland compositors through `wl-clipboard`. The terminal's per-VM
+guest channel reads and writes that port over the per-VM Unix socket QEMU
+already exposes, and the WebRTC bridge relays it to the browser as bounded,
+base64-encoded `text/plain` UTF-8 (up to 1 MiB). Only text is carried; file
+transfer is deliberately not part of the browser transport. Without the agent
+the console still works — clipboard is simply unavailable.
+
+Install it with `qsm-desktop-agent-setup USER` in a Linux guest running a
+Wayland desktop.
 
 ### Codecs
 
