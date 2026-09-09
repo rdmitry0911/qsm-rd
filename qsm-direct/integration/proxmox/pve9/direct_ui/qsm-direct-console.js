@@ -19,7 +19,13 @@
         virgl: 'virgl',
         cpu: 'cpu',
     });
-    const CPU_DISPLAY_VGA_TYPES = new Set(['std', 'virtio']);
+    // The non-GL D-Bus Display1 backend captures the active QEMU console's 2D
+    // surface, which is device-agnostic: Standard VGA, VirtIO-GPU (no GL) and
+    // VMware SVGA all render to an ordinary console the same way. VMware SVGA
+    // therefore works with the CPU profile (it cannot drive the VirGL/GL
+    // profile, which needs virtio-vga-gl). qxl is left out for now: its usual
+    // home is SPICE and it has not been qualified here.
+    const CPU_DISPLAY_VGA_TYPES = new Set(['std', 'virtio', 'vmware']);
     // Console preferences are deliberately browser-local.  They do not
     // contain a credential, VM identifier, SDP, or any host policy: the PVE
     // Console route remains the sole authority for those.  Keeping the UI
@@ -273,9 +279,9 @@
             return gettext('QSM VirtIO-GPU (VirGL, GL) — PVE Graphic card is None');
         }
         const type = stockVgaType(vga || 'none');
-        return type === 'virtio'
-            ? gettext('PVE VirtIO-GPU + QSM Display1 (CPU, no GL)')
-            : gettext('PVE Standard VGA + QSM Display1 (CPU, no GL)');
+        if (type === 'virtio') { return gettext('PVE VirtIO-GPU + QSM Display1 (CPU, no GL)'); }
+        if (type === 'vmware') { return gettext('PVE VMware SVGA + QSM Display1 (CPU, no GL)'); }
+        return gettext('PVE Standard VGA + QSM Display1 (CPU, no GL)');
     };
     const updateDisplayFields = (panel, active, profile, vga) => {
         const rendernode = panel && panel.down('[name=qsm_direct_rendernode]');
@@ -304,7 +310,7 @@
             displayField: 'label', valueField: 'value',
             store: { fields: ['value', 'label'], data: [
                 { value: DISPLAY_PROFILE.virgl, label: gettext('VirGL GPU (GL)') },
-                { value: DISPLAY_PROFILE.cpu, label: gettext('CPU — Standard VGA or VirtIO (no GL)') },
+                { value: DISPLAY_PROFILE.cpu, label: gettext('CPU — Standard VGA, VirtIO or VMware (no GL)') },
             ] },
             listeners: { change: function (_field, value) {
                 const panel = this.up('inputpanel');
@@ -344,7 +350,7 @@
                 throw new Error('direct Display1 configuration is invalid');
             }
             if (active && profile === DISPLAY_PROFILE.cpu && !CPU_DISPLAY_VGA_TYPES.has(values.type)) {
-                throw new Error('CPU Display1 requires PVE Graphic card Standard VGA or VirtIO');
+                throw new Error('CPU Display1 requires PVE Graphic card Standard VGA, VirtIO or VMware');
             }
             // PVE 9 does not populate `memory` for every VGA type. Passing an
             // explicit `undefined` becomes `vga.memory=undefined` at the API

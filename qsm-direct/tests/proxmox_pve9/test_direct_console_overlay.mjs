@@ -295,7 +295,7 @@ assert.match(source, /Automatic \(HEVC when supported\)/,
     'the automatic policy must prefer HEVC when the browser and a hardware encoder support it');
 assert.match(source, /HEVC \(hardware encoder required\)/,
     "the UI must make HEVC's hardware-only server requirement explicit");
-assert.match(source, /CPU — Standard VGA or VirtIO \(no GL\)/,
+assert.match(source, /CPU — Standard VGA, VirtIO or VMware \(no GL\)/,
     'the Display editor must expose a non-GL CPU profile beside VirGL');
 assert.match(source, /Effective display adapter/,
     'the Display advanced pane must disclose the actual QSM-owned adapter behind PVE vga=none');
@@ -342,7 +342,7 @@ assert.deepEqual(
 // CPU Display1 owns only the D-Bus backend. Standard VGA and non-GL VirtIO
 // remain PVE-owned, so systems without a DRM render node can use the exact
 // same browser transport and retain their ordinary VNC console as well.
-for (const [type, memory] of [['std', undefined], ['virtio', '256']]) {
+for (const [type, memory] of [['std', undefined], ['virtio', '256'], ['vmware', undefined]]) {
     vmWindow.vmconfig.args = '-cpu host';
     const cpuResult = displayOverlay.onGetValues.call(displayPanel, {
         type, memory, qsm_direct_display1: 1, qsm_direct_profile: 'cpu',
@@ -366,11 +366,11 @@ for (const [type, memory] of [['std', undefined], ['virtio', '256']]) {
 vmWindow.vmconfig.args = '-cpu host';
 assert.throws(() => displayOverlay.onGetValues.call(displayPanel, {
     type: 'none', qsm_direct_display1: 1, qsm_direct_profile: 'cpu',
-}), /CPU Display1 requires PVE Graphic card Standard VGA or VirtIO/,
+}), /CPU Display1 requires PVE Graphic card Standard VGA, VirtIO or VMware/,
     'CPU Display1 rejects a display-less configuration rather than opening a black console');
 assert.throws(() => displayOverlay.onGetValues.call(displayPanel, {
     type: 'virtio-gl', qsm_direct_display1: 1, qsm_direct_profile: 'cpu',
-}), /CPU Display1 requires PVE Graphic card Standard VGA or VirtIO/,
+}), /CPU Display1 requires PVE Graphic card Standard VGA, VirtIO or VMware/,
     'CPU Display1 must not silently retain a GL PVE adapter');
 
 // PVE's normal list contains display types with and without a memory value.
