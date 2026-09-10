@@ -556,19 +556,24 @@
         document.body.style.cssText = 'width:100vw;height:100vh;min-width:100vw;min-height:100vh;margin:0;position:relative;overflow:hidden;background:#000;color:#fff;font:13px sans-serif';
         const toolbar = document.createElement('div');
         toolbar.setAttribute('aria-label', gettext('Console controls'));
-        toolbar.style.cssText = 'position:absolute;z-index:10;top:12px;left:0;display:flex;flex-direction:column;align-items:stretch;gap:5px;padding:6px;background:rgba(17,24,39,.88);box-shadow:1px 0 6px rgba(0,0,0,.55);border-radius:0 7px 7px 0;opacity:1;transform:translateX(0);transition:opacity .16s ease,transform .16s ease';
+        // The control strip floats over the guest video.  Its container is
+        // click-through (pointer-events:none) so moving the mouse across the
+        // strip still reaches the guest; only the actual buttons below opt
+        // back in (pointer-events:auto).  Otherwise the revealed toolbar left
+        // a dead band down the left edge where guest input was swallowed.
+        toolbar.style.cssText = 'position:absolute;z-index:10;top:12px;left:0;display:flex;flex-direction:column;align-items:stretch;gap:5px;padding:6px;background:rgba(17,24,39,.88);box-shadow:1px 0 6px rgba(0,0,0,.55);border-radius:0 7px 7px 0;opacity:1;transform:translateX(0);transition:opacity .16s ease,transform .16s ease;pointer-events:none';
         const status = document.createElement('span');
         status.textContent = gettext('Connecting…');
         status.style.cssText = 'min-width:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
         const fullscreen = document.createElement('button');
         fullscreen.type = 'button';
-        fullscreen.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1';
+        fullscreen.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1;pointer-events:auto';
         const settingsButton = document.createElement('button');
         settingsButton.type = 'button';
         settingsButton.textContent = '⚙';
         settingsButton.setAttribute('aria-label', gettext('Console settings'));
         settingsButton.title = gettext('Console settings');
-        settingsButton.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1';
+        settingsButton.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1;pointer-events:auto';
         // Assigned once the WebRTC control channel is created.  A full-screen
         // transition is not consistently reported by ResizeObserver across
         // Chromium/Safari, so this explicit hook is part of the resize
@@ -605,7 +610,7 @@
         guestCursor.style.cssText = 'display:none;position:fixed;z-index:5;pointer-events:none;image-rendering:auto';
         const audio = document.createElement('button');
         audio.type = 'button';
-        audio.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:16px;line-height:1';
+        audio.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:16px;line-height:1;pointer-events:auto';
         const setAudioLabel = () => {
             const label = video.muted ? gettext('Enable Audio') : gettext('Mute Audio');
             audio.textContent = video.muted ? '🔇' : '🔊';
@@ -661,13 +666,13 @@
         copy.textContent = '⧉';
         copy.setAttribute('aria-label', gettext('Copy guest clipboard to this browser'));
         copy.title = gettext('Copy guest clipboard to this browser');
-        copy.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1';
+        copy.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1;pointer-events:auto';
         const paste = document.createElement('button');
         paste.type = 'button';
         paste.textContent = '⇩';
         paste.setAttribute('aria-label', gettext('Paste this browser clipboard into the guest'));
         paste.title = gettext('Paste this browser clipboard into the guest');
-        paste.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1';
+        paste.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1;pointer-events:auto';
         const settingsPanel = document.createElement('aside');
         settingsPanel.setAttribute('aria-label', gettext('Console settings'));
         settingsPanel.style.cssText = 'display:none;position:absolute;z-index:21;left:12px;top:52px;width:min(440px,calc(100% - 24px));max-height:calc(100% - 64px);overflow:auto;box-sizing:border-box;padding:12px;border:1px solid rgba(148,163,184,.55);border-radius:8px;background:rgba(15,23,42,.97);box-shadow:0 8px 28px rgba(0,0,0,.65);color:#f8fafc';
@@ -807,6 +812,14 @@
         let closed = false;
         let closeWatcher = null;
         let pointerFrame = null;
+        // Fallback flush timer.  requestAnimationFrame is paused by the browser
+        // when this console's window stops compositing — which is exactly what
+        // happens to the embedded-card console while a second Console (a
+        // separate window, or one in full screen) is on top.  Without a timer
+        // racing the frame callback, the occluded console's pointer motion is
+        // queued but never delivered, so the guest cursor freezes at the last
+        // position sent before the switch.
+        let pointerTimer = null;
         let pendingPointer = null;
         let latestPointer = null;
         const heldMouseButtons = new Set();
@@ -1362,6 +1375,7 @@
             if (peer) { peer.close(); }
             if (closeWatcher !== null) { window.clearInterval(closeWatcher); }
             if (pointerFrame !== null) { popup.cancelAnimationFrame(pointerFrame); }
+            if (pointerTimer !== null) { popup.clearTimeout(pointerTimer); }
             if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); }
             if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); }
             if (firstFrameTimer !== null) { popup.clearTimeout(firstFrameTimer); }
@@ -1575,6 +1589,16 @@
             const resize = (immediate = false) => {
                 const dispatch = () => {
                     resizeTimer = null;
+                    // Full screen is a view change, not a guest reconfiguration.
+                    // Entering it makes the video box the whole screen, whose
+                    // aspect rarely matches the console's — resizing the guest
+                    // to that would change the desktop's resolution (and, with a
+                    // second console sharing this guest, resize that one too) on
+                    // every toggle.  Keep the current resolution and let
+                    // object-fit:contain scale it to the screen instead.  The
+                    // pre-full-screen geometry is untouched, so leaving full
+                    // screen needs no counter-resize either.
+                    if (document.fullscreenElement) { return; }
                     const value = dimensions(video, sessionFps);
                     const identity = `${value.width}x${value.height}@${value.fps}`;
                     // In addition to CSS layout, update the media element's
@@ -1685,6 +1709,10 @@
                     popup.cancelAnimationFrame(pointerFrame);
                     pointerFrame = null;
                 }
+                if (pointerTimer !== null) {
+                    popup.clearTimeout(pointerTimer);
+                    pointerTimer = null;
+                }
                 const value = pendingPointer || latestPointer;
                 pendingPointer = null;
                 if (!value) { return; }
@@ -1701,12 +1729,19 @@
                 pointerSequence = (pointerSequence + 1) >>> 0;
                 latestPointer = sample;
                 pendingPointer = sample;
-                if (pointerFrame === null) {
-                    // Input delivery is coupled to the browser compositor,
-                    // rather than to its separately throttleable timer queue.
-                    // Retain one latest sample per presented frame; click
-                    // edges flush it synchronously below.
+                if (pointerFrame === null && pointerTimer === null) {
+                    // Input delivery is paced to the browser compositor, not to
+                    // its separately throttleable timer queue: while this window
+                    // is visible the frame callback wins and one latest sample
+                    // is retained per presented frame (click edges flush it
+                    // synchronously below).  A timer races it purely as a
+                    // fallback for an occluded/background window, whose
+                    // requestAnimationFrame the browser pauses — there the timer
+                    // keeps the guest pointer following the mouse instead of
+                    // freezing it at the pre-switch position.  Whichever fires
+                    // first flushes and cancels the other.
                     pointerFrame = popup.requestAnimationFrame(() => flushPointer(false));
+                    pointerTimer = popup.setTimeout(() => flushPointer(false), 50);
                 }
             };
             const pointerForMouseEvent = (event) => {
@@ -1814,6 +1849,18 @@
                 }
                 resizeRetryIdentity = '';
                 resizeRetryAttempts = 0;
+            });
+            // Control follows the pointer into the console: entering the guest
+            // rectangle takes keyboard and clipboard focus at once, without
+            // waiting for a click.  Relying on a click to move focus made
+            // switching between two consoles feel like it lagged by seconds
+            // (the previous surface kept focus until the guest was clicked).
+            // Focusing an element in a window that is not the active one is a
+            // harmless no-op, so no window-state test is needed; the settings
+            // panel is skipped so hovering the video cannot steal its inputs.
+            video.addEventListener('pointerenter', () => {
+                if (settingsPanelOpen) { return; }
+                video.focus({ preventScroll: true });
             });
             video.addEventListener('mousemove', (event) => {
                 observeToolbarZone(event);
