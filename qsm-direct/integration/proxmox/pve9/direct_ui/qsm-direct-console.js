@@ -625,8 +625,13 @@
             // audio-autoplay policy without making video startup depend on it.
             video.play().catch(() => undefined);
         });
+        // The embedded card console maximises within the page instead of going
+        // to exclusive OS full screen: it fills the viewport below and right of
+        // its current position, leaving the PVE navigation and header visible.
+        let embeddedMaximized = false;
+        let embeddedFrameSavedStyle = null;
         const setFullscreenToggle = () => {
-            const active = Boolean(document.fullscreenElement);
+            const active = Boolean(document.fullscreenElement) || embeddedMaximized;
             // Keep the compact control's name stable while exposing a real
             // pressed/unpressed state to both assistive technology and CSS.
             fullscreen.textContent = active ? '⤢' : '⛶';
@@ -636,7 +641,37 @@
             fullscreen.style.background = active ? '#1d4ed8' : '';
         };
         setFullscreenToggle();
+        const toggleEmbeddedMaximize = () => {
+            const frameEl = embeddedFrame;
+            if (!frameEl) { return; }
+            if (!embeddedMaximized) {
+                embeddedFrameSavedStyle = frameEl.getAttribute('style') || '';
+                const rect = frameEl.getBoundingClientRect();
+                const left = Math.max(0, Math.round(rect.left));
+                const top = Math.max(0, Math.round(rect.top));
+                // Page-level maximise, not OS full screen: fill the viewport
+                // from the console's current top-left to the bottom-right edge,
+                // so the PVE chrome above and to the left stays on screen.  The
+                // larger iframe drives the guest resize (this console becomes
+                // the reference size) without taking over the whole monitor.
+                frameEl.style.cssText = `position:fixed;left:${left}px;top:${top}px;` +
+                    `width:calc(100vw - ${left}px);height:calc(100vh - ${top}px);` +
+                    `border:0;background:#000;z-index:2147483000`;
+                embeddedMaximized = true;
+            } else {
+                frameEl.setAttribute('style', embeddedFrameSavedStyle ||
+                    'display:block;width:100%;height:100%;border:0;background:#000');
+                embeddedMaximized = false;
+            }
+            setFullscreenToggle();
+            resizeConsole(true);
+            placeGuestCursor();
+            video.focus({ preventScroll: true });
+        };
         fullscreen.addEventListener('click', () => {
+            // The embedded card maximises within the page; only the separate
+            // window console uses exclusive OS full screen.
+            if (embedded) { toggleEmbeddedMaximize(); return; }
             const action = document.fullscreenElement
                 ? document.exitFullscreen()
                 : document.documentElement.requestFullscreen();
@@ -880,6 +915,15 @@
         // the top-left corner of the guest image.
         let latestGuestCursorSequence = -1;
         let lastResize = '';
+        // The last guest scanout size this console actually saw applied.  It
+        // distinguishes "the guest is ignoring my resize (still my previous
+        // size)" — which should keep retrying — from "another console resized
+        // the shared guest" (a new size that is neither my request nor my
+        // previous one) — which this console must FOLLOW rather than fight, so
+        // the console that is being stretched stays the reference and does not
+        // end up showing a scaled picture because a background console kept
+        // re-asserting its own smaller size.
+        let lastAppliedSize = '';
         let mediaPolicyLoading = false;
         const cancelToolbarReveal = () => {
             if (toolbarRevealTimer !== null) {
@@ -1589,16 +1633,6 @@
             const resize = (immediate = false) => {
                 const dispatch = () => {
                     resizeTimer = null;
-                    // Full screen is a view change, not a guest reconfiguration.
-                    // Entering it makes the video box the whole screen, whose
-                    // aspect rarely matches the console's — resizing the guest
-                    // to that would change the desktop's resolution (and, with a
-                    // second console sharing this guest, resize that one too) on
-                    // every toggle.  Keep the current resolution and let
-                    // object-fit:contain scale it to the screen instead.  The
-                    // pre-full-screen geometry is untouched, so leaving full
-                    // screen needs no counter-resize either.
-                    if (document.fullscreenElement) { return; }
                     const value = dimensions(video, sessionFps);
                     const identity = `${value.width}x${value.height}@${value.fps}`;
                     // In addition to CSS layout, update the media element's
@@ -1624,6 +1658,17 @@
                             resizeRetryAttempts = 0;
                             resizeStalled = false;
                             stalledRetryCount = 0;
+                            // This is a fresh stretch of THIS console: the guest
+                            // size we are changing away from is the current one,
+                            // so record it as the baseline.  The retry then
+                            // distinguishes "guest has not applied my request
+                            // yet" (still this baseline → keep pushing) from
+                            // "another console changed it" (a different size →
+                            // yield), instead of mistaking our own not-yet-
+                            // applied request for someone else's change.
+                            if (video.videoWidth > 0 && video.videoHeight > 0) {
+                                lastAppliedSize = `${video.videoWidth}x${video.videoHeight}`;
+                            }
                         }
                         resizeRetryIdentity = identity;
                         lastResize = identity;
@@ -1645,6 +1690,7 @@
                         if (video.videoWidth === current.width && video.videoHeight === current.height) {
                             resizeRetryAttempts = 0;
                             resizeStalled = false;
+                            lastAppliedSize = `${video.videoWidth}x${video.videoHeight}`;
                             // The geometry converged: clear a "kept its own
                             // size" line left behind by an earlier stall,
                             // and only that line — a keyboard-capture or
@@ -1653,6 +1699,23 @@
                                 resizeStatusShown = false;
                                 updateMediaStatus();
                             }
+                            return;
+                        }
+                        // The guest is a different size than we asked for.  If
+                        // it moved to a size that is neither our request nor the
+                        // size we previously saw, another Console resized the
+                        // shared guest — it is the reference now.  Follow it:
+                        // re-sending our size here would drag the stretched
+                        // console back and leave it showing a scaled desktop.
+                        const guestSize = `${video.videoWidth}x${video.videoHeight}`;
+                        if (video.videoWidth > 0 && video.videoHeight > 0 &&
+                            lastAppliedSize && guestSize !== lastAppliedSize) {
+                            lastAppliedSize = guestSize;
+                            resizeRetryAttempts = 0;
+                            resizeStalled = false;
+                            resizeRetryIdentity = '';
+                            lastResize = '';
+                            if (resizeStatusShown) { resizeStatusShown = false; updateMediaStatus(); }
                             return;
                         }
                         if (resizeRetryAttempts < 16) {
@@ -1687,6 +1750,16 @@
             // with a short verification burst instead of an endless loop.
             retryStalledResize = () => {
                 if (!resizeStalled || closed) { return; }
+                // If the guest is now at a size other than the one we last saw
+                // applied, another Console is driving the shared resolution.
+                // Yield: this console follows the reference instead of shoving
+                // its own size back on every mouse move.
+                if (video.videoWidth > 0 && lastAppliedSize &&
+                    `${video.videoWidth}x${video.videoHeight}` !== lastAppliedSize) {
+                    resizeStalled = false;
+                    lastAppliedSize = `${video.videoWidth}x${video.videoHeight}`;
+                    return;
+                }
                 const now = Date.now();
                 if (now - lastStalledRetryAt < 3000) { return; }
                 // A guest that keeps its own mode after several wake
