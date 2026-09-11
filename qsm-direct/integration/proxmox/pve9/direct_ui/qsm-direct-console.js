@@ -542,6 +542,20 @@
         const document = popup.document;
         document.title = gettext('QSM Direct Console');
         document.documentElement.style.cssText = 'width:100%;height:100%;background:#000';
+        // On a phone or tablet the console must map 1:1 to the device viewport
+        // and not let the browser pinch-zoom the page (zoom should reach the
+        // guest, not scale the video).  Without this the console loads at a
+        // desktop width scaled down and touch coordinates feel offset.
+        try {
+            let viewportMeta = document.querySelector('meta[name="viewport"]');
+            if (!viewportMeta) {
+                viewportMeta = document.createElement('meta');
+                viewportMeta.setAttribute('name', 'viewport');
+                (document.head || document.documentElement).appendChild(viewportMeta);
+            }
+            viewportMeta.setAttribute('content',
+                'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover');
+        } catch (_error) { /* A missing head is non-fatal; desktop is unaffected. */ }
         let browserStorage = null;
         try { browserStorage = popup.localStorage; } catch (_error) { /* Defaults remain available. */ }
         const settings = readConsoleSettings(browserStorage);
@@ -599,7 +613,12 @@
         // below converges Display1 to this exact box; after convergence
         // `contain` occupies it completely without stretching an image just
         // because a user dragged one window edge.
-        video.style.cssText = 'position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain;outline:none';
+        // `touch-action:none` is essential on touch devices: without it the
+        // browser claims a finger drag for panning/zooming the page and never
+        // delivers pointer motion to the guest, so nothing can be selected on
+        // an Android tablet or phone.  user-select/touch-callout off keeps a
+        // long press from starting a browser text selection over the video.
+        video.style.cssText = 'position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain;outline:none;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none';
         // QEMU Display1 supplies the cursor shape and position separately
         // from scanout damage. This canvas is deliberately visual-only: it
         // never participates in hit testing, resize, or input forwarding.
@@ -1970,6 +1989,42 @@
                 event.preventDefault();
                 event.stopPropagation();
             });
+            // Touch and pen input (Android tablets/phones and other
+            // touchscreens).  The mouse-event handlers above stay the desktop
+            // path; these fire only for non-mouse pointers, so there is no
+            // double input on a desktop.  A single primary contact drives the
+            // guest's absolute pointer: press = left button down at that spot,
+            // drag = move with the button held (so a finger can select), lift =
+            // button up.  Pointer capture keeps a drag targeting the video even
+            // when the finger slides past its edge; preventDefault suppresses
+            // the browser's compatibility mouse events and its own gestures.
+            let activeTouchPointerId = null;
+            video.addEventListener('pointerdown', (event) => {
+                if (event.pointerType === 'mouse' || activeTouchPointerId !== null) { return; }
+                activeTouchPointerId = event.pointerId;
+                try { video.setPointerCapture(event.pointerId); } catch (_error) { /* older engines */ }
+                queuePointer(pointerForMouseEvent(event));
+                flushPointer(true);
+                video.focus({ preventScroll: true });
+                sendMouseButton(1, true);
+                event.preventDefault();
+            });
+            video.addEventListener('pointermove', (event) => {
+                if (event.pointerType === 'mouse' || event.pointerId !== activeTouchPointerId) { return; }
+                queuePointer(pointerForMouseEvent(event));
+                flushPointer(false);
+                event.preventDefault();
+            });
+            const endTouchPointer = (event) => {
+                if (event.pointerType === 'mouse' || event.pointerId !== activeTouchPointerId) { return; }
+                queuePointer(pointerForMouseEvent(event));
+                flushPointer(true);
+                sendMouseButton(1, false);
+                try { video.releasePointerCapture(event.pointerId); } catch (_error) { /* already released */ }
+                activeTouchPointerId = null;
+                event.preventDefault();
+            };
+            video.addEventListener('pointerup', endTouchPointer);
             // Mouseup often targets the document instead of the video after
             // Escape leaves native full screen.  Preserve a captured guest
             // button only until that document-level release arrives.
@@ -1980,7 +2035,10 @@
                 flushPointer(true);
                 sendMouseButton(button, false);
             });
-            video.addEventListener('pointercancel', releaseHeldInput);
+            video.addEventListener('pointercancel', (event) => {
+                if (event && event.pointerId === activeTouchPointerId) { activeTouchPointerId = null; }
+                releaseHeldInput();
+            });
             popup.addEventListener('blur', releaseHeldInput);
             document.addEventListener('visibilitychange', () => {
                 if (document.hidden) { releaseHeldInput(); }
