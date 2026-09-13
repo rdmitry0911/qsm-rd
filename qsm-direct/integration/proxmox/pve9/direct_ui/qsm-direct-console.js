@@ -1333,26 +1333,127 @@
                 top: box.top + (box.height - sourceHeight * scale) / 2,
             };
         };
+        // ---- Client-side zoom / pan (touch) ------------------------------
+        // A view transform on the video magnifies part of the guest for
+        // precise touch targeting.  transform-origin is 0,0 so the
+        // screen<->guest mapping stays analytic (screen = t + scale*local,
+        // where local is the object-fit:contain viewport space); the
+        // pointer math undoes it.  Off (scale 1) leaves behaviour identical
+        // to the un-zoomed console.
+        let zoomScale = 1;
+        let zoomTx = 0;
+        let zoomTy = 0;
+        const MIN_ZOOM = 1;
+        const MAX_ZOOM = 6;
+        // True while the last input came from touch: the guest cursor is then
+        // drawn as an on-screen overlay (there is no OS cursor to style, and
+        // VirGL does not composite the cursor into the video).
+        let usingTouchInput = false;
+        // The last guest coordinate we drove the pointer to.  On touch the
+        // overlay falls back to a synthetic arrow here whenever the guest has
+        // not (yet) streamed its own cursor bitmap, so a cursor is ALWAYS
+        // visible where the finger acted, not only once the guest reports.
+        let lastSentGuestX = null;
+        let lastSentGuestY = null;
+        const SYNTHETIC_CURSOR = 'data:image/svg+xml,' + encodeURIComponent(
+            "<svg xmlns='http://www.w3.org/2000/svg' width='12' height='19' viewBox='0 0 12 19'>" +
+            "<path d='M0 0 L0 16 L4 12 L6.5 17.5 L8.7 16.5 L6.1 11 L11 11 Z' fill='white' stroke='black' stroke-width='1' stroke-linejoin='round'/></svg>");
+        const SYNTHETIC_CURSOR_W = 20; // on-screen px (fixed; fallback arrow)
+        const SYNTHETIC_CURSOR_H = 31;
+        // object-fit:contain letterbox metrics (screen px per guest px = contain).
+        const viewMetrics = () => {
+            const viewW = popup.innerWidth || video.clientWidth || 1;
+            const viewH = popup.innerHeight || video.clientHeight || 1;
+            const sw = Math.max(1, video.videoWidth || viewW);
+            const sh = Math.max(1, video.videoHeight || viewH);
+            const raw = Math.min(viewW / sw, viewH / sh);
+            const contain = Number.isFinite(raw) && raw > 0 ? raw : 1;
+            return { viewW, viewH, sw, sh, contain, contentLeft: (viewW - sw * contain) / 2, contentTop: (viewH - sh * contain) / 2 };
+        };
+        // guest px -> on-screen px (inverse of pointerForMouseEvent).
+        const guestToScreen = (gx, gy) => {
+            const m = viewMetrics();
+            const localX = gx * m.contain + m.contentLeft;
+            const localY = gy * m.contain + m.contentTop;
+            return { x: zoomTx + zoomScale * localX, y: zoomTy + zoomScale * localY };
+        };
+        const clampZoom = () => {
+            const viewW = popup.innerWidth || video.clientWidth || 1;
+            const viewH = popup.innerHeight || video.clientHeight || 1;
+            zoomScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomScale));
+            // Keep the (letterboxed) video covering the viewport: no gap.
+            zoomTx = Math.max(viewW * (1 - zoomScale), Math.min(0, zoomTx));
+            zoomTy = Math.max(viewH * (1 - zoomScale), Math.min(0, zoomTy));
+            if (zoomScale <= 1.0001) { zoomScale = 1; zoomTx = 0; zoomTy = 0; }
+        };
+        const applyViewTransform = () => {
+            if (zoomScale === 1 && zoomTx === 0 && zoomTy === 0) {
+                video.style.transform = '';
+                video.style.transformOrigin = '';
+            } else {
+                video.style.transformOrigin = '0 0';
+                video.style.transform = `translate(${zoomTx}px, ${zoomTy}px) scale(${zoomScale})`;
+            }
+            diagZoom = zoomScale.toFixed(2);
+            placeGuestCursor();
+        };
+        const zoomAroundPoint = (mx, my, newScale) => {
+            const s0 = zoomScale || 1;
+            const lx = (mx - zoomTx) / s0;
+            const ly = (my - zoomTy) / s0;
+            zoomScale = newScale;
+            zoomTx = mx - newScale * lx;
+            zoomTy = my - newScale * ly;
+            clampZoom();
+            applyViewTransform();
+        };
+        // Re-clamp the pan and re-place the guest cursor after the viewport or
+        // the guest scanout changes size (full screen, window resize, guest
+        // mode switch), so a magnified view never leaves a gap.
+        const reflowView = () => { clampZoom(); applyViewTransform(); };
         const placeGuestCursor = () => {
             const state = latestGuestCursor;
             const shape = state && guestCursorShapes.get(state.shape_id);
-            if (!state || !state.visible || !shape || !video.videoWidth || !video.videoHeight) {
-                hideGuestCursor();
-                return;
-            }
-            guestCursor.style.display = 'none';
+            const guestReady = !!(state && state.visible && shape && video.videoWidth && video.videoHeight);
             if (usingTouchInput) {
-                // Touch: draw the guest's own cursor as an overlay at its
-                // reported guest position (no OS cursor exists to style).  Scale
-                // it with the displayed content (contain * client zoom) and
-                // offset by the hotspot so the pointer tip lands on the target.
+                // Touch: there is no OS cursor to style and VirGL does not draw
+                // the cursor into the video, so ALWAYS render a cursor overlay
+                // where the pointer is.  Prefer the guest's own bitmap at its
+                // reported position; fall back to a synthetic arrow at the last
+                // position we drove the pointer to, so a cursor is never missing
+                // while the guest has not streamed its shape yet.
+                guestCursor.style.display = 'none';
                 const scale = viewMetrics().contain * zoomScale;
-                const hot = guestToScreen(state.x, state.y);
-                guestPointer.style.backgroundImage = `url("${shape.cursor_url}")`;
-                guestPointer.style.width = `${Math.max(1, shape.width * scale)}px`;
-                guestPointer.style.height = `${Math.max(1, shape.height * scale)}px`;
-                guestPointer.style.left = `${hot.x - shape.hotspot_x * scale}px`;
-                guestPointer.style.top = `${hot.y - shape.hotspot_y * scale}px`;
+                let img;
+                let boxW;
+                let boxH;
+                let offX;
+                let offY;
+                let gxp;
+                let gyp;
+                if (guestReady) {
+                    img = shape.cursor_url;
+                    boxW = Math.max(1, shape.width * scale);
+                    boxH = Math.max(1, shape.height * scale);
+                    offX = shape.hotspot_x * scale;
+                    offY = shape.hotspot_y * scale;
+                    gxp = state.x; gyp = state.y;
+                } else if (lastSentGuestX !== null && video.videoWidth) {
+                    img = SYNTHETIC_CURSOR;
+                    boxW = SYNTHETIC_CURSOR_W;      // fixed on-screen size: the
+                    boxH = SYNTHETIC_CURSOR_H;      // fallback is an approximation.
+                    offX = 0; offY = 0;             // tip at top-left.
+                    gxp = lastSentGuestX; gyp = lastSentGuestY;
+                } else {
+                    guestPointer.style.display = 'none';
+                    return;
+                }
+                const hot = guestToScreen(gxp, gyp);
+                guestPointer.style.backgroundImage = `url("${img}")`;
+                guestPointer.style.width = `${boxW}px`;
+                guestPointer.style.height = `${boxH}px`;
+                guestPointer.style.left = `${hot.x - offX}px`;
+                guestPointer.style.top = `${hot.y - offY}px`;
                 guestPointer.style.display = 'block';
                 if (appliedGuestCursor !== 'default') { appliedGuestCursor = 'default'; video.style.cursor = 'default'; }
                 return;
@@ -1361,6 +1462,8 @@
             // overlay was avoided here because it visibly jumps at a native
             // window edge when only one guest pixel moves; the OS cursor does not.
             guestPointer.style.display = 'none';
+            if (!guestReady) { hideGuestCursor(); return; }
+            guestCursor.style.display = 'none';
             const cursor = `url("${shape.cursor_url}") ${shape.hotspot_x} ${shape.hotspot_y}, default`;
             if (cursor !== appliedGuestCursor) {
                 appliedGuestCursor = cursor;
@@ -2204,73 +2307,6 @@
                     pointerTimer = popup.setTimeout(() => flushPointer(false), 50);
                 }
             };
-            // ---- Client-side zoom / pan (touch) ------------------------------
-            // A view transform on the video magnifies part of the guest for
-            // precise touch targeting.  transform-origin is 0,0 so the
-            // screen<->guest mapping stays analytic (screen = t + scale*local,
-            // where local is the object-fit:contain viewport space); the
-            // pointer math undoes it.  Off (scale 1) leaves behaviour identical
-            // to the un-zoomed console.
-            let zoomScale = 1;
-            let zoomTx = 0;
-            let zoomTy = 0;
-            const MIN_ZOOM = 1;
-            const MAX_ZOOM = 6;
-            // True while the last input came from touch: the guest cursor is then
-            // drawn as an on-screen overlay (there is no OS cursor to style, and
-            // VirGL does not composite the cursor into the video).
-            let usingTouchInput = false;
-            // object-fit:contain letterbox metrics (screen px per guest px = contain).
-            const viewMetrics = () => {
-                const viewW = popup.innerWidth || video.clientWidth || 1;
-                const viewH = popup.innerHeight || video.clientHeight || 1;
-                const sw = Math.max(1, video.videoWidth || viewW);
-                const sh = Math.max(1, video.videoHeight || viewH);
-                const raw = Math.min(viewW / sw, viewH / sh);
-                const contain = Number.isFinite(raw) && raw > 0 ? raw : 1;
-                return { viewW, viewH, sw, sh, contain, contentLeft: (viewW - sw * contain) / 2, contentTop: (viewH - sh * contain) / 2 };
-            };
-            // guest px -> on-screen px (inverse of pointerForMouseEvent).
-            const guestToScreen = (gx, gy) => {
-                const m = viewMetrics();
-                const localX = gx * m.contain + m.contentLeft;
-                const localY = gy * m.contain + m.contentTop;
-                return { x: zoomTx + zoomScale * localX, y: zoomTy + zoomScale * localY };
-            };
-            const clampZoom = () => {
-                const viewW = popup.innerWidth || video.clientWidth || 1;
-                const viewH = popup.innerHeight || video.clientHeight || 1;
-                zoomScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomScale));
-                // Keep the (letterboxed) video covering the viewport: no gap.
-                zoomTx = Math.max(viewW * (1 - zoomScale), Math.min(0, zoomTx));
-                zoomTy = Math.max(viewH * (1 - zoomScale), Math.min(0, zoomTy));
-                if (zoomScale <= 1.0001) { zoomScale = 1; zoomTx = 0; zoomTy = 0; }
-            };
-            const applyViewTransform = () => {
-                if (zoomScale === 1 && zoomTx === 0 && zoomTy === 0) {
-                    video.style.transform = '';
-                    video.style.transformOrigin = '';
-                } else {
-                    video.style.transformOrigin = '0 0';
-                    video.style.transform = `translate(${zoomTx}px, ${zoomTy}px) scale(${zoomScale})`;
-                }
-                diagZoom = zoomScale.toFixed(2);
-                placeGuestCursor();
-            };
-            const zoomAroundPoint = (mx, my, newScale) => {
-                const s0 = zoomScale || 1;
-                const lx = (mx - zoomTx) / s0;
-                const ly = (my - zoomTy) / s0;
-                zoomScale = newScale;
-                zoomTx = mx - newScale * lx;
-                zoomTy = my - newScale * ly;
-                clampZoom();
-                applyViewTransform();
-            };
-            // Re-clamp the pan and re-place the guest cursor after the viewport or
-            // the guest scanout changes size (full screen, window resize, guest
-            // mode switch), so a magnified view never leaves a gap.
-            const reflowView = () => { clampZoom(); applyViewTransform(); };
             const pointerForMouseEvent = (event) => {
                 // The video is position:fixed;inset:0;width:100vw;height:100vh, so
                 // its on-screen box is exactly the popup/iframe viewport
@@ -2296,11 +2332,15 @@
                 const localY = (event.clientY - zoomTy) / zoomScale;
                 const gx = Math.max(0, Math.min(sourceWidth - 1, Math.floor((localX - contentLeft) / scale)));
                 const gy = Math.max(0, Math.min(sourceHeight - 1, Math.floor((localY - contentTop) / scale)));
+                lastSentGuestX = gx; lastSentGuestY = gy;
                 diagLastPtr = `client=${Math.round(event.clientX)},${Math.round(event.clientY)} view=${Math.round(viewW)}x${Math.round(viewH)} zoom=${zoomScale.toFixed(2)} src=${sourceWidth}x${sourceHeight} scale=${scale.toFixed(3)} -> guest=${gx},${gy}`;
                 // Refresh the panel immediately (its synchronous part runs before
                 // any await) so each touch's coordinates show at once instead of
                 // waiting for the interval — essential for reading them on-device.
                 if (diag && !diag.hidden) { updateDiag(); }
+                // Keep the touch cursor overlay under the finger as it acts,
+                // even before the guest streams its own cursor for this move.
+                if (usingTouchInput) { placeGuestCursor(); }
                 return { op: 'mouse_position', x: gx, y: gy, width: sourceWidth, height: sourceHeight };
             };
             control.addEventListener('open', () => resize(true));
@@ -2930,7 +2970,11 @@
                 frame.title = gettext('QSM Direct Console');
                 frame.setAttribute('allow', 'autoplay; clipboard-read; clipboard-write; fullscreen');
                 frame.setAttribute('allowfullscreen', '');
-                frame.style.cssText = 'display:block;width:100%;height:100%;border:0;background:#000';
+                // touch-action:none on the iframe ELEMENT (top-page side) stops
+                // the browser from claiming a two-finger gesture over the console
+                // as a page pinch-zoom, in addition to the same rule on the video
+                // inside; without it a tablet zooms the whole PVE page.
+                frame.style.cssText = 'display:block;width:100%;height:100%;border:0;background:#000;touch-action:none';
                 me.qsmDirectFrame = frame;
                 me.qsmDirectSession = openConsole(me, me.nodename, Number(me.vmid), frame);
             };
