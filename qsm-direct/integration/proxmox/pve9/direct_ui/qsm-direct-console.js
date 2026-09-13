@@ -564,6 +564,30 @@
         let browserStorage = null;
         try { browserStorage = popup.localStorage; } catch (_error) { /* Defaults remain available. */ }
         const settings = readConsoleSettings(browserStorage);
+        // ---- Touch gesture -> action mapping -----------------------------
+        // The single touch behaviour is "direct" (a tap acts where you touch,
+        // the guest cursor is shown as an overlay).  Which finger gesture
+        // triggers which guest action is configurable (Settings), with working
+        // defaults: tap=left click, long-press=right click, 1-finger drag=
+        // drag/select, 2-finger drag=scroll, pinch=zoom, 3-finger tap=middle.
+        const GESTURE_ACTIONS = ['leftClick', 'rightClick', 'middleClick', 'drag', 'scroll', 'zoom'];
+        const GESTURES = ['tap', 'longPress', 'drag1', 'tap2', 'drag2', 'pinch', 'tap3', 'none'];
+        const DEFAULT_GESTURE_MAP = { leftClick: 'tap', rightClick: 'longPress', middleClick: 'tap3', drag: 'drag1', scroll: 'drag2', zoom: 'pinch' };
+        const gestureMap = { ...DEFAULT_GESTURE_MAP };
+        try {
+            const raw = browserStorage && browserStorage.getItem('qsm-gestures');
+            if (raw) { const p = JSON.parse(raw); for (const a of GESTURE_ACTIONS) { if (GESTURES.includes(p[a])) { gestureMap[a] = p[a]; } } }
+        } catch (_error) { /* defaults remain */ }
+        let gestureToAction = {};
+        const rebuildGestureMap = () => {
+            gestureToAction = {};
+            for (const a of GESTURE_ACTIONS) { if (gestureMap[a] && gestureMap[a] !== 'none') { gestureToAction[gestureMap[a]] = a; } }
+        };
+        rebuildGestureMap();
+        const saveGestureMap = () => {
+            rebuildGestureMap();
+            try { if (browserStorage) { browserStorage.setItem('qsm-gestures', JSON.stringify(gestureMap)); } } catch (_error) { /* ignore */ }
+        };
         // A media worker is shared by every Console watching the same VM, so
         // its RTP clock cannot be mutated under an existing viewer. Freeze
         // the selected FPS for this session; a changed preference applies
@@ -604,23 +628,6 @@
         diagButton.title = gettext('Toggle diagnostics');
         diagButton.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:16px;line-height:1;pointer-events:auto';
         diagButton.addEventListener('click', () => { toggleDiag(); });
-        // Touch input mode selector (tablets/phones).  One button cycles the
-        // gesture behaviour of a single finger, because a touchscreen has no
-        // hover, no wheel and no visible OS cursor:
-        //   direct   👆 — tap where you want to click (absolute)
-        //   trackpad 🖱 — a laptop-style relative cursor with a VISIBLE
-        //                 crosshair, so a thin target (a window resize corner)
-        //                 can be reached; long-press locks a drag to resize.
-        //   scroll   ↕ — drag scrolls the guest (wheel).
-        //   zoom     🔍 — drag pans and double-tap magnifies for precision.
-        // Two-finger pinch/pan magnifies the view in ANY mode.  The glyph shows
-        // the current mode and the choice is remembered.
-        const trackpadButton = document.createElement('button');
-        trackpadButton.type = 'button';
-        trackpadButton.textContent = '👆';
-        trackpadButton.setAttribute('aria-label', gettext('Touch input mode'));
-        trackpadButton.title = gettext('Touch input mode (tap to switch: direct / trackpad / scroll / zoom)');
-        trackpadButton.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:16px;line-height:1;pointer-events:auto';
         // On-screen keyboard for touch devices with no physical keyboard: a
         // focusable off-screen input raises the device keyboard, and its
         // keydown/beforeinput events are translated to guest key scancodes
@@ -703,6 +710,12 @@
         const guestCursor = document.createElement('canvas');
         guestCursor.setAttribute('aria-hidden', 'true');
         guestCursor.style.cssText = 'display:none;position:fixed;z-index:5;pointer-events:none;image-rendering:auto';
+        // On touch there is no OS cursor to style and VirGL does not draw the
+        // cursor into the video, so the guest's own cursor bitmap is shown as
+        // this overlay at the guest-reported position (scaled with the content).
+        const guestPointer = document.createElement('div');
+        guestPointer.setAttribute('aria-hidden', 'true');
+        guestPointer.style.cssText = 'display:none;position:fixed;z-index:6;pointer-events:none;background-repeat:no-repeat;background-size:100% 100%;image-rendering:auto;filter:drop-shadow(0 0 1px rgba(0,0,0,.6))';
         const audio = document.createElement('button');
         audio.type = 'button';
         audio.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:16px;line-height:1;pointer-events:auto';
@@ -916,6 +929,79 @@
             settingsForm.append(label, input);
             settingInputs.set(name, input);
         }
+        // Touch gesture assignment: for each guest action, choose which finger
+        // gesture triggers it.  Working defaults are pre-selected; a gesture can
+        // be used by only one action (picking it elsewhere frees it here).
+        const gesturesTitle = document.createElement('div');
+        gesturesTitle.textContent = gettext('Touch gestures');
+        gesturesTitle.style.cssText = 'font-weight:600;margin:16px 0 8px';
+        const gesturesHint = document.createElement('p');
+        gesturesHint.textContent = gettext('On a touchscreen the guest cursor is shown and a tap acts where you touch. Assign a gesture to each action; each gesture can drive only one action.');
+        gesturesHint.style.cssText = 'margin:0 0 8px;color:#cbd5e1;line-height:1.35';
+        const gesturesForm = document.createElement('div');
+        gesturesForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 160px;gap:8px;align-items:center';
+        const GESTURE_ACTION_LABELS = {
+            leftClick: gettext('Left click'),
+            rightClick: gettext('Right click'),
+            middleClick: gettext('Middle click'),
+            drag: gettext('Drag / select'),
+            scroll: gettext('Scroll'),
+            zoom: gettext('Zoom (magnify)'),
+        };
+        const GESTURE_LABELS = {
+            tap: gettext('1-finger tap'),
+            longPress: gettext('Long press'),
+            drag1: gettext('1-finger drag'),
+            tap2: gettext('2-finger tap'),
+            drag2: gettext('2-finger drag'),
+            pinch: gettext('Pinch (spread)'),
+            tap3: gettext('3-finger tap'),
+            none: gettext('(off)'),
+        };
+        const gestureSelects = new Map();
+        const refreshGestureSelects = () => {
+            for (const [action, select] of gestureSelects) { select.value = gestureMap[action] || 'none'; }
+        };
+        for (const action of GESTURE_ACTIONS) {
+            const label = document.createElement('label');
+            const select = document.createElement('select');
+            const inputId = `qsm-direct-gesture-${action}`;
+            label.htmlFor = inputId;
+            label.textContent = GESTURE_ACTION_LABELS[action] || action;
+            label.style.cssText = 'min-width:0';
+            select.id = inputId;
+            select.style.cssText = 'width:100%;box-sizing:border-box;padding:4px 6px';
+            for (const gesture of GESTURES) {
+                const option = document.createElement('option');
+                option.value = gesture;
+                option.textContent = GESTURE_LABELS[gesture] || gesture;
+                select.append(option);
+            }
+            select.value = gestureMap[action] || 'none';
+            select.addEventListener('change', () => {
+                const chosen = select.value;
+                if (chosen !== 'none') {
+                    // A gesture drives one action: free it from any other action.
+                    for (const other of GESTURE_ACTIONS) {
+                        if (other !== action && gestureMap[other] === chosen) { gestureMap[other] = 'none'; }
+                    }
+                }
+                gestureMap[action] = chosen;
+                saveGestureMap();
+                refreshGestureSelects();
+            });
+            gesturesForm.append(label, select);
+            gestureSelects.set(action, select);
+        }
+        const resetGestures = document.createElement('button');
+        resetGestures.type = 'button';
+        resetGestures.textContent = gettext('Reset gesture defaults');
+        resetGestures.style.cssText = 'margin:10px 0 4px;padding:4px 9px;cursor:pointer';
+        resetGestures.addEventListener('click', () => {
+            for (const action of GESTURE_ACTIONS) { gestureMap[action] = DEFAULT_GESTURE_MAP[action] || 'none'; }
+            saveGestureMap();
+            refreshGestureSelects();
+        });
         const settingsActions = document.createElement('div');
         settingsActions.style.cssText = 'display:flex;gap:8px;margin-top:12px;justify-content:flex-end';
         const resetSettings = document.createElement('button');
@@ -929,8 +1015,9 @@
         settingsActions.append(resetSettings, closeSettings);
         settingsPanel.append(settingsTitle, settingsHint, mediaPolicyTitle, mediaPolicyHint,
             mediaPolicyForm, saveMediaPolicy, keyboardPolicyTitle, keyboardPolicyForm,
-            keyboardPolicyHint, keyboardUnavailableHint, settingsForm, settingsActions);
-        toolbar.append(status, copy, paste, audio, kbButton, trackpadButton, fullscreen, diagButton, settingsButton);
+            keyboardPolicyHint, keyboardUnavailableHint, gesturesTitle, gesturesHint,
+            gesturesForm, resetGestures, settingsForm, settingsActions);
+        toolbar.append(status, copy, paste, audio, kbButton, fullscreen, diagButton, settingsButton);
         // On-screen diagnostics for the case a client shows no picture (mostly
         // phones/tablets/TVs where remote logs are unreachable). Hidden until a
         // few seconds pass with no decoded frame, then it prints the video and
@@ -943,7 +1030,7 @@
         // (the diagnostics toggle among them), which made it impossible to turn
         // off on a phone.  max-width keeps it off the controls entirely.
         diag.style.cssText = 'position:fixed;right:8px;top:8px;z-index:30;margin:0;max-width:min(70vw,520px);white-space:pre-wrap;word-break:break-word;padding:10px 12px;background:rgba(0,0,0,.82);color:#e5e7eb;font:13px/1.45 monospace;border:1px solid #334155;border-radius:8px;pointer-events:none';
-        document.body.append(video, guestCursor, toolbar, settingsPanel, diag, kbInput, revealHandle);
+        document.body.append(video, guestCursor, guestPointer, toolbar, settingsPanel, diag, kbInput, revealHandle);
         popup.focus();
 
         let peer = null;
@@ -999,7 +1086,6 @@
         let diagKeySent = 0;
         let diagLastInput = '';
         let diagLastPtr = '';
-        let diagTouchMode = 'direct';
         let diagZoom = '1.00';
         let negotiatedVideoCodec = '';
         // Fill the on-screen diagnostics panel from the live video + WebRTC
@@ -1014,7 +1100,7 @@
             lines.push(`answer codec=${negotiatedVideoCodec || '?'}`);
             lines.push(`chan control=${control ? control.readyState : '-'} pointer=${pointer ? pointer.readyState : '-'}`);
             lines.push(`input focus=${popup.document.activeElement === video} sent ptr=${diagPointerSent} btn=${diagButtonSent} key=${diagKeySent} last=${diagLastInput || '-'}`);
-            lines.push(`touch mode=${diagTouchMode} zoom=${diagZoom}`);
+            lines.push(`touch zoom=${diagZoom} cursor=${usingTouchInput ? 'overlay' : 'os'}`);
             lines.push('ptr ' + (diagLastPtr || '-'));
             // Render the basic lines NOW, before awaiting getStats(): if getStats
             // hangs (it can on some engines) the panel must still update, or it
@@ -1229,11 +1315,8 @@
             return result;
         };
         const hideGuestCursor = () => {
-            // The image is chosen by the guest, but its physical location is
-            // drawn by the browser/OS. A canvas overlay needs delayed
-            // Display1 MouseSet coordinates and visibly jumps at a native
-            // window edge when the operator moves only one pixel.
             guestCursor.style.display = 'none';
+            guestPointer.style.display = 'none';
             if (appliedGuestCursor !== 'default') {
                 appliedGuestCursor = 'default';
                 video.style.cursor = appliedGuestCursor;
@@ -1258,6 +1341,26 @@
                 return;
             }
             guestCursor.style.display = 'none';
+            if (usingTouchInput) {
+                // Touch: draw the guest's own cursor as an overlay at its
+                // reported guest position (no OS cursor exists to style).  Scale
+                // it with the displayed content (contain * client zoom) and
+                // offset by the hotspot so the pointer tip lands on the target.
+                const scale = viewMetrics().contain * zoomScale;
+                const hot = guestToScreen(state.x, state.y);
+                guestPointer.style.backgroundImage = `url("${shape.cursor_url}")`;
+                guestPointer.style.width = `${Math.max(1, shape.width * scale)}px`;
+                guestPointer.style.height = `${Math.max(1, shape.height * scale)}px`;
+                guestPointer.style.left = `${hot.x - shape.hotspot_x * scale}px`;
+                guestPointer.style.top = `${hot.y - shape.hotspot_y * scale}px`;
+                guestPointer.style.display = 'block';
+                if (appliedGuestCursor !== 'default') { appliedGuestCursor = 'default'; video.style.cursor = 'default'; }
+                return;
+            }
+            // Desktop: the browser/OS draws the cursor from CSS.  A canvas
+            // overlay was avoided here because it visibly jumps at a native
+            // window edge when only one guest pixel moves; the OS cursor does not.
+            guestPointer.style.display = 'none';
             const cursor = `url("${shape.cursor_url}") ${shape.hotspot_x} ${shape.hotspot_y}, default`;
             if (cursor !== appliedGuestCursor) {
                 appliedGuestCursor = cursor;
@@ -2106,64 +2209,33 @@
             // precise touch targeting.  transform-origin is 0,0 so the
             // screen<->guest mapping stays analytic (screen = t + scale*local,
             // where local is the object-fit:contain viewport space); the
-            // pointer math above undoes it.  Off (scale 1) leaves behaviour
-            // identical to the un-zoomed console.
+            // pointer math undoes it.  Off (scale 1) leaves behaviour identical
+            // to the un-zoomed console.
             let zoomScale = 1;
             let zoomTx = 0;
             let zoomTy = 0;
             const MIN_ZOOM = 1;
             const MAX_ZOOM = 6;
-            // ---- Touch input mode + trackpad state ---------------------------
-            const TOUCH_MODES = ['direct', 'trackpad', 'scroll', 'zoom'];
-            const TOUCH_MODE_GLYPH = { direct: '👆', trackpad: '🖱', scroll: '↕', zoom: '🔍' };
-            let touchMode = 'direct';
-            try {
-                const stored = browserStorage && browserStorage.getItem('qsm-touch-mode');
-                if (TOUCH_MODES.includes(stored)) { touchMode = stored; }
-                else if (browserStorage && browserStorage.getItem('qsm-trackpad') === '1') { touchMode = 'trackpad'; }
-            } catch (_error) { /* default direct */ }
-            let vcx = null;
-            let vcy = null;
-            let tpLastX = 0;
-            let tpLastY = 0;
-            let tpMoved = false;
-            let tpGrabbed = false;
-            // A visible crosshair marks the trackpad cursor, which the guest's
-            // own pointer often does not draw into the video (VirGL) and which
-            // touch never shows as an OS cursor.  It turns red while a drag is
-            // locked so "when can I drag" is unambiguous.
-            const tpCursor = document.createElement('div');
-            tpCursor.setAttribute('aria-hidden', 'true');
-            const TP_CURSOR_BASE = 'position:fixed;z-index:7;width:26px;height:26px;margin:-13px 0 0 -13px;pointer-events:none;opacity:0;transition:opacity .12s ease;box-sizing:border-box;filter:drop-shadow(0 0 1px #000)';
-            const tpCursorNormal = () => TP_CURSOR_BASE +
-                ';border-radius:0;box-shadow:none' +
-                ';background:linear-gradient(rgba(56,189,248,.95),rgba(56,189,248,.95)) center/2px 100% no-repeat,linear-gradient(rgba(56,189,248,.95),rgba(56,189,248,.95)) center/100% 2px no-repeat';
-            const tpCursorGrabbed = () => TP_CURSOR_BASE +
-                ';border-radius:50%;box-shadow:0 0 0 3px rgba(248,113,113,.9)' +
-                ';background:linear-gradient(rgba(248,113,113,.98),rgba(248,113,113,.98)) center/2px 100% no-repeat,linear-gradient(rgba(248,113,113,.98),rgba(248,113,113,.98)) center/100% 2px no-repeat';
-            document.body.append(tpCursor);
-            const setTpCursorStyle = () => { tpCursor.style.cssText = tpGrabbed ? tpCursorGrabbed() : tpCursorNormal(); };
-            // guest px -> on-screen px (inverse of pointerForMouseEvent), so the
-            // crosshair sits exactly where the guest cursor is being driven.
-            const guestToScreen = (gx, gy) => {
+            // True while the last input came from touch: the guest cursor is then
+            // drawn as an on-screen overlay (there is no OS cursor to style, and
+            // VirGL does not composite the cursor into the video).
+            let usingTouchInput = false;
+            // object-fit:contain letterbox metrics (screen px per guest px = contain).
+            const viewMetrics = () => {
                 const viewW = popup.innerWidth || video.clientWidth || 1;
                 const viewH = popup.innerHeight || video.clientHeight || 1;
                 const sw = Math.max(1, video.videoWidth || viewW);
                 const sh = Math.max(1, video.videoHeight || viewH);
                 const raw = Math.min(viewW / sw, viewH / sh);
-                const s = Number.isFinite(raw) && raw > 0 ? raw : 1;
-                const contentLeft = (viewW - sw * s) / 2;
-                const contentTop = (viewH - sh * s) / 2;
-                const localX = gx * s + contentLeft;
-                const localY = gy * s + contentTop;
-                return { x: zoomTx + zoomScale * localX, y: zoomTy + zoomScale * localY };
+                const contain = Number.isFinite(raw) && raw > 0 ? raw : 1;
+                return { viewW, viewH, sw, sh, contain, contentLeft: (viewW - sw * contain) / 2, contentTop: (viewH - sh * contain) / 2 };
             };
-            const positionTpCursor = () => {
-                if (touchMode !== 'trackpad' || vcx === null || vcy === null) { tpCursor.style.opacity = '0'; return; }
-                const p = guestToScreen(vcx, vcy);
-                tpCursor.style.left = `${p.x}px`;
-                tpCursor.style.top = `${p.y}px`;
-                tpCursor.style.opacity = '1';
+            // guest px -> on-screen px (inverse of pointerForMouseEvent).
+            const guestToScreen = (gx, gy) => {
+                const m = viewMetrics();
+                const localX = gx * m.contain + m.contentLeft;
+                const localY = gy * m.contain + m.contentTop;
+                return { x: zoomTx + zoomScale * localX, y: zoomTy + zoomScale * localY };
             };
             const clampZoom = () => {
                 const viewW = popup.innerWidth || video.clientWidth || 1;
@@ -2183,7 +2255,7 @@
                     video.style.transform = `translate(${zoomTx}px, ${zoomTy}px) scale(${zoomScale})`;
                 }
                 diagZoom = zoomScale.toFixed(2);
-                positionTpCursor();
+                placeGuestCursor();
             };
             const zoomAroundPoint = (mx, my, newScale) => {
                 const s0 = zoomScale || 1;
@@ -2195,10 +2267,9 @@
                 clampZoom();
                 applyViewTransform();
             };
-            // Re-clamp the pan and re-place the crosshair after the viewport or
+            // Re-clamp the pan and re-place the guest cursor after the viewport or
             // the guest scanout changes size (full screen, window resize, guest
-            // mode switch), so a magnified view never leaves a gap and the
-            // trackpad cursor stays on its guest point.
+            // mode switch), so a magnified view never leaves a gap.
             const reflowView = () => { clampZoom(); applyViewTransform(); };
             const pointerForMouseEvent = (event) => {
                 // The video is position:fixed;inset:0;width:100vw;height:100vh, so
@@ -2330,6 +2401,9 @@
             });
             video.addEventListener('mousemove', (event) => {
                 observeToolbarZone(event);
+                // A real mouse is present: hand the cursor back to the OS/CSS
+                // path (hide the touch overlay) so a desktop user is unaffected.
+                if (usingTouchInput) { usingTouchInput = false; placeGuestCursor(); }
                 // A missed button-up from a previous native full-screen
                 // transition becomes observable on the next ordinary move.
                 // Clear it before it can make every later click a drag.
@@ -2384,280 +2458,48 @@
                 if (touchMarkerTimer !== null) { popup.clearTimeout(touchMarkerTimer); }
                 touchMarkerTimer = popup.setTimeout(() => { touchMarker.style.opacity = '0'; touchMarkerTimer = null; }, 350);
             };
-            let activeTouchPointerId = null;
-            let touchStartX = 0;
-            let touchStartY = 0;
-            let touchMoved = false;
-            let touchDragging = false;
-            let touchLongPressed = false;
-            let touchLongPressTimer = null;
-            const clearTouchLongPress = () => {
-                if (touchLongPressTimer !== null) { popup.clearTimeout(touchLongPressTimer); touchLongPressTimer = null; }
-            };
-            // ---- Touch mode selector button --------------------------------
-            const applyTouchModeButtonStyle = () => {
-                trackpadButton.textContent = TOUCH_MODE_GLYPH[touchMode] || '👆';
-                trackpadButton.style.background = touchMode === 'direct' ? '' : '#1d4ed8';
-                diagTouchMode = touchMode;
-            };
-            const TOUCH_MODE_STATUS = {
-                direct: gettext('Touch: tap to click where you touch'),
-                trackpad: gettext('Touch: trackpad — drag moves the cursor, long-press to lock a drag, tap to click / release'),
-                scroll: gettext('Touch: scroll — drag up/down to scroll the guest'),
-                zoom: gettext('Touch: zoom — drag to pan, double-tap to magnify; pinch works in any mode'),
-            };
-            const setTouchMode = (mode) => {
-                if (!TOUCH_MODES.includes(mode)) { return; }
-                // Leaving trackpad while a drag is locked must release the button.
-                if (tpGrabbed) { sendMouseButton(1, false); tpGrabbed = false; setTpCursorStyle(); }
-                touchMode = mode;
-                try { if (browserStorage) { browserStorage.setItem('qsm-touch-mode', mode); } } catch (_error) { /* ignore */ }
-                applyTouchModeButtonStyle();
-                status.textContent = TOUCH_MODE_STATUS[mode] || '';
-                if (mode === 'trackpad') { tpEnsureCursor(); setTpCursorStyle(); positionTpCursor(); }
-                else { tpCursor.style.opacity = '0'; }
-                revealToolbar();
-            };
-            applyTouchModeButtonStyle();
-            if (touchMode === 'trackpad') { setTpCursorStyle(); }
-            trackpadButton.addEventListener('click', () => {
-                const next = TOUCH_MODES[(TOUCH_MODES.indexOf(touchMode) + 1) % TOUCH_MODES.length];
-                setTouchMode(next);
-            });
-            const tpEnsureCursor = () => {
-                if (vcx === null || vcy === null) {
-                    if (latestGuestCursor && latestGuestCursor.visible &&
-                        Number.isFinite(latestGuestCursor.x) && Number.isFinite(latestGuestCursor.y)) {
-                        vcx = latestGuestCursor.x; vcy = latestGuestCursor.y;
-                    } else {
-                        vcx = Math.floor((video.videoWidth || 2) / 2);
-                        vcy = Math.floor((video.videoHeight || 2) / 2);
-                    }
-                }
-            };
-            const tpSend = (reliable) => {
-                const sw = Math.max(1, video.videoWidth || 1);
-                const sh = Math.max(1, video.videoHeight || 1);
-                vcx = Math.max(0, Math.min(sw - 1, vcx));
-                vcy = Math.max(0, Math.min(sh - 1, vcy));
-                queuePointer({ op: 'mouse_position', x: Math.round(vcx), y: Math.round(vcy), width: sw, height: sh });
-                flushPointer(!!reliable);
-                positionTpCursor();
-                diagLastPtr = `trackpad guest=${Math.round(vcx)},${Math.round(vcy)} grab=${tpGrabbed}`;
-                if (diag && !diag.hidden) { updateDiag(); }
-            };
-
-            // ---- Two-finger pinch / pan (all modes) --------------------------
-            // A separate pointer map tracks contacts for view control.  A second
-            // finger anywhere switches to pinch-zoom + pan and suspends whatever
-            // single-finger gesture was in progress (its held button is released
-            // so a resize/selection is not left stuck).
-            const viewTouches = new Map();
-            const pinchIgnore = new Set();
-            const pinchState = { active: false, startDist: 1, startMidX: 0, startMidY: 0, startScale: 1, startTx: 0, startTy: 0 };
-            const twoViewPointers = () => {
-                const it = viewTouches.values();
-                const a = it.next().value;
-                const b = it.next().value;
-                return (a && b) ? [a, b] : null;
-            };
-            const abortSingleFingerGesture = () => {
-                clearTouchLongPress();
-                if (touchDragging) { sendMouseButton(1, false); touchDragging = false; }
-                if (tpGrabbed) { sendMouseButton(1, false); tpGrabbed = false; setTpCursorStyle(); }
-                touchLongPressed = false;
-                activeTouchPointerId = null;
-            };
-            const beginPinch = () => {
-                const p = twoViewPointers();
-                if (!p) { return; }
-                const dx = p[0].x - p[1].x;
-                const dy = p[0].y - p[1].y;
-                pinchState.active = true;
-                pinchState.startDist = Math.hypot(dx, dy) || 1;
-                pinchState.startMidX = (p[0].x + p[1].x) / 2;
-                pinchState.startMidY = (p[0].y + p[1].y) / 2;
-                pinchState.startScale = zoomScale;
-                pinchState.startTx = zoomTx;
-                pinchState.startTy = zoomTy;
-            };
-            const updatePinch = () => {
-                const p = twoViewPointers();
-                if (!p) { return; }
-                const dx = p[0].x - p[1].x;
-                const dy = p[0].y - p[1].y;
-                const dist = Math.hypot(dx, dy) || 1;
-                const midX = (p[0].x + p[1].x) / 2;
-                const midY = (p[0].y + p[1].y) / 2;
-                const ratio = dist / pinchState.startDist;
-                const newScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchState.startScale * ratio));
-                // Keep the local point under the initial midpoint anchored while
-                // also following the fingers' translation.
-                const lx = (pinchState.startMidX - pinchState.startTx) / pinchState.startScale;
-                const ly = (pinchState.startMidY - pinchState.startTy) / pinchState.startScale;
-                zoomScale = newScale;
-                zoomTx = midX - newScale * lx;
-                zoomTy = midY - newScale * ly;
-                clampZoom();
-                applyViewTransform();
-            };
-
-            // ---- Direct mode (tap = absolute click) --------------------------
-            const directDown = (event) => {
-                activeTouchPointerId = event.pointerId;
-                try { video.setPointerCapture(event.pointerId); } catch (_error) { /* older engines */ }
-                ensurePlaying();
-                video.focus({ preventScroll: true });
-                if (toolbarVisible && !toolbarPinned) { hideToolbarNow(); }
-                touchStartX = event.clientX;
-                touchStartY = event.clientY;
-                touchMoved = false;
-                touchDragging = false;
-                touchLongPressed = false;
-                showTouchMarker(event.clientX, event.clientY);
-                // Position the guest pointer at the touch first; the gesture
-                // below turns it into a tap, a drag, or a right click.
-                queuePointer(pointerForMouseEvent(event));
-                flushPointer(true);
-                clearTouchLongPress();
-                touchLongPressTimer = popup.setTimeout(() => {
-                    touchLongPressTimer = null;
-                    if (activeTouchPointerId === null || touchMoved) { return; }
-                    touchLongPressed = true;
-                    sendMouseButton(3, true);
-                    sendMouseButton(3, false);
-                }, 500);
-                event.preventDefault();
-            };
-            const directMove = (event) => {
-                if (touchLongPressed) { event.preventDefault(); return; }
-                if (!touchMoved && (Math.abs(event.clientX - touchStartX) > 18 || Math.abs(event.clientY - touchStartY) > 18)) {
-                    touchMoved = true;
-                    clearTouchLongPress();
-                    touchDragging = true;
-                    sendMouseButton(1, true);
-                }
-                if (touchDragging) {
-                    queuePointer(pointerForMouseEvent(event));
-                    flushPointer(true);
-                }
-                event.preventDefault();
-            };
-            const directUp = (event) => {
-                clearTouchLongPress();
-                if (touchDragging) {
-                    queuePointer(pointerForMouseEvent(event));
-                    flushPointer(true);
-                    sendMouseButton(1, false);
-                } else if (touchLongPressed) {
-                    // The right click already landed at the press point; do NOT
-                    // move the guest cursor to the lift point.
-                } else {
-                    queuePointer(pointerForMouseEvent(event));
-                    flushPointer(true);
-                    sendMouseButton(1, true);
-                    sendMouseButton(1, false);
-                }
-                try { video.releasePointerCapture(event.pointerId); } catch (_error) { /* already released */ }
-                activeTouchPointerId = null;
-                touchDragging = false;
-                event.preventDefault();
-            };
-
-            // ---- Trackpad mode (relative cursor + drag lock) -----------------
-            const tpDown = (event) => {
-                activeTouchPointerId = event.pointerId;
-                try { video.setPointerCapture(event.pointerId); } catch (_error) { /* older engines */ }
-                ensurePlaying();
-                video.focus({ preventScroll: true });
-                if (toolbarVisible && !toolbarPinned) { hideToolbarNow(); }
-                tpEnsureCursor();
-                setTpCursorStyle();
-                positionTpCursor();
-                tpLastX = event.clientX; tpLastY = event.clientY;
-                tpMoved = false;
-                clearTouchLongPress();
-                // Long-press LOCKS a drag (holds the left button) — the finger can
-                // then lift and reposition; the red crosshair shows it is held.
-                // A subsequent tap releases it.  This makes "when can I drag"
-                // explicit, which hold-and-drag on a touchscreen did not.
-                touchLongPressTimer = popup.setTimeout(() => {
-                    touchLongPressTimer = null;
-                    if (activeTouchPointerId === null || tpMoved || tpGrabbed) { return; }
-                    tpGrabbed = true;
-                    setTpCursorStyle();
-                    tpSend(true);
-                    sendMouseButton(1, true);
-                    status.textContent = gettext('Trackpad: drag locked — move to resize, tap to release');
-                }, 500);
-                event.preventDefault();
-            };
-            const tpMove = (event) => {
-                const viewW = popup.innerWidth || video.clientWidth || 1;
-                const viewH = popup.innerHeight || video.clientHeight || 1;
-                const sw = Math.max(1, video.videoWidth || viewW);
-                const sh = Math.max(1, video.videoHeight || viewH);
-                const contain = Math.min(viewW / sw, viewH / sh) || 1;
-                // Screen px -> guest px, also dividing by the client zoom so a
-                // magnified view moves the cursor finer (precision resizing).
-                const perGuestPx = contain * zoomScale || 1;
-                const dx = event.clientX - tpLastX;
-                const dy = event.clientY - tpLastY;
-                tpLastX = event.clientX; tpLastY = event.clientY;
-                if (Math.abs(dx) + Math.abs(dy) > 2) { tpMoved = true; if (!tpGrabbed) { clearTouchLongPress(); } }
-                vcx += dx / perGuestPx;
-                vcy += dy / perGuestPx;
-                tpSend(tpGrabbed);
-                event.preventDefault();
-            };
-            const tpUp = (event) => {
-                clearTouchLongPress();
-                if (tpGrabbed) {
-                    if (!tpMoved) {
-                        // Tap while locked = drop: release the held button here.
-                        tpSend(true);
-                        sendMouseButton(1, false);
-                        tpGrabbed = false;
-                        setTpCursorStyle();
-                        status.textContent = gettext('Trackpad: released');
-                    }
-                    // Moved while locked: keep the lock so the finger can lift and
-                    // continue the drag from a fresh contact.
-                } else if (!tpMoved) {
-                    // Stationary tap = left click at the virtual cursor.
-                    tpSend(true);
-                    sendMouseButton(1, true);
-                    sendMouseButton(1, false);
-                }
-                try { video.releasePointerCapture(event.pointerId); } catch (_error) { /* already released */ }
-                activeTouchPointerId = null;
-                event.preventDefault();
-            };
-
-            // ---- Scroll mode (drag = wheel) ----------------------------------
-            // The worker emits exactly one wheel click per scroll op (sign only),
-            // so finger travel is accumulated and one op is sent per notch.
-            let scrollLastY = 0;
+            // ---- Touch gesture recognizer ------------------------------------
+            // One "direct" behaviour: the guest cursor is shown (overlay) and a
+            // gesture acts where you touch.  Which finger gesture triggers which
+            // guest action is configurable (gestureMap); this classifies the raw
+            // gesture and dispatches to the bound action.
+            const touchPoints = new Map(); // pointerId -> {startX,startY,x,y}
+            let peakFingers = 0;
+            let oneMoved = false;
+            let oneLongFired = false;
+            let oneStartX = 0;
+            let oneStartY = 0;
+            let oneLongTimer = null;
+            let heldDragButton = 0;
+            let contAct = null;      // active continuous action ('drag'|'scroll'|'zoom')
+            let contLastX = 0;
+            let contLastY = 0;
             let scrollAccumY = 0;
             const SCROLL_STEP_PX = 18;
-            const scrollDown = (event) => {
-                activeTouchPointerId = event.pointerId;
-                try { video.setPointerCapture(event.pointerId); } catch (_error) { /* older engines */ }
-                ensurePlaying();
-                video.focus({ preventScroll: true });
-                if (toolbarVisible && !toolbarPinned) { hideToolbarNow(); }
-                scrollLastY = event.clientY;
-                scrollAccumY = 0;
-                showTouchMarker(event.clientX, event.clientY);
-                event.preventDefault();
+            let twoLocked = null;    // null | 'pinch' | 'drag2'
+            let twoMoved = false;
+            let twoStartDist = 1;
+            let twoStartMidX = 0;
+            let twoStartMidY = 0;
+            let twoStartScale = 1;
+            let twoStartTx = 0;
+            let twoStartTy = 0;
+            const clearOneLong = () => { if (oneLongTimer !== null) { popup.clearTimeout(oneLongTimer); oneLongTimer = null; } };
+            const twoPoints = () => { const it = touchPoints.values(); return [it.next().value, it.next().value]; };
+            const pointDistance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+            // --- action executors ---
+            const clickAction = (action, clientX, clientY) => {
+                const button = action === 'rightClick' ? 3 : action === 'middleClick' ? 2 : 1;
+                queuePointer(pointerForMouseEvent({ clientX, clientY }));
+                flushPointer(true);
+                sendMouseButton(button, true);
+                sendMouseButton(button, false);
             };
-            const scrollMove = (event) => {
-                const dy = event.clientY - scrollLastY;
-                scrollLastY = event.clientY;
+            const scrollByDelta = (dy) => {
+                // Worker emits one wheel click per op (sign only): accumulate
+                // finger travel and send one op per notch, natural direction
+                // (drag down = content down = wheel-up = vertical<0), capped/event.
                 scrollAccumY += dy;
-                // Natural scrolling: dragging DOWN moves content down = wheel-up
-                // in the guest (vertical < 0).  Cap ops per event so a flick is
-                // not an unbounded burst.
                 let notches = 0;
                 while (Math.abs(scrollAccumY) >= SCROLL_STEP_PX && notches < 8) {
                     const dir = scrollAccumY > 0 ? 1 : -1;
@@ -2666,96 +2508,150 @@
                     notches += 1;
                     diagLastInput = 'scroll' + (dir > 0 ? '↑' : '↓');
                 }
-                showTouchMarker(event.clientX, event.clientY);
-                event.preventDefault();
             };
-            const scrollUp = (event) => {
-                try { video.releasePointerCapture(event.pointerId); } catch (_error) { /* already released */ }
-                activeTouchPointerId = null;
-                event.preventDefault();
-            };
-
-            // ---- Zoom mode (drag = pan, double-tap = magnify) ----------------
-            let zoomPanLastX = 0;
-            let zoomPanLastY = 0;
-            let zoomPanMoved = false;
-            let lastZoomTapTime = 0;
-            let lastZoomTapX = 0;
-            let lastZoomTapY = 0;
-            const zoomDown = (event) => {
-                activeTouchPointerId = event.pointerId;
-                try { video.setPointerCapture(event.pointerId); } catch (_error) { /* older engines */ }
-                if (toolbarVisible && !toolbarPinned) { hideToolbarNow(); }
-                zoomPanLastX = event.clientX; zoomPanLastY = event.clientY;
-                zoomPanMoved = false;
-                showTouchMarker(event.clientX, event.clientY);
-                event.preventDefault();
-            };
-            const zoomMove = (event) => {
-                const dx = event.clientX - zoomPanLastX;
-                const dy = event.clientY - zoomPanLastY;
-                zoomPanLastX = event.clientX; zoomPanLastY = event.clientY;
-                if (Math.abs(dx) + Math.abs(dy) > 2) { zoomPanMoved = true; }
-                if (zoomScale > 1) { zoomTx += dx; zoomTy += dy; clampZoom(); applyViewTransform(); }
-                showTouchMarker(event.clientX, event.clientY);
-                event.preventDefault();
-            };
-            const zoomUp = (event) => {
-                try { video.releasePointerCapture(event.pointerId); } catch (_error) { /* already released */ }
-                activeTouchPointerId = null;
-                if (!zoomPanMoved) {
-                    const now = Date.now();
-                    if (now - lastZoomTapTime < 350 && Math.abs(event.clientX - lastZoomTapX) < 40 && Math.abs(event.clientY - lastZoomTapY) < 40) {
-                        lastZoomTapTime = 0;
-                        const target = zoomScale > 1 ? 1 : 2.5;
-                        zoomAroundPoint(event.clientX, event.clientY, target);
-                        status.textContent = target > 1
-                            ? gettext('Zoomed in — drag to pan, double-tap to reset')
-                            : gettext('Zoom reset');
-                    } else {
-                        lastZoomTapTime = now; lastZoomTapX = event.clientX; lastZoomTapY = event.clientY;
-                    }
+            const beginContinuous = (action, sx, sy) => {
+                contAct = action || null;
+                contLastX = sx; contLastY = sy; scrollAccumY = 0;
+                if (contAct === 'drag') {
+                    queuePointer(pointerForMouseEvent({ clientX: sx, clientY: sy }));
+                    flushPointer(true);
+                    sendMouseButton(1, true);
+                    heldDragButton = 1;
                 }
-                event.preventDefault();
             };
-
-            // ---- Master touch dispatch ---------------------------------------
-            const routeTouchDown = (event) => {
-                if (touchMode === 'trackpad') { tpDown(event); }
-                else if (touchMode === 'scroll') { scrollDown(event); }
-                else if (touchMode === 'zoom') { zoomDown(event); }
-                else { directDown(event); }
+            const stepContinuous = (x, y) => {
+                const dx = x - contLastX; const dy = y - contLastY;
+                contLastX = x; contLastY = y;
+                if (contAct === 'drag') {
+                    queuePointer(pointerForMouseEvent({ clientX: x, clientY: y }));
+                    flushPointer(true);
+                } else if (contAct === 'scroll') {
+                    scrollByDelta(dy);
+                } else if (contAct === 'zoom') {
+                    if (zoomScale > 1) { zoomTx += dx; zoomTy += dy; clampZoom(); applyViewTransform(); }
+                }
             };
+            const endContinuous = (x, y) => {
+                if (contAct === 'drag' && heldDragButton) {
+                    queuePointer(pointerForMouseEvent({ clientX: x, clientY: y }));
+                    flushPointer(true);
+                    sendMouseButton(heldDragButton, false);
+                    heldDragButton = 0;
+                }
+                contAct = null;
+            };
+            const pinchZoom = (dist, mx, my) => {
+                const act = gestureToAction.pinch;
+                if (act !== 'zoom') { return; }
+                const ratio = dist / twoStartDist;
+                const newScale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, twoStartScale * ratio));
+                const lx = (twoStartMidX - twoStartTx) / twoStartScale;
+                const ly = (twoStartMidY - twoStartTy) / twoStartScale;
+                zoomScale = newScale;
+                zoomTx = mx - newScale * lx;
+                zoomTy = my - newScale * ly;
+                clampZoom();
+                applyViewTransform();
+            };
+            const resetInteraction = () => {
+                clearOneLong();
+                if (heldDragButton) { sendMouseButton(heldDragButton, false); heldDragButton = 0; }
+                peakFingers = 0; oneMoved = false; oneLongFired = false;
+                contAct = null; twoLocked = null; twoMoved = false;
+            };
+            const finalizeInteraction = (px, py) => {
+                clearOneLong();
+                if (peakFingers === 1) {
+                    if (contAct) { endContinuous(px, py); }
+                    else if (!oneMoved && !oneLongFired) {
+                        const act = gestureToAction.tap;
+                        if (act) { clickAction(act, px, py); }
+                    }
+                } else if (peakFingers === 2) {
+                    if (twoLocked) { endContinuous(px, py); }
+                    else if (!twoMoved) {
+                        const act = gestureToAction.tap2;
+                        if (act) { clickAction(act, twoStartMidX, twoStartMidY); }
+                    }
+                } else if (peakFingers >= 3) {
+                    const act = gestureToAction.tap3;
+                    if (act) { clickAction(act, twoStartMidX || px, twoStartMidY || py); }
+                }
+                resetInteraction();
+            };
+            // --- pointer events (touch/pen only; mouse keeps the desktop path) ---
             video.addEventListener('pointerdown', (event) => {
                 if (event.pointerType === 'mouse') { return; }
-                viewTouches.set(event.pointerId, { x: event.clientX, y: event.clientY });
-                if (viewTouches.size >= 2) {
-                    // Second finger: pinch/pan the view, drop the single-finger act.
-                    abortSingleFingerGesture();
-                    beginPinch();
-                    event.preventDefault();
-                    return;
+                usingTouchInput = true;
+                touchPoints.set(event.pointerId, { startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY });
+                const n = touchPoints.size;
+                if (n > peakFingers) { peakFingers = n; }
+                try { video.setPointerCapture(event.pointerId); } catch (_error) { /* older engines */ }
+                if (n === 1) {
+                    ensurePlaying();
+                    video.focus({ preventScroll: true });
+                    if (toolbarVisible && !toolbarPinned) { hideToolbarNow(); }
+                    oneMoved = false; oneLongFired = false; contAct = null;
+                    oneStartX = event.clientX; oneStartY = event.clientY;
+                    showTouchMarker(event.clientX, event.clientY);
+                    placeGuestCursor();
+                    clearOneLong();
+                    oneLongTimer = popup.setTimeout(() => {
+                        oneLongTimer = null;
+                        if (peakFingers !== 1 || oneMoved) { return; }
+                        const act = gestureToAction.longPress;
+                        if (!act) { return; }
+                        oneLongFired = true;
+                        const p = touchPoints.values().next().value;
+                        clickAction(act, p ? p.x : oneStartX, p ? p.y : oneStartY);
+                    }, 500);
+                } else if (n === 2) {
+                    // A second finger cancels any one-finger action in progress.
+                    clearOneLong();
+                    if (heldDragButton) { sendMouseButton(heldDragButton, false); heldDragButton = 0; }
+                    contAct = null; oneMoved = false;
+                    const [a, b] = twoPoints();
+                    twoStartDist = pointDistance(a, b) || 1;
+                    twoStartMidX = (a.x + b.x) / 2; twoStartMidY = (a.y + b.y) / 2;
+                    twoStartScale = zoomScale; twoStartTx = zoomTx; twoStartTy = zoomTy;
+                    twoLocked = null; twoMoved = false;
+                    contLastX = twoStartMidX; contLastY = twoStartMidY;
                 }
-                if (activeTouchPointerId !== null && activeTouchPointerId !== event.pointerId) {
-                    // A previous contact never delivered its pointerup (common on
-                    // some mobile engines).  Recover instead of freezing input.
-                    clearTouchLongPress();
-                    if (touchDragging) { sendMouseButton(1, false); }
-                    releaseHeldInput();
-                    activeTouchPointerId = null;
-                    touchDragging = false;
-                }
-                routeTouchDown(event);
+                event.preventDefault();
             });
             video.addEventListener('pointermove', (event) => {
                 if (event.pointerType === 'mouse') { return; }
-                if (viewTouches.has(event.pointerId)) { viewTouches.set(event.pointerId, { x: event.clientX, y: event.clientY }); }
-                if (pinchState.active) { updatePinch(); event.preventDefault(); return; }
-                if (event.pointerId !== activeTouchPointerId) { return; }
-                if (touchMode === 'trackpad') { tpMove(event); }
-                else if (touchMode === 'scroll') { scrollMove(event); }
-                else if (touchMode === 'zoom') { zoomMove(event); }
-                else { directMove(event); }
+                const p = touchPoints.get(event.pointerId);
+                if (!p) { return; }
+                p.x = event.clientX; p.y = event.clientY;
+                const n = touchPoints.size;
+                if (n === 1 && peakFingers === 1) {
+                    const dx = event.clientX - oneStartX; const dy = event.clientY - oneStartY;
+                    if (!oneMoved && (Math.abs(dx) > 18 || Math.abs(dy) > 18)) {
+                        oneMoved = true;
+                        clearOneLong();
+                        if (!oneLongFired) { beginContinuous(gestureToAction.drag1, oneStartX, oneStartY); }
+                    }
+                    if (oneMoved && !oneLongFired && contAct) { stepContinuous(event.clientX, event.clientY); }
+                    showTouchMarker(event.clientX, event.clientY);
+                } else if (n === 2) {
+                    const [a, b] = twoPoints();
+                    if (!a || !b) { return; }
+                    const d = pointDistance(a, b) || 1;
+                    const mx = (a.x + b.x) / 2; const my = (a.y + b.y) / 2;
+                    if (twoLocked === null) {
+                        const dDist = Math.abs(d - twoStartDist);
+                        const dMid = Math.hypot(mx - twoStartMidX, my - twoStartMidY);
+                        if (dDist > 12 || dMid > 12) {
+                            twoMoved = true;
+                            twoLocked = dDist > dMid ? 'pinch' : 'drag2';
+                            if (twoLocked === 'drag2') { beginContinuous(gestureToAction.drag2, twoStartMidX, twoStartMidY); }
+                        }
+                    }
+                    if (twoLocked === 'pinch') { pinchZoom(d, mx, my); }
+                    else if (twoLocked === 'drag2') { stepContinuous(mx, my); }
+                }
+                event.preventDefault();
             });
             const endTouchPointer = (event) => {
                 if (event.pointerType === 'mouse') { return; }
@@ -2763,46 +2659,35 @@
                 // reaches both, so process each event once.
                 if (event.__qsmTouchHandled) { return; }
                 event.__qsmTouchHandled = true;
-                const wasView = viewTouches.delete(event.pointerId);
-                if (pinchState.active) {
-                    if (viewTouches.size < 2) {
-                        pinchState.active = false;
-                        // Ignore the finger still down so it is not read as a tap.
-                        for (const id of viewTouches.keys()) { pinchIgnore.add(id); }
-                    } else {
-                        beginPinch();
-                    }
-                    event.preventDefault();
-                    return;
+                if (!touchPoints.has(event.pointerId)) { return; }
+                touchPoints.delete(event.pointerId);
+                const remaining = touchPoints.size;
+                try { video.releasePointerCapture(event.pointerId); } catch (_error) { /* already released */ }
+                if (remaining === 0) {
+                    finalizeInteraction(event.clientX, event.clientY);
+                } else if (twoLocked && remaining < 2) {
+                    // A two-finger gesture dropped to one finger: end it and wait
+                    // for all contacts to lift (do not start a stray one-finger act).
+                    endContinuous(event.clientX, event.clientY);
+                    twoLocked = null;
                 }
-                if (pinchIgnore.has(event.pointerId)) { pinchIgnore.delete(event.pointerId); event.preventDefault(); return; }
-                if (event.pointerId !== activeTouchPointerId) {
-                    if (wasView) { event.preventDefault(); }
-                    return;
-                }
-                if (touchMode === 'trackpad') { tpUp(event); }
-                else if (touchMode === 'scroll') { scrollUp(event); }
-                else if (touchMode === 'zoom') { zoomUp(event); }
-                else { directUp(event); }
+                event.preventDefault();
             };
             video.addEventListener('pointerup', endTouchPointer);
             // A touch that lifts off the video (or whose pointerup the engine
-            // delivers to the document) must still release: otherwise the guest
-            // button stays down and activeTouchPointerId blocks every later tap.
+            // delivers to the document) must still release, else a held button or
+            // a stale contact blocks every later tap.
             document.addEventListener('pointerup', endTouchPointer);
             document.addEventListener('pointercancel', (event) => {
                 if (!event || event.pointerType === 'mouse') { return; }
-                const wasView = viewTouches.delete(event.pointerId);
-                pinchIgnore.delete(event.pointerId);
-                if (pinchState.active && viewTouches.size < 2) { pinchState.active = false; }
-                if (event.pointerId === activeTouchPointerId) {
-                    clearTouchLongPress();
-                    activeTouchPointerId = null;
-                    touchDragging = false;
-                    if (tpGrabbed) { tpGrabbed = false; setTpCursorStyle(); }
+                if (!touchPoints.has(event.pointerId)) { return; }
+                touchPoints.delete(event.pointerId);
+                if (touchPoints.size === 0) {
+                    clearOneLong();
+                    if (heldDragButton) { sendMouseButton(heldDragButton, false); heldDragButton = 0; }
+                    resetInteraction();
                     releaseHeldInput();
                 }
-                if (wasView) { /* view contact ended */ }
             });
             // Mouseup often targets the document instead of the video after
             // Escape leaves native full screen.  Preserve a captured guest
@@ -2815,13 +2700,15 @@
                 sendMouseButton(button, false);
             });
             video.addEventListener('pointercancel', (event) => {
-                if (!event) { return; }
-                viewTouches.delete(event.pointerId);
-                pinchIgnore.delete(event.pointerId);
-                if (pinchState.active && viewTouches.size < 2) { pinchState.active = false; }
-                if (event.pointerId === activeTouchPointerId) { activeTouchPointerId = null; }
-                if (tpGrabbed) { tpGrabbed = false; setTpCursorStyle(); }
-                releaseHeldInput();
+                if (!event || event.pointerType === 'mouse') { return; }
+                if (!touchPoints.has(event.pointerId)) { return; }
+                touchPoints.delete(event.pointerId);
+                if (touchPoints.size === 0) {
+                    clearOneLong();
+                    if (heldDragButton) { sendMouseButton(heldDragButton, false); heldDragButton = 0; }
+                    resetInteraction();
+                    releaseHeldInput();
+                }
             });
             popup.addEventListener('blur', releaseHeldInput);
             document.addEventListener('visibilitychange', () => {
