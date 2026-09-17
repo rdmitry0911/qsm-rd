@@ -1,0 +1,38 @@
+#!/bin/sh
+# Restart the QSM Direct signalling service when the TLS certificate it serves
+# on :8007 changes on disk.  The service loads its certificate once at start,
+# so without this an ACME/custom certificate renewal (pveproxy-ssl.pem being
+# rewritten) would leave :8007 serving the stale certificate until the next
+# manual restart — and eventually an expired one.  This mirrors pveproxy's own
+# cert choice: the custom/ACME pveproxy-ssl.pem when present, else the
+# self-signed pve-ssl.pem.  It restarts only on an actual fingerprint change,
+# so the hourly timer is a no-op the rest of the time and never drops a live
+# console session needlessly.
+set -e
+
+cert=/etc/pve/local/pveproxy-ssl.pem
+[ -f "$cert" ] || cert=/etc/pve/local/pve-ssl.pem
+[ -f "$cert" ] || exit 0
+
+state_dir=/etc/qsm-pve-direct
+state="$state_dir/.signal-cert.sha256"
+[ -d "$state_dir" ] || exit 0
+
+fingerprint=$(sha256sum "$cert" | cut -d' ' -f1)
+
+# First run: record the current fingerprint without a restart.  The service was
+# (re)started by the package postinst against this same file, so it is already
+# current; a spurious restart here would drop a console for no reason.
+if [ ! -f "$state" ]; then
+    printf '%s\n' "$fingerprint" > "$state"
+    exit 0
+fi
+
+if [ "$fingerprint" != "$(cat "$state" 2>/dev/null || true)" ]; then
+    printf '%s\n' "$fingerprint" > "$state"
+    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+        # try-restart only touches an already-running service, never activating a
+        # deliberately stopped one.
+        systemctl try-restart qsm-pve-direct-signal.service || true
+    fi
+fi

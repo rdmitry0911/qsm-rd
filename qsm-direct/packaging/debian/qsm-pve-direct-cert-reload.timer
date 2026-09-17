@@ -1,0 +1,13 @@
+[Unit]
+Description=Periodic check for a renewed QSM direct signalling TLS certificate
+Documentation=file:/usr/share/doc/qsm-pve-direct/README.Debian
+
+[Timer]
+# ACME renewal happens well before expiry, so an hour of latency to pick up the
+# new certificate is harmless; the check is a no-op unless the file changed.
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

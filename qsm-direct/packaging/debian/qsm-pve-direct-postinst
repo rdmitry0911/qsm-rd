@@ -31,6 +31,14 @@ case "${1:-}" in
             systemctl try-restart pveproxy.service || true
         fi
         restart_services
+        # Track the certificate the signalling service serves so a later ACME
+        # renewal restarts it to pick up the new file (it loads the cert only at
+        # start).  Seed the fingerprint now (the service was just restarted
+        # against this file) and enable the periodic check.
+        if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+            /usr/lib/qsm-pve-direct/bin/qsm-direct-cert-reload || true
+            systemctl enable --now qsm-pve-direct-cert-reload.timer || true
+        fi
         /usr/sbin/qsm-pve-direct-ui reconcile || echo "qsm-pve-direct: PVE Console UI was not changed" >&2
         echo "qsm-pve-direct installed; enable qsm-pve-direct-terminal.service and qsm-pve-direct-signal.service, then configure QSM Display1 for each VM."
         ;;

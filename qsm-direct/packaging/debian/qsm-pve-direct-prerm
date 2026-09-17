@@ -4,6 +4,7 @@ set -eu
 case "${1:-}" in
     remove|deconfigure|purge)
         if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+            systemctl disable --now qsm-pve-direct-cert-reload.timer >/dev/null 2>&1 || true
             systemctl disable --now qsm-pve-direct-signal.service >/dev/null 2>&1 || true
         fi
         /usr/sbin/qsm-pve-direct-ui remove

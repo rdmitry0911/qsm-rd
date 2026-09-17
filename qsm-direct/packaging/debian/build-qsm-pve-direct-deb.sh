@@ -100,6 +100,14 @@ install -m 0644 "$ROOT_DIR/extensions/signal/qsm_direct_signal.py" \
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-signal" "$stage_root/usr/bin/qsm-pve-direct-signal"
 install -m 0644 "$PACKAGE_DIR/qsm-pve-direct-signal.service" \
     "$stage_root/usr/lib/systemd/system/qsm-pve-direct-signal.service"
+# Pick up a renewed TLS certificate: restart the signalling service when the
+# cert it serves on :8007 changes on disk (it loads the cert only at start).
+install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-cert-reload" \
+    "$package_root/bin/qsm-direct-cert-reload"
+install -m 0644 "$PACKAGE_DIR/qsm-pve-direct-cert-reload.service" \
+    "$stage_root/usr/lib/systemd/system/qsm-pve-direct-cert-reload.service"
+install -m 0644 "$PACKAGE_DIR/qsm-pve-direct-cert-reload.timer" \
+    "$stage_root/usr/lib/systemd/system/qsm-pve-direct-cert-reload.timer"
 
 # The guarded diversion manager owns only the direct Console asset and its
 # direct-specific state paths.

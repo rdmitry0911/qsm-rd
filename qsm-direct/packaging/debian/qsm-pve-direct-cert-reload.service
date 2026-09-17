@@ -1,0 +1,8 @@
+[Unit]
+Description=Restart QSM direct signalling service when its TLS certificate changes
+Documentation=file:/usr/share/doc/qsm-pve-direct/README.Debian
+After=pve-cluster.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/qsm-pve-direct/bin/qsm-direct-cert-reload
