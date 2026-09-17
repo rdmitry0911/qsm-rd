@@ -72,11 +72,22 @@ class PveAuthority:
 
     def __init__(self, pve_url: str, ca_file: Path) -> None:
         self._ticket_url = pve_url.rstrip("/") + "/api2/json/access/ticket"
-        # Verify the loopback pveproxy with the cluster CA.  Hostname
-        # verification is disabled on purpose: the node certificate carries
-        # the node name, not 127.0.0.1, and this connection never leaves the
-        # host, so the CA signature is the meaningful check.
-        context = ssl.create_default_context(cafile=str(ca_file))
+        # Verify the loopback pveproxy by CA signature.  Hostname verification
+        # is disabled on purpose: the connection never leaves the host, so the
+        # CA signature is the meaningful check.  pveproxy may serve EITHER the
+        # self-signed node certificate (signed by the PVE cluster CA) OR a
+        # custom/ACME certificate (e.g. Let's Encrypt, when the node is reached
+        # by domain name) — that one is signed by a public CA, not the cluster
+        # CA.  Trust BOTH the system CA store and the cluster CA so ticket
+        # verification keeps working after an administrator installs a domain
+        # certificate; otherwise every console offer failed with 502.
+        context = ssl.create_default_context()
+        try:
+            context.load_verify_locations(cafile=str(ca_file))
+        except OSError:
+            # A missing cluster CA is non-fatal: the system store still verifies
+            # a custom/ACME pveproxy certificate.
+            pass
         context.check_hostname = False
         self._context = context
 
@@ -409,8 +420,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--listen", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8007)
-    parser.add_argument("--cert", type=Path, default=Path("/etc/pve/local/pve-ssl.pem"))
-    parser.add_argument("--key", type=Path, default=Path("/etc/pve/local/pve-ssl.key"))
+    parser.add_argument("--cert", type=Path, default=None)
+    parser.add_argument("--key", type=Path, default=None)
     parser.add_argument("--ca", type=Path, default=Path("/etc/pve/pve-root-ca.pem"))
     parser.add_argument("--pve-url", default="https://127.0.0.1:8006")
     parser.add_argument("--terminal-socket", type=Path,
@@ -420,13 +431,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--local-node", default=None)
     arguments = parser.parse_args(argv)
 
+    # Serve the SAME TLS certificate pveproxy serves so the :8007 signalling
+    # origin is valid by whatever name reaches :8006.  pveproxy prefers the
+    # custom/ACME pveproxy-ssl.pem when present, else the self-signed
+    # pve-ssl.pem; mirror that unless an explicit --cert/--key was given.  A
+    # self-signed cert only lists the node name and IPs in its SAN, so reaching
+    # the GUI by domain name left the browser unable to POST its offer to :8007.
+    cert = arguments.cert
+    key = arguments.key
+    if cert is None or key is None:
+        custom_cert = Path("/etc/pve/local/pveproxy-ssl.pem")
+        custom_key = Path("/etc/pve/local/pveproxy-ssl.key")
+        use_custom = custom_cert.exists() and custom_key.exists()
+        if cert is None:
+            cert = custom_cert if use_custom else Path("/etc/pve/local/pve-ssl.pem")
+        if key is None:
+            key = custom_key if use_custom else Path("/etc/pve/local/pve-ssl.key")
+
     config = SignalConfig(
         authority=PveAuthority(arguments.pve_url, arguments.ca),
         terminal=TerminalClient(arguments.terminal_socket),
         policy=VmPolicyStore(arguments.instance_directory),
         local_node=arguments.local_node,
     )
-    context = _build_ssl_context(arguments.cert, arguments.key)
+    context = _build_ssl_context(cert, key)
     server = SignalServer((arguments.listen, arguments.port), config, context)
     print(f"QSM_DIRECT_SIGNAL_READY listen={arguments.listen}:{arguments.port}",
           file=sys.stderr, flush=True)
