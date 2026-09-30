@@ -117,6 +117,7 @@ install -m 0755 "$ROOT_DIR/packaging/lxc/qsm-seat-keeper" "$stage_root/usr/share
 install -m 0755 "$ROOT_DIR/packaging/lxc/qsm-session-launch" "$stage_root/usr/share/$package_name/lxc/qsm-session-launch"
 install -m 0755 "$ROOT_DIR/packaging/lxc/qsm-login" "$stage_root/usr/share/$package_name/lxc/qsm-login"
 install -m 0755 "$ROOT_DIR/packaging/lxc/qsm-greeter" "$stage_root/usr/share/$package_name/lxc/qsm-greeter"
+install -m 0755 "$ROOT_DIR/packaging/lxc/qsm-consoles" "$stage_root/usr/share/$package_name/lxc/qsm-consoles"
 install -m 0644 "$ROOT_DIR/packaging/lxc/qsm-display-sway.conf" "$stage_root/usr/share/$package_name/lxc/qsm-display-sway.conf"
 
 # The guarded diversion manager owns only the direct Console asset and its

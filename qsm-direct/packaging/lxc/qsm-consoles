@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# QSM Direct: run one console (display + seat keeper + login manager) per tty
+# of this container, like the ttys of PVE's terminal console.  A changed
+# "tty" option of the container applies at its next start -- when this runs
+# (qsm-consoles.service) -- so no setup step has to be repeated.  The host
+# reads the same count from the container's running config.
+set -u
+count=$(ls /dev | grep -cE '^tty[0-9]+$')
+[ "$count" -ge 1 ] || count=1   # tty 0: the console only -- still one
+[ "$count" -le 8 ] || count=8
+number=1
+while [ "$number" -le 8 ]; do
+    if [ "$number" -le "$count" ]; then
+        # The login manager pulls in its display (BindsTo) and seat keeper.
+        systemctl start --no-block "qsm-login@$number.service"
+    else
+        systemctl stop --no-block "qsm-session-$number.service" "qsm-login@$number.service" \
+            "qsm-seat-keeper@$number.service" "qsm-display@$number.service" 2>/dev/null
+    fi
+    number=$((number + 1))
+done
+echo "qsm-consoles: $count console(s), one per tty"

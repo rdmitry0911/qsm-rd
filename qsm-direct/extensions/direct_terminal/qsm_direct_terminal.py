@@ -395,11 +395,13 @@ def _load_container_instance(directory: Path, vmid: int) -> dict[str, str] | Non
             raise DirectTerminalError("direct-terminal container policy is invalid")
         values[key] = value
     values.setdefault("QSM_DIRECT_LXC_UID", "1000")
-    # "slots": the container runs QSM_DIRECT_LXC_SLOTS console displays
+    # "slots": the container runs one console display per tty
     # (/run/qsm-display-N), each with its own login screen, like the ttys of
     # PVE's terminal console; "user": the original single per-user display of
     # QSM_DIRECT_LXC_UID.  QSM_DIRECT_LXC_GRACE: seconds a closed console's
     # desktop waits for its PVE user to come back before it is logged out.
+    # QSM_DIRECT_LXC_SLOTS is obsolete (the running tty count is read) and
+    # only still accepted in existing files.
     values.setdefault("QSM_DIRECT_LXC_DISPLAY", "user")
     values.setdefault("QSM_DIRECT_LXC_SLOTS", "1")
     values.setdefault("QSM_DIRECT_LXC_GRACE", "300")
@@ -424,6 +426,21 @@ def _load_container_instance(directory: Path, vmid: int) -> dict[str, str] | Non
     if encoder != "auto" and not _ENCODER_PATTERN.fullmatch(encoder):
         raise DirectTerminalError("direct-terminal container has an invalid encoder")
     return values
+
+
+def _lxc_console_count(runtime_config_directory: Path, vmid: int) -> int:
+    """How many consoles a running container has: its ttys, as it runs now.
+
+    PVE writes /var/lib/lxc/<vmid>/config (root-owned) at every container
+    start, so lxc.tty.max there is the tty count in effect -- a changed "tty"
+    option applies, like for the terminal console, at the next start.
+    """
+    try:
+        text = (runtime_config_directory / str(vmid) / "config").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return 1
+    match = re.search(r"^lxc\.tty\.max\s*=\s*([0-9]+)\s*$", text, re.M)
+    return max(1, min(8, int(match.group(1)))) if match else 1
 
 
 def _process_generation(pid: int) -> str | None:
@@ -670,7 +687,8 @@ class DirectSessionManager:
                  local_node: str | None,
                  qemu_pid_directory: Path = Path("/run/qemu-server"),
                  container_instance_directory: Path = Path("/etc/qsm-pve-direct/containers.d"),
-                 lxc_config_directory: Path | None = None) -> None:
+                 lxc_config_directory: Path | None = None,
+                 lxc_runtime_config_directory: Path = Path("/var/lib/lxc")) -> None:
         self._instance_directory = instance_directory
         self._runtime_directory = runtime_directory
         self._vm_runtime_directory = vm_runtime_directory
@@ -678,6 +696,7 @@ class DirectSessionManager:
         self._qemu_pid_directory = qemu_pid_directory
         self._container_instance_directory = container_instance_directory
         self._lxc_config_directory = lxc_config_directory or pve_config_directory.parent / "lxc"
+        self._lxc_runtime_config_directory = lxc_runtime_config_directory
         self._local_node = local_node
         self._dbus = DbusManager(vm_runtime_directory)
         self._reconcile_stop = threading.Event()
@@ -783,14 +802,14 @@ class DirectSessionManager:
         except OSError as error:
             print(f"qsm-direct-terminal: container console state not saved: {error}", file=sys.stderr)
 
-    def _claim_slot(self, vmid: int, subject: str, policy: dict[str, str], generation: str) -> int:
+    def _claim_slot(self, vmid: int, subject: str, policy: dict[str, str], generation: str,
+                    count: int) -> int:
         """The console slot for one new Console of a PVE user (vmid lock held).
 
         The user's own left desktop comes first (within its grace period);
         otherwise a free slot, which shows the login screen.  Another user's
         slot is never handed out, exactly as a tty in use is not.
         """
-        count = int(policy["QSM_DIRECT_LXC_SLOTS"])
         for key in [key for key, slot in self._slots.items()
                     if slot.vmid == vmid and (slot.generation != generation or slot.number > count)]:
             del self._slots[key]  # the container restarted: nothing of that slot is left
@@ -1003,7 +1022,8 @@ class DirectSessionManager:
         if container is not None and container.get("QSM_DIRECT_LXC_DISPLAY") == "slots":
             if current_generation is None:
                 raise DirectTerminalError("direct-terminal container is not running")
-            key = (vmid, self._claim_slot(vmid, subject, container, current_generation))
+            count = _lxc_console_count(self._lxc_runtime_config_directory, vmid)
+            key = (vmid, self._claim_slot(vmid, subject, container, current_generation, count))
         existing = self._transports.get(key)
         selection: DirectEncoderSelection | None = None
         if (existing is not None and existing.worker.poll() is None and

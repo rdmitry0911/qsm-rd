@@ -142,9 +142,10 @@ This passes the GPU through (NVIDIA device nodes and the DRM render node;
 --restart applies it), installs NVIDIA userspace matching the host kernel
 module from the host's NVIDIA-Linux-x86_64-<version>.run (--nvidia-run FILE),
 installs sway/xwayland/PyQt5/acl, and sets up the container's consoles as
-system services -- as many as the container has ttys (its "tty" option,
+system services -- one per tty the container runs with (its "tty" option,
 PVE default 2), like PVE's terminal console:
 
+    qsm-consoles.service       at boot: starts one console per /dev/ttyN
     qsm-display@N.service      headless sway (user qsm-display), /run/qsm-display-N
     qsm-seat-keeper@N.service  keeps the display's input devices stable
     qsm-login@N.service        login manager: login screen, PAM, the session
@@ -156,7 +157,10 @@ belongs to the PVE user who opened it: when that Console is closed with a
 desktop still logged in, the desktop waits --grace seconds (default 300) for
 the same PVE user -- who then gets it back -- and is logged out after that.
 A left login screen is freed at once.  When all consoles are in use, the
-browser says so.  After changing the container's tty option, run enable again.  One container account can have one console desktop at a
+browser says so.  The count follows
+the container's tty option by itself: like for the terminal console, a changed
+value applies at the container's next start (host and container both read
+the running value).  One container account can have one console desktop at a
 time (two Plasma sessions of one user break each other).
 
 A container has no VT, so greetd/SDDM cannot run (an enabled SDDM is disabled).

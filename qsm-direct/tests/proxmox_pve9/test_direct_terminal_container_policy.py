@@ -15,11 +15,11 @@ if str(IMPORT_ROOT) not in sys.path:
     sys.path.insert(0, str(IMPORT_ROOT))
 
 if PACKAGE_LIBRARY:
-    from direct_terminal.qsm_direct_terminal import (ContainerConsoleBusyError, DirectSession,
+    from direct_terminal.qsm_direct_terminal import (ContainerConsoleBusyError, _lxc_console_count, DirectSession,
                                                      DirectSessionManager, DirectTerminalError,
                                                      _load_container_instance)
 else:
-    from extensions.direct_terminal.qsm_direct_terminal import (ContainerConsoleBusyError,
+    from extensions.direct_terminal.qsm_direct_terminal import (ContainerConsoleBusyError, _lxc_console_count,
                                                                 DirectSession, DirectSessionManager,
                                                                 DirectTerminalError, _load_container_instance)
 
@@ -57,7 +57,7 @@ class ContainerPolicyTests(unittest.TestCase):
 class ContainerSlotTests(unittest.TestCase):
     """A container console per PVE Console, like the ttys of the terminal console."""
 
-    POLICY = {"QSM_DIRECT_LXC_SLOTS": "2", "QSM_DIRECT_LXC_GRACE": "300"}
+    POLICY = {"QSM_DIRECT_LXC_GRACE": "300"}
 
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory(prefix="qsm-ct-slots.")
@@ -76,7 +76,7 @@ class ContainerSlotTests(unittest.TestCase):
             vmid=key[0], key=key, bridge=None, worker=None, directory=Path("/nonexistent"), expires_at=0.0)
 
     def claim(self, subject: str, generation: str = "100:1") -> int:
-        return self.manager._claim_slot(105, subject, self.POLICY, generation)
+        return self.manager._claim_slot(105, subject, self.POLICY, generation, 2)
 
     def test_another_user_never_gets_a_console_in_use(self) -> None:
         alice = self.claim("alice@pve")
@@ -116,6 +116,25 @@ class ContainerSlotTests(unittest.TestCase):
         slot = restarted._slots[(105, alice)]
         self.assertEqual(slot.owner, "alice@pve")
         self.assertIsNotNone(slot.detached_at)  # no Console survives a restart: the grace period runs
+
+
+class ConsoleCountTests(unittest.TestCase):
+    """The console count follows the container's ttys as it runs now."""
+
+    def count(self, text: str | None) -> int:
+        with tempfile.TemporaryDirectory(prefix="qsm-ct-lxc.") as directory:
+            if text is not None:
+                (Path(directory) / "105").mkdir()
+                (Path(directory) / "105" / "config").write_text(text)
+            return _lxc_console_count(Path(directory), 105)
+
+    def test_running_tty_count(self) -> None:
+        self.assertEqual(self.count("lxc.arch = amd64\nlxc.tty.max = 3\nlxc.environment = x\n"), 3)
+
+    def test_bounds(self) -> None:
+        self.assertEqual(self.count("lxc.tty.max = 0\n"), 1)   # console only: still one
+        self.assertEqual(self.count("lxc.tty.max = 64\n"), 8)
+        self.assertEqual(self.count(None), 1)
 
 
 if __name__ == "__main__":
