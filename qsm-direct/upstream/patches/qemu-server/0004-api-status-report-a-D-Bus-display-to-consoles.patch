@@ -1,0 +1,60 @@
+From 53e1a666ff354a71def1a0c368d6f4d49a47ce4e Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Thu, 1 Oct 2026 00:16:42 +0300
+Subject: [PATCH qemu-server 4/4] api: status: report a D-Bus display to
+ consoles
+
+Let the web UI know which consoles a VM offers: 'dbus' is set when the
+display is exported over D-Bus, so a WebRTC console can attach, and
+'vnc' then tells whether QEMU also runs a VNC server -- it does not
+next to a GL display.  For the same reason 'spice' is no longer
+reported for such a display.
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ src/PVE/API2/Qemu.pm | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/src/PVE/API2/Qemu.pm b/src/PVE/API2/Qemu.pm
+index 45d91841..95a3c74c 100644
+--- a/src/PVE/API2/Qemu.pm
++++ b/src/PVE/API2/Qemu.pm
+@@ -3553,6 +3553,18 @@ __PACKAGE__->register_method({
+                 type => 'boolean',
+                 optional => 1,
+             },
++            dbus => {
++                description => "The display is exported over D-Bus, so a WebRTC console can"
++                    . " attach (see 'webrtcproxy').",
++                type => 'boolean',
++                optional => 1,
++            },
++            vnc => {
++                description => "QEMU runs a VNC server for the display. Not the case for a"
++                    . " GL display exported over D-Bus.",
++                type => 'boolean',
++                optional => 1,
++            },
+             agent => {
+                 description => "QEMU Guest Agent is enabled in config.",
+                 type => 'boolean',
+@@ -3580,10 +3592,15 @@ __PACKAGE__->register_method({
+ 
+         if ($conf->{vga}) {
+             my $vga = PVE::QemuServer::parse_vga($conf->{vga});
++            my $dbus_gl = PVE::QemuServer::dbus_gl_display($vga);
+             my $spice = defined($vga->{type}) && $vga->{type} =~ /^virtio/;
+             $spice ||= PVE::QemuServer::vga_conf_has_spice($conf->{vga});
+-            $status->{spice} = 1 if $spice;
++            $status->{spice} = 1 if $spice && !$dbus_gl;
+             $status->{clipboard} = $vga->{clipboard};
++            if ($vga->{dbus}) {
++                $status->{dbus} = 1;
++                $status->{vnc} = $dbus_gl ? 0 : 1;
++            }
+         }
+         $status->{agent} = 1 if PVE::QemuServer::Agent::get_qga_key($conf, 'enabled');
+ 
+-- 
+2.43.0
+

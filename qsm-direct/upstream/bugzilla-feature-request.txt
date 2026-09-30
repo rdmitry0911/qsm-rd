@@ -1,0 +1,61 @@
+Product:    pve
+Component:  Qemu (qemu-server)          [secondary: Web UI]
+Severity:   enhancement
+Summary:    Hardware-encoded WebRTC console for VMs via QEMU's D-Bus display
+
+Description
+-----------
+The web console of a graphical VM is noVNC. It works everywhere, but for
+the time spent inside a running desktop it transfers changed rectangles
+instead of video, has no audio, and for a VirGL (virtio-gl) guest the
+picture takes a detour through egl-headless readback and VNC.  Moving
+content (video, scrolling, animated UIs) arrives at 7-12 pictures/s and
+costs 30-120 Mbit/s.
+
+QEMU already offers a display interface built for exactly this kind of
+consumer: the D-Bus display (-display dbus), which hands out the guest
+scanout (including the GL/DMA-BUF scanout of virtio-gl) and accepts
+keyboard, mouse, clipboard and audio.  With p2p=yes a client is attached
+per connection through QMP (getfd + add_client), with no extra bus.
+
+Request: allow a VM display to be exported over the D-Bus display, and a
+console that streams it to the browser over WebRTC, encoded in hardware
+(NVENC, VA-API, QSV) where the node has an encoder and with libx264
+otherwise -- authorised like every console by VM.Console, in the same
+browser tab and PVE login.
+
+Suggested building blocks (details on pve-devel, see RFC):
+
+  1. qemu-server: a 'rendernode' property for the VGA option, so a
+     virtio-gl guest can be placed on a chosen GPU (this also covers
+     bug #4771).
+  2. qemu-server: an opt-in 'dbus' property for the VGA option that adds
+     '-display dbus,p2p=yes' (GL scanout for virtio-gl), plus an API
+     call that attaches a local media service to it with a passed fd.
+  3. pve-manager: a WebRTC console type next to noVNC/SPICE/xterm.js,
+     offered when the VM's display has 'dbus' enabled.
+  4. A separate package with the media service (capture from the D-Bus
+     display, hardware encode, WebRTC).
+
+Working prototype
+-----------------
+A complete implementation exists as an add-on for PVE 9.2 (it currently
+uses 'args:' and its own signalling port instead of the building blocks
+above) and runs on a node with an RTX 3080 and on a CPU-only node.
+Measured with the same guest and workloads:
+
+                               WebRTC (virtio-gl)   noVNC (std VGA)
+  720p video, pictures/s       source rate (30)     7.4
+  scrolling, pictures/s        36-52                12.0
+  bandwidth, 720p video        18.8 Mbit/s          120 Mbit/s
+  single pointer event         88 ms (CPU encode)   52 ms
+  console open -> 1st picture  3.4 s                1.0 s
+
+noVNC stays the better tool for firmware, installers and text consoles,
+for a single isolated pointer event, and it costs nothing on an idle
+screen; the WebRTC console is for working inside a running desktop.
+Code: https://github.com/rdmitry0911/qsm-rd
+
+Note: with GL enabled, QEMU refuses VNC together with the D-Bus display
+("Display vnc is incompatible with the GL context"), so a virtio-gl VM
+with 'dbus' would offer the WebRTC console instead of noVNC.

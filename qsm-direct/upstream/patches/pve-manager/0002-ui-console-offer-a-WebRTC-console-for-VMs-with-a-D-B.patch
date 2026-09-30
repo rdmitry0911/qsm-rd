@@ -1,0 +1,221 @@
+From 4d3670be66b679d5a58b5af99d2f87f82771e128 Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Thu, 1 Oct 2026 00:29:08 +0300
+Subject: [PATCH manager 2/3] ui: console: offer a WebRTC console for VMs with
+ a D-Bus display
+
+When a VM exports its display over D-Bus ('dbus' in the VGA option,
+reported by the status API), the console button offers a WebRTC entry
+that opens the viewer page served by pveproxy.  For a GL display
+exported over D-Bus, QEMU runs neither VNC nor SPICE, so these entries
+are disabled, the default console becomes WebRTC, and the VM's Console
+panel shows the WebRTC viewer instead of noVNC.
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ www/manager6/Utils.js                | 22 ++++++++++++++++++++
+ www/manager6/VNCConsole.js           | 15 +++++++++++++-
+ www/manager6/button/ConsoleButton.js | 31 ++++++++++++++++++++++++++++
+ www/manager6/qemu/Config.js          |  8 +++++++
+ 4 files changed, 75 insertions(+), 1 deletion(-)
+
+diff --git a/www/manager6/Utils.js b/www/manager6/Utils.js
+index 8b99371d..96cabe23 100644
+--- a/www/manager6/Utils.js
++++ b/www/manager6/Utils.js
+@@ -1452,6 +1452,8 @@ Ext.define('PVE.Utils', {
+                 PVE.Utils.openVNCViewer(consoleType, vmid, nodename, vmname, cmd);
+             } else if (viewer === 'xtermjs') {
+                 Proxmox.Utils.openXtermJsViewer(consoleType, vmid, nodename, vmname, cmd);
++            } else if (viewer === 'webrtc') {
++                PVE.Utils.openWebRTCViewer(consoleType, vmid, nodename, vmname);
+             } else if (viewer === 'vv') {
+                 let url = '/nodes/' + nodename + '/spiceshell';
+                 let params = {
+@@ -1490,6 +1492,10 @@ Ext.define('PVE.Utils', {
+             } else if (dv === 'xtermjs' && !allowXtermjs) {
+                 dv = allowSpice ? 'vv' : 'html5';
+             }
++            // a GL display exported over D-Bus has no VNC server, only WebRTC
++            if (dv === 'html5' && typeof consoles === 'object' && consoles.dbus && !consoles.vnc) {
++                dv = 'webrtc';
++            }
+ 
+             return dv;
+         },
+@@ -1515,6 +1521,20 @@ Ext.define('PVE.Utils', {
+             }
+         },
+ 
++        openWebRTCViewer: function (vmtype, vmid, nodename, vmname) {
++            let url = Ext.Object.toQueryString({
++                console: vmtype, // kvm
++                webrtc: 1,
++                vmid: vmid,
++                vmname: vmname,
++                node: nodename,
++            });
++            let nw = window.open('?' + url, '_blank', 'innerWidth=1280,innerheight=800');
++            if (nw) {
++                nw.focus();
++            }
++        },
++
+         openSpiceViewer: function (url, params) {
+             var downloadWithName = function (uri, name) {
+                 var link = Ext.DomHelper.append(document.body, {
+@@ -1590,6 +1610,8 @@ Ext.define('PVE.Utils', {
+                         let consoles = {
+                             spice: !!conf.spice,
+                             xtermjs: !!conf.serial,
++                            dbus: !!conf.dbus,
++                            vnc: conf.vnc === undefined || !!conf.vnc,
+                         };
+                         PVE.Utils.openDefaultConsoleWindow(consoles, 'kvm', vmid, nodename, vmname);
+                     },
+diff --git a/www/manager6/VNCConsole.js b/www/manager6/VNCConsole.js
+index d672e9ac..61e0aa7a 100644
+--- a/www/manager6/VNCConsole.js
++++ b/www/manager6/VNCConsole.js
+@@ -8,6 +8,19 @@ Ext.define('PVE.noVncConsole', {
+ 
+     consoleType: undefined, // lxc, kvm, shell, cmd
+     xtermjs: false,
++    webrtc: false, // a VM whose GL display is exported over D-Bus has no VNC server
++
++    setWebRTC: function (enable) {
++        let me = this;
++
++        if (me.webrtc === enable) {
++            return;
++        }
++        me.webrtc = enable;
++        if (me.isVisible()) {
++            me.fireEvent('activate', me);
++        }
++    },
+ 
+     layout: 'fit',
+     border: false,
+@@ -43,7 +56,6 @@ Ext.define('PVE.noVncConsole', {
+             ),
+         });
+ 
+-        var type = me.xtermjs ? 'xtermjs' : 'novnc';
+         Ext.apply(me, {
+             layout: {
+                 type: 'vbox',
+@@ -64,6 +76,7 @@ Ext.define('PVE.noVncConsole', {
+                         'cmd-opts': me.cmdOpts,
+                         resize: sp.get('novnc-scaling', 'scale'),
+                     };
++                    let type = me.xtermjs ? 'xtermjs' : me.webrtc ? 'webrtc' : 'novnc';
+                     queryDict[type] = 1;
+                     PVE.Utils.cleanEmptyObjectKeys(queryDict);
+                     var url = '/?' + Ext.Object.toQueryString(queryDict);
+diff --git a/www/manager6/button/ConsoleButton.js b/www/manager6/button/ConsoleButton.js
+index d64f280a..3e036505 100644
+--- a/www/manager6/button/ConsoleButton.js
++++ b/www/manager6/button/ConsoleButton.js
+@@ -12,6 +12,8 @@ Ext.define('PVE.button.ConsoleButton', {
+ 
+     enableSpice: true,
+     enableXtermjs: true,
++    enableWebRTC: false,
++    enableVNC: true,
+ 
+     nodename: undefined,
+ 
+@@ -33,6 +35,21 @@ Ext.define('PVE.button.ConsoleButton', {
+         me.down('#xtermjs').setDisabled(!enable);
+     },
+ 
++    // a VM whose display is exported over D-Bus
++    setEnableWebRTC: function (enable) {
++        let me = this;
++
++        me.enableWebRTC = enable;
++        me.down('#webrtc').setHidden(!enable);
++    },
++
++    setEnableVNC: function (enable) {
++        let me = this;
++
++        me.enableVNC = enable;
++        me.down('#novnc').setDisabled(!enable);
++    },
++
+     handler: function () {
+         // main, general, handler
+         let me = this;
+@@ -40,6 +57,8 @@ Ext.define('PVE.button.ConsoleButton', {
+             {
+                 spice: me.enableSpice,
+                 xtermjs: me.enableXtermjs,
++                dbus: me.enableWebRTC,
++                vnc: me.enableVNC,
+             },
+             me.consoleType,
+             me.vmid,
+@@ -66,6 +85,7 @@ Ext.define('PVE.button.ConsoleButton', {
+         {
+             xtype: 'menuitem',
+             text: 'noVNC',
++            itemId: 'novnc',
+             iconCls: 'pve-itype-icon-novnc',
+             type: 'html5',
+             handler: function (button) {
+@@ -84,6 +104,17 @@ Ext.define('PVE.button.ConsoleButton', {
+                 view.openConsole(button.type);
+             },
+         },
++        {
++            text: 'WebRTC',
++            itemId: 'webrtc',
++            iconCls: 'fa fa-video-camera',
++            type: 'webrtc',
++            hidden: true,
++            handler: function (button) {
++                let view = this.up('button');
++                view.openConsole(button.type);
++            },
++        },
+         {
+             text: 'xterm.js',
+             itemId: 'xtermjs',
+diff --git a/www/manager6/qemu/Config.js b/www/manager6/qemu/Config.js
+index 842d35de..f8cb6ad4 100644
+--- a/www/manager6/qemu/Config.js
++++ b/www/manager6/qemu/Config.js
+@@ -458,6 +458,8 @@ Ext.define('PVE.qemu.Config', {
+             var qmpstatus;
+             var spice = false;
+             var xtermjs = false;
++            let webrtc = false;
++            let vnc = true;
+             var lock;
+             var rec;
+ 
+@@ -475,6 +477,9 @@ Ext.define('PVE.qemu.Config', {
+ 
+                 spice = !!s.data.get('spice');
+                 xtermjs = !!s.data.get('serial');
++                webrtc = !!s.data.get('dbus');
++                rec = s.data.get('vnc');
++                vnc = rec ? !!rec.data.value : true;
+             }
+ 
+             rec = s.data.get('tags');
+@@ -496,6 +501,9 @@ Ext.define('PVE.qemu.Config', {
+ 
+             consoleBtn.setEnableSpice(spice);
+             consoleBtn.setEnableXtermJS(xtermjs);
++            consoleBtn.setEnableWebRTC(webrtc);
++            consoleBtn.setEnableVNC(vnc);
++            me.down('#console')?.setWebRTC(webrtc && !vnc);
+ 
+             statusTxt.update({ lock: lock });
+ 
+-- 
+2.43.0
+

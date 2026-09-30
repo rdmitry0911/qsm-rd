@@ -1,0 +1,94 @@
+From fc30c1e2996d417a44f342ea5ec30a8e6dd9e237 Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Thu, 1 Oct 2026 00:29:08 +0300
+Subject: [PATCH manager 3/3] ui: qemu: display: add D-Bus display and render
+ node options
+
+Expose the 'dbus' and 'rendernode' properties of the VGA option in the
+advanced part of the display editor.  The render node applies to VirGL
+only, and a hint explains that a GL display exported over D-Bus
+replaces the noVNC and SPICE consoles.
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ www/manager6/qemu/DisplayEdit.js | 43 ++++++++++++++++++++++++++++++++
+ 1 file changed, 43 insertions(+)
+
+diff --git a/www/manager6/qemu/DisplayEdit.js b/www/manager6/qemu/DisplayEdit.js
+index 3f583adb..85b572fe 100644
+--- a/www/manager6/qemu/DisplayEdit.js
++++ b/www/manager6/qemu/DisplayEdit.js
+@@ -4,6 +4,12 @@ Ext.define('PVE.qemu.DisplayInputPanel', {
+     onlineHelp: 'qm_display',
+ 
+     onGetValues: function (values) {
++        if (!values.dbus || values.dbus === '0') {
++            delete values.dbus;
++        }
++        if (!values.rendernode || values.type !== 'virtio-gl') {
++            delete values.rendernode;
++        }
+         let ret = PVE.Parser.printPropertyString(values, 'type');
+         if (ret === '') {
+             return { delete: 'vga' };
+@@ -15,6 +21,7 @@ Ext.define('PVE.qemu.DisplayInputPanel', {
+         data: {
+             type: '__default__',
+             clipboard: '__default__',
++            dbus: false,
+         },
+         formulas: {
+             matchNonGUIOption: function (get) {
+@@ -36,6 +43,9 @@ Ext.define('PVE.qemu.DisplayInputPanel', {
+                 }
+             },
+             isVNC: (get) => get('clipboard') === 'vnc',
++            isVirGL: (get) => get('type') === 'virtio-gl',
++            // QEMU allows neither VNC nor SPICE next to a GL-enabled D-Bus display
++            hideDBusGLHint: (get) => !get('dbus') || !get('isVirGL'),
+             hideDefaultHint: (get) => get('isVNC') || get('matchNonGUIOption'),
+             hideVNCHint: (get) => !get('isVNC') || get('matchNonGUIOption'),
+         },
+@@ -78,6 +88,39 @@ Ext.define('PVE.qemu.DisplayInputPanel', {
+     ],
+ 
+     advancedItems: [
++        {
++            xtype: 'proxmoxcheckbox',
++            name: 'dbus',
++            fieldLabel: gettext('D-Bus display'),
++            boxLabel: gettext('for the WebRTC console'),
++            bind: {
++                value: '{dbus}',
++                disabled: '{matchNonGUIOption}',
++            },
++        },
++        {
++            xtype: 'displayfield',
++            name: 'dbusGLHint',
++            userCls: 'pmx-hint',
++            value: gettext(
++                'With VirGL, the display exported over D-Bus replaces the noVNC and SPICE consoles.',
++            ),
++            bind: {
++                hidden: '{hideDBusGLHint}',
++            },
++        },
++        {
++            xtype: 'proxmoxtextfield',
++            name: 'rendernode',
++            fieldLabel: gettext('Render node'),
++            emptyText: gettext('First GPU'),
++            deleteEmpty: false,
++            regex: /^\/dev\/dri\/renderD\d+$/,
++            regexText: '/dev/dri/renderD129',
++            bind: {
++                disabled: '{!isVirGL}',
++            },
++        },
+         {
+             xtype: 'proxmoxKVComboBox',
+             name: 'clipboard',
+-- 
+2.43.0
+

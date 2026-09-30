@@ -1,0 +1,34 @@
+From fc30c1e2996d417a44f342ea5ec30a8e6dd9e237 Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Thu, 1 Oct 2026 00:30:25 +0300
+Subject: [PATCH manager 0/3] ui: WebRTC console for VMs with a D-Bus display
+
+Web UI side of the qemu-server series "vga: D-Bus display, render
+node and WebRTC console attach".
+
+Patch 1 lets pveproxy serve the page of a WebRTC console viewer from a
+separate package, the same way as noVNC and xterm.js.  Patch 2 adds
+the WebRTC entry to the console button and uses it for the default
+console and the VM's Console panel when QEMU has no VNC server (GL
+display over D-Bus).  Patch 3 adds the two new VGA properties to the
+display editor.
+
+Tested on PVE 9.2 (pve-manager 9.2.11 plus this series) in Chrome with
+a user holding only PVEVMUser on the VM; biome lint is clean.
+
+Dmitry R (3):
+  pveproxy: serve the page of a WebRTC console viewer
+  ui: console: offer a WebRTC console for VMs with a D-Bus display
+  ui: qemu: display: add D-Bus display and render node options
+
+ PVE/Service/pveproxy.pm              | 15 ++++++++++
+ www/manager6/Utils.js                | 22 ++++++++++++++
+ www/manager6/VNCConsole.js           | 15 +++++++++-
+ www/manager6/button/ConsoleButton.js | 31 ++++++++++++++++++++
+ www/manager6/qemu/Config.js          |  8 ++++++
+ www/manager6/qemu/DisplayEdit.js     | 43 ++++++++++++++++++++++++++++
+ 6 files changed, 133 insertions(+), 1 deletion(-)
+
+-- 
+2.43.0
+

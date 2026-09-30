@@ -1,0 +1,251 @@
+From 7603e6ca92ce7f6848e7eb30259b24a723de7880 Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Thu, 1 Oct 2026 00:08:37 +0300
+Subject: [PATCH qemu-server 3/4] api: add webrtcproxy to attach a WebRTC
+ console to the D-Bus display
+
+Add POST /nodes/{node}/qemu/{vmid}/webrtcproxy (VM.Console, like
+vncproxy and spiceproxy) for VMs whose display is exported over D-Bus.
+It takes the browser's WebRTC offer, attaches a new peer-to-peer client
+to the display (getfd + add_client), and hands that connection with
+the offer to the node's WebRTC console service over a unix socket
+(SCM_RIGHTS), returning the service's SDP answer.
+
+The media part -- capturing the scanout, encoding it, WebRTC -- is not
+part of qemu-server: a separate package provides the service on
+/run/webrtc-console/offer.sock.  Without it the call fails with a clear
+message.  The socket must be owned by root, as the passed connection
+grants full access to the VM's display.
+
+Authentication and permissions stay those of the API; the browser
+needs no extra port and no own ticket handling.
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ src/PVE/API2/Qemu.pm              | 84 ++++++++++++++++++++++++++
+ src/PVE/QemuServer/DBusDisplay.pm | 98 +++++++++++++++++++++++++++++++
+ src/PVE/QemuServer/Makefile       |  1 +
+ 3 files changed, 183 insertions(+)
+ create mode 100644 src/PVE/QemuServer/DBusDisplay.pm
+
+diff --git a/src/PVE/API2/Qemu.pm b/src/PVE/API2/Qemu.pm
+index 7a74de93..45d91841 100644
+--- a/src/PVE/API2/Qemu.pm
++++ b/src/PVE/API2/Qemu.pm
+@@ -34,6 +34,7 @@ use PVE::QemuServer::BlockJob;
+ use PVE::QemuServer::Cloudinit;
+ use PVE::QemuServer::CPUConfig;
+ use PVE::QemuServer::Drive qw(checked_volume_format checked_parse_volname);
++use PVE::QemuServer::DBusDisplay;
+ use PVE::QemuServer::Helpers;
+ use PVE::QemuServer::ImportDisk;
+ use PVE::QemuServer::Monitor qw(mon_cmd vm_qmp_peer);
+@@ -3342,6 +3343,89 @@ __PACKAGE__->register_method({
+     },
+ });
+ 
++__PACKAGE__->register_method({
++    name => 'webrtcproxy',
++    path => '{vmid}/webrtcproxy',
++    method => 'POST',
++    protected => 1,
++    proxyto => 'node',
++    permissions => {
++        check => ['perm', '/vms/{vmid}', ['VM.Console']],
++    },
++    description => "Attach a WebRTC console to the display of a running VM that is exported"
++        . " over D-Bus ('dbus' in the VGA option). The SDP offer is handed, together with a"
++        . " new connection to the display, to the WebRTC console service of the node, which"
++        . " is provided by a separate package.",
++    parameters => {
++        additionalProperties => 0,
++        properties => {
++            node => get_standard_option('pve-node'),
++            vmid => get_standard_option('pve-vmid'),
++            sdp => {
++                description => "The browser's WebRTC session description (SDP offer).",
++                type => 'string',
++                maxLength => 64 * 1024,
++            },
++            width => {
++                description => "Width of the console viewport in pixels.",
++                type => 'integer',
++                minimum => 64,
++                maximum => 16384,
++                optional => 1,
++            },
++            height => {
++                description => "Height of the console viewport in pixels.",
++                type => 'integer',
++                minimum => 64,
++                maximum => 16384,
++                optional => 1,
++            },
++            fps => {
++                description => "Requested frame rate.",
++                type => 'integer',
++                minimum => 10,
++                maximum => 240,
++                optional => 1,
++            },
++        },
++    },
++    returns => {
++        type => 'object',
++        properties => {
++            type => {
++                type => 'string',
++                enum => ['answer'],
++            },
++            sdp => {
++                description => "The WebRTC session description of the console (SDP answer).",
++                type => 'string',
++            },
++        },
++    },
++    code => sub {
++        my ($param) = @_;
++
++        my $rpcenv = PVE::RPCEnvironment::get();
++        my $authuser = $rpcenv->get_user();
++
++        my $vmid = $param->{vmid};
++        my $conf = PVE::QemuConfig->load_config($vmid, $param->{node});
++
++        die "VM $vmid not running\n" if !PVE::QemuServer::check_running($vmid);
++
++        my $vga = PVE::QemuServer::parse_vga($conf->{vga} // '');
++        die "VM $vmid does not export its display over D-Bus ('dbus' in the VGA option)\n"
++            if !$vga->{dbus};
++
++        my $offer = { sdp => $param->{sdp} };
++        for my $opt (qw(width height fps)) {
++            $offer->{$opt} = int($param->{$opt}) if defined($param->{$opt});
++        }
++
++        return PVE::QemuServer::DBusDisplay::webrtc_offer($vmid, $authuser, $offer);
++    },
++});
++
+ __PACKAGE__->register_method({
+     name => 'spiceproxy',
+     path => '{vmid}/spiceproxy',
+diff --git a/src/PVE/QemuServer/DBusDisplay.pm b/src/PVE/QemuServer/DBusDisplay.pm
+new file mode 100644
+index 00000000..18c88400
+--- /dev/null
++++ b/src/PVE/QemuServer/DBusDisplay.pm
+@@ -0,0 +1,98 @@
++package PVE::QemuServer::DBusDisplay;
++
++use strict;
++use warnings;
++
++use IO::Handle;
++use IO::Socket::UNIX;
++use JSON;
++use Socket qw(AF_UNIX SOCK_STREAM PF_UNSPEC);
++
++use PVE::IPCC;
++use PVE::Tools;
++
++use PVE::QemuServer::Monitor qw(mon_cmd);
++
++# A console service that turns the D-Bus display into a WebRTC stream, run on
++# the node by a separate package, listens here.  Its request is one JSON line
++# carrying the browser's SDP offer, with a D-Bus peer-to-peer connection to
++# the VM's display passed along (SCM_RIGHTS); its reply is one JSON line.
++our $WEBRTC_SERVICE_SOCKET = '/run/webrtc-console/offer.sock';
++
++my $client_counter = 0;
++
++# Attach a new client to the D-Bus display of a running VM (vga: ...,dbus=1).
++# Returns our end of the connection: QEMU speaks D-Bus peer-to-peer on it,
++# exporting the org.qemu.Display1 objects.
++sub attach_client {
++    my ($vmid) = @_;
++
++    socketpair(my $ours, my $theirs, AF_UNIX, SOCK_STREAM, PF_UNSPEC)
++        or die "unable to create socket pair - $!\n";
++
++    my $fdname = "dbus-display-$$-" . $client_counter++;
++    eval {
++        mon_cmd($vmid, 'getfd', fd => fileno($theirs), fdname => $fdname);
++        mon_cmd($vmid, 'add_client', protocol => '@dbus-display', fdname => $fdname);
++    };
++    my $err = $@;
++    close($theirs);
++    if ($err) {
++        close($ours);
++        die "unable to attach to the D-Bus display of VM $vmid - $err";
++    }
++
++    return $ours;
++}
++
++# Hand a browser's WebRTC offer and a fresh D-Bus display connection to the
++# console service and return its SDP answer.
++sub webrtc_offer {
++    my ($vmid, $user, $offer, $timeout) = @_;
++
++    my $path = $WEBRTC_SERVICE_SOCKET;
++    my @st = lstat($path);
++    die "no WebRTC console service is installed on this node\n" if !@st;
++    # the passed connection grants full access to the VM's display
++    die "refusing WebRTC console service socket '$path' not owned by root\n"
++        if !-S _ || $st[4] != 0;
++
++    my $service = IO::Socket::UNIX->new(Type => SOCK_STREAM, Peer => $path)
++        or die "unable to connect to the WebRTC console service - $!\n";
++
++    my $display = attach_client($vmid);
++
++    my $request = encode_json({
++        version => 1,
++        vmid => int($vmid),
++        user => $user,
++        offer => $offer,
++    });
++    my $ret = PVE::IPCC::sendfd(fileno($service), fileno($display), "$request\n");
++    close($display);
++    die "unable to pass the display connection to the WebRTC console service\n" if $ret < 0;
++
++    my $line;
++    eval {
++        PVE::Tools::run_with_timeout($timeout // 30, sub { $line = <$service>; });
++    };
++    my $err = $@;
++    close($service);
++    die "WebRTC console service did not answer - $err" if $err;
++    die "WebRTC console service closed the connection\n" if !defined($line);
++
++    my $reply = eval { decode_json($line) };
++    die "invalid reply from the WebRTC console service\n" if ref($reply) ne 'HASH';
++    die "WebRTC console service: " . ($reply->{error} // 'unknown error') . "\n"
++        if !$reply->{ok};
++
++    my $answer = $reply->{answer};
++    die "invalid SDP answer from the WebRTC console service\n"
++        if ref($answer) ne 'HASH'
++        || ($answer->{type} // '') ne 'answer'
++        || !defined($answer->{sdp});
++
++    return $answer;
++}
++
++1;
+diff --git a/src/PVE/QemuServer/Makefile b/src/PVE/QemuServer/Makefile
+index 060fac23..f053feb3 100644
+--- a/src/PVE/QemuServer/Makefile
++++ b/src/PVE/QemuServer/Makefile
+@@ -10,6 +10,7 @@ SOURCES=Agent.pm	\
+ 	Cloudinit.pm	\
+ 	CPUConfig.pm	\
+ 	CPUFlags.pm	\
++	DBusDisplay.pm	\
+ 	DBusVMState.pm	\
+ 	Drive.pm	\
+ 	DriveDevice.pm	\
+-- 
+2.43.0
+

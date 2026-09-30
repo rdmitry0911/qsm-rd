@@ -1,0 +1,244 @@
+From eb25234d1cd5a599ff1277998a67542c7d89fd09 Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Thu, 1 Oct 2026 00:00:37 +0300
+Subject: [PATCH qemu-server 1/4] fix #4771: vga: add rendernode option for
+ virtio-gl
+
+On a host with more than one GPU, a VirGL guest always renders on the
+first DRM render node, as QEMU picks it when egl-headless is given
+none.  Add a 'rendernode' property to the VGA option, passed on to
+egl-headless, so the guest can be placed on a chosen GPU:
+
+  vga: virtio-gl,rendernode=/dev/dri/renderD129
+
+The render node must exist, and the property is refused for other
+display types, where it has no effect.
+
+Move the VirGL host checks into assert_virgl_available(), so the new
+command lines can be covered by config-to-command tests on a build
+host without GL libraries or a GPU.
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ src/PVE/QemuServer.pm                         | 48 ++++++++++++++-----
+ .../cfg2cmd/rendernode-without-virgl.conf     |  5 ++
+ src/test/cfg2cmd/virtio-gl-rendernode.conf    |  4 ++
+ .../cfg2cmd/virtio-gl-rendernode.conf.cmd     | 34 +++++++++++++
+ src/test/cfg2cmd/virtio-gl.conf               |  4 ++
+ src/test/cfg2cmd/virtio-gl.conf.cmd           | 34 +++++++++++++
+ src/test/run_config2command_tests.pl          |  3 ++
+ 7 files changed, 121 insertions(+), 11 deletions(-)
+ create mode 100644 src/test/cfg2cmd/rendernode-without-virgl.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl-rendernode.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl-rendernode.conf.cmd
+ create mode 100644 src/test/cfg2cmd/virtio-gl.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl.conf.cmd
+
+diff --git a/src/PVE/QemuServer.pm b/src/PVE/QemuServer.pm
+index f199371d..223c9a2f 100644
+--- a/src/PVE/QemuServer.pm
++++ b/src/PVE/QemuServer.pm
+@@ -187,6 +187,15 @@ my $vga_fmt = {
+         enum => ['vnc'],
+         optional => 1,
+     },
++    rendernode => {
++        description => "The DRM render node the 'virtio-gl' display renders on, for example"
++            . " '/dev/dri/renderD129' to use the second GPU. If not set, QEMU uses the first"
++            . " render node.",
++        type => 'string',
++        pattern => '/dev/dri/renderD\d+',
++        format_description => 'path',
++        optional => 1,
++    },
+ };
+ 
+ my $ivshmem_fmt = {
+@@ -1495,6 +1504,26 @@ my sub map_vga_model {
+     return $arch eq 'aarch64' ? $vga_map_aarch64->{$vga_type} : $vga_map->{$vga_type};
+ }
+ 
++sub assert_virgl_available {
++    my ($rendernode) = @_;
++
++    # VirGL renders on the host, so the guest arch is irrelevant for the library lookup
++    my $host_arch = get_host_arch();
++    my $base = "/usr/lib/${host_arch}-linux-gnu/lib";
++
++    die "missing libraries for 'virtio-gl' detected! Please install 'libgl1' and 'libegl1'\n"
++        if !-e "${base}EGL.so.1" || !-e "${base}GL.so.1";
++
++    if ($rendernode) {
++        die "DRM render node '$rendernode' does not exist - needed for 'virtio-gl' display\n"
++            if !-c $rendernode;
++    } else {
++        die
++            "no DRM render node detected (/dev/dri/renderD*), no GPU? - needed for 'virtio-gl' display\n"
++            if !PVE::Tools::dir_glob_regex('/dev/dri/', "renderD.*");
++    }
++}
++
+ sub print_vga_device {
+     my ($conf, $vga, $arch, $machine_version, $id, $qxlnum) = @_;
+ 
+@@ -1549,16 +1578,9 @@ sub print_vga_device {
+     }
+ 
+     if ($vga->{type} eq 'virtio-gl') {
+-        # VirGL renders on the host, so the guest arch is irrelevant for the library lookup
+-        my $host_arch = get_host_arch();
+-        my $base = "/usr/lib/${host_arch}-linux-gnu/lib";
+-
+-        die "missing libraries for '$vga->{type}' detected! Please install 'libgl1' and 'libegl1'\n"
+-            if !-e "${base}EGL.so.1" || !-e "${base}GL.so.1";
+-
+-        die
+-            "no DRM render node detected (/dev/dri/renderD*), no GPU? - needed for '$vga->{type}' display\n"
+-            if !PVE::Tools::dir_glob_regex('/dev/dri/', "renderD.*");
++        assert_virgl_available($vga->{rendernode});
++    } elsif ($vga->{rendernode}) {
++        die "'rendernode' is only supported with the 'virtio-gl' display\n";
+     }
+ 
+     return "$type,id=${vgaid}${memory}${max_outputs}${pciaddr}${edidoff}";
+@@ -3413,7 +3435,11 @@ sub config_to_command {
+         push @$devices, '-device',
+             print_vga_device($conf, $vga, $arch, $machine_version, undef, $qxlnum);
+ 
+-        push @$cmd, '-display', 'egl-headless,gl=core' if $vga->{type} eq 'virtio-gl'; # VIRGL
++        if ($vga->{type} eq 'virtio-gl') { # VIRGL
++            my $display = 'egl-headless,gl=core';
++            $display .= ",rendernode=$vga->{rendernode}" if $vga->{rendernode};
++            push @$cmd, '-display', $display;
++        }
+ 
+         my $socket = PVE::QemuServer::Helpers::vnc_socket($vmid);
+         push @$cmd, '-vnc', "unix:$socket,password=on";
+diff --git a/src/test/cfg2cmd/rendernode-without-virgl.conf b/src/test/cfg2cmd/rendernode-without-virgl.conf
+new file mode 100644
+index 00000000..fa965d0a
+--- /dev/null
++++ b/src/test/cfg2cmd/rendernode-without-virgl.conf
+@@ -0,0 +1,5 @@
++# TEST: a render node needs the VirGL display
++# EXPECT_ERROR: 'rendernode' is only supported with the 'virtio-gl' display
++smbios1: uuid=7b10d7af-b932-4c66-b2c3-3996152ec465
++vga: std,rendernode=/dev/dri/renderD129
++vmgenid: c773c261-d800-4348-9f5d-167fadd53cf8
+diff --git a/src/test/cfg2cmd/virtio-gl-rendernode.conf b/src/test/cfg2cmd/virtio-gl-rendernode.conf
+new file mode 100644
+index 00000000..1875395b
+--- /dev/null
++++ b/src/test/cfg2cmd/virtio-gl-rendernode.conf
+@@ -0,0 +1,4 @@
++# TEST: VirGL display on an explicitly chosen render node
++smbios1: uuid=7b10d7af-b932-4c66-b2c3-3996152ec465
++vga: virtio-gl,rendernode=/dev/dri/renderD129
++vmgenid: c773c261-d800-4348-9f5d-167fadd53cf8
+diff --git a/src/test/cfg2cmd/virtio-gl-rendernode.conf.cmd b/src/test/cfg2cmd/virtio-gl-rendernode.conf.cmd
+new file mode 100644
+index 00000000..9b166d03
+--- /dev/null
++++ b/src/test/cfg2cmd/virtio-gl-rendernode.conf.cmd
+@@ -0,0 +1,34 @@
++/usr/bin/kvm \
++  -id 8006 \
++  -name vm8006 \
++  -no-shutdown \
++  -chardev 'socket,id=qmp,path=/var/run/qemu-server/8006.qmp,server=on,wait=off' \
++  -object 'monitor-qmp,chardev=qmp,id=monitor-qmp' \
++  -chardev 'socket,id=qmp-event,path=/var/run/qmeventd.sock,reconnect-ms=5000' \
++  -object 'monitor-qmp,chardev=qmp-event,id=monitor-qmp-event' \
++  -pidfile /var/run/qemu-server/8006.pid \
++  -daemonize \
++  -smbios 'type=1,uuid=7b10d7af-b932-4c66-b2c3-3996152ec465' \
++  -smp '1,sockets=1,cores=1,maxcpus=1' \
++  -nodefaults \
++  -boot 'menu=on,strict=on,reboot-timeout=1000,splash=/usr/share/qemu-server/bootsplash.jpg' \
++  -display 'egl-headless,gl=core,rendernode=/dev/dri/renderD129' \
++  -vnc 'unix:/var/run/qemu-server/8006.vnc,password=on' \
++  -cpu kvm64,enforce,+kvm_pv_eoi,+kvm_pv_unhalt,+lahf_lm,+sep \
++  -m 512 \
++  -global 'PIIX4_PM.disable_s3=1' \
++  -global 'PIIX4_PM.disable_s4=1' \
++  -device 'pci-bridge,id=pci.1,chassis_nr=1,bus=pci.0,addr=0x1e' \
++  -device 'pci-bridge,id=pci.2,chassis_nr=2,bus=pci.0,addr=0x1f' \
++  -device 'pci-bridge,id=pci.4,chassis_nr=4,bus=pci.1,addr=0x1c' \
++  -device 'vmgenid,guid=c773c261-d800-4348-9f5d-167fadd53cf8' \
++  -device 'piix3-usb-uhci,id=uhci,bus=pci.0,addr=0x1.0x2' \
++  -device 'usb-tablet,id=tablet,bus=uhci.0,port=1' \
++  -device 'virtio-vga-gl,id=vga,bus=pci.0,addr=0x2' \
++  -device 'virtio-serial,id=spice,bus=pci.0,addr=0x9' \
++  -chardev 'spicevmc,id=vdagent,name=vdagent' \
++  -device 'virtserialport,chardev=vdagent,name=com.redhat.spice.0' \
++  -spice 'tls-port=61000,addr=127.0.0.1,tls-ciphers=HIGH,seamless-migration=on' \
++  -device 'virtio-balloon-pci,id=balloon0,bus=pci.0,addr=0x3,free-page-reporting=on' \
++  -iscsi 'initiator-name=iqn.1993-08.org.debian:01:aabbccddeeff' \
++  -machine 'type=pc+pve0'
+diff --git a/src/test/cfg2cmd/virtio-gl.conf b/src/test/cfg2cmd/virtio-gl.conf
+new file mode 100644
+index 00000000..3156d86f
+--- /dev/null
++++ b/src/test/cfg2cmd/virtio-gl.conf
+@@ -0,0 +1,4 @@
++# TEST: VirGL display renders headless on the first render node
++smbios1: uuid=7b10d7af-b932-4c66-b2c3-3996152ec465
++vga: virtio-gl
++vmgenid: c773c261-d800-4348-9f5d-167fadd53cf8
+diff --git a/src/test/cfg2cmd/virtio-gl.conf.cmd b/src/test/cfg2cmd/virtio-gl.conf.cmd
+new file mode 100644
+index 00000000..5cdd6ac1
+--- /dev/null
++++ b/src/test/cfg2cmd/virtio-gl.conf.cmd
+@@ -0,0 +1,34 @@
++/usr/bin/kvm \
++  -id 8006 \
++  -name vm8006 \
++  -no-shutdown \
++  -chardev 'socket,id=qmp,path=/var/run/qemu-server/8006.qmp,server=on,wait=off' \
++  -object 'monitor-qmp,chardev=qmp,id=monitor-qmp' \
++  -chardev 'socket,id=qmp-event,path=/var/run/qmeventd.sock,reconnect-ms=5000' \
++  -object 'monitor-qmp,chardev=qmp-event,id=monitor-qmp-event' \
++  -pidfile /var/run/qemu-server/8006.pid \
++  -daemonize \
++  -smbios 'type=1,uuid=7b10d7af-b932-4c66-b2c3-3996152ec465' \
++  -smp '1,sockets=1,cores=1,maxcpus=1' \
++  -nodefaults \
++  -boot 'menu=on,strict=on,reboot-timeout=1000,splash=/usr/share/qemu-server/bootsplash.jpg' \
++  -display 'egl-headless,gl=core' \
++  -vnc 'unix:/var/run/qemu-server/8006.vnc,password=on' \
++  -cpu kvm64,enforce,+kvm_pv_eoi,+kvm_pv_unhalt,+lahf_lm,+sep \
++  -m 512 \
++  -global 'PIIX4_PM.disable_s3=1' \
++  -global 'PIIX4_PM.disable_s4=1' \
++  -device 'pci-bridge,id=pci.1,chassis_nr=1,bus=pci.0,addr=0x1e' \
++  -device 'pci-bridge,id=pci.2,chassis_nr=2,bus=pci.0,addr=0x1f' \
++  -device 'pci-bridge,id=pci.4,chassis_nr=4,bus=pci.1,addr=0x1c' \
++  -device 'vmgenid,guid=c773c261-d800-4348-9f5d-167fadd53cf8' \
++  -device 'piix3-usb-uhci,id=uhci,bus=pci.0,addr=0x1.0x2' \
++  -device 'usb-tablet,id=tablet,bus=uhci.0,port=1' \
++  -device 'virtio-vga-gl,id=vga,bus=pci.0,addr=0x2' \
++  -device 'virtio-serial,id=spice,bus=pci.0,addr=0x9' \
++  -chardev 'spicevmc,id=vdagent,name=vdagent' \
++  -device 'virtserialport,chardev=vdagent,name=com.redhat.spice.0' \
++  -spice 'tls-port=61000,addr=127.0.0.1,tls-ciphers=HIGH,seamless-migration=on' \
++  -device 'virtio-balloon-pci,id=balloon0,bus=pci.0,addr=0x3,free-page-reporting=on' \
++  -iscsi 'initiator-name=iqn.1993-08.org.debian:01:aabbccddeeff' \
++  -machine 'type=pc+pve0'
+diff --git a/src/test/run_config2command_tests.pl b/src/test/run_config2command_tests.pl
+index 28f538d3..4e9e0354 100755
+--- a/src/test/run_config2command_tests.pl
++++ b/src/test/run_config2command_tests.pl
+@@ -280,6 +280,9 @@ $qemu_server_module->mock(
+     cleanup_pci_devices => {
+         # do nothing
+     },
++    assert_virgl_available => sub {
++        # the test host needs neither the GL libraries nor a render node
++    },
+ );
+ 
+ my $qemu_server_ovmf_module = Test::MockModule->new("PVE::QemuServer::OVMF");
+-- 
+2.43.0
+

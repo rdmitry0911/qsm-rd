@@ -1,0 +1,114 @@
+From: Dmitry R <rdmitry0911@gmail.com>
+Subject: [RFC] WebRTC console for VMs via QEMU's D-Bus display
+
+Hi all,
+
+I would like to ask whether a hardware-encoded WebRTC console for VMs
+would be welcome upstream, and if so, in which shape.  It runs today as
+an add-on for PVE 9.2, and I have prepared the qemu-server and
+pve-manager parts as patch series against current master (tested on
+PVE 9.2 with an RTX 3080, see below) -- but I'd like your opinion on
+the design before sending them.
+
+Motivation
+----------
+noVNC is the right console for firmware, installers and text consoles.
+For time spent inside a running desktop it transfers changed rectangles
+instead of video, has no audio, and a VirGL (virtio-gl) guest reaches it
+through egl-headless readback.  Measured with one guest image and the
+same workloads (method and raw numbers in the repository below):
+
+                              WebRTC, virtio-gl   noVNC, std VGA
+  720p video, pictures/s      30 (source rate)    7.4
+  scrolling, pictures/s       36 (52 on NVENC)    12.0
+  animated UI, pictures/s     38 (45 on NVENC)    11.0
+  bandwidth, 720p video       18.8 Mbit/s         120 Mbit/s
+  single pointer event        88 ms               52 ms
+  console open -> 1st picture 3.4 s               1.0 s
+
+The last two rows are where noVNC stays better: a single isolated
+event is one small rectangle for VNC, but a full encode/decode round
+trip for video (the 88 ms were measured with software libx264 on a
+CPU-only node).  With NVENC (RTX 3080) the encoder used 4% while
+streaming the animated scene.
+
+What QEMU already provides
+--------------------------
+QEMU's D-Bus display (-display dbus) exports the guest scanout -- the
+GL/DMA-BUF scanout of virtio-gl included -- and takes keyboard, mouse,
+multi-touch, clipboard and audio.  With p2p=yes there is no bus daemon:
+a client is attached per connection through QMP (getfd + add_client),
+which PVE::QMPClient can already do (it passes the fd for getfd).
+
+Proposed series
+---------------
+1. qemu-server: 'rendernode' for the VGA property
+     vga: virtio-gl,rendernode=/dev/dri/renderD129
+   so a virtio-gl guest can be placed on a chosen GPU instead of the
+   first render node (fixes #4771).  Small and useful on its own.
+
+2. qemu-server: opt-in 'dbus' for the VGA property
+     vga: virtio-gl,dbus=1
+   adds '-display dbus,p2p=yes' (gl=on with the render node for
+   virtio-gl, gl=off for the other types).  One constraint: with GL,
+   QEMU refuses VNC next to it ("Display vnc is incompatible with the
+   GL context"), so a virtio-gl VM with dbus=1 has no VNC server and
+   offers the WebRTC console instead; non-GL types keep VNC as well.
+
+3. qemu-server: API call to attach a console
+     POST /nodes/{node}/qemu/{vmid}/webrtcproxy  (VM.Console)
+   takes the browser's SDP offer, creates a socketpair, attaches one
+   end to QEMU (getfd + add_client) and hands the other end with the
+   offer to a local media service over a root-owned unix socket
+   (SCM_RIGHTS); returns the SDP answer.  Authentication and ACL stay
+   exactly those of vncproxy/termproxy -- no extra port, no own auth.
+   The status API reports 'dbus' and 'vnc' so the UI knows which
+   consoles a VM offers.
+
+4. pve-manager: WebRTC console type next to noVNC/SPICE/xterm.js
+   in the console button and the VM's Console panel, offered when the
+   VM's display has dbus=1; the display editor gets the two options.
+   Like noVNC and xterm.js, the viewer itself is a page from a separate
+   package that pveproxy serves ('?console=kvm&webrtc=1').
+
+5. A separate package with the media service: capture from the D-Bus
+   display (the virtio-gl DMA-BUF scanout is imported through EGL and
+   read back; a zero-copy path to the encoder is future work), encode
+   (NVENC, VA-API, QSV; libx264 fallback; H.264, HEVC where the
+   browser decodes it),
+   Opus audio, WebRTC.  Today it is C++ (FFmpeg) plus a Python/aiortc
+   WebRTC bridge; I realise Python/aiortc is unusual in your stack.
+
+Questions
+---------
+- Is this something you would consider upstream at all?
+- Property naming: 'rendernode' and 'dbus' inside 'vga', or a separate
+  display property?
+- Would you rather keep the media service out of tree (users install
+  it, the API call returns an error when it is absent), or should it
+  eventually live in a Proxmox-maintained package, and would you then
+  want it in Rust?
+- Is 'webrtcproxy' next to 'vncproxy'/'termproxy' the right place?
+
+Not part of this proposal: the prototype also has a graphical console
+for LXC containers (a headless compositor in the container with its
+own login screen, one console per tty like the terminal console).  It
+needs software inside the guest, so I plan to keep it as a separate
+add-on package.
+
+Tested end to end on PVE 9.2 (qemu-server 9.2.7 and pve-manager
+9.2.11 plus the series): a Kubuntu 26.04 guest with
+'vga: virtio-gl,dbus=1' streams 1280x800 at 60 fps (NVENC H.264)
+through webrtcproxy, in a popup and in the VM's Console panel, for a
+user holding only PVEVMUser on the VM (403 without VM.Console).
+
+Code and measurements: https://github.com/rdmitry0911/qsm-rd
+(qsm-direct/, docs/COMPARISON.md for the numbers; the prepared series
+are in qsm-direct/upstream/patches/).
+
+Transparency: I developed the prototype with the help of an AI coding
+assistant (Claude).  I have reviewed and tested the code and will sign
+the Harmony CLA; please tell me if that is a problem for you.
+
+Thanks,
+Dmitry

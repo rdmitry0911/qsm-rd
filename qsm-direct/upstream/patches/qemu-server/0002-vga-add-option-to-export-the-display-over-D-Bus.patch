@@ -1,0 +1,243 @@
+From 06954a3af743e9cc559370ca763ba1e0bd92522f Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Thu, 1 Oct 2026 00:02:53 +0300
+Subject: [PATCH qemu-server 2/4] vga: add option to export the display over
+ D-Bus
+
+QEMU's D-Bus display hands the guest scanout -- including the GL
+scanout of virtio-gl as DMA-BUF -- to an external consumer and takes
+keyboard, mouse, clipboard and audio from it.  It is meant for
+consoles that do more than VNC, such as a hardware-encoded video
+stream to the browser.
+
+Add a 'dbus' flag to the VGA option that adds
+
+  -display dbus,p2p=yes,gl=on|off[,rendernode=...]
+
+In peer-to-peer mode no D-Bus daemon is involved: a consumer gets
+attached per connection through QMP (getfd + add_client).  GL is used
+for virtio-gl, which then no longer needs egl-headless.
+
+With GL, QEMU does not allow VNC or SPICE next to the D-Bus display
+("Display vnc is incompatible with the GL context"), so a virtio-gl VM
+with 'dbus' has neither of those consoles; vncproxy and spiceproxy say
+so instead of failing to connect.  Other display types keep them.
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ src/PVE/API2/Qemu.pm                       |  6 ++++
+ src/PVE/QemuServer.pm                      | 34 +++++++++++++++++++---
+ src/test/cfg2cmd/dbus-display.conf         |  4 +++
+ src/test/cfg2cmd/dbus-display.conf.cmd     | 30 +++++++++++++++++++
+ src/test/cfg2cmd/dbus-without-display.conf |  6 ++++
+ src/test/cfg2cmd/virtio-gl-dbus.conf       |  4 +++
+ src/test/cfg2cmd/virtio-gl-dbus.conf.cmd   | 29 ++++++++++++++++++
+ 7 files changed, 109 insertions(+), 4 deletions(-)
+ create mode 100644 src/test/cfg2cmd/dbus-display.conf
+ create mode 100644 src/test/cfg2cmd/dbus-display.conf.cmd
+ create mode 100644 src/test/cfg2cmd/dbus-without-display.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl-dbus.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl-dbus.conf.cmd
+
+diff --git a/src/PVE/API2/Qemu.pm b/src/PVE/API2/Qemu.pm
+index 922c6599..7a74de93 100644
+--- a/src/PVE/API2/Qemu.pm
++++ b/src/PVE/API2/Qemu.pm
+@@ -3009,6 +3009,8 @@ __PACKAGE__->register_method({
+         if ($conf->{vga}) {
+             my $vga = PVE::QemuServer::parse_vga($conf->{vga});
+             $serial = $vga->{type} if defined($vga->{type}) && $vga->{type} =~ m/^serial\d+$/;
++            die "VM $vmid has no VNC console: its GL display is exported over D-Bus\n"
++                if PVE::QemuServer::dbus_gl_display($vga);
+         }
+ 
+         my $authpath = "/vms/$vmid";
+@@ -3374,6 +3376,10 @@ __PACKAGE__->register_method({
+         my $title = "VM $vmid";
+         $title .= " - " . $conf->{name} if $conf->{name};
+ 
++        die "VM $vmid has no SPICE console: its GL display is exported over D-Bus\n"
++            if $conf->{vga}
++            && PVE::QemuServer::dbus_gl_display(PVE::QemuServer::parse_vga($conf->{vga}));
++
+         my $port = PVE::QemuServer::spice_port($vmid);
+ 
+         my ($ticket, undef, $remote_viewer_config) =
+diff --git a/src/PVE/QemuServer.pm b/src/PVE/QemuServer.pm
+index 223c9a2f..61e2f293 100644
+--- a/src/PVE/QemuServer.pm
++++ b/src/PVE/QemuServer.pm
+@@ -187,6 +187,15 @@ my $vga_fmt = {
+         enum => ['vnc'],
+         optional => 1,
+     },
++    dbus => {
++        description => "Also export the display over QEMU's D-Bus display interface, in"
++            . " peer-to-peer mode: a console attaches per connection through QMP, no D-Bus"
++            . " daemon is involved. With 'virtio-gl', QEMU does not allow VNC or SPICE next to"
++            . " the GL-enabled D-Bus display, so the VM then has neither of those consoles.",
++        type => 'boolean',
++        default => 0,
++        optional => 1,
++    },
+     rendernode => {
+         description => "The DRM render node the 'virtio-gl' display renders on, for example"
+             . " '/dev/dri/renderD129' to use the second GPU. If not set, QEMU uses the first"
+@@ -1524,6 +1533,14 @@ sub assert_virgl_available {
+     }
+ }
+ 
++# Whether the display is a GL-enabled D-Bus display. QEMU refuses VNC and SPICE
++# next to it ("Display vnc is incompatible with the GL context").
++sub dbus_gl_display {
++    my ($vga) = @_;
++
++    return $vga->{dbus} && $vga->{type} && $vga->{type} eq 'virtio-gl';
++}
++
+ sub print_vga_device {
+     my ($conf, $vga, $arch, $machine_version, $id, $qxlnum) = @_;
+ 
+@@ -3435,15 +3452,24 @@ sub config_to_command {
+         push @$devices, '-device',
+             print_vga_device($conf, $vga, $arch, $machine_version, undef, $qxlnum);
+ 
+-        if ($vga->{type} eq 'virtio-gl') { # VIRGL
++        my $virgl = $vga->{type} eq 'virtio-gl';
++        if ($vga->{dbus}) {
++            # consumers are attached with QMP 'add_client', so no bus is needed
++            my $display = 'dbus,p2p=yes,gl=' . ($virgl ? 'on' : 'off');
++            $display .= ",rendernode=$vga->{rendernode}" if $vga->{rendernode};
++            push @$cmd, '-display', $display;
++        } elsif ($virgl) { # VIRGL
+             my $display = 'egl-headless,gl=core';
+             $display .= ",rendernode=$vga->{rendernode}" if $vga->{rendernode};
+             push @$cmd, '-display', $display;
+         }
+ 
+-        my $socket = PVE::QemuServer::Helpers::vnc_socket($vmid);
+-        push @$cmd, '-vnc', "unix:$socket,password=on";
++        if (!dbus_gl_display($vga)) {
++            my $socket = PVE::QemuServer::Helpers::vnc_socket($vmid);
++            push @$cmd, '-vnc', "unix:$socket,password=on";
++        }
+     } else {
++        die "'dbus' needs a graphical display, not '$vga->{type}'\n" if $vga->{dbus};
+         push @$cmd, '-vga', 'none' if $vga->{type} eq 'none';
+         push @$cmd, '-nographic';
+     }
+@@ -3516,7 +3542,7 @@ sub config_to_command {
+     my $spice_port;
+ 
+     assert_clipboard_config($vga);
+-    my $is_spice = $qxlnum || $vga->{type} =~ /^virtio/;
++    my $is_spice = !dbus_gl_display($vga) && ($qxlnum || $vga->{type} =~ /^virtio/);
+ 
+     if ($is_spice || ($vga->{'clipboard'} && $vga->{'clipboard'} eq 'vnc')) {
+         if ($qxlnum > 1) {
+diff --git a/src/test/cfg2cmd/dbus-display.conf b/src/test/cfg2cmd/dbus-display.conf
+new file mode 100644
+index 00000000..0d63cc1c
+--- /dev/null
++++ b/src/test/cfg2cmd/dbus-display.conf
+@@ -0,0 +1,4 @@
++# TEST: display also exported over D-Bus, VNC kept without GL
++smbios1: uuid=7b10d7af-b932-4c66-b2c3-3996152ec465
++vga: std,dbus=1
++vmgenid: c773c261-d800-4348-9f5d-167fadd53cf8
+diff --git a/src/test/cfg2cmd/dbus-display.conf.cmd b/src/test/cfg2cmd/dbus-display.conf.cmd
+new file mode 100644
+index 00000000..898fcd28
+--- /dev/null
++++ b/src/test/cfg2cmd/dbus-display.conf.cmd
+@@ -0,0 +1,30 @@
++/usr/bin/kvm \
++  -id 8006 \
++  -name vm8006 \
++  -no-shutdown \
++  -chardev 'socket,id=qmp,path=/var/run/qemu-server/8006.qmp,server=on,wait=off' \
++  -object 'monitor-qmp,chardev=qmp,id=monitor-qmp' \
++  -chardev 'socket,id=qmp-event,path=/var/run/qmeventd.sock,reconnect-ms=5000' \
++  -object 'monitor-qmp,chardev=qmp-event,id=monitor-qmp-event' \
++  -pidfile /var/run/qemu-server/8006.pid \
++  -daemonize \
++  -smbios 'type=1,uuid=7b10d7af-b932-4c66-b2c3-3996152ec465' \
++  -smp '1,sockets=1,cores=1,maxcpus=1' \
++  -nodefaults \
++  -boot 'menu=on,strict=on,reboot-timeout=1000,splash=/usr/share/qemu-server/bootsplash.jpg' \
++  -display 'dbus,p2p=yes,gl=off' \
++  -vnc 'unix:/var/run/qemu-server/8006.vnc,password=on' \
++  -cpu kvm64,enforce,+kvm_pv_eoi,+kvm_pv_unhalt,+lahf_lm,+sep \
++  -m 512 \
++  -global 'PIIX4_PM.disable_s3=1' \
++  -global 'PIIX4_PM.disable_s4=1' \
++  -device 'pci-bridge,id=pci.1,chassis_nr=1,bus=pci.0,addr=0x1e' \
++  -device 'pci-bridge,id=pci.2,chassis_nr=2,bus=pci.0,addr=0x1f' \
++  -device 'pci-bridge,id=pci.4,chassis_nr=4,bus=pci.1,addr=0x1c' \
++  -device 'vmgenid,guid=c773c261-d800-4348-9f5d-167fadd53cf8' \
++  -device 'piix3-usb-uhci,id=uhci,bus=pci.0,addr=0x1.0x2' \
++  -device 'usb-tablet,id=tablet,bus=uhci.0,port=1' \
++  -device 'VGA,id=vga,bus=pci.0,addr=0x2' \
++  -device 'virtio-balloon-pci,id=balloon0,bus=pci.0,addr=0x3,free-page-reporting=on' \
++  -iscsi 'initiator-name=iqn.1993-08.org.debian:01:aabbccddeeff' \
++  -machine 'type=pc+pve0'
+diff --git a/src/test/cfg2cmd/dbus-without-display.conf b/src/test/cfg2cmd/dbus-without-display.conf
+new file mode 100644
+index 00000000..e27eebbb
+--- /dev/null
++++ b/src/test/cfg2cmd/dbus-without-display.conf
+@@ -0,0 +1,6 @@
++# TEST: a D-Bus display needs a graphical display
++# EXPECT_ERROR: 'dbus' needs a graphical display, not 'serial0'
++serial0: socket
++smbios1: uuid=7b10d7af-b932-4c66-b2c3-3996152ec465
++vga: serial0,dbus=1
++vmgenid: c773c261-d800-4348-9f5d-167fadd53cf8
+diff --git a/src/test/cfg2cmd/virtio-gl-dbus.conf b/src/test/cfg2cmd/virtio-gl-dbus.conf
+new file mode 100644
+index 00000000..ea148ace
+--- /dev/null
++++ b/src/test/cfg2cmd/virtio-gl-dbus.conf
+@@ -0,0 +1,4 @@
++# TEST: VirGL display exported over D-Bus with GL, no VNC next to it
++smbios1: uuid=7b10d7af-b932-4c66-b2c3-3996152ec465
++vga: virtio-gl,dbus=1,rendernode=/dev/dri/renderD129
++vmgenid: c773c261-d800-4348-9f5d-167fadd53cf8
+diff --git a/src/test/cfg2cmd/virtio-gl-dbus.conf.cmd b/src/test/cfg2cmd/virtio-gl-dbus.conf.cmd
+new file mode 100644
+index 00000000..71410e95
+--- /dev/null
++++ b/src/test/cfg2cmd/virtio-gl-dbus.conf.cmd
+@@ -0,0 +1,29 @@
++/usr/bin/kvm \
++  -id 8006 \
++  -name vm8006 \
++  -no-shutdown \
++  -chardev 'socket,id=qmp,path=/var/run/qemu-server/8006.qmp,server=on,wait=off' \
++  -object 'monitor-qmp,chardev=qmp,id=monitor-qmp' \
++  -chardev 'socket,id=qmp-event,path=/var/run/qmeventd.sock,reconnect-ms=5000' \
++  -object 'monitor-qmp,chardev=qmp-event,id=monitor-qmp-event' \
++  -pidfile /var/run/qemu-server/8006.pid \
++  -daemonize \
++  -smbios 'type=1,uuid=7b10d7af-b932-4c66-b2c3-3996152ec465' \
++  -smp '1,sockets=1,cores=1,maxcpus=1' \
++  -nodefaults \
++  -boot 'menu=on,strict=on,reboot-timeout=1000,splash=/usr/share/qemu-server/bootsplash.jpg' \
++  -display 'dbus,p2p=yes,gl=on,rendernode=/dev/dri/renderD129' \
++  -cpu kvm64,enforce,+kvm_pv_eoi,+kvm_pv_unhalt,+lahf_lm,+sep \
++  -m 512 \
++  -global 'PIIX4_PM.disable_s3=1' \
++  -global 'PIIX4_PM.disable_s4=1' \
++  -device 'pci-bridge,id=pci.1,chassis_nr=1,bus=pci.0,addr=0x1e' \
++  -device 'pci-bridge,id=pci.2,chassis_nr=2,bus=pci.0,addr=0x1f' \
++  -device 'pci-bridge,id=pci.4,chassis_nr=4,bus=pci.1,addr=0x1c' \
++  -device 'vmgenid,guid=c773c261-d800-4348-9f5d-167fadd53cf8' \
++  -device 'piix3-usb-uhci,id=uhci,bus=pci.0,addr=0x1.0x2' \
++  -device 'usb-tablet,id=tablet,bus=uhci.0,port=1' \
++  -device 'virtio-vga-gl,id=vga,bus=pci.0,addr=0x2' \
++  -device 'virtio-balloon-pci,id=balloon0,bus=pci.0,addr=0x3,free-page-reporting=on' \
++  -iscsi 'initiator-name=iqn.1993-08.org.debian:01:aabbccddeeff' \
++  -machine 'type=pc+pve0'
+-- 
+2.43.0
+
