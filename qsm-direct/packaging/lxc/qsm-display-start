@@ -1,0 +1,13 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# QSM Direct container console: start one console's headless display (sway).
+# With a passed-through GPU it composites with GLES2 on the render node,
+# otherwise with wlroots' software (pixman) renderer.
+set -eu
+export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1
+if [ -c /dev/dri/renderD128 ]; then
+    export WLR_RENDERER=gles2 WLR_RENDER_DRM_DEVICE=/dev/dri/renderD128
+else
+    export WLR_RENDERER=pixman
+fi
+exec /usr/bin/sway --unsupported-gpu -c /usr/share/qsm-console/sway.conf

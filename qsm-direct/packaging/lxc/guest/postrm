@@ -1,0 +1,8 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+set -e
+if [ -d /run/systemd/system ]; then systemctl daemon-reload || true; fi
+if [ "${1:-}" = purge ]; then
+    rm -rf /etc/qsm-direct /var/lib/qsm-login
+fi
+exit 0

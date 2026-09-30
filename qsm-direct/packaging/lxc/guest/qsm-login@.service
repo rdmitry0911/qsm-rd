@@ -1,0 +1,11 @@
+[Unit]
+Description=QSM Direct console %i login manager
+BindsTo=qsm-display@%i.service
+Wants=qsm-seat-keeper@%i.service
+After=qsm-display@%i.service qsm-seat-keeper@%i.service systemd-user-sessions.service systemd-logind.service
+PartOf=qsm-consoles.service
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/lib/qsm-console/qsm-login %i
+Restart=always
+RestartSec=2

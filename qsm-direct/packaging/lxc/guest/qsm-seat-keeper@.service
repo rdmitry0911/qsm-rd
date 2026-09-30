@@ -1,0 +1,12 @@
+[Unit]
+Description=QSM Direct console %i seat keeper (permanent virtual pointer/keyboard)
+BindsTo=qsm-display@%i.service
+After=qsm-display@%i.service
+PartOf=qsm-consoles.service
+
+[Service]
+User=qsm-display
+Environment=XDG_RUNTIME_DIR=/run/qsm-display-%i
+ExecStart=/usr/bin/python3 /usr/lib/qsm-console/qsm-seat-keeper /run/qsm-display-%i
+Restart=always
+RestartSec=1

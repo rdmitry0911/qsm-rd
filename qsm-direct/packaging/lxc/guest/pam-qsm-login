@@ -1,0 +1,5 @@
+# QSM Direct console login screen (only qsm-login, as root, uses it)
+auth     requisite pam_nologin.so
+auth     optional  pam_faildelay.so delay=2000000
+@include common-auth
+@include common-account

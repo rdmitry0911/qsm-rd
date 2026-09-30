@@ -44,7 +44,7 @@ sudo install -D -m 0644 "$ROOT_DIR/scripts/proxmox-pve9-no-subscription.sources"
     "$CHROOT_DIR/etc/apt/sources.list.d/qsm-direct-pve9.sources"
 
 tar --create --file "$SOURCE_ARCHIVE" --exclude-vcs --directory "$ROOT_DIR" \
-    CMakeLists.txt LICENSE src tools protocols packaging/debian packaging/lxc extensions/browser_bridge extensions/direct_guest extensions/direct_terminal extensions/signal \
+    CMakeLists.txt LICENSE src tools protocols packaging/debian packaging/lxc packaging/webrtc-viewer extensions/browser_bridge extensions/direct_guest extensions/direct_terminal extensions/signal \
     integration/proxmox/pve9/direct_ui \
     lab/proxmox9/qualify-qsm-direct-worker-media-e2e.py \
     scripts/proxmox-pve9-no-subscription.sources
@@ -63,13 +63,26 @@ sudo chroot "$CHROOT_DIR" /usr/bin/env \
     QSM_DIRECT_DEB_VERSION="$version" /bin/bash -ec '
       cd /work/source
       ./packaging/debian/build-qsm-pve-direct-deb.sh
+      bash ./packaging/debian/build-qsm-pve-direct-lxc-deb.sh
     '
 
 mapfile -t artifacts < <(find "$CHROOT_DIR/work/out" -maxdepth 1 -type f -name 'qsm-pve-direct_*_amd64.deb' -print | sort)
 [[ "${#artifacts[@]}" -eq 1 ]] || die "expected one direct package artifact"
 artifact_in_chroot="${artifacts[0]#"$CHROOT_DIR"}"
+lxc_in_chroot="/work/out/qsm-pve-direct-lxc_${version}_all.deb"
+# Keep the artifacts before the smoke test, so a failing test still leaves them.
+mkdir -p "$OUTPUT_DIR"
+for built in "$CHROOT_DIR"/work/out/qsm-pve-direct_"$version"_amd64.deb \
+             "$CHROOT_DIR"/work/out/qsm-pve-direct-lxc_"$version"_all.deb \
+             "$CHROOT_DIR"/work/out/qsm-console-guest_"$version"_all.deb; do
+    [[ -f "$built" ]] || die "missing artifact: $built"
+    sudo install -m 0644 "$built" "$OUTPUT_DIR/$(basename "$built")"
+    sudo chown "$(id -u):$(id -g)" "$OUTPUT_DIR/$(basename "$built")"
+done
 sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive /bin/bash -ec \
-    "apt-get install -y --no-install-recommends '$artifact_in_chroot' && \\
+    "apt-get -o Dpkg::Use-Pty=0 install -y --no-install-recommends '$artifact_in_chroot' '$lxc_in_chroot' && \\
+     test -x /usr/sbin/qsm-pve-direct-lxc && test -f /usr/share/qsm-pve-direct-lxc/qsm-console-guest.deb && \\
+     test -f /usr/share/pve-webrtc-console/index.html.tpl && \\
      test -x /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker && \\
      test -x /usr/bin/qsm-pve-direct-terminal && \\
      ! find /usr/lib/qsm-pve-direct -type f -print0 | xargs -0 grep -I -q -E "$(printf '\\163\\165\\156\\163\\150\\151\\156\\145')|$(printf '\\155\\157\\157\\156\\154\\151\\147\\150\\164')" && \\
@@ -78,9 +91,7 @@ sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive /bin/bash 
      cmake --build /work/e2e --target qmdp-fake-qemu --parallel '$BUILD_JOBS' && \\
      python3 /work/source/lab/proxmox9/qualify-qsm-direct-worker-media-e2e.py \\
        --worker /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker --fake-qemu /work/e2e/qmdp-fake-qemu"
-mkdir -p "$OUTPUT_DIR"
 name="$(basename "${artifacts[0]}")"
-sudo install -m 0644 "${artifacts[0]}" "$OUTPUT_DIR/$name"
-sudo chown "$(id -u):$(id -g)" "$OUTPUT_DIR/$name"
-(cd "$OUTPUT_DIR" && sha256sum "$name" | tee "$name.sha256")
+(cd "$OUTPUT_DIR" && sha256sum "$name" "qsm-pve-direct-lxc_${version}_all.deb" \
+    "qsm-console-guest_${version}_all.deb" | tee "$name.sha256")
 echo "QSM_DIRECT_TRIXIE_BUILD_AND_INSTALL_OK artifact=$OUTPUT_DIR/$name chroot=$CHROOT_DIR"

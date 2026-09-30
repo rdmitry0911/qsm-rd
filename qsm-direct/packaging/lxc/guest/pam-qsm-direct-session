@@ -1,0 +1,11 @@
+# QSM Direct console desktop session, opened by systemd for qsm-session-N:
+# session modules only (authentication happened in qsm-login); no
+# pam_loginuid, which an unprivileged container cannot set.  On seat0 the
+# session is "active and local" like a desktop login, so the usual polkit
+# allow_active defaults apply.
+account  required pam_permit.so
+session  required pam_limits.so
+session  required pam_unix.so
+session  optional pam_env.so readenv=1
+session  optional pam_env.so readenv=1 envfile=/etc/default/locale
+session  required pam_systemd.so class=user

@@ -1,0 +1,44 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+set -e
+
+case "${1:-}" in
+configure)
+    for name in qsm-display qsm-greeter; do
+        id -u "$name" >/dev/null 2>&1 || useradd --system --no-create-home --home-dir /nonexistent \
+            --shell /usr/sbin/nologin --user-group "$name"
+    done
+    # the displays render on the passed-through GPU
+    for group in video render; do
+        if getent group "$group" >/dev/null; then usermod -aG "$group" qsm-display; fi
+    done
+    install -d -m 0755 /etc/qsm-direct
+    [ -e /etc/qsm-direct/session-type ] || echo wayland > /etc/qsm-direct/session-type
+    # Defaults for every desktop user: console access is gated by PVE and the
+    # console window decides the resolution, so no idle auto-lock and no
+    # KScreen re-applying an output's "preferred" mode (rootful Xwayland: 5K).
+    if command -v kwriteconfig5 >/dev/null 2>&1; then
+        kwriteconfig5 --file /etc/xdg/kscreenlockerrc --group Daemon --key Autolock false || true
+        kwriteconfig5 --file /etc/xdg/kscreenlockerrc --group Daemon --key LockOnResume false || true
+        kwriteconfig5 --file /etc/xdg/kded5rc --group Module-kscreen --key autoload false || true
+    fi
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+        # A display manager needs a VT, which a container has not (SDDM only
+        # waits for a graphical seat); the console login screen replaces it.
+        if systemd-detect-virt --container --quiet && [ -L /etc/systemd/system/display-manager.service ]; then
+            manager=$(basename "$(readlink -f /etc/systemd/system/display-manager.service)")
+            echo "qsm-console-guest: disabling $manager (no VT in a container)"
+            systemctl disable --now "$manager" || true
+        fi
+        systemctl enable qsm-consoles.service || true
+        if [ -n "${2:-}" ]; then
+            # Upgrade: new login manager code, but keep displays -- and with
+            # them every logged-in desktop -- running.
+            systemctl try-restart 'qsm-login@*.service' || true
+        fi
+        systemctl start qsm-consoles.service || true
+    fi
+    ;;
+esac
+exit 0

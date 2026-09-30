@@ -1,0 +1,22 @@
+qsm-console-guest -- the QSM Direct graphical console inside an LXC container
+=============================================================================
+
+Installed into a Debian/Ubuntu container with a KDE Plasma desktop by the host
+tool 'qsm-pve-direct-lxc enable <vmid>' (package qsm-pve-direct-lxc on the
+Proxmox VE node), which also passes the GPU through and enables the "QSM
+Direct" entry of the container's Console button.
+
+Like the ttys of PVE's terminal console, the container runs one console per
+tty (qsm-consoles.service starts them at boot):
+
+  qsm-display@N.service      headless sway (user qsm-display), /run/qsm-display-N
+  qsm-seat-keeper@N.service  keeps the display's input devices stable
+  qsm-login@N.service        login screen (qsm-greeter), PAM check, the session
+  qsm-session-N.service      (transient) one logged-in desktop session: a real
+                             PAM/logind session on seat0
+
+The host's media worker captures a console's display and injects input.  A
+container has no VT, so greetd/SDDM cannot run; an enabled SDDM is disabled.
+Only the current client of a display -- its login screen or its logged-in user
+-- may connect to it (a POSIX ACL on the display socket).  The default session
+type offered by the login screen is in /etc/qsm-direct/session-type.

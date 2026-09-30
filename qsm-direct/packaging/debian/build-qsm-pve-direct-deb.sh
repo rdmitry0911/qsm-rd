@@ -40,7 +40,8 @@ for required in \
     "$PACKAGE_DIR/qsm-pve-direct-ui" \
     "$PACKAGE_DIR/qsm-pve-direct-postinst" \
     "$PACKAGE_DIR/qsm-pve-direct-prerm" \
-    "$PACKAGE_DIR/README.qsm-pve-direct"; do
+    "$PACKAGE_DIR/README.qsm-pve-direct" \
+    "$ROOT_DIR/packaging/webrtc-viewer/index.html.tpl"; do
     require_file "$required"
 done
 
@@ -109,16 +110,15 @@ install -m 0644 "$PACKAGE_DIR/qsm-pve-direct-cert-reload.service" \
 install -m 0644 "$PACKAGE_DIR/qsm-pve-direct-cert-reload.timer" \
     "$stage_root/usr/lib/systemd/system/qsm-pve-direct-cert-reload.timer"
 
-# LXC container consoles: the host setup tool and the container-side files it
-# installs (seat keeper, session launcher, headless display configuration).
-install -d "$stage_root/usr/share/$package_name/lxc"
-install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-lxc" "$stage_root/usr/sbin/qsm-pve-direct-lxc"
-install -m 0755 "$ROOT_DIR/packaging/lxc/qsm-seat-keeper" "$stage_root/usr/share/$package_name/lxc/qsm-seat-keeper"
-install -m 0755 "$ROOT_DIR/packaging/lxc/qsm-session-launch" "$stage_root/usr/share/$package_name/lxc/qsm-session-launch"
-install -m 0755 "$ROOT_DIR/packaging/lxc/qsm-login" "$stage_root/usr/share/$package_name/lxc/qsm-login"
-install -m 0755 "$ROOT_DIR/packaging/lxc/qsm-greeter" "$stage_root/usr/share/$package_name/lxc/qsm-greeter"
-install -m 0755 "$ROOT_DIR/packaging/lxc/qsm-consoles" "$stage_root/usr/share/$package_name/lxc/qsm-consoles"
-install -m 0644 "$ROOT_DIR/packaging/lxc/qsm-display-sway.conf" "$stage_root/usr/share/$package_name/lxc/qsm-display-sway.conf"
+# The WebRTC console viewer page pveproxy serves for '?console=kvm&webrtc=1'
+# when pve-manager has native WebRTC console support (its VMs attach through
+# qemu-server's webrtcproxy, which hands the display to the terminal service
+# on /run/webrtc-console/offer.sock).  It runs the same browser client.
+install -d "$stage_root/usr/share/pve-webrtc-console"
+install -m 0644 "$ROOT_DIR/packaging/webrtc-viewer/index.html.tpl" \
+    "$stage_root/usr/share/pve-webrtc-console/index.html.tpl"
+install -m 0644 "$ROOT_DIR/integration/proxmox/pve9/direct_ui/qsm-direct-console.js" \
+    "$stage_root/usr/share/pve-webrtc-console/qsm-direct-console.js"
 
 # The guarded diversion manager owns only the direct Console asset and its
 # direct-specific state paths.
@@ -135,14 +135,16 @@ Version: $package_version
 Section: net
 Priority: optional
 Architecture: amd64
-Maintainer: qsm contributors <qsm@users.noreply.github.com>
+Maintainer: Dmitry R <rdmitry0911@gmail.com>
 Depends: libc6 (>= 2.38), libopus0 (>= 1.3), libstdc++6 (>= 13), libsystemd0, libavcodec61, libavutil59, libswscale8, libwayland-client0, libxkbcommon0, dbus, ffmpeg, python3, python3-aiortc, python3-av, pve-manager, qemu-server
-Description: browser-only direct QEMU Display1 console for Proxmox VE 9
- qsm-pve-direct selects a PVE VM.Console-protected browser WebRTC transport
- for the existing VM Console entry when the VM has its private Display1
- configuration. It runs a node-local QEMU Display1 H.264/HEVC/Opus worker and has
- no pairing, native client, external transport listener, host desktop server,
- or legacy compatibility transport implementation.
+Description: WebRTC graphical console for Proxmox VE 9 (media worker and service)
+ qsm-pve-direct streams the display of a VM (QEMU D-Bus display) or of an LXC
+ container console to the browser over WebRTC, hardware-encoded (NVENC,
+ VA-API, QSV; libx264 fallback), authorised by PVE's VM.Console permission.
+ It serves VMs of a stock PVE 9 through its own Console entry, and provides
+ the WebRTC console service and viewer page for PVE with native WebRTC
+ console support (qemu-server webrtcproxy).  LXC container consoles:
+ qsm-pve-direct-lxc.
 EOF
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-postinst" "$stage_root/DEBIAN/postinst"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-prerm" "$stage_root/DEBIAN/prerm"

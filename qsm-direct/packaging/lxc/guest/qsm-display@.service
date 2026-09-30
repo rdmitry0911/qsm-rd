@@ -1,0 +1,15 @@
+[Unit]
+Description=QSM Direct console %i display (headless sway)
+PartOf=qsm-consoles.service
+
+[Service]
+User=qsm-display
+Group=qsm-display
+# Traversable, not listable: only the socket's ACL (set by qsm-login for the
+# greeter or the logged-in user) decides who may connect.
+RuntimeDirectory=qsm-display-%i
+RuntimeDirectoryMode=0711
+Environment=XDG_RUNTIME_DIR=/run/qsm-display-%i
+ExecStart=/usr/lib/qsm-console/qsm-display-start
+Restart=always
+RestartSec=2

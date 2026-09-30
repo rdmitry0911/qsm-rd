@@ -1,0 +1,11 @@
+[Unit]
+Description=QSM Direct consoles of this container (one per tty)
+After=systemd-user-sessions.service systemd-logind.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/qsm-console/qsm-consoles
+
+[Install]
+WantedBy=multi-user.target
