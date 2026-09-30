@@ -776,6 +776,24 @@ class UnixTapIngress:
                 pass
 
 
+class PointerSequenceFilter:
+    """Drop late pointer samples of ONE browser peer (wrapping u32 serial).
+
+    RFC 1982-style: half the serial space counts as older, so one delayed
+    packet can never move the guest pointer backwards.
+    """
+
+    def __init__(self) -> None:
+        self._last: int | None = None
+
+    def accept(self, sequence: int) -> bool:
+        if self._last is not None and (sequence == self._last or
+                                       (sequence - self._last) & 0xFFFF_FFFF >= 0x8000_0000):
+            return False
+        self._last = sequence
+        return True
+
+
 class UnixInputEgress:
     """Forward a strictly bounded browser control stream to QEMU input.
 
@@ -931,17 +949,31 @@ class UnixInputEgress:
         packet = self.encode_browser_message(raw)
         self._send_packet(packet)
 
-    def send_browser_pointer_message(self, raw: object) -> None:
+    def send_browser_pointer_message(self, raw: object,
+                                     order: PointerSequenceFilter | None = None) -> None:
         """Forward only a latest-state absolute pointer packet.
 
         Pointer samples travel on the browser's unordered, non-retransmitted
         channel.  Keeping them separate from keys, clicks and resize requests
         means a stale cursor coordinate can be discarded without delaying a
         subsequent click or keyboard shortcut.
+
+        The browser's serial is local to one Console, while one worker can
+        outlive a Console or serve several at once: a worker-wide "newest
+        serial" made every pointer sample of a reopened Console look stale
+        until its counter overtook the previous one.  With ``order`` the
+        serial is judged per browser peer here and stripped, so the ordered
+        Unix socket hands the worker only in-order latest-state samples.
         """
         packet = self.encode_browser_message(raw)
         if packet[5] != INPUT_MOUSE_POSITION:
             raise BridgeError("browser pointer channel received a non-pointer message")
+        if order is not None and len(packet) == INPUT_HEADER.size + 12:
+            sequence = struct.unpack_from("!I", packet, INPUT_HEADER.size + 8)[0]
+            if not order.accept(sequence):
+                return
+            packet = (INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_MOUSE_POSITION, 8) +
+                      packet[INPUT_HEADER.size:INPUT_HEADER.size + 8])
         self._send_packet(packet)
 
     def request_keyframe(self) -> None:
@@ -1113,6 +1145,7 @@ class BrowserWebRtcBridge:
             self.video_track, self.audio_track = shared_media.subscribe(self._cursor_listener)
             self.ingress = None
         self._owns_input = shared_input is None
+        self._pointer_order = PointerSequenceFilter()
         self.input = shared_input or UnixInputEgress(
             runtime_directory, expected_uid=expected_producer_uid)
         self._guest_dispatch = guest_dispatch
@@ -1338,7 +1371,7 @@ class BrowserWebRtcBridge:
                     else:
                         asyncio.create_task(self._dispatch_guest_request(channel, *guest))
                 else:
-                    self.input.send_browser_pointer_message(message)
+                    self.input.send_browser_pointer_message(message, self._pointer_order)
             except BridgeError:
                 # A malformed browser command must not tear down encrypted
                 # video. Close this data channel; a fresh PVE Console launch

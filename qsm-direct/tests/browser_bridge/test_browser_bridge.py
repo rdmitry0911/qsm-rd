@@ -38,6 +38,8 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     INPUT_RESIZE,
     INPUT_SCROLL,
     INPUT_VERSION,
+    PointerSequenceFilter,
+    UnixInputEgress,
     MAX_FRAGMENT_BYTES,
     PACKET_AUDIO,
     PACKET_CONFIG,
@@ -175,6 +177,31 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
         ):
             with self.assertRaises(BridgeError):
                 UnixInputEgress.encode_browser_message(raw)
+
+    def test_pointer_serial_is_ordered_per_browser_peer(self) -> None:
+        """A reopened Console restarts its serial at 0 on a worker that outlived the old one."""
+        sent: list[bytes] = []
+        egress = UnixInputEgress.__new__(UnixInputEgress)
+        egress._send_packet = sent.append  # type: ignore[method-assign]
+
+        def move(order: PointerSequenceFilter, x: int, sequence: int) -> None:
+            egress.send_browser_pointer_message(
+                f'{{"op":"mouse_position","x":{x},"y":10,"width":1920,"height":1080,"sequence":{sequence}}}',
+                order)
+
+        old_console, new_console = PointerSequenceFilter(), PointerSequenceFilter()
+        move(old_console, 100, 5000)
+        move(old_console, 90, 4999)          # late sample of the same peer: dropped
+        move(new_console, 200, 1)            # fresh peer starting over: delivered
+        move(new_console, 210, 2)
+        move(old_console, 120, 0xFFFF_FFFF - 1)  # half-space back counts as older
+        self.assertEqual([INPUT_HEADER.unpack_from(p)[3] for p in sent], [8, 8, 8])
+        self.assertEqual([int.from_bytes(p[INPUT_HEADER.size:INPUT_HEADER.size + 2], "big") for p in sent],
+                         [100, 200, 210])
+        wrap = PointerSequenceFilter()
+        self.assertTrue(wrap.accept(0xFFFF_FFFF))
+        self.assertTrue(wrap.accept(0))
+        self.assertFalse(wrap.accept(0))
 
 
 class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
