@@ -17,6 +17,7 @@ case "${1:-}" in
     configure)
         install -d -o root -g root -m 0700 /etc/qsm-pve-direct
         install -d -o root -g root -m 0750 /etc/qsm-pve-direct/instances.d
+        install -d -o root -g root -m 0750 /etc/qsm-pve-direct/containers.d
         install -d -o root -g root -m 0700 /run/qsm-pve-direct
         # Migrate from the retired API-route design: remove its pveproxy and
         # pvedaemon drop-ins and revert those daemons to stock if present.

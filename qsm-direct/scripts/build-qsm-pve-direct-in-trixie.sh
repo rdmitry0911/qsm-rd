@@ -44,7 +44,7 @@ sudo install -D -m 0644 "$ROOT_DIR/scripts/proxmox-pve9-no-subscription.sources"
     "$CHROOT_DIR/etc/apt/sources.list.d/qsm-direct-pve9.sources"
 
 tar --create --file "$SOURCE_ARCHIVE" --exclude-vcs --directory "$ROOT_DIR" \
-    CMakeLists.txt LICENSE src tools packaging/debian extensions/browser_bridge extensions/direct_guest extensions/direct_terminal extensions/signal \
+    CMakeLists.txt LICENSE src tools protocols packaging/debian packaging/lxc extensions/browser_bridge extensions/direct_guest extensions/direct_terminal extensions/signal \
     integration/proxmox/pve9/direct_ui \
     lab/proxmox9/qualify-qsm-direct-worker-media-e2e.py \
     scripts/proxmox-pve9-no-subscription.sources
@@ -55,7 +55,7 @@ sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive /bin/bash 
   apt-get update
   apt-get install -y --no-install-recommends \
     build-essential ca-certificates cmake dbus dpkg-dev ffmpeg libdrm-dev libepoxy-dev libgbm-dev \
-    libavcodec-dev libavutil-dev libswscale-dev libopus-dev libsystemd-dev ninja-build pkg-config python3 python3-aiortc python3-av \
+    libavcodec-dev libavutil-dev libswscale-dev libopus-dev libsystemd-dev libwayland-dev libxkbcommon-dev ninja-build pkg-config python3 python3-aiortc python3-av \
     pve-manager qemu-server
 '
 sudo chroot "$CHROOT_DIR" /usr/bin/env \

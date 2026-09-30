@@ -1,0 +1,443 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""Enable the QSM Direct graphical console for a Proxmox VE LXC container.
+
+  qsm-pve-direct-lxc enable  VMID [--user NAME] [--uid N] [--session wayland|x11]
+                                  [--nvidia-run FILE] [--no-gpu] [--no-packages] [--restart]
+  qsm-pve-direct-lxc session VMID wayland|x11
+  qsm-pve-direct-lxc status  VMID
+  qsm-pve-direct-lxc disable VMID
+
+A container has no QEMU display.  QSM runs the container's desktop session
+(KDE Plasma, Wayland or X11) inside a headless sway ("the display") in the
+container, and the host's media worker captures that display.  `enable`
+prepares a running Debian/Ubuntu container for this, idempotently:
+
+  1. GPU access: NVIDIA device nodes and DRM render nodes are passed through
+     (container restart required to apply; --restart does it).
+  2. NVIDIA userspace matching the host kernel module (from the host driver's
+     .run installer, --no-kernel-module) so the desktop renders on the GPU.
+  3. Packages: sway, xwayland, python3 (+ Plasma Wayland session bits).
+  4. A session user with lingering user services: the display, a seat keeper
+     that keeps the display's input devices stable, and the desktop session.
+  5. The host policy /etc/qsm-pve-direct/containers.d/VMID.conf that enables
+     the "QSM Direct" entry of the container's Console button.
+"""
+from __future__ import annotations
+
+import argparse
+import glob
+import os
+import re
+import shlex
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+POLICY_DIR = Path("/etc/qsm-pve-direct/containers.d")
+LXC_CONF_DIR = Path("/etc/pve/lxc")
+SHARE = Path("/usr/share/qsm-pve-direct/lxc")
+CT_LIB = "/usr/local/lib/qsm-direct"
+GPU_MARKER = "# qsm-direct-gpu-passthrough"
+NVIDIA_NODES = ("nvidia0", "nvidiactl", "nvidia-modeset", "nvidia-uvm", "nvidia-uvm-tools")
+USER_UNITS = ("qsm-display.service", "qsm-seat-keeper.service", "qsm-session.service")
+
+
+class SetupError(Exception):
+    pass
+
+
+def info(message: str) -> None:
+    print(f"qsm-pve-direct-lxc: {message}", flush=True)
+
+
+def run(argv: list[str], *, check: bool = True, capture: bool = True, input_text: str | None = None,
+        timeout: int = 900) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(argv, text=True, capture_output=capture, input=input_text, timeout=timeout)
+    if check and result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip().splitlines()[-3:]
+        raise SetupError(f"command failed ({result.returncode}): {' '.join(argv[:6])}...\n  " + "\n  ".join(detail))
+    return result
+
+
+def ct(vmid: int, command: str, *, check: bool = True, timeout: int = 900) -> subprocess.CompletedProcess[str]:
+    return run(["pct", "exec", str(vmid), "--", "/bin/sh", "-c", command], check=check, timeout=timeout)
+
+
+def push(vmid: int, content: str | bytes | Path, destination: str, *, mode: str = "0644",
+         owner: str | None = None) -> None:
+    if isinstance(content, Path):
+        source = str(content)
+        cleanup = None
+    else:
+        handle = tempfile.NamedTemporaryFile("wb", delete=False)
+        handle.write(content.encode() if isinstance(content, str) else content)
+        handle.close()
+        source = cleanup = handle.name
+    try:
+        ct(vmid, f"mkdir -p {shlex.quote(os.path.dirname(destination))}")
+        argv = ["pct", "push", str(vmid), source, destination, "--perms", mode]
+        if owner:
+            uid, gid = owner.split(":")
+            argv += ["--user", uid, "--group", gid]
+        run(argv)
+    finally:
+        if cleanup:
+            os.unlink(cleanup)
+
+
+def ct_status(vmid: int) -> str:
+    result = run(["pct", "status", str(vmid)], check=False)
+    return result.stdout.strip().split()[-1] if result.returncode == 0 and result.stdout.strip() else "unknown"
+
+
+def require_container(vmid: int, *, running: bool = True) -> Path:
+    conf = LXC_CONF_DIR / f"{vmid}.conf"
+    if not conf.is_file():
+        raise SetupError(f"CT {vmid} does not exist on this node ({conf} missing)")
+    if running and ct_status(vmid) != "running":
+        raise SetupError(f"CT {vmid} is not running; start it first (pct start {vmid})")
+    return conf
+
+
+# ------------------------------------------------------------------ GPU access
+def configure_gpu(vmid: int, conf: Path) -> bool:
+    """Add NVIDIA/DRM passthrough to the container config.  True if changed."""
+    text = conf.read_text()
+    lines: list[str] = []
+    nvidia_present = GPU_MARKER in text or "lxc.mount.entry: /dev/nvidia0 " in text
+    if os.path.exists("/dev/nvidia0") and not nvidia_present:
+        majors = sorted({os.major(os.stat(f"/dev/{n}").st_rdev) for n in NVIDIA_NODES if os.path.exists(f"/dev/{n}")} |
+                        ({os.major(os.stat(p).st_rdev) for p in glob.glob("/dev/nvidia-caps/*")}))
+        lines.append(GPU_MARKER)
+        lines += [f"lxc.cgroup2.devices.allow: c {m}:* rwm" for m in majors]
+        lines += [f"lxc.mount.entry: /dev/{n} dev/{n} none bind,optional,create=file"
+                  for n in NVIDIA_NODES if os.path.exists(f"/dev/{n}")]
+        if os.path.isdir("/dev/nvidia-caps"):
+            lines.append("lxc.mount.entry: /dev/nvidia-caps dev/nvidia-caps none bind,optional,create=dir")
+    render = sorted(glob.glob("/dev/dri/renderD*"))
+    card = sorted(glob.glob("/dev/dri/card*"))
+    wanted = [p for p in (card[:1] + render[:1])]
+    used = {int(m.group(1)) for m in re.finditer(r"^dev(\d+):", text, re.M)}
+    present = set(re.findall(r"^dev\d+:\s*([^,\s]+)", text, re.M))
+    if wanted and any(p not in present for p in wanted):
+        groups = {}
+        result = ct(vmid, "getent group video render", check=False)
+        for row in result.stdout.splitlines():
+            name, _x, gid, *_rest = row.split(":")
+            groups[name] = gid
+        index = 0
+        for path in wanted:
+            if path in present:
+                continue
+            while index in used:
+                index += 1
+            gid = groups.get("render" if "renderD" in path else "video")
+            lines.append(f"dev{index}: {path}" + (f",gid={gid}" if gid else "") + ",mode=0660")
+            used.add(index)
+    if not lines:
+        return False
+    with conf.open("a") as handle:
+        handle.write("\n".join(lines) + "\n")
+    info(f"GPU passthrough added to {conf}")
+    return True
+
+
+def host_nvidia_version() -> str | None:
+    try:
+        text = Path("/proc/driver/nvidia/version").read_text()
+    except OSError:
+        return None
+    match = re.search(r"Kernel Module\s+(?:for\s+\S+\s+)?([0-9]+\.[0-9]+(?:\.[0-9]+)?)", text)
+    return match.group(1) if match else None
+
+
+def install_nvidia_userspace(vmid: int, run_file: str | None) -> None:
+    version = host_nvidia_version()
+    if version is None:
+        return
+    current = ct(vmid, "nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null", check=False)
+    if current.returncode == 0 and current.stdout.strip() == version:
+        info(f"NVIDIA userspace {version} already present in CT {vmid}")
+        return
+    candidates = [run_file] if run_file else sorted(
+        glob.glob(f"/root/NVIDIA-Linux-x86_64-{version}.run") + glob.glob(f"/root/*/NVIDIA-Linux-x86_64-{version}.run") +
+        glob.glob(f"/opt/NVIDIA-Linux-x86_64-{version}.run") + glob.glob(f"/usr/local/src/NVIDIA-Linux-x86_64-{version}.run"))
+    candidates = [c for c in candidates if c and os.path.isfile(c)]
+    if not candidates:
+        info(f"WARNING: no NVIDIA-Linux-x86_64-{version}.run found (use --nvidia-run); "
+             "the desktop will render in software until the matching userspace is installed")
+        return
+    info(f"installing NVIDIA userspace {version} into CT {vmid} (no kernel module)")
+    run(["pct", "push", str(vmid), candidates[0], "/root/qsm-nvidia.run", "--perms", "0755"])
+    ct(vmid, "sh /root/qsm-nvidia.run --no-kernel-module --silent --no-questions --ui=none "
+             "--no-x-check --no-nouveau-check; rc=$?; rm -f /root/qsm-nvidia.run; exit $rc", timeout=1800)
+
+
+# ------------------------------------------------------------------ packages
+def install_packages(vmid: int, session: str) -> None:
+    if ct(vmid, "command -v apt-get", check=False).returncode != 0:
+        info("WARNING: container is not Debian/Ubuntu (no apt-get); install sway, xwayland and python3 manually")
+        return
+    have_plasma = ct(vmid, "command -v startplasma-wayland || command -v startplasma-x11", check=False).returncode == 0
+    if not have_plasma:
+        raise SetupError("no KDE Plasma session found in the container; install a Plasma desktop first "
+                         "(e.g. apt install kde-plasma-desktop)")
+    packages = ["sway", "xwayland", "python3", "x11-xserver-utils"]
+    if ct(vmid, "command -v startplasma-wayland", check=False).returncode == 0 or session == "wayland":
+        packages += ["kwin-wayland", "plasma-workspace-wayland"]
+    info(f"installing packages in CT {vmid}: {' '.join(packages)}")
+    ct(vmid, "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && "
+             f"apt-get install -y -qq --no-install-recommends {' '.join(packages)}", timeout=1800)
+
+
+# ------------------------------------------------------------------ session files
+def unit_display(uid: int, gpu: bool) -> str:
+    # GPU: sway composites with GLES2 on the passed-through render node; without
+    # one it falls back to wlroots' software (pixman) renderer.
+    renderer = ("Environment=WLR_RENDERER=gles2\nEnvironment=WLR_RENDER_DRM_DEVICE=/dev/dri/renderD128\n"
+                if gpu else "Environment=WLR_RENDERER=pixman\n")
+    return f"""[Unit]
+Description=QSM Direct headless display (sway) for the container console
+[Service]
+Environment=XDG_RUNTIME_DIR=/run/user/{uid}/qsm-outer
+Environment=WLR_BACKENDS=headless
+Environment=WLR_LIBINPUT_NO_DEVICES=1
+{renderer}ExecStartPre=/usr/bin/mkdir -p -m 0700 /run/user/{uid}/qsm-outer
+ExecStart=/usr/bin/sway --unsupported-gpu -c %h/.config/qsm/sway.conf
+Restart=on-failure
+[Install]
+WantedBy=default.target
+"""
+
+
+def unit_keeper(uid: int) -> str:
+    return f"""[Unit]
+Description=QSM Direct display seat keeper (permanent virtual pointer/keyboard)
+BindsTo=qsm-display.service
+After=qsm-display.service
+[Service]
+Environment=XDG_RUNTIME_DIR=/run/user/{uid}
+ExecStart=/usr/bin/python3 {CT_LIB}/qsm-seat-keeper /run/user/{uid}/qsm-outer
+Restart=always
+RestartSec=1
+[Install]
+WantedBy=default.target
+"""
+
+
+UNIT_SESSION = f"""[Unit]
+Description=QSM Direct container desktop session (Plasma, inside the headless display)
+Requires=qsm-display.service
+Wants=qsm-seat-keeper.service
+After=qsm-display.service qsm-seat-keeper.service
+[Service]
+ExecStart={CT_LIB}/qsm-session-launch
+ExecStopPost=-/usr/bin/systemctl --user --no-block stop plasma-workspace-wayland.target plasma-workspace-x11.target plasma-workspace.target graphical-session.target plasma-kwin_wayland.service plasma-kwin_x11.service
+Restart=on-failure
+RestartSec=3
+[Install]
+WantedBy=default.target
+"""
+
+KWIN_NESTED = """[Unit]
+Requires=qsm-display.service
+After=qsm-display.service
+[Service]
+# The headless display has no DRM backend device, so Xwayland's glamor would
+# fall back to wl_drm with a format KWin rejects (fatal protocol error that
+# kills Xwayland and every X11 client).  X11 clients therefore use SHM; KWin
+# and native Wayland clients keep rendering on the GPU.
+Environment=XWAYLAND_NO_GLAMOR=1
+ExecStart=
+ExecStart=/usr/bin/kwin_wayland_wrapper --xwayland --wayland-display ${QSM_OUTER_DISPLAY} --width 1920 --height 1080
+"""
+
+
+def ensure_user(vmid: int, user: str, uid: int) -> None:
+    exists = ct(vmid, f"id -u {shlex.quote(user)}", check=False)
+    if exists.returncode == 0:
+        if int(exists.stdout.strip()) != uid:
+            raise SetupError(f"user {user} exists in CT {vmid} with uid {exists.stdout.strip()}, not {uid} (use --uid)")
+    else:
+        info(f"creating session user {user} (uid {uid}) in CT {vmid}")
+        ct(vmid, f"useradd -m -u {uid} -s /bin/bash {shlex.quote(user)}")
+    ct(vmid, f"for g in video render audio; do getent group $g >/dev/null && usermod -aG $g {shlex.quote(user)}; done; "
+             f"loginctl enable-linger {shlex.quote(user)}")
+
+
+def write_session_files(vmid: int, user: str, uid: int, session: str) -> None:
+    home = ct(vmid, f"getent passwd {shlex.quote(user)} | cut -d: -f6").stdout.strip()
+    gid = ct(vmid, f"id -g {shlex.quote(user)}").stdout.strip()
+    gpu = ct(vmid, "test -e /dev/dri/renderD128", check=False).returncode == 0
+    owner = f"{uid}:{gid}"
+    for name in ("qsm-seat-keeper", "qsm-session-launch"):
+        push(vmid, SHARE / name, f"{CT_LIB}/{name}", mode="0755")
+    push(vmid, SHARE / "qsm-display-sway.conf", f"{home}/.config/qsm/sway.conf", owner=owner)
+    push(vmid, session + "\n", f"{home}/.config/qsm/session-type", owner=owner)
+    units = f"{home}/.config/systemd/user"
+    push(vmid, unit_display(uid, gpu), f"{units}/qsm-display.service", owner=owner)
+    push(vmid, unit_keeper(uid), f"{units}/qsm-seat-keeper.service", owner=owner)
+    push(vmid, UNIT_SESSION, f"{units}/qsm-session.service", owner=owner)
+    push(vmid, KWIN_NESTED, f"{units}/plasma-kwin_wayland.service.d/qsm-nested.conf", owner=owner)
+    # A console is gated by PVE (VM.Console); an in-session auto-lock on an
+    # account that may have no password would only strand the user.  The
+    # console window is the single authority on resolution, so KScreen must
+    # not re-apply an output's "preferred" mode (rootful Xwayland reports 5K).
+    q = shlex.quote(user)
+    ct(vmid, f"chown -R {owner} {shlex.quote(home)}/.config; "
+             f"runuser -u {q} -- kwriteconfig5 --file kscreenlockerrc --group Daemon --key Autolock false; "
+             f"runuser -u {q} -- kwriteconfig5 --file kscreenlockerrc --group Daemon --key LockOnResume false; "
+             f"runuser -u {q} -- kwriteconfig5 --file kded5rc --group Module-kscreen --key autoload false", check=False)
+
+
+def user_systemctl(vmid: int, user: str, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    return ct(vmid, "systemctl --user -M " + shlex.quote(f"{user}@") + " " + " ".join(shlex.quote(a) for a in args),
+              check=check)
+
+
+def start_session(vmid: int, user: str) -> None:
+    user_systemctl(vmid, user, "daemon-reload")
+    user_systemctl(vmid, user, "enable", *USER_UNITS)
+    user_systemctl(vmid, user, "stop", "qsm-session.service", check=False)
+    user_systemctl(vmid, user, "restart", "qsm-display.service")
+    user_systemctl(vmid, user, "start", "qsm-seat-keeper.service", "qsm-session.service")
+
+
+def write_policy(vmid: int, uid: int) -> None:
+    POLICY_DIR.mkdir(mode=0o750, parents=True, exist_ok=True)
+    path = POLICY_DIR / f"{vmid}.conf"
+    kept = [line for line in (path.read_text().splitlines() if path.exists() else [])
+            if line.startswith(("QSM_DIRECT_CODEC=", "QSM_DIRECT_ENCODER_MODE=", "QSM_DIRECT_ENCODER="))]
+    body = f"# QSM Direct console for LXC {vmid} (managed by qsm-pve-direct-lxc)\nQSM_DIRECT_LXC_UID={uid}\n"
+    body += "".join(f"{line}\n" for line in kept)
+    fd = os.open(path.with_suffix(".tmp"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write(body)
+    os.replace(path.with_suffix(".tmp"), path)
+
+
+# ------------------------------------------------------------------ commands
+def cmd_enable(args: argparse.Namespace) -> int:
+    conf = require_container(args.vmid)
+    if not SHARE.is_dir():
+        raise SetupError(f"{SHARE} is missing (is qsm-pve-direct installed?)")
+    changed = False if args.no_gpu else configure_gpu(args.vmid, conf)
+    if changed:
+        if args.restart:
+            info(f"restarting CT {args.vmid} to apply GPU access")
+            run(["pct", "reboot", str(args.vmid)], timeout=300)
+            for _ in range(60):
+                if ct_status(args.vmid) == "running" and ct(args.vmid, "true", check=False).returncode == 0:
+                    break
+                time.sleep(2)
+        else:
+            info(f"GPU access applies after a container restart (pct reboot {args.vmid}) -- continuing")
+    if not args.no_gpu:
+        install_nvidia_userspace(args.vmid, args.nvidia_run)
+    if not args.no_packages:
+        install_packages(args.vmid, args.session)
+    ensure_user(args.vmid, args.user, args.uid)
+    write_session_files(args.vmid, args.user, args.uid, args.session)
+    start_session(args.vmid, args.user)
+    write_policy(args.vmid, args.uid)
+    for _ in range(30):
+        if ct(args.vmid, f"ls /run/user/{args.uid}/qsm-outer/ 2>/dev/null | grep -Eq '^wayland-[0-9]+$'",
+              check=False).returncode == 0:
+            break
+        time.sleep(1)
+    info(f"enabled: CT {args.vmid} -> Console -> \"QSM Direct\" ({args.session} session, user {args.user})")
+    return cmd_status(args)
+
+
+def cmd_session(args: argparse.Namespace) -> int:
+    require_container(args.vmid)
+    uid = policy_uid(args.vmid)
+    user = ct(args.vmid, f"getent passwd {uid} | cut -d: -f1").stdout.strip()
+    home = ct(args.vmid, f"getent passwd {uid} | cut -d: -f6").stdout.strip()
+    gid = ct(args.vmid, f"getent passwd {uid} | cut -d: -f4").stdout.strip()
+    push(args.vmid, args.type + "\n", f"{home}/.config/qsm/session-type", owner=f"{uid}:{gid}")
+    user_systemctl(args.vmid, user, "restart", "qsm-session.service")
+    info(f"CT {args.vmid}: session switched to {args.type}")
+    return 0
+
+
+def policy_uid(vmid: int) -> int:
+    path = POLICY_DIR / f"{vmid}.conf"
+    if not path.exists():
+        raise SetupError(f"CT {vmid} is not enabled for the QSM console")
+    match = re.search(r"^QSM_DIRECT_LXC_UID=(\d+)", path.read_text(), re.M)
+    return int(match.group(1)) if match else 1000
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    require_container(args.vmid, running=False)
+    enabled = (POLICY_DIR / f"{args.vmid}.conf").exists()
+    print(f"CT {args.vmid}: console policy {'present' if enabled else 'absent'}; container {ct_status(args.vmid)}")
+    if enabled and ct_status(args.vmid) == "running":
+        uid = policy_uid(args.vmid)
+        user = ct(args.vmid, f"getent passwd {uid} | cut -d: -f1", check=False).stdout.strip() or f"uid {uid}"
+        for unit in USER_UNITS:
+            state = user_systemctl(args.vmid, user, "is-active", unit, check=False).stdout.strip()
+            print(f"  {unit:26s} {state}")
+        session = ct(args.vmid, f"cat ~{user}/.config/qsm/session-type 2>/dev/null", check=False).stdout.strip()
+        gpu = ct(args.vmid, "nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || true", check=False).stdout.strip()
+        print(f"  session type               {session or 'wayland'}")
+        print(f"  GPU in container           {gpu or 'none/software'}")
+    return 0
+
+
+def cmd_disable(args: argparse.Namespace) -> int:
+    require_container(args.vmid, running=False)
+    path = POLICY_DIR / f"{args.vmid}.conf"
+    uid = policy_uid(args.vmid) if path.exists() else None
+    if path.exists():
+        path.unlink()
+        info(f"CT {args.vmid}: console policy removed (the Console button no longer offers QSM Direct)")
+    if uid is not None and ct_status(args.vmid) == "running":
+        user = ct(args.vmid, f"getent passwd {uid} | cut -d: -f1", check=False).stdout.strip()
+        if user:
+            user_systemctl(args.vmid, user, "disable", "--now", *USER_UNITS, check=False)
+            info(f"CT {args.vmid}: display and session services stopped (files and GPU passthrough left in place)")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    enable = sub.add_parser("enable", help="prepare a container and enable its QSM console")
+    enable.add_argument("vmid", type=int)
+    enable.add_argument("--user", default="qsm")
+    enable.add_argument("--uid", type=int, default=1000)
+    enable.add_argument("--session", choices=("wayland", "x11"), default="wayland")
+    enable.add_argument("--nvidia-run", help="NVIDIA .run installer matching the host driver")
+    enable.add_argument("--no-gpu", action="store_true", help="do not pass through the GPU")
+    enable.add_argument("--no-packages", action="store_true", help="do not install container packages")
+    enable.add_argument("--restart", action="store_true", help="restart the container if GPU access changed")
+    enable.set_defaults(func=cmd_enable)
+    session = sub.add_parser("session", help="switch the container session type")
+    session.add_argument("vmid", type=int)
+    session.add_argument("type", choices=("wayland", "x11"))
+    session.set_defaults(func=cmd_session)
+    for name, func in (("status", cmd_status), ("disable", cmd_disable)):
+        p = sub.add_parser(name)
+        p.add_argument("vmid", type=int)
+        p.set_defaults(func=func)
+    args = parser.parse_args(argv)
+    if os.geteuid() != 0:
+        print("qsm-pve-direct-lxc: must run as root on the Proxmox VE node", file=sys.stderr)
+        return 2
+    if not (1 <= getattr(args, "uid", 1000) <= 65533):
+        print("qsm-pve-direct-lxc: --uid out of range", file=sys.stderr)
+        return 2
+    try:
+        return args.func(args)
+    except SetupError as error:
+        print(f"qsm-pve-direct-lxc: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

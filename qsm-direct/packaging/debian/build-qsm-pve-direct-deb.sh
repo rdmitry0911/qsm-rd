@@ -109,6 +109,14 @@ install -m 0644 "$PACKAGE_DIR/qsm-pve-direct-cert-reload.service" \
 install -m 0644 "$PACKAGE_DIR/qsm-pve-direct-cert-reload.timer" \
     "$stage_root/usr/lib/systemd/system/qsm-pve-direct-cert-reload.timer"
 
+# LXC container consoles: the host setup tool and the container-side files it
+# installs (seat keeper, session launcher, headless display configuration).
+install -d "$stage_root/usr/share/$package_name/lxc"
+install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-lxc" "$stage_root/usr/sbin/qsm-pve-direct-lxc"
+install -m 0755 "$ROOT_DIR/packaging/lxc/qsm-seat-keeper" "$stage_root/usr/share/$package_name/lxc/qsm-seat-keeper"
+install -m 0755 "$ROOT_DIR/packaging/lxc/qsm-session-launch" "$stage_root/usr/share/$package_name/lxc/qsm-session-launch"
+install -m 0644 "$ROOT_DIR/packaging/lxc/qsm-display-sway.conf" "$stage_root/usr/share/$package_name/lxc/qsm-display-sway.conf"
+
 # The guarded diversion manager owns only the direct Console asset and its
 # direct-specific state paths.
 install -m 0755 "$ROOT_DIR/integration/proxmox/pve9/direct_ui/qsm_pve_direct_ui.py" \
@@ -125,7 +133,7 @@ Section: net
 Priority: optional
 Architecture: amd64
 Maintainer: qsm contributors <qsm@users.noreply.github.com>
-Depends: libc6 (>= 2.38), libopus0 (>= 1.3), libstdc++6 (>= 13), libsystemd0, libavcodec61, libavutil59, libswscale8, dbus, ffmpeg, python3, python3-aiortc, python3-av, pve-manager, qemu-server
+Depends: libc6 (>= 2.38), libopus0 (>= 1.3), libstdc++6 (>= 13), libsystemd0, libavcodec61, libavutil59, libswscale8, libwayland-client0, libxkbcommon0, dbus, ffmpeg, python3, python3-aiortc, python3-av, pve-manager, qemu-server
 Description: browser-only direct QEMU Display1 console for Proxmox VE 9
  qsm-pve-direct selects a PVE VM.Console-protected browser WebRTC transport
  for the existing VM Console entry when the VM has its private Display1

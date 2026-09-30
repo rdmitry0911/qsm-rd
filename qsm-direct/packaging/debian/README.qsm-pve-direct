@@ -123,3 +123,35 @@ Linux guest application, then copies the resulting selection. **Paste** and
 `Shift+Insert` to the focused guest application. Browser security requires this
 explicit user gesture; a guest clipboard update cannot silently overwrite the
 host system clipboard.
+
+LXC container consoles
+----------------------
+
+A container has no QEMU display.  QSM Direct runs the container's desktop
+session (KDE Plasma, Wayland or X11) inside a headless sway ("the display")
+in the container; the host media worker captures that display (wlr-screencopy)
+and injects input (virtual pointer/keyboard), using the host GPU encoder.
+The worker resolves the display socket inside the container's root (symlinks
+cannot redirect it to a host socket) and drops to "nobody" once connected.
+
+Enable a running Debian/Ubuntu container that already has a Plasma desktop:
+
+    qsm-pve-direct-lxc enable <vmid> [--session wayland|x11] [--restart]
+
+This passes the GPU through (NVIDIA device nodes and the DRM render node;
+--restart applies it), installs NVIDIA userspace matching the host kernel
+module from the host's NVIDIA-Linux-x86_64-<version>.run (--nvidia-run FILE),
+installs sway/xwayland, creates the session user "qsm" (--user/--uid) with
+lingering user services qsm-display, qsm-seat-keeper and qsm-session, and
+writes /etc/qsm-pve-direct/containers.d/<vmid>.conf.  The container's Console
+button then offers "QSM Direct" to users with VM.Console on /vms/<vmid>; its
+Console tab keeps the stock xterm.js terminal.
+
+    qsm-pve-direct-lxc session <vmid> wayland|x11   switch the session type
+    qsm-pve-direct-lxc status  <vmid>
+    qsm-pve-direct-lxc disable <vmid>
+
+Notes: the in-session screen locker's auto-lock is disabled (console access is
+already gated by PVE) and KScreen's automatic mode selection is off (the
+console window decides the resolution).  X11 clients render through SHM: the
+headless display offers no DRM device for Xwayland's glamor.
