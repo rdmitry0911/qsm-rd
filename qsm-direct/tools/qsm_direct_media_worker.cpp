@@ -22,6 +22,9 @@
 #include "interfaces/media_adapter.hpp"
 #include "pipeline/desktop_session.hpp"
 #include "qemu/qemu_dbus_display.hpp"
+#ifdef QMDP_HAS_WLROOTS
+#include "wlroots/wlroots_display.hpp"
+#endif
 
 #include <opus/opus.h>
 
@@ -46,7 +49,15 @@ extern "C" {
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <functional>
 #include <fcntl.h>
+#include <dirent.h>
+#include <grp.h>
+#include <linux/openat2.h>
+#include <pwd.h>
+#include <sys/prctl.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
 #include <iostream>
 #include <limits>
 #include <mutex>
@@ -148,6 +159,16 @@ struct Size {
 
 struct Options {
     std::string dbus_address;
+    // Alternative capture source: a headless wlroots compositor (sway) that
+    // hosts an LXC container's desktop session. Exactly one source is given.
+    // The compositor directory is resolved *inside* the container's root
+    // (openat2 RESOLVE_IN_ROOT), so container-controlled symlinks can never
+    // redirect this host-root worker to a host socket.
+    std::string wlroots_root;     // e.g. /proc/<ct-init-pid>/root
+    std::string wlroots_dir;      // relative, e.g. run/user/1000/qsm-outer
+    std::string wlroots_display;  // optional socket name, e.g. wayland-1
+    // Drop to this unprivileged account once every socket is connected.
+    std::string drop_privileges;
     std::string video_socket;
     std::string audio_socket;
     std::string input_socket;
@@ -171,7 +192,7 @@ struct Options {
 [[noreturn]] void usage(int status) {
     auto &stream = status == EXIT_SUCCESS ? std::cout : std::cerr;
     stream
-        << "usage: qsm-direct-media-worker --dbus-address ADDRESS "
+        << "usage: qsm-direct-media-worker (--dbus-address ADDRESS | --wlroots-root DIR --wlroots-dir RELDIR) "
            "--video-socket unix:PATH --audio-socket unix:PATH "
            "--input-socket unix:PATH [options]\n\n"
         << "  --codec h264|hevc           browser-negotiated video codec (default: h264)\n"
@@ -181,7 +202,9 @@ struct Options {
         << "  --fps N                     10..240 (default: 60)\n"
         << "  --initial-size WIDTHxHEIGHT request initial guest scanout\n"
         << "  --allow-unsupported-ui-info retain a fixed scanout when its adapter"
-           " does not implement SetUIInfo\n";
+           " does not implement SetUIInfo\n"
+        << "  --wlroots-display NAME      compositor socket name (default: lowest wayland-N)\n"
+        << "  --drop-privileges USER      switch to USER after all sockets are connected\n";
     std::exit(status);
 }
 
@@ -232,6 +255,20 @@ Options parse_options(int argc, char **argv) {
         const std::string_view argument(argv[index]);
         if (argument == "--dbus-address") {
             options.dbus_address = next(index, argument);
+        } else if (argument == "--wlroots-root") {
+            options.wlroots_root = next(index, argument);
+            if (options.wlroots_root.empty() || options.wlroots_root.front() != '/') {
+                throw WorkerError("--wlroots-root requires an absolute path");
+            }
+        } else if (argument == "--wlroots-dir") {
+            options.wlroots_dir = next(index, argument);
+            if (options.wlroots_dir.empty() || options.wlroots_dir.front() == '/') {
+                throw WorkerError("--wlroots-dir must be relative to --wlroots-root");
+            }
+        } else if (argument == "--wlroots-display") {
+            options.wlroots_display = next(index, argument);
+        } else if (argument == "--drop-privileges") {
+            options.drop_privileges = next(index, argument);
         } else if (argument == "--video-socket") {
             options.video_socket = socket_path(next(index, argument), argument);
         } else if (argument == "--audio-socket") {
@@ -258,7 +295,14 @@ Options parse_options(int argc, char **argv) {
             throw WorkerError("unknown option: " + std::string(argument));
         }
     }
-    if (options.dbus_address.empty() || options.video_socket.empty() || options.audio_socket.empty() ||
+    const bool wlroots = !options.wlroots_root.empty() || !options.wlroots_dir.empty();
+    if (wlroots && (options.wlroots_root.empty() || options.wlroots_dir.empty())) {
+        throw WorkerError("--wlroots-root and --wlroots-dir must be given together");
+    }
+    if (options.dbus_address.empty() == !wlroots) {
+        throw WorkerError("exactly one of --dbus-address or --wlroots-root/--wlroots-dir is required");
+    }
+    if (options.video_socket.empty() || options.audio_socket.empty() ||
         options.input_socket.empty() || options.encoder.empty() || options.fps < 10U || options.fps > 240U) {
         throw WorkerError("required worker options are missing or invalid");
     }
@@ -1481,10 +1525,169 @@ void write_session_diagnostic(std::string_view event,
               << '\n' << std::flush;
 }
 
+#ifdef QMDP_HAS_WLROOTS
+// Connect to the Wayland socket of the headless compositor inside an LXC
+// container.  Every component under `root` is resolved with RESOLVE_IN_ROOT,
+// so absolute or `..` symlinks planted by the (untrusted) container stay inside
+// the container's own tree; the final socket is opened O_PATH|O_NOFOLLOW and
+// must be a socket.  The connect goes through /proc/self/fd/N, i.e. to exactly
+// that inode, with no further path walk a container could race.
+int connect_container_compositor(const std::string &root, const std::string &dir, std::string name) {
+    const auto fail = [](const std::string &what) -> int {
+        throw WorkerError("container display: " + what + ": " + std::strerror(errno));
+    };
+    const int root_fd = ::open(root.c_str(), O_PATH | O_DIRECTORY | O_CLOEXEC);
+    if (root_fd < 0) { return fail("cannot open container root"); }
+    open_how how {};
+    how.flags = O_RDONLY | O_DIRECTORY | O_CLOEXEC;
+    how.resolve = RESOLVE_IN_ROOT | RESOLVE_NO_MAGICLINKS;
+    int dir_fd = static_cast<int>(::syscall(SYS_openat2, root_fd, dir.c_str(), &how, sizeof how));
+    if (dir_fd < 0 && errno == ENOSYS) {
+        // systemd's RestrictSUIDSGID= (on the terminal service) answers
+        // openat2 with ENOSYS because it cannot inspect `open_how`.  Walk the
+        // path one component at a time instead, refusing every symlink: each
+        // step is O_PATH|O_DIRECTORY|O_NOFOLLOW, which fails on a symlink.
+        int current = ::dup(root_fd);
+        std::size_t begin = 0U;
+        while (current >= 0 && begin < dir.size()) {
+            std::size_t end = dir.find('/', begin);
+            if (end == std::string::npos) { end = dir.size(); }
+            const std::string component = dir.substr(begin, end - begin);
+            begin = end + 1U;
+            if (component.empty()) { continue; }
+            if (component == "." || component == "..") { ::close(current); current = -1; errno = EINVAL; break; }
+            const int next = ::openat(current, component.c_str(), O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+            const int saved = errno;
+            ::close(current);
+            current = next;
+            errno = saved;
+        }
+        if (current >= 0) {
+            dir_fd = ::openat(current, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+            const int saved = errno;
+            ::close(current);
+            errno = saved;
+        }
+    }
+    ::close(root_fd);
+    if (dir_fd < 0) { return fail("display directory is missing (is the container session running?)"); }
+    const auto valid_name = [](std::string_view candidate) {
+        if (!candidate.starts_with("wayland-") || candidate.size() <= 8U || candidate.size() > 16U) { return false; }
+        return std::all_of(candidate.begin() + 8, candidate.end(), [](char c) { return c >= '0' && c <= '9'; });
+    };
+    if (name.empty()) {
+        const int list_fd = ::dup(dir_fd);
+        DIR *listing = list_fd >= 0 ? ::fdopendir(list_fd) : nullptr;
+        if (listing == nullptr) { ::close(dir_fd); return fail("cannot list display directory"); }
+        long best = -1;
+        while (const dirent *entry = ::readdir(listing)) {
+            const std::string_view candidate(entry->d_name);
+            struct stat meta {};
+            if (!valid_name(candidate) ||
+                ::fstatat(dir_fd, entry->d_name, &meta, AT_SYMLINK_NOFOLLOW) != 0 || !S_ISSOCK(meta.st_mode)) {
+                continue;
+            }
+            const long number = std::strtol(entry->d_name + 8, nullptr, 10);
+            if (best < 0 || number < best) { best = number; name = entry->d_name; }
+        }
+        ::closedir(listing);
+        if (name.empty()) { ::close(dir_fd); errno = ENOENT; return fail("no compositor socket in display directory"); }
+    } else if (!valid_name(name)) {
+        ::close(dir_fd);
+        throw WorkerError("container display: invalid socket name");
+    }
+    const int path_fd = ::openat(dir_fd, name.c_str(), O_PATH | O_NOFOLLOW | O_CLOEXEC);
+    ::close(dir_fd);
+    if (path_fd < 0) { return fail("cannot open compositor socket"); }
+    struct stat meta {};
+    if (::fstat(path_fd, &meta) != 0 || !S_ISSOCK(meta.st_mode)) {
+        ::close(path_fd);
+        throw WorkerError("container display: compositor endpoint is not a socket");
+    }
+    const int socket_fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (socket_fd < 0) { ::close(path_fd); return fail("socket"); }
+    sockaddr_un address {};
+    address.sun_family = AF_UNIX;
+    std::snprintf(address.sun_path, sizeof address.sun_path, "/proc/self/fd/%d", path_fd);
+    const int connected = ::connect(socket_fd, reinterpret_cast<const sockaddr *>(&address), sizeof address);
+    const int saved = errno;
+    ::close(path_fd);
+    if (connected != 0) { ::close(socket_fd); errno = saved; return fail("cannot connect to compositor"); }
+    return socket_fd;
+}
+#endif
+
+// Leave root once all sockets are connected.  An LXC console worker talks to a
+// compositor the container controls; it keeps only what it already holds
+// (connected sockets) plus world-accessible encoder devices.
+void drop_privileges(const std::string &user) {
+    errno = 0;
+    const passwd *account = ::getpwnam(user.c_str());
+    if (account == nullptr) { throw WorkerError("--drop-privileges: unknown user " + user); }
+    const uid_t uid = account->pw_uid;
+    const gid_t gid = account->pw_gid;
+    if (::setgroups(0, nullptr) != 0 || ::setgid(gid) != 0 || ::setuid(uid) != 0) {
+        throw WorkerError(std::string("--drop-privileges failed: ") + std::strerror(errno));
+    }
+    ::prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+    if (uid != 0 && ::setuid(0) == 0) { throw WorkerError("--drop-privileges: root could be regained"); }
+}
+
+#ifdef QMDP_HAS_WLROOTS
+void write_wlroots_diagnostic(std::string_view event,
+                              const qmdp::DesktopSession::Stats &stats,
+                              const qmdp::WlrootsDisplay::Stats &display,
+                              const DirectMediaAdapter::VideoStats &source,
+                              const PacketSink::Stats &egress) {
+    const auto convert_mean = display.frames == 0U ? 0U : display.convert_total_microseconds / display.frames;
+    std::cerr << "QSM_DIRECT_MEDIA_" << event
+              << " source=wlroots"
+              << " encoded_frames=" << stats.encoded_frames
+              << " errors=" << stats.errors
+              << " display_failed=" << (stats.display_failed ? "yes" : "no")
+              << " captured_frames=" << display.frames
+              << " capture_failures=" << display.capture_failures
+              << " size=" << display.width << 'x' << display.height
+              << " shm_format=0x" << std::hex << display.shm_format << std::dec
+              << " convert_mean_us=" << convert_mean
+              << " convert_max_us=" << display.convert_max_microseconds
+              << " resizes_applied=" << display.resizes_applied
+              << " resizes_failed=" << display.resizes_failed
+              << " pointer_events=" << display.pointer_events
+              << " key_events=" << display.key_events
+              << " submitted_frames=" << source.submitted_frames
+              << " cursor_records=" << egress.cursor_records
+              << " video_records=" << egress.video_records
+              << " video_send_failures=" << egress.video_send_failures
+              << " recent_error=" << recent_error_summary(stats)
+              << '\n' << std::flush;
+}
+#endif
+
+using SessionDiagnostic = std::function<void(std::string_view, const qmdp::DesktopSession::Stats &)>;
+
+int run_with_display(const Options &options, DirectMediaAdapter &media, qmdp::IQemuDisplay &display,
+                     const SessionDiagnostic &diagnostic);
+
 int run(const Options &options) {
     PacketSink sink(options.video_socket, options.audio_socket);
     DirectMediaAdapter media(sink, options.codec, options.encoder, options.fallback_encoder,
                              options.vaapi_device, options.fps);
+    if (!options.wlroots_root.empty()) {
+#ifdef QMDP_HAS_WLROOTS
+        qmdp::WlrootsDisplayOptions wlroots_options;
+        wlroots_options.socket_fd = connect_container_compositor(
+            options.wlroots_root, options.wlroots_dir, options.wlroots_display);
+        wlroots_options.max_fps = options.fps;
+        qmdp::WlrootsDisplay display(std::move(wlroots_options));
+        return run_with_display(options, media, display,
+            [&](std::string_view event, const qmdp::DesktopSession::Stats &stats) {
+                write_wlroots_diagnostic(event, stats, display.stats(), media.video_stats(), sink.stats());
+            });
+#else
+        throw WorkerError("this media worker was built without wlroots (LXC console) capture support");
+#endif
+    }
     qmdp::QemuDbusOptions display_options;
     display_options.bus_address = options.dbus_address;
     // The package-owned per-VM endpoint is a private session bus.  QEMU owns
@@ -1494,6 +1697,14 @@ int run(const Options &options) {
     display_options.require_audio = false;
     display_options.pump_interval = 10ms;
     qmdp::QemuDbusDisplay display(std::move(display_options));
+    return run_with_display(options, media, display,
+        [&](std::string_view event, const qmdp::DesktopSession::Stats &stats) {
+            write_session_diagnostic(event, stats, display.stats(), media.video_stats(), sink.stats());
+        });
+}
+
+int run_with_display(const Options &options, DirectMediaAdapter &media, qmdp::IQemuDisplay &display,
+                     const SessionDiagnostic &diagnostic) {
     qmdp::DesktopSession session(display, media, {.frame_wait = 20ms});
     session.start();
     InputReceiver input(options.input_socket, session, media, options.fps,
@@ -1502,6 +1713,9 @@ int run(const Options &options) {
         input.start();
         if (options.initial_size) {
             input.set_initial_size(options.initial_size->width, options.initial_size->height);
+        }
+        if (!options.drop_privileges.empty()) {
+            drop_privileges(options.drop_privileges);
         }
         std::cout << "QSM_DIRECT_MEDIA_READY codec=" << options.codec
                   << " encoder=" << options.encoder << " fps=" << options.fps << '\n' << std::flush;
@@ -1514,13 +1728,12 @@ int run(const Options &options) {
         while (!stopping.load() && !session.display_failed()) {
             if (!capture_diagnostic_written && std::chrono::steady_clock::now() >= capture_deadline) {
                 const auto stats = session.stats();
-                write_session_diagnostic("CAPTURE_AFTER_3S", stats, display.stats(), media.video_stats(), sink.stats());
+                diagnostic("CAPTURE_AFTER_3S", stats);
                 capture_diagnostic_written = true;
             }
             std::this_thread::sleep_for(100ms);
         }
-        write_session_diagnostic(session.display_failed() ? "DISPLAY_ENDED" : "STOPPING",
-                                 session.stats(), display.stats(), media.video_stats(), sink.stats());
+        diagnostic(session.display_failed() ? "DISPLAY_ENDED" : "STOPPING", session.stats());
         input.stop();
         session.stop();
     } catch (...) {

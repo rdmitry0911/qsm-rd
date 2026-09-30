@@ -509,7 +509,11 @@
         return { width, height, fps };
     };
 
-    const openConsole = function (button, node, vmid, embeddedFrame = null) {
+    // kind: 'qemu' (a VM's Display1) or 'lxc' (a container's headless
+    // display).  It only selects the PVE/signalling URL segment; the terminal
+    // service tells the two apart from the node's own guest configs.
+    const openConsole = function (button, node, vmid, embeddedFrame = null, kind = 'qemu') {
+        const guestKind = kind === 'lxc' ? 'lxc' : 'qemu';
         const embedded = Boolean(embeddedFrame);
         let popup;
         if (embedded) {
@@ -1586,7 +1590,7 @@
         });
         settingsButton.addEventListener('click', () => setSettingsPanelOpen(!settingsPanelOpen));
         closeSettings.addEventListener('click', () => setSettingsPanelOpen(false));
-        const vmMediaPolicyUrl = () => `/nodes/${encodeURIComponent(node)}/qemu/${encodeURIComponent(vmid)}/qsm-direct-settings`;
+        const vmMediaPolicyUrl = () => `/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/qsm-direct-settings`;
         const validVmMediaPolicy = (value) => value && ['auto', 'h264', 'hevc'].includes(value.codec) &&
             ['auto', 'hardware', 'software'].includes(value.encoder);
         const loadVmMediaPolicy = async () => {
@@ -1945,7 +1949,7 @@
             }, 500);
         }
 
-        const vmStatusUrl = () => `/nodes/${encodeURIComponent(node)}/qemu/${encodeURIComponent(vmid)}/status/current`;
+        const vmStatusUrl = () => `/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/status/current`;
         const waitForVmStart = async () => {
             // Opening Console is a valid action before Power On.  Do not
             // create a single-use WebRTC offer until QEMU exists: PVE would
@@ -2836,7 +2840,7 @@
             await peer.setLocalDescription(offer);
             await waitForIce(peer);
             const requestSize = dimensions(video, sessionFps);
-            const answer = await api(`/nodes/${encodeURIComponent(node)}/qemu/${encodeURIComponent(vmid)}/qsm-direct`, {
+            const answer = await api(`/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/qsm-direct`, {
                 sdp: peer.localDescription.sdp, width: requestSize.width, height: requestSize.height, fps: requestSize.fps,
             }, button);
             await peer.setRemoteDescription(answer);
@@ -3052,12 +3056,13 @@
         },
         initComponent: function () {
             const me = this;
-            if (me.consoleType === 'kvm' && validNode(me.nodename) && validVmid(Number(me.vmid))) {
+            const kind = me.consoleType === 'kvm' ? 'qemu' : (me.consoleType === 'lxc' ? 'lxc' : null);
+            if (kind && validNode(me.nodename) && validVmid(Number(me.vmid))) {
                 me.itemId = 'qsm-direct-console-button';
                 me.menu = (me.menu || []).map((item) => Ext.apply({}, item));
                 me.menu.push({ xtype: 'menuitem', itemId: 'qsm-direct', text: 'QSM Direct',
                     iconCls: 'fa fa-desktop', disabled: !me.enableQsmDirect,
-                    handler: () => openConsole(me, me.nodename, Number(me.vmid)) });
+                    handler: () => openConsole(me, me.nodename, Number(me.vmid), null, kind) });
             }
             me.callParent();
         },
@@ -3149,6 +3154,35 @@
             if (!refreshQsmDirect() && typeof me.on === 'function') {
                 me.on('afterrender', refreshQsmDirect, me, { single: true });
             }
+        },
+    });
+
+    // LXC containers: the Console split button gains "QSM Direct" (added by
+    // ConsoleButtonOverlay for consoleType 'lxc'), enabled once the node's
+    // signalling service confirms this container is set up for the QSM
+    // console (its policy exists; the call is authorised with VM.Console).
+    // The container's own Console tab keeps the stock xterm.js terminal.
+    Ext.define('PVE.qsmDirect.LxcConfigOverlay', {
+        override: 'PVE.lxc.Config',
+        initComponent: function () {
+            const me = this;
+            me.callParent();
+            const ct = me.pveSelNode && me.pveSelNode.data;
+            const vmid = ct ? Number(ct.vmid) : NaN;
+            if (!validNode(ct && ct.node) || !validVmid(vmid)) { return; }
+            let enabled = null;
+            const apply = () => {
+                const button = me.down('#qsm-direct-console-button');
+                if (button && enabled !== null) { button.setEnableQsmDirect(enabled); }
+                return Boolean(button);
+            };
+            signalRequest('GET', `/nodes/${encodeURIComponent(ct.node)}/lxc/${encodeURIComponent(vmid)}/qsm-direct-settings`)
+                .then(() => { enabled = true; }, () => { enabled = false; })
+                .then(() => {
+                    if (!apply() && typeof me.on === 'function') {
+                        me.on('afterrender', apply, me, { single: true });
+                    }
+                });
         },
     });
 }());

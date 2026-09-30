@@ -153,6 +153,50 @@ if(QMDP_BUILD_TOOLS AND QMDP_BUILD_DBUS)
         target_link_libraries(qsm-direct-media-worker PRIVATE
             qmdp_dbus qmdp_pipeline qmdp_core Threads::Threads ${QMDP_OPUS_LIBRARY}
         )
+        # LXC container console: capture a headless wlroots compositor (sway)
+        # hosting the container's desktop session.  Optional so the VM-only
+        # worker still builds where Wayland development files are absent.
+        if(PkgConfig_FOUND)
+            pkg_check_modules(QMDP_WAYLAND_CLIENT QUIET IMPORTED_TARGET wayland-client)
+            pkg_check_modules(QMDP_XKBCOMMON QUIET IMPORTED_TARGET xkbcommon)
+        endif()
+        find_program(QMDP_WAYLAND_SCANNER wayland-scanner)
+        if(TARGET PkgConfig::QMDP_WAYLAND_CLIENT AND TARGET PkgConfig::QMDP_XKBCOMMON AND QMDP_WAYLAND_SCANNER)
+            enable_language(C)  # wayland-scanner emits C protocol glue
+            set(QMDP_WLR_PROTOCOL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlroots)
+            set(QMDP_WLR_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/wlroots)
+            file(MAKE_DIRECTORY ${QMDP_WLR_GENERATED_DIR})
+            set(QMDP_WLR_GENERATED_SOURCES)
+            foreach(protocol
+                    wlr-screencopy-unstable-v1
+                    wlr-virtual-pointer-unstable-v1
+                    wlr-output-management-unstable-v1
+                    virtual-keyboard-unstable-v1)
+                set(xml ${QMDP_WLR_PROTOCOL_DIR}/${protocol}.xml)
+                set(header ${QMDP_WLR_GENERATED_DIR}/${protocol}-client-protocol.h)
+                set(code ${QMDP_WLR_GENERATED_DIR}/${protocol}-protocol.c)
+                add_custom_command(
+                    OUTPUT ${header} ${code}
+                    COMMAND ${QMDP_WAYLAND_SCANNER} client-header ${xml} ${header}
+                    COMMAND ${QMDP_WAYLAND_SCANNER} private-code ${xml} ${code}
+                    DEPENDS ${xml}
+                    COMMENT "wayland-scanner ${protocol}"
+                    VERBATIM)
+                list(APPEND QMDP_WLR_GENERATED_SOURCES ${header} ${code})
+            endforeach()
+            add_library(qmdp_wlroots STATIC
+                src/wlroots/wlroots_display.cpp
+                ${QMDP_WLR_GENERATED_SOURCES}
+            )
+            target_include_directories(qmdp_wlroots PRIVATE ${QMDP_WLR_GENERATED_DIR})
+            target_link_libraries(qmdp_wlroots PUBLIC qmdp_core Threads::Threads
+                PRIVATE PkgConfig::QMDP_WAYLAND_CLIENT PkgConfig::QMDP_XKBCOMMON)
+            target_compile_definitions(qmdp_wlroots PUBLIC QMDP_HAS_WLROOTS=1)
+            qmdp_target_defaults(qmdp_wlroots)
+            target_link_libraries(qsm-direct-media-worker PRIVATE qmdp_wlroots)
+        else()
+            message(STATUS "qsm direct worker: wayland-client/xkbcommon/wayland-scanner absent; LXC console capture disabled")
+        endif()
         # The CPU fallback uses libavcodec directly when development files are
         # present. This avoids ffmpeg(1)'s multi-frame process pipeline in the
         # interactive path; hardware encoders retain the portable ffmpeg(1)

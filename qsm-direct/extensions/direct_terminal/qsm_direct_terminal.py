@@ -341,6 +341,101 @@ def _qemu_process_generation(pid_directory: Path, vmid: int) -> str | None:
     return f"{pid}:{fields[19]}"
 
 
+# --------------------------------------------------------------------------
+# LXC container consoles
+#
+# A container has no QEMU Display1.  Its desktop session runs inside a headless
+# wlroots compositor ("the display", sway) in the container; the media worker
+# captures that compositor from the host through the container's root.  A
+# container is enabled for the QSM console by a root-owned policy file in its
+# own namespace, independent of the VM instance policies:
+#   /etc/qsm-pve-direct/containers.d/<vmid>.conf
+_CONTAINER_KEYS = frozenset({
+    "QSM_DIRECT_LXC_UID",
+    "QSM_DIRECT_CODEC",
+    "QSM_DIRECT_ENCODER_MODE",
+    "QSM_DIRECT_ENCODER",
+})
+_LXC_UID_PATTERN = re.compile(r"\A[1-9][0-9]{0,4}\Z")
+LXC_INFO = "/usr/bin/lxc-info"
+
+
+def _load_container_instance(directory: Path, vmid: int) -> dict[str, str] | None:
+    """Return the container console policy, or None when it is not enabled."""
+    if not _valid_vmid(vmid) or not directory.is_absolute():
+        return None
+    path = directory / f"{vmid}.conf"
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise DirectTerminalError("direct-terminal container policy is unavailable") from error
+    content = _read_root_file(path, maximum=16 * 1024)
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise DirectTerminalError("direct-terminal container policy is invalid") from error
+    values: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            raise DirectTerminalError("direct-terminal container policy is invalid")
+        key, value = (part.strip() for part in line.split("=", 1))
+        if key not in _CONTAINER_KEYS or key in values or "\x00" in value or len(value) > 256:
+            raise DirectTerminalError("direct-terminal container policy is invalid")
+        values[key] = value
+    values.setdefault("QSM_DIRECT_LXC_UID", "1000")
+    values.setdefault("QSM_DIRECT_CODEC", "auto")
+    values.setdefault("QSM_DIRECT_ENCODER_MODE", "auto")
+    values.setdefault("QSM_DIRECT_ENCODER", "auto")
+    uid = values["QSM_DIRECT_LXC_UID"]
+    if not _LXC_UID_PATTERN.fullmatch(uid) or int(uid) > 65533:
+        raise DirectTerminalError("direct-terminal container has an invalid session user")
+    if not _CODEC_PATTERN.fullmatch(values["QSM_DIRECT_CODEC"]):
+        raise DirectTerminalError("direct-terminal container has an unsupported browser codec")
+    if not _ENCODER_MODE_PATTERN.fullmatch(values["QSM_DIRECT_ENCODER_MODE"]):
+        raise DirectTerminalError("direct-terminal container has an invalid encoder mode")
+    encoder = values["QSM_DIRECT_ENCODER"]
+    if encoder != "auto" and not _ENCODER_PATTERN.fullmatch(encoder):
+        raise DirectTerminalError("direct-terminal container has an invalid encoder")
+    return values
+
+
+def _process_generation(pid: int) -> str | None:
+    """``pid:starttime`` (non-reusable) for a live process, else None."""
+    try:
+        stat_text = (Path("/proc") / str(pid) / "stat").read_text(encoding="ascii")
+    except (OSError, UnicodeDecodeError):
+        return None
+    separator = stat_text.rfind(") ")
+    if separator < 1:
+        return None
+    fields = stat_text[separator + 2:].split()
+    if len(fields) < 20 or not fields[19].isdecimal():
+        return None
+    return f"{pid}:{fields[19]}"
+
+
+def _lxc_generation(vmid: int) -> str | None:
+    """Live generation of a running PVE container (its init process), or None."""
+    if not _valid_vmid(vmid):
+        return None
+    try:
+        result = subprocess.run(
+            [LXC_INFO, "-n", str(vmid), "-p", "-H"], stdin=subprocess.DEVNULL,
+            capture_output=True, timeout=5, check=False,
+            env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C"})
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    text = result.stdout.decode("ascii", "replace").strip()
+    if result.returncode != 0 or not text.isdecimal() or int(text) <= 1:
+        return None
+    return _process_generation(int(text))
+
+
 def _safe_runtime_directory(path: Path) -> None:
     try:
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -483,6 +578,7 @@ class DirectVmTransport:
     qemu_generation: str
     codec: str
     guest: QsmGuestChannel | None = None
+    kind: str = "vm"  # "vm" (QEMU Display1) or "lxc" (container wlroots display)
 
 
 class DirectSessionManager:
@@ -491,12 +587,16 @@ class DirectSessionManager:
     def __init__(self, *, instance_directory: Path, runtime_directory: Path,
                  vm_runtime_directory: Path, pve_config_directory: Path,
                  local_node: str | None,
-                 qemu_pid_directory: Path = Path("/run/qemu-server")) -> None:
+                 qemu_pid_directory: Path = Path("/run/qemu-server"),
+                 container_instance_directory: Path = Path("/etc/qsm-pve-direct/containers.d"),
+                 lxc_config_directory: Path | None = None) -> None:
         self._instance_directory = instance_directory
         self._runtime_directory = runtime_directory
         self._vm_runtime_directory = vm_runtime_directory
         self._pve_config_directory = pve_config_directory
         self._qemu_pid_directory = qemu_pid_directory
+        self._container_instance_directory = container_instance_directory
+        self._lxc_config_directory = lxc_config_directory or pve_config_directory.parent / "lxc"
         self._local_node = local_node
         self._dbus = DbusManager(vm_runtime_directory)
         self._reconcile_stop = threading.Event()
@@ -544,6 +644,20 @@ class DirectSessionManager:
                 result.append(vmid)
         return tuple(result)
 
+    def _container_policy(self, vmid: int) -> dict[str, str] | None:
+        """Policy for an LXC container enabled for the QSM console, else None."""
+        if not _valid_vmid(vmid):
+            return None
+        try:
+            metadata = (self._lxc_config_directory / f"{vmid}.conf").lstat()
+        except FileNotFoundError:
+            return None
+        except OSError as error:
+            raise DirectTerminalError("direct-terminal container configuration is unavailable") from error
+        if not stat.S_ISREG(metadata.st_mode):
+            return None
+        return _load_container_instance(self._container_instance_directory, vmid)
+
     def _display_is_configured(self, vmid: int) -> bool:
         if not _valid_vmid(vmid):
             return False
@@ -568,6 +682,21 @@ class DirectSessionManager:
         silently dead mouse to the user.
         """
         for vmid, transport in tuple(self._transports.items()):
+            if transport.kind == "lxc":
+                try:
+                    enabled = self._container_policy(vmid) is not None
+                except DirectTerminalError:
+                    continue  # transient read problem: never tear down a live console for it
+                if enabled and _lxc_generation(vmid) == transport.qemu_generation:
+                    continue
+                reason = "container console disabled" if not enabled else "container stopped or restarted"
+                print(
+                    f"qsm-direct-terminal: retiring container media transport vmid={vmid}: {reason}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                await self._close_vmid_sessions(vmid)
+                continue
             generation = _qemu_process_generation(self._qemu_pid_directory, vmid)
             if vmid in configured and generation == transport.qemu_generation:
                 continue
@@ -640,7 +769,7 @@ class DirectSessionManager:
         # Do not retain a lock for an arbitrary VMID submitted by an
         # authenticated but otherwise invalid request.  Only a configured VM
         # may acquire the small, process-lifetime per-VM serialization entry.
-        if not self._display_is_configured(vmid):
+        if self._container_policy(vmid) is None and not self._display_is_configured(vmid):
             raise DirectTerminalError("direct-terminal VM is not configured for Display1")
         lock = self._vm_locks.setdefault(vmid, asyncio.Lock())
         async with lock:
@@ -648,16 +777,22 @@ class DirectSessionManager:
 
     async def _create_locked(self, vmid: int, sdp: str, width: int, height: int, fps: int) -> dict[str, str]:
         self._collect_expired()
-        if not self._display_is_configured(vmid):
+        container = self._container_policy(vmid)
+        if container is None and not self._display_is_configured(vmid):
             raise DirectTerminalError("direct-terminal VM is not configured for Display1")
         if len(self._sessions) >= MAX_SESSIONS:
             raise DirectTerminalError("direct-terminal session capacity is exhausted")
-        policy = _load_optional_instance(self._instance_directory, vmid, self._vm_runtime_directory)
-        self._dbus.ensure(vmid, policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"])
+        if container is None:
+            policy = _load_optional_instance(self._instance_directory, vmid, self._vm_runtime_directory)
+            self._dbus.ensure(vmid, policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"])
+            current_generation = _qemu_process_generation(self._qemu_pid_directory, vmid)
+        else:
+            policy = container
+            current_generation = _lxc_generation(vmid)
         existing = self._transports.get(vmid)
         selection: DirectEncoderSelection | None = None
         if (existing is not None and existing.worker.poll() is None and
-                existing.qemu_generation == _qemu_process_generation(self._qemu_pid_directory, vmid)):
+                existing.qemu_generation == current_generation):
             codec = existing.codec
             if not BrowserWebRtcBridge.offer_supports_codec(sdp, codec):
                 raise DirectTerminalError(
@@ -665,8 +800,12 @@ class DirectSessionManager:
                     "this browser does not support that codec")
         else:
             codec, selection = self._codec_for_offer(sdp, policy)
-        transport = await self._transport_for(vmid, policy, width, height, fps,
-                                              codec=codec, selection=selection)
+        if container is None:
+            transport = await self._transport_for(vmid, policy, width, height, fps,
+                                                  codec=codec, selection=selection)
+        else:
+            transport = await self._lxc_transport_for(vmid, policy, width, height, fps,
+                                                      codec=codec, selection=selection)
         identifier = secrets.token_hex(16)
         directory = self._runtime_directory / f"vm-{vmid}" / identifier
         _safe_runtime_directory(directory.parent)
@@ -871,6 +1010,95 @@ class DirectSessionManager:
             self._transports[vmid] = transport
             print(
                 f"qsm-direct-terminal: VM media transport started vmid={vmid} codec={codec} encoder={encoder} pid={worker.pid}",
+                file=sys.stderr,
+                flush=True,
+            )
+            return transport
+        except BaseException:
+            if worker is not None:
+                self._terminate_worker(worker)
+            media.close()
+            input_egress.close()
+            self._remove_directory(directory)
+            raise
+
+    async def _lxc_transport_for(self, vmid: int, policy: dict[str, str], width: int, height: int,
+                                 fps: int, *, codec: str,
+                                 selection: DirectEncoderSelection | None = None) -> DirectVmTransport:
+        """Return the sole capture/encoder worker for a container console.
+
+        The worker runs on the host (host GPU encoder, host libraries) and
+        reaches the container's headless compositor through the container's
+        root, resolving that path inside the container so its symlinks cannot
+        redirect it.  It drops to ``nobody`` once its sockets are connected,
+        since the compositor it talks to is controlled by the container.
+        """
+        generation = _lxc_generation(vmid)
+        existing = self._transports.get(vmid)
+        if (existing is not None and existing.kind == "lxc" and generation == existing.qemu_generation and
+                existing.worker.poll() is None):
+            if existing.codec != codec:
+                raise DirectTerminalError("direct-terminal container transport codec changed while active")
+            existing.media.raise_if_failed()
+            existing.input.raise_if_failed()
+            return existing
+        if existing is not None:
+            await self._close_vmid_sessions(vmid)
+        if generation is None:
+            raise DirectTerminalError("direct-terminal container is not running")
+        init_pid = int(generation.split(":", 1)[0])
+        uid = policy["QSM_DIRECT_LXC_UID"]
+
+        directory = self._runtime_directory / f"vm-{vmid}" / "producer"
+        _safe_runtime_directory(directory.parent)
+        _safe_runtime_directory(directory)
+        media = SharedMediaIngress(
+            directory, self._loop, fps=fps, expected_producer_uid=os.geteuid())
+        input_egress = UnixInputEgress(directory, expected_uid=os.geteuid())
+        worker: subprocess.Popen[bytes] | None = None
+        try:
+            media.start()
+            input_egress.start()
+            configured_encoder = policy.get("QSM_DIRECT_ENCODER") or "auto"
+            encoder_mode = policy.get("QSM_DIRECT_ENCODER_MODE") or "auto"
+            resolved = selection or self._select_encoder(codec, policy)
+            encoder = resolved.encoder
+            arguments = [
+                "/usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker",
+                "--wlroots-root", f"/proc/{init_pid}/root",
+                "--wlroots-dir", f"run/user/{uid}/qsm-outer",
+                "--drop-privileges", "nobody",
+                "--video-socket", f"unix:{media.video_path}",
+                "--audio-socket", f"unix:{media.audio_path}",
+                "--input-socket", f"unix:{input_egress.path}",
+                "--codec", codec,
+                "--encoder", encoder,
+                "--fps", str(fps),
+                "--initial-size", f"{width}x{height}",
+            ]
+            if (codec == "h264" and configured_encoder == "auto" and encoder_mode == "auto" and
+                    encoder != "libx264"):
+                arguments.extend(["--fallback-encoder", "libx264"])
+            if encoder in {"h264_vaapi", "hevc_vaapi"}:
+                if not resolved.vaapi_device:
+                    raise DirectTerminalError("direct-terminal VA-API encoder lacks a render node")
+                arguments.extend(["--vaapi-device", resolved.vaapi_device])
+            worker = subprocess.Popen(
+                arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=None,
+                env=self._child_environment(), close_fds=True, start_new_session=True,
+            )
+            await asyncio.sleep(0.25)
+            if worker.poll() is not None:
+                raise DirectTerminalError(
+                    "direct-terminal container display is not available "
+                    f"(worker exit code {worker.returncode}; is the container session running?)")
+            transport = DirectVmTransport(
+                vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
+                qemu_generation=generation, codec=codec, guest=None, kind="lxc")
+            self._transports[vmid] = transport
+            print(
+                f"qsm-direct-terminal: container media transport started vmid={vmid} codec={codec} "
+                f"encoder={encoder} pid={worker.pid}",
                 file=sys.stderr,
                 flush=True,
             )
@@ -1146,6 +1374,8 @@ def main() -> int:
     parser.add_argument("--vm-runtime-directory", type=Path, default=Path("/run/qsm-pve-direct"))
     parser.add_argument("--pve-config-directory", type=Path, default=Path("/etc/pve/qemu-server"))
     parser.add_argument("--qemu-pid-directory", type=Path, default=Path("/run/qemu-server"))
+    parser.add_argument("--container-instance-directory", type=Path,
+                        default=Path("/etc/qsm-pve-direct/containers.d"))
     parser.add_argument("--pve-socket", type=Path, default=Path("/run/qsm-pve-direct-terminal/pve-webrtc.sock"))
     parser.add_argument("--local-node")
     arguments = parser.parse_args()
@@ -1157,7 +1387,8 @@ def main() -> int:
                                     vm_runtime_directory=arguments.vm_runtime_directory,
                                     pve_config_directory=arguments.pve_config_directory,
                                     local_node=arguments.local_node,
-                                    qemu_pid_directory=arguments.qemu_pid_directory)
+                                    qemu_pid_directory=arguments.qemu_pid_directory,
+                                    container_instance_directory=arguments.container_instance_directory)
     server: PveRequestServer | None = None
     try:
         server = PveRequestServer(arguments.pve_socket, sessions)

@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""Keep a virtual pointer and keyboard in the QSM container display's seat.
+
+The QSM Direct console for an LXC container drives a headless sway ("the
+display") that hosts the user's desktop session (a nested KWin/Plasma, or a
+rootful Xwayland).  The host-side media worker injects input through its own
+virtual pointer/keyboard; when a console closes the worker exits and those
+devices vanish.  If they were the seat's only devices, the seat loses its
+pointer/keyboard capability, and KWin 5.27's nested Wayland backend answers
+that with an invalid request (`wl_pointer.release` on a version-2 object),
+which the compositor must treat as a fatal protocol error -- taking the whole
+desktop session down with it.
+
+This process holds one virtual pointer and one virtual keyboard for the
+lifetime of the display, so the seat's capabilities never change while the
+session runs.  It never sends input.  It uses only the Python standard library:
+the Wayland wire protocol is spoken directly, and the keymap is compiled with
+the container's own libxkbcommon through ctypes.
+
+Usage: qsm-seat-keeper [DISPLAY_DIR]   (default: $XDG_RUNTIME_DIR/qsm-outer)
+"""
+from __future__ import annotations
+
+import array
+import ctypes
+import ctypes.util
+import os
+import re
+import socket
+import stat
+import struct
+import sys
+import time
+
+WL_DISPLAY_ID = 1
+
+
+def log(message: str) -> None:
+    print(f"qsm-seat-keeper: {message}", file=sys.stderr, flush=True)
+
+
+def find_socket(directory: str) -> str:
+    best = None
+    for name in os.listdir(directory):
+        match = re.fullmatch(r"wayland-([0-9]{1,8})", name)
+        if not match:
+            continue
+        path = os.path.join(directory, name)
+        try:
+            if not stat.S_ISSOCK(os.lstat(path).st_mode):
+                continue
+        except OSError:
+            continue
+        if best is None or int(match.group(1)) < best[0]:
+            best = (int(match.group(1)), path)
+    if best is None:
+        raise FileNotFoundError(f"no compositor socket in {directory}")
+    return best[1]
+
+
+def compile_keymap(layout: str) -> bytes:
+    xkb = ctypes.CDLL(ctypes.util.find_library("xkbcommon") or "libxkbcommon.so.0")
+    libc = ctypes.CDLL(None)
+
+    class RuleNames(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_char_p) for name in ("rules", "model", "layout", "variant", "options")]
+
+    xkb.xkb_context_new.restype = ctypes.c_void_p
+    xkb.xkb_context_new.argtypes = [ctypes.c_int]
+    xkb.xkb_keymap_new_from_names.restype = ctypes.c_void_p
+    xkb.xkb_keymap_new_from_names.argtypes = [ctypes.c_void_p, ctypes.POINTER(RuleNames), ctypes.c_int]
+    xkb.xkb_keymap_get_as_string.restype = ctypes.c_void_p
+    xkb.xkb_keymap_get_as_string.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    xkb.xkb_keymap_unref.argtypes = [ctypes.c_void_p]
+    xkb.xkb_context_unref.argtypes = [ctypes.c_void_p]
+    libc.free.argtypes = [ctypes.c_void_p]
+    context = xkb.xkb_context_new(0)
+    if not context:
+        raise RuntimeError("xkb_context_new failed")
+    names = RuleNames(None, None, layout.encode(), None, None)
+    keymap = xkb.xkb_keymap_new_from_names(context, ctypes.byref(names), 0)
+    if not keymap:
+        raise RuntimeError(f"cannot compile an xkb keymap for layout {layout!r}")
+    pointer = xkb.xkb_keymap_get_as_string(keymap, 1)  # XKB_KEYMAP_FORMAT_TEXT_V1
+    text = ctypes.string_at(pointer)
+    libc.free(pointer)
+    xkb.xkb_keymap_unref(keymap)
+    xkb.xkb_context_unref(context)
+    return text + b"\0"
+
+
+class Wayland:
+    """Just enough of the Wayland wire protocol for a few requests."""
+
+    def __init__(self, path: str) -> None:
+        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.socket.connect(path)
+        self.next_id = 2
+        self.buffer = b""
+
+    def new_id(self) -> int:
+        value = self.next_id
+        self.next_id += 1
+        return value
+
+    @staticmethod
+    def string(value: str) -> bytes:
+        data = value.encode() + b"\0"
+        return struct.pack("<I", len(data)) + data + b"\0" * (-len(data) % 4)
+
+    def send(self, object_id: int, opcode: int, payload: bytes = b"", fds: list[int] | None = None) -> None:
+        message = struct.pack("<II", object_id, ((8 + len(payload)) << 16) | opcode) + payload
+        ancillary = [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", fds))] if fds else []
+        self.socket.sendmsg([message], ancillary)
+
+    def read_event(self) -> tuple[int, int, bytes]:
+        while True:
+            if len(self.buffer) >= 8:
+                object_id, word = struct.unpack("<II", self.buffer[:8])
+                size = word >> 16
+                if size >= 8 and len(self.buffer) >= size:
+                    payload = self.buffer[8:size]
+                    self.buffer = self.buffer[size:]
+                    return object_id, word & 0xFFFF, payload
+            data, ancillary, _flags, _address = self.socket.recvmsg(65536, socket.CMSG_SPACE(16 * 4))
+            for level, kind, blob in ancillary:  # close any fds we were sent
+                if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
+                    for fd in array.array("i", blob[: len(blob) - len(blob) % 4]):
+                        os.close(fd)
+            if not data:
+                raise ConnectionError("compositor closed the connection")
+            self.buffer += data
+
+    def roundtrip(self, on_event) -> None:
+        callback = self.new_id()
+        self.send(WL_DISPLAY_ID, 0, struct.pack("<I", callback))  # wl_display.sync
+        while True:
+            object_id, opcode, payload = self.read_event()
+            if object_id == callback and opcode == 0:
+                return
+            on_event(object_id, opcode, payload)
+
+
+def check_display_error(object_id: int, opcode: int, payload: bytes) -> None:
+    if object_id == WL_DISPLAY_ID and opcode == 0:  # wl_display.error
+        _obj, code, length = struct.unpack("<III", payload[:12])
+        raise RuntimeError(f"protocol error {code}: {payload[12:12 + length - 1].decode(errors='replace')}")
+
+
+def run(directory: str, layout: str) -> None:
+    wayland = Wayland(find_socket(directory))
+    registry = wayland.new_id()
+    wayland.send(WL_DISPLAY_ID, 1, struct.pack("<I", registry))  # wl_display.get_registry
+    globals_: dict[str, tuple[int, int]] = {}
+
+    def on_registry(object_id: int, opcode: int, payload: bytes) -> None:
+        check_display_error(object_id, opcode, payload)
+        if object_id == registry and opcode == 0:  # wl_registry.global
+            name, length = struct.unpack("<II", payload[:8])
+            interface = payload[8:8 + length - 1].decode()
+            version = struct.unpack("<I", payload[8 + length + (-length % 4):][:4])[0]
+            globals_.setdefault(interface, (name, version))
+
+    wayland.roundtrip(on_registry)
+    needed = ("wl_seat", "zwlr_virtual_pointer_manager_v1", "zwp_virtual_keyboard_manager_v1")
+    missing = [name for name in needed if name not in globals_]
+    if missing:
+        raise RuntimeError(f"compositor lacks {', '.join(missing)}")
+
+    def bind(interface: str, version: int) -> int:
+        name, advertised = globals_[interface]
+        object_id = wayland.new_id()
+        wayland.send(registry, 0, struct.pack("<I", name) + Wayland.string(interface) +
+                     struct.pack("<II", min(version, advertised), object_id))
+        return object_id
+
+    seat = bind("wl_seat", 1)
+    pointer_manager = bind("zwlr_virtual_pointer_manager_v1", 1)
+    keyboard_manager = bind("zwp_virtual_keyboard_manager_v1", 1)
+    pointer = wayland.new_id()
+    wayland.send(pointer_manager, 0, struct.pack("<II", seat, pointer))  # create_virtual_pointer
+    keyboard = wayland.new_id()
+    wayland.send(keyboard_manager, 0, struct.pack("<II", seat, keyboard))  # create_virtual_keyboard
+    keymap = compile_keymap(layout)
+    fd = os.memfd_create("qsm-seat-keeper-keymap", os.MFD_CLOEXEC)
+    try:
+        os.write(fd, keymap)
+        wayland.send(keyboard, 0, struct.pack("<II", 1, len(keymap)), fds=[fd])  # keymap(xkb_v1, fd, size)
+    finally:
+        os.close(fd)
+    wayland.roundtrip(check_display_error)
+    log(f"holding a virtual pointer and keyboard in the display seat ({layout})")
+    while True:  # hold the devices; ignore whatever the compositor sends
+        check_display_error(*wayland.read_event())
+
+
+def main() -> int:
+    runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    directory = sys.argv[1] if len(sys.argv) > 1 else os.path.join(runtime, "qsm-outer")
+    layout = os.environ.get("QSM_SEAT_KEEPER_LAYOUT", "us")
+    for attempt in range(50):  # the display may still be creating its socket
+        try:
+            run(directory, layout)
+        except FileNotFoundError:
+            time.sleep(0.2)
+            continue
+        except (ConnectionError, OSError) as error:
+            log(f"display connection ended: {error}")
+            return 1
+        except RuntimeError as error:
+            log(str(error))
+            return 1
+    log("display socket never appeared")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

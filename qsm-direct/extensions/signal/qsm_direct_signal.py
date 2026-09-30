@@ -55,7 +55,7 @@ _USER = re.compile(r"\A[^\s@/:\\\x00-\x1f]{1,64}@[A-Za-z0-9][A-Za-z0-9._-]{0,63}
 _CODEC = re.compile(r"\A(?:auto|h264|hevc)\Z")
 _ENCODER = re.compile(r"\A(?:auto|hardware|software)\Z")
 _ROUTE = re.compile(
-    r"\A/nodes/(?P<node>[^/]+)/qemu/(?P<vmid>[0-9]+)/(?P<action>qsm-direct|qsm-direct-settings)\Z")
+    r"\A/nodes/(?P<node>[^/]+)/(?P<kind>qemu|lxc)/(?P<vmid>[0-9]+)/(?P<action>qsm-direct|qsm-direct-settings)\Z")
 
 
 class SignalError(Exception):
@@ -229,13 +229,60 @@ class VmPolicyStore:
         return None
 
 
+class ContainerPolicyStore(VmPolicyStore):
+    """Codec policy of an LXC console, kept in its own root-owned namespace.
+
+    The file's presence is what enables the container for the QSM console
+    (written by the operator/setup tool), so settings are only readable and
+    writable for an enabled container, and its session-user line is kept.
+    """
+
+    _PRESERVED = ("QSM_DIRECT_LXC_UID", "QSM_DIRECT_ENCODER")
+
+    def read(self, vmid: int) -> dict[str, str]:
+        if not self._path(vmid).exists():
+            raise SignalError(404, "container console not enabled")
+        return super().read(vmid)
+
+    def write(self, vmid: int, codec: str, encoder: str) -> dict[str, str]:
+        if not _CODEC.fullmatch(codec) or not _ENCODER.fullmatch(encoder) or \
+                (codec == "hevc" and encoder == "software"):
+            raise SignalError(400, "invalid policy")
+        path = self._path(vmid)
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError as error:
+            raise SignalError(404, "container console not enabled") from error
+        except OSError as error:
+            raise SignalError(503, "policy unavailable") from error
+        kept = [line for line in lines
+                if line.split("=", 1)[0].strip() in self._PRESERVED]
+        body = "".join(f"{line}\n" for line in kept)
+        body += f"QSM_DIRECT_CODEC={codec}\nQSM_DIRECT_ENCODER_MODE={encoder}\n"
+        temporary = self._directory / f".{vmid}.conf.tmp"
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(body)
+            os.replace(temporary, path)
+        except OSError as error:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise SignalError(503, "policy unavailable") from error
+        return {"codec": codec, "encoder": encoder}
+
+
 class SignalConfig:
     def __init__(self, authority: PveAuthority, terminal: TerminalClient,
-                 policy: VmPolicyStore, local_node: str | None) -> None:
+                 policy: VmPolicyStore, local_node: str | None,
+                 container_policy: VmPolicyStore | None = None) -> None:
         self.authority = authority
         self.terminal = terminal
         self.policy = policy
         self.local_node = local_node
+        self.container_policy = container_policy or policy
 
 
 def _read_line(connection: socket.socket) -> bytes:
@@ -270,6 +317,10 @@ def handle_request(config: SignalConfig, method: str, path: str,
         raise SignalError(404, "not found")
     vmid = int(match.group("vmid"))
     action = match.group("action")
+    # PVE's ACL path is /vms/<vmid> for both QEMU VMs and LXC containers, and
+    # the terminal tells them apart from the node's own configs.  The kind only
+    # selects where the per-guest codec policy lives.
+    policy = config.container_policy if match.group("kind") == "lxc" else config.policy
     if not isinstance(body, dict):
         raise SignalError(400, "invalid request")
     username = body.get("user")
@@ -292,7 +343,7 @@ def handle_request(config: SignalConfig, method: str, path: str,
 
     if action == "qsm-direct-settings" and method == "GET":
         config.authority.authorize(username, ticket, vmid, "VM.Console")
-        return {"data": config.policy.read(vmid)}
+        return {"data": policy.read(vmid)}
 
     if action == "qsm-direct-settings" and method == "PUT":
         config.authority.authorize(username, ticket, vmid, "VM.Config.Options")
@@ -300,7 +351,7 @@ def handle_request(config: SignalConfig, method: str, path: str,
         encoder = body.get("encoder")
         if not isinstance(codec, str) or not isinstance(encoder, str):
             raise SignalError(400, "invalid request")
-        return {"data": config.policy.write(vmid, codec, encoder)}
+        return {"data": policy.write(vmid, codec, encoder)}
 
     raise SignalError(405, "method not allowed")
 
@@ -428,6 +479,8 @@ def main(argv: list[str] | None = None) -> int:
                         default=Path("/run/qsm-pve-direct-terminal/pve-webrtc.sock"))
     parser.add_argument("--instance-directory", type=Path,
                         default=Path("/etc/qsm-pve-direct/instances.d"))
+    parser.add_argument("--container-instance-directory", type=Path,
+                        default=Path("/etc/qsm-pve-direct/containers.d"))
     parser.add_argument("--local-node", default=None)
     arguments = parser.parse_args(argv)
 
@@ -453,6 +506,7 @@ def main(argv: list[str] | None = None) -> int:
         terminal=TerminalClient(arguments.terminal_socket),
         policy=VmPolicyStore(arguments.instance_directory),
         local_node=arguments.local_node,
+        container_policy=ContainerPolicyStore(arguments.container_instance_directory),
     )
     context = _build_ssl_context(cert, key)
     server = SignalServer((arguments.listen, arguments.port), config, context)
