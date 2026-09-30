@@ -237,7 +237,7 @@ class ContainerPolicyStore(VmPolicyStore):
     writable for an enabled container, and its session-user line is kept.
     """
 
-    _PRESERVED = ("QSM_DIRECT_LXC_UID", "QSM_DIRECT_ENCODER")
+    _PRESERVED = ("QSM_DIRECT_LXC_UID", "QSM_DIRECT_LXC_DISPLAY", "QSM_DIRECT_ENCODER")
 
     def read(self, vmid: int) -> dict[str, str]:
         if not self._path(vmid).exists():

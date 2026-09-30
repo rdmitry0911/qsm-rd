@@ -1,0 +1,337 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""QSM Direct login manager for a container console.
+
+A container has no VT, so greetd/SDDM cannot run.  This is the small display
+manager of the QSM console display (the headless sway of qsm-display.service):
+
+  * shows the greeter (qsm-greeter, as the unprivileged user qsm-greeter) on
+    the display and talks to it over an inherited socketpair;
+  * verifies a login with PAM (service "qsm-login": common-auth +
+    common-account) -- only this root process ever sees a password check;
+  * starts the session as the system unit qsm-user-session@USER.service
+    (User=, PAMName=qsm-direct-session), so systemd opens a real PAM/logind
+    session on seat0 (polkit, user manager, limits, environment);
+  * waits for the session to end (Log Out) and shows the greeter again.
+
+Only the current client of the display may connect to it: the display socket
+gets a POSIX ACL entry for the greeter user or the logged-in user alone (the
+idea of logind's uaccess), revoked when that phase ends.
+"""
+from __future__ import annotations
+
+import ctypes
+import ctypes.util
+import json
+import os
+import pwd
+import re
+import shutil
+import socket
+import stat
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+DISPLAY_DIR = Path("/run/qsm-display")
+RUN_DIR = Path("/run/qsm-login")
+STATE_DIR = Path("/var/lib/qsm-login")
+DEFAULT_SESSION_FILE = Path("/etc/qsm-direct/session-type")
+GREETER = "/usr/local/lib/qsm-direct/qsm-greeter"
+GREETER_USER = "qsm-greeter"
+PAM_SERVICE = "qsm-login"
+SESSIONS = ("wayland", "x11")
+USER_NAME = re.compile(r"\A[a-z_][a-z0-9_-]{0,31}\Z")
+MAX_MESSAGE = 4096
+
+
+def log(message: str) -> None:
+    print(f"qsm-login: {message}", file=sys.stderr, flush=True)
+
+
+# ------------------------------------------------------------------ PAM
+class _PamMessage(ctypes.Structure):
+    _fields_ = [("msg_style", ctypes.c_int), ("msg", ctypes.c_char_p)]
+
+
+class _PamResponse(ctypes.Structure):
+    _fields_ = [("resp", ctypes.c_void_p), ("resp_retcode", ctypes.c_int)]
+
+
+_CONV = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.POINTER(_PamMessage)),
+                         ctypes.POINTER(ctypes.POINTER(_PamResponse)), ctypes.c_void_p)
+
+
+class _PamConv(ctypes.Structure):
+    _fields_ = [("conv", _CONV), ("appdata_ptr", ctypes.c_void_p)]
+
+
+_libc = ctypes.CDLL(ctypes.util.find_library("c"))
+_libc.calloc.restype = ctypes.c_void_p
+_libc.calloc.argtypes = (ctypes.c_size_t, ctypes.c_size_t)
+_libc.strdup.restype = ctypes.c_void_p
+_libc.strdup.argtypes = (ctypes.c_char_p,)
+_libpam = ctypes.CDLL(ctypes.util.find_library("pam") or "libpam.so.0")
+_libpam.pam_start.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(_PamConv),
+                              ctypes.POINTER(ctypes.c_void_p))
+_libpam.pam_authenticate.argtypes = (ctypes.c_void_p, ctypes.c_int)
+_libpam.pam_acct_mgmt.argtypes = (ctypes.c_void_p, ctypes.c_int)
+_libpam.pam_end.argtypes = (ctypes.c_void_p, ctypes.c_int)
+_libpam.pam_strerror.argtypes = (ctypes.c_void_p, ctypes.c_int)
+_libpam.pam_strerror.restype = ctypes.c_char_p
+PAM_PROMPT_ECHO_OFF, PAM_PROMPT_ECHO_ON, PAM_ERROR_MSG, PAM_TEXT_INFO = 1, 2, 3, 4
+PAM_SUCCESS, PAM_AUTH_ERR, PAM_NEW_AUTHTOK_REQD, PAM_CONV_ERR = 0, 7, 12, 19
+
+
+def pam_check(user: str, password: str) -> str | None:
+    """Authenticate and check the account.  None on success, else a message."""
+    secret = password.encode()
+    notes: list[str] = []
+
+    def converse(count, messages, responses, _data):
+        array = _libc.calloc(count, ctypes.sizeof(_PamResponse))
+        if not array:
+            return PAM_CONV_ERR
+        replies = ctypes.cast(array, ctypes.POINTER(_PamResponse))
+        for index in range(count):
+            style = messages[index].contents.msg_style
+            text = (messages[index].contents.msg or b"").decode(errors="replace").strip()
+            if style == PAM_PROMPT_ECHO_OFF:
+                replies[index].resp = _libc.strdup(secret)
+            elif style == PAM_PROMPT_ECHO_ON:
+                replies[index].resp = _libc.strdup(user.encode())
+            elif text:
+                notes.append(text)
+        responses[0] = replies
+        return PAM_SUCCESS
+
+    conversation = _PamConv(_CONV(converse), None)
+    handle = ctypes.c_void_p()
+    result = _libpam.pam_start(PAM_SERVICE.encode(), user.encode(), ctypes.byref(conversation),
+                               ctypes.byref(handle))
+    if result != PAM_SUCCESS:
+        return "The login service is unavailable."
+    try:
+        result = _libpam.pam_authenticate(handle, 0)
+        if result == PAM_SUCCESS:
+            result = _libpam.pam_acct_mgmt(handle, 0)
+            if result == PAM_NEW_AUTHTOK_REQD:
+                return "The password has expired; change it in the container (passwd) first."
+        if result != PAM_SUCCESS:
+            log(f"login of {user} refused: {_libpam.pam_strerror(handle, result).decode()}")
+            # Authentication failures stay generic; account problems (expired,
+            # locked, nologin) are worth their module's explanation.
+            if result == PAM_AUTH_ERR or not notes:
+                return "Login failed: wrong user name or password."
+            return notes[-1]
+        return None
+    finally:
+        _libpam.pam_end(handle, result)
+
+
+# ------------------------------------------------------------------ helpers
+def login_users() -> list[dict[str, str]]:
+    users = []
+    for entry in pwd.getpwall():
+        if 1000 <= entry.pw_uid < 60000 and USER_NAME.fullmatch(entry.pw_name) and \
+                not entry.pw_shell.endswith(("nologin", "/false")) and entry.pw_name != GREETER_USER:
+            users.append({"name": entry.pw_name, "full": entry.pw_gecos.split(",")[0] or entry.pw_name})
+    return sorted(users, key=lambda user: user["name"])
+
+
+def default_session() -> str:
+    try:
+        value = DEFAULT_SESSION_FILE.read_text().strip()
+    except OSError:
+        value = ""
+    return value if value in SESSIONS else "wayland"
+
+
+def read_state(name: str) -> str:
+    try:
+        return (STATE_DIR / name).read_text().strip()
+    except OSError:
+        return ""
+
+
+def write_state(name: str, value: str) -> None:
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = STATE_DIR / f".{name}.tmp"
+    temporary.write_text(value + "\n")
+    os.replace(temporary, STATE_DIR / name)
+
+
+def display_socket(timeout: float | None = None) -> Path | None:
+    """The display's wayland socket (lowest wayland-N), waiting for it."""
+    deadline = None if timeout is None else time.monotonic() + timeout
+    while True:
+        try:
+            names = sorted((entry.name for entry in os.scandir(DISPLAY_DIR)
+                            if re.fullmatch(r"wayland-[0-9]+", entry.name)
+                            and stat.S_ISSOCK(entry.stat(follow_symlinks=False).st_mode)),
+                           key=lambda name: int(name.split("-")[1]))
+        except OSError:
+            names = []
+        if names:
+            return DISPLAY_DIR / names[0]
+        if deadline is not None and time.monotonic() > deadline:
+            return None
+        time.sleep(0.5)
+
+
+def display_geometry() -> str:
+    try:
+        sway_socket = next(DISPLAY_DIR.glob("sway-ipc.*.sock"))
+        output = subprocess.run(["swaymsg", "-s", str(sway_socket), "-t", "get_outputs", "-r"],
+                                capture_output=True, text=True, timeout=5).stdout
+        mode = json.loads(output)[0]["current_mode"]
+        return f"{int(mode['width'])}x{int(mode['height'])}"
+    except (StopIteration, OSError, ValueError, KeyError, IndexError, subprocess.SubprocessError):
+        return "1920x1080"
+
+
+def grant(path: Path, user: str, allow: bool) -> None:
+    """Give (or take back) one user's right to connect to the display socket."""
+    try:
+        if not stat.S_ISSOCK(os.lstat(path).st_mode):
+            return
+    except OSError:
+        return
+    argv = ["setfacl", "-m", f"u:{user}:rw", str(path)] if allow else ["setfacl", "-x", f"u:{user}", str(path)]
+    subprocess.run(argv, capture_output=True, timeout=10)
+
+
+def unit_state(unit: str) -> str:
+    return subprocess.run(["systemctl", "is-active", unit], capture_output=True, text=True).stdout.strip()
+
+
+def wait_unit(unit: str) -> None:
+    while unit_state(unit) in ("active", "activating", "reloading", "deactivating"):
+        time.sleep(1)
+
+
+def active_session() -> str | None:
+    listing = subprocess.run(["systemctl", "list-units", "--no-legend", "--plain", "--state=active,activating",
+                              "qsm-user-session@*.service"], capture_output=True, text=True).stdout
+    for line in listing.splitlines():
+        unit = line.split()[0] if line.split() else ""
+        if unit.startswith("qsm-user-session@"):
+            return unit
+    return None
+
+
+# ------------------------------------------------------------------ phases
+def run_greeter(display: Path) -> tuple[str, str] | None:
+    """Show the greeter until one login succeeds; (user, session) or None."""
+    greeter = pwd.getpwnam(GREETER_USER)
+    runtime = RUN_DIR / "greeter"
+    shutil.rmtree(runtime, ignore_errors=True)
+    runtime.mkdir(mode=0o700, parents=True)
+    os.chown(runtime, greeter.pw_uid, greeter.pw_gid)
+    users = login_users()
+    last_user = read_state("last-user")
+    hello = {"type": "hello", "users": users,
+             "last_user": last_user if any(u["name"] == last_user for u in users) else "",
+             "sessions": list(SESSIONS), "default_session": default_session(),
+             "user_sessions": {u["name"]: read_state(f"session.{u['name']}") for u in users}}
+    ours, theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    grant(display, GREETER_USER, True)
+    environment = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(runtime), "XDG_RUNTIME_DIR": str(runtime),
+        "WAYLAND_DISPLAY": str(display), "QT_QPA_PLATFORM": "wayland",
+        "QT_WAYLAND_DISABLE_WINDOWDECORATION": "1", "QSM_LOGIN_FD": str(theirs.fileno()),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+    }
+    process = subprocess.Popen(["/usr/bin/python3", GREETER], user=greeter.pw_uid, group=greeter.pw_gid,
+                               extra_groups=[], env=environment, pass_fds=(theirs.fileno(),),
+                               cwd=str(runtime), stdin=subprocess.DEVNULL)
+    theirs.close()
+    try:
+        ours.send(json.dumps(hello).encode())
+        while True:
+            try:
+                raw = ours.recv(MAX_MESSAGE)
+            except OSError:
+                raw = b""
+            if not raw:
+                return None
+            try:
+                request = json.loads(raw)
+                user, password, session = request["user"], request["password"], request["session"]
+                valid = (request.get("type") == "login" and isinstance(user, str) and isinstance(password, str)
+                         and isinstance(session, str) and session in SESSIONS and len(password) <= 1024
+                         and any(u["name"] == user for u in login_users()))
+            except (ValueError, KeyError, TypeError):
+                valid = False
+            if not valid:
+                ours.send(json.dumps({"type": "result", "ok": False,
+                                      "message": "Login failed: wrong user name or password."}).encode())
+                continue
+            problem = pam_check(user, password)
+            del password, request
+            if problem is None:
+                ours.send(json.dumps({"type": "result", "ok": True}).encode())
+                return user, session
+            ours.send(json.dumps({"type": "result", "ok": False, "message": problem}).encode())
+    finally:
+        ours.close()
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        grant(display, GREETER_USER, False)
+        shutil.rmtree(runtime, ignore_errors=True)
+
+
+def run_session(user: str, session: str, display: Path) -> None:
+    unit = f"qsm-user-session@{user}.service"
+    RUN_DIR.mkdir(mode=0o755, parents=True, exist_ok=True)
+    (RUN_DIR / f"{user}.env").write_text(
+        f"QSM_SESSION_TYPE={session}\nXDG_SESSION_TYPE={session}\n"
+        f"QSM_DISPLAY_SOCKET={display}\nQSM_DISPLAY_GEOMETRY={display_geometry()}\n")
+    write_state("last-user", user)
+    write_state(f"session.{user}", session)
+    grant(display, user, True)
+    log(f"starting the {session} session of {user}")
+    try:
+        started = subprocess.run(["systemctl", "start", unit], capture_output=True, text=True)
+        if started.returncode != 0:
+            log(f"{unit} failed to start: {started.stderr.strip()}")
+            return
+        wait_unit(unit)
+        log(f"the session of {user} ended")
+    finally:
+        grant(display, user, False)
+        try:
+            # Plasma services can outlive the session in the user manager; they
+            # must not keep a connection to the display for the next login.
+            # Only queue the stop: kded can take 25 s to go, and the login
+            # screen must not wait for it (a new session also cleans up).
+            subprocess.run(["systemctl", "--user", "-M", f"{user}@", "--no-block", "stop",
+                            "plasma-workspace.target", "graphical-session.target", "plasma-*.service"],
+                           capture_output=True, timeout=10)
+        except subprocess.SubprocessError:
+            pass
+
+
+def main() -> int:
+    RUN_DIR.mkdir(mode=0o755, parents=True, exist_ok=True)
+    unit = active_session()
+    if unit is not None:
+        # This manager was restarted under a running session: keep it.
+        log(f"{unit} is running; showing the login screen after it ends")
+        wait_unit(unit)
+    while True:
+        display = display_socket()
+        result = run_greeter(display)
+        if result is None:
+            time.sleep(1)
+            continue
+        run_session(*result, display)
+        time.sleep(0.5)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

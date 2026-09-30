@@ -1,0 +1,244 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""QSM Direct login screen (runs as the unprivileged user qsm-greeter).
+
+It only collects a user name, a password and a session type and hands them
+to qsm-login over the inherited socket QSM_LOGIN_FD; qsm-login does the PAM
+check and starts the session.  It exits once a login succeeded.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import socket
+import sys
+
+from PyQt5.QtCore import QDateTime, QLocale, QPointF, QRectF, QSocketNotifier, Qt, QTimer
+from PyQt5.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPixmap
+from PyQt5.QtWidgets import (QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QLabel,
+                             QLineEdit, QPushButton, QVBoxLayout, QWidget)
+
+SESSION_NAMES = {"wayland": "Plasma (Wayland)", "x11": "Plasma (X11)"}
+WALLPAPERS = "/usr/share/wallpapers/Next/contents/images"
+AVATARS = "/var/lib/AccountsService/icons"
+AVATAR_COLOURS = ("#3daee9", "#1abc9c", "#9b59b6", "#e67e22", "#e74c3c", "#27ae60", "#2980b9")
+
+
+def best_wallpaper() -> QPixmap:
+    best: tuple[int, str] | None = None
+    try:
+        for name in os.listdir(WALLPAPERS):
+            match = re.fullmatch(r"(\d+)x(\d+)\.(png|jpg)", name)
+            if match and int(match.group(1)) > int(match.group(2)):
+                area = int(match.group(1)) * int(match.group(2))
+                if best is None or area > best[0]:
+                    best = (area, os.path.join(WALLPAPERS, name))
+    except OSError:
+        pass
+    return QPixmap(best[1]) if best else QPixmap()
+
+
+class Avatar(QWidget):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setFixedSize(112, 112)
+        self._name = ""
+        self._picture = QPixmap()
+
+    def show_user(self, name: str, full: str) -> None:
+        self._name = full or name
+        path = os.path.join(AVATARS, name)
+        self._picture = QPixmap(path) if os.path.isfile(path) else QPixmap()
+        self._colour = QColor(AVATAR_COLOURS[sum(map(ord, name)) % len(AVATAR_COLOURS)])
+        self.update()
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        circle = QPainterPath()
+        circle.addEllipse(QRectF(4, 4, 104, 104))
+        painter.setClipPath(circle)
+        if not self._picture.isNull():
+            painter.drawPixmap(4, 4, 104, 104, self._picture)
+        else:
+            painter.fillPath(circle, self._colour)
+            painter.setPen(QColor("white"))
+            font = QFont(self.font())
+            font.setPointSize(38)
+            painter.setFont(font)
+            painter.drawText(QRectF(4, 4, 104, 104), Qt.AlignCenter, (self._name[:1] or "?").upper())
+        painter.setClipping(False)
+        painter.setPen(QColor(255, 255, 255, 170))
+        painter.drawEllipse(QRectF(3, 3, 106, 106))
+
+
+class Greeter(QWidget):
+    def __init__(self, connection: socket.socket, hello: dict) -> None:
+        super().__init__()
+        self._connection = connection
+        self._hello = hello
+        self._wallpaper = best_wallpaper()
+        self.setWindowTitle("QSM Login")
+        self.setStyleSheet("""
+            QLabel { color: white; background: transparent; }
+            QFrame#card { background: rgba(20, 24, 30, 170); border-radius: 18px; }
+            QLineEdit, QComboBox { min-height: 34px; padding: 0 10px; border-radius: 6px; font-size: 11pt;
+                                   color: #232629; background: rgba(252, 252, 252, 235); border: 1px solid #bdc3c7; }
+            QLineEdit:focus, QComboBox:focus { border: 2px solid #3daee9; }
+            QPushButton#login { min-height: 36px; border-radius: 6px; font-size: 11pt; font-weight: bold;
+                                color: white; background: #3daee9; border: none; }
+            QPushButton#login:hover { background: #56bdf0; }
+            QPushButton#login:disabled { background: #7f8c8d; }
+            QLabel#error { color: #ff8a80; font-size: 10pt; }
+        """)
+
+        self.clock = QLabel(alignment=Qt.AlignCenter)
+        self.clock.setStyleSheet("font-size: 64pt; font-weight: 300;")
+        self.date = QLabel(alignment=Qt.AlignCenter)
+        self.date.setStyleSheet("font-size: 15pt;")
+        for label in (self.clock, self.date):
+            shadow = QGraphicsDropShadowEffect(blurRadius=18, offset=QPointF(0, 2), color=QColor(0, 0, 0, 160))
+            label.setGraphicsEffect(shadow)
+
+        self.avatar = Avatar()
+        self.user = QComboBox()
+        for entry in hello.get("users", []):
+            label = entry["full"] if entry["full"] == entry["name"] else f"{entry['full']} ({entry['name']})"
+            self.user.addItem(label, entry["name"])
+        self.password = QLineEdit(echoMode=QLineEdit.Password, placeholderText="Password")
+        self.session = QComboBox()
+        for key in hello.get("sessions", ["wayland"]):
+            self.session.addItem(SESSION_NAMES.get(key, key), key)
+        self.button = QPushButton("Log In", objectName="login")
+        self.error = QLabel(objectName="error", alignment=Qt.AlignCenter, wordWrap=True)
+
+        card = QFrame(objectName="card")
+        card.setFixedWidth(400)
+        column = QVBoxLayout(card)
+        column.setContentsMargins(32, 28, 32, 26)
+        column.setSpacing(12)
+        column.addWidget(self.avatar, alignment=Qt.AlignHCenter)
+        column.addSpacing(6)
+        column.addWidget(self.user)
+        column.addWidget(self.password)
+        column.addWidget(self.session)
+        column.addSpacing(4)
+        column.addWidget(self.button)
+        column.addWidget(self.error)
+
+        page = QVBoxLayout(self)
+        page.addStretch(3)
+        page.addWidget(self.clock)
+        page.addWidget(self.date)
+        page.addSpacing(28)
+        page.addWidget(card, alignment=Qt.AlignHCenter)
+        page.addStretch(4)
+
+        self.user.currentIndexChanged.connect(self._user_changed)
+        self.password.returnPressed.connect(self._submit)
+        self.button.clicked.connect(self._submit)
+        last = hello.get("last_user") or ""
+        index = self.user.findData(last)
+        self.user.setCurrentIndex(index if index >= 0 else 0)
+        self._user_changed()
+
+        self._notifier = QSocketNotifier(connection.fileno(), QSocketNotifier.Read, self)
+        self._notifier.activated.connect(self._receive)
+        timer = QTimer(self)
+        timer.timeout.connect(self._tick)
+        timer.start(1000)
+        self._tick()
+        if self.user.count() == 0:
+            self._set_busy(False)
+            self.error.setText("No user account can log in (create one in the container).")
+            self.button.setEnabled(False)
+
+    def _tick(self) -> None:
+        now = QDateTime.currentDateTime()
+        locale = QLocale()
+        self.clock.setText(locale.toString(now.time(), "HH:mm"))
+        self.date.setText(locale.toString(now.date(), QLocale.LongFormat))
+
+    def _user_changed(self) -> None:
+        name = self.user.currentData() or ""
+        full = next((u["full"] for u in self._hello.get("users", []) if u["name"] == name), name)
+        self.avatar.show_user(name, full)
+        preferred = (self._hello.get("user_sessions") or {}).get(name) or self._hello.get("default_session")
+        index = self.session.findData(preferred)
+        if index >= 0:
+            self.session.setCurrentIndex(index)
+        self.password.clear()
+        self.error.clear()
+        self.password.setFocus()
+
+    def _set_busy(self, busy: bool) -> None:
+        for widget in (self.user, self.password, self.session, self.button):
+            widget.setEnabled(not busy)
+        self.button.setText("Logging in…" if busy else "Log In")
+
+    def _submit(self) -> None:
+        if not self.button.isEnabled() or not self.user.currentData():
+            return
+        if not self.password.text():
+            self.error.setText("Enter the password.")
+            self.password.setFocus()
+            return
+        self.error.clear()
+        self._set_busy(True)
+        request = {"type": "login", "user": self.user.currentData(), "password": self.password.text(),
+                   "session": self.session.currentData()}
+        try:
+            self._connection.send(json.dumps(request).encode())
+        except OSError:
+            QApplication.exit(1)
+
+    def _receive(self) -> None:
+        try:
+            raw = self._connection.recv(4096)
+        except BlockingIOError:
+            return
+        except OSError:
+            raw = b""
+        if not raw:
+            QApplication.exit(1)
+            return
+        reply = json.loads(raw)
+        if reply.get("ok"):
+            self.button.setText("Starting the session…")
+            QTimer.singleShot(200, lambda: QApplication.exit(0))
+            return
+        self._set_busy(False)
+        self.error.setText(reply.get("message") or "Login failed.")
+        self.password.clear()
+        self.password.setFocus()
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        area = self.rect()
+        if not self._wallpaper.isNull():
+            scaled = self._wallpaper.scaled(area.size(), Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+            painter.drawPixmap((area.width() - scaled.width()) // 2, (area.height() - scaled.height()) // 2, scaled)
+        else:
+            painter.fillRect(area, QColor("#1d2b3a"))
+        shade = QLinearGradient(0, 0, 0, area.height())
+        shade.setColorAt(0.0, QColor(0, 0, 0, 60))
+        shade.setColorAt(1.0, QColor(0, 0, 0, 130))
+        painter.fillRect(area, shade)
+
+
+def main() -> int:
+    connection = socket.socket(fileno=int(os.environ["QSM_LOGIN_FD"]))
+    hello = json.loads(connection.recv(65536) or b"{}")
+    connection.setblocking(False)
+    application = QApplication(sys.argv)
+    application.setApplicationName("qsm-greeter")
+    application.setStyle("Breeze")
+    window = Greeter(connection, hello)
+    window.showFullScreen()
+    return application.exec_()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

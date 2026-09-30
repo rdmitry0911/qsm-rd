@@ -141,21 +141,36 @@ Enable a running Debian/Ubuntu container that already has a Plasma desktop:
 This passes the GPU through (NVIDIA device nodes and the DRM render node;
 --restart applies it), installs NVIDIA userspace matching the host kernel
 module from the host's NVIDIA-Linux-x86_64-<version>.run (--nvidia-run FILE),
-installs sway/xwayland, creates the session user "qsm" (--user/--uid) with
-lingering user services qsm-display, qsm-seat-keeper and qsm-session, and
-writes /etc/qsm-pve-direct/containers.d/<vmid>.conf.  The container's Console
-button then offers "QSM Direct" to users with VM.Console on /vms/<vmid>; its
-Console tab keeps the stock xterm.js terminal.
+installs sway/xwayland/PyQt5/acl, and sets up the console display as system
+services in the container:
 
-The session user also gets a graphical logind session (system unit
-qsm-desktop-session.service, PAM service qsm-direct-session) so the KDE polkit
-agent works, and is added to the sudo group (polkit administrators; skip with
---no-admin).  Administrative actions in the desktop, such as adding users in
-System Settings, ask for that user's password, so set one:
+    qsm-display.service            headless sway (user qsm-display), /run/qsm-display
+    qsm-seat-keeper.service        keeps the display's input devices stable
+    qsm-login.service              login manager: login screen, PAM, sessions
+    qsm-user-session@USER.service  one logged-in desktop session
+
+A container has no VT, so greetd/SDDM cannot run (an enabled SDDM is disabled).
+The console therefore shows QSM's own login screen: pick a user, enter the
+password, choose Plasma (Wayland) or Plasma (X11).  qsm-login checks the
+password with PAM (service qsm-login) and starts the session through systemd
+with PAMName=qsm-direct-session, i.e. a real logind session on seat0 (polkit
+dialogs, user manager, limits work as after a normal desktop login).  Log Out
+returns to the login screen; the console stream keeps running throughout.
+Only the current client of the display -- the login screen or the logged-in
+user -- may connect to it (an ACL on the display socket, like logind's
+uaccess).
+
+A desktop user "qsm" (--user/--uid) is created if missing and added to the
+sudo group (polkit administrators; skip with --no-admin).  Any account of the
+container with a password can log in; set one:
 
     pct exec <vmid> -- passwd qsm
 
-    qsm-pve-direct-lxc session <vmid> wayland|x11   switch the session type
+enable writes /etc/qsm-pve-direct/containers.d/<vmid>.conf.  The container's
+Console button then offers "QSM Direct" to users with VM.Console on
+/vms/<vmid>; its Console tab keeps the stock xterm.js terminal.
+
+    qsm-pve-direct-lxc session <vmid> wayland|x11   default session of the login screen
     qsm-pve-direct-lxc status  <vmid>
     qsm-pve-direct-lxc disable <vmid>
 

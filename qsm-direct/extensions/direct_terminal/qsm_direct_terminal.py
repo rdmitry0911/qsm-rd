@@ -352,6 +352,7 @@ def _qemu_process_generation(pid_directory: Path, vmid: int) -> str | None:
 #   /etc/qsm-pve-direct/containers.d/<vmid>.conf
 _CONTAINER_KEYS = frozenset({
     "QSM_DIRECT_LXC_UID",
+    "QSM_DIRECT_LXC_DISPLAY",
     "QSM_DIRECT_CODEC",
     "QSM_DIRECT_ENCODER_MODE",
     "QSM_DIRECT_ENCODER",
@@ -388,12 +389,18 @@ def _load_container_instance(directory: Path, vmid: int) -> dict[str, str] | Non
             raise DirectTerminalError("direct-terminal container policy is invalid")
         values[key] = value
     values.setdefault("QSM_DIRECT_LXC_UID", "1000")
+    # "system": the display is a system service shared by the container's
+    # login screen and whichever user logs in (/run/qsm-display); "user": the
+    # original per-user display of QSM_DIRECT_LXC_UID.
+    values.setdefault("QSM_DIRECT_LXC_DISPLAY", "user")
     values.setdefault("QSM_DIRECT_CODEC", "auto")
     values.setdefault("QSM_DIRECT_ENCODER_MODE", "auto")
     values.setdefault("QSM_DIRECT_ENCODER", "auto")
     uid = values["QSM_DIRECT_LXC_UID"]
     if not _LXC_UID_PATTERN.fullmatch(uid) or int(uid) > 65533:
         raise DirectTerminalError("direct-terminal container has an invalid session user")
+    if values["QSM_DIRECT_LXC_DISPLAY"] not in {"user", "system"}:
+        raise DirectTerminalError("direct-terminal container has an invalid display mode")
     if not _CODEC_PATTERN.fullmatch(values["QSM_DIRECT_CODEC"]):
         raise DirectTerminalError("direct-terminal container has an unsupported browser codec")
     if not _ENCODER_MODE_PATTERN.fullmatch(values["QSM_DIRECT_ENCODER_MODE"]):
@@ -1048,6 +1055,8 @@ class DirectSessionManager:
             raise DirectTerminalError("direct-terminal container is not running")
         init_pid = int(generation.split(":", 1)[0])
         uid = policy["QSM_DIRECT_LXC_UID"]
+        display_directory = ("run/qsm-display" if policy.get("QSM_DIRECT_LXC_DISPLAY") == "system"
+                             else f"run/user/{uid}/qsm-outer")
 
         directory = self._runtime_directory / f"vm-{vmid}" / "producer"
         _safe_runtime_directory(directory.parent)
@@ -1066,7 +1075,7 @@ class DirectSessionManager:
             arguments = [
                 "/usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker",
                 "--wlroots-root", f"/proc/{init_pid}/root",
-                "--wlroots-dir", f"run/user/{uid}/qsm-outer",
+                "--wlroots-dir", display_directory,
                 "--drop-privileges", "nobody",
                 "--video-socket", f"unix:{media.video_path}",
                 "--audio-socket", f"unix:{media.audio_path}",
