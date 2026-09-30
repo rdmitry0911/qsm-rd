@@ -38,6 +38,10 @@ configure)
             systemctl try-restart 'qsm-login@*.service' || true
         fi
         systemctl start qsm-consoles.service || true
+        # Already "active" (a oneshot) from an earlier install whose consoles
+        # were stopped meanwhile: start the missing ones -- running consoles
+        # are left alone, so no desktop is logged out.
+        /usr/lib/qsm-console/qsm-consoles >/dev/null || true
     fi
     ;;
 esac

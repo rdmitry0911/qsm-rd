@@ -134,6 +134,10 @@ and injects input (virtual pointer/keyboard), using the host GPU encoder.
 The worker resolves the display socket inside the container's root (symlinks
 cannot redirect it to a host socket) and drops to "nobody" once connected.
 
+The container console is the package qsm-pve-direct-lxc (the setup tool); the
+container side is the package qsm-console-guest, which the tool installs into
+the container with apt.
+
 Enable a running Debian/Ubuntu container that already has a Plasma desktop:
 
     qsm-pve-direct-lxc enable <vmid> [--session wayland|x11] [--grace SECONDS] [--restart]

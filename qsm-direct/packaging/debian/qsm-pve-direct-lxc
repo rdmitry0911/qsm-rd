@@ -281,6 +281,8 @@ def install_guest_package(vmid: int, session: str) -> None:
              "/root/qsm-console-guest.deb kwin-wayland plasma-workspace-wayland; "
              "rc=$?; rm -f /root/qsm-console-guest.deb; exit $rc", timeout=1800)
     push(vmid, session + "\n", "/etc/qsm-direct/session-type")
+    # start the consoles this container has (idempotent; running ones stay)
+    ct(vmid, "systemctl start qsm-consoles.service; /usr/lib/qsm-console/qsm-consoles", check=False)
 
 
 def user_systemctl(vmid: int, user: str, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
