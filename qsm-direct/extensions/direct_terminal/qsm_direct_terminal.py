@@ -211,6 +211,27 @@ def _read_pve_vm_config(path: Path) -> str | None:
         os.close(descriptor)
 
 
+def _pve_vga_option(config: str) -> dict[str, str] | None:
+    """The current ``vga:`` property string of a PVE VM config, parsed.
+
+    Only the current section counts (snapshots and pending changes follow in
+    ``[...]`` sections); the leading value without a key is ``type``.
+    """
+    for line in config.splitlines():
+        if line.startswith("["):
+            break
+        if line.startswith("vga:"):
+            result: dict[str, str] = {}
+            for part in line[4:].strip().split(","):
+                key, separator, value = part.partition("=")
+                if separator:
+                    result[key.strip()] = value.strip()
+                elif part.strip():
+                    result["type"] = part.strip()
+            return result
+    return None
+
+
 def _managed_display_profile(config: str, vmid: int, vm_runtime_directory: Path) -> str | None:
     """Accept one explicitly owned Display1 profile from the PVE config.
 
@@ -677,6 +698,9 @@ class DirectVmTransport:
     codec: str
     guest: QsmGuestChannel | None = None
     kind: str = "vm"  # "vm" (QEMU Display1) or "lxc" (container wlroots display)
+    # Attached by qemu-server (vga: ...,dbus=1, webrtcproxy) over a passed
+    # peer-to-peer connection rather than this package's args/bus profile.
+    attached_by_pve: bool = False
 
 
 class DirectSessionManager:
@@ -925,6 +949,8 @@ class DirectSessionManager:
                 await self._close_vmid_sessions(key)
                 continue
             generation = _qemu_process_generation(self._qemu_pid_directory, vmid)
+            if transport.attached_by_pve and generation == transport.qemu_generation:
+                continue  # its QEMU process still runs; its config is qemu-server's business
             if vmid in configured and generation == transport.qemu_generation:
                 continue
             reason = "configuration changed" if vmid not in configured else "QEMU generation changed"
@@ -993,27 +1019,30 @@ class DirectSessionManager:
         return {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C"}
 
     async def _create(self, vmid: int, sdp: str, width: int, height: int, fps: int,
-                      subject: str = "") -> dict[str, str]:
+                      subject: str = "", display_fd: int | None = None) -> dict[str, str]:
         # Do not retain a lock for an arbitrary VMID submitted by an
         # authenticated but otherwise invalid request.  Only a configured VM
         # may acquire the small, process-lifetime per-VM serialization entry.
-        if self._container_policy(vmid) is None and not self._display_is_configured(vmid):
+        # (A request from qemu-server carries the display connection itself.)
+        if display_fd is None and self._container_policy(vmid) is None and \
+                not self._display_is_configured(vmid):
             raise DirectTerminalError("direct-terminal VM is not configured for Display1")
         lock = self._vm_locks.setdefault(vmid, asyncio.Lock())
         async with lock:
-            return await self._create_locked(vmid, sdp, width, height, fps, subject)
+            return await self._create_locked(vmid, sdp, width, height, fps, subject, display_fd)
 
     async def _create_locked(self, vmid: int, sdp: str, width: int, height: int, fps: int,
-                             subject: str = "") -> dict[str, str]:
+                             subject: str = "", display_fd: int | None = None) -> dict[str, str]:
         self._collect_expired()
-        container = self._container_policy(vmid)
-        if container is None and not self._display_is_configured(vmid):
+        container = None if display_fd is not None else self._container_policy(vmid)
+        if display_fd is None and container is None and not self._display_is_configured(vmid):
             raise DirectTerminalError("direct-terminal VM is not configured for Display1")
         if len(self._sessions) >= MAX_SESSIONS:
             raise DirectTerminalError("direct-terminal session capacity is exhausted")
         if container is None:
             policy = _load_optional_instance(self._instance_directory, vmid, self._vm_runtime_directory)
-            self._dbus.ensure(vmid, policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"])
+            if display_fd is None:
+                self._dbus.ensure(vmid, policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"])
             current_generation = _qemu_process_generation(self._qemu_pid_directory, vmid)
         else:
             policy = container
@@ -1037,7 +1066,7 @@ class DirectSessionManager:
             codec, selection = self._codec_for_offer(sdp, policy)
         if container is None:
             transport = await self._transport_for(vmid, policy, width, height, fps,
-                                                  codec=codec, selection=selection)
+                                                  codec=codec, selection=selection, display_fd=display_fd)
         else:
             try:
                 transport = await self._lxc_transport_for(vmid, policy, width, height, fps,
@@ -1165,8 +1194,14 @@ class DirectSessionManager:
 
     async def _transport_for(self, vmid: int, policy: dict[str, str], width: int, height: int,
                              fps: int, *, codec: str,
-                             selection: DirectEncoderSelection | None = None) -> DirectVmTransport:
-        """Return the sole capture/encoder worker for this VM, starting it once."""
+                             selection: DirectEncoderSelection | None = None,
+                             display_fd: int | None = None) -> DirectVmTransport:
+        """Return the sole capture/encoder worker for this VM, starting it once.
+
+        ``display_fd`` is a peer-to-peer D-Bus connection to the display that
+        qemu-server attached for this Console (``vga: ...,dbus=1``, API call
+        webrtcproxy); without it the worker joins the VM's package-owned bus.
+        """
         generation = _qemu_process_generation(self._qemu_pid_directory, vmid)
         existing = self._transports.get(vmid)
         if existing is not None and generation == existing.qemu_generation and existing.worker.poll() is None:
@@ -1199,8 +1234,13 @@ class DirectSessionManager:
             # scanout for which QEMU rejects SetUIInfo, while VirGL must keep
             # treating such a rejection as a real display failure.
             config = _read_pve_vm_config(self._pve_config_directory / f"{vmid}.conf")
-            profile = (_managed_display_profile(config, vmid, self._vm_runtime_directory)
-                       if config is not None else None)
+            if display_fd is not None:
+                # qemu-server checked the VGA option; only its type matters here.
+                vga = _pve_vga_option(config) if config is not None else None
+                profile = "virgl" if vga is not None and vga.get("type") == "virtio-gl" else "cpu"
+            else:
+                profile = (_managed_display_profile(config, vmid, self._vm_runtime_directory)
+                           if config is not None else None)
             if profile is None:
                 raise DirectTerminalError("direct-terminal VM Display1 configuration changed")
             configured_encoder = policy.get("QSM_DIRECT_ENCODER") or "auto"
@@ -1208,9 +1248,11 @@ class DirectSessionManager:
             resolved = selection or self._select_encoder(codec, policy)
             encoder = resolved.encoder
             vaapi_device = resolved.vaapi_device
+            display_arguments = (["--dbus-fd", str(display_fd)] if display_fd is not None
+                                 else ["--dbus-address", policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"]])
             arguments = [
                 "/usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker",
-                "--dbus-address", policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"],
+                *display_arguments,
                 "--video-socket", f"unix:{media.video_path}",
                 "--audio-socket", f"unix:{media.audio_path}",
                 "--input-socket", f"unix:{input_egress.path}",
@@ -1236,17 +1278,19 @@ class DirectSessionManager:
             worker = subprocess.Popen(
                 arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=None,
                 env=self._child_environment(), close_fds=True, start_new_session=True,
+                pass_fds=(display_fd,) if display_fd is not None else (),
             )
             await asyncio.sleep(0.12)
             if worker.poll() is not None:
                 raise DirectTerminalError(
                     f"direct-terminal media worker failed to start (exit code {worker.returncode})")
             guest = (QsmGuestChannel(self._vm_runtime_directory / str(vmid) / "qsm-agent.sock")
-                     if config is not None and _managed_guest_channel_enabled(
+                     if display_fd is None and config is not None and _managed_guest_channel_enabled(
                          config, vmid, self._vm_runtime_directory) else None)
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
-                qemu_generation=generation, codec=codec, guest=guest)
+                qemu_generation=generation, codec=codec, guest=guest,
+                attached_by_pve=display_fd is not None)
             self._transports[vmid] = transport
             print(
                 f"qsm-direct-terminal: VM media transport started vmid={vmid} codec={codec} encoder={encoder} pid={worker.pid}",
@@ -1502,6 +1546,42 @@ class DirectSessionManager:
             raise DirectTerminalError(
                 f"direct-terminal WebRTC negotiation failed: {suffix}") from error
 
+    def answer_webrtc(self, request: Any, display_fd: int) -> dict[str, str]:
+        """Answer a WebRTC offer that qemu-server forwarded with a display fd.
+
+        The request comes from the webrtcproxy API call, which already
+        authenticated the PVE user, checked VM.Console and attached the fd to
+        the VM's D-Bus display (``vga: ...,dbus=1``).  The fd stays owned by
+        the caller; a started worker inherits its own copy.
+        """
+        if not isinstance(request, dict) or request.get("version") != 1 or \
+                set(request) != {"version", "vmid", "user", "offer"}:
+            raise DirectTerminalError("direct-terminal webrtc request is invalid")
+        vmid, user, offer = request["vmid"], request["user"], request["offer"]
+        if (type(vmid) is not int or not _valid_vmid(vmid) or not isinstance(user, str) or
+                not _SUBJECT_PATTERN.fullmatch(user) or not isinstance(offer, dict) or
+                set(offer) - {"sdp", "width", "height", "fps"} or not isinstance(offer.get("sdp"), str) or
+                not offer["sdp"].isascii() or not 1 <= len(offer["sdp"]) <= MAX_SDP_BYTES):
+            raise DirectTerminalError("direct-terminal webrtc request is invalid")
+        width, height, fps = (offer.get("width", 1920), offer.get("height", 1080), offer.get("fps", 60))
+        for value, minimum, maximum in ((width, 64, 16384), (height, 64, 16384), (fps, 10, 240)):
+            if type(value) is not int or not minimum <= value <= maximum:
+                raise DirectTerminalError("direct-terminal webrtc request is invalid")
+        width, height = width - width % 2, height - height % 2
+        if self._closed:
+            raise DirectTerminalError("direct-terminal is stopped")
+        future: Future[dict[str, str]] = asyncio.run_coroutine_threadsafe(
+            self._create(vmid, offer["sdp"], width, height, fps, user, display_fd), self._loop)
+        try:
+            return future.result(timeout=REQUEST_TIMEOUT_SECONDS)
+        except BridgeError as error:
+            future.cancel()
+            raise DirectTerminalError(f"direct-terminal WebRTC negotiation failed: {error}") from error
+        except (TimeoutError, OSError, asyncio.TimeoutError) as error:
+            future.cancel()
+            raise DirectTerminalError(
+                f"direct-terminal WebRTC negotiation failed: {type(error).__name__}") from error
+
     def close(self) -> None:
         if self._closed:
             return
@@ -1579,6 +1659,84 @@ class PveRequestHandler(socketserver.BaseRequestHandler):
             pass
 
 
+class WebRtcRequestHandler(socketserver.BaseRequestHandler):
+    """One offer from qemu-server's webrtcproxy: a JSON line plus a display fd."""
+
+    def handle(self) -> None:
+        server = self.server
+        assert isinstance(server, WebRtcRequestServer)
+        response: dict[str, Any] = {"ok": False, "error": "the console could not be started"}
+        descriptors: list[int] = []
+        try:
+            self.request.settimeout(REQUEST_TIMEOUT_SECONDS)
+            _require_root_peer(self.request)
+            payload = bytearray()
+            while b"\n" not in payload and len(payload) <= MAX_SDP_BYTES + 4096:
+                block, fds, _flags, _address = socket.recv_fds(self.request, 65536, 1)
+                descriptors.extend(fds)
+                if not block:
+                    break
+                payload.extend(block)
+            if b"\n" not in payload or len(descriptors) != 1:
+                raise DirectTerminalError("direct-terminal webrtc request is incomplete")
+            request = json.loads(bytes(payload).split(b"\n", 1)[0].decode("utf-8"))
+            answer = server.sessions.answer_webrtc(request, descriptors[0])
+            response = {"ok": True, "answer": {"type": answer["type"], "sdp": answer["sdp"]}}
+        except ContainerConsoleBusyError as error:
+            response = {"ok": False, "error": "all consoles are in use"}
+            print(f"qsm-direct-terminal: webrtc request rejected: {error}", file=sys.stderr)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, DirectTerminalError,
+                BridgeError) as error:
+            print(f"qsm-direct-terminal: webrtc request rejected: {error}", file=sys.stderr)
+        finally:
+            for descriptor in descriptors:
+                os.close(descriptor)
+        try:
+            self.request.sendall(json.dumps(response, separators=(",", ":")).encode("ascii") + b"\n")
+        except OSError:
+            pass
+
+
+class WebRtcRequestServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    """The node's WebRTC console service socket used by qemu-server.
+
+    qemu-server (API call webrtcproxy) connects as root to
+    /run/webrtc-console/offer.sock and passes a D-Bus peer-to-peer connection
+    to the VM's display with the browser's offer; it refuses a socket not
+    owned by root, and this server accepts only root peers.
+    """
+
+    daemon_threads = True
+
+    def __init__(self, path: Path, sessions: DirectSessionManager) -> None:
+        path.parent.mkdir(mode=0o755, exist_ok=True)
+        metadata = path.parent.lstat()
+        if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_mode & 0o022:
+            raise DirectTerminalError("direct-terminal webrtc socket directory is unsafe")
+        try:
+            if stat.S_ISSOCK(path.lstat().st_mode):
+                path.unlink()
+        except FileNotFoundError:
+            pass
+        self._path = path
+        self.sessions = sessions
+        old_umask = os.umask(0o077)
+        try:
+            super().__init__(str(path), WebRtcRequestHandler)
+        finally:
+            os.umask(old_umask)
+
+    def server_close(self) -> None:
+        try:
+            super().server_close()
+        finally:
+            try:
+                if stat.S_ISSOCK(self._path.lstat().st_mode):
+                    self._path.unlink()
+            except OSError:
+                pass
+
+
 class PveRequestServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     allow_reuse_address = False
     daemon_threads = True
@@ -1631,6 +1789,8 @@ def main() -> int:
     parser.add_argument("--container-instance-directory", type=Path,
                         default=Path("/etc/qsm-pve-direct/containers.d"))
     parser.add_argument("--pve-socket", type=Path, default=Path("/run/qsm-pve-direct-terminal/pve-webrtc.sock"))
+    parser.add_argument("--webrtc-socket", type=Path, default=Path("/run/webrtc-console/offer.sock"),
+                        help="socket for qemu-server's webrtcproxy (D-Bus display fd passing)")
     parser.add_argument("--local-node")
     arguments = parser.parse_args()
     if arguments.local_node is not None and not _NODE_PATTERN.fullmatch(arguments.local_node):
@@ -1644,8 +1804,13 @@ def main() -> int:
                                     qemu_pid_directory=arguments.qemu_pid_directory,
                                     container_instance_directory=arguments.container_instance_directory)
     server: PveRequestServer | None = None
+    webrtc_server: WebRtcRequestServer | None = None
     try:
         server = PveRequestServer(arguments.pve_socket, sessions)
+        if arguments.webrtc_socket is not None:
+            webrtc_server = WebRtcRequestServer(arguments.webrtc_socket, sessions)
+            threading.Thread(target=webrtc_server.serve_forever, kwargs={"poll_interval": 0.25},
+                             name="qsm-direct-webrtc-requests", daemon=True).start()
         print(f"QSM_DIRECT_TERMINAL_READY socket={arguments.pve_socket}", flush=True)
         server.serve_forever(poll_interval=0.25)
     except KeyboardInterrupt:
@@ -1654,6 +1819,9 @@ def main() -> int:
         print(f"qsm-direct-terminal: {error}", file=sys.stderr)
         return 1
     finally:
+        if webrtc_server is not None:
+            webrtc_server.shutdown()
+            webrtc_server.server_close()
         if server is not None:
             server.server_close()
         sessions.close()

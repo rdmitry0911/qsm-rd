@@ -159,6 +159,7 @@ struct Size {
 
 struct Options {
     std::string dbus_address;
+    int dbus_fd = -1;
     // Alternative capture source: a headless wlroots compositor (sway) that
     // hosts an LXC container's desktop session. Exactly one source is given.
     // The compositor directory is resolved *inside* the container's root
@@ -192,7 +193,8 @@ struct Options {
 [[noreturn]] void usage(int status) {
     auto &stream = status == EXIT_SUCCESS ? std::cout : std::cerr;
     stream
-        << "usage: qsm-direct-media-worker (--dbus-address ADDRESS | --wlroots-root DIR --wlroots-dir RELDIR) "
+        << "usage: qsm-direct-media-worker (--dbus-address ADDRESS | --dbus-fd N | "
+           "--wlroots-root DIR --wlroots-dir RELDIR) "
            "--video-socket unix:PATH --audio-socket unix:PATH "
            "--input-socket unix:PATH [options]\n\n"
         << "  --codec h264|hevc           browser-negotiated video codec (default: h264)\n"
@@ -255,6 +257,15 @@ Options parse_options(int argc, char **argv) {
         const std::string_view argument(argv[index]);
         if (argument == "--dbus-address") {
             options.dbus_address = next(index, argument);
+        } else if (argument == "--dbus-fd") {
+            // An inherited peer-to-peer D-Bus connection to QEMU's display,
+            // attached by qemu-server (QMP add_client) for this console.
+            const std::string value(next(index, argument));
+            if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos ||
+                value.size() > 6 || std::stoi(value) < 3) {
+                throw WorkerError("--dbus-fd requires an inherited descriptor number >= 3");
+            }
+            options.dbus_fd = std::stoi(value);
         } else if (argument == "--wlroots-root") {
             options.wlroots_root = next(index, argument);
             if (options.wlroots_root.empty() || options.wlroots_root.front() != '/') {
@@ -299,8 +310,8 @@ Options parse_options(int argc, char **argv) {
     if (wlroots && (options.wlroots_root.empty() || options.wlroots_dir.empty())) {
         throw WorkerError("--wlroots-root and --wlroots-dir must be given together");
     }
-    if (options.dbus_address.empty() == !wlroots) {
-        throw WorkerError("exactly one of --dbus-address or --wlroots-root/--wlroots-dir is required");
+    if ((options.dbus_address.empty() ? 0 : 1) + (options.dbus_fd >= 0 ? 1 : 0) + (wlroots ? 1 : 0) != 1) {
+        throw WorkerError("exactly one of --dbus-address, --dbus-fd or --wlroots-root/--wlroots-dir is required");
     }
     if (options.video_socket.empty() || options.audio_socket.empty() ||
         options.input_socket.empty() || options.encoder.empty() || options.fps < 10U || options.fps > 240U) {
@@ -1689,10 +1700,17 @@ int run(const Options &options) {
 #endif
     }
     qmdp::QemuDbusOptions display_options;
-    display_options.bus_address = options.dbus_address;
-    // The package-owned per-VM endpoint is a private session bus.  QEMU owns
-    // the org.qemu name there; this is not a peer-to-peer D-Bus socket.
-    display_options.destination = "org.qemu";
+    if (options.dbus_fd >= 0) {
+        // Peer-to-peer (-display dbus,p2p=yes): QEMU itself is the peer, so
+        // there is no bus name to address.
+        display_options.p2p_fd = qmdp::UniqueFd(options.dbus_fd);
+        display_options.destination.clear();
+    } else {
+        display_options.bus_address = options.dbus_address;
+        // The package-owned per-VM endpoint is a private session bus.  QEMU owns
+        // the org.qemu name there; this is not a peer-to-peer D-Bus socket.
+        display_options.destination = "org.qemu";
+    }
     display_options.enable_audio = true;
     display_options.require_audio = false;
     display_options.pump_interval = 10ms;

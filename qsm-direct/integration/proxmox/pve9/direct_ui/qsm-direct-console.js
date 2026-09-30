@@ -5,6 +5,15 @@
  * Browser-only PVE Console entry for the direct Display1 transport.
  */
 (function () {
+    // Viewer mode: this file runs as the WebRTC console page that pveproxy
+    // serves for '?console=kvm&webrtc=1' (index.html.tpl sets the object).
+    // The page itself is the console, the offer goes to the VM's API call
+    // webrtcproxy (qemu-server, vga: ...,dbus=1), and the PVE UI overrides
+    // below are not registered -- their classes do not exist on that page.
+    const VIEWER = (typeof window !== 'undefined' && window.QSM_WEBRTC_VIEWER) || null;
+    const defineOverride = (name, body) => {
+        if (!VIEWER) { Ext.define(name, body); }
+    };
     const MIN_VMID = 100;
     const MAX_VMID = 999999999;
     const MAX_QEMU_ARGS_BYTES = 8192;
@@ -333,7 +342,7 @@
         },
     ];
 
-    Ext.define('PVE.qsmDirect.DisplayInputPanelOverlay', {
+    defineOverride('PVE.qsmDirect.DisplayInputPanelOverlay', {
         override: 'PVE.qemu.DisplayInputPanel',
         initComponent: function () {
             this.advancedItems = (this.advancedItems || []).concat(displayFields());
@@ -380,7 +389,7 @@
     // than an unsupported PVE config key. Populate them after DisplayEdit's
     // asynchronous load so reopening Hardware -> Display reflects what was
     // actually saved for this VM.
-    Ext.define('PVE.qsmDirect.DisplayEditOverlay', {
+    defineOverride('PVE.qsmDirect.DisplayEditOverlay', {
         override: 'PVE.qemu.DisplayEdit',
         initComponent: function () {
             const me = this;
@@ -487,8 +496,24 @@
         const body = await response.json();
         return body && body.data;
     };
+    // The offer of a viewer page goes through the PVE API itself, as the
+    // logged-in user (cookie + CSRF token of the page): qemu-server checks
+    // VM.Console and attaches the node's WebRTC console service.
+    const pveWebrtcOffer = async (params) => {
+        const body = new URLSearchParams();
+        for (const [key, value] of Object.entries(params || {})) {
+            if (value !== undefined && value !== null) { body.append(key, String(value)); }
+        }
+        const response = await fetch(
+            `/api2/json/nodes/${encodeURIComponent(VIEWER.node)}/qemu/${encodeURIComponent(VIEWER.vmid)}/webrtcproxy`,
+            { method: 'POST', credentials: 'same-origin', cache: 'no-store', body,
+              headers: { 'CSRFPreventionToken': VIEWER.csrf } });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) { throw new Error(`webrtcproxy ${response.status}: ${result.message || ''}`.trim()); }
+        return result.data;
+    };
     const api = async (url, params) => {
-        const answer = await signalRequest('POST', url, params);
+        const answer = VIEWER ? await pveWebrtcOffer(params) : await signalRequest('POST', url, params);
         if (!answer || answer.type !== 'answer' || typeof answer.sdp !== 'string' || answer.sdp.length < 1) {
             throw new Error('invalid direct WebRTC answer');
         }
@@ -514,9 +539,13 @@
     // service tells the two apart from the node's own guest configs.
     const openConsole = function (button, node, vmid, embeddedFrame = null, kind = 'qemu') {
         const guestKind = kind === 'lxc' ? 'lxc' : 'qemu';
-        const embedded = Boolean(embeddedFrame);
+        const embedded = Boolean(embeddedFrame) && !VIEWER;
         let popup;
-        if (embedded) {
+        if (VIEWER) {
+            // pveproxy's viewer page: its own window (or the VM's Console
+            // panel frame) is the console surface.
+            popup = window;
+        } else if (embedded) {
             // The ordinary VM Console card is an in-page PVE area, just as
             // noVNC is. An about:blank same-origin frame gives the existing
             // self-contained console DOM a private document and viewport
@@ -537,6 +566,11 @@
             }
         }
         const closeSurface = () => {
+            if (VIEWER) {
+                // Keep the page and its status line: in the Console panel a
+                // closed frame would only leave an empty area behind.
+                return;
+            }
             if (embedded) {
                 if (embeddedFrame.parentNode) { embeddedFrame.parentNode.removeChild(embeddedFrame); }
             } else if (!popup.closed) {
@@ -2896,7 +2930,8 @@
                 const busy = String(error && error.message).indexOf('signal 409') >= 0;
                 const message = busy
                     ? gettext('All consoles of this container are in use. Close another console of it, or wait until a closed one is logged out, and try again.')
-                    : gettext('Could not create a direct browser console.');
+                    : (VIEWER && error && error.message ? `${gettext('Could not create a direct browser console.')} ${String(error.message).replace(/^webrtcproxy \d+: /, '')}`
+                        : gettext('Could not create a direct browser console.'));
                 status.textContent = message;
                 close();
                 closeSurface();
@@ -3052,7 +3087,7 @@
         },
     });
 
-    Ext.define('PVE.qsmDirect.ConsoleButtonOverlay', {
+    defineOverride('PVE.qsmDirect.ConsoleButtonOverlay', {
         override: 'PVE.button.ConsoleButton',
         enableQsmDirect: false,
         setEnableQsmDirect: function (enable) {
@@ -3087,7 +3122,7 @@
     // KVM console xtype here. The guard keeps this to the QEMU console only
     // (never LXC, whose console carries consoleType 'lxc'); the QSM selector
     // then still mounts stock noVNC for an unmanaged VM or a failed predicate.
-    Ext.define('PVE.qsmDirect.PanelConfigConsoleOverlay', {
+    defineOverride('PVE.qsmDirect.PanelConfigConsoleOverlay', {
         override: 'PVE.panel.Config',
         insertNodes: function (items) {
             if (Array.isArray(items)) {
@@ -3106,7 +3141,7 @@
     // not expose arbitrary QEMU `args`. Read the ordinary protected config
     // once when a VM view opens and only enable this menu item if the exact
     // transport-owned Display1 argument is present.
-    Ext.define('PVE.qsmDirect.QemuConfigOverlay', {
+    defineOverride('PVE.qsmDirect.QemuConfigOverlay', {
         override: 'PVE.qemu.Config',
         initComponent: function () {
             const me = this;
@@ -3168,7 +3203,7 @@
     // signalling service confirms this container is set up for the QSM
     // console (its policy exists; the call is authorised with VM.Console).
     // The container's own Console tab keeps the stock xterm.js terminal.
-    Ext.define('PVE.qsmDirect.LxcConfigOverlay', {
+    defineOverride('PVE.qsmDirect.LxcConfigOverlay', {
         override: 'PVE.lxc.Config',
         initComponent: function () {
             const me = this;
@@ -3191,4 +3226,8 @@
                 });
         },
     });
+
+    if (VIEWER) {
+        Ext.onReady(() => openConsole(null, VIEWER.node, VIEWER.vmid, null, 'qemu'));
+    }
 }());

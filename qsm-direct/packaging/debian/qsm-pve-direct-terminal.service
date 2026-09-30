@@ -6,7 +6,8 @@ Before=pve-guests.service
 
 [Service]
 Type=simple
-RuntimeDirectory=qsm-pve-direct-terminal
+# webrtc-console: the socket qemu-server's webrtcproxy passes VM displays to
+RuntimeDirectory=qsm-pve-direct-terminal webrtc-console
 RuntimeDirectoryMode=0750
 Environment=QSM_DIRECT_LOCAL_NODE=%H
 UMask=0077
