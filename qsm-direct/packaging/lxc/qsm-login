@@ -1,18 +1,25 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""QSM Direct login manager for a container console.
+"""QSM Direct login manager for one container console ("slot").
 
-A container has no VT, so greetd/SDDM cannot run.  This is the small display
-manager of the QSM console display (the headless sway of qsm-display.service):
+A container has no VT, so greetd/SDDM cannot run.  Like the ttys of PVE's
+terminal console, a container has several QSM consoles (qsm-display@N: a
+headless sway each); every PVE Console gets one of them, starting at its
+login screen, and never sees another Console's desktop.  qsm-login@N is the
+small display manager of console N:
 
   * shows the greeter (qsm-greeter, as the unprivileged user qsm-greeter) on
     the display and talks to it over an inherited socketpair;
   * verifies a login with PAM (service "qsm-login": common-auth +
     common-account) -- only this root process ever sees a password check;
-  * starts the session as the system unit qsm-user-session@USER.service
+  * starts the session as the transient system unit qsm-session-N.service
     (User=, PAMName=qsm-direct-session), so systemd opens a real PAM/logind
     session on seat0 (polkit, user manager, limits, environment);
-  * waits for the session to end (Log Out) and shows the greeter again.
+  * shows the greeter again when the session ends (Log Out);
+  * answers the host on /run/qsm-login/N/control (root only): "status" (who
+    is logged in) and "reset" (log the session out, fresh login screen) --
+    the host logs a desktop out when its Console was closed and its PVE user
+    did not come back within the grace period.
 
 Only the current client of the display may connect to it: the display socket
 gets a POSIX ACL entry for the greeter user or the logged-in user alone (the
@@ -31,14 +38,20 @@ import socket
 import stat
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
-DISPLAY_DIR = Path("/run/qsm-display")
-RUN_DIR = Path("/run/qsm-login")
+SLOT = int(sys.argv[1]) if len(sys.argv) > 1 and re.fullmatch(r"[1-8]", sys.argv[1]) else 1
+DISPLAY_DIR = Path(f"/run/qsm-display-{SLOT}")
+RUN_ROOT = Path("/run/qsm-login")
+RUN_DIR = RUN_ROOT / str(SLOT)                  # root only: control socket, session env
+GREETER_RUNTIME = RUN_ROOT / f"greeter-{SLOT}"  # the greeter's XDG_RUNTIME_DIR
+SESSION_UNIT = f"qsm-session-{SLOT}.service"
 STATE_DIR = Path("/var/lib/qsm-login")
 DEFAULT_SESSION_FILE = Path("/etc/qsm-direct/session-type")
 GREETER = "/usr/local/lib/qsm-direct/qsm-greeter"
+LAUNCHER = "/usr/local/lib/qsm-direct/qsm-session-launch"
 GREETER_USER = "qsm-greeter"
 PAM_SERVICE = "qsm-login"
 SESSIONS = ("wayland", "x11")
@@ -47,7 +60,7 @@ MAX_MESSAGE = 4096
 
 
 def log(message: str) -> None:
-    print(f"qsm-login: {message}", file=sys.stderr, flush=True)
+    print(f"qsm-login[{SLOT}]: {message}", file=sys.stderr, flush=True)
 
 
 # ------------------------------------------------------------------ PAM
@@ -130,6 +143,8 @@ def pam_check(user: str, password: str) -> str | None:
         _libpam.pam_end(handle, result)
 
 
+
+
 # ------------------------------------------------------------------ helpers
 def login_users() -> list[dict[str, str]]:
     users = []
@@ -157,7 +172,7 @@ def read_state(name: str) -> str:
 
 def write_state(name: str, value: str) -> None:
     STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
-    temporary = STATE_DIR / f".{name}.tmp"
+    temporary = STATE_DIR / f".{name}.{SLOT}.tmp"
     temporary.write_text(value + "\n")
     os.replace(temporary, STATE_DIR / name)
 
@@ -206,52 +221,125 @@ def unit_state(unit: str) -> str:
     return subprocess.run(["systemctl", "is-active", unit], capture_output=True, text=True).stdout.strip()
 
 
-def wait_unit(unit: str) -> None:
-    while unit_state(unit) in ("active", "activating", "reloading", "deactivating"):
-        time.sleep(1)
+def session_running() -> bool:
+    return unit_state(SESSION_UNIT) in ("active", "activating", "reloading", "deactivating")
 
 
-def active_session() -> str | None:
-    listing = subprocess.run(["systemctl", "list-units", "--no-legend", "--plain", "--state=active,activating",
-                              "qsm-user-session@*.service"], capture_output=True, text=True).stdout
-    for line in listing.splitlines():
-        unit = line.split()[0] if line.split() else ""
-        if unit.startswith("qsm-user-session@"):
-            return unit
+def logged_in_elsewhere(user: str) -> int | None:
+    """The other console on which ``user`` has a desktop, if any.
+
+    Two Plasma sessions of one user share one user manager and its units and
+    break each other, so a user has at most one console desktop at a time.
+    """
+    for entry in RUN_ROOT.glob("[1-8]/user"):
+        other = int(entry.parent.name)
+        try:
+            if other != SLOT and entry.read_text().strip() == user and \
+                    unit_state(f"qsm-session-{other}.service") in ("active", "activating"):
+                return other
+        except OSError:
+            continue
     return None
+
+
+class Console:
+    """What this console shows now, shared with the control thread."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.greeter: subprocess.Popen | None = None
+        self.user: str | None = None
+
+
+CONSOLE = Console()
+
+
+def stop_session() -> None:
+    subprocess.run(["systemctl", "stop", SESSION_UNIT], capture_output=True, timeout=40)
+
+
+def control_server() -> None:
+    """Answer the host: {"op":"status"} and {"op":"reset"} (root-only socket)."""
+    path = RUN_DIR / "control"
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+    old = os.umask(0o077)
+    try:
+        server.bind(str(path))
+    finally:
+        os.umask(old)
+    server.listen(4)
+    while True:
+        connection, _ = server.accept()
+        with connection:
+            try:
+                connection.settimeout(45)
+                request = json.loads(connection.recv(MAX_MESSAGE) or b"{}")
+                if request.get("op") == "status":
+                    with CONSOLE.lock:
+                        user = CONSOLE.user if session_running() else None
+                    reply = {"ok": True, "user": user}
+                elif request.get("op") == "reset":
+                    with CONSOLE.lock:
+                        user = CONSOLE.user
+                        greeter = CONSOLE.greeter
+                    log(f"reset requested by the host (desktop of {user or 'nobody'})")
+                    stop_session()
+                    if greeter is not None and greeter.poll() is None:
+                        greeter.terminate()  # a half-typed login is not handed to the next Console
+                    reply = {"ok": True}
+                else:
+                    reply = {"ok": False}
+                connection.send(json.dumps(reply).encode())
+            except (OSError, ValueError, subprocess.SubprocessError):
+                pass
 
 
 # ------------------------------------------------------------------ phases
 def run_greeter(display: Path) -> tuple[str, str] | None:
     """Show the greeter until one login succeeds; (user, session) or None."""
     greeter = pwd.getpwnam(GREETER_USER)
-    runtime = RUN_DIR / "greeter"
-    shutil.rmtree(runtime, ignore_errors=True)
-    runtime.mkdir(mode=0o700, parents=True)
-    os.chown(runtime, greeter.pw_uid, greeter.pw_gid)
+    shutil.rmtree(GREETER_RUNTIME, ignore_errors=True)
+    GREETER_RUNTIME.mkdir(mode=0o700, parents=True)
+    os.chown(GREETER_RUNTIME, greeter.pw_uid, greeter.pw_gid)
     users = login_users()
-    last_user = read_state("last-user")
-    hello = {"type": "hello", "users": users,
-             "last_user": last_user if any(u["name"] == last_user for u in users) else "",
+    # No "last user" preselection: consoles of several PVE users share the
+    # container, and one must not show which account another just used.
+    hello = {"type": "hello", "users": users, "last_user": "",
              "sessions": list(SESSIONS), "default_session": default_session(),
              "user_sessions": {u["name"]: read_state(f"session.{u['name']}") for u in users}}
     ours, theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
     grant(display, GREETER_USER, True)
     environment = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(runtime), "XDG_RUNTIME_DIR": str(runtime),
-        "WAYLAND_DISPLAY": str(display), "QT_QPA_PLATFORM": "wayland",
+        "PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(GREETER_RUNTIME),
+        "XDG_RUNTIME_DIR": str(GREETER_RUNTIME), "WAYLAND_DISPLAY": str(display), "QT_QPA_PLATFORM": "wayland",
         "QT_WAYLAND_DISABLE_WINDOWDECORATION": "1", "QSM_LOGIN_FD": str(theirs.fileno()),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
     }
     process = subprocess.Popen(["/usr/bin/python3", GREETER], user=greeter.pw_uid, group=greeter.pw_gid,
                                extra_groups=[], env=environment, pass_fds=(theirs.fileno(),),
-                               cwd=str(runtime), stdin=subprocess.DEVNULL)
+                               cwd=str(GREETER_RUNTIME), stdin=subprocess.DEVNULL)
     theirs.close()
+    with CONSOLE.lock:
+        CONSOLE.greeter = process
     try:
         ours.send(json.dumps(hello).encode())
+        ours.settimeout(5)
         while True:
             try:
                 raw = ours.recv(MAX_MESSAGE)
+            except socket.timeout:
+                # Accounts created meanwhile (System Settings, adduser)
+                # appear on the login screen without a restart.
+                current = login_users()
+                if current != users:
+                    users = current
+                    ours.send(json.dumps({"type": "users", "users": users, "user_sessions": {
+                        u["name"]: read_state(f"session.{u['name']}") for u in users}}).encode())
+                continue
             except OSError:
                 raw = b""
             if not raw:
@@ -271,10 +359,17 @@ def run_greeter(display: Path) -> tuple[str, str] | None:
             problem = pam_check(user, password)
             del password, request
             if problem is None:
+                other = logged_in_elsewhere(user)
+                if other is not None:
+                    problem = (f"{user} is already logged in on another console of this container "
+                               f"(console {other}); log out there first.")
+            if problem is None:
                 ours.send(json.dumps({"type": "result", "ok": True}).encode())
                 return user, session
             ours.send(json.dumps({"type": "result", "ok": False, "message": problem}).encode())
     finally:
+        with CONSOLE.lock:
+            CONSOLE.greeter = None
         ours.close()
         try:
             process.wait(timeout=3)
@@ -282,28 +377,46 @@ def run_greeter(display: Path) -> tuple[str, str] | None:
             process.kill()
             process.wait()
         grant(display, GREETER_USER, False)
-        shutil.rmtree(runtime, ignore_errors=True)
+        shutil.rmtree(GREETER_RUNTIME, ignore_errors=True)
 
 
 def run_session(user: str, session: str, display: Path) -> None:
-    unit = f"qsm-user-session@{user}.service"
-    RUN_DIR.mkdir(mode=0o755, parents=True, exist_ok=True)
-    (RUN_DIR / f"{user}.env").write_text(
+    entry = pwd.getpwnam(user)
+    environment_file = RUN_DIR / "session.env"
+    environment_file.write_text(
         f"QSM_SESSION_TYPE={session}\nXDG_SESSION_TYPE={session}\n"
         f"QSM_DISPLAY_SOCKET={display}\nQSM_DISPLAY_GEOMETRY={display_geometry()}\n")
-    write_state("last-user", user)
+    (RUN_DIR / "user").write_text(user + "\n")
     write_state(f"session.{user}", session)
     grant(display, user, True)
+    with CONSOLE.lock:
+        CONSOLE.user = user
     log(f"starting the {session} session of {user}")
     try:
-        started = subprocess.run(["systemctl", "start", unit], capture_output=True, text=True)
+        subprocess.run(["systemctl", "reset-failed", SESSION_UNIT], capture_output=True)
+        started = subprocess.run([
+            "systemd-run", f"--unit={SESSION_UNIT}", "--collect", "--quiet",
+            f"--description=QSM Direct console {SLOT}: desktop session of {user}",
+            "-p", f"User={user}", "-p", "PAMName=qsm-direct-session",
+            "-p", f"WorkingDirectory={entry.pw_dir}", "-p", f"EnvironmentFile={environment_file}",
+            "-p", "Environment=XDG_SEAT=seat0 XDG_SESSION_CLASS=user XDG_SESSION_DESKTOP=KDE",
+            "-p", f"BindsTo=qsm-display@{SLOT}.service", "-p", f"After=qsm-display@{SLOT}.service",
+            "-p", "TimeoutStopSec=20", LAUNCHER], capture_output=True, text=True)
         if started.returncode != 0:
-            log(f"{unit} failed to start: {started.stderr.strip()}")
+            log(f"{SESSION_UNIT} failed to start: {started.stderr.strip()}")
             return
-        wait_unit(unit)
+        while session_running():
+            time.sleep(1)
         log(f"the session of {user} ended")
     finally:
+        with CONSOLE.lock:
+            CONSOLE.user = None
         grant(display, user, False)
+        for name in ("user", "session.env"):
+            try:
+                (RUN_DIR / name).unlink()
+            except OSError:
+                pass
         try:
             # Plasma services can outlive the session in the user manager; they
             # must not keep a connection to the display for the next login.
@@ -317,12 +430,23 @@ def run_session(user: str, session: str, display: Path) -> None:
 
 
 def main() -> int:
-    RUN_DIR.mkdir(mode=0o755, parents=True, exist_ok=True)
-    unit = active_session()
-    if unit is not None:
+    RUN_ROOT.mkdir(mode=0o755, parents=True, exist_ok=True)
+    RUN_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(RUN_DIR, 0o700)
+    threading.Thread(target=control_server, name="control", daemon=True).start()
+    if session_running():
         # This manager was restarted under a running session: keep it.
-        log(f"{unit} is running; showing the login screen after it ends")
-        wait_unit(unit)
+        try:
+            user = (RUN_DIR / "user").read_text().strip()
+        except OSError:
+            user = None
+        with CONSOLE.lock:
+            CONSOLE.user = user
+        log(f"{SESSION_UNIT} ({user or 'unknown user'}) is running; login screen after it ends")
+        while session_running():
+            time.sleep(1)
+        with CONSOLE.lock:
+            CONSOLE.user = None
     while True:
         display = display_socket()
         result = run_greeter(display)

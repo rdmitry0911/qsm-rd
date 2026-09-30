@@ -49,7 +49,7 @@ assert.match(source, /if \(attempt < 4 && !me\.destroyed && !me\.qsmConsoleMode\
     'a transient config read failure on refresh must retry rather than fall straight to noVNC');
 assert.doesNotMatch(source, /title: gettext\('QSM Direct'\),\s*itemId: 'qsm-direct-console'/,
     'QSM Direct must not add a second left-navigation item');
-assert.match(source, /const openConsole = function \(button, node, vmid, embeddedFrame = null\)/,
+assert.match(source, /const openConsole = function \(button, node, vmid, embeddedFrame = null, kind = 'qemu'\)/,
     'QSM Direct must support an embedded PVE Console surface');
 assert.match(source, /popup = embeddedFrame\.contentWindow;/,
     'the existing Console card must give QSM a same-origin embedded viewport');
@@ -71,7 +71,7 @@ assert.match(source, /if \(me\.qsmDirectSession\) \{ me\.qsmDirectSession\.close
     'leaving the PVE Console card must retire its embedded WebRTC session');
 assert.match(source, /window\.open\('', windowId,/,
     'QSM Direct must create a separate browser popup synchronously from the menu action');
-assert.match(source, /const vmStatusUrl = \(\) => `\/nodes\/\$\{encodeURIComponent\(node\)\}\/qemu\/\$\{encodeURIComponent\(vmid\)\}\/status\/current`;/,
+assert.match(source, /const vmStatusUrl = \(\) => `\/nodes\/\$\{encodeURIComponent\(node\)\}\/\$\{guestKind\}\/\$\{encodeURIComponent\(vmid\)\}\/status\/current`;/,
     'a popup opened before Power On must use the protected PVE status route before creating WebRTC');
 assert.match(source, /Virtual machine is stopped\. Waiting for it to start…/,
     'a stopped VM must leave the popup open with an explicit start wait state');
@@ -91,7 +91,7 @@ assert.match(source, /document\.documentElement\.requestFullscreen\(\)/,
     'the popup must provide a full-screen action for the entire display');
 assert.match(source, /position:absolute;z-index:10;top:12px;left:0;display:flex;flex-direction:column/,
     'the console controls must overlay from the left edge without consuming guest video pixels');
-assert.match(source, /video\.style\.cssText = 'position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain;outline:none'/,
+assert.match(source, /video\.style\.cssText = 'position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain;outline:none;touch-action:none/,
     'the guest image must use the browser viewport rather than a stale percentage-layout box after resize');
 assert.match(source, /document\.addEventListener\('fullscreenchange', \(\) => \{\s*releaseHeldInput\(\);\s*updateGuestKeyboardLock\(\);\s*setFullscreenToggle\(\);[\s\S]*?resizeConsole\(true\);/,
     'the full-screen toggle must release interrupted input before forcing an immediate Display1 resize');

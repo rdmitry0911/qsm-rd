@@ -2890,11 +2890,17 @@
                 }
             }, 7000);
             video.focus();
-            } catch (_error) {
-                status.textContent = gettext('Could not create a direct browser console.');
+            } catch (error) {
+                // 409: every console of the container is in use -- like its
+                // ttys in the terminal console, each Console gets its own.
+                const busy = String(error && error.message).indexOf('signal 409') >= 0;
+                const message = busy
+                    ? gettext('All consoles of this container are in use. Close another console of it, or wait until a closed one is logged out, and try again.')
+                    : gettext('Could not create a direct browser console.');
+                status.textContent = message;
                 close();
                 closeSurface();
-                Ext.Msg.alert(gettext('QSM Direct'), gettext('Could not create a direct browser console.'));
+                Ext.Msg.alert(gettext('QSM Direct'), message);
             }
         };
         connect();

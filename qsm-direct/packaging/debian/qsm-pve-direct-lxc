@@ -4,7 +4,7 @@
 
   qsm-pve-direct-lxc enable  VMID [--user NAME] [--uid N] [--session wayland|x11]
                                   [--nvidia-run FILE] [--no-gpu] [--no-packages] [--no-admin]
-                                  [--restart]
+                                  [--grace SECONDS] [--restart]
   qsm-pve-direct-lxc session VMID wayland|x11     (default session of the login screen)
   qsm-pve-direct-lxc status  VMID
   qsm-pve-direct-lxc disable VMID
@@ -19,10 +19,12 @@ prepares a running Debian/Ubuntu container for this, idempotently:
   2. NVIDIA userspace matching the host kernel module (from the host driver's
      .run installer, --no-kernel-module) so the desktop renders on the GPU.
   3. Packages: sway, xwayland, python3, PyQt5, acl (+ Plasma Wayland session bits).
-  4. The console display as system services: a headless sway, a seat keeper
-     that keeps the display's input devices stable, and a login manager
-     (login screen -> PAM -> a real logind session per login; Log Out returns
-     to the login screen).  A desktop user is created if missing (an
+  4. The consoles as system services -- as many as the container's ttys,
+     like PVE's terminal console: per console a headless sway, a seat keeper
+     and a login manager (login screen -> PAM -> a real logind session; Log
+     Out returns to the login screen).  Every PVE Console gets its own
+     console; a closed one's desktop waits --grace seconds for the same PVE
+     user, then is logged out.  A desktop user is created if missing (an
      administrator -- sudo group -- unless --no-admin); set its password.
   5. The host policy /etc/qsm-pve-direct/containers.d/VMID.conf that enables
      the "QSM Direct" entry of the container's Console button.
@@ -31,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import os
 import re
 import shlex
@@ -41,6 +44,7 @@ import time
 from pathlib import Path
 
 POLICY_DIR = Path("/etc/qsm-pve-direct/containers.d")
+SLOT_STATE = Path("/run/qsm-pve-direct-terminal/sessions/lxc-slots.json")
 LXC_CONF_DIR = Path("/etc/pve/lxc")
 SHARE = Path("/usr/share/qsm-pve-direct/lxc")
 CT_LIB = "/usr/local/lib/qsm-direct"
@@ -198,19 +202,34 @@ def install_packages(vmid: int, session: str) -> None:
 
 
 # ------------------------------------------------------------------ console files
-# The console display is a system service shared by the login screen and the
-# session of whoever logs in:
-#   qsm-display.service           headless sway (user qsm-display), /run/qsm-display
-#   qsm-seat-keeper.service       keeps the display seat's input devices stable
-#   qsm-login.service             login manager: greeter, PAM check, sessions
-#   qsm-user-session@USER.service the desktop session: a real PAM/logind session
-#                                 on seat0 (polkit, user manager, limits)
+# Like the ttys of PVE's terminal console, a container has several QSM
+# consoles ("slots", as many as its tty setting); every PVE Console gets its
+# own, starting at a login screen, and never sees another Console's desktop:
+#   qsm-display@N.service     headless sway (user qsm-display), /run/qsm-display-N
+#   qsm-seat-keeper@N.service keeps the display seat's input devices stable
+#   qsm-login@N.service       login manager: greeter, PAM check, the session
+#   qsm-session-N.service     (transient) the desktop session: a real PAM/logind
+#                             session on seat0 (polkit, user manager, limits)
 # A container has no VT, so greetd/SDDM cannot provide this.
-SYSTEM_UNITS = ("qsm-display.service", "qsm-seat-keeper.service", "qsm-login.service")
+TEMPLATE_UNITS = ("qsm-display@.service", "qsm-seat-keeper@.service", "qsm-login@.service")
+MAX_SLOTS = 8
 DISPLAY_USER = "qsm-display"
 GREETER_USER = "qsm-greeter"
 LEGACY_USER_UNITS = ("qsm-display.service", "qsm-seat-keeper.service", "qsm-session.service")
-LEGACY_LOGIND_UNIT = "qsm-desktop-session.service"
+LEGACY_SYSTEM_UNITS = ("qsm-login.service", "qsm-seat-keeper.service", "qsm-display.service",
+                       "qsm-desktop-session.service")
+
+
+def slot_units(slots: range) -> list[str]:
+    return [f"{name}@{number}.service" for number in slots
+            for name in ("qsm-display", "qsm-seat-keeper", "qsm-login")]
+
+
+def container_slots(conf: Path) -> int:
+    """As many consoles as the container has ttys (PVE default 2)."""
+    match = re.search(r"^tty:\s*(\d+)\s*$", conf.read_text(), re.M)
+    count = int(match.group(1)) if match else 2
+    return max(1, min(MAX_SLOTS, count))
 
 
 def unit_display(gpu: bool) -> str:
@@ -219,64 +238,59 @@ def unit_display(gpu: bool) -> str:
     renderer = ("Environment=WLR_RENDERER=gles2\nEnvironment=WLR_RENDER_DRM_DEVICE=/dev/dri/renderD128\n"
                 if gpu else "Environment=WLR_RENDERER=pixman\n")
     return f"""[Unit]
-Description=QSM Direct console display (headless sway)
+Description=QSM Direct console %i display (headless sway)
+PartOf=qsm-console.target
 [Service]
 User={DISPLAY_USER}
 Group={DISPLAY_USER}
 # Traversable, not listable: only the socket's ACL (set by qsm-login for the
 # greeter or the logged-in user) decides who may connect.
-RuntimeDirectory=qsm-display
+RuntimeDirectory=qsm-display-%i
 RuntimeDirectoryMode=0711
-Environment=XDG_RUNTIME_DIR=/run/qsm-display
+Environment=XDG_RUNTIME_DIR=/run/qsm-display-%i
 Environment=WLR_BACKENDS=headless
 Environment=WLR_LIBINPUT_NO_DEVICES=1
 {renderer}ExecStart=/usr/bin/sway --unsupported-gpu -c /etc/qsm-direct/sway.conf
 Restart=always
 RestartSec=2
 [Install]
-WantedBy=multi-user.target
+WantedBy=qsm-console.target
 """
 
 
 UNIT_KEEPER = f"""[Unit]
-Description=QSM Direct console seat keeper (permanent virtual pointer/keyboard)
-BindsTo=qsm-display.service
-After=qsm-display.service
+Description=QSM Direct console %i seat keeper (permanent virtual pointer/keyboard)
+BindsTo=qsm-display@%i.service
+After=qsm-display@%i.service
+PartOf=qsm-console.target
 [Service]
 User={DISPLAY_USER}
-Environment=XDG_RUNTIME_DIR=/run/qsm-display
-ExecStart=/usr/bin/python3 {CT_LIB}/qsm-seat-keeper /run/qsm-display
+Environment=XDG_RUNTIME_DIR=/run/qsm-display-%i
+ExecStart=/usr/bin/python3 {CT_LIB}/qsm-seat-keeper /run/qsm-display-%i
 Restart=always
 RestartSec=1
 [Install]
-WantedBy=multi-user.target
+WantedBy=qsm-console.target
 """
 
 UNIT_LOGIN = f"""[Unit]
-Description=QSM Direct console login manager
-BindsTo=qsm-display.service
-Wants=qsm-seat-keeper.service
-After=qsm-display.service qsm-seat-keeper.service systemd-user-sessions.service systemd-logind.service
+Description=QSM Direct console %i login manager
+BindsTo=qsm-display@%i.service
+Wants=qsm-seat-keeper@%i.service
+After=qsm-display@%i.service qsm-seat-keeper@%i.service systemd-user-sessions.service systemd-logind.service
+PartOf=qsm-console.target
 [Service]
-ExecStart=/usr/bin/python3 {CT_LIB}/qsm-login
+ExecStart=/usr/bin/python3 {CT_LIB}/qsm-login %i
 Restart=always
 RestartSec=2
 [Install]
-WantedBy=multi-user.target
+WantedBy=qsm-console.target
 """
 
-UNIT_USER_SESSION = f"""[Unit]
-Description=QSM Direct console desktop session of %i
-BindsTo=qsm-display.service
-After=qsm-display.service systemd-user-sessions.service systemd-logind.service
-[Service]
-User=%i
-PAMName=qsm-direct-session
-WorkingDirectory=~
-EnvironmentFile=/run/qsm-login/%i.env
-Environment=XDG_SEAT=seat0 XDG_SESSION_CLASS=user XDG_SESSION_DESKTOP=KDE
-ExecStart={CT_LIB}/qsm-session-launch
-TimeoutStopSec=20
+UNIT_TARGET = """[Unit]
+Description=QSM Direct consoles of this container
+[Install]
+WantedBy=multi-user.target
 """
 
 # Authentication for the login screen (only qsm-login, as root, uses it).
@@ -287,7 +301,7 @@ auth     optional  pam_faildelay.so delay=2000000
 @include common-account
 """
 
-# The session opened by systemd for qsm-user-session@USER.service: session
+# The session opened by systemd for qsm-session-N.service: session
 # modules only (authentication happened in qsm-login); no pam_loginuid, which
 # an unprivileged container cannot set.  On seat0 the session is "active and
 # local" like a desktop login, so the usual polkit allow_active defaults apply.
@@ -332,20 +346,23 @@ def ensure_system_users(vmid: int) -> None:
 
 
 def remove_legacy_session(vmid: int, uid: int) -> None:
-    """Retire the per-user display of earlier versions (lingering user units)."""
+    """Retire the layouts of earlier versions (per-user display, one shared display)."""
     user = ct(vmid, f"getent passwd {uid} | cut -d: -f1", check=False).stdout.strip()
     if user:
         home = ct(vmid, f"getent passwd {uid} | cut -d: -f6", check=False).stdout.strip()
         if ct(vmid, f"test -e {shlex.quote(home)}/.config/systemd/user/qsm-display.service", check=False).returncode == 0:
-            info(f"retiring the per-user display of {user} (replaced by the console login screen)")
+            info(f"retiring the per-user display of {user}")
             user_systemctl(vmid, user, "disable", "--now", *LEGACY_USER_UNITS, check=False)
             units = f"{shlex.quote(home)}/.config/systemd/user"
             ct(vmid, f"rm -f {units}/qsm-display.service {units}/qsm-seat-keeper.service {units}/qsm-session.service "
                      f"{units}/plasma-kwin_wayland.service.d/qsm-nested.conf; "
                      f"rmdir {units}/plasma-kwin_wayland.service.d 2>/dev/null; "
                      f"loginctl disable-linger {shlex.quote(user)}", check=False)
-    ct(vmid, f"if [ -e /etc/systemd/system/{LEGACY_LOGIND_UNIT} ]; then systemctl disable --now {LEGACY_LOGIND_UNIT}; "
-             f"rm -f /etc/systemd/system/{LEGACY_LOGIND_UNIT}; fi", check=False)
+    legacy = " ".join(LEGACY_SYSTEM_UNITS)
+    ct(vmid, f"for u in {legacy} qsm-user-session@.service; do "
+             "if [ -e /etc/systemd/system/$u ]; then systemctl disable --now $u 2>/dev/null; "
+             "rm -f /etc/systemd/system/$u; fi; done; systemctl stop 'qsm-user-session@*.service' 2>/dev/null; "
+             "systemctl daemon-reload", check=False)
 
 
 def disable_other_display_managers(vmid: int) -> None:
@@ -367,10 +384,10 @@ def write_console_files(vmid: int, session: str) -> None:
     push(vmid, session + "\n", "/etc/qsm-direct/session-type")
     push(vmid, PAM_LOGIN, "/etc/pam.d/qsm-login")
     push(vmid, PAM_SESSION, "/etc/pam.d/qsm-direct-session")
-    push(vmid, unit_display(gpu), "/etc/systemd/system/qsm-display.service")
-    push(vmid, UNIT_KEEPER, "/etc/systemd/system/qsm-seat-keeper.service")
-    push(vmid, UNIT_LOGIN, "/etc/systemd/system/qsm-login.service")
-    push(vmid, UNIT_USER_SESSION, "/etc/systemd/system/qsm-user-session@.service")
+    push(vmid, unit_display(gpu), "/etc/systemd/system/qsm-display@.service")
+    push(vmid, UNIT_KEEPER, "/etc/systemd/system/qsm-seat-keeper@.service")
+    push(vmid, UNIT_LOGIN, "/etc/systemd/system/qsm-login@.service")
+    push(vmid, UNIT_TARGET, "/etc/systemd/system/qsm-console.target")
     push(vmid, KWIN_NESTED, "/etc/systemd/user/plasma-kwin_wayland.service.d/qsm-nested.conf")
     # Defaults for every desktop user: console access is gated by PVE and the
     # console window is the single authority on resolution, so no idle
@@ -386,19 +403,24 @@ def user_systemctl(vmid: int, user: str, *args: str, check: bool = True) -> subp
               check=check)
 
 
-def start_console(vmid: int) -> None:
-    ct(vmid, "systemctl daemon-reload && systemctl enable " + " ".join(SYSTEM_UNITS) + " && "
-             "systemctl stop qsm-login.service 'qsm-user-session@*.service'; "
-             "systemctl restart qsm-display.service && systemctl start qsm-seat-keeper.service qsm-login.service")
+def start_console(vmid: int, slots: int) -> None:
+    wanted = " ".join(slot_units(range(1, slots + 1)))
+    unwanted = " ".join(slot_units(range(slots + 1, MAX_SLOTS + 1)))
+    ct(vmid, f"systemctl daemon-reload && systemctl disable --now {unwanted} 2>/dev/null; "
+             f"systemctl enable qsm-console.target {wanted} && "
+             "systemctl stop 'qsm-login@*.service' 'qsm-session-*.service' 2>/dev/null; "
+             f"systemctl restart {' '.join(f'qsm-display@{n}.service' for n in range(1, slots + 1))} && "
+             f"systemctl start {wanted}")
 
 
-def write_policy(vmid: int, uid: int) -> None:
+def write_policy(vmid: int, uid: int, slots: int, grace: int) -> None:
     POLICY_DIR.mkdir(mode=0o750, parents=True, exist_ok=True)
     path = POLICY_DIR / f"{vmid}.conf"
     kept = [line for line in (path.read_text().splitlines() if path.exists() else [])
             if line.startswith(("QSM_DIRECT_CODEC=", "QSM_DIRECT_ENCODER_MODE=", "QSM_DIRECT_ENCODER="))]
     body = (f"# QSM Direct console for LXC {vmid} (managed by qsm-pve-direct-lxc)\n"
-            f"QSM_DIRECT_LXC_UID={uid}\nQSM_DIRECT_LXC_DISPLAY=system\n")
+            f"QSM_DIRECT_LXC_UID={uid}\nQSM_DIRECT_LXC_DISPLAY=slots\n"
+            f"QSM_DIRECT_LXC_SLOTS={slots}\nQSM_DIRECT_LXC_GRACE={grace}\n")
     body += "".join(f"{line}\n" for line in kept)
     fd = os.open(path.with_suffix(".tmp"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as handle:
@@ -435,15 +457,18 @@ def cmd_enable(args: argparse.Namespace) -> int:
     ensure_system_users(args.vmid)
     remove_legacy_session(args.vmid, args.uid)
     disable_other_display_managers(args.vmid)
+    slots = container_slots(conf)
     write_console_files(args.vmid, args.session)
-    start_console(args.vmid)
-    write_policy(args.vmid, args.uid)
+    start_console(args.vmid, slots)
+    write_policy(args.vmid, args.uid, slots, args.grace)
     for _ in range(30):
-        if ct(args.vmid, "ls /run/qsm-display/ 2>/dev/null | grep -Eq '^wayland-[0-9]+$'", check=False).returncode == 0:
+        if ct(args.vmid, f"ls /run/qsm-display-{slots}/ 2>/dev/null | grep -Eq '^wayland-[0-9]+$'",
+              check=False).returncode == 0:
             break
         time.sleep(1)
-    info(f"enabled: CT {args.vmid} -> Console -> \"QSM Direct\" shows the container's login screen "
-         f"(default session {args.session})")
+    info(f"enabled: CT {args.vmid} -> Console -> \"QSM Direct\": {slots} console(s) like its {slots} tty(s), "
+         f"each with its own login screen (default session {args.session}; a closed console's desktop "
+         f"waits {args.grace} s for its PVE user, then logs out)")
     if not password_is_set(args.vmid, args.user):
         info(f"{args.user} has no password and cannot log in yet -- set one with: pct exec {args.vmid} -- passwd {args.user}")
     return cmd_status(args)
@@ -467,20 +492,33 @@ def policy_uid(vmid: int) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     require_container(args.vmid, running=False)
-    enabled = (POLICY_DIR / f"{args.vmid}.conf").exists()
+    path = POLICY_DIR / f"{args.vmid}.conf"
+    enabled = path.exists()
     print(f"CT {args.vmid}: console policy {'present' if enabled else 'absent'}; container {ct_status(args.vmid)}")
     if enabled and ct_status(args.vmid) == "running":
-        for unit in SYSTEM_UNITS:
-            state = ct(args.vmid, f"systemctl is-active {unit}", check=False).stdout.strip()
-            print(f"  {unit:28s} {state}")
-        sessions = ct(args.vmid, "systemctl list-units --no-legend --plain --state=active "
-                                 "'qsm-user-session@*.service' | cut -d' ' -f1", check=False).stdout.split()
-        logged_in = [name[len("qsm-user-session@"):-len(".service")] for name in sessions]
-        print(f"  {'logged in':28s} {', '.join(logged_in) if logged_in else 'nobody (login screen)'}")
+        match = re.search(r"^QSM_DIRECT_LXC_SLOTS=(\d+)", path.read_text(), re.M)
+        slots = int(match.group(1)) if match else 1
+        owners = {}
+        try:
+            for entry in json.loads(SLOT_STATE.read_text()):
+                if entry.get("vmid") == args.vmid:
+                    owners[entry.get("slot")] = (entry.get("owner"), entry.get("detached_wall"))
+        except (OSError, ValueError):
+            pass
+        for number in range(1, slots + 1):
+            states = [ct(args.vmid, f"systemctl is-active {unit}", check=False).stdout.strip()
+                      for unit in (f"qsm-display@{number}.service", f"qsm-login@{number}.service")]
+            user = ct(args.vmid, f"systemctl is-active --quiet qsm-session-{number}.service && "
+                                 f"cat /run/qsm-login/{number}/user", check=False).stdout.strip()
+            owner, left = owners.get(number, (None, None))
+            pve = "free" if owner is None else (f"PVE {owner}, connected" if left is None else
+                                                f"PVE {owner}, closed {int(time.time() - left)} s ago")
+            print(f"  console {number}: display {states[0]}, login {states[1]}; "
+                  f"{('desktop of ' + user) if user else 'login screen'}; {pve}")
         default = ct(args.vmid, "cat /etc/qsm-direct/session-type 2>/dev/null", check=False).stdout.strip()
         gpu = ct(args.vmid, "nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || true", check=False).stdout.strip()
-        print(f"  {'default session type':28s} {default or 'wayland'}")
-        print(f"  {'GPU in container':28s} {gpu or 'none/software'}")
+        print(f"  {'default session type':22s} {default or 'wayland'}")
+        print(f"  {'GPU in container':22s} {gpu or 'none/software'}")
     return 0
 
 
@@ -491,8 +529,8 @@ def cmd_disable(args: argparse.Namespace) -> int:
         path.unlink()
         info(f"CT {args.vmid}: console policy removed (the Console button no longer offers QSM Direct)")
     if ct_status(args.vmid) == "running":
-        ct(args.vmid, "systemctl disable --now " + " ".join(SYSTEM_UNITS) + "; "
-                      "systemctl stop 'qsm-user-session@*.service'", check=False)
+        ct(args.vmid, "systemctl disable --now qsm-console.target " + " ".join(slot_units(range(1, MAX_SLOTS + 1)))
+                      + "; systemctl stop 'qsm-session-*.service'", check=False)
         info(f"CT {args.vmid}: console display, login screen and sessions stopped "
              "(files and GPU passthrough left in place)")
     return 0
@@ -512,6 +550,8 @@ def main(argv: list[str] | None = None) -> int:
     enable.add_argument("--no-packages", action="store_true", help="do not install container packages")
     enable.add_argument("--no-admin", action="store_true",
                         help="do not add the desktop user to the sudo (polkit administrator) group")
+    enable.add_argument("--grace", type=int, default=300,
+                        help="seconds a closed console's desktop waits for its PVE user before logout (default 300)")
     enable.add_argument("--restart", action="store_true", help="restart the container if GPU access changed")
     enable.set_defaults(func=cmd_enable)
     session = sub.add_parser("session", help="set the login screen's default session type")
@@ -525,6 +565,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if os.geteuid() != 0:
         print("qsm-pve-direct-lxc: must run as root on the Proxmox VE node", file=sys.stderr)
+        return 2
+    if not (0 <= getattr(args, "grace", 0) <= 86400):
+        print("qsm-pve-direct-lxc: --grace out of range (0..86400)", file=sys.stderr)
         return 2
     if not (1 <= getattr(args, "uid", 1000) <= 65533):
         print("qsm-pve-direct-lxc: --uid out of range", file=sys.stderr)

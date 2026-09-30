@@ -136,29 +136,41 @@ cannot redirect it to a host socket) and drops to "nobody" once connected.
 
 Enable a running Debian/Ubuntu container that already has a Plasma desktop:
 
-    qsm-pve-direct-lxc enable <vmid> [--session wayland|x11] [--restart]
+    qsm-pve-direct-lxc enable <vmid> [--session wayland|x11] [--grace SECONDS] [--restart]
 
 This passes the GPU through (NVIDIA device nodes and the DRM render node;
 --restart applies it), installs NVIDIA userspace matching the host kernel
 module from the host's NVIDIA-Linux-x86_64-<version>.run (--nvidia-run FILE),
-installs sway/xwayland/PyQt5/acl, and sets up the console display as system
-services in the container:
+installs sway/xwayland/PyQt5/acl, and sets up the container's consoles as
+system services -- as many as the container has ttys (its "tty" option,
+PVE default 2), like PVE's terminal console:
 
-    qsm-display.service            headless sway (user qsm-display), /run/qsm-display
-    qsm-seat-keeper.service        keeps the display's input devices stable
-    qsm-login.service              login manager: login screen, PAM, sessions
-    qsm-user-session@USER.service  one logged-in desktop session
+    qsm-display@N.service      headless sway (user qsm-display), /run/qsm-display-N
+    qsm-seat-keeper@N.service  keeps the display's input devices stable
+    qsm-login@N.service        login manager: login screen, PAM, the session
+    qsm-session-N.service      (transient) one logged-in desktop session
+
+Every PVE Console gets its own console and starts at its login screen; no
+Console ever shows another Console's desktop.  Like a tty in use, a console
+belongs to the PVE user who opened it: when that Console is closed with a
+desktop still logged in, the desktop waits --grace seconds (default 300) for
+the same PVE user -- who then gets it back -- and is logged out after that.
+A left login screen is freed at once.  When all consoles are in use, the
+browser says so.  After changing the container's tty option, run enable again.  One container account can have one console desktop at a
+time (two Plasma sessions of one user break each other).
 
 A container has no VT, so greetd/SDDM cannot run (an enabled SDDM is disabled).
-The console therefore shows QSM's own login screen: pick a user, enter the
-password, choose Plasma (Wayland) or Plasma (X11).  qsm-login checks the
-password with PAM (service qsm-login) and starts the session through systemd
-with PAMName=qsm-direct-session, i.e. a real logind session on seat0 (polkit
-dialogs, user manager, limits work as after a normal desktop login).  Log Out
-returns to the login screen; the console stream keeps running throughout.
-Only the current client of the display -- the login screen or the logged-in
-user -- may connect to it (an ACL on the display socket, like logind's
-uaccess).
+The login screen lists the container's accounts (new ones appear live); pick
+one, enter its password, choose Plasma (Wayland) or Plasma (X11).  qsm-login
+checks the password with PAM (service qsm-login) and starts the session
+through systemd with PAMName=qsm-direct-session, i.e. a real logind session
+on seat0 (polkit dialogs, user manager, limits work as after a normal
+desktop login; with several desktops only the newest is "active" to polkit).
+Log Out returns to the login screen.  Only the current client of a console's
+display -- its login screen or its logged-in user -- may connect to it (an
+ACL on the display socket, like logind's uaccess).  The host asks a console's
+login manager for its state or a logout over a root-only socket in the
+container (/run/qsm-login/N/control), opened without following symlinks.
 
 A desktop user "qsm" (--user/--uid) is created if missing and added to the
 sudo group (polkit administrators; skip with --no-admin).  Any account of the

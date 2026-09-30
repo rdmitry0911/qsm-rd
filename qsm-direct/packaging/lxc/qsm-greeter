@@ -103,9 +103,7 @@ class Greeter(QWidget):
 
         self.avatar = Avatar()
         self.user = QComboBox()
-        for entry in hello.get("users", []):
-            label = entry["full"] if entry["full"] == entry["name"] else f"{entry['full']} ({entry['name']})"
-            self.user.addItem(label, entry["name"])
+        self._fill_users(hello.get("users", []))
         self.password = QLineEdit(echoMode=QLineEdit.Password, placeholderText="Password")
         self.session = QComboBox()
         for key in hello.get("sessions", ["wayland"]):
@@ -153,6 +151,17 @@ class Greeter(QWidget):
             self._set_busy(False)
             self.error.setText("No user account can log in (create one in the container).")
             self.button.setEnabled(False)
+
+    def _fill_users(self, users: list) -> None:
+        current = self.user.currentData()
+        self.user.blockSignals(True)
+        self.user.clear()
+        for entry in users:
+            label = entry["full"] if entry["full"] == entry["name"] else f"{entry['full']} ({entry['name']})"
+            self.user.addItem(label, entry["name"])
+        index = self.user.findData(current)
+        self.user.setCurrentIndex(index if index >= 0 else 0)
+        self.user.blockSignals(False)
 
     def _tick(self) -> None:
         now = QDateTime.currentDateTime()
@@ -204,6 +213,17 @@ class Greeter(QWidget):
             QApplication.exit(1)
             return
         reply = json.loads(raw)
+        if reply.get("type") == "users":
+            # The account list changed while the login screen was shown.
+            self._hello["users"] = reply.get("users") or []
+            self._hello["user_sessions"] = reply.get("user_sessions") or {}
+            had_users = self.user.count() > 0
+            self._fill_users(self._hello["users"])
+            if self.user.count() and not had_users:
+                self.error.clear()
+                self.button.setEnabled(True)
+                self._user_changed()
+            return
         if reply.get("ok"):
             self.button.setText("Starting the session…")
             QTimer.singleShot(200, lambda: QApplication.exit(0))

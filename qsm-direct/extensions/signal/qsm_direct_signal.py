@@ -143,6 +143,10 @@ class TerminalClient:
             response = json.loads(payload.decode("utf-8"))
         except (UnicodeDecodeError, ValueError) as error:
             raise SignalError(502, "console terminal error") from error
+        if isinstance(response, dict) and not response.get("ok") and response.get("reason") == "busy":
+            # Every console of the container is in use (like its ttys): the
+            # one terminal refusal the user can act on, so it is not generic.
+            raise SignalError(409, "all consoles in use")
         if not isinstance(response, dict) or not response.get("ok"):
             raise SignalError(502, "console terminal error")
         result = response.get("result")
@@ -237,7 +241,8 @@ class ContainerPolicyStore(VmPolicyStore):
     writable for an enabled container, and its session-user line is kept.
     """
 
-    _PRESERVED = ("QSM_DIRECT_LXC_UID", "QSM_DIRECT_LXC_DISPLAY", "QSM_DIRECT_ENCODER")
+    _PRESERVED = ("QSM_DIRECT_LXC_UID", "QSM_DIRECT_LXC_DISPLAY", "QSM_DIRECT_LXC_SLOTS",
+                  "QSM_DIRECT_LXC_GRACE", "QSM_DIRECT_ENCODER")
 
     def read(self, vmid: int) -> dict[str, str]:
         if not self._path(vmid).exists():

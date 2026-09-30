@@ -80,6 +80,10 @@ class DirectTerminalError(RuntimeError):
     """A deliberately non-sensitive direct-terminal failure."""
 
 
+class ContainerConsoleBusyError(DirectTerminalError):
+    """Every console of a container is in use (the browser is told so)."""
+
+
 def _valid_vmid(value: object) -> bool:
     return type(value) is int and MIN_VMID <= value <= MAX_VMID
 
@@ -353,6 +357,8 @@ def _qemu_process_generation(pid_directory: Path, vmid: int) -> str | None:
 _CONTAINER_KEYS = frozenset({
     "QSM_DIRECT_LXC_UID",
     "QSM_DIRECT_LXC_DISPLAY",
+    "QSM_DIRECT_LXC_SLOTS",
+    "QSM_DIRECT_LXC_GRACE",
     "QSM_DIRECT_CODEC",
     "QSM_DIRECT_ENCODER_MODE",
     "QSM_DIRECT_ENCODER",
@@ -389,18 +395,27 @@ def _load_container_instance(directory: Path, vmid: int) -> dict[str, str] | Non
             raise DirectTerminalError("direct-terminal container policy is invalid")
         values[key] = value
     values.setdefault("QSM_DIRECT_LXC_UID", "1000")
-    # "system": the display is a system service shared by the container's
-    # login screen and whichever user logs in (/run/qsm-display); "user": the
-    # original per-user display of QSM_DIRECT_LXC_UID.
+    # "slots": the container runs QSM_DIRECT_LXC_SLOTS console displays
+    # (/run/qsm-display-N), each with its own login screen, like the ttys of
+    # PVE's terminal console; "user": the original single per-user display of
+    # QSM_DIRECT_LXC_UID.  QSM_DIRECT_LXC_GRACE: seconds a closed console's
+    # desktop waits for its PVE user to come back before it is logged out.
     values.setdefault("QSM_DIRECT_LXC_DISPLAY", "user")
+    values.setdefault("QSM_DIRECT_LXC_SLOTS", "1")
+    values.setdefault("QSM_DIRECT_LXC_GRACE", "300")
     values.setdefault("QSM_DIRECT_CODEC", "auto")
     values.setdefault("QSM_DIRECT_ENCODER_MODE", "auto")
     values.setdefault("QSM_DIRECT_ENCODER", "auto")
     uid = values["QSM_DIRECT_LXC_UID"]
     if not _LXC_UID_PATTERN.fullmatch(uid) or int(uid) > 65533:
         raise DirectTerminalError("direct-terminal container has an invalid session user")
-    if values["QSM_DIRECT_LXC_DISPLAY"] not in {"user", "system"}:
+    if values["QSM_DIRECT_LXC_DISPLAY"] not in {"user", "slots"}:
         raise DirectTerminalError("direct-terminal container has an invalid display mode")
+    if not re.fullmatch(r"[1-8]", values["QSM_DIRECT_LXC_SLOTS"]):
+        raise DirectTerminalError("direct-terminal container has an invalid console count")
+    if not re.fullmatch(r"[0-9]{1,5}", values["QSM_DIRECT_LXC_GRACE"]) or \
+            int(values["QSM_DIRECT_LXC_GRACE"]) > 86400:
+        raise DirectTerminalError("direct-terminal container has an invalid console grace period")
     if not _CODEC_PATTERN.fullmatch(values["QSM_DIRECT_CODEC"]):
         raise DirectTerminalError("direct-terminal container has an unsupported browser codec")
     if not _ENCODER_MODE_PATTERN.fullmatch(values["QSM_DIRECT_ENCODER_MODE"]):
@@ -441,6 +456,41 @@ def _lxc_generation(vmid: int) -> str | None:
     if result.returncode != 0 or not text.isdecimal() or int(text) <= 1:
         return None
     return _process_generation(int(text))
+
+
+def _container_slot_command(init_pid: int, slot: int, request: dict[str, str],
+                            timeout: float) -> dict[str, Any] | None:
+    """Ask one console slot's login manager in a container (status/reset).
+
+    The control socket /run/qsm-login/N/control lives in the container, which
+    this root process does not trust: every path component is opened with
+    O_NOFOLLOW below the container's root and the socket is connected through
+    its own O_PATH descriptor, so a planted symlink cannot redirect us to a
+    host socket.  None when the slot does not answer.
+    """
+    descriptors: list[int] = []
+    try:
+        current = os.open(f"/proc/{init_pid}/root", os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC)
+        descriptors.append(current)
+        for part in ("run", "qsm-login", str(slot)):
+            current = os.open(part, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=current)
+            descriptors.append(current)
+        control = os.open("control", os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=current)
+        descriptors.append(control)
+        if not stat.S_ISSOCK(os.fstat(control).st_mode):
+            return None
+        with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as connection:
+            connection.settimeout(timeout)
+            connection.connect(f"/proc/self/fd/{control}")
+            connection.send(json.dumps(request).encode("ascii"))
+            raw = connection.recv(4096)
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else None
+    except (OSError, ValueError):
+        return None
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
 
 
 def _safe_runtime_directory(path: Path) -> None:
@@ -563,6 +613,25 @@ class DbusManager:
 
 
 @dataclass
+class ContainerSlot:
+    """One console of a container, bound to the PVE user who opened it.
+
+    Like a tty of PVE's terminal console, a slot serves one Console at a time
+    and starts at the container's login screen.  When that Console closes
+    with a desktop still logged in, the slot waits ``grace`` seconds for the
+    same PVE user to come back; after that the desktop is logged out.
+    """
+
+    vmid: int
+    number: int
+    owner: str
+    generation: str
+    grace: float
+    detached_at: float | None = None  # monotonic time the last Console left
+    releasing: bool = False
+
+
+@dataclass
 class DirectSession:
     vmid: int
     bridge: BrowserWebRtcBridge
@@ -571,6 +640,11 @@ class DirectSession:
     expires_at: float
     remove_guest_listener: Callable[[], None] | None = None
     negotiation_expires_at: float = 0.0
+    key: object = None  # its transport: the VMID, or (VMID, slot) for a container console
+
+    def __post_init__(self) -> None:
+        if self.key is None:
+            self.key = self.vmid
 
 
 @dataclass
@@ -614,7 +688,14 @@ class DirectSessionManager:
         # Display1 accepts one capture peer per VM. A transport owns that one
         # worker and fans its encoded media out to all PVE-authorized browser
         # sessions for the VM; it is not a single-viewer limitation.
-        self._transports: dict[int, DirectVmTransport] = {}
+        self._transports: dict[object, DirectVmTransport] = {}
+        # Container consoles: (VMID, slot) -> the PVE user it belongs to.
+        # Kept in the root-only runtime directory so a service restart (a
+        # package upgrade) neither logs anybody out nor hands a desktop to
+        # another user.
+        self._slots: dict[tuple[int, int], ContainerSlot] = {}
+        self._slots_path = runtime_directory / "lxc-slots.json"
+        self._load_slots()
         # A positive probe is cached per codec.  The cache contains an actual
         # initialized encoder rather than a GPU-name guess, so heterogeneous
         # nodes naturally advertise HEVC only where it can be used.
@@ -665,6 +746,124 @@ class DirectSessionManager:
             return None
         return _load_container_instance(self._container_instance_directory, vmid)
 
+    # ---------------------------------------------------------- container consoles
+    def _load_slots(self) -> None:
+        try:
+            raw = json.loads(self._slots_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        now_wall, now = time.time(), time.monotonic()
+        for entry in raw if isinstance(raw, list) else []:
+            try:
+                vmid, number = int(entry["vmid"]), int(entry["slot"])
+                owner, generation = str(entry["owner"]), str(entry["generation"])
+                grace = float(entry["grace"])
+                left = entry.get("detached_wall")
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not (_valid_vmid(vmid) and 1 <= number <= 8 and _SUBJECT_PATTERN.fullmatch(owner)):
+                continue
+            # No Console survives a service restart: every slot now waits for
+            # its owner (from when it was left, if it already was).
+            detached = now - max(0.0, now_wall - float(left)) if isinstance(left, (int, float)) else now
+            self._slots[(vmid, number)] = ContainerSlot(vmid, number, owner, generation, grace, detached)
+
+    def _save_slots(self) -> None:
+        now_wall, now = time.time(), time.monotonic()
+        entries = [{"vmid": slot.vmid, "slot": slot.number, "owner": slot.owner,
+                    "generation": slot.generation, "grace": slot.grace,
+                    "detached_wall": None if slot.detached_at is None else now_wall - (now - slot.detached_at)}
+                   for slot in self._slots.values()]
+        temporary = self._slots_path.with_name(".lxc-slots.json.tmp")
+        try:
+            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                json.dump(entries, handle)
+            os.replace(temporary, self._slots_path)
+        except OSError as error:
+            print(f"qsm-direct-terminal: container console state not saved: {error}", file=sys.stderr)
+
+    def _claim_slot(self, vmid: int, subject: str, policy: dict[str, str], generation: str) -> int:
+        """The console slot for one new Console of a PVE user (vmid lock held).
+
+        The user's own left desktop comes first (within its grace period);
+        otherwise a free slot, which shows the login screen.  Another user's
+        slot is never handed out, exactly as a tty in use is not.
+        """
+        count = int(policy["QSM_DIRECT_LXC_SLOTS"])
+        for key in [key for key, slot in self._slots.items()
+                    if slot.vmid == vmid and (slot.generation != generation or slot.number > count)]:
+            del self._slots[key]  # the container restarted: nothing of that slot is left
+        attached = {session.key for session in self._sessions.values()}
+        own = [slot for slot in self._slots.values()
+               if slot.vmid == vmid and slot.owner == subject and (vmid, slot.number) not in attached
+               and not slot.releasing]
+        if own:
+            slot = max(own, key=lambda item: item.detached_at or 0.0)
+            slot.detached_at = None
+            self._save_slots()
+            print(f"qsm-direct-terminal: {subject} resumes console {slot.number} of container {vmid}",
+                  file=sys.stderr, flush=True)
+            return slot.number
+        for number in range(1, count + 1):
+            if (vmid, number) not in self._slots and (vmid, number) not in attached:
+                self._slots[(vmid, number)] = ContainerSlot(
+                    vmid, number, subject, generation, float(policy["QSM_DIRECT_LXC_GRACE"]))
+                self._save_slots()
+                print(f"qsm-direct-terminal: {subject} opens console {number} of container {vmid}",
+                      file=sys.stderr, flush=True)
+                return number
+        raise ContainerConsoleBusyError(
+            f"direct-terminal: all {count} consoles of container {vmid} are in use")
+
+    def _slot_detached(self, key: object) -> None:
+        slot = self._slots.get(key) if isinstance(key, tuple) else None
+        if slot is None or slot.detached_at is not None:
+            return
+        slot.detached_at = time.monotonic()
+        self._save_slots()
+        if not self._closed:
+            # Nobody logged in (the login screen was left): free it at once.
+            asyncio.ensure_future(self._release_slot(key, only_if_idle=True), loop=self._loop)
+
+    def _expire_container_slots(self) -> None:
+        now = time.monotonic()
+        for key, slot in tuple(self._slots.items()):
+            if slot.detached_at is not None and not slot.releasing and now - slot.detached_at >= slot.grace:
+                asyncio.ensure_future(self._release_slot(key), loop=self._loop)
+
+    async def _release_slot(self, key: tuple[int, int], *, only_if_idle: bool = False) -> None:
+        """Log a left console out, back to its login screen, and free it."""
+        vmid, number = key
+        async with self._vm_locks.setdefault(vmid, asyncio.Lock()):
+            slot = self._slots.get(key)
+            if slot is None or slot.detached_at is None or slot.releasing or \
+                    any(session.key == key for session in self._sessions.values()):
+                return  # resumed meanwhile (or already being released)
+            slot.releasing = True
+            try:
+                init_pid = int(slot.generation.split(":", 1)[0])
+                loop = asyncio.get_running_loop()
+                if only_if_idle:
+                    status = await loop.run_in_executor(
+                        None, _container_slot_command, init_pid, number, {"op": "status"}, 5.0)
+                    if status is None or status.get("user"):
+                        return  # a desktop is logged in: it waits for its owner
+                reply = await loop.run_in_executor(
+                    None, _container_slot_command, init_pid, number, {"op": "reset"}, 40.0)
+                if reply is None and not only_if_idle and _lxc_generation(vmid) == slot.generation:
+                    print(f"qsm-direct-terminal: console {number} of container {vmid} did not confirm "
+                          "the logout; retrying", file=sys.stderr, flush=True)
+                    slot.detached_at = time.monotonic() - slot.grace + 30.0
+                    return
+                self._slots.pop(key, None)
+                self._save_slots()
+                print(f"qsm-direct-terminal: console {number} of container {vmid} released "
+                      f"(was {slot.owner}{', logged out' if not only_if_idle else ''})",
+                      file=sys.stderr, flush=True)
+            finally:
+                slot.releasing = False
+
     def _display_is_configured(self, vmid: int) -> bool:
         if not _valid_vmid(vmid):
             return False
@@ -688,7 +887,9 @@ class DirectSessionManager:
         creates a fresh media worker, instead of exposing a stale picture and
         silently dead mouse to the user.
         """
-        for vmid, transport in tuple(self._transports.items()):
+        self._expire_container_slots()
+        for key, transport in tuple(self._transports.items()):
+            vmid = transport.vmid
             if transport.kind == "lxc":
                 try:
                     enabled = self._container_policy(vmid) is not None
@@ -702,7 +903,7 @@ class DirectSessionManager:
                     file=sys.stderr,
                     flush=True,
                 )
-                await self._close_vmid_sessions(vmid)
+                await self._close_vmid_sessions(key)
                 continue
             generation = _qemu_process_generation(self._qemu_pid_directory, vmid)
             if vmid in configured and generation == transport.qemu_generation:
@@ -713,7 +914,7 @@ class DirectSessionManager:
                 file=sys.stderr,
                 flush=True,
             )
-            await self._close_vmid_sessions(vmid)
+            await self._close_vmid_sessions(key)
 
     def _schedule_transport_reconcile(self, configured: tuple[int, ...]) -> None:
         if self._closed:
@@ -766,13 +967,14 @@ class DirectSessionManager:
             dimensions.append(value)
         if dimensions[0] % 2 or dimensions[1] % 2:
             raise DirectTerminalError("direct-terminal request is invalid")
-        return payload["vmid"], payload["sdp"], payload["node"], *dimensions
+        return payload["vmid"], payload["sdp"], payload["subject"], *dimensions
 
     @staticmethod
     def _child_environment() -> dict[str, str]:
         return {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C"}
 
-    async def _create(self, vmid: int, sdp: str, width: int, height: int, fps: int) -> dict[str, str]:
+    async def _create(self, vmid: int, sdp: str, width: int, height: int, fps: int,
+                      subject: str = "") -> dict[str, str]:
         # Do not retain a lock for an arbitrary VMID submitted by an
         # authenticated but otherwise invalid request.  Only a configured VM
         # may acquire the small, process-lifetime per-VM serialization entry.
@@ -780,9 +982,10 @@ class DirectSessionManager:
             raise DirectTerminalError("direct-terminal VM is not configured for Display1")
         lock = self._vm_locks.setdefault(vmid, asyncio.Lock())
         async with lock:
-            return await self._create_locked(vmid, sdp, width, height, fps)
+            return await self._create_locked(vmid, sdp, width, height, fps, subject)
 
-    async def _create_locked(self, vmid: int, sdp: str, width: int, height: int, fps: int) -> dict[str, str]:
+    async def _create_locked(self, vmid: int, sdp: str, width: int, height: int, fps: int,
+                             subject: str = "") -> dict[str, str]:
         self._collect_expired()
         container = self._container_policy(vmid)
         if container is None and not self._display_is_configured(vmid):
@@ -796,7 +999,12 @@ class DirectSessionManager:
         else:
             policy = container
             current_generation = _lxc_generation(vmid)
-        existing = self._transports.get(vmid)
+        key: object = vmid
+        if container is not None and container.get("QSM_DIRECT_LXC_DISPLAY") == "slots":
+            if current_generation is None:
+                raise DirectTerminalError("direct-terminal container is not running")
+            key = (vmid, self._claim_slot(vmid, subject, container, current_generation))
+        existing = self._transports.get(key)
         selection: DirectEncoderSelection | None = None
         if (existing is not None and existing.worker.poll() is None and
                 existing.qemu_generation == current_generation):
@@ -811,8 +1019,13 @@ class DirectSessionManager:
             transport = await self._transport_for(vmid, policy, width, height, fps,
                                                   codec=codec, selection=selection)
         else:
-            transport = await self._lxc_transport_for(vmid, policy, width, height, fps,
-                                                      codec=codec, selection=selection)
+            try:
+                transport = await self._lxc_transport_for(vmid, policy, width, height, fps,
+                                                          codec=codec, selection=selection, key=key)
+            except BaseException:
+                if not any(session.key == key for session in self._sessions.values()):
+                    self._slot_detached(key)
+                raise
         identifier = secrets.token_hex(16)
         directory = self._runtime_directory / f"vm-{vmid}" / identifier
         _safe_runtime_directory(directory.parent)
@@ -841,7 +1054,7 @@ class DirectSessionManager:
             if bridge.terminal:
                 raise DirectTerminalError("direct-terminal browser peer ended during negotiation")
             self._sessions[identifier] = DirectSession(
-                vmid=vmid, bridge=bridge, worker=transport.worker, directory=directory,
+                vmid=vmid, key=key, bridge=bridge, worker=transport.worker, directory=directory,
                 expires_at=time.monotonic() + SESSION_IDLE_SECONDS,
                 remove_guest_listener=remove_guest_listener,
                 negotiation_expires_at=time.monotonic() + SESSION_NEGOTIATION_SECONDS)
@@ -852,8 +1065,8 @@ class DirectSessionManager:
                 remove_guest_listener()
             await bridge.close()
             self._remove_directory(directory)
-            if not any(session.vmid == vmid for session in self._sessions.values()):
-                await self._close_transport(vmid)
+            if not any(session.key == key for session in self._sessions.values()):
+                await self._close_transport(key)
             raise
 
     def _schedule_browser_retirement(self, identifier: str) -> None:
@@ -1031,7 +1244,8 @@ class DirectSessionManager:
 
     async def _lxc_transport_for(self, vmid: int, policy: dict[str, str], width: int, height: int,
                                  fps: int, *, codec: str,
-                                 selection: DirectEncoderSelection | None = None) -> DirectVmTransport:
+                                 selection: DirectEncoderSelection | None = None,
+                                 key: object = None) -> DirectVmTransport:
         """Return the sole capture/encoder worker for a container console.
 
         The worker runs on the host (host GPU encoder, host libraries) and
@@ -1040,8 +1254,10 @@ class DirectSessionManager:
         redirect it.  It drops to ``nobody`` once its sockets are connected,
         since the compositor it talks to is controlled by the container.
         """
+        key = vmid if key is None else key
+        slot = key[1] if isinstance(key, tuple) else None
         generation = _lxc_generation(vmid)
-        existing = self._transports.get(vmid)
+        existing = self._transports.get(key)
         if (existing is not None and existing.kind == "lxc" and generation == existing.qemu_generation and
                 existing.worker.poll() is None):
             if existing.codec != codec:
@@ -1050,15 +1266,15 @@ class DirectSessionManager:
             existing.input.raise_if_failed()
             return existing
         if existing is not None:
-            await self._close_vmid_sessions(vmid)
+            await self._close_vmid_sessions(key)
         if generation is None:
             raise DirectTerminalError("direct-terminal container is not running")
         init_pid = int(generation.split(":", 1)[0])
         uid = policy["QSM_DIRECT_LXC_UID"]
-        display_directory = ("run/qsm-display" if policy.get("QSM_DIRECT_LXC_DISPLAY") == "system"
+        display_directory = (f"run/qsm-display-{slot}" if slot is not None
                              else f"run/user/{uid}/qsm-outer")
 
-        directory = self._runtime_directory / f"vm-{vmid}" / "producer"
+        directory = self._runtime_directory / f"vm-{vmid}" / (f"producer-{slot}" if slot is not None else "producer")
         _safe_runtime_directory(directory.parent)
         _safe_runtime_directory(directory)
         media = SharedMediaIngress(
@@ -1104,9 +1320,10 @@ class DirectSessionManager:
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
                 qemu_generation=generation, codec=codec, guest=None, kind="lxc")
-            self._transports[vmid] = transport
+            self._transports[key] = transport
             print(
-                f"qsm-direct-terminal: container media transport started vmid={vmid} codec={codec} "
+                f"qsm-direct-terminal: container media transport started vmid={vmid} "
+                f"console={slot if slot is not None else '-'} codec={codec} "
                 f"encoder={encoder} pid={worker.pid}",
                 file=sys.stderr,
                 flush=True,
@@ -1155,11 +1372,14 @@ class DirectSessionManager:
         if session.remove_guest_listener is not None:
             session.remove_guest_listener()
         self._remove_directory(session.directory)
-        if not any(other.vmid == session.vmid for other in self._sessions.values()):
-            await self._close_transport(session.vmid)
+        if not any(other.key == session.key for other in self._sessions.values()):
+            await self._close_transport(session.key)
 
-    async def _close_transport(self, vmid: int) -> None:
-        transport = self._transports.pop(vmid, None)
+    async def _close_transport(self, key: object) -> None:
+        # The last Console of a container console left (closed, failed or
+        # retired): its slot starts waiting for the owner to come back.
+        self._slot_detached(key)
+        transport = self._transports.pop(key, None)
         if transport is None:
             return
         self._terminate_worker(transport.worker)
@@ -1169,11 +1389,11 @@ class DirectSessionManager:
             transport.guest.close()
         self._remove_directory(transport.directory)
 
-    async def _close_vmid_sessions(self, vmid: int) -> None:
+    async def _close_vmid_sessions(self, key: object) -> None:
         """Retire all subscribers after their shared VM transport has ended."""
         identifiers = tuple(
             identifier for identifier, session in self._sessions.items()
-            if session.vmid == vmid)
+            if session.key == key)
         for identifier in identifiers:
             session = self._sessions.pop(identifier, None)
             if session is not None:
@@ -1181,7 +1401,7 @@ class DirectSessionManager:
                     session.remove_guest_listener()
                 await session.bridge.close()
                 self._remove_directory(session.directory)
-        await self._close_transport(vmid)
+        await self._close_transport(key)
 
     async def _watch_session(self, identifier: str) -> None:
         while not self._closed:
@@ -1196,7 +1416,7 @@ class DirectSessionManager:
                     file=sys.stderr,
                     flush=True,
                 )
-                await self._close_vmid_sessions(session.vmid)
+                await self._close_vmid_sessions(session.key)
                 return
             now = time.monotonic()
             if session.bridge.connection_state == "connected":
@@ -1227,16 +1447,16 @@ class DirectSessionManager:
         now = time.monotonic()
         for identifier, session in tuple(self._sessions.items()):
             if session.worker.poll() is not None:
-                asyncio.create_task(self._close_vmid_sessions(session.vmid))
+                asyncio.create_task(self._close_vmid_sessions(session.key))
             elif session.expires_at <= now:
                 asyncio.create_task(self._close_session(identifier))
 
     def answer(self, payload: Any) -> dict[str, str]:
-        vmid, sdp, _node, width, height, fps = self._validate_request(payload)
+        vmid, sdp, subject, width, height, fps = self._validate_request(payload)
         if self._closed:
             raise DirectTerminalError("direct-terminal is stopped")
         future: Future[dict[str, str]] = asyncio.run_coroutine_threadsafe(
-            self._create(vmid, sdp, width, height, fps), self._loop)
+            self._create(vmid, sdp, width, height, fps, subject), self._loop)
         try:
             return future.result(timeout=REQUEST_TIMEOUT_SECONDS)
         except BridgeError as error:
@@ -1322,6 +1542,11 @@ class PveRequestHandler(socketserver.BaseRequestHandler):
             if set(answer) != {"type", "sdp"} or answer["type"] != "answer" or not isinstance(answer["sdp"], str):
                 raise DirectTerminalError("direct-terminal response is invalid")
             response = {"ok": True, "result": answer}
+        except ContainerConsoleBusyError as error:
+            # The one refusal a user can act on: every console of the
+            # container is in use (like its ttys in the terminal console).
+            response = {"ok": False, "reason": "busy"}
+            print(f"qsm-direct-terminal: request rejected: {error}", file=sys.stderr)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, DirectTerminalError, BridgeError) as error:
             # All public responses stay deliberately generic.  The journal is
             # the operator-only diagnostic channel and the caught errors are
