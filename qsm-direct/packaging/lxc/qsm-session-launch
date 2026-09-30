@@ -26,11 +26,39 @@ if [ -z "$outer" ]; then
 fi
 export QSM_OUTER_DISPLAY=$display_dir/$outer
 
+# The session runs as lingering user services, outside any login.  The
+# system unit qsm-desktop-session.service gives the user a graphical logind
+# session; polkit resolves this session's agent and authorizations to it
+# ("Authentication required" dialogs, e.g. adding users in System Settings).
+# The agent registers once, at Plasma start, so wait for that session first.
+for _ in $(seq 1 50); do
+    [ -n "$(loginctl show-user "$(id -un)" -p Display --value 2>/dev/null)" ] && break
+    sleep 0.2
+done
+
 # A previous session's Plasma targets can outlive startplasma (they are bound
 # to the window manager, not to this process); if left active, startplasma
 # sees them "already started" and brings up no shell.
 systemctl --user stop plasma-workspace-wayland.target plasma-workspace-x11.target plasma-workspace.target \
-    graphical-session.target plasma-kwin_wayland.service plasma-kwin_x11.service 2>/dev/null || true
+    graphical-session.target 2>/dev/null || true
+# Individual Plasma services of the previous session can outlive their target
+# too (kded, the shell, ...), and the manager environment still points at the
+# previous session's display: after an x11 -> wayland switch the new session
+# came up without a shell.  Start from a clean slate.
+# kded ignores SIGTERM while blocked in its first D-Bus calls (25 s for an
+# absent ModemManager), so give the stop 5 s and then kill what is left.
+plasma_units_left() {
+    systemctl --user list-units --no-legend --state=active,activating,deactivating 'plasma-*.service' 2>/dev/null |
+        grep -q .
+}
+systemctl --user --no-block stop 'plasma-*.service' 2>/dev/null || true
+for _ in $(seq 1 25); do plasma_units_left || break; sleep 0.2; done
+if plasma_units_left; then
+    systemctl --user kill --signal=SIGKILL 'plasma-*.service' 2>/dev/null || true
+    for _ in $(seq 1 25); do plasma_units_left || break; sleep 0.2; done
+fi
+systemctl --user unset-environment DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_SESSION_TYPE \
+    DESKTOP_SESSION 2>/dev/null || true
 # The nested KWin unit reads the display path from the manager environment.
 systemctl --user set-environment QSM_OUTER_DISPLAY="$QSM_OUTER_DISPLAY"
 

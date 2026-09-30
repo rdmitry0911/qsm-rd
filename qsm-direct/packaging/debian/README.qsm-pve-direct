@@ -147,6 +147,14 @@ writes /etc/qsm-pve-direct/containers.d/<vmid>.conf.  The container's Console
 button then offers "QSM Direct" to users with VM.Console on /vms/<vmid>; its
 Console tab keeps the stock xterm.js terminal.
 
+The session user also gets a graphical logind session (system unit
+qsm-desktop-session.service, PAM service qsm-direct-session) so the KDE polkit
+agent works, and is added to the sudo group (polkit administrators; skip with
+--no-admin).  Administrative actions in the desktop, such as adding users in
+System Settings, ask for that user's password, so set one:
+
+    pct exec <vmid> -- passwd qsm
+
     qsm-pve-direct-lxc session <vmid> wayland|x11   switch the session type
     qsm-pve-direct-lxc status  <vmid>
     qsm-pve-direct-lxc disable <vmid>

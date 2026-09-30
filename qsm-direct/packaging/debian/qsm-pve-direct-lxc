@@ -3,7 +3,8 @@
 """Enable the QSM Direct graphical console for a Proxmox VE LXC container.
 
   qsm-pve-direct-lxc enable  VMID [--user NAME] [--uid N] [--session wayland|x11]
-                                  [--nvidia-run FILE] [--no-gpu] [--no-packages] [--restart]
+                                  [--nvidia-run FILE] [--no-gpu] [--no-packages] [--no-admin]
+                                  [--restart]
   qsm-pve-direct-lxc session VMID wayland|x11
   qsm-pve-direct-lxc status  VMID
   qsm-pve-direct-lxc disable VMID
@@ -19,7 +20,9 @@ prepares a running Debian/Ubuntu container for this, idempotently:
      .run installer, --no-kernel-module) so the desktop renders on the GPU.
   3. Packages: sway, xwayland, python3 (+ Plasma Wayland session bits).
   4. A session user with lingering user services: the display, a seat keeper
-     that keeps the display's input devices stable, and the desktop session.
+     that keeps the display's input devices stable, and the desktop session;
+     plus a graphical logind session for that user so polkit dialogs work
+     (the user is an administrator -- sudo group -- unless --no-admin).
   5. The host policy /etc/qsm-pve-direct/containers.d/VMID.conf that enables
      the "QSM Direct" entry of the container's Console button.
 """
@@ -43,6 +46,8 @@ CT_LIB = "/usr/local/lib/qsm-direct"
 GPU_MARKER = "# qsm-direct-gpu-passthrough"
 NVIDIA_NODES = ("nvidia0", "nvidiactl", "nvidia-modeset", "nvidia-uvm", "nvidia-uvm-tools")
 USER_UNITS = ("qsm-display.service", "qsm-seat-keeper.service", "qsm-session.service")
+LOGIND_UNIT = "qsm-desktop-session.service"
+PAM_SERVICE = "qsm-direct-session"
 
 
 class SetupError(Exception):
@@ -235,7 +240,7 @@ Wants=qsm-seat-keeper.service
 After=qsm-display.service qsm-seat-keeper.service
 [Service]
 ExecStart={CT_LIB}/qsm-session-launch
-ExecStopPost=-/usr/bin/systemctl --user --no-block stop plasma-workspace-wayland.target plasma-workspace-x11.target plasma-workspace.target graphical-session.target plasma-kwin_wayland.service plasma-kwin_x11.service
+ExecStopPost=-/usr/bin/systemctl --user --no-block stop plasma-workspace-wayland.target plasma-workspace-x11.target plasma-workspace.target graphical-session.target plasma-*.service
 Restart=on-failure
 RestartSec=3
 [Install]
@@ -256,7 +261,46 @@ ExecStart=/usr/bin/kwin_wayland_wrapper --xwayland --wayland-display ${QSM_OUTER
 """
 
 
-def ensure_user(vmid: int, user: str, uid: int) -> None:
+# The desktop runs as lingering user services, which belong to no logind
+# session.  polkit then finds no session for the user: the KDE agent cannot
+# register and every "Authentication required" action (adding a user in
+# System Settings, ...) fails silently.  This system unit holds a graphical
+# logind session for the user; polkit falls back to a user's graphical
+# session for processes outside one.  On seat0 the session is "active and
+# local" like a desktop login, so the usual allow_active defaults apply
+# (without a seat, e.g. Plasma's network applet prompted for a password at
+# every login).  Own PAM service: session modules only (no authentication,
+# no pam_loginuid, which an unprivileged CT cannot set).
+PAM_SESSION = """# QSM Direct: logind session for the console desktop user (managed by qsm-pve-direct-lxc)
+account  required pam_permit.so
+session  required pam_unix.so
+session  required pam_systemd.so class=user
+"""
+
+
+def unit_logind(user: str, session: str) -> str:
+    return f"""[Unit]
+Description=QSM Direct logind session for the console desktop user
+After=systemd-user-sessions.service systemd-logind.service
+[Service]
+User={user}
+PAMName={PAM_SERVICE}
+Environment=XDG_SESSION_TYPE={session} XDG_SESSION_CLASS=user XDG_SESSION_DESKTOP=KDE XDG_SEAT=seat0
+ExecStart=/bin/sleep infinity
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+"""
+
+
+def write_logind_session(vmid: int, user: str, session: str) -> None:
+    push(vmid, PAM_SESSION, f"/etc/pam.d/{PAM_SERVICE}")
+    push(vmid, unit_logind(user, session), f"/etc/systemd/system/{LOGIND_UNIT}")
+    ct(vmid, f"systemctl daemon-reload && systemctl enable {LOGIND_UNIT} && systemctl restart {LOGIND_UNIT}")
+
+
+def ensure_user(vmid: int, user: str, uid: int, admin: bool = True) -> None:
     exists = ct(vmid, f"id -u {shlex.quote(user)}", check=False)
     if exists.returncode == 0:
         if int(exists.stdout.strip()) != uid:
@@ -264,7 +308,8 @@ def ensure_user(vmid: int, user: str, uid: int) -> None:
     else:
         info(f"creating session user {user} (uid {uid}) in CT {vmid}")
         ct(vmid, f"useradd -m -u {uid} -s /bin/bash {shlex.quote(user)}")
-    ct(vmid, f"for g in video render audio; do getent group $g >/dev/null && usermod -aG $g {shlex.quote(user)}; done; "
+    groups = "video render audio" + (" sudo" if admin else "")
+    ct(vmid, f"for g in {groups}; do getent group $g >/dev/null && usermod -aG $g {shlex.quote(user)}; done; "
              f"loginctl enable-linger {shlex.quote(user)}")
 
 
@@ -339,8 +384,9 @@ def cmd_enable(args: argparse.Namespace) -> int:
         install_nvidia_userspace(args.vmid, args.nvidia_run)
     if not args.no_packages:
         install_packages(args.vmid, args.session)
-    ensure_user(args.vmid, args.user, args.uid)
+    ensure_user(args.vmid, args.user, args.uid, admin=not args.no_admin)
     write_session_files(args.vmid, args.user, args.uid, args.session)
+    write_logind_session(args.vmid, args.user, args.session)
     start_session(args.vmid, args.user)
     write_policy(args.vmid, args.uid)
     for _ in range(30):
@@ -349,7 +395,15 @@ def cmd_enable(args: argparse.Namespace) -> int:
             break
         time.sleep(1)
     info(f"enabled: CT {args.vmid} -> Console -> \"QSM Direct\" ({args.session} session, user {args.user})")
+    if not args.no_admin and not password_is_set(args.vmid, args.user):
+        info(f"{args.user} has no password: administrative actions in the desktop (polkit dialogs) "
+             f"need one -- set it with: pct exec {args.vmid} -- passwd {args.user}")
     return cmd_status(args)
+
+
+def password_is_set(vmid: int, user: str) -> bool:
+    fields = ct(vmid, f"passwd -S {shlex.quote(user)}", check=False).stdout.split()
+    return len(fields) > 1 and fields[1] == "P"
 
 
 def cmd_session(args: argparse.Namespace) -> int:
@@ -359,6 +413,7 @@ def cmd_session(args: argparse.Namespace) -> int:
     home = ct(args.vmid, f"getent passwd {uid} | cut -d: -f6").stdout.strip()
     gid = ct(args.vmid, f"getent passwd {uid} | cut -d: -f4").stdout.strip()
     push(args.vmid, args.type + "\n", f"{home}/.config/qsm/session-type", owner=f"{uid}:{gid}")
+    write_logind_session(args.vmid, user, args.type)
     user_systemctl(args.vmid, user, "restart", "qsm-session.service")
     info(f"CT {args.vmid}: session switched to {args.type}")
     return 0
@@ -381,11 +436,16 @@ def cmd_status(args: argparse.Namespace) -> int:
         user = ct(args.vmid, f"getent passwd {uid} | cut -d: -f1", check=False).stdout.strip() or f"uid {uid}"
         for unit in USER_UNITS:
             state = user_systemctl(args.vmid, user, "is-active", unit, check=False).stdout.strip()
-            print(f"  {unit:26s} {state}")
+            print(f"  {unit:28s} {state}")
+        logind = ct(args.vmid, f"systemctl is-active {LOGIND_UNIT}", check=False).stdout.strip()
+        print(f"  {LOGIND_UNIT:28s} {logind} (system)")
+        admin = ct(args.vmid, f"id -nG {shlex.quote(user)}", check=False).stdout.split()
+        print(f"  administrator (sudo)         {'yes' if 'sudo' in admin else 'no'}"
+              f"{'' if password_is_set(args.vmid, user) else ', no password set'}")
         session = ct(args.vmid, f"cat ~{user}/.config/qsm/session-type 2>/dev/null", check=False).stdout.strip()
         gpu = ct(args.vmid, "nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || true", check=False).stdout.strip()
-        print(f"  session type               {session or 'wayland'}")
-        print(f"  GPU in container           {gpu or 'none/software'}")
+        print(f"  session type                 {session or 'wayland'}")
+        print(f"  GPU in container             {gpu or 'none/software'}")
     return 0
 
 
@@ -400,6 +460,7 @@ def cmd_disable(args: argparse.Namespace) -> int:
         user = ct(args.vmid, f"getent passwd {uid} | cut -d: -f1", check=False).stdout.strip()
         if user:
             user_systemctl(args.vmid, user, "disable", "--now", *USER_UNITS, check=False)
+            ct(args.vmid, f"systemctl disable --now {LOGIND_UNIT}", check=False)
             info(f"CT {args.vmid}: display and session services stopped (files and GPU passthrough left in place)")
     return 0
 
@@ -415,6 +476,8 @@ def main(argv: list[str] | None = None) -> int:
     enable.add_argument("--nvidia-run", help="NVIDIA .run installer matching the host driver")
     enable.add_argument("--no-gpu", action="store_true", help="do not pass through the GPU")
     enable.add_argument("--no-packages", action="store_true", help="do not install container packages")
+    enable.add_argument("--no-admin", action="store_true",
+                        help="do not add the session user to the sudo (polkit administrator) group")
     enable.add_argument("--restart", action="store_true", help="restart the container if GPU access changed")
     enable.set_defaults(func=cmd_enable)
     session = sub.add_parser("session", help="switch the container session type")
