@@ -76,6 +76,14 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             f"vga: std\nargs: {bus},gl=off,audiodev=foreign\n", 321, runtime),
             "another audiodev is an administrator's display configuration")
 
+    def test_a_pending_change_does_not_hide_the_running_display(self) -> None:
+        runtime = Path("/run/qsm-pve-direct")
+        bus = "-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus"
+        config = (f"vga: std\nargs: {bus},gl=off\n\n[PENDING]\nargs: {bus},gl=off,audiodev=qsm-direct-audio "
+                  "-audiodev dbus,id=qsm-direct-audio\n\n[snap1]\nargs: -display gtk\n")
+        self.assertTrue(_managed_display_enabled(config, 321, runtime),
+                        "a running VM keeps its console while a change waits for the next start")
+
     def test_absent_encoder_policy_uses_verified_auto_selection(self) -> None:
         with tempfile.TemporaryDirectory(prefix="qsm-direct-auto-policy.") as temporary:
             root = Path(temporary)

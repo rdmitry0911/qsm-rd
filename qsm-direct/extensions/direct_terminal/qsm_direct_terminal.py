@@ -211,6 +211,21 @@ def _read_pve_vm_config(path: Path) -> str | None:
         os.close(descriptor)
 
 
+def _current_section(config: str) -> list[str]:
+    """The lines of the running configuration of a PVE VM config.
+
+    Snapshots and pending changes follow in ``[...]`` sections; a change to a
+    running VM (say, an added Audio Device) sits in ``[PENDING]`` until the
+    next start and must not be read as a second, conflicting setting.
+    """
+    lines: list[str] = []
+    for line in config.splitlines():
+        if line.startswith("["):
+            break
+        lines.append(line)
+    return lines
+
+
 def _pve_vga_option(config: str) -> dict[str, str] | None:
     """The current ``vga:`` property string of a PVE VM config, parsed.
 
@@ -245,7 +260,7 @@ def _managed_display_profile(config: str, vmid: int, vm_runtime_directory: Path)
         return None
     args: str | None = None
     vga: str | None = None
-    for line in config.splitlines():
+    for line in _current_section(config):
         if line.startswith("args:"):
             if args is not None:
                 return None
@@ -296,7 +311,7 @@ def _managed_guest_channel_enabled(config: str, vmid: int, vm_runtime_directory:
     """
     if not _valid_vmid(vmid):
         return False
-    args = next((line.removeprefix("args:").strip() for line in config.splitlines()
+    args = next((line.removeprefix("args:").strip() for line in _current_section(config)
                  if line.startswith("args:")), None)
     if args is None or len(args) > 8192 or any(ord(value) < 0x20 or ord(value) == 0x7f for value in args):
         return False
