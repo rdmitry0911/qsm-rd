@@ -6,7 +6,7 @@ Subject: [PATCH qemu-server 0/5] vga: D-Bus display, render node and WebRTC cons
 This series lets a VM export its display over QEMU's D-Bus display
 (peer-to-peer, no bus daemon) and lets a WebRTC console attach to it
 through the API, as discussed in the RFC "WebRTC console for VMs via
-QEMU's D-Bus display" on this list.
+QEMU's D-Bus display" on this list (feature request: bug #8106).
 
 Patch 1 stands on its own: it adds 'rendernode' to the VGA option so a
 VirGL guest can be placed on a chosen GPU (bug #4771).

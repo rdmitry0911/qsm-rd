@@ -11,8 +11,9 @@ with `git send-email`, and every contributor signs a CLA first
    (Harmony-based) and mail it to `office@proxmox.com`.
 2. **Feature request** -- file
    [`bugzilla-feature-request.txt`](bugzilla-feature-request.txt) at
-   <https://bugzilla.proxmox.com> (product *pve*, component *Qemu*), then put
-   the bug number into the RFC ("see bug #NNNN") before sending it.
+   <https://bugzilla.proxmox.com> (product *pve*, component *Qemu*).  Filed as
+   [bug #8106](https://bugzilla.proxmox.com/show_bug.cgi?id=8106); the RFC
+   and both cover letters reference it.
 3. **RFC** -- send [`pve-devel-rfc.eml`](pve-devel-rfc.eml) (from/subject
    headers included) and wait for the maintainers' answer on the design:
 

@@ -4,7 +4,7 @@ Date: Thu, 1 Oct 2026 00:30:25 +0300
 Subject: [PATCH manager 0/3] ui: WebRTC console for VMs with a D-Bus display
 
 Web UI side of the qemu-server series "vga: D-Bus display, render
-node and WebRTC console attach".
+node and WebRTC console attach" (feature request: bug #8106).
 
 Patch 1 lets pveproxy serve the page of a WebRTC console viewer from a
 separate package, the same way as noVNC and xterm.js.  Patch 2 adds

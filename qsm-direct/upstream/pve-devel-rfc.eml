@@ -10,6 +10,9 @@ pve-manager parts as patch series against current master (tested on
 PVE 9.2 with an RTX 3080, see below) -- but I'd like your opinion on
 the design before sending them.
 
+Feature request: bug #8106
+https://bugzilla.proxmox.com/show_bug.cgi?id=8106
+
 Motivation
 ----------
 noVNC is the right console for firmware, installers and text consoles.
