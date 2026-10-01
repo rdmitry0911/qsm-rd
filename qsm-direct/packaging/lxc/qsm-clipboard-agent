@@ -118,17 +118,25 @@ class Agent(QObject):
         debug(f"connection {'accepted' if socket is not None else 'missing'}")
         if socket is None:
             return
-        if self.client is not None:
-            self.client.disconnectFromServer()  # one host connection at a time
-        self.client = socket
+        previous, self.client = self.client, socket
+        if previous is not None:
+            previous.disconnectFromServer()  # one host connection at a time
         self.buffer.clear()
         socket.readyRead.connect(self.read)
-        socket.disconnected.connect(socket.deleteLater)
-        socket.disconnected.connect(self.poll.stop)
+        # Forget a socket before Qt deletes it: a later connection (the
+        # console closed and reopened) must not touch the deleted object.
+        socket.disconnected.connect(lambda gone=socket: self.dropped(gone))
         self.send("READY QSF1")
         # The host learns the current text first; later changes follow.
         self.last_text = self.current_text()
         self.poll.start()
+
+    def dropped(self, socket: QLocalSocket) -> None:
+        debug("connection closed")
+        if self.client is socket:
+            self.client = None
+            self.poll.stop()
+        socket.deleteLater()
 
     @pyqtSlot()
     def read(self) -> None:

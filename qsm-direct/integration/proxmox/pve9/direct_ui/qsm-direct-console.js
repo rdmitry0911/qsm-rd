@@ -1944,7 +1944,9 @@
                 send({ op: 'keyboard', key: modifier, down: false, modifiers: 0 });
             }
         };
-        const sendGuestCopyShortcut = () => sendGuestChord([29], 46); // Ctrl+C
+        // Ctrl+C, or Ctrl+Shift+C when the user held Shift: terminals copy
+        // with Ctrl+Shift+C and read a plain Ctrl+C as an interrupt.
+        const sendGuestCopyShortcut = (shift = false) => sendGuestChord(shift ? [29, 42] : [29], 46);
         // Shift+Insert is the standard Linux clipboard paste accelerator in
         // both graphical editors and terminal emulators.  Ctrl+V is a literal
         // control character in Konsole/xterm (shown as ^V), so it cannot be
@@ -1997,13 +1999,13 @@
             await writePendingClipboard(guestClipboardText());
             status.textContent = gettext('Guest clipboard copied');
         };
-        const guestSelectionToBrowser = async () => {
+        const guestSelectionToBrowser = async (shift = false) => {
             // Start the authorized browser write before asking the guest to
             // Register first, then emit Ctrl+C. The subsequent guest event
             // carries the selection after the desktop broker has actually
             // published it; no compositor-duration timer is involved.
             const text = waitForNextGuestClipboard();
-            sendGuestCopyShortcut();
+            sendGuestCopyShortcut(shift);
             await writePendingClipboard(text);
             status.textContent = gettext('Guest selection copied');
         };
@@ -3078,7 +3080,7 @@
                         event.preventDefault();
                         if (name === 'keydown') {
                             releaseHeldInput();
-                            guestSelectionToBrowser().catch(() => {
+                            guestSelectionToBrowser(event.shiftKey).catch(() => {
                                 status.textContent = gettext('Guest clipboard is unavailable.');
                             });
                         }

@@ -285,7 +285,7 @@ assert.doesNotMatch(source, /guestClipboardPropagationDelayMs/,
     'clipboard synchronization must not use a fixed compositor-delay timer');
 assert.match(source, /video\.addEventListener\('contextmenu',[\s\S]*?event\.preventDefault\(\);[\s\S]*?event\.stopPropagation\(\);/,
     'the Chrome context menu must be suppressed after forwarding one guest right click');
-assert.match(source, /sendGuestCopyShortcut\(\);/,
+assert.match(source, /sendGuestCopyShortcut\(shift\);/,
     'Ctrl+C must ask the focused guest application to publish its selection before browser copy resolves');
 assert.match(source, /qsm-direct-settings/,
     'codec and encoder settings must be persisted through a VM-scoped PVE endpoint, not browser storage');
