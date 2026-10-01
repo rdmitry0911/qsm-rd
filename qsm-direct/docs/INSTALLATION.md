@@ -14,7 +14,7 @@ As `root@pam` (the setting edits the VM's `args:` line, which Proxmox reserves f
 
 - **VirGL GPU (GL):** QSM creates a private `virtio-vga-gl` and GL D-Bus display. VNC is not used with that GL backend.
 - **CPU — Standard VGA, VirtIO or VMware (no GL):** the selected PVE `std`, non-GL `virtio` or `vmware` adapter remains in place and QSM adds a non-GL D-Bus display. No GPU or render node is required; stock VNC may run in parallel.
-- **Audio** (on by default) adds an Intel HDA sound card with a microphone input: its output plays in the console (which starts muted; the speaker button turns the sound on), and the microphone button sends the browser's microphone to the guest.
+Sound and microphone: **Hardware → Add → Audio Device**, backend **QSM Console** (offered on a VM with QSM Display1). Its output plays in the console (which starts muted; the speaker button turns the sound on), and the microphone button sends the browser's microphone to the guest. Stop and start the VM afterwards.
 
 Encoder settings are stored per VM in `/etc/qsm-pve-direct/instances.d/<VMID>.conf`, mode `0600`. The default codec policy is `auto`: when the browser's offer contains H.265 and the node has a working `hevc_nvenc`, `hevc_qsv` or `hevc_vaapi`, QSM negotiates HEVC (answering with the browser's own payload type and profile/tier/level); otherwise it uses the H.264 path (NVENC, QSV, VA-API, then `libx264`). `QSM_DIRECT_CODEC=hevc` forces HEVC and requires a hardware encoder; it never silently uses a CPU encoder or emits an H.264 stream labelled as HEVC. HEVC is qualified against Chrome on Apple silicon with `hevc_nvenc`.
 

@@ -45,10 +45,14 @@ and select one profile:
   `-display dbus,...,gl=off`. It needs neither a render node nor a host GPU;
   normal PVE VNC remains usable alongside QSM Direct.
 
-**Audio** (on by default for a new console) adds an Intel HDA sound card with
-a microphone input (`hda-micro`) on a QEMU dbus audiodev
+Sound: **Hardware → Add → Audio Device** offers the backend **QSM Console**
+on such a VM: an Intel HDA sound card with a microphone input (`hda-micro`)
+on a QEMU dbus audiodev
 (`-audiodev dbus,id=qsm-direct-audio,...`, 48 kHz stereo both ways, named in
-`-display ...,audiodev=qsm-direct-audio`).  The console starts muted, as
+`-display ...,audiodev=qsm-direct-audio`), kept in `args` because PVE's own
+audio backends (SPICE, none) cannot feed a D-Bus display; the Hardware list
+shows it as the Audio Device, Edit and Remove work on it.  The console starts
+muted, as
 browsers require; its speaker button turns the sound on, its microphone
 button sends the browser's microphone to the guest's microphone input.
 
@@ -124,9 +128,9 @@ To pin HEVC, pair a hardware encoder with `QSM_DIRECT_CODEC=hevc`, for example:
 For VA-API additionally set
 `QSM_DIRECT_VAAPI_RENDER_NODE=/dev/dri/renderD128`.
 
-The direct WebRTC console provides video, guest audio and microphone (with
-**Audio** enabled), keyboard, pointer, scrolling, dynamic Display1 resolution,
-and optional guest clipboard integration. For clipboard install the matching `qsm-desktop-agent` package
+The direct WebRTC console provides video, guest audio and microphone (with a
+QSM Console Audio Device), keyboard, pointer, scrolling, dynamic Display1
+resolution, and optional guest clipboard integration. For clipboard install the matching `qsm-desktop-agent` package
 inside the Linux VM, then run `sudo qsm-desktop-agent-setup USER` once for its
 logged-in desktop user. On Wayland, also enable `qsm-desktop-clipboard.service`
 in that user's session.

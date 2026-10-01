@@ -523,10 +523,39 @@ assert.throws(() => displayOverlay.onGetValues.call(displayPanel, {
 }), /unsafe QSM audio arguments/, 'a foreign audiodev with the managed id is not claimed');
 vmWindow.vmconfig.args = '-cpu host';
 
+
+// Sound through PVE's own Audio Device dialog: backend "QSM Console" puts the
+// overlay's sound card into args (no audio0); a stock backend takes it out.
+const audioPanelOverlay = definitions.get('PVE.qsmDirect.AudioInputPanelOverlay');
+const audioEditOverlay = definitions.get('PVE.qsmDirect.AudioEditOverlay');
+assert.ok(audioPanelOverlay && audioEditOverlay && definitions.get('PVE.qsmDirect.HardwareViewOverlay'),
+    'the Audio Device dialog and Hardware view get the QSM Console backend');
+{
+    const consoleArgs = '-cpu host -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=off';
+    const audioWindow = { pveSelNode: { data: { vmid: 321 } }, vmconfig: { args: consoleArgs } };
+    const panel = {
+        up: () => audioWindow,
+        callParent: ([values]) => ({ audio0: `device=${values.device},driver=${values.driver}` }),
+    };
+    const on = audioPanelOverlay.onGetValues.call(panel, { device: 'ich9-intel-hda', driver: 'qsm' });
+    assert.ok(on.args.includes(',gl=off,audiodev=qsm-direct-audio'), 'QSM Console names the audiodev in -display');
+    assert.ok(on.args.includes(managedAudioArguments.trim()), 'QSM Console adds the sound card');
+    assert.equal(on.delete, undefined, 'no audio0 to delete');
+    audioWindow.vmconfig = { args: on.args, audio0: 'device=AC97,driver=spice' };
+    assert.equal(audioPanelOverlay.onGetValues.call(panel, { device: 'ich9-intel-hda', driver: 'qsm' }).delete,
+        'audio0', 'switching a stock Audio Device to QSM Console replaces it');
+    const stock = audioPanelOverlay.onGetValues.call(panel, { device: 'intel-hda', driver: 'none' });
+    assert.equal(stock.audio0, 'device=intel-hda,driver=none', 'a stock backend is saved as audio0');
+    assert.doesNotMatch(stock.args, /audiodev|hda-micro|intel-hda/, 'and the QSM sound card leaves args');
+    assert.ok(stock.args.includes(`${consoleArgs.split(' ').slice(2).join(' ')} `), 'the console itself stays');
+    audioWindow.vmconfig = { args: '-cpu host' };
+    assert.throws(() => audioPanelOverlay.onGetValues.call(panel, { device: 'ich9-intel-hda', driver: 'qsm' }),
+        /QSM Console audio needs QSM Display1/, 'QSM Console needs a QSM console');
+}
+
 let restoredValues;
 let renderNodeDisabled;
 let restoredAdapter;
-let audioDisabled;
 const displayEdit = {
     pveSelNode: { data: { vmid: 321 } },
     load: (options) => options.success({
@@ -547,9 +576,7 @@ const displayEdit = {
         if (query === '[name=qsm_direct_effective_adapter]') {
             return { setValue: (value) => { restoredAdapter = value; } };
         }
-        if (query === '[name=qsm_direct_audio]') {
-            return { setDisabled: (value) => { audioDisabled = value; } };
-        }
+
         if (query === '[name=type]') { return { getValue: () => 'none' }; }
         assert.fail(`unexpected display field query: ${query}`);
     },
@@ -559,10 +586,9 @@ assert.deepEqual(restoredValues, {
     qsm_direct_display1: 1,
     qsm_direct_profile: 'virgl',
     qsm_direct_rendernode: '/dev/dri/renderD130',
-    qsm_direct_audio: 0,
     qsm_direct_effective_adapter: 'QSM VirtIO-GPU (VirGL, GL) — PVE Graphic card is None',
 });
-assert.equal(audioDisabled, false, 'a configured console keeps the audio switch usable');
+
 assert.equal(renderNodeDisabled, false, 'reopening a configured VM must preserve the enabled render node');
 assert.equal(restoredAdapter, 'QSM VirtIO-GPU (VirGL, GL) — PVE Graphic card is None',
     'reopening a VirGL VM must disclose its effective QSM adapter rather than only PVE vga=none');

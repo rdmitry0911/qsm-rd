@@ -206,10 +206,14 @@ VM, enable **QSM Display1** and pick a profile:
   resolution to follow the console window; Standard VGA and VMware keep their
   own mode and are scaled.
 
-**Audio** (on by default) adds an Intel HDA sound card with speakers and a
-microphone input: its output plays in the console, and the console's
-microphone button feeds the browser's microphone to its input. Switch it off
-for a guest that should have no sound device.
+**Sound** is PVE's own **Hardware → Add → Audio Device**: on a VM with QSM
+Display1 it offers the backend **QSM Console** (and preselects it), an Intel
+HDA sound card with speakers and a microphone input whose output plays in the
+console and whose input takes the browser's microphone. PVE's stock backends
+(SPICE, none) cannot feed the console, so this one lives in the VM's `args`;
+the Hardware list shows it as the VM's Audio Device, and Edit and Remove work
+on it as usual. Like the Display setting it edits `args`, so it needs
+`root@pam`.
 
 **Save, then stop and start the VM** — a reboot from inside the guest is not
 enough, QEMU must be relaunched with the new display. Then use the existing
@@ -250,7 +254,7 @@ All viewers of one VM share one encoder stream. The first Console picks the
 codec; a later browser that cannot decode it is refused rather than handed
 mislabelled video (the reason is logged in the node journal).
 
-**Audio:** with **Audio** enabled in the Display settings the VM gets an
+**Audio:** with an Audio Device on the backend **QSM Console** the VM gets an
 Intel HDA sound card on a QEMU D-Bus audio backend (48 kHz stereo); the worker
 receives its PCM through Display1, encodes Opus and sends it on the same
 WebRTC connection. Browsers start the console muted (autoplay policy): the
@@ -264,9 +268,8 @@ card's microphone input) from a small buffer. With several viewers, the one
 who spoke last has the microphone. Browsers allow the microphone only on
 HTTPS.
 
-A VM saved before these settings existed has no sound card, or one without
-a microphone input: switch **Audio** on (or save the Display settings once
-more), then stop and start the VM.
+A VM needs that Audio Device (an older output-only QSM sound card is upgraded
+when the Display or Audio Device is saved), then a stop and start.
 
 ### Clipboard
 

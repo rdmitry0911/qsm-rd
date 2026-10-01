@@ -335,8 +335,6 @@
     const updateDisplayFields = (panel, active, profile, vga) => {
         const rendernode = panel && panel.down('[name=qsm_direct_rendernode]');
         if (rendernode) { rendernode.setDisabled(!active || profile !== DISPLAY_PROFILE.virgl); }
-        const audio = panel && panel.down('[name=qsm_direct_audio]');
-        if (audio) { audio.setDisabled(!active); }
         const adapter = panel && panel.down('[name=qsm_direct_effective_adapter]');
         if (adapter) {
             const type = vga || (panel.down('[name=type]') && panel.down('[name=type]').getValue());
@@ -375,17 +373,12 @@
             validator: (value) => validRenderNode(value) || gettext('Use a DRM render node, for example /dev/dri/renderD128.'),
         },
         {
-            xtype: 'proxmoxcheckbox', name: 'qsm_direct_audio', uncheckedValue: 0, value: 1,
-            disabled: true, fieldLabel: gettext('Audio'),
-            boxLabel: gettext('Sound card (Intel HDA) with speakers and microphone in the console'),
-        },
-        {
             xtype: 'displayfield', name: 'qsm_direct_effective_adapter',
             fieldLabel: gettext('Effective display adapter'),
             value: effectiveDisplayAdapter(false, DISPLAY_PROFILE.virgl, 'none'),
         },
         { xtype: 'displayfield', userCls: 'pmx-hint', value: gettext(
-            'VirGL owns a private VirtIO-GPU and saves PVE Graphic card as None, because VNC and GL Display1 are incompatible. CPU Display1 uses gl=off and keeps the selected Standard VGA or non-GL VirtIO adapter, so no render node or host GPU is needed. If an adapter does not implement Display1 resize, QSM keeps its fixed guest scanout connected instead of failing the console. Audio adds an Intel HDA sound card: its output plays in the console (unmute it with the speaker button) and the microphone button feeds the browser microphone to its input. The optional QSM Desktop Agent serial channel provides clipboard integration. Restart the VM after changing this setting.'),
+            'VirGL owns a private VirtIO-GPU and saves PVE Graphic card as None, because VNC and GL Display1 are incompatible. CPU Display1 uses gl=off and keeps the selected Standard VGA or non-GL VirtIO adapter, so no render node or host GPU is needed. If an adapter does not implement Display1 resize, QSM keeps its fixed guest scanout connected instead of failing the console. For sound and microphone in the console, add an Audio Device with the backend QSM Console. The optional QSM Desktop Agent serial channel provides clipboard integration. Restart the VM after changing this setting.'),
         },
     ];
 
@@ -437,6 +430,142 @@
     // than an unsupported PVE config key. Populate them after DisplayEdit's
     // asynchronous load so reopening Hardware -> Display reflects what was
     // actually saved for this VM.
+    // Sound: PVE's own Audio Device dialog and Hardware row.  A stock audio0
+    // backend (spice, none) cannot feed a D-Bus display, so the backend
+    // "QSM Console" is this overlay's sound card in `args` (AUDIO_ARGUMENTS)
+    // instead of audio0, shown and removed like an ordinary Audio Device.
+    const QSM_AUDIO_DRIVER = 'qsm';
+    const QSM_AUDIO_LABEL = 'ich9-intel-hda, QSM Console (speakers + microphone)';
+    const qsmAudioActive = (args, vmid) => {
+        const state = displayState(args, vmid);
+        return (state.managed || state.legacy) && Boolean(state.audio);
+    };
+    // The args for switching the QSM sound card on or off; null when the VM
+    // has no managed Display1 to carry it.
+    const qsmAudioArgs = (args, vmid, on) => {
+        const state = displayState(args, vmid);
+        if (!state.managed && !state.legacy) { return null; }
+        return updateDisplayArgument(args, vmid, state.profile, state.rendernode, true, on);
+    };
+
+    defineOverride('PVE.qsmDirect.AudioInputPanelOverlay', {
+        override: 'PVE.qemu.AudioInputPanel',
+        onGetValues: function (values) {
+            const edit = this.up('proxmoxWindowEdit');
+            const config = (edit && edit.vmconfig) || {};
+            const vmid = windowVmid(edit);
+            const args = config.args || '';
+            if (values.driver === QSM_AUDIO_DRIVER) {
+                const changed = qsmAudioArgs(args, vmid, true);
+                if (changed === null) { throw new Error('QSM Console audio needs QSM Display1'); }
+                const response = {};
+                if (changed !== args) { response.args = changed; }
+                if (config.audio0) { response.delete = 'audio0'; }
+                return response;
+            }
+            const response = this.callParent([values]);
+            if (qsmAudioActive(args, vmid)) {
+                response.args = qsmAudioArgs(args, vmid, false);
+            }
+            return response;
+        },
+    });
+
+    defineOverride('PVE.qsmDirect.AudioEditOverlay', {
+        override: 'PVE.qemu.AudioEdit',
+        initComponent: function () {
+            const me = this;
+            const stockLoad = me.load;
+            me.load = function (options) {
+                const chained = Ext.apply({}, options);
+                const stockSuccess = chained.success;
+                chained.success = function (response) {
+                    if (stockSuccess) { stockSuccess.apply(this, arguments); }
+                    const data = (response && response.result && response.result.data) || {};
+                    const vmid = windowVmid(me);
+                    const state = displayState(data.args, vmid);
+                    if (!state.managed && !state.legacy) { return; }
+                    const driver = me.down('[name=driver]');
+                    if (driver && driver.getStore && !driver.getStore().getById(QSM_AUDIO_DRIVER)) {
+                        driver.getStore().add({ key: QSM_AUDIO_DRIVER, value: 'QSM Console' });
+                    }
+                    // The QSM sound card is an ich9-intel-hda with hda-micro.
+                    const device = me.down('[name=device]');
+                    const follow = (value) => {
+                        if (!device) { return; }
+                        if (value === QSM_AUDIO_DRIVER) { device.setValue('ich9-intel-hda'); }
+                        device.setDisabled(value === QSM_AUDIO_DRIVER);
+                    };
+                    if (driver) { driver.on('change', (_field, value) => follow(value)); }
+                    if (!data.audio0) {
+                        // Configured or new on a QSM console: the console's own.
+                        me.setValues({ device: 'ich9-intel-hda', driver: QSM_AUDIO_DRIVER });
+                    }
+                    follow(driver ? driver.getValue() : null);
+                };
+                return stockLoad.call(me, chained);
+            };
+            me.callParent();
+            me.load = stockLoad;
+        },
+    });
+
+    defineOverride('PVE.qsmDirect.HardwareViewOverlay', {
+        override: 'PVE.qemu.HardwareView',
+        initComponent: function () {
+            const me = this;
+            me.callParent();
+            const vmid = Number(me.pveSelNode && me.pveSelNode.data && me.pveSelNode.data.vmid);
+            // The store loads only the keys of its reader's `rows`; load args
+            // too, and keep it out of the grid (its filter uses `me.rows`).
+            const reader = me.rstore.getProxy().getReader();
+            for (const rows of [me.rows, reader && reader.rows]) {
+                if (rows && !rows.args) { rows.args = { visible: false }; }
+            }
+            const currentArgs = () => {
+                const record = me.rstore.getById('args');
+                if (!record) { return ''; }
+                const pending = record.data.pending;
+                return typeof pending === 'string' ? pending : (record.data.value || '');
+            };
+            // The grid shows a copy (DiffStore) with model fields only, so the
+            // marker is looked up in the loaded store itself.
+            const isVirtual = (record) => {
+                const loaded = record && record.data && record.data.key === 'audio0' ? me.rstore.getById('audio0') : null;
+                return Boolean(loaded && loaded.data.qsmAudio);
+            };
+            // Show the QSM sound card as the VM's Audio Device row; ahead of the
+            // grid's copy of the store, which listens to the same event.
+            me.rstore.on('load', (store, _records, success) => {
+                if (success === false || store.getById('audio0')) { return; }
+                if (qsmAudioActive(currentArgs(), vmid)) {
+                    store.add({ key: 'audio0', value: QSM_AUDIO_LABEL, qsmAudio: true });
+                }
+            }, null, { priority: 1000 });
+            // Remove on that row takes the sound card out of `args`.
+            const remove = me.query('button').find((button) => button.RESTMethod && button.dangerous);
+            if (remove) {
+                const stockHandler = remove.handler;
+                remove.handler = function (button, event) {
+                    const record = me.getSelectionModel().getSelection()[0];
+                    if (!isVirtual(record)) { return stockHandler.apply(this, arguments); }
+                    Ext.Msg.confirm(gettext('Confirm'), gettext('Remove the QSM Console audio device?'), (answer) => {
+                        if (answer !== 'yes') { return; }
+                        Proxmox.Utils.API2Request({
+                            url: `/api2/extjs/nodes/${me.pveSelNode.data.node}/qemu/${vmid}/config`,
+                            method: 'PUT',
+                            waitMsgTarget: me,
+                            params: { args: qsmAudioArgs(currentArgs(), vmid, false) },
+                            callback: () => me.reload(),
+                            failure: (response) => Ext.Msg.alert(gettext('Error'), response.htmlStatus),
+                        });
+                    });
+                    return undefined;
+                };
+            }
+        },
+    });
+
     defineOverride('PVE.qsmDirect.DisplayEditOverlay', {
         override: 'PVE.qemu.DisplayEdit',
         initComponent: function () {
@@ -453,8 +582,6 @@
                         qsm_direct_display1: state.managed || state.legacy ? 1 : 0,
                         qsm_direct_profile: state.profile,
                         qsm_direct_rendernode: state.rendernode,
-                        // A new console gets audio; a configured one shows what it has.
-                        qsm_direct_audio: state.managed || state.legacy ? (state.audio ? 1 : 0) : 1,
                         qsm_direct_effective_adapter: effectiveDisplayAdapter(
                             state.managed || state.legacy, state.profile, data && data.vga),
                     });
