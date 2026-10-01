@@ -1,7 +1,7 @@
 From 7603e6ca92ce7f6848e7eb30259b24a723de7880 Mon Sep 17 00:00:00 2001
 From: Dmitry R <rdmitry0911@gmail.com>
 Date: Thu, 1 Oct 2026 00:08:37 +0300
-Subject: [PATCH qemu-server 3/4] api: add webrtcproxy to attach a WebRTC
+Subject: [PATCH qemu-server 3/5] api: add webrtcproxy to attach a WebRTC
  console to the D-Bus display
 
 Add POST /nodes/{node}/qemu/{vmid}/webrtcproxy (VM.Console, like

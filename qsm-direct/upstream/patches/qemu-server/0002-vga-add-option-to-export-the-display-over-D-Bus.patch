@@ -1,7 +1,7 @@
 From 06954a3af743e9cc559370ca763ba1e0bd92522f Mon Sep 17 00:00:00 2001
 From: Dmitry R <rdmitry0911@gmail.com>
 Date: Thu, 1 Oct 2026 00:02:53 +0300
-Subject: [PATCH qemu-server 2/4] vga: add option to export the display over
+Subject: [PATCH qemu-server 2/5] vga: add option to export the display over
  D-Bus
 
 QEMU's D-Bus display hands the guest scanout -- including the GL

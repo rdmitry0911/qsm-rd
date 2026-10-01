@@ -22,10 +22,10 @@ with `git send-email`, and every contributor signs a CLA first
    `Dmitry R <rdmitry0911@gmail.com>`).
 4. **Patch series** -- prepared in [`patches/`](patches/), one directory per
    Proxmox repository, generated with `git format-patch -s` against current
-   upstream master.  Send each series with a cover letter, e.g.
+   upstream master; `0000-cover-letter.patch` is each series' cover letter.
+   Send a series as is, e.g.
 
-       git send-email --to=pve-devel@lists.proxmox.com --compose \
-           --subject-prefix="PATCH qemu-server" patches/qemu-server/*.patch
+       git send-email --to=pve-devel@lists.proxmox.com patches/qemu-server/*.patch
 
    Patch 1 (render node, bug #4771) stands on its own and can go first.
 

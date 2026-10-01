@@ -1,7 +1,7 @@
 From eb25234d1cd5a599ff1277998a67542c7d89fd09 Mon Sep 17 00:00:00 2001
 From: Dmitry R <rdmitry0911@gmail.com>
 Date: Thu, 1 Oct 2026 00:00:37 +0300
-Subject: [PATCH qemu-server 1/4] fix #4771: vga: add rendernode option for
+Subject: [PATCH qemu-server 1/5] fix #4771: vga: add rendernode option for
  virtio-gl
 
 On a host with more than one GPU, a VirGL guest always renders on the

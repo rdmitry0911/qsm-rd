@@ -54,6 +54,8 @@ Proposed series
    QEMU refuses VNC next to it ("Display vnc is incompatible with the
    GL context"), so a virtio-gl VM with dbus=1 has no VNC server and
    offers the WebRTC console instead; non-GL types keep VNC as well.
+   The clipboard reaches the guest through qemu-vdagent (as for the
+   VNC clipboard) and the guest's spice-vdagent.
 
 3. qemu-server: API call to attach a console
      POST /nodes/{node}/qemu/{vmid}/webrtcproxy  (VM.Console)

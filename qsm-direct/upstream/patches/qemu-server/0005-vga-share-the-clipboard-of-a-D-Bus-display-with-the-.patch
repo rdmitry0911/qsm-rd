@@ -1,0 +1,88 @@
+From dbdf5ba8b4f35240e67700b4a19d724988a351cd Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Thu, 1 Oct 2026 10:34:42 +0300
+Subject: [PATCH qemu-server 5/5] vga: share the clipboard of a D-Bus display
+ with the guest
+
+The D-Bus display offers clipboard sharing (org.qemu.Display1.Clipboard)
+on top of QEMU's own clipboard, which reaches the guest through
+qemu-vdagent -- as for the VNC clipboard.  Add the qemu-vdagent chardev
+(clipboard=on) and its com.redhat.spice.0 port for a display with
+'dbus' too, so a D-Bus console shares the clipboard with a guest
+running spice-vdagent.
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ src/PVE/QemuServer.pm                    | 11 ++++++++---
+ src/test/cfg2cmd/dbus-display.conf.cmd   |  3 +++
+ src/test/cfg2cmd/virtio-gl-dbus.conf.cmd |  3 +++
+ 3 files changed, 14 insertions(+), 3 deletions(-)
+
+diff --git a/src/PVE/QemuServer.pm b/src/PVE/QemuServer.pm
+index 61e2f293..7678b69b 100644
+--- a/src/PVE/QemuServer.pm
++++ b/src/PVE/QemuServer.pm
+@@ -191,7 +191,9 @@ my $vga_fmt = {
+         description => "Also export the display over QEMU's D-Bus display interface, in"
+             . " peer-to-peer mode: a console attaches per connection through QMP, no D-Bus"
+             . " daemon is involved. With 'virtio-gl', QEMU does not allow VNC or SPICE next to"
+-            . " the GL-enabled D-Bus display, so the VM then has neither of those consoles.",
++            . " the GL-enabled D-Bus display, so the VM then has neither of those consoles."
++            . " The clipboard is QEMU's own (as with the VNC clipboard), which needs"
++            . " spice-vdagent in the guest.",
+         type => 'boolean',
+         default => 0,
+         optional => 1,
+@@ -3543,8 +3545,11 @@ sub config_to_command {
+ 
+     assert_clipboard_config($vga);
+     my $is_spice = !dbus_gl_display($vga) && ($qxlnum || $vga->{type} =~ /^virtio/);
++    # QEMU's own clipboard (qemu-vdagent) serves the VNC clipboard as well as
++    # the clipboard interface of a D-Bus display
++    my $qemu_clipboard = ($vga->{clipboard} && $vga->{clipboard} eq 'vnc') || $vga->{dbus};
+ 
+-    if ($is_spice || ($vga->{'clipboard'} && $vga->{'clipboard'} eq 'vnc')) {
++    if ($is_spice || $qemu_clipboard) {
+         if ($qxlnum > 1) {
+             if ($winversion) {
+                 for (my $i = 1; $i < $qxlnum; $i++) {
+@@ -3567,7 +3572,7 @@ sub config_to_command {
+         my $pciaddr = print_pci_addr("spice", $arch);
+ 
+         push @$devices, '-device', "virtio-serial,id=spice$pciaddr";
+-        if ($vga->{'clipboard'} && $vga->{'clipboard'} eq 'vnc') {
++        if ($qemu_clipboard) {
+             push @$devices, '-chardev', 'qemu-vdagent,id=vdagent,name=vdagent,clipboard=on';
+         } else {
+             push @$devices, '-chardev', 'spicevmc,id=vdagent,name=vdagent';
+diff --git a/src/test/cfg2cmd/dbus-display.conf.cmd b/src/test/cfg2cmd/dbus-display.conf.cmd
+index 898fcd28..0e5ff85d 100644
+--- a/src/test/cfg2cmd/dbus-display.conf.cmd
++++ b/src/test/cfg2cmd/dbus-display.conf.cmd
+@@ -25,6 +25,9 @@
+   -device 'piix3-usb-uhci,id=uhci,bus=pci.0,addr=0x1.0x2' \
+   -device 'usb-tablet,id=tablet,bus=uhci.0,port=1' \
+   -device 'VGA,id=vga,bus=pci.0,addr=0x2' \
++  -device 'virtio-serial,id=spice,bus=pci.0,addr=0x9' \
++  -chardev 'qemu-vdagent,id=vdagent,name=vdagent,clipboard=on' \
++  -device 'virtserialport,chardev=vdagent,name=com.redhat.spice.0' \
+   -device 'virtio-balloon-pci,id=balloon0,bus=pci.0,addr=0x3,free-page-reporting=on' \
+   -iscsi 'initiator-name=iqn.1993-08.org.debian:01:aabbccddeeff' \
+   -machine 'type=pc+pve0'
+diff --git a/src/test/cfg2cmd/virtio-gl-dbus.conf.cmd b/src/test/cfg2cmd/virtio-gl-dbus.conf.cmd
+index 71410e95..7de11f86 100644
+--- a/src/test/cfg2cmd/virtio-gl-dbus.conf.cmd
++++ b/src/test/cfg2cmd/virtio-gl-dbus.conf.cmd
+@@ -24,6 +24,9 @@
+   -device 'piix3-usb-uhci,id=uhci,bus=pci.0,addr=0x1.0x2' \
+   -device 'usb-tablet,id=tablet,bus=uhci.0,port=1' \
+   -device 'virtio-vga-gl,id=vga,bus=pci.0,addr=0x2' \
++  -device 'virtio-serial,id=spice,bus=pci.0,addr=0x9' \
++  -chardev 'qemu-vdagent,id=vdagent,name=vdagent,clipboard=on' \
++  -device 'virtserialport,chardev=vdagent,name=com.redhat.spice.0' \
+   -device 'virtio-balloon-pci,id=balloon0,bus=pci.0,addr=0x3,free-page-reporting=on' \
+   -iscsi 'initiator-name=iqn.1993-08.org.debian:01:aabbccddeeff' \
+   -machine 'type=pc+pve0'
+-- 
+2.43.0
+
