@@ -435,9 +435,32 @@ void QemuDbusDisplay::start(QemuDisplayCallbacks callbacks) {
                     "sd_bus_add_filter(QEMU listener)");
         peer_bus_.start();
 
+        started_ = true;
+        peer_thread_ = std::thread(&QemuDbusDisplay::peer_loop, this);
+        // Only now: QEMU answers RegisterOutListener after it may have called
+        // the console listener synchronously (ScanoutMap), which needs the
+        // peer thread already serving it.
         if (options_.enable_audio) {
             try {
                 register_audio_listener();
+            } catch (const std::exception& ex) {
+                // A VM without a dbus audiodev has no Audio object; say why
+                // the console is silent rather than leave it to guesswork.
+                std::fprintf(stderr, "QSM_DIRECT_AUDIO unavailable: %s\n", ex.what());
+                {
+                    std::lock_guard lock(stats_mutex_);
+                    ++audio_registration_failures_;
+                }
+                shutdown_listener_transport(audio_transport_shutdown_fd_);
+                audio_bus_.close();
+                audio_filter_slot_.reset();
+                {
+                    std::lock_guard lock(stats_mutex_);
+                    audio_listener_active_ = false;
+                }
+                if (options_.require_audio) {
+                    throw;
+                }
             } catch (...) {
                 {
                     std::lock_guard lock(stats_mutex_);
@@ -456,8 +479,6 @@ void QemuDbusDisplay::start(QemuDisplayCallbacks callbacks) {
             }
         }
 
-        started_ = true;
-        peer_thread_ = std::thread(&QemuDbusDisplay::peer_loop, this);
         if (audio_bus_) {
             audio_thread_ = std::thread(&QemuDbusDisplay::audio_loop, this);
         }
@@ -504,6 +525,11 @@ void QemuDbusDisplay::start(QemuDisplayCallbacks callbacks) {
         audio_bus_.close();
         audio_filter_slot_.reset();
         shutdown_listener_transport(peer_transport_shutdown_fd_);
+        if (peer_thread_.joinable()) {  // a required audio listener failed
+            stopping_.store(true);
+            peer_thread_.join();
+            stopping_.store(false);
+        }
         peer_bus_.close();
         peer_filter_slot_.reset();
         main_bus_.close();
@@ -1203,20 +1229,11 @@ void QemuDbusDisplay::register_audio_listener() {
     UniqueFd client_fd(sockets[0]);
     UniqueFd qemu_fd(sockets[1]);
 
-    dbus::Error error;
-    dbus::Message reply;
-    const int result = sd_bus_call_method(main_bus_.get(),
-                                          destination(),
-                                          audio_path.data(),
-                                          audio_interface.data(),
-                                          "RegisterOutListener",
-                                          error.get(),
-                                          reply.put(),
-                                          "h",
-                                          qemu_fd.get());
-    dbus::check(result, "QEMU RegisterOutListener", error.get());
-    qemu_fd.reset();
-
+    // QEMU authenticates the listener connection inside its RegisterOutListener
+    // handler (g_dbus_connection_new_sync), blocking its main loop until the
+    // handshake completes.  So our end must be open and answering while the
+    // call is pending: start it first, send the call asynchronously and pump
+    // both connections until the reply (a plain blocking call times out).
     audio_transport_shutdown_fd_ = duplicate_cloexec(client_fd.get());
     audio_bus_ = dbus::Bus::p2p_client_fd(std::move(client_fd));
     dbus::check(sd_bus_add_filter(audio_bus_.get(),
@@ -1225,9 +1242,48 @@ void QemuDbusDisplay::register_audio_listener() {
                                   this),
                 "sd_bus_add_filter(QEMU audio listener)");
     audio_bus_.start();
+
+    dbus::Message call;
+    dbus::check(sd_bus_message_new_method_call(main_bus_.get(), call.put(), destination(),
+                                               audio_path.data(), audio_interface.data(),
+                                               "RegisterOutListener"),
+                "new Audio.RegisterOutListener");
+    dbus::check(sd_bus_message_append(call.get(), "h", qemu_fd.get()),
+                "append Audio.RegisterOutListener");
+    audio_register_state_ = 0;
+    audio_register_error_.clear();
+    dbus::check(sd_bus_call_async(main_bus_.get(), nullptr, call.get(),
+                                  &QemuDbusDisplay::audio_register_reply, this,
+                                  10U * 1000U * 1000U),
+                "send Audio.RegisterOutListener");
+    qemu_fd.reset();  // the queued message holds its own duplicate
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
+    while (audio_register_state_ == 0 && std::chrono::steady_clock::now() < deadline) {
+        if (!main_bus_.pump_once(std::chrono::milliseconds(5)) ||
+            !audio_bus_.pump_once(std::chrono::milliseconds(5))) {
+            throw std::runtime_error("QEMU connection closed during RegisterOutListener");
+        }
+    }
+    if (audio_register_state_ != 1) {
+        throw std::runtime_error("QEMU RegisterOutListener: " +
+                                 (audio_register_error_.empty() ? std::string("no answer")
+                                                                : audio_register_error_));
+    }
     std::lock_guard lock(stats_mutex_);
     audio_listener_registered_ = true;
     audio_listener_active_ = true;
+}
+
+int QemuDbusDisplay::audio_register_reply(sd_bus_message *message, void *userdata, sd_bus_error *) noexcept {
+    auto *self = static_cast<QemuDbusDisplay *>(userdata);
+    const sd_bus_error *error = sd_bus_message_get_error(message);
+    if (error != nullptr) {
+        self->audio_register_error_ = error->message ? error->message : (error->name ? error->name : "error");
+        self->audio_register_state_ = 2;
+    } else {
+        self->audio_register_state_ = 1;
+    }
+    return 0;
 }
 
 int QemuDbusDisplay::audio_filter(sd_bus_message *message,

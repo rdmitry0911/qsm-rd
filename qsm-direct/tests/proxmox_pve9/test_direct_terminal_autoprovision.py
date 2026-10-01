@@ -61,6 +61,21 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             "vga: std\nargs: -display dbus,addr=unix:path=/run/qsm-pve-direct/321/"
             "qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128\n", 321, runtime))
 
+    def test_display1_with_managed_audio_is_recognised(self) -> None:
+        runtime = Path("/run/qsm-pve-direct")
+        bus = "-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus"
+        audio = (" -audiodev dbus,id=qsm-direct-audio,out.frequency=48000,out.channels=2"
+                 " -device ich9-intel-hda,id=qsm-direct-hda -device hda-output,id=qsm-direct-hda-codec,"
+                 "bus=qsm-direct-hda.0,audiodev=qsm-direct-audio")
+        self.assertTrue(_managed_display_enabled(
+            f"vga: std\nargs: {bus},gl=off,audiodev=qsm-direct-audio{audio}\n", 321, runtime))
+        self.assertTrue(_managed_display_enabled(
+            f"vga: none\nargs: -device virtio-vga-gl,id=qsm-direct-gpu {bus},gl=on,"
+            f"rendernode=/dev/dri/renderD128,audiodev=qsm-direct-audio{audio}\n", 321, runtime))
+        self.assertFalse(_managed_display_enabled(
+            f"vga: std\nargs: {bus},gl=off,audiodev=foreign\n", 321, runtime),
+            "another audiodev is an administrator's display configuration")
+
     def test_absent_encoder_policy_uses_verified_auto_selection(self) -> None:
         with tempfile.TemporaryDirectory(prefix="qsm-direct-auto-policy.") as temporary:
             root = Path(temporary)

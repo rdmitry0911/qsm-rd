@@ -1542,6 +1542,13 @@ void write_session_diagnostic(std::string_view event,
               << " video_send_failures=" << egress.video_send_failures
               << " cursor_records=" << egress.cursor_records
               << " cursor_shape_records=" << egress.cursor_shape_records
+              << " audio_listener=" << (display.audio_listener_active ? "active" :
+                                        display.audio_registration_failures ? "failed" : "none")
+              << " audio_streams=" << display.audio_inits
+              << " audio_writes=" << display.audio_writes
+              << " audio_frames=" << display.audio_frames
+              << " audio_submissions=" << stats.audio_submissions
+              << " audio_rejected=" << stats.rejected_audio_callbacks
               << " recent_error=" << recent_error_summary(stats)
               << '\n' << std::flush;
 }

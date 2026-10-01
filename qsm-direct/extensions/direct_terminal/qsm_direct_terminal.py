@@ -257,10 +257,12 @@ def _managed_display_profile(config: str, vmid: int, vm_runtime_directory: Path)
     if args is None or len(args) > 8192 or any(ord(value) < 0x20 or ord(value) == 0x7f for value in args):
         return None
     address = re.escape(f"unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus")
+    # Optional audio: the overlay's own dbus audiodev (qsm-direct-audio).
+    audio = r"(?:,audiodev=qsm-direct-audio)?"
     virgl_display = re.compile(
-        rf"(?:^|\s)-display\s+dbus,addr={address},gl=on,rendernode=/dev/dri/renderD[0-9]{{1,4}}(?=\s|$)")
+        rf"(?:^|\s)-display\s+dbus,addr={address},gl=on,rendernode=/dev/dri/renderD[0-9]{{1,4}}{audio}(?=\s|$)")
     cpu_display = re.compile(
-        rf"(?:^|\s)-display\s+dbus,addr={address},gl=off(?=\s|$)")
+        rf"(?:^|\s)-display\s+dbus,addr={address},gl=off{audio}(?=\s|$)")
     count = len(re.findall(r"(?:^|\s)-display(?:\s|$)", args))
     gpu = re.compile(r"(?:^|\s)-device\s+virtio-vga-gl(?:,[^\s]+)?(?=\s|$)")
     gpu_arguments = [value.strip() for value in gpu.findall(args)]

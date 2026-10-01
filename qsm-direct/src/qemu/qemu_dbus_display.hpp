@@ -147,6 +147,9 @@ private:
     static int clipboard_grab_reply(sd_bus_message *message,
                                     void *userdata,
                                     sd_bus_error *ret_error) noexcept;
+    static int audio_register_reply(sd_bus_message *message,
+                                    void *userdata,
+                                    sd_bus_error *error) noexcept;
     static int clipboard_register_reply(sd_bus_message *message,
                                         void *userdata,
                                         sd_bus_error *ret_error) noexcept;
@@ -210,6 +213,8 @@ private:
     std::uint64_t clipboard_generation_ {};
     std::uint64_t clipboard_pending_set_ {};
     int clipboard_register_state_ {};  // 0 pending, 1 registered, 2 refused
+    int audio_register_state_ {};      // likewise for RegisterOutListener
+    std::string audio_register_error_;
     mutable std::mutex audio_state_mutex_;
     std::unordered_map<std::uint64_t, AudioStreamState> audio_streams_;
     std::atomic<bool> stopping_ {false};

@@ -21,6 +21,7 @@
     const DEFAULT_RENDER_NODE = '/dev/dri/renderD128';
     const DIRECT_GPU_ID = 'qsm-direct-gpu';
     const DIRECT_AGENT_ID = 'qsm-direct-agent';
+    const DIRECT_AUDIO_ID = 'qsm-direct-audio';
     // VirGL is an optional acceleration profile, not a prerequisite for the
     // browser transport. The CPU profile relies on PVE's stock VGA adapter
     // and explicitly uses QEMU's non-GL Display1 backend.
@@ -129,18 +130,27 @@
         const vmid = selected ? Number(selected.vmid) : NaN;
         return validVmid(vmid) ? vmid : null;
     };
-    const displayArgument = (vmid, profile, rendernode) => {
+    // Audio is optional: Display1 carries it only when -display names a dbus
+    // audiodev.  48 kHz stereo is what the console encodes (Opus), so QEMU
+    // does no resampling the worker would otherwise have to undo.
+    const audioSuffix = (audio) => audio ? `,audiodev=${DIRECT_AUDIO_ID}` : '';
+    const displayArgument = (vmid, profile, rendernode, audio = false) => {
         if (!validVmid(vmid)) {
             throw new Error('invalid direct Display1 settings');
         }
         if (profile === DISPLAY_PROFILE.cpu) {
-            return `-display dbus,addr=unix:path=${RUNTIME_PREFIX}/${vmid}/qemu-display1.bus,gl=off`;
+            return `-display dbus,addr=unix:path=${RUNTIME_PREFIX}/${vmid}/qemu-display1.bus,gl=off${audioSuffix(audio)}`;
         }
         if (profile !== DISPLAY_PROFILE.virgl || !validRenderNode(rendernode)) {
             throw new Error('invalid direct Display1 settings');
         }
-        return `-display dbus,addr=unix:path=${RUNTIME_PREFIX}/${vmid}/qemu-display1.bus,gl=on,rendernode=${rendernode}`;
+        return `-display dbus,addr=unix:path=${RUNTIME_PREFIX}/${vmid}/qemu-display1.bus,gl=on,rendernode=${rendernode}${audioSuffix(audio)}`;
     };
+    const AUDIO_ARGUMENTS = [
+        `-audiodev dbus,id=${DIRECT_AUDIO_ID},out.frequency=48000,out.channels=2`,
+        '-device ich9-intel-hda,id=qsm-direct-hda',
+        `-device hda-output,id=qsm-direct-hda-codec,bus=qsm-direct-hda.0,audiodev=${DIRECT_AUDIO_ID}`,
+    ];
     const gpuArgument = () => `-device virtio-vga-gl,id=${DIRECT_GPU_ID}`;
     const guestArguments = (vmid) => [
         `-chardev socket,id=${DIRECT_AGENT_ID},path=${RUNTIME_PREFIX}/${vmid}/qsm-agent.sock,server=on,wait=off`,
@@ -148,10 +158,10 @@
         `-device virtserialport,chardev=${DIRECT_AGENT_ID},name=org.qsm.direct.agent`,
     ];
     const virglDisplayPattern = (vmid) => new RegExp(
-        `(?:^|\\s)-display\\s+dbus,addr=unix:path=${escapeRegExp(RUNTIME_PREFIX)}/${vmid}/qemu-display1\\.bus,gl=on,rendernode=(/dev/dri/renderD[0-9]{1,4})(?=\\s|$)`,
+        `(?:^|\\s)-display\\s+dbus,addr=unix:path=${escapeRegExp(RUNTIME_PREFIX)}/${vmid}/qemu-display1\\.bus,gl=on,rendernode=(/dev/dri/renderD[0-9]{1,4})(,audiodev=${DIRECT_AUDIO_ID})?(?=\\s|$)`,
     );
     const cpuDisplayPattern = (vmid) => new RegExp(
-        `(?:^|\\s)-display\\s+dbus,addr=unix:path=${escapeRegExp(RUNTIME_PREFIX)}/${vmid}/qemu-display1\\.bus,gl=off(?=\\s|$)`,
+        `(?:^|\\s)-display\\s+dbus,addr=unix:path=${escapeRegExp(RUNTIME_PREFIX)}/${vmid}/qemu-display1\\.bus,gl=off(,audiodev=${DIRECT_AUDIO_ID})?(?=\\s|$)`,
     );
     const displayCount = (args) => (args.match(/(?:^|\s)-display(?:\s|$)/g) || []).length;
     const virtioVgaGlArguments = (args) => args.match(
@@ -172,6 +182,20 @@
         }
         return managedGuestChannel(args, vmid) ? args : `${args} ${guestArguments(vmid).join(' ')}`.trim();
     };
+    const managedAudio = (args) => AUDIO_ARGUMENTS.every((value) => containsArgument(args, value));
+    // The id may appear only in the managed arguments and as Display1's
+    // audiodev; anything else using it belongs to an administrator.
+    const foreignAudio = (args) => args.split(`,audiodev=${DIRECT_AUDIO_ID}`).join('').includes(DIRECT_AUDIO_ID);
+    const addManagedAudio = (args) => {
+        if (foreignAudio(args) && !managedAudio(args)) {
+            throw new Error('unsafe QSM audio arguments');
+        }
+        return managedAudio(args) ? args : `${args} ${AUDIO_ARGUMENTS.join(' ')}`.trim();
+    };
+    const removeManagedAudio = (args) => AUDIO_ARGUMENTS.reduce((current, value) => current.replace(
+        new RegExp(`(?:^|\\s)${escapeRegExp(value)}(?=\\s|$)`), '',
+    ), args).trim().replace(/\s{2,}/g, ' ');
+    const withAudio = (args, audio) => audio ? addManagedAudio(args) : removeManagedAudio(args);
     const addManagedDirectInput = (args) => managedDirectInput(args)
         ? args : `${args} ${DIRECT_INPUT_ARGUMENTS.filter((value) => !containsArgument(args, value)).join(' ')}`.trim();
     const removeManagedDirectInput = (args) => DIRECT_INPUT_ARGUMENTS.reduce((current, value) => current.replace(
@@ -188,7 +212,8 @@
         if (virglMatch && displayCount(args) === 1) {
             if (gpu.length === 1 && gpu[0] === gpuArgument()) {
                 return { managed: true, legacy: false, legacyGpu: false, guest: managedGuestChannel(args, vmid),
-                    input: managedDirectInput(args), profile: DISPLAY_PROFILE.virgl, rendernode: virglMatch[1] };
+                    input: managedDirectInput(args), audio: Boolean(virglMatch[2]), profile: DISPLAY_PROFILE.virgl,
+                    rendernode: virglMatch[1] };
             }
             // git20 emitted the unlabelled VirtIO-GPU argument. It is safe to
             // migrate only that exact historical form; any device options or
@@ -196,11 +221,13 @@
             // silently claimed or duplicated by this UI overlay.
             if (gpu.length === 1 && gpu[0] === '-device virtio-vga-gl') {
                 return { managed: false, legacy: true, legacyGpu: true, guest: managedGuestChannel(args, vmid),
-                    input: managedDirectInput(args), profile: DISPLAY_PROFILE.virgl, rendernode: virglMatch[1] };
+                    input: managedDirectInput(args), audio: Boolean(virglMatch[2]), profile: DISPLAY_PROFILE.virgl,
+                    rendernode: virglMatch[1] };
             }
             if (gpu.length === 0) {
                 return { managed: false, legacy: true, legacyGpu: false, guest: managedGuestChannel(args, vmid),
-                    input: managedDirectInput(args), profile: DISPLAY_PROFILE.virgl, rendernode: virglMatch[1] };
+                    input: managedDirectInput(args), audio: Boolean(virglMatch[2]), profile: DISPLAY_PROFILE.virgl,
+                    rendernode: virglMatch[1] };
             }
         }
         // The stock Standard VGA/non-GL VirtIO adapter is owned by PVE and is
@@ -208,7 +235,7 @@
         // foreign adapter while enabling CPU Display1.
         if (cpuMatch && displayCount(args) === 1 && gpu.length === 0) {
             return { managed: true, legacy: false, legacyGpu: false, guest: managedGuestChannel(args, vmid),
-                input: managedDirectInput(args), profile: DISPLAY_PROFILE.cpu,
+                input: managedDirectInput(args), audio: Boolean(cpuMatch[1]), profile: DISPLAY_PROFILE.cpu,
                 rendernode: DEFAULT_RENDER_NODE };
         }
         return { managed: false, legacy: false, legacyGpu: false, profile: DISPLAY_PROFILE.virgl,
@@ -220,7 +247,8 @@
     const replaceArgument = (args, previous, wanted) => args.replace(
         new RegExp(`(?:^|\\s)${escapeRegExp(previous)}(?=\\s|$)`), (value) =>
             value.startsWith(' ') ? ` ${wanted}` : wanted);
-    const updateDisplayArgument = (args, vmid, profile, rendernode, want) => {
+    // `audio` undefined keeps what is configured (off for a new console).
+    const updateDisplayArgument = (args, vmid, profile, rendernode, want, audio) => {
         args = args === undefined || args === null ? '' : args;
         if (typeof args !== 'string' || args.length > MAX_QEMU_ARGS_BYTES || /[\x00-\x1f\x7f]/.test(args)) {
             throw new Error('unsafe QEMU display arguments');
@@ -229,19 +257,22 @@
         const existing = displayState(args, vmid);
         const count = displayCount(args);
         const gpu = virtioVgaGlArguments(args).map(normaliseArgument);
-        const wanted = displayArgument(vmid, profile, rendernode);
+        audio = audio === undefined ? Boolean(existing.audio) : Boolean(audio);
+        const wanted = displayArgument(vmid, profile, rendernode, audio);
         if (want) {
             if (count === 0) {
                 if (gpu.length !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
+                if (foreignAudio(args)) { throw new Error('unsafe QSM audio arguments'); }
                 const ownedGpu = profile === DISPLAY_PROFILE.virgl ? `${gpuArgument()} ` : '';
-                const added = `${ownedGpu}${wanted} ${guestArguments(vmid).join(' ')} ${DIRECT_INPUT_ARGUMENTS.join(' ')}`;
+                const ownedAudio = audio ? ` ${AUDIO_ARGUMENTS.join(' ')}` : '';
+                const added = `${ownedGpu}${wanted} ${guestArguments(vmid).join(' ')} ${DIRECT_INPUT_ARGUMENTS.join(' ')}${ownedAudio}`;
                 return args ? `${args} ${added}` : added;
             }
             if (!existing.managed && !existing.legacy) {
                 throw new Error('another QEMU display is configured');
             }
-            const previous = displayArgument(vmid, existing.profile, existing.rendernode);
-            let updated = replaceArgument(args, previous, wanted);
+            const previous = displayArgument(vmid, existing.profile, existing.rendernode, existing.audio);
+            let updated = withAudio(replaceArgument(args, previous, wanted), audio);
             if (profile === DISPLAY_PROFILE.cpu) {
                 if (existing.profile === DISPLAY_PROFILE.virgl) {
                     updated = existing.legacyGpu
@@ -266,8 +297,8 @@
             if (gpu.length !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
             return args;
         }
-        const previous = displayArgument(vmid, existing.profile, existing.rendernode);
-        const withoutDisplay = removeArgument(args, previous);
+        const previous = displayArgument(vmid, existing.profile, existing.rendernode, existing.audio);
+        const withoutDisplay = removeManagedAudio(removeArgument(args, previous));
         if (existing.profile === DISPLAY_PROFILE.cpu) {
             return removeManagedDirectInput(removeManagedGuestChannel(withoutDisplay, vmid));
         }
@@ -295,6 +326,8 @@
     const updateDisplayFields = (panel, active, profile, vga) => {
         const rendernode = panel && panel.down('[name=qsm_direct_rendernode]');
         if (rendernode) { rendernode.setDisabled(!active || profile !== DISPLAY_PROFILE.virgl); }
+        const audio = panel && panel.down('[name=qsm_direct_audio]');
+        if (audio) { audio.setDisabled(!active); }
         const adapter = panel && panel.down('[name=qsm_direct_effective_adapter]');
         if (adapter) {
             const type = vga || (panel.down('[name=type]') && panel.down('[name=type]').getValue());
@@ -333,12 +366,17 @@
             validator: (value) => validRenderNode(value) || gettext('Use a DRM render node, for example /dev/dri/renderD128.'),
         },
         {
+            xtype: 'proxmoxcheckbox', name: 'qsm_direct_audio', uncheckedValue: 0, value: 1,
+            disabled: true, fieldLabel: gettext('Audio'),
+            boxLabel: gettext('Sound card (Intel HDA) played in the console'),
+        },
+        {
             xtype: 'displayfield', name: 'qsm_direct_effective_adapter',
             fieldLabel: gettext('Effective display adapter'),
             value: effectiveDisplayAdapter(false, DISPLAY_PROFILE.virgl, 'none'),
         },
         { xtype: 'displayfield', userCls: 'pmx-hint', value: gettext(
-            'VirGL owns a private VirtIO-GPU and saves PVE Graphic card as None, because VNC and GL Display1 are incompatible. CPU Display1 uses gl=off and keeps the selected Standard VGA or non-GL VirtIO adapter, so no render node or host GPU is needed. If an adapter does not implement Display1 resize, QSM keeps its fixed guest scanout connected instead of failing the console. The optional QSM Desktop Agent serial channel provides clipboard integration. Restart the VM after changing this setting.'),
+            'VirGL owns a private VirtIO-GPU and saves PVE Graphic card as None, because VNC and GL Display1 are incompatible. CPU Display1 uses gl=off and keeps the selected Standard VGA or non-GL VirtIO adapter, so no render node or host GPU is needed. If an adapter does not implement Display1 resize, QSM keeps its fixed guest scanout connected instead of failing the console. Audio adds an Intel HDA sound card whose output plays in the console (unmute it with the speaker button). The optional QSM Desktop Agent serial channel provides clipboard integration. Restart the VM after changing this setting.'),
         },
     ];
 
@@ -379,7 +417,8 @@
             }
             const printed = PVE.Parser.printPropertyString(result, 'type');
             const response = printed ? { vga: printed } : { delete: 'vga' };
-            const changed = updateDisplayArgument(edit.vmconfig.args, vmid, profile, rendernode, active);
+            const audio = values.qsm_direct_audio === undefined ? undefined : enabled(values.qsm_direct_audio);
+            const changed = updateDisplayArgument(edit.vmconfig.args, vmid, profile, rendernode, active, audio);
             if (changed !== (edit.vmconfig.args || '')) { response.args = changed; }
             return response;
         },
@@ -405,6 +444,8 @@
                         qsm_direct_display1: state.managed || state.legacy ? 1 : 0,
                         qsm_direct_profile: state.profile,
                         qsm_direct_rendernode: state.rendernode,
+                        // A new console gets audio; a configured one shows what it has.
+                        qsm_direct_audio: state.managed || state.legacy ? (state.audio ? 1 : 0) : 1,
                         qsm_direct_effective_adapter: effectiveDisplayAdapter(
                             state.managed || state.legacy, state.profile, data && data.vga),
                     });

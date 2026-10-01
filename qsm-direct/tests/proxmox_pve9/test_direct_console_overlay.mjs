@@ -99,15 +99,15 @@ assert.match(source, /fullscreen\.setAttribute\('aria-pressed', String\(active\)
     'the full-screen control must expose an explicit pressed toggle state');
 assert.match(source, /const guestContentBox = \(\) => \{[\s\S]*?const scale = Math\.min\(box\.width \/ sourceWidth, box\.height \/ sourceHeight\);/,
     'cursor and input mapping must account for the real object-fit content rectangle');
-assert.match(source, /Math\.floor\(\(event\.clientX - content\.left\) \/ usableScale\)/,
+assert.match(source, /Math\.floor\(\(localX - contentLeft\) \/ scale\)/,
     'pointer X must be mapped through the letterbox-free source rectangle during a resize');
-assert.match(source, /Math\.floor\(\(event\.clientY - content\.top\) \/ usableScale\)/,
+assert.match(source, /Math\.floor\(\(localY - contentTop\) \/ scale\)/,
     'pointer Y must be mapped through the letterbox-free source rectangle during a resize');
 assert.doesNotMatch(source, /localGuestCursorAnchor|rememberLocalGuestCursor/,
     'the guest cursor must not use a delayed, separately positioned canvas overlay');
 assert.match(source, /popup\.addEventListener\('blur', releaseHeldInput\)/,
     'losing popup focus must release held guest input');
-assert.match(source, /video\.addEventListener\('pointercancel', releaseHeldInput\)/,
+assert.match(source, /video\.addEventListener\('pointercancel', \(event\) => \{[\s\S]*?releaseHeldInput\(\);/,
     'browser pointer cancellation must release held guest input');
 assert.match(source, /for \(const button of \[\.\.\.heldMouseButtons\]\) \{ sendMouseButton\(button, false\); \}/,
     'a native transition must send releases for each held mouse button');
@@ -135,8 +135,8 @@ assert.doesNotMatch(source, /Guest display did not acknowledge this window size\
     'an unadopted resize must not dead-end in a permanent message while the guest may merely be asleep');
 assert.match(source, /Guest display looks asleep\. Move the mouse or press a key here to wake it\./,
     'an all-black decoded picture must be explained as a sleeping guest with the wake action');
-assert.match(source, /const answer = await signalRequest\('POST', url, params\);/,
-    'the SDP offer must go to the node-local signalling service, not a PVE API route');
+assert.match(source, /const answer = VIEWER \? await pveWebrtcOffer\(params\) : await signalRequest\('POST', url, params\);/,
+    'the SDP offer goes to the node-local signalling service (or, in the PVE viewer page, to webrtcproxy)');
 assert.match(source, /await signalRequest\('GET', vmMediaPolicyUrl\(\), \{\}\)/,
     'the codec policy read must use the signalling service');
 assert.match(source, /await signalRequest\('PUT', vmMediaPolicyUrl\(\), \{/,
@@ -469,9 +469,46 @@ assert.deepEqual(
     'a supplied VGA memory value is retained as an integer',
 );
 
+
+// Audio: an explicit switch adds -display ...,audiodev= plus a dbus audiodev
+// and an Intel HDA codec; switching it off (or Display1 off) removes them.
+const managedAudioArguments =
+    ' -audiodev dbus,id=qsm-direct-audio,out.frequency=48000,out.channels=2' +
+    ' -device ich9-intel-hda,id=qsm-direct-hda' +
+    ' -device hda-output,id=qsm-direct-hda-codec,bus=qsm-direct-hda.0,audiodev=qsm-direct-audio';
+for (const profile of ['virgl', 'cpu']) {
+    vmWindow.vmconfig.args = '-cpu host';
+    const values = { type: 'std', qsm_direct_display1: 1, qsm_direct_profile: profile,
+        qsm_direct_rendernode: '/dev/dri/renderD128', qsm_direct_audio: 1 };
+    const withSound = displayOverlay.onGetValues.call(displayPanel, values);
+    assert.ok(withSound.args.endsWith(managedAudioArguments), `${profile}: audio arguments are added`);
+    assert.match(withSound.args, /qemu-display1\.bus,gl=(?:off|on,rendernode=\/dev\/dri\/renderD128),audiodev=qsm-direct-audio(?=\s)/,
+        `${profile}: Display1 names the audiodev`);
+    vmWindow.vmconfig.args = withSound.args;
+    assert.equal(displayOverlay.onGetValues.call(displayPanel, values).args, undefined,
+        `${profile}: saving again changes nothing`);
+    const kept = displayOverlay.onGetValues.call(displayPanel, { ...values, qsm_direct_audio: undefined });
+    assert.equal(kept.args, undefined, `${profile}: an absent switch keeps audio`);
+    const silent = displayOverlay.onGetValues.call(displayPanel, { ...values, qsm_direct_audio: 0 });
+    assert.doesNotMatch(silent.args, /audiodev|intel-hda|hda-output/, `${profile}: audio off removes all of it`);
+    vmWindow.vmconfig.args = silent.args;
+    const again = displayOverlay.onGetValues.call(displayPanel, values);
+    assert.equal(again.args, withSound.args, `${profile}: audio back on restores the same arguments`);
+    assert.ok(again.args.endsWith(managedAudioArguments), `${profile}: audio can be switched back on`);
+    vmWindow.vmconfig.args = again.args;
+    const off = displayOverlay.onGetValues.call(displayPanel, { type: 'std', qsm_direct_display1: 0 });
+    assert.equal(off.args, '-cpu host', `${profile}: disabling Display1 removes the audio too`);
+}
+vmWindow.vmconfig.args = '-cpu host -audiodev dbus,id=qsm-direct-audio';
+assert.throws(() => displayOverlay.onGetValues.call(displayPanel, {
+    type: 'std', qsm_direct_display1: 1, qsm_direct_profile: 'cpu', qsm_direct_audio: 1,
+}), /unsafe QSM audio arguments/, 'a foreign audiodev with the managed id is not claimed');
+vmWindow.vmconfig.args = '-cpu host';
+
 let restoredValues;
 let renderNodeDisabled;
 let restoredAdapter;
+let audioDisabled;
 const displayEdit = {
     pveSelNode: { data: { vmid: 321 } },
     load: (options) => options.success({
@@ -492,6 +529,9 @@ const displayEdit = {
         if (query === '[name=qsm_direct_effective_adapter]') {
             return { setValue: (value) => { restoredAdapter = value; } };
         }
+        if (query === '[name=qsm_direct_audio]') {
+            return { setDisabled: (value) => { audioDisabled = value; } };
+        }
         if (query === '[name=type]') { return { getValue: () => 'none' }; }
         assert.fail(`unexpected display field query: ${query}`);
     },
@@ -501,8 +541,10 @@ assert.deepEqual(restoredValues, {
     qsm_direct_display1: 1,
     qsm_direct_profile: 'virgl',
     qsm_direct_rendernode: '/dev/dri/renderD130',
+    qsm_direct_audio: 0,
     qsm_direct_effective_adapter: 'QSM VirtIO-GPU (VirGL, GL) — PVE Graphic card is None',
 });
+assert.equal(audioDisabled, false, 'a configured console keeps the audio switch usable');
 assert.equal(renderNodeDisabled, false, 'reopening a configured VM must preserve the enabled render node');
 assert.equal(restoredAdapter, 'QSM VirtIO-GPU (VirGL, GL) — PVE Graphic card is None',
     'reopening a VirGL VM must disclose its effective QSM adapter rather than only PVE vga=none');

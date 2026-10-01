@@ -1,6 +1,7 @@
 #include "pipeline/desktop_session.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <exception>
 #include <limits>
 #include <stdexcept>
@@ -72,14 +73,15 @@ void DesktopSession::start() {
             .on_audio = [this](std::span<const float> samples,
                                std::uint32_t sample_rate,
                                std::uint16_t channels) {
-                if (sample_rate != options_.audio_sample_rate ||
-                    channels != options_.audio_channels) {
+                const bool native = sample_rate == options_.audio_sample_rate &&
+                                    channels == options_.audio_channels;
+                if (!native && !convert_audio(samples, sample_rate, channels)) {
                     ++rejected_audio_callbacks_;
-                    record_error("audio format changed without session reconfiguration");
+                    record_error("unsupported audio format");
                     return;
                 }
                 try {
-                    audio_fifo_.push(samples);
+                    audio_fifo_.push(native ? samples : std::span<const float>(converted_audio_));
                     ++audio_callbacks_;
                     audio_cv_.notify_one();
                 } catch (const std::exception& ex) {
@@ -206,6 +208,55 @@ void DesktopSession::encoder_loop() noexcept {
             record_error("frame submission: unknown exception");
         }
     }
+}
+
+bool DesktopSession::convert_audio(std::span<const float> samples,
+                                   std::uint32_t sample_rate,
+                                   std::uint16_t channels) {
+    constexpr std::uint32_t max_rate = 384000U;
+    if (sample_rate == 0U || sample_rate > max_rate || channels == 0U ||
+        samples.size() % channels != 0U) {
+        return false;
+    }
+    const std::size_t out_channels = options_.audio_channels;
+    const std::size_t frames = samples.size() / channels;
+    // Channels first: mono is duplicated, channels beyond the session's are
+    // dropped (QEMU orders them front left, front right, ...).
+    const auto input = [&](std::size_t frame, std::size_t channel) {
+        return samples[frame * channels + std::min<std::size_t>(channel, channels - 1U)];
+    };
+    if (sample_rate != converter_rate_ || previous_audio_frame_.size() != out_channels) {
+        converter_rate_ = sample_rate;
+        converter_position_ = 0.0;
+        previous_audio_frame_.assign(out_channels, 0.0F);
+    }
+    converted_audio_.clear();
+    if (frames == 0U) {
+        return true;
+    }
+    // Then linear interpolation to the session rate.  Position -1 is the
+    // last frame of the previous callback, so the stream stays continuous.
+    const double step = static_cast<double>(sample_rate) / options_.audio_sample_rate;
+    double position = converter_position_;
+    const auto last = static_cast<double>(frames - 1U);
+    converted_audio_.reserve(static_cast<std::size_t>((last - position) / step + 2.0) * out_channels);
+    while (position <= last) {
+        const auto base = static_cast<std::ptrdiff_t>(std::floor(position));
+        const auto fraction = static_cast<float>(position - static_cast<double>(base));
+        for (std::size_t channel = 0; channel < out_channels; ++channel) {
+            const float from = base < 0 ? previous_audio_frame_[channel]
+                                        : input(static_cast<std::size_t>(base), channel);
+            const auto next = static_cast<std::size_t>(base + 1);
+            const float to = next < frames ? input(next, channel) : from;
+            converted_audio_.push_back(from + (to - from) * fraction);
+        }
+        position += step;
+    }
+    converter_position_ = position - static_cast<double>(frames);
+    for (std::size_t channel = 0; channel < out_channels; ++channel) {
+        previous_audio_frame_[channel] = input(frames - 1U, channel);
+    }
+    return true;
 }
 
 void DesktopSession::audio_loop() noexcept {

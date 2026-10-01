@@ -10,6 +10,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <mutex>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -74,6 +75,12 @@ private:
     void encoder_loop() noexcept;
     void audio_loop() noexcept;
     void record_error(std::string message) noexcept;
+    // QEMU's dbus audiodev defaults to 44.1 kHz; the session wants its own
+    // rate and channel count (Opus: 48 kHz stereo).  Converts on the audio
+    // callback thread; false for a format that cannot be converted.
+    bool convert_audio(std::span<const float> samples,
+                       std::uint32_t sample_rate,
+                       std::uint16_t channels);
 
     IQemuDisplay& display_;
     IMediaAdapter& media_;
@@ -89,6 +96,11 @@ private:
     std::atomic<std::uint64_t> audio_callbacks_ {};
     std::atomic<std::uint64_t> audio_submissions_ {};
     std::atomic<std::uint64_t> rejected_audio_callbacks_ {};
+    // Audio conversion state (audio callback thread only).
+    std::vector<float> converted_audio_;
+    std::vector<float> previous_audio_frame_;
+    std::uint32_t converter_rate_ {};
+    double converter_position_ {};
     std::atomic<std::uint64_t> idr_requests_ {};
     std::atomic<std::uint64_t> errors_ {};
     std::atomic<bool> display_failed_ {false};
