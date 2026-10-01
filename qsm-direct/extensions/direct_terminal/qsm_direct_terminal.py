@@ -846,6 +846,10 @@ class DbusManager:
             self._children.clear()
 
 
+# The owner of a console whose desktop was found logged in with its owner lost.
+ORPHAN_OWNER = "(unknown)"
+
+
 @dataclass
 class ContainerSlot:
     """One console of a container, bound to the PVE user who opened it.
@@ -1026,12 +1030,18 @@ class DirectSessionManager:
             print(f"qsm-direct-terminal: container console state not saved: {error}", file=sys.stderr)
 
     def _claim_slot(self, vmid: int, subject: str, policy: dict[str, str], generation: str,
-                    count: int) -> int:
+                    count: int, occupants: dict[int, str | None] | None = None) -> int:
         """The console slot for one new Console of a PVE user (vmid lock held).
 
         The user's own left desktop comes first (within its grace period);
         otherwise a free slot, which shows the login screen.  Another user's
         slot is never handed out, exactly as a tty in use is not.
+
+        ``occupants`` is what the container itself says per console: the
+        logged-in account, "" for a login screen, None when it cannot tell.
+        A console without a known owner is handed out only when it shows its
+        login screen: a desktop whose owner was lost (say, with the service
+        state) is kept from everyone and logged out after the grace period.
         """
         for key in [key for key, slot in self._slots.items()
                     if slot.vmid == vmid and (slot.generation != generation or slot.number > count)]:
@@ -1049,6 +1059,19 @@ class DirectSessionManager:
             return slot.number
         for number in range(1, count + 1):
             if (vmid, number) not in self._slots and (vmid, number) not in attached:
+                if occupants is not None:
+                    account = occupants.get(number)
+                    if account is None:
+                        continue  # cannot tell who is there: not handed out
+                    if account:
+                        self._slots[(vmid, number)] = ContainerSlot(
+                            vmid, number, ORPHAN_OWNER, generation,
+                            float(policy["QSM_DIRECT_LXC_GRACE"]), time.monotonic())
+                        self._save_slots()
+                        print(f"qsm-direct-terminal: console {number} of container {vmid} has a desktop "
+                              f"of {account} without a known owner; it is not handed out and is logged "
+                              "out after the grace period", file=sys.stderr, flush=True)
+                        continue
                 self._slots[(vmid, number)] = ContainerSlot(
                     vmid, number, subject, generation, float(policy["QSM_DIRECT_LXC_GRACE"]))
                 self._save_slots()
@@ -1057,6 +1080,20 @@ class DirectSessionManager:
                 return number
         raise ContainerConsoleBusyError(
             f"direct-terminal: all {count} consoles of container {vmid} are in use")
+
+    async def _console_occupants(self, vmid: int, generation: str, count: int) -> dict[int, str | None]:
+        """Ask the container who is on each console without a known owner."""
+        init_pid = int(generation.split(":", 1)[0])
+        loop = asyncio.get_running_loop()
+        occupants: dict[int, str | None] = {}
+        for number in range(1, count + 1):
+            if (vmid, number) in self._slots:
+                continue
+            status = await loop.run_in_executor(
+                None, _container_slot_command, init_pid, number, {"op": "status"}, 5.0)
+            account = status.get("user") if isinstance(status, dict) else None
+            occupants[number] = None if status is None else (account if isinstance(account, str) else "")
+        return occupants
 
     def _slot_detached(self, key: object) -> None:
         slot = self._slots.get(key) if isinstance(key, tuple) else None
@@ -1251,7 +1288,8 @@ class DirectSessionManager:
             if current_generation is None:
                 raise DirectTerminalError("direct-terminal container is not running")
             count = _lxc_console_count(self._lxc_runtime_config_directory, vmid)
-            key = (vmid, self._claim_slot(vmid, subject, container, current_generation, count))
+            key = (vmid, self._claim_slot(vmid, subject, container, current_generation, count,
+                                          await self._console_occupants(vmid, current_generation, count)))
         existing = self._transports.get(key)
         selection: DirectEncoderSelection | None = None
         if (existing is not None and existing.worker.poll() is None and

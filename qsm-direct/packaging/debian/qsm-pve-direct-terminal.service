@@ -9,6 +9,9 @@ Type=simple
 # webrtc-console: the socket qemu-server's webrtcproxy passes VM displays to
 RuntimeDirectory=qsm-pve-direct-terminal webrtc-console
 RuntimeDirectoryMode=0750
+# Keeps who owns which container console across restarts and upgrades; a
+# wiped state once handed a logged-in desktop to another PVE user.
+RuntimeDirectoryPreserve=yes
 Environment=QSM_DIRECT_LOCAL_NODE=%H
 UMask=0077
 ExecStart=/usr/bin/qsm-pve-direct-terminal

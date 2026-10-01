@@ -107,6 +107,20 @@ class ContainerSlotTests(unittest.TestCase):
         self.claim("bob@pve")
         self.assertEqual(self.claim("carol@pve", generation="200:7"), 1)
 
+    def test_a_desktop_without_a_known_owner_is_never_handed_out(self) -> None:
+        # The service lost its state (say, a restart wiped it): console 1 has
+        # alice's desktop logged in, console 2 its login screen.
+        number = self.manager._claim_slot(105, "bob@pve", self.POLICY, "100:1", 2, {1: "alice", 2: ""})
+        self.assertEqual(number, 2, "bob gets the login screen, not alice's desktop")
+        orphan = self.manager._slots[(105, 1)]
+        self.assertEqual(orphan.owner, "(unknown)")
+        self.assertIsNotNone(orphan.detached_at, "the orphan desktop is logged out after the grace period")
+        with self.assertRaises(ContainerConsoleBusyError):
+            self.manager._claim_slot(105, "carol@pve", self.POLICY, "100:1", 2, {})
+        self.manager._slots.clear()
+        with self.assertRaises(ContainerConsoleBusyError):  # the container does not answer
+            self.manager._claim_slot(105, "carol@pve", self.POLICY, "100:1", 2, {1: None, 2: None})
+
     def test_owners_survive_a_service_restart(self) -> None:
         alice = self.claim("alice@pve")
         restarted = DirectSessionManager.__new__(DirectSessionManager)
