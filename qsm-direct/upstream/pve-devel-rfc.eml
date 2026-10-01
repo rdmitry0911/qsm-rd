@@ -51,11 +51,16 @@ Proposed series
      vga: virtio-gl,dbus=1
    adds '-display dbus,p2p=yes' (gl=on with the render node for
    virtio-gl, gl=off for the other types).  One constraint: with GL,
-   QEMU refuses VNC next to it ("Display vnc is incompatible with the
-   GL context"), so a virtio-gl VM with dbus=1 has no VNC server and
+   QEMU refuses VNC and SPICE next to it ("Display vnc is incompatible
+   with the GL context"), so a virtio-gl VM with dbus=1 has neither and
    offers the WebRTC console instead; non-GL types keep VNC as well.
    The clipboard reaches the guest through qemu-vdagent (as for the
    VNC clipboard) and the guest's spice-vdagent.
+   Audio is not part of the series yet: the add-on plays it through a
+   bus-mode D-Bus display (a 'dbus' audiodev named in -display), but
+   with p2p=yes our listener got no audio from QEMU 11.0 -- only the
+   Init/SetEnabled calls made while RegisterOutListener runs, nothing
+   afterwards.  A 'dbus' audio0 driver is ready once that is resolved.
 
 3. qemu-server: API call to attach a console
      POST /nodes/{node}/qemu/{vmid}/webrtcproxy  (VM.Console)

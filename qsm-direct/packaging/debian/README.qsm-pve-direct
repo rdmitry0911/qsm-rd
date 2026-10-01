@@ -5,16 +5,24 @@ qsm-pve-direct for Proxmox VE 9
 sole non-stock console transport on the node.
 
 It uses PVE's existing authenticated Web UI session and `VM.Console` ACL.
-The browser sends a WebRTC SDP offer to a protected PVE route; the node-local
-terminal answers it and starts one QEMU Display1 worker.  Negotiated H.264 or
-HEVC video and Opus remain
+The browser sends its WebRTC SDP offer to the node-local signalling service
+(`qsm-pve-direct-signal`, TLS on TCP 8007 with the node certificate), which
+confirms the browser's PVE ticket and `VM.Console` with pveproxy's own
+`/access/ticket`; the node-local terminal service answers it and starts one
+QEMU Display1 worker.  Negotiated H.264 or HEVC video and Opus remain
 encoded until the browser's WebRTC implementation. There is no pairing PIN,
-native client installer, external listening port, or host desktop server.
+native client installer or host desktop server; the only listening port is
+8007 (plus one UDP port per open console for WebRTC).
 
 Install:
 
     sudo apt install ./qsm-pve-direct_*.deb
-    sudo systemctl enable --now qsm-pve-direct-terminal.service
+    sudo systemctl enable --now qsm-pve-direct-terminal.service qsm-pve-direct-signal.service
+
+The PVE web page gets one script tag (a diverted `index.html.tpl`) only for
+the `pve-manager` versions and template checksums the package knows; on any
+other version the stock page stays and VMs keep the noVNC console until a
+package update adds it.  `qsm-pve-direct-ui status` shows the state.
 
 The service reads PVE's saved VM configuration and creates the private
 Display1 bus before the VM is started. No per-VM policy file is required: the
@@ -32,10 +40,15 @@ and select one profile:
 * **VirGL GPU (GL)** saves PVE Graphic card as `none`, then owns one private
   `virtio-vga-gl` device and `-display dbus,...,gl=on,rendernode=...`. PVE VNC
   cannot coexist with that GL Display1 backend.
-* **CPU — Standard VGA or VirtIO (no GL)** keeps the selected PVE `std` or
-  non-GL `virtio` graphic adapter and writes only
+* **CPU — Standard VGA, VirtIO or VMware (no GL)** keeps the selected PVE
+  `std`, non-GL `virtio` or `vmware` graphic adapter and writes only
   `-display dbus,...,gl=off`. It needs neither a render node nor a host GPU;
   normal PVE VNC remains usable alongside QSM Direct.
+
+**Audio** (on by default for a new console) adds an Intel HDA sound card on a
+QEMU dbus audiodev (`-audiodev dbus,id=qsm-direct-audio,...`, named in
+`-display ...,audiodev=qsm-direct-audio`).  The console starts muted, as
+browsers require; its speaker button turns the sound on.
 
 Reopening the dialog restores the checkbox, profile, and (for VirGL only)
 render node from the saved arguments. The existing VM **Console** entry in the
@@ -109,9 +122,9 @@ To pin HEVC, pair a hardware encoder with `QSM_DIRECT_CODEC=hevc`, for example:
 For VA-API additionally set
 `QSM_DIRECT_VAAPI_RENDER_NODE=/dev/dri/renderD128`.
 
-The direct WebRTC console provides video, guest audio, keyboard, pointer,
-scrolling, dynamic Display1 resolution, and optional guest clipboard
-integration. For clipboard install the matching `qsm-desktop-agent` package
+The direct WebRTC console provides video, guest audio (with **Audio**
+enabled), keyboard, pointer, scrolling, dynamic Display1 resolution, and
+optional guest clipboard integration. For clipboard install the matching `qsm-desktop-agent` package
 inside the Linux VM, then run `sudo qsm-desktop-agent-setup USER` once for its
 logged-in desktop user. On Wayland, also enable `qsm-desktop-clipboard.service`
 in that user's session.
@@ -131,6 +144,7 @@ A container has no QEMU display.  QSM Direct runs the container's desktop
 session (KDE Plasma, Wayland or X11) inside a headless sway ("the display")
 in the container; the host media worker captures that display (wlr-screencopy)
 and injects input (virtual pointer/keyboard), using the host GPU encoder.
+There is no audio from a container yet.
 The worker resolves the display socket inside the container's root (symlinks
 cannot redirect it to a host socket) and drops to "nobody" once connected.
 
@@ -145,9 +159,10 @@ Enable a running Debian/Ubuntu container that already has a Plasma desktop:
 This passes the GPU through (NVIDIA device nodes and the DRM render node;
 --restart applies it), installs NVIDIA userspace matching the host kernel
 module from the host's NVIDIA-Linux-x86_64-<version>.run (--nvidia-run FILE),
-installs sway/xwayland/PyQt5/acl, and sets up the container's consoles as
-system services -- one per tty the container runs with (its "tty" option,
-PVE default 2), like PVE's terminal console:
+installs the container package qsm-console-guest with apt (pulling in sway,
+xwayland, PyQt5, acl), which runs the container's consoles as system
+services -- one per tty the container runs with (its "tty" option, PVE
+default 2), like PVE's terminal console:
 
     qsm-consoles.service       at boot: starts one console per /dev/ttyN
     qsm-display@N.service      headless sway (user qsm-display), /run/qsm-display-N
@@ -174,7 +189,10 @@ checks the password with PAM (service qsm-login) and starts the session
 through systemd with PAMName=qsm-direct-session, i.e. a real logind session
 on seat0 (polkit dialogs, user manager, limits work as after a normal
 desktop login; with several desktops only the newest is "active" to polkit).
-Log Out returns to the login screen.  Only the current client of a console's
+Log Out returns to the login screen.  The clipboard works without setup:
+every desktop session runs qsm-clipboard-agent, which bridges Klipper (the
+same on Wayland and X11) to the console over a socket in
+/run/qsm-login/clip-N that only the logged-in user can reach.  Only the current client of a console's
 display -- its login screen or its logged-in user -- may connect to it (an
 ACL on the display socket, like logind's uaccess).  The host asks a console's
 login manager for its state or a logout over a root-only socket in the

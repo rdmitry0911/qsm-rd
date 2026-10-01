@@ -61,6 +61,11 @@ Open the **Console** of a VM and:
   no native client, no host X11 session.
 - **A sleeping guest is explained, not hidden.** When the guest blanks its
   screen or locks, the console says so and any mouse or key press wakes it.
+- **Sound and clipboard.** Guest audio plays in the console (Opus), and text
+  copies both ways between the browser and the guest desktop.
+- **Containers too.** An LXC container with a KDE Plasma desktop gets the same
+  console, with its own login screen per console (see
+  [LXC containers](#lxc-containers)).
 
 ## QSM Direct against stock noVNC, measured
 
@@ -133,9 +138,12 @@ feel.
 ## Requirements
 
 - **Proxmox VE 9** (`pve-manager` 9.x). Nothing is loaded into pveproxy or
-  pvedaemon, so there is no pinned-version requirement: a PVE point-release
-  upgrade does not disable the console. The only PVE contract used is the
-  documented `/access/ticket` authorisation endpoint.
+  pvedaemon; the only PVE contract used is the documented `/access/ticket`
+  authorisation endpoint. The one script tag added to the PVE web page is
+  allow-listed per `pve-manager` version and template checksum: after a
+  `pve-manager` upgrade the package knows nothing about, the stock page is
+  restored and VMs show the ordinary noVNC console until a package update
+  adds that version (`qsm-pve-direct-ui status` tells which state is active).
 - **Browser:** any browser whose WebRTC offers H.264 and Opus — Chrome, Edge,
   Chromium with proprietary codecs, Safari; Firefox with its OpenH264 plugin
   enabled. A browser without H.264 is refused (the reason is logged in the
@@ -191,10 +199,14 @@ VM, enable **QSM Display1** and pick a profile:
   *none*: the VM has no VNC server while this profile is active, so stock
   noVNC (including firmware and installer output) is available again only
   after switching back to the CPU profile and restarting the VM.
-- **CPU — Standard VGA or VirtIO (no GL)** keeps the selected adapter and adds
-  a non-GL D-Bus Display1 — no GPU or render device required; stock VNC keeps
-  working next to it. Pick **VirtIO** if you want the guest resolution to
-  follow the console window; Standard VGA keeps its own mode and is scaled.
+- **CPU — Standard VGA, VirtIO or VMware (no GL)** keeps the selected adapter
+  and adds a non-GL D-Bus Display1 — no GPU or render device required; stock
+  VNC keeps working next to it. Pick **VirtIO** if you want the guest
+  resolution to follow the console window; Standard VGA and VMware keep their
+  own mode and are scaled.
+
+**Audio** (on by default) adds an Intel HDA sound card whose output plays in
+the console; switch it off for a guest that should have no sound device.
 
 **Save, then stop and start the VM** — a reboot from inside the guest is not
 enough, QEMU must be relaunched with the new display. Then use the existing
@@ -235,10 +247,13 @@ All viewers of one VM share one encoder stream. The first Console picks the
 codec; a later browser that cannot decode it is refused rather than handed
 mislabelled video (the reason is logged in the node journal).
 
-**Audio:** the worker and the WebRTC bridge carry Opus audio from QEMU's
-Display1 audio interface, but the PVE Display profile does not yet add a QEMU
-audio device or `audiodev` to the VM, so a console configured as described
-above is silent. Treat audio as not available until the profile gains it.
+**Audio:** with **Audio** enabled in the Display settings the VM gets an
+Intel HDA sound card on a QEMU D-Bus audio backend (48 kHz stereo); the worker
+receives its PCM through Display1, encodes Opus and sends it on the same
+WebRTC connection. Browsers start the console muted (autoplay policy): the
+speaker button in the toolbar turns the sound on. A VM saved before this
+setting existed stays silent until **Audio** is switched on, saved, and the VM
+is stopped and started.
 
 ### Clipboard
 
@@ -263,6 +278,43 @@ the console still works — clipboard is simply unavailable.
 
 Install it with `qsm-desktop-agent-setup USER` in a Linux guest running a
 Wayland desktop.
+
+In an LXC container no agent needs installing: the container package runs a
+small clipboard agent in every desktop session (KDE Plasma, through Klipper)
+and the terminal service reaches it through the container's root.
+
+## LXC containers
+
+A container has no QEMU display, so QSM Direct brings one: a headless sway
+compositor per console inside the container, with its own login screen; the
+host media worker captures it (wlr-screencopy), injects input and encodes with
+the host GPU. Like the ttys of PVE's terminal console, the container has one
+console per tty, each belongs to the PVE user who opened it, and a desktop
+left logged in waits a grace period (default 5 minutes) for the same PVE user.
+
+```bash
+apt install ./qsm-pve-direct-lxc_*.deb      # on the node, next to qsm-pve-direct
+qsm-pve-direct-lxc enable <vmid>            # a Debian/Ubuntu CT with KDE Plasma
+pct exec <vmid> -- passwd qsm               # the desktop user it creates
+```
+
+`enable` passes the GPU through, installs the matching NVIDIA userspace and
+the container package `qsm-console-guest`. The container's **Console** button
+then offers **QSM Direct**. Video, input, resizing and clipboard work as for a
+VM; there is no audio from a container yet. Details:
+[packaging/debian/README.qsm-pve-direct](packaging/debian/README.qsm-pve-direct).
+
+## Native Proxmox integration (proposed)
+
+[`upstream/`](upstream/) holds patch series for qemu-server and pve-manager
+that would make this console part of Proxmox VE itself: a `dbus` option for
+the VM display (QEMU's peer-to-peer D-Bus display, attached per connection
+through QMP), a `webrtcproxy` API call next to `vncproxy`, and a WebRTC entry
+in the console menu. The media service is then this package, reached through
+`/run/webrtc-console/offer.sock`. On that path the clipboard is QEMU's own
+(`qemu-vdagent` with `spice-vdagent` in the guest, which on a Wayland desktop
+reaches X11 applications only), and there is no audio yet: in QEMU 11.0 a
+peer-to-peer D-Bus display delivered no audio to its listener in our tests.
 
 ### Codecs
 
@@ -292,8 +344,8 @@ without one.
 
 ## License
 
-GPL-3.0-or-later for the media worker, the terminal, the bridge and the
-build tooling; the Proxmox integration files (the API module under
-`integration/proxmox/pve9/direct_api` and the console script under
-`integration/proxmox/pve9/direct_ui`) are AGPL-3.0-or-later. See
-[LICENSE](LICENSE).
+GPL-3.0-or-later (see [LICENSE](LICENSE)), except files whose SPDX header
+says AGPL-3.0-or-later: the PVE console script
+(`integration/proxmox/pve9/direct_ui/qsm-direct-console.js`), the signalling
+service, the LXC console (`packaging/lxc`, `qsm-pve-direct-lxc`) and the
+viewer page.
