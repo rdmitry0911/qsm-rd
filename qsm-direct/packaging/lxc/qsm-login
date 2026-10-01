@@ -47,6 +47,7 @@ DISPLAY_DIR = Path(f"/run/qsm-display-{SLOT}")
 RUN_ROOT = Path("/run/qsm-login")
 RUN_DIR = RUN_ROOT / str(SLOT)                  # root only: control socket, session env
 GREETER_RUNTIME = RUN_ROOT / f"greeter-{SLOT}"  # the greeter's XDG_RUNTIME_DIR
+CLIPBOARD_DIR = RUN_ROOT / f"clip-{SLOT}"       # the session's clipboard agent socket
 SESSION_UNIT = f"qsm-session-{SLOT}.service"
 STATE_DIR = Path("/var/lib/qsm-login")
 DEFAULT_SESSION_FILE = Path("/etc/qsm-direct/session-type")
@@ -382,10 +383,16 @@ def run_greeter(display: Path) -> tuple[str, str] | None:
 
 def run_session(user: str, session: str, display: Path) -> None:
     entry = pwd.getpwnam(user)
+    # The session's clipboard agent listens here; the host connects into the
+    # container to it.  Only this user (and root) can reach it.
+    shutil.rmtree(CLIPBOARD_DIR, ignore_errors=True)
+    CLIPBOARD_DIR.mkdir(mode=0o700)
+    os.chown(CLIPBOARD_DIR, entry.pw_uid, entry.pw_gid)
     environment_file = RUN_DIR / "session.env"
     environment_file.write_text(
         f"QSM_SESSION_TYPE={session}\nXDG_SESSION_TYPE={session}\n"
-        f"QSM_DISPLAY_SOCKET={display}\nQSM_DISPLAY_GEOMETRY={display_geometry()}\n")
+        f"QSM_DISPLAY_SOCKET={display}\nQSM_DISPLAY_GEOMETRY={display_geometry()}\n"
+        f"QSM_CLIPBOARD_SOCKET={CLIPBOARD_DIR / 'agent.sock'}\n")
     (RUN_DIR / "user").write_text(user + "\n")
     write_state(f"session.{user}", session)
     grant(display, user, True)
@@ -412,6 +419,7 @@ def run_session(user: str, session: str, display: Path) -> None:
         with CONSOLE.lock:
             CONSOLE.user = None
         grant(display, user, False)
+        shutil.rmtree(CLIPBOARD_DIR, ignore_errors=True)
         for name in ("user", "session.env"):
             try:
                 (RUN_DIR / name).unlink()

@@ -54,6 +54,12 @@ int sd_bus_flush(sd_bus *bus);
 void sd_bus_close(sd_bus *bus);
 sd_bus *sd_bus_unref(sd_bus *bus);
 
+int sd_bus_get_fd(sd_bus *bus);
+int sd_bus_get_events(sd_bus *bus);
+int sd_bus_call_async(sd_bus *bus, sd_bus_slot **slot, sd_bus_message *m,
+                      sd_bus_message_handler_t callback, void *userdata, uint64_t usec);
+int sd_bus_message_is_method_error(sd_bus_message *m, const char *name);
+const sd_bus_error *sd_bus_message_get_error(sd_bus_message *m);
 int sd_bus_add_filter(sd_bus *bus,
                       sd_bus_slot **ret_slot,
                       sd_bus_message_handler_t callback,

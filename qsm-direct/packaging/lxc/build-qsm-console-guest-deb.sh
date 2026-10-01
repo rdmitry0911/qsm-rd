@@ -24,7 +24,8 @@ lib="$stage/usr/lib/qsm-console"
 install -d "$lib" "$stage/usr/share/qsm-console" "$stage/usr/lib/systemd/system" \
     "$stage/usr/lib/systemd/user/plasma-kwin_wayland.service.d" "$stage/etc/pam.d" \
     "$stage/usr/share/doc/$package" "$stage/DEBIAN"
-for script in qsm-login qsm-greeter qsm-session-launch qsm-seat-keeper qsm-consoles qsm-display-start; do
+for script in qsm-login qsm-greeter qsm-session-launch qsm-seat-keeper qsm-consoles qsm-display-start \
+              qsm-clipboard-agent; do
     install -m 0755 "$LXC_DIR/$script" "$lib/$script"
 done
 install -m 0644 "$LXC_DIR/qsm-display-sway.conf" "$stage/usr/share/qsm-console/sway.conf"

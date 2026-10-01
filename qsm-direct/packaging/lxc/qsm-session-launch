@@ -49,6 +49,10 @@ systemctl --user unset-environment DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_SESSIO
 systemctl --user set-environment QSM_OUTER_DISPLAY="$QSM_OUTER_DISPLAY"
 
 export XDG_CURRENT_DESKTOP=KDE XDG_SESSION_DESKTOP=KDE
+# The session's clipboard, bridged to the browser console (via Klipper).
+if [ -n "${QSM_CLIPBOARD_SOCKET:-}" ]; then
+    /usr/bin/python3 /usr/lib/qsm-console/qsm-clipboard-agent &
+fi
 case "$type" in
 wayland)
     export XDG_SESSION_TYPE=wayland DESKTOP_SESSION=plasmawayland

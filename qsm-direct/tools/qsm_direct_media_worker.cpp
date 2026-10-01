@@ -160,6 +160,7 @@ struct Size {
 struct Options {
     std::string dbus_address;
     int dbus_fd = -1;
+    int clipboard_fd = -1;
     // Alternative capture source: a headless wlroots compositor (sway) that
     // hosts an LXC container's desktop session. Exactly one source is given.
     // The compositor directory is resolved *inside* the container's root
@@ -257,6 +258,15 @@ Options parse_options(int argc, char **argv) {
         const std::string_view argument(argv[index]);
         if (argument == "--dbus-address") {
             options.dbus_address = next(index, argument);
+        } else if (argument == "--clipboard-fd") {
+            // QSF guest-agent line stream to the terminal (with --dbus-fd):
+            // bridges QEMU's D-Bus clipboard to the browser.
+            const std::string value(next(index, argument));
+            if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos ||
+                value.size() > 6 || std::stoi(value) < 3) {
+                throw WorkerError("--clipboard-fd requires an inherited descriptor number >= 3");
+            }
+            options.clipboard_fd = std::stoi(value);
         } else if (argument == "--dbus-fd") {
             // An inherited peer-to-peer D-Bus connection to QEMU's display,
             // attached by qemu-server (QMP add_client) for this console.
@@ -1705,6 +1715,9 @@ int run(const Options &options) {
         // there is no bus name to address.
         display_options.p2p_fd = qmdp::UniqueFd(options.dbus_fd);
         display_options.destination.clear();
+        if (options.clipboard_fd >= 0) {
+            display_options.clipboard_fd = qmdp::UniqueFd(options.clipboard_fd);
+        }
     } else {
         display_options.bus_address = options.dbus_address;
         // The package-owned per-VM endpoint is a private session bus.  QEMU owns

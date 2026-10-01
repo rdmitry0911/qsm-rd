@@ -37,6 +37,11 @@ struct QemuDbusOptions {
     std::chrono::milliseconds pump_interval {50};
     bool enable_audio {true};
     bool require_audio {false};
+    // Optional: a stream to the host speaking the QSF guest-agent line
+    // protocol (PING, CLIP_GET, CLIP_SET; EVENT_CLIP).  The display then
+    // registers as QEMU's org.qemu.Display1.Clipboard peer and bridges the
+    // guest clipboard (qemu-vdagent + spice-vdagent in the guest) to it.
+    UniqueFd clipboard_fd;
 };
 
 // QEMU Display1 adapter with a production-compatible peer-to-peer listener.
@@ -130,6 +135,25 @@ private:
     int handle_peer_standard(sd_bus_message *message);
     void peer_loop() noexcept;
     void audio_loop() noexcept;
+    // Clipboard (all on clipboard_thread_, which alone processes main_bus_
+    // messages; everything below runs with main_bus_mutex_ held).
+    static int clipboard_filter(sd_bus_message *message,
+                                void *userdata,
+                                sd_bus_error *ret_error) noexcept;
+    int handle_clipboard_message(sd_bus_message *message);
+    static int clipboard_request_reply(sd_bus_message *message,
+                                       void *userdata,
+                                       sd_bus_error *ret_error) noexcept;
+    static int clipboard_grab_reply(sd_bus_message *message,
+                                    void *userdata,
+                                    sd_bus_error *ret_error) noexcept;
+    static int clipboard_register_reply(sd_bus_message *message,
+                                        void *userdata,
+                                        sd_bus_error *ret_error) noexcept;
+    void clipboard_loop() noexcept;
+    void clipboard_command(const std::string& line);
+    void clipboard_request_guest_text();
+    void clipboard_write(const std::string& line) noexcept;
     void register_audio_listener();
     void publish(FrameToken frame);
     void report_error(std::string message) noexcept;
@@ -176,6 +200,16 @@ private:
     UniqueFd audio_transport_shutdown_fd_;
     dbus::Slot audio_filter_slot_;
     std::thread audio_thread_;
+    UniqueFd clipboard_fd_;
+    dbus::Slot clipboard_filter_slot_;
+    std::thread clipboard_thread_;
+    std::uint32_t clipboard_serial_ {};
+    bool clipboard_owned_ {};          // the host's text is the current grab
+    std::string clipboard_host_text_;  // offered to the guest while owned
+    std::string clipboard_guest_text_; // last text the guest grabbed
+    std::uint64_t clipboard_generation_ {};
+    std::uint64_t clipboard_pending_set_ {};
+    int clipboard_register_state_ {};  // 0 pending, 1 registered, 2 refused
     mutable std::mutex audio_state_mutex_;
     std::unordered_map<std::uint64_t, AudioStreamState> audio_streams_;
     std::atomic<bool> stopping_ {false};

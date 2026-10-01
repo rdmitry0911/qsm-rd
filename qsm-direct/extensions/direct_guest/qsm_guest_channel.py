@@ -65,8 +65,21 @@ class QsmGuestChannel:
     notifications.  Commands are not replayed after an interrupted write.
     """
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path | None = None, *,
+                 connector: Callable[[float], socket.socket] | None = None,
+                 keep_connected: bool = False) -> None:
+        """``path``: the QEMU chardev socket of the QSM desktop agent.
+
+        ``connector`` instead returns a connected stream speaking the same
+        protocol (raising OSError while none is available) -- the media
+        worker's bridge to QEMU's D-Bus clipboard, or the clipboard agent in
+        a container's console session.
+        """
+        if (path is None) == (connector is None):
+            raise ValueError("exactly one of path or connector is required")
         self._path = path
+        self._connector = connector
+        self._keeper: threading.Thread | None = None
         self._stopped = threading.Event()
         self._condition = threading.Condition()
         self._request_lock = threading.Lock()
@@ -75,6 +88,26 @@ class QsmGuestChannel:
         self._generation = 0
         self._responses: deque[str] = deque()
         self._listeners: set[Callable[[str], None]] = set()
+        if keep_connected:
+            # The peer comes and goes (a container session's clipboard agent
+            # restarts with every login): reconnect in the background, so its
+            # clipboard events reach the browser without waiting for a request.
+            self._keeper = threading.Thread(target=self._keep_connected, name="qsm-guest-keeper", daemon=True)
+            self._keeper.start()
+
+    def _keep_connected(self) -> None:
+        while not self._stopped.wait(2.0):
+            with self._condition:
+                connected = self._socket is not None
+            if not connected:
+                try:
+                    self._connect(time.monotonic() + 1.0)
+                except GuestChannelError:
+                    pass
+
+    def connect_now(self, timeout: float = 1.0) -> None:
+        """Connect at once, so guest clipboard events flow before any request."""
+        self._connect(time.monotonic() + timeout)
 
     def add_clipboard_listener(self, listener: Callable[[str], None]) -> Callable[[], None]:
         with self._condition:
@@ -184,15 +217,23 @@ class QsmGuestChannel:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise GuestChannelError("guest agent is unavailable")
-            candidate = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            try:
-                candidate.settimeout(min(1.0, remaining))
-                candidate.connect(str(self._path))
-                candidate.settimeout(1.0)
-            except OSError:
-                candidate.close()
-                time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
-                continue
+            if self._connector is not None:
+                try:
+                    candidate = self._connector(min(1.0, remaining))
+                    candidate.settimeout(1.0)
+                except OSError:
+                    time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+                    continue
+            else:
+                candidate = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                try:
+                    candidate.settimeout(min(1.0, remaining))
+                    candidate.connect(str(self._path))
+                    candidate.settimeout(1.0)
+                except OSError:
+                    candidate.close()
+                    time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+                    continue
             with self._condition:
                 if self._stopped.is_set() or self._socket is not None:
                     candidate.close()

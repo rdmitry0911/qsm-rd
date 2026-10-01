@@ -1,0 +1,179 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""QSM Direct container console: the clipboard agent of one desktop session.
+
+Started by qsm-session-launch inside the logged-in user's session.  It
+bridges the session clipboard -- through Klipper, Plasma's clipboard service,
+the same on Wayland and X11 -- to the browser console: the host's terminal
+service connects into the container to QSM_CLIPBOARD_SOCKET (a directory
+qsm-login created for this session, accessible to this user only) and speaks
+the QSF guest-agent line protocol of the QSM desktop agent:
+
+  host -> agent   PING | CLIP_GET | CLIP_SET <base64>
+  agent -> host   OK PONG | CLIP <base64> | OK CLIP_SET <generation> | ERR ...
+                  READY QSF1 (on connect), EVENT_CLIP <base64> (guest copied)
+
+Base64 is standard; "-" stands for empty text.  Text only, UTF-8, <= 1 MiB.
+"""
+from __future__ import annotations
+
+import base64
+import binascii
+import os
+import sys
+
+from PyQt5.QtCore import QCoreApplication, QObject, QTimer, pyqtSlot
+from PyQt5.QtDBus import QDBusConnection, QDBusMessage
+from PyQt5.QtNetwork import QLocalServer, QLocalSocket
+
+DEBUG = os.environ.get("QSM_CLIPBOARD_DEBUG") == "1"
+MAX_BYTES = 1024 * 1024
+MAX_LINE = 4 * 1024 * 1024
+KLIPPER = ("org.kde.klipper", "/klipper", "org.kde.klipper.klipper")
+
+
+def debug(message: str) -> None:
+    if DEBUG:
+        print(f"qsm-clipboard-agent: {message}", file=sys.stderr, flush=True)
+
+
+def encode(text: str) -> str:
+    data = text.encode("utf-8")
+    return base64.b64encode(data).decode("ascii") if data else "-"
+
+
+def decode(value: str) -> str | None:
+    if value == "-":
+        return ""
+    try:
+        data = base64.b64decode(value.encode("ascii"), validate=True)
+        text = data.decode("utf-8")
+    except (binascii.Error, UnicodeError, ValueError):
+        return None
+    return text if len(data) <= MAX_BYTES and "\x00" not in text else None
+
+
+class Agent(QObject):
+    def __init__(self, path: str) -> None:
+        super().__init__()
+        self.bus = QDBusConnection.sessionBus()
+        self.client: QLocalSocket | None = None
+        self.buffer = bytearray()
+        self.generation = 0
+        self.last_text: str | None = None
+        self.server = QLocalServer(self)
+        self.server.setSocketOptions(QLocalServer.UserAccessOption)
+        QLocalServer.removeServer(path)
+        if not self.server.listen(path):
+            raise SystemExit(f"qsm-clipboard-agent: cannot listen on {path}: {self.server.errorString()}")
+        self.server.newConnection.connect(self.accept)
+        # Klipper (part of plasmashell) may come up after this agent.  Plasma
+        # 6 signals changes; Klipper of Plasma 5 has no such signal, so the
+        # agent also asks it once a second while the host is connected -- a
+        # D-Bus call to Klipper's own copy, which never touches the Wayland
+        # clipboard (no compositor wake-up, no clipboard indicator flicker).
+        self.bus.connect(KLIPPER[0], KLIPPER[1], KLIPPER[2], "clipboardHistoryUpdated", self.changed)
+        self.poll = QTimer(self)
+        self.poll.setInterval(1000)
+        self.poll.timeout.connect(self.publish)
+
+    def klipper(self, method: str, *args: object) -> QDBusMessage:
+        call = QDBusMessage.createMethodCall(*KLIPPER, method)
+        if args:
+            call.setArguments(list(args))
+        return self.bus.call(call, timeout=3000)
+
+    def current_text(self) -> str | None:
+        reply = self.klipper("getClipboardContents")
+        if reply.type() != QDBusMessage.ReplyMessage or not reply.arguments():
+            return None
+        text = str(reply.arguments()[0])
+        return text if len(text.encode("utf-8")) <= MAX_BYTES and "\x00" not in text else None
+
+    def send(self, line: str) -> None:
+        if self.client is not None and self.client.state() == QLocalSocket.ConnectedState:
+            self.client.write((line + "\n").encode("ascii"))
+            self.client.flush()
+
+    @pyqtSlot()
+    def accept(self) -> None:
+        socket = self.server.nextPendingConnection()
+        debug(f"connection {'accepted' if socket is not None else 'missing'}")
+        if socket is None:
+            return
+        if self.client is not None:
+            self.client.disconnectFromServer()  # one host connection at a time
+        self.client = socket
+        self.buffer.clear()
+        socket.readyRead.connect(self.read)
+        socket.disconnected.connect(socket.deleteLater)
+        socket.disconnected.connect(self.poll.stop)
+        self.send("READY QSF1")
+        # The host learns the current text first; later changes follow.
+        self.last_text = self.current_text()
+        self.poll.start()
+
+    @pyqtSlot()
+    def read(self) -> None:
+        if self.client is None:
+            return
+        self.buffer.extend(bytes(self.client.readAll()))
+        if len(self.buffer) > MAX_LINE:
+            self.client.disconnectFromServer()
+            return
+        while b"\n" in self.buffer:
+            raw, _, rest = self.buffer.partition(b"\n")
+            self.buffer = bytearray(rest)
+            self.command(raw.decode("ascii", "replace").strip())
+
+    def command(self, line: str) -> None:
+        debug(f"command {line[:24]!r}")
+        if line == "PING":
+            self.send("OK PONG")
+        elif line == "CLIP_GET":
+            text = self.current_text()
+            self.send("ERR CLIPBOARD_UNAVAILABLE" if text is None else "CLIP " + encode(text))
+        elif line.startswith("CLIP_SET "):
+            text = decode(line[9:])
+            if text is None:
+                self.send("ERR BAD_CLIPBOARD")
+                return
+            self.last_text = text  # not echoed back as a guest copy
+            reply = self.klipper("setClipboardContents", text)
+            if reply.type() != QDBusMessage.ReplyMessage:
+                self.send("ERR CLIPBOARD_NOT_APPLIED")
+                return
+            self.generation += 1
+            self.send(f"OK CLIP_SET {self.generation}")
+        else:
+            self.send("ERR UNKNOWN_COMMAND")
+
+    @pyqtSlot()
+    def changed(self) -> None:
+        debug("klipper clipboardHistoryUpdated")
+        # Coalesce bursts (Klipper reports every step of a selection drag).
+        QTimer.singleShot(150, self.publish)
+
+    @pyqtSlot()
+    def publish(self) -> None:
+        text = self.current_text()
+        if text is None or text == self.last_text:
+            return
+        self.last_text = text
+        self.send("EVENT_CLIP " + encode(text))
+
+
+def main() -> int:
+    path = os.environ.get("QSM_CLIPBOARD_SOCKET", "")
+    if not path.startswith("/run/qsm-login/clip-"):
+        print("qsm-clipboard-agent: QSM_CLIPBOARD_SOCKET is not set by qsm-login", file=sys.stderr)
+        return 2
+    application = QCoreApplication(sys.argv)
+    agent = Agent(path)  # referenced until the event loop returns
+    status = application.exec_()
+    del agent
+    return status
+
+
+if __name__ == "__main__":
+    sys.exit(main())

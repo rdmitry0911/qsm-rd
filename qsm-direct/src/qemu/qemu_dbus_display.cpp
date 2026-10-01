@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cerrno>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <exception>
 #include <fcntl.h>
@@ -18,6 +19,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <vector>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -36,6 +38,11 @@ constexpr std::string_view audio_listener_interface = "org.qemu.Display1.AudioOu
 constexpr std::string_view properties_interface = "org.freedesktop.DBus.Properties";
 constexpr std::string_view introspect_interface = "org.freedesktop.DBus.Introspectable";
 constexpr std::string_view peer_interface = "org.freedesktop.DBus.Peer";
+constexpr std::string_view clipboard_path = "/org/qemu/Display1/Clipboard";
+constexpr std::string_view clipboard_interface = "org.qemu.Display1.Clipboard";
+constexpr const char clipboard_text_mime[] = "text/plain;charset=utf-8";
+constexpr std::size_t clipboard_max_bytes = 1024U * 1024U;
+constexpr std::size_t clipboard_max_line = 4U * 1024U * 1024U;
 
 // Display1.SetUIInfo contains an EDID-like physical size as well as a pixel
 // mode.  A zero physical size leaves some Wayland display managers with a
@@ -232,6 +239,125 @@ std::string machine_id() {
     return "00000000000000000000000000000000";
 }
 
+constexpr const char clipboard_introspection_xml[] = R"xml(
+<node>
+  <interface name="org.qemu.Display1.Clipboard">
+    <method name="Register"/>
+    <method name="Unregister"/>
+    <method name="Grab">
+      <arg type="u" name="selection" direction="in"/>
+      <arg type="u" name="serial" direction="in"/>
+      <arg type="as" name="mimes" direction="in"/>
+    </method>
+    <method name="Release">
+      <arg type="u" name="selection" direction="in"/>
+    </method>
+    <method name="Request">
+      <arg type="u" name="selection" direction="in"/>
+      <arg type="as" name="mimes" direction="in"/>
+      <arg type="s" name="reply_mime" direction="out"/>
+      <arg type="ay" name="data" direction="out"/>
+    </method>
+    <property name="Interfaces" type="as" access="read"/>
+  </interface>
+</node>
+)xml";
+
+std::string base64_encode(std::string_view data) {
+    static constexpr char alphabet[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    out.reserve(((data.size() + 2U) / 3U) * 4U);
+    std::size_t index = 0U;
+    while (index + 2U < data.size()) {
+        const auto triple = (static_cast<std::uint32_t>(static_cast<unsigned char>(data[index])) << 16U) |
+                            (static_cast<std::uint32_t>(static_cast<unsigned char>(data[index + 1U])) << 8U) |
+                            static_cast<std::uint32_t>(static_cast<unsigned char>(data[index + 2U]));
+        out.push_back(alphabet[(triple >> 18U) & 0x3FU]);
+        out.push_back(alphabet[(triple >> 12U) & 0x3FU]);
+        out.push_back(alphabet[(triple >> 6U) & 0x3FU]);
+        out.push_back(alphabet[triple & 0x3FU]);
+        index += 3U;
+    }
+    if (index < data.size()) {
+        auto triple = static_cast<std::uint32_t>(static_cast<unsigned char>(data[index])) << 16U;
+        if (index + 1U < data.size()) {
+            triple |= static_cast<std::uint32_t>(static_cast<unsigned char>(data[index + 1U])) << 8U;
+        }
+        out.push_back(alphabet[(triple >> 18U) & 0x3FU]);
+        out.push_back(alphabet[(triple >> 12U) & 0x3FU]);
+        out.push_back(index + 1U < data.size() ? alphabet[(triple >> 6U) & 0x3FU] : '=');
+        out.push_back('=');
+    }
+    return out;
+}
+
+// Strict RFC 4648 decoding; false on any malformed input.
+bool base64_decode(std::string_view text, std::string& out) {
+    if (text.size() % 4U != 0U) {
+        return false;
+    }
+    auto value = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        return -1;
+    };
+    out.clear();
+    out.reserve((text.size() / 4U) * 3U);
+    for (std::size_t index = 0U; index < text.size(); index += 4U) {
+        const bool last = index + 4U == text.size();
+        int v[4];
+        int padding = 0;
+        for (int k = 0; k < 4; ++k) {
+            const char c = text[index + static_cast<std::size_t>(k)];
+            if (c == '=' && last && k >= 2) {
+                v[k] = 0;
+                ++padding;
+            } else if (padding != 0 || (v[k] = value(c)) < 0) {
+                return false;
+            }
+        }
+        const auto triple = (static_cast<std::uint32_t>(v[0]) << 18U) | (static_cast<std::uint32_t>(v[1]) << 12U) |
+                            (static_cast<std::uint32_t>(v[2]) << 6U) | static_cast<std::uint32_t>(v[3]);
+        out.push_back(static_cast<char>((triple >> 16U) & 0xFFU));
+        if (padding < 2) out.push_back(static_cast<char>((triple >> 8U) & 0xFFU));
+        if (padding < 1) out.push_back(static_cast<char>(triple & 0xFFU));
+    }
+    return true;
+}
+
+// Clipboard text must be NUL-free UTF-8 (the browser and the host side
+// reject anything else as well).
+bool valid_clipboard_text(std::string_view text) {
+    if (text.size() > clipboard_max_bytes || text.find('\0') != std::string_view::npos) {
+        return false;
+    }
+    std::size_t index = 0U;
+    while (index < text.size()) {
+        const auto c = static_cast<unsigned char>(text[index]);
+        std::size_t length = c < 0x80U ? 1U : (c >> 5U) == 0x6U ? 2U : (c >> 4U) == 0xEU ? 3U
+                           : (c >> 3U) == 0x1EU ? 4U : 0U;
+        if (length == 0U || index + length > text.size()) {
+            return false;
+        }
+        for (std::size_t k = 1U; k < length; ++k) {
+            if ((static_cast<unsigned char>(text[index + k]) & 0xC0U) != 0x80U) {
+                return false;
+            }
+        }
+        index += length;
+    }
+    return true;
+}
+
+bool text_mime(std::string_view mime) {
+    return mime == clipboard_text_mime || mime == "text/plain" || mime == "UTF8_STRING" ||
+           mime == "TEXT" || mime == "STRING" || mime == "text/plain;charset=UTF-8";
+}
+
 }  // namespace
 
 QemuDbusDisplay::QemuDbusDisplay(QemuDbusOptions options)
@@ -335,6 +461,44 @@ void QemuDbusDisplay::start(QemuDisplayCallbacks callbacks) {
         if (audio_bus_) {
             audio_thread_ = std::thread(&QemuDbusDisplay::audio_loop, this);
         }
+        if (options_.clipboard_fd) {
+            // Optional: a failure leaves the console without clipboard only.
+            // QEMU creates its proxy for our object inside Register and
+            // synchronously queries it (Properties.GetAll), blocking its main
+            // loop meanwhile.  So register before anything else uses the
+            // connection, and answer that query while waiting for the reply.
+            try {
+                std::lock_guard lock(main_bus_mutex_);
+                dbus::check(sd_bus_add_filter(main_bus_.get(), clipboard_filter_slot_.put(),
+                                              &QemuDbusDisplay::clipboard_filter, this),
+                            "sd_bus_add_filter(clipboard)");
+                dbus::Message call;
+                const std::string object(clipboard_path);
+                dbus::check(sd_bus_message_new_method_call(main_bus_.get(), call.put(), destination(),
+                                                           object.c_str(), clipboard_interface.data(), "Register"),
+                            "new Clipboard.Register");
+                clipboard_register_state_ = 0;
+                dbus::check(sd_bus_call_async(main_bus_.get(), nullptr, call.get(),
+                                              &QemuDbusDisplay::clipboard_register_reply, this,
+                                              10U * 1000U * 1000U),
+                            "send Clipboard.Register");
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
+                while (clipboard_register_state_ == 0 && std::chrono::steady_clock::now() < deadline) {
+                    if (!main_bus_.pump_once(std::chrono::milliseconds(50))) {
+                        throw std::runtime_error("QEMU connection closed during Clipboard.Register");
+                    }
+                }
+                if (clipboard_register_state_ != 1) {
+                    throw std::runtime_error("QEMU refused or did not answer Clipboard.Register");
+                }
+                clipboard_fd_ = std::move(options_.clipboard_fd);
+                clipboard_thread_ = std::thread(&QemuDbusDisplay::clipboard_loop, this);
+            } catch (const std::exception& ex) {
+                clipboard_filter_slot_.reset();
+                options_.clipboard_fd.reset();
+                std::fprintf(stderr, "QSM_DIRECT_CLIPBOARD disabled: %s\n", ex.what());
+            }
+        }
     } catch (...) {
         shutdown_listener_transport(audio_transport_shutdown_fd_);
         audio_bus_.close();
@@ -362,6 +526,9 @@ void QemuDbusDisplay::stop() noexcept {
     }
     if (audio_thread_.joinable()) {
         audio_thread_.join();
+    }
+    if (clipboard_thread_.joinable()) {
+        clipboard_thread_.join();
     }
 
     lifecycle_lock.lock();
@@ -392,6 +559,7 @@ void QemuDbusDisplay::stop() noexcept {
     }
     {
         std::lock_guard main_lock(main_bus_mutex_);
+        clipboard_filter_slot_.reset();
         main_bus_.close();
     }
     callbacks_ = {};
@@ -1428,6 +1596,286 @@ QemuDbusDisplay::Stats QemuDbusDisplay::stats() const {
         .audio_listener_registered = audio_listener_registered_,
         .audio_listener_active = audio_listener_active_,
     };
+}
+
+// ---------------------------------------------------------------- clipboard
+// QEMU's D-Bus clipboard is symmetric: both sides implement
+// org.qemu.Display1.Clipboard on /org/qemu/Display1/Clipboard.  The guest side
+// is QEMU's clipboard core (qemu-vdagent + spice-vdagent in the guest); the
+// host side is a QSF guest-agent line stream to the terminal, so the browser
+// uses the same clipboard path as with the QSM desktop agent.
+
+int QemuDbusDisplay::clipboard_filter(sd_bus_message *message, void *userdata,
+                                      sd_bus_error *) noexcept {
+    try {
+        return static_cast<QemuDbusDisplay *>(userdata)->handle_clipboard_message(message);
+    } catch (...) {
+        return 0;
+    }
+}
+
+int QemuDbusDisplay::handle_clipboard_message(sd_bus_message *message) {
+    const char *path = sd_bus_message_get_path(message);
+    if (path == nullptr || std::string_view(path) != clipboard_path ||
+        !sd_bus_message_is_method_call(message, nullptr, nullptr)) {
+        return 0;
+    }
+    if (const int handled = handle_properties(message, clipboard_interface, {}); handled != 0) {
+        return handled;
+    }
+    if (const int handled = handle_introspection(message, clipboard_introspection_xml); handled != 0) {
+        return handled;
+    }
+    if (const int handled = handle_peer_standard(message); handled != 0) {
+        return handled;
+    }
+    const char *member = sd_bus_message_get_member(message);
+    const std::string_view name = member ? member : "";
+    if (name == "Register") {
+        std::fprintf(stderr, "QSM_DIRECT_CLIPBOARD qemu Register (serial reset)\n");
+        clipboard_serial_ = 0U;
+        dbus::check(sd_bus_reply_method_return(message, ""), "reply Clipboard.Register");
+        return 1;
+    }
+    if (name == "Unregister" || name == "Release") {
+        dbus::check(sd_bus_reply_method_return(message, ""), "reply Clipboard.Release");
+        return 1;
+    }
+    if (name == "Grab") {
+        // The guest copied: fetch the text, then announce it to the host.
+        std::uint32_t selection = 0U;
+        std::uint32_t serial = 0U;
+        dbus::check(sd_bus_message_read(message, "uu", &selection, &serial), "read Clipboard.Grab");
+        bool text = false;
+        dbus::check(sd_bus_message_enter_container(message, 'a', "s"), "read Clipboard.Grab mimes");
+        const char *mime = nullptr;
+        while (sd_bus_message_read_basic(message, 's', &mime) > 0) {
+            text = text || (mime != nullptr && text_mime(mime));
+        }
+        dbus::check(sd_bus_message_exit_container(message), "finish Clipboard.Grab mimes");
+        dbus::check(sd_bus_reply_method_return(message, ""), "reply Clipboard.Grab");
+        std::fprintf(stderr, "QSM_DIRECT_CLIPBOARD guest grab selection=%u serial=%u text=%d (ours=%u)\n",
+                     selection, serial, text ? 1 : 0, clipboard_serial_);
+        if (selection == 0U && serial >= clipboard_serial_) {
+            clipboard_serial_ = serial;
+            clipboard_owned_ = false;
+            if (text) {
+                clipboard_request_guest_text();
+            }
+        }
+        return 1;
+    }
+    if (name == "Request") {
+        // The guest pastes the host's text.
+        std::uint32_t selection = 0U;
+        dbus::check(sd_bus_message_read(message, "u", &selection), "read Clipboard.Request");
+        std::fprintf(stderr, "QSM_DIRECT_CLIPBOARD guest request selection=%u owned=%d\n", selection,
+                     clipboard_owned_ ? 1 : 0);
+        if (selection != 0U || !clipboard_owned_) {
+            return sd_bus_reply_method_errorf(message, "org.qemu.Display1.Clipboard.Error.Empty",
+                                              "%s", "no host clipboard content");
+        }
+        dbus::Message reply;
+        dbus::check(sd_bus_message_new_method_return(message, reply.put()), "new Clipboard.Request reply");
+        dbus::check(sd_bus_message_append(reply.get(), "s", clipboard_text_mime), "append reply mime");
+        dbus::check(sd_bus_message_append_array(reply.get(), 'y', clipboard_host_text_.data(),
+                                                clipboard_host_text_.size()),
+                    "append reply data");
+        return send_message_reply(message, reply);
+    }
+    return sd_bus_reply_method_errorf(message, "org.freedesktop.DBus.Error.UnknownMethod",
+                                      "Unknown clipboard method %s", member ? member : "");
+}
+
+void QemuDbusDisplay::clipboard_request_guest_text() {
+    dbus::Message call;
+    const std::string path(clipboard_path);
+    dbus::check(sd_bus_message_new_method_call(main_bus_.get(), call.put(), destination(), path.c_str(),
+                                               clipboard_interface.data(), "Request"),
+                "new Clipboard.Request");
+    dbus::check(sd_bus_message_append(call.get(), "u", 0U), "append Clipboard.Request selection");
+    dbus::check(sd_bus_message_append(call.get(), "as", 2, clipboard_text_mime, "text/plain"),
+                "append Clipboard.Request mimes");
+    dbus::check(sd_bus_call_async(main_bus_.get(), nullptr, call.get(), &QemuDbusDisplay::clipboard_request_reply,
+                                  this, 5U * 1000U * 1000U),
+                "send Clipboard.Request");
+}
+
+int QemuDbusDisplay::clipboard_request_reply(sd_bus_message *message, void *userdata, sd_bus_error *) noexcept {
+    auto *self = static_cast<QemuDbusDisplay *>(userdata);
+    try {
+        if (sd_bus_message_is_method_error(message, nullptr)) {
+            return 0;
+        }
+        const char *mime = nullptr;
+        const void *data = nullptr;
+        std::size_t size = 0U;
+        if (sd_bus_message_read(message, "s", &mime) < 0 ||
+            sd_bus_message_read_array(message, 'y', &data, &size) < 0) {
+            return 0;
+        }
+        std::string text(static_cast<const char *>(data), size);
+        while (!text.empty() && text.back() == '\0') {
+            text.pop_back();  // some guests NUL-terminate their text
+        }
+        if (!valid_clipboard_text(text) || self->clipboard_owned_) {
+            return 0;
+        }
+        self->clipboard_guest_text_ = std::move(text);
+        self->clipboard_write("EVENT_CLIP " + (self->clipboard_guest_text_.empty()
+                                                   ? std::string("-")
+                                                   : base64_encode(self->clipboard_guest_text_)));
+    } catch (...) {
+    }
+    return 0;
+}
+
+int QemuDbusDisplay::clipboard_grab_reply(sd_bus_message *message, void *userdata, sd_bus_error *) noexcept {
+    auto *self = static_cast<QemuDbusDisplay *>(userdata);
+    if (sd_bus_message_is_method_error(message, nullptr)) {
+        self->clipboard_owned_ = false;
+        self->clipboard_write("ERR CLIPBOARD_NOT_APPLIED");
+    } else {
+        self->clipboard_write("OK CLIP_SET " + std::to_string(self->clipboard_pending_set_));
+    }
+    return 0;
+}
+
+void QemuDbusDisplay::clipboard_write(const std::string& line) noexcept {
+    if (!clipboard_fd_) {
+        return;
+    }
+    const std::string framed = line + "\n";
+    std::size_t written = 0U;
+    while (written < framed.size()) {
+        const ssize_t result = ::send(clipboard_fd_.get(), framed.data() + written, framed.size() - written,
+                                      MSG_NOSIGNAL);
+        if (result < 0 && errno == EINTR) {
+            continue;
+        }
+        if (result <= 0) {
+            return;
+        }
+        written += static_cast<std::size_t>(result);
+    }
+}
+
+void QemuDbusDisplay::clipboard_command(const std::string& line) {
+    if (line == "PING") {
+        clipboard_write("OK PONG");
+        return;
+    }
+    if (line == "CLIP_GET") {
+        const std::string& text = clipboard_owned_ ? clipboard_host_text_ : clipboard_guest_text_;
+        clipboard_write("CLIP " + (text.empty() ? std::string("-") : base64_encode(text)));
+        return;
+    }
+    if (line.rfind("CLIP_SET ", 0) == 0) {
+        std::string text;
+        const std::string_view encoded = std::string_view(line).substr(9);
+        if (!(encoded == "-" || base64_decode(encoded, text)) || !valid_clipboard_text(text)) {
+            clipboard_write("ERR BAD_CLIPBOARD");
+            return;
+        }
+        clipboard_host_text_ = std::move(text);
+        clipboard_owned_ = true;
+        clipboard_pending_set_ = ++clipboard_generation_;
+        dbus::Message call;
+        const std::string path(clipboard_path);
+        dbus::check(sd_bus_message_new_method_call(main_bus_.get(), call.put(), destination(), path.c_str(),
+                                                   clipboard_interface.data(), "Grab"),
+                    "new Clipboard.Grab");
+        dbus::check(sd_bus_message_append(call.get(), "uu", 0U, ++clipboard_serial_), "append Clipboard.Grab");
+        std::fprintf(stderr, "QSM_DIRECT_CLIPBOARD host grab serial=%u bytes=%zu\n", clipboard_serial_,
+                     clipboard_host_text_.size());
+        dbus::check(sd_bus_message_append(call.get(), "as", 1, clipboard_text_mime), "append Clipboard.Grab mimes");
+        dbus::check(sd_bus_call_async(main_bus_.get(), nullptr, call.get(), &QemuDbusDisplay::clipboard_grab_reply,
+                                      this, 5U * 1000U * 1000U),
+                    "send Clipboard.Grab");
+        return;
+    }
+    clipboard_write("ERR UNKNOWN_COMMAND");
+}
+
+int QemuDbusDisplay::clipboard_register_reply(sd_bus_message *message, void *userdata, sd_bus_error *) noexcept {
+    auto *self = static_cast<QemuDbusDisplay *>(userdata);
+    const sd_bus_error *error = sd_bus_message_get_error(message);
+    if (error != nullptr) {
+        std::fprintf(stderr, "QSM_DIRECT_CLIPBOARD register failed: %s\n",
+                     error->message ? error->message : (error->name ? error->name : "unknown"));
+        self->clipboard_register_state_ = 2;
+    } else {
+        std::fprintf(stderr, "QSM_DIRECT_CLIPBOARD registered with QEMU\n");
+        self->clipboard_register_state_ = 1;
+    }
+    return 0;
+}
+
+void QemuDbusDisplay::clipboard_loop() noexcept {
+    try {
+        clipboard_write("READY QSF1");
+        std::string buffered;
+        while (!stopping_.load()) {
+            int bus_fd = -1;
+            short bus_events = POLLIN;
+            {
+                // main_bus_ has no other dispatcher: process what QEMU sent
+                // (also messages a concurrent synchronous call queued).
+                std::lock_guard lock(main_bus_mutex_);
+                if (!main_bus_) {
+                    break;
+                }
+                for (;;) {
+                    const int processed = sd_bus_process(main_bus_.get(), nullptr);
+                    if (processed < 0) {
+                        throw std::runtime_error("QEMU main bus processing failed");
+                    }
+                    if (processed == 0) {
+                        break;
+                    }
+                }
+                bus_fd = sd_bus_get_fd(main_bus_.get());
+                const int events = sd_bus_get_events(main_bus_.get());
+                if (events > 0) {
+                    bus_events = static_cast<short>(events);
+                }
+            }
+            // Wait without the lock: input and resize keep their latency.
+            std::array<pollfd, 2U> fds {{{bus_fd, bus_events, 0}, {clipboard_fd_.get(), POLLIN, 0}}};
+            if (::poll(fds.data(), fds.size(), 100) < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                throw std::system_error(errno, std::generic_category(), "poll clipboard");
+            }
+            if ((fds[1].revents & (POLLIN | POLLHUP | POLLERR)) == 0) {
+                continue;
+            }
+            std::array<char, 65536U> chunk {};
+            const ssize_t got = ::recv(clipboard_fd_.get(), chunk.data(), chunk.size(), 0);
+            if (got <= 0) {
+                break;  // the host side is gone; the display itself carries on
+            }
+            buffered.append(chunk.data(), static_cast<std::size_t>(got));
+            if (buffered.size() > clipboard_max_line) {
+                break;
+            }
+            std::size_t newline = 0U;
+            while ((newline = buffered.find('\n')) != std::string::npos) {
+                const std::string line = buffered.substr(0U, newline);
+                buffered.erase(0U, newline + 1U);
+                std::lock_guard lock(main_bus_mutex_);
+                if (main_bus_) {
+                    clipboard_command(line);
+                }
+            }
+        }
+    } catch (const std::exception& ex) {
+        // Clipboard sharing is optional: never take the console down for it.
+        std::fprintf(stderr, "QSM_DIRECT_CLIPBOARD stopped: %s\n", ex.what());
+    } catch (...) {
+    }
+    clipboard_fd_.reset();
 }
 
 }  // namespace qmdp

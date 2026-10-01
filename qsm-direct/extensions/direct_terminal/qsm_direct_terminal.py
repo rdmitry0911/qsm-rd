@@ -37,7 +37,7 @@ if str(PACKAGE_DIRECTORY) not in sys.path:
 
 from browser_bridge.qsm_browser_bridge import (BrowserWebRtcBridge, BridgeError,
                                                 SharedMediaIngress, UnixInputEgress)  # noqa: E402
-from direct_guest.qsm_guest_channel import QsmGuestChannel  # noqa: E402
+from direct_guest.qsm_guest_channel import GuestChannelError, QsmGuestChannel  # noqa: E402
 from direct_terminal.qsm_direct_encoder_probe import (DirectEncoderProbeError,
                                                        DirectEncoderSelection,
                                                        select_auto_h264_encoder,
@@ -494,6 +494,51 @@ def _lxc_generation(vmid: int) -> str | None:
     if result.returncode != 0 or not text.isdecimal() or int(text) <= 1:
         return None
     return _process_generation(int(text))
+
+
+def _container_clipboard_connector(init_pid: int, slot: int) -> Callable[[float], socket.socket]:
+    """Connect to the clipboard agent of a container console's session.
+
+    The agent (qsm-clipboard-agent, inside the logged-in user's session)
+    listens on /run/qsm-login/clip-N/agent.sock in the container.  As for the
+    control socket, every component is opened with O_NOFOLLOW below the
+    container's root and the socket is connected through its O_PATH fd.
+    """
+    def connect(timeout: float) -> socket.socket:
+        descriptors: list[int] = []
+        try:
+            current = os.open(f"/proc/{init_pid}/root", os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC)
+            descriptors.append(current)
+            for part in ("run", "qsm-login", f"clip-{slot}"):
+                current = os.open(part, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=current)
+                descriptors.append(current)
+            agent = os.open("agent.sock", os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=current)
+            descriptors.append(agent)
+            if not stat.S_ISSOCK(os.fstat(agent).st_mode):
+                raise OSError("the container clipboard agent socket is not a socket")
+            connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                connection.settimeout(timeout)
+                connection.connect(f"/proc/self/fd/{agent}")
+            except OSError:
+                connection.close()
+                raise
+            return connection
+        finally:
+            for descriptor in reversed(descriptors):
+                os.close(descriptor)
+    return connect
+
+
+def _one_shot_connector(connection: socket.socket) -> Callable[[float], socket.socket]:
+    """A guest-channel connector for an already connected stream (once)."""
+    remaining = [connection]
+
+    def connect(_timeout: float) -> socket.socket:
+        if not remaining:
+            raise OSError("the clipboard stream has ended")
+        return remaining.pop()
+    return connect
 
 
 def _container_slot_command(init_pid: int, slot: int, request: dict[str, str],
@@ -1225,6 +1270,7 @@ class DirectSessionManager:
             directory, self._loop, fps=fps, expected_producer_uid=os.geteuid())
         input_egress = UnixInputEgress(directory, expected_uid=os.geteuid())
         worker: subprocess.Popen[bytes] | None = None
+        clipboard_ours: socket.socket | None = None
         try:
             media.start()
             input_egress.start()
@@ -1248,7 +1294,14 @@ class DirectSessionManager:
             resolved = selection or self._select_encoder(codec, policy)
             encoder = resolved.encoder
             vaapi_device = resolved.vaapi_device
-            display_arguments = (["--dbus-fd", str(display_fd)] if display_fd is not None
+            # A display attached by qemu-server also carries QEMU's D-Bus
+            # clipboard (qemu-vdagent + spice-vdagent in the guest): the worker
+            # bridges it to this socketpair in the guest-agent protocol.
+            clipboard_theirs: socket.socket | None = None
+            if display_fd is not None:
+                clipboard_ours, clipboard_theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+            display_arguments = (["--dbus-fd", str(display_fd), "--clipboard-fd", str(clipboard_theirs.fileno())]
+                                 if display_fd is not None and clipboard_theirs is not None
                                  else ["--dbus-address", policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"]])
             arguments = [
                 "/usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker",
@@ -1278,15 +1331,26 @@ class DirectSessionManager:
             worker = subprocess.Popen(
                 arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=None,
                 env=self._child_environment(), close_fds=True, start_new_session=True,
-                pass_fds=(display_fd,) if display_fd is not None else (),
+                pass_fds=(display_fd, clipboard_theirs.fileno())
+                if display_fd is not None and clipboard_theirs is not None else (),
             )
+            if clipboard_theirs is not None:
+                clipboard_theirs.close()
             await asyncio.sleep(0.12)
             if worker.poll() is not None:
                 raise DirectTerminalError(
                     f"direct-terminal media worker failed to start (exit code {worker.returncode})")
-            guest = (QsmGuestChannel(self._vm_runtime_directory / str(vmid) / "qsm-agent.sock")
-                     if display_fd is None and config is not None and _managed_guest_channel_enabled(
-                         config, vmid, self._vm_runtime_directory) else None)
+            if clipboard_ours is not None:
+                guest = QsmGuestChannel(connector=_one_shot_connector(clipboard_ours))
+                clipboard_ours = None  # owned by the channel now
+                try:
+                    guest.connect_now()
+                except GuestChannelError:
+                    pass
+            else:
+                guest = (QsmGuestChannel(self._vm_runtime_directory / str(vmid) / "qsm-agent.sock")
+                         if config is not None and _managed_guest_channel_enabled(
+                             config, vmid, self._vm_runtime_directory) else None)
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
                 qemu_generation=generation, codec=codec, guest=guest,
@@ -1301,6 +1365,8 @@ class DirectSessionManager:
         except BaseException:
             if worker is not None:
                 self._terminate_worker(worker)
+            if clipboard_ours is not None:
+                clipboard_ours.close()
             media.close()
             input_egress.close()
             self._remove_directory(directory)
@@ -1381,9 +1447,11 @@ class DirectSessionManager:
                 raise DirectTerminalError(
                     "direct-terminal container display is not available "
                     f"(worker exit code {worker.returncode}; is the container session running?)")
+            guest = (QsmGuestChannel(connector=_container_clipboard_connector(init_pid, slot), keep_connected=True)
+                     if slot is not None else None)
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
-                qemu_generation=generation, codec=codec, guest=None, kind="lxc")
+                qemu_generation=generation, codec=codec, guest=guest, kind="lxc")
             self._transports[key] = transport
             print(
                 f"qsm-direct-terminal: container media transport started vmid={vmid} "
