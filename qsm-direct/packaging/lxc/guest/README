@@ -16,9 +16,10 @@ tty (qsm-consoles.service starts them at boot):
                              PAM/logind session on seat0
 
 The host's media worker captures a console's display and injects input.
-Each desktop session also runs qsm-clipboard-agent (Klipper <-> the browser
-console's clipboard, over /run/qsm-login/clip-N, reachable by that user only).
-There is no audio from the container yet.  A
+Each desktop session also runs qsm-clipboard-agent, reachable by that user
+only over /run/qsm-login/clip-N: Klipper <-> the browser console's clipboard,
+and a "QSM Console" sound card plus a "QSM Microphone" (pipewire-pulse pipe
+sink/source, the session's default devices) relayed to the console.  A
 container has no VT, so greetd/SDDM cannot run; an enabled SDDM is disabled.
 Only the current client of a display -- its login screen or its logged-in user
 -- may connect to it (a POSIX ACL on the display socket).  The default session

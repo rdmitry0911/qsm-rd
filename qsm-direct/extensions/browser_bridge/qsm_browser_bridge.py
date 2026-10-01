@@ -1109,7 +1109,8 @@ class BrowserWebRtcBridge:
                  shared_input: UnixInputEgress | None = None,
                  guest_dispatch: Callable[[Any], dict[str, Any]] | None = None,
                  on_terminal: Callable[[], None] | None = None,
-                 video_codec: str = "h264") -> None:
+                 video_codec: str = "h264",
+                 on_microphone: Callable[[object, bytes], None] | None = None) -> None:
         if video_codec not in VIDEO_CODECS:
             raise BridgeError("invalid direct browser video codec")
         if video_codec == "hevc":
@@ -1162,6 +1163,11 @@ class BrowserWebRtcBridge:
         self._control_channel_seen = False
         self._pointer_channel_seen = False
         self._pc.on("datachannel", self._on_datachannel)
+        # The browser's microphone: its audio m-line is sendrecv and it puts
+        # a track on it only while the user has the microphone switched on.
+        self._on_microphone = on_microphone
+        self._microphone_task: asyncio.Task[None] | None = None
+        self._pc.on("track", self._on_track)
 
         @self._pc.on("connectionstatechange")
         async def on_connectionstatechange() -> None:
@@ -1604,10 +1610,39 @@ class BrowserWebRtcBridge:
             raise BridgeError("cannot create browser WebRTC answer")
         return {"type": self._pc.localDescription.type, "sdp": self._pc.localDescription.sdp}
 
+    def _on_track(self, track: MediaStreamTrack) -> None:
+        if track.kind != "audio" or self._on_microphone is None or self._microphone_task is not None:
+            return
+        self._microphone_task = asyncio.ensure_future(self._pump_microphone(track))
+
+    async def _pump_microphone(self, track: MediaStreamTrack) -> None:
+        """Hand each decoded microphone frame on as 48 kHz stereo s16le."""
+        resampler: av.AudioResampler | None = None
+        while not self._closed:
+            try:
+                frame = await track.recv()
+            except (MediaStreamError, asyncio.CancelledError):
+                return
+            if (frame.format.name, frame.layout.name, frame.sample_rate) == ("s16", "stereo", 48000):
+                frames = [frame]
+            else:
+                if resampler is None:
+                    resampler = av.AudioResampler(format="s16", layout="stereo", rate=48000)
+                frames = resampler.resample(frame)
+            for converted in frames:
+                data = bytes(converted.planes[0])[:converted.samples * 4]
+                try:
+                    self._on_microphone(self, data)  # type: ignore[misc]
+                except Exception:
+                    # A gone worker or relay must not end the browser peer.
+                    pass
+
     async def close(self) -> None:
         if self._closed:
             return
         self._closed = True
+        if self._microphone_task is not None:
+            self._microphone_task.cancel()
         if self._owns_media:
             assert self.ingress is not None
             self.ingress.close()

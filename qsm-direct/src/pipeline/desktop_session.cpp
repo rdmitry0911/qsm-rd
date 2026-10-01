@@ -73,20 +73,7 @@ void DesktopSession::start() {
             .on_audio = [this](std::span<const float> samples,
                                std::uint32_t sample_rate,
                                std::uint16_t channels) {
-                const bool native = sample_rate == options_.audio_sample_rate &&
-                                    channels == options_.audio_channels;
-                if (!native && !convert_audio(samples, sample_rate, channels)) {
-                    ++rejected_audio_callbacks_;
-                    record_error("unsupported audio format");
-                    return;
-                }
-                try {
-                    audio_fifo_.push(native ? samples : std::span<const float>(converted_audio_));
-                    ++audio_callbacks_;
-                    audio_cv_.notify_one();
-                } catch (const std::exception& ex) {
-                    record_error(std::string("audio enqueue: ") + ex.what());
-                }
+                submit_audio(samples, sample_rate, channels);
             },
             .on_error = [this](std::string message) {
                 record_error(std::move(message));
@@ -207,6 +194,26 @@ void DesktopSession::encoder_loop() noexcept {
         } catch (...) {
             record_error("frame submission: unknown exception");
         }
+    }
+}
+
+void DesktopSession::submit_audio(std::span<const float> samples,
+                                  std::uint32_t sample_rate,
+                                  std::uint16_t channels) {
+    std::lock_guard lock(audio_input_mutex_);
+    const bool native = sample_rate == options_.audio_sample_rate &&
+                        channels == options_.audio_channels;
+    if (!native && !convert_audio(samples, sample_rate, channels)) {
+        ++rejected_audio_callbacks_;
+        record_error("unsupported audio format");
+        return;
+    }
+    try {
+        audio_fifo_.push(native ? samples : std::span<const float>(converted_audio_));
+        ++audio_callbacks_;
+        audio_cv_.notify_one();
+    } catch (const std::exception& ex) {
+        record_error(std::string("audio enqueue: ") + ex.what());
     }
 }
 

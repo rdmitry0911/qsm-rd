@@ -1,6 +1,9 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""QSM Direct container console: the clipboard agent of one desktop session.
+"""QSM Direct container console: the agent of one desktop session.
+
+Clipboard (agent.sock) and sound (audio.sock), both in the directory
+qsm-login created for this session.
 
 Started by qsm-session-launch inside the logged-in user's session.  It
 bridges the session clipboard -- through Klipper, Plasma's clipboard service,
@@ -14,13 +17,27 @@ the QSF guest-agent line protocol of the QSM desktop agent:
                   READY QSF1 (on connect), EVENT_CLIP <base64> (guest copied)
 
 Base64 is standard; "-" stands for empty text.  Text only, UTF-8, <= 1 MiB.
+
+Sound: the agent gives the session (PipeWire, through pipewire-pulse) a
+"QSM Console" sound card and a "QSM Microphone" as default devices, both
+FIFOs in the session directory.  audio.sock is a raw duplex stream of 48 kHz
+stereo s16le: the agent sends what the session plays and plays what it
+receives into the microphone.  A container has no sound hardware, so these
+are the session's only devices.
 """
 from __future__ import annotations
 
 import base64
 import binascii
+import fcntl
 import os
+import select
+import shutil
+import socket
+import subprocess
 import sys
+import threading
+import time
 
 from PyQt5.QtCore import QCoreApplication, QObject, QTimer, pyqtSlot
 from PyQt5.QtDBus import QDBusConnection, QDBusMessage
@@ -163,6 +180,162 @@ class Agent(QObject):
         self.send("EVENT_CLIP " + encode(text))
 
 
+F_SETPIPE_SZ = 1031
+PIPE_BYTES = 16384  # ~85 ms of 48 kHz stereo s16le: bounds the latency
+SINK = "qsm_console"
+SOURCE = "qsm_microphone"
+
+
+class Sound:
+    """The session's console sound card and microphone, relayed to the host."""
+
+    def __init__(self, directory: str) -> None:
+        self.directory = directory
+        self.sound_fifo = os.path.join(directory, "sound.fifo")
+        self.mic_fifo = os.path.join(directory, "mic.fifo")
+        self.client: socket.socket | None = None
+        self.lock = threading.Lock()
+        self.mic_fd = -1
+
+    @staticmethod
+    def pactl(*args: str) -> str:
+        result = subprocess.run(["pactl", *args], capture_output=True, text=True, timeout=10)
+        if result.returncode != 0:
+            raise RuntimeError(f"pactl {args[0]}: {result.stderr.strip()}")
+        return result.stdout
+
+    def setup_devices(self) -> bool:
+        if shutil.which("pactl") is None:
+            print("qsm-clipboard-agent: pactl is missing; no console sound", file=sys.stderr)
+            return False
+        # pipewire-pulse starts with the session (socket activated); wait for it.
+        for _ in range(60):
+            try:
+                self.pactl("info")
+                break
+            except (RuntimeError, OSError, subprocess.TimeoutExpired):
+                time.sleep(1)
+        else:
+            print("qsm-clipboard-agent: no PulseAudio/PipeWire server; no console sound", file=sys.stderr)
+            return False
+        # A previous session of this user may have left them loaded.
+        for line in self.pactl("list", "short", "modules").splitlines():
+            fields = line.split("\t")
+            if len(fields) > 2 and (f"sink_name={SINK}" in fields[2] or f"source_name={SOURCE}" in fields[2]):
+                try:
+                    self.pactl("unload-module", fields[0])
+                except RuntimeError:
+                    pass
+        common = ["format=s16le", "rate=48000", "channels=2"]
+        self.pactl("load-module", "module-pipe-sink", f"sink_name={SINK}", f"file={self.sound_fifo}",
+                   *common, "sink_properties=device.description=QSM-Console")
+        self.pactl("load-module", "module-pipe-source", f"source_name={SOURCE}", f"file={self.mic_fifo}",
+                   *common, "source_properties=device.description=QSM-Microphone")
+        self.pactl("set-default-sink", SINK)
+        self.pactl("set-default-source", SOURCE)
+        return True
+
+    def start(self) -> None:
+        threading.Thread(target=self.run, name="qsm-sound", daemon=True).start()
+
+    def run(self) -> None:
+        try:
+            if not self.setup_devices():
+                return
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as error:
+            print(f"qsm-clipboard-agent: console sound unavailable: {error}", file=sys.stderr)
+            return
+        threading.Thread(target=self.serve, name="qsm-sound-server", daemon=True).start()
+        self.pump_sound()
+
+    @staticmethod
+    def open_fifo(path: str, flags: int) -> int:
+        fd = os.open(path, flags | os.O_NONBLOCK | os.O_CLOEXEC)
+        try:
+            fcntl.fcntl(fd, F_SETPIPE_SZ, PIPE_BYTES)
+        except OSError:
+            pass
+        return fd
+
+    def pump_sound(self) -> None:
+        """Read what the session plays; forward it while the host listens."""
+        while not os.path.exists(self.sound_fifo):
+            time.sleep(0.2)
+        fd = self.open_fifo(self.sound_fifo, os.O_RDONLY)
+        while True:
+            ready, _, _ = select.select([fd], [], [], 1.0)
+            if not ready:
+                continue
+            try:
+                data = os.read(fd, 65536)
+            except BlockingIOError:
+                continue
+            if not data:
+                time.sleep(0.05)  # no writer at the moment
+                continue
+            with self.lock:
+                client = self.client
+            if client is not None:
+                try:
+                    client.send(data, socket.MSG_DONTWAIT | socket.MSG_NOSIGNAL)
+                except BlockingIOError:
+                    pass  # the host is behind: drop, keep latency low
+                except OSError:
+                    pass
+
+    def microphone(self, data: bytes) -> None:
+        if self.mic_fd < 0:
+            try:
+                self.mic_fd = self.open_fifo(self.mic_fifo, os.O_WRONLY)
+            except OSError:
+                return  # the microphone source is not reading (yet)
+        try:
+            os.write(self.mic_fd, data)
+        except BlockingIOError:
+            pass
+        except OSError:
+            os.close(self.mic_fd)
+            self.mic_fd = -1
+
+    def serve(self) -> None:
+        path = os.path.join(self.directory, "audio.sock")
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(path)
+        os.chmod(path, 0o600)
+        server.listen(1)
+        while True:
+            client, _ = server.accept()
+            debug("audio connection accepted")
+            with self.lock:
+                previous, self.client = self.client, client  # one host at a time
+            if previous is not None:
+                previous.close()
+            threading.Thread(target=self.receive, args=(client,), daemon=True).start()
+
+    def receive(self, client: socket.socket) -> None:
+        pending = b""
+        try:
+            while True:
+                data = client.recv(65536)
+                if not data:
+                    break
+                pending += data
+                whole = len(pending) - len(pending) % 4  # whole stereo frames
+                if whole:
+                    self.microphone(pending[:whole])
+                    pending = pending[whole:]
+        except OSError:
+            pass
+        with self.lock:
+            if self.client is client:
+                self.client = None
+        client.close()
+
+
 def main() -> int:
     path = os.environ.get("QSM_CLIPBOARD_SOCKET", "")
     if not path.startswith("/run/qsm-login/clip-"):
@@ -170,6 +343,7 @@ def main() -> int:
         return 2
     application = QCoreApplication(sys.argv)
     agent = Agent(path)  # referenced until the event loop returns
+    Sound(os.path.dirname(path)).start()
     status = application.exec_()
     del agent
     return status

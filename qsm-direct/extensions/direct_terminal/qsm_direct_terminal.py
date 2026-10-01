@@ -498,11 +498,13 @@ def _lxc_generation(vmid: int) -> str | None:
     return _process_generation(int(text))
 
 
-def _container_clipboard_connector(init_pid: int, slot: int) -> Callable[[float], socket.socket]:
-    """Connect to the clipboard agent of a container console's session.
+def _container_clipboard_connector(init_pid: int, slot: int,
+                                   name: str = "agent.sock") -> Callable[[float], socket.socket]:
+    """Connect to the session agent of a container console.
 
     The agent (qsm-clipboard-agent, inside the logged-in user's session)
-    listens on /run/qsm-login/clip-N/agent.sock in the container.  As for the
+    listens in /run/qsm-login/clip-N in the container: agent.sock for the
+    clipboard, audio.sock for desktop sound and microphone.  As for the
     control socket, every component is opened with O_NOFOLLOW below the
     container's root and the socket is connected through its O_PATH fd.
     """
@@ -514,7 +516,7 @@ def _container_clipboard_connector(init_pid: int, slot: int) -> Callable[[float]
             for part in ("run", "qsm-login", f"clip-{slot}"):
                 current = os.open(part, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=current)
                 descriptors.append(current)
-            agent = os.open("agent.sock", os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=current)
+            agent = os.open(name, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=current)
             descriptors.append(agent)
             if not stat.S_ISSOCK(os.fstat(agent).st_mode):
                 raise OSError("the container clipboard agent socket is not a socket")
@@ -530,6 +532,138 @@ def _container_clipboard_connector(init_pid: int, slot: int) -> Callable[[float]
             for descriptor in reversed(descriptors):
                 os.close(descriptor)
     return connect
+
+
+# The worker's PCM socket (--pcm-fd) carries records of one kind byte plus
+# 48 kHz stereo s16le PCM, 20 ms each.
+PCM_DESKTOP_SOUND = 1
+PCM_MICROPHONE = 2
+PCM_FRAME_BYTES = 960 * 4
+
+
+class PcmLink:
+    """The terminal's end of a worker's PCM socket.
+
+    Audio is latest-state: a full socket drops the record rather than
+    building latency or blocking the event loop.
+    """
+
+    def __init__(self, connection: socket.socket) -> None:
+        connection.setblocking(False)
+        self._connection: socket.socket | None = connection
+
+    def send(self, kind: int, pcm: bytes) -> None:
+        connection = self._connection
+        if connection is None or not pcm:
+            return
+        try:
+            connection.send(bytes((kind,)) + pcm)
+        except (BlockingIOError, InterruptedError):
+            pass
+        except OSError:
+            self.close()
+
+    def close(self) -> None:
+        connection, self._connection = self._connection, None
+        if connection is not None:
+            connection.close()
+
+
+class MicrophoneRoute:
+    """One microphone at a time for a console with several viewers.
+
+    The browser that spoke last keeps the guest's microphone; another one
+    takes over after half a second of its silence.
+    """
+
+    HANDOVER_SECONDS = 0.5
+
+    def __init__(self, deliver: Callable[[bytes], None]) -> None:
+        self._deliver = deliver
+        self._owner: object | None = None
+        self._last = 0.0
+        self._lock = threading.Lock()
+
+    def __call__(self, peer: object, pcm: bytes) -> None:
+        now = time.monotonic()
+        with self._lock:
+            if self._owner is not peer and now - self._last < self.HANDOVER_SECONDS:
+                return
+            self._owner = peer
+            self._last = now
+        self._deliver(pcm)
+
+
+class ContainerAudioRelay:
+    """Desktop sound and microphone of one container console's session.
+
+    The session agent's audio.sock is a raw duplex stream: it sends the
+    session's sound (48 kHz stereo s16le) and plays what it receives into the
+    session's microphone.  Sessions come and go with logins, so keep
+    reconnecting like the clipboard channel.
+    """
+
+    def __init__(self, connector: Callable[[float], socket.socket], pcm: PcmLink) -> None:
+        self._connector = connector
+        self._pcm = pcm
+        self._connection: socket.socket | None = None
+        self._lock = threading.Lock()
+        self._stopping = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="qsm-container-audio", daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stopping.is_set():
+            try:
+                connection = self._connector(2.0)
+            except OSError:
+                self._stopping.wait(2.0)
+                continue
+            connection.settimeout(0.5)
+            with self._lock:
+                self._connection = connection
+            pending = b""
+            try:
+                while not self._stopping.is_set():
+                    try:
+                        data = connection.recv(65536)
+                    except TimeoutError:
+                        continue
+                    if not data:
+                        break
+                    pending += data
+                    while len(pending) >= PCM_FRAME_BYTES:
+                        self._pcm.send(PCM_DESKTOP_SOUND, pending[:PCM_FRAME_BYTES])
+                        pending = pending[PCM_FRAME_BYTES:]
+            except OSError:
+                pass
+            finally:
+                with self._lock:
+                    self._connection = None
+                connection.close()
+
+    def microphone(self, pcm: bytes) -> None:
+        with self._lock:
+            connection = self._connection
+            if connection is None:
+                return
+            try:
+                connection.send(pcm, socket.MSG_DONTWAIT | socket.MSG_NOSIGNAL)
+            except (BlockingIOError, InterruptedError):
+                pass
+            except OSError:
+                pass
+
+    def close(self) -> None:
+        self._stopping.set()
+        with self._lock:
+            connection, self._connection = self._connection, None
+        if connection is not None:
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        self._thread.join(timeout=2)
 
 
 def _one_shot_connector(connection: socket.socket) -> Callable[[float], socket.socket]:
@@ -748,6 +882,9 @@ class DirectVmTransport:
     # Attached by qemu-server (vga: ...,dbus=1, webrtcproxy) over a passed
     # peer-to-peer connection rather than this package's args/bus profile.
     attached_by_pve: bool = False
+    pcm: PcmLink | None = None
+    microphone: MicrophoneRoute | None = None
+    audio_relay: ContainerAudioRelay | None = None
 
 
 class DirectSessionManager:
@@ -1141,6 +1278,7 @@ class DirectSessionManager:
             shared_media=transport.media, shared_input=transport.input,
             video_codec=transport.codec,
             guest_dispatch=transport.guest.dispatch if transport.guest is not None else None,
+            on_microphone=transport.microphone,
             on_terminal=retire_browser_peer)
         remove_guest_listener = (transport.guest.add_clipboard_listener(bridge.notify_guest_clipboard)
                                  if transport.guest is not None else None)
@@ -1273,6 +1411,7 @@ class DirectSessionManager:
         input_egress = UnixInputEgress(directory, expected_uid=os.geteuid())
         worker: subprocess.Popen[bytes] | None = None
         clipboard_ours: socket.socket | None = None
+        pcm_ours, pcm_theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         try:
             media.start()
             input_egress.start()
@@ -1311,6 +1450,7 @@ class DirectSessionManager:
                 "--video-socket", f"unix:{media.video_path}",
                 "--audio-socket", f"unix:{media.audio_path}",
                 "--input-socket", f"unix:{input_egress.path}",
+                "--pcm-fd", str(pcm_theirs.fileno()),
                 "--codec", codec,
                 "--encoder", encoder,
                 "--fps", str(fps),
@@ -1333,9 +1473,10 @@ class DirectSessionManager:
             worker = subprocess.Popen(
                 arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=None,
                 env=self._child_environment(), close_fds=True, start_new_session=True,
-                pass_fds=(display_fd, clipboard_theirs.fileno())
-                if display_fd is not None and clipboard_theirs is not None else (),
+                pass_fds=(display_fd, clipboard_theirs.fileno(), pcm_theirs.fileno())
+                if display_fd is not None and clipboard_theirs is not None else (pcm_theirs.fileno(),),
             )
+            pcm_theirs.close()
             if clipboard_theirs is not None:
                 clipboard_theirs.close()
             await asyncio.sleep(0.12)
@@ -1353,10 +1494,12 @@ class DirectSessionManager:
                 guest = (QsmGuestChannel(self._vm_runtime_directory / str(vmid) / "qsm-agent.sock")
                          if config is not None and _managed_guest_channel_enabled(
                              config, vmid, self._vm_runtime_directory) else None)
+            pcm = PcmLink(pcm_ours)
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
                 qemu_generation=generation, codec=codec, guest=guest,
-                attached_by_pve=display_fd is not None)
+                attached_by_pve=display_fd is not None, pcm=pcm,
+                microphone=MicrophoneRoute(lambda data: pcm.send(PCM_MICROPHONE, data)))
             self._transports[vmid] = transport
             print(
                 f"qsm-direct-terminal: VM media transport started vmid={vmid} codec={codec} encoder={encoder} pid={worker.pid}",
@@ -1369,6 +1512,8 @@ class DirectSessionManager:
                 self._terminate_worker(worker)
             if clipboard_ours is not None:
                 clipboard_ours.close()
+            pcm_ours.close()
+            pcm_theirs.close()
             media.close()
             input_egress.close()
             self._remove_directory(directory)
@@ -1413,6 +1558,7 @@ class DirectSessionManager:
             directory, self._loop, fps=fps, expected_producer_uid=os.geteuid())
         input_egress = UnixInputEgress(directory, expected_uid=os.geteuid())
         worker: subprocess.Popen[bytes] | None = None
+        pcm_ours, pcm_theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         try:
             media.start()
             input_egress.start()
@@ -1428,6 +1574,7 @@ class DirectSessionManager:
                 "--video-socket", f"unix:{media.video_path}",
                 "--audio-socket", f"unix:{media.audio_path}",
                 "--input-socket", f"unix:{input_egress.path}",
+                "--pcm-fd", str(pcm_theirs.fileno()),
                 "--codec", codec,
                 "--encoder", encoder,
                 "--fps", str(fps),
@@ -1443,7 +1590,9 @@ class DirectSessionManager:
             worker = subprocess.Popen(
                 arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=None,
                 env=self._child_environment(), close_fds=True, start_new_session=True,
+                pass_fds=(pcm_theirs.fileno(),),
             )
+            pcm_theirs.close()
             await asyncio.sleep(0.25)
             if worker.poll() is not None:
                 raise DirectTerminalError(
@@ -1451,9 +1600,14 @@ class DirectSessionManager:
                     f"(worker exit code {worker.returncode}; is the container session running?)")
             guest = (QsmGuestChannel(connector=_container_clipboard_connector(init_pid, slot), keep_connected=True)
                      if slot is not None else None)
+            pcm = PcmLink(pcm_ours)
+            relay = (ContainerAudioRelay(_container_clipboard_connector(init_pid, slot, "audio.sock"), pcm)
+                     if slot is not None else None)
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
-                qemu_generation=generation, codec=codec, guest=guest, kind="lxc")
+                qemu_generation=generation, codec=codec, guest=guest, kind="lxc", pcm=pcm,
+                audio_relay=relay,
+                microphone=MicrophoneRoute(relay.microphone) if relay is not None else None)
             self._transports[key] = transport
             print(
                 f"qsm-direct-terminal: container media transport started vmid={vmid} "
@@ -1466,6 +1620,8 @@ class DirectSessionManager:
         except BaseException:
             if worker is not None:
                 self._terminate_worker(worker)
+            pcm_ours.close()
+            pcm_theirs.close()
             media.close()
             input_egress.close()
             self._remove_directory(directory)
@@ -1521,6 +1677,10 @@ class DirectSessionManager:
         transport.input.close()
         if transport.guest is not None:
             transport.guest.close()
+        if transport.audio_relay is not None:
+            transport.audio_relay.close()
+        if transport.pcm is not None:
+            transport.pcm.close()
         self._remove_directory(transport.directory)
 
     async def _close_vmid_sessions(self, key: object) -> None:

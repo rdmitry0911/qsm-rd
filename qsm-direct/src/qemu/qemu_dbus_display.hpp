@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <span>
@@ -69,6 +70,11 @@ public:
     void absolute_pointer(std::uint32_t x, std::uint32_t y) override;
     void relative_pointer(std::int32_t dx, std::int32_t dy) override;
 
+    // Microphone: interleaved 48 kHz stereo PCM from the browser, served to
+    // the guest's record stream (org.qemu.Display1.AudioInListener).  Safe
+    // to call from any thread; without a registered listener it is dropped.
+    void push_microphone(std::span<const std::int16_t> stereo_48k);
+
     struct Stats {
         CpuFramebuffer::Stats framebuffer;
         std::uint64_t inline_scanouts {};
@@ -99,6 +105,10 @@ public:
         std::uint64_t audio_registration_failures {};
         bool audio_listener_registered {};
         bool audio_listener_active {};
+        bool microphone_listener_active {};
+        std::uint64_t microphone_reads {};
+        std::uint64_t microphone_frames_in {};
+        std::uint64_t microphone_frames_out {};
     };
 
     [[nodiscard]] Stats stats() const;
@@ -128,6 +138,16 @@ private:
                             void *userdata,
                             sd_bus_error *ret_error) noexcept;
     int handle_audio_message(sd_bus_message *message);
+    static int microphone_filter(sd_bus_message *message,
+                                 void *userdata,
+                                 sd_bus_error *ret_error) noexcept;
+    int handle_microphone_message(sd_bus_message *message);
+    void fill_microphone(AudioStreamState& stream, std::size_t frames,
+                         std::vector<std::uint8_t>& out);
+    void microphone_loop() noexcept;
+    void register_listener(const char *method, dbus::Bus& bus, UniqueFd& shutdown_fd,
+                           dbus::Slot& filter_slot, sd_bus_message_handler_t filter);
+    void register_microphone_listener();
     int handle_properties(sd_bus_message *message,
                           std::string_view object_interface,
                           std::span<const std::string_view> extra_interfaces);
@@ -203,6 +223,18 @@ private:
     UniqueFd audio_transport_shutdown_fd_;
     dbus::Slot audio_filter_slot_;
     std::thread audio_thread_;
+    dbus::Bus microphone_bus_;
+    UniqueFd microphone_transport_shutdown_fd_;
+    dbus::Slot microphone_filter_slot_;
+    std::thread microphone_thread_;
+    mutable std::mutex microphone_mutex_;
+    std::deque<std::int16_t> microphone_samples_;  // 48 kHz stereo, interleaved
+    std::unordered_map<std::uint64_t, AudioStreamState> microphone_streams_;
+    std::unordered_map<std::uint64_t, double> microphone_positions_;
+    bool microphone_listener_active_ {false};
+    std::uint64_t microphone_reads_ {};
+    std::uint64_t microphone_frames_in_ {};
+    std::uint64_t microphone_frames_out_ {};
     UniqueFd clipboard_fd_;
     dbus::Slot clipboard_filter_slot_;
     std::thread clipboard_thread_;

@@ -161,6 +161,10 @@ struct Options {
     std::string dbus_address;
     int dbus_fd = -1;
     int clipboard_fd = -1;
+    // Optional SOCK_SEQPACKET to the terminal carrying 48 kHz stereo s16le
+    // PCM records: kind 1 = desktop sound to encode (LXC console), kind 2 =
+    // the browser's microphone for the guest (VM console).
+    int pcm_fd = -1;
     // Alternative capture source: a headless wlroots compositor (sway) that
     // hosts an LXC container's desktop session. Exactly one source is given.
     // The compositor directory is resolved *inside* the container's root
@@ -207,7 +211,8 @@ struct Options {
         << "  --allow-unsupported-ui-info retain a fixed scanout when its adapter"
            " does not implement SetUIInfo\n"
         << "  --wlroots-display NAME      compositor socket name (default: lowest wayland-N)\n"
-        << "  --drop-privileges USER      switch to USER after all sockets are connected\n";
+        << "  --drop-privileges USER      switch to USER after all sockets are connected\n"
+        << "  --pcm-fd N                  inherited PCM socket: desktop sound in, microphone out\n";
     std::exit(status);
 }
 
@@ -258,6 +263,13 @@ Options parse_options(int argc, char **argv) {
         const std::string_view argument(argv[index]);
         if (argument == "--dbus-address") {
             options.dbus_address = next(index, argument);
+        } else if (argument == "--pcm-fd") {
+            const std::string value(next(index, argument));
+            if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos ||
+                value.size() > 6 || std::stoi(value) < 3) {
+                throw WorkerError("--pcm-fd requires an inherited descriptor number >= 3");
+            }
+            options.pcm_fd = std::stoi(value);
         } else if (argument == "--clipboard-fd") {
             // QSF guest-agent line stream to the terminal (with --dbus-fd):
             // bridges QEMU's D-Bus clipboard to the browser.
@@ -1549,6 +1561,9 @@ void write_session_diagnostic(std::string_view event,
               << " audio_frames=" << display.audio_frames
               << " audio_submissions=" << stats.audio_submissions
               << " audio_rejected=" << stats.rejected_audio_callbacks
+              << " microphone=" << (display.microphone_listener_active ? "active" : "none")
+              << " microphone_frames_in=" << display.microphone_frames_in
+              << " microphone_frames_out=" << display.microphone_frames_out
               << " recent_error=" << recent_error_summary(stats)
               << '\n' << std::flush;
 }
@@ -1687,15 +1702,93 @@ void write_wlroots_diagnostic(std::string_view event,
               << " cursor_records=" << egress.cursor_records
               << " video_records=" << egress.video_records
               << " video_send_failures=" << egress.video_send_failures
+              << " audio_submissions=" << stats.audio_submissions
               << " recent_error=" << recent_error_summary(stats)
               << '\n' << std::flush;
 }
 #endif
 
 using SessionDiagnostic = std::function<void(std::string_view, const qmdp::DesktopSession::Stats &)>;
+using MicrophoneSink = std::function<void(std::span<const std::int16_t>)>;
 
 int run_with_display(const Options &options, DirectMediaAdapter &media, qmdp::IQemuDisplay &display,
-                     const SessionDiagnostic &diagnostic);
+                     const SessionDiagnostic &diagnostic, const MicrophoneSink &microphone = {});
+
+constexpr std::uint8_t pcm_desktop_sound = 1U;
+constexpr std::uint8_t pcm_microphone = 2U;
+
+// Reads the terminal's PCM records until stopped: desktop sound goes to the
+// encoder, the microphone to the display (when it has a record stream).
+class PcmReceiver {
+public:
+    PcmReceiver(int fd, qmdp::DesktopSession &session, MicrophoneSink microphone)
+        : fd_(fd), session_(session), microphone_(std::move(microphone)) {}
+    ~PcmReceiver() { stop(); }
+    PcmReceiver(const PcmReceiver &) = delete;
+    PcmReceiver &operator=(const PcmReceiver &) = delete;
+
+    void start() {
+        if (fd_ >= 0) {
+            thread_ = std::thread([this] { loop(); });
+        }
+    }
+    void stop() noexcept {
+        stopping_ = true;
+        if (thread_.joinable()) {
+            thread_.join();
+        }
+        if (fd_ >= 0) {
+            ::close(fd_);
+            fd_ = -1;
+        }
+    }
+
+private:
+    void loop() noexcept {
+        std::vector<std::uint8_t> record(65536U);
+        std::vector<std::int16_t> pcm;
+        std::vector<float> samples;
+        while (!stopping_) {
+            pollfd entry {fd_, POLLIN, 0};
+            const int ready = ::poll(&entry, 1, 200);
+            if (ready < 0 && errno == EINTR) {
+                continue;
+            }
+            if (ready <= 0) {
+                if (ready < 0) { return; }
+                continue;
+            }
+            const ssize_t size = ::recv(fd_, record.data(), record.size(), 0);
+            if (size <= 0) {
+                return;  // the terminal closed it: the console goes on without
+            }
+            const std::size_t bytes = static_cast<std::size_t>(size) - 1U;
+            if (size < 5 || bytes % 4U != 0U) {
+                continue;
+            }
+            pcm.resize(bytes / 2U);
+            std::memcpy(pcm.data(), record.data() + 1, bytes);  // s16le, host order on x86/arm
+            try {
+                if (record[0] == pcm_desktop_sound) {
+                    samples.resize(pcm.size());
+                    for (std::size_t index = 0; index < pcm.size(); ++index) {
+                        samples[index] = static_cast<float>(pcm[index]) / 32768.0F;
+                    }
+                    session_.submit_audio(samples, 48000U, 2U);
+                } else if (record[0] == pcm_microphone && microphone_) {
+                    microphone_(pcm);
+                }
+            } catch (...) {
+            }
+        }
+    }
+
+    int fd_;
+    qmdp::DesktopSession &session_;
+    MicrophoneSink microphone_;
+    std::atomic<bool> stopping_ {false};
+    std::thread thread_;
+};
 
 int run(const Options &options) {
     PacketSink sink(options.video_socket, options.audio_socket);
@@ -1738,17 +1831,20 @@ int run(const Options &options) {
     return run_with_display(options, media, display,
         [&](std::string_view event, const qmdp::DesktopSession::Stats &stats) {
             write_session_diagnostic(event, stats, display.stats(), media.video_stats(), sink.stats());
-        });
+        },
+        [&](std::span<const std::int16_t> pcm) { display.push_microphone(pcm); });
 }
 
 int run_with_display(const Options &options, DirectMediaAdapter &media, qmdp::IQemuDisplay &display,
-                     const SessionDiagnostic &diagnostic) {
+                     const SessionDiagnostic &diagnostic, const MicrophoneSink &microphone) {
     qmdp::DesktopSession session(display, media, {.frame_wait = 20ms});
     session.start();
     InputReceiver input(options.input_socket, session, media, options.fps,
                         options.allow_unsupported_ui_info);
+    PcmReceiver pcm(options.pcm_fd, session, microphone);
     try {
         input.start();
+        pcm.start();
         if (options.initial_size) {
             input.set_initial_size(options.initial_size->width, options.initial_size->height);
         }
@@ -1772,9 +1868,11 @@ int run_with_display(const Options &options, DirectMediaAdapter &media, qmdp::IQ
             std::this_thread::sleep_for(100ms);
         }
         diagnostic(session.display_failed() ? "DISPLAY_ENDED" : "STOPPING", session.stats());
+        pcm.stop();
         input.stop();
         session.stop();
     } catch (...) {
+        pcm.stop();
         input.stop();
         session.stop();
         throw;

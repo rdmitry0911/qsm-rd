@@ -473,6 +473,10 @@ assert.deepEqual(
 // Audio: an explicit switch adds -display ...,audiodev= plus a dbus audiodev
 // and an Intel HDA codec; switching it off (or Display1 off) removes them.
 const managedAudioArguments =
+    ' -audiodev dbus,id=qsm-direct-audio,in.frequency=48000,in.channels=2,out.frequency=48000,out.channels=2' +
+    ' -device ich9-intel-hda,id=qsm-direct-hda' +
+    ' -device hda-micro,id=qsm-direct-hda-codec,bus=qsm-direct-hda.0,audiodev=qsm-direct-audio';
+const legacyAudioArguments =
     ' -audiodev dbus,id=qsm-direct-audio,out.frequency=48000,out.channels=2' +
     ' -device ich9-intel-hda,id=qsm-direct-hda' +
     ' -device hda-output,id=qsm-direct-hda-codec,bus=qsm-direct-hda.0,audiodev=qsm-direct-audio';
@@ -498,6 +502,20 @@ for (const profile of ['virgl', 'cpu']) {
     vmWindow.vmconfig.args = again.args;
     const off = displayOverlay.onGetValues.call(displayPanel, { type: 'std', qsm_direct_display1: 0 });
     assert.equal(off.args, '-cpu host', `${profile}: disabling Display1 removes the audio too`);
+}
+// git171 wrote an output-only sound card: still recognised, upgraded on save,
+// removed with the console.
+vmWindow.vmconfig.args = '-cpu host -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=off,audiodev=qsm-direct-audio' +
+    legacyAudioArguments;
+{
+    const values = { type: 'std', qsm_direct_display1: 1, qsm_direct_profile: 'cpu' };
+    const upgraded = displayOverlay.onGetValues.call(displayPanel, values);
+    assert.ok(upgraded.args.includes(managedAudioArguments.trim()), 'the legacy sound card is upgraded to hda-micro');
+    assert.doesNotMatch(upgraded.args, /hda-output/, 'no legacy codec is left behind');
+    vmWindow.vmconfig.args = '-cpu host -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=off,audiodev=qsm-direct-audio' +
+        legacyAudioArguments;
+    const removed = displayOverlay.onGetValues.call(displayPanel, { type: 'std', qsm_direct_display1: 0 });
+    assert.equal(removed.args, '-cpu host', 'disabling removes the legacy sound card too');
 }
 vmWindow.vmconfig.args = '-cpu host -audiodev dbus,id=qsm-direct-audio';
 assert.throws(() => displayOverlay.onGetValues.call(displayPanel, {

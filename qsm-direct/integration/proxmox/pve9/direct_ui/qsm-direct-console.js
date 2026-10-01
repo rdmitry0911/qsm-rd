@@ -146,7 +146,15 @@
         }
         return `-display dbus,addr=unix:path=${RUNTIME_PREFIX}/${vmid}/qemu-display1.bus,gl=on,rendernode=${rendernode}${audioSuffix(audio)}`;
     };
+    // hda-micro: speakers plus a microphone input, which the console feeds
+    // with the browser's microphone.
     const AUDIO_ARGUMENTS = [
+        `-audiodev dbus,id=${DIRECT_AUDIO_ID},in.frequency=48000,in.channels=2,out.frequency=48000,out.channels=2`,
+        '-device ich9-intel-hda,id=qsm-direct-hda',
+        `-device hda-micro,id=qsm-direct-hda-codec,bus=qsm-direct-hda.0,audiodev=${DIRECT_AUDIO_ID}`,
+    ];
+    // Output only, as written by 0.4.0+git171; recognised and upgraded on save.
+    const LEGACY_AUDIO_ARGUMENTS = [
         `-audiodev dbus,id=${DIRECT_AUDIO_ID},out.frequency=48000,out.channels=2`,
         '-device ich9-intel-hda,id=qsm-direct-hda',
         `-device hda-output,id=qsm-direct-hda-codec,bus=qsm-direct-hda.0,audiodev=${DIRECT_AUDIO_ID}`,
@@ -182,7 +190,8 @@
         }
         return managedGuestChannel(args, vmid) ? args : `${args} ${guestArguments(vmid).join(' ')}`.trim();
     };
-    const managedAudio = (args) => AUDIO_ARGUMENTS.every((value) => containsArgument(args, value));
+    const hasArguments = (args, list) => list.every((value) => containsArgument(args, value));
+    const managedAudio = (args) => hasArguments(args, AUDIO_ARGUMENTS) || hasArguments(args, LEGACY_AUDIO_ARGUMENTS);
     // The id may appear only in the managed arguments and as Display1's
     // audiodev; anything else using it belongs to an administrator.
     const foreignAudio = (args) => args.split(`,audiodev=${DIRECT_AUDIO_ID}`).join('').includes(DIRECT_AUDIO_ID);
@@ -190,9 +199,9 @@
         if (foreignAudio(args) && !managedAudio(args)) {
             throw new Error('unsafe QSM audio arguments');
         }
-        return managedAudio(args) ? args : `${args} ${AUDIO_ARGUMENTS.join(' ')}`.trim();
+        return hasArguments(args, AUDIO_ARGUMENTS) ? args : `${removeManagedAudio(args)} ${AUDIO_ARGUMENTS.join(' ')}`.trim();
     };
-    const removeManagedAudio = (args) => AUDIO_ARGUMENTS.reduce((current, value) => current.replace(
+    const removeManagedAudio = (args) => [...AUDIO_ARGUMENTS, ...LEGACY_AUDIO_ARGUMENTS].reduce((current, value) => current.replace(
         new RegExp(`(?:^|\\s)${escapeRegExp(value)}(?=\\s|$)`), '',
     ), args).trim().replace(/\s{2,}/g, ' ');
     const withAudio = (args, audio) => audio ? addManagedAudio(args) : removeManagedAudio(args);
@@ -368,7 +377,7 @@
         {
             xtype: 'proxmoxcheckbox', name: 'qsm_direct_audio', uncheckedValue: 0, value: 1,
             disabled: true, fieldLabel: gettext('Audio'),
-            boxLabel: gettext('Sound card (Intel HDA) played in the console'),
+            boxLabel: gettext('Sound card (Intel HDA) with speakers and microphone in the console'),
         },
         {
             xtype: 'displayfield', name: 'qsm_direct_effective_adapter',
@@ -376,7 +385,7 @@
             value: effectiveDisplayAdapter(false, DISPLAY_PROFILE.virgl, 'none'),
         },
         { xtype: 'displayfield', userCls: 'pmx-hint', value: gettext(
-            'VirGL owns a private VirtIO-GPU and saves PVE Graphic card as None, because VNC and GL Display1 are incompatible. CPU Display1 uses gl=off and keeps the selected Standard VGA or non-GL VirtIO adapter, so no render node or host GPU is needed. If an adapter does not implement Display1 resize, QSM keeps its fixed guest scanout connected instead of failing the console. Audio adds an Intel HDA sound card whose output plays in the console (unmute it with the speaker button). The optional QSM Desktop Agent serial channel provides clipboard integration. Restart the VM after changing this setting.'),
+            'VirGL owns a private VirtIO-GPU and saves PVE Graphic card as None, because VNC and GL Display1 are incompatible. CPU Display1 uses gl=off and keeps the selected Standard VGA or non-GL VirtIO adapter, so no render node or host GPU is needed. If an adapter does not implement Display1 resize, QSM keeps its fixed guest scanout connected instead of failing the console. Audio adds an Intel HDA sound card: its output plays in the console (unmute it with the speaker button) and the microphone button feeds the browser microphone to its input. The optional QSM Desktop Agent serial channel provides clipboard integration. Restart the VM after changing this setting.'),
         },
     ];
 
@@ -812,6 +821,51 @@
             // audio-autoplay policy without making video startup depend on it.
             video.play().catch(() => undefined);
         });
+        // Microphone: the audio m-line is negotiated sendrecv up front, so
+        // switching the microphone on or off only swaps the sender's track --
+        // no renegotiation.  The browser asks for permission on first use.
+        let micTransceiver = null;
+        let micStream = null;
+        const mic = document.createElement('button');
+        mic.type = 'button';
+        mic.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:16px;line-height:1;pointer-events:auto';
+        const setMicLabel = () => {
+            const label = micStream ? gettext('Turn Microphone Off') : gettext('Turn Microphone On');
+            mic.textContent = micStream ? '🎙️' : '🎤';
+            mic.style.opacity = micStream ? '1' : '0.55';
+            mic.setAttribute('aria-pressed', String(Boolean(micStream)));
+            mic.setAttribute('aria-label', label);
+            mic.title = label;
+        };
+        const stopMicrophone = () => {
+            if (micStream) { micStream.getTracks().forEach((track) => track.stop()); }
+            micStream = null;
+            if (micTransceiver) { micTransceiver.sender.replaceTrack(null).catch(() => undefined); }
+            setMicLabel();
+        };
+        setMicLabel();
+        mic.addEventListener('click', async () => {
+            if (micStream) { stopMicrophone(); return; }
+            if (!micTransceiver) { status.textContent = gettext('The console is not connected yet.'); return; }
+            const media = navigator.mediaDevices;
+            if (!media || !media.getUserMedia) {
+                status.textContent = gettext('This browser does not allow the microphone here (it needs HTTPS).');
+                return;
+            }
+            try {
+                const stream = await media.getUserMedia({
+                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+                });
+                if (closed) { stream.getTracks().forEach((track) => track.stop()); return; }
+                await micTransceiver.sender.replaceTrack(stream.getAudioTracks()[0] || null);
+                micStream = stream;
+                setMicLabel();
+            } catch (error) {
+                status.textContent = error && error.name === 'NotAllowedError'
+                    ? gettext('Microphone access was denied by the browser.')
+                    : gettext('No microphone is available.');
+            }
+        });
         // The embedded card console maximises within the page instead of going
         // to exclusive OS full screen: it fills the viewport below and right of
         // its current position, leaving the PVE navigation and header visible.
@@ -1096,7 +1150,7 @@
             mediaPolicyForm, saveMediaPolicy, keyboardPolicyTitle, keyboardPolicyForm,
             keyboardPolicyHint, keyboardUnavailableHint, gesturesTitle, gesturesHint,
             gesturesForm, resetGestures, settingsForm, settingsActions);
-        toolbar.append(status, copy, paste, audio, kbButton, fullscreen, diagButton, settingsButton);
+        toolbar.append(status, copy, paste, audio, mic, kbButton, fullscreen, diagButton, settingsButton);
         // On-screen diagnostics for the case a client shows no picture (mostly
         // phones/tablets/TVs where remote logs are unreachable). Hidden until a
         // few seconds pass with no decoded frame, then it prints the video and
@@ -1983,6 +2037,7 @@
             releaseHeldInput();
             closed = true;
             if (observer) { observer.disconnect(); }
+            stopMicrophone();
             if (peer) { peer.close(); }
             if (closeWatcher !== null) { window.clearInterval(closeWatcher); }
             if (pointerFrame !== null) { popup.cancelAnimationFrame(pointerFrame); }
@@ -2910,7 +2965,11 @@
                 });
             }
             peer.addTransceiver('video', { direction: 'recvonly' });
-            peer.addTransceiver('audio', { direction: 'recvonly' });
+            micTransceiver = peer.addTransceiver('audio', { direction: 'sendrecv' });
+            if (micStream) {
+                // A reconnect keeps a switched-on microphone.
+                micTransceiver.sender.replaceTrack(micStream.getAudioTracks()[0] || null).catch(() => undefined);
+            }
             const offer = await peer.createOffer();
             await peer.setLocalDescription(offer);
             await waitForIce(peer);

@@ -61,8 +61,9 @@ Open the **Console** of a VM and:
   no native client, no host X11 session.
 - **A sleeping guest is explained, not hidden.** When the guest blanks its
   screen or locks, the console says so and any mouse or key press wakes it.
-- **Sound and clipboard.** Guest audio plays in the console (Opus), and text
-  copies both ways between the browser and the guest desktop.
+- **Sound, microphone and clipboard.** Guest audio plays in the console
+  (Opus), the browser's microphone reaches the guest, and text copies both
+  ways between the browser and the guest desktop.
 - **Containers too.** An LXC container with a KDE Plasma desktop gets the same
   console, with its own login screen per console (see
   [LXC containers](#lxc-containers)).
@@ -205,8 +206,10 @@ VM, enable **QSM Display1** and pick a profile:
   resolution to follow the console window; Standard VGA and VMware keep their
   own mode and are scaled.
 
-**Audio** (on by default) adds an Intel HDA sound card whose output plays in
-the console; switch it off for a guest that should have no sound device.
+**Audio** (on by default) adds an Intel HDA sound card with speakers and a
+microphone input: its output plays in the console, and the console's
+microphone button feeds the browser's microphone to its input. Switch it off
+for a guest that should have no sound device.
 
 **Save, then stop and start the VM** — a reboot from inside the guest is not
 enough, QEMU must be relaunched with the new display. Then use the existing
@@ -251,9 +254,19 @@ mislabelled video (the reason is logged in the node journal).
 Intel HDA sound card on a QEMU D-Bus audio backend (48 kHz stereo); the worker
 receives its PCM through Display1, encodes Opus and sends it on the same
 WebRTC connection. Browsers start the console muted (autoplay policy): the
-speaker button in the toolbar turns the sound on. A VM saved before this
-setting existed stays silent until **Audio** is switched on, saved, and the VM
-is stopped and started.
+speaker button in the toolbar turns the sound on.
+
+**Microphone:** the console's audio is negotiated in both directions; the
+microphone button asks the browser for the microphone (with its echo
+cancellation and noise suppression) and only then sends it. The bridge decodes
+it to 48 kHz PCM, and the worker serves it to QEMU's record stream (the sound
+card's microphone input) from a small buffer. With several viewers, the one
+who spoke last has the microphone. Browsers allow the microphone only on
+HTTPS.
+
+A VM saved before these settings existed has no sound card, or one without
+a microphone input: switch **Audio** on (or save the Display settings once
+more), then stop and start the VM.
 
 ### Clipboard
 
@@ -300,8 +313,10 @@ pct exec <vmid> -- passwd qsm               # the desktop user it creates
 
 `enable` passes the GPU through, installs the matching NVIDIA userspace and
 the container package `qsm-console-guest`. The container's **Console** button
-then offers **QSM Direct**. Video, input, resizing and clipboard work as for a
-VM; there is no audio from a container yet. Details:
+then offers **QSM Direct**. Video, input, resizing, clipboard, sound and
+microphone work as for a VM: the session agent gives each desktop session a
+"QSM Console" sound card and a "QSM Microphone" (PipeWire, through
+pipewire-pulse) and relays both. Details:
 [packaging/debian/README.qsm-pve-direct](packaging/debian/README.qsm-pve-direct).
 
 ## Native Proxmox integration (proposed)

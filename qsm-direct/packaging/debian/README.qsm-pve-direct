@@ -45,10 +45,12 @@ and select one profile:
   `-display dbus,...,gl=off`. It needs neither a render node nor a host GPU;
   normal PVE VNC remains usable alongside QSM Direct.
 
-**Audio** (on by default for a new console) adds an Intel HDA sound card on a
-QEMU dbus audiodev (`-audiodev dbus,id=qsm-direct-audio,...`, named in
+**Audio** (on by default for a new console) adds an Intel HDA sound card with
+a microphone input (`hda-micro`) on a QEMU dbus audiodev
+(`-audiodev dbus,id=qsm-direct-audio,...`, 48 kHz stereo both ways, named in
 `-display ...,audiodev=qsm-direct-audio`).  The console starts muted, as
-browsers require; its speaker button turns the sound on.
+browsers require; its speaker button turns the sound on, its microphone
+button sends the browser's microphone to the guest's microphone input.
 
 Reopening the dialog restores the checkbox, profile, and (for VirGL only)
 render node from the saved arguments. The existing VM **Console** entry in the
@@ -122,9 +124,9 @@ To pin HEVC, pair a hardware encoder with `QSM_DIRECT_CODEC=hevc`, for example:
 For VA-API additionally set
 `QSM_DIRECT_VAAPI_RENDER_NODE=/dev/dri/renderD128`.
 
-The direct WebRTC console provides video, guest audio (with **Audio**
-enabled), keyboard, pointer, scrolling, dynamic Display1 resolution, and
-optional guest clipboard integration. For clipboard install the matching `qsm-desktop-agent` package
+The direct WebRTC console provides video, guest audio and microphone (with
+**Audio** enabled), keyboard, pointer, scrolling, dynamic Display1 resolution,
+and optional guest clipboard integration. For clipboard install the matching `qsm-desktop-agent` package
 inside the Linux VM, then run `sudo qsm-desktop-agent-setup USER` once for its
 logged-in desktop user. On Wayland, also enable `qsm-desktop-clipboard.service`
 in that user's session.
@@ -144,7 +146,6 @@ A container has no QEMU display.  QSM Direct runs the container's desktop
 session (KDE Plasma, Wayland or X11) inside a headless sway ("the display")
 in the container; the host media worker captures that display (wlr-screencopy)
 and injects input (virtual pointer/keyboard), using the host GPU encoder.
-There is no audio from a container yet.
 The worker resolves the display socket inside the container's root (symlinks
 cannot redirect it to a host socket) and drops to "nobody" once connected.
 
@@ -189,10 +190,14 @@ checks the password with PAM (service qsm-login) and starts the session
 through systemd with PAMName=qsm-direct-session, i.e. a real logind session
 on seat0 (polkit dialogs, user manager, limits work as after a normal
 desktop login; with several desktops only the newest is "active" to polkit).
-Log Out returns to the login screen.  The clipboard works without setup:
-every desktop session runs qsm-clipboard-agent, which bridges Klipper (the
-same on Wayland and X11) to the console over a socket in
-/run/qsm-login/clip-N that only the logged-in user can reach.  Only the current client of a console's
+Log Out returns to the login screen.  Clipboard, sound and microphone work
+without setup: every desktop session runs qsm-clipboard-agent, which bridges
+Klipper (the same on Wayland and X11) and gives the session a "QSM Console"
+sound card and a "QSM Microphone" as its default devices (pipewire-pulse
+pipe sink/source; a container has no sound hardware).  The host reaches both
+over sockets in /run/qsm-login/clip-N that only the logged-in user can reach;
+the media worker encodes the session's sound, and the browser's microphone
+plays into the session's microphone.  Only the current client of a console's
 display -- its login screen or its logged-in user -- may connect to it (an
 ACL on the display socket, like logind's uaccess).  The host asks a console's
 login manager for its state or a logout over a root-only socket in the

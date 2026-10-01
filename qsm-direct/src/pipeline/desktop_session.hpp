@@ -68,6 +68,12 @@ public:
 
     [[nodiscard]] Stats stats() const;
 
+    // Audio from a source other than the display (an LXC container's desktop
+    // session): converted and encoded like the display's own audio.
+    void submit_audio(std::span<const float> samples,
+                      std::uint32_t sample_rate,
+                      std::uint16_t channels);
+
 private:
     static std::size_t milliseconds_to_frames(
         std::uint32_t sample_rate,
@@ -96,7 +102,8 @@ private:
     std::atomic<std::uint64_t> audio_callbacks_ {};
     std::atomic<std::uint64_t> audio_submissions_ {};
     std::atomic<std::uint64_t> rejected_audio_callbacks_ {};
-    // Audio conversion state (audio callback thread only).
+    // Audio conversion state, serialised by audio_input_mutex_.
+    std::mutex audio_input_mutex_;
     std::vector<float> converted_audio_;
     std::vector<float> previous_audio_frame_;
     std::uint32_t converter_rate_ {};

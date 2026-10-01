@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Build qsm-console-guest: the container side of the QSM Direct LXC console
-# (displays, login manager, greeter, session launcher).  Architecture: all.
+# (displays, login manager, greeter, session launcher, session agent for
+# clipboard and sound).  Architecture: all.
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -49,8 +50,8 @@ Section: x11
 Priority: optional
 Architecture: all
 Maintainer: Dmitry R <rdmitry0911@gmail.com>
-Depends: sway, xwayland, python3, python3-pyqt5, qtwayland5, acl, x11-xserver-utils, systemd, libpam-systemd, plasma-workspace
-Recommends: kwin-wayland, plasma-workspace-wayland, kwin-x11
+Depends: sway, xwayland, python3, python3-pyqt5, qtwayland5, acl, x11-xserver-utils, systemd, libpam-systemd, plasma-workspace, pulseaudio-utils
+Recommends: kwin-wayland, plasma-workspace-wayland, kwin-x11, pipewire-pulse, wireplumber
 Description: QSM Direct graphical console inside an LXC container
  The container side of the QSM Direct LXC console for Proxmox VE: one headless
  display per tty with its own login screen, and each login a real logind

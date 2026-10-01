@@ -35,6 +35,14 @@ constexpr std::string_view audio_path = "/org/qemu/Display1/Audio";
 constexpr std::string_view audio_interface = "org.qemu.Display1.Audio";
 constexpr std::string_view audio_listener_path = "/org/qemu/Display1/AudioOutListener";
 constexpr std::string_view audio_listener_interface = "org.qemu.Display1.AudioOutListener";
+constexpr std::string_view microphone_listener_path = "/org/qemu/Display1/AudioInListener";
+constexpr std::string_view microphone_listener_interface = "org.qemu.Display1.AudioInListener";
+// The browser's microphone arrives as 48 kHz stereo; keep at most this much
+// queued (a slow reader must not build up latency) and trim to the target
+// when a read finds more than the high mark.
+constexpr std::size_t microphone_max_frames = 48000U / 4U;      // 250 ms
+constexpr std::size_t microphone_high_frames = 48000U * 12U / 100U;  // 120 ms
+constexpr std::size_t microphone_target_frames = 48000U * 6U / 100U; // 60 ms
 constexpr std::string_view properties_interface = "org.freedesktop.DBus.Properties";
 constexpr std::string_view introspect_interface = "org.freedesktop.DBus.Introspectable";
 constexpr std::string_view peer_interface = "org.freedesktop.DBus.Peer";
@@ -108,6 +116,54 @@ constexpr const char audio_introspection_xml[] = R"xml(
     <method name="Ping"/><method name="GetMachineId"><arg type="s" direction="out"/></method>
   </interface>
 </node>)xml";
+
+constexpr const char microphone_introspection_xml[] = R"xml(
+<node>
+  <interface name="org.qemu.Display1.AudioInListener">
+    <method name="Init"><arg type="t" direction="in"/><arg type="y" direction="in"/><arg type="b" direction="in"/><arg type="b" direction="in"/><arg type="u" direction="in"/><arg type="y" direction="in"/><arg type="u" direction="in"/><arg type="u" direction="in"/><arg type="b" direction="in"/></method>
+    <method name="Fini"><arg type="t" direction="in"/></method>
+    <method name="SetEnabled"><arg type="t" direction="in"/><arg type="b" direction="in"/></method>
+    <method name="SetVolume"><arg type="t" direction="in"/><arg type="b" direction="in"/><arg type="ay" direction="in"/></method>
+    <method name="Read"><arg type="t" direction="in"/><arg type="t" direction="in"/><arg type="ay" direction="out"/></method>
+    <property name="Interfaces" type="as" access="read"/>
+  </interface>
+  <interface name="org.freedesktop.DBus.Properties">
+    <method name="Get"><arg type="s" direction="in"/><arg type="s" direction="in"/><arg type="v" direction="out"/></method>
+    <method name="GetAll"><arg type="s" direction="in"/><arg type="a{sv}" direction="out"/></method>
+  </interface>
+  <interface name="org.freedesktop.DBus.Introspectable">
+    <method name="Introspect"><arg type="s" direction="out"/></method>
+  </interface>
+  <interface name="org.freedesktop.DBus.Peer">
+    <method name="Ping"/><method name="GetMachineId"><arg type="s" direction="out"/></method>
+  </interface>
+</node>)xml";
+
+// One sample in a QEMU PCM format (the reverse of integer/floating_pcm_to_float).
+void encode_pcm_sample(float value, std::uint8_t bits, bool is_signed, bool is_float,
+                       bool big_endian, std::uint8_t *out) {
+    value = std::clamp(value, -1.0F, 1.0F);
+    const std::size_t bytes = (static_cast<std::size_t>(bits) + 7U) / 8U;
+    std::uint64_t raw = 0U;
+    if (is_float && bits == 32U) {
+        float f = value;
+        std::uint32_t u = 0U;
+        std::memcpy(&u, &f, sizeof(u));
+        raw = u;
+    } else if (is_float && bits == 64U) {
+        double d = value;
+        std::memcpy(&raw, &d, sizeof(raw));
+    } else {
+        const double full = static_cast<double>((std::uint64_t{1} << (bits - 1U)) - 1U);
+        const auto scaled = static_cast<std::int64_t>(std::lround(static_cast<double>(value) * full));
+        raw = is_signed ? static_cast<std::uint64_t>(scaled)
+                        : static_cast<std::uint64_t>(scaled + static_cast<std::int64_t>(full) + 1);
+    }
+    for (std::size_t index = 0; index < bytes; ++index) {
+        const auto byte = static_cast<std::uint8_t>(raw >> (8U * index));
+        out[big_endian ? bytes - 1U - index : index] = byte;
+    }
+}
 
 UniqueFd duplicate_cloexec(int fd) {
     if (fd < 0) {
@@ -482,6 +538,19 @@ void QemuDbusDisplay::start(QemuDisplayCallbacks callbacks) {
         if (audio_bus_) {
             audio_thread_ = std::thread(&QemuDbusDisplay::audio_loop, this);
         }
+        if (options_.enable_audio && audio_bus_) {
+            // Optional like the output: a VM whose sound card has no input
+            // (or a QEMU without one) keeps a console without microphone.
+            try {
+                register_microphone_listener();
+                microphone_thread_ = std::thread(&QemuDbusDisplay::microphone_loop, this);
+            } catch (const std::exception& ex) {
+                std::fprintf(stderr, "QSM_DIRECT_MICROPHONE unavailable: %s\n", ex.what());
+                shutdown_listener_transport(microphone_transport_shutdown_fd_);
+                microphone_bus_.close();
+                microphone_filter_slot_.reset();
+            }
+        }
         if (options_.clipboard_fd) {
             // Optional: a failure leaves the console without clipboard only.
             // QEMU creates its proxy for our object inside Register and
@@ -524,6 +593,9 @@ void QemuDbusDisplay::start(QemuDisplayCallbacks callbacks) {
         shutdown_listener_transport(audio_transport_shutdown_fd_);
         audio_bus_.close();
         audio_filter_slot_.reset();
+        shutdown_listener_transport(microphone_transport_shutdown_fd_);
+        microphone_bus_.close();
+        microphone_filter_slot_.reset();
         shutdown_listener_transport(peer_transport_shutdown_fd_);
         if (peer_thread_.joinable()) {  // a required audio listener failed
             stopping_.store(true);
@@ -552,6 +624,9 @@ void QemuDbusDisplay::stop() noexcept {
     }
     if (audio_thread_.joinable()) {
         audio_thread_.join();
+    }
+    if (microphone_thread_.joinable()) {
+        microphone_thread_.join();
     }
     if (clipboard_thread_.joinable()) {
         clipboard_thread_.join();
@@ -582,6 +657,16 @@ void QemuDbusDisplay::stop() noexcept {
     {
         std::lock_guard stats_lock(stats_mutex_);
         audio_listener_active_ = false;
+        microphone_listener_active_ = false;
+    }
+    shutdown_listener_transport(microphone_transport_shutdown_fd_);
+    microphone_bus_.close();
+    microphone_filter_slot_.reset();
+    {
+        std::lock_guard microphone_lock(microphone_mutex_);
+        microphone_streams_.clear();
+        microphone_positions_.clear();
+        microphone_samples_.clear();
     }
     {
         std::lock_guard main_lock(main_bus_mutex_);
@@ -1219,7 +1304,8 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
 }
 
 
-void QemuDbusDisplay::register_audio_listener() {
+void QemuDbusDisplay::register_listener(const char *method, dbus::Bus& bus, UniqueFd& shutdown_fd,
+                                        dbus::Slot& filter_slot, sd_bus_message_handler_t filter) {
     int sockets[2] {-1, -1};
     if (::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sockets) < 0) {
         throw std::system_error(errno,
@@ -1229,49 +1315,57 @@ void QemuDbusDisplay::register_audio_listener() {
     UniqueFd client_fd(sockets[0]);
     UniqueFd qemu_fd(sockets[1]);
 
-    // QEMU authenticates the listener connection inside its RegisterOutListener
+    // QEMU authenticates the listener connection inside its Register*Listener
     // handler (g_dbus_connection_new_sync), blocking its main loop until the
     // handshake completes.  So our end must be open and answering while the
     // call is pending: start it first, send the call asynchronously and pump
     // both connections until the reply (a plain blocking call times out).
-    audio_transport_shutdown_fd_ = duplicate_cloexec(client_fd.get());
-    audio_bus_ = dbus::Bus::p2p_client_fd(std::move(client_fd));
-    dbus::check(sd_bus_add_filter(audio_bus_.get(),
-                                  audio_filter_slot_.put(),
-                                  &QemuDbusDisplay::audio_filter,
-                                  this),
+    shutdown_fd = duplicate_cloexec(client_fd.get());
+    bus = dbus::Bus::p2p_client_fd(std::move(client_fd));
+    dbus::check(sd_bus_add_filter(bus.get(), filter_slot.put(), filter, this),
                 "sd_bus_add_filter(QEMU audio listener)");
-    audio_bus_.start();
+    bus.start();
 
     dbus::Message call;
     dbus::check(sd_bus_message_new_method_call(main_bus_.get(), call.put(), destination(),
-                                               audio_path.data(), audio_interface.data(),
-                                               "RegisterOutListener"),
-                "new Audio.RegisterOutListener");
+                                               audio_path.data(), audio_interface.data(), method),
+                "new Audio listener registration");
     dbus::check(sd_bus_message_append(call.get(), "h", qemu_fd.get()),
-                "append Audio.RegisterOutListener");
+                "append Audio listener registration");
     audio_register_state_ = 0;
     audio_register_error_.clear();
     dbus::check(sd_bus_call_async(main_bus_.get(), nullptr, call.get(),
                                   &QemuDbusDisplay::audio_register_reply, this,
                                   10U * 1000U * 1000U),
-                "send Audio.RegisterOutListener");
+                "send Audio listener registration");
     qemu_fd.reset();  // the queued message holds its own duplicate
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(12);
     while (audio_register_state_ == 0 && std::chrono::steady_clock::now() < deadline) {
         if (!main_bus_.pump_once(std::chrono::milliseconds(5)) ||
-            !audio_bus_.pump_once(std::chrono::milliseconds(5))) {
-            throw std::runtime_error("QEMU connection closed during RegisterOutListener");
+            !bus.pump_once(std::chrono::milliseconds(5))) {
+            throw std::runtime_error(std::string("QEMU connection closed during ") + method);
         }
     }
     if (audio_register_state_ != 1) {
-        throw std::runtime_error("QEMU RegisterOutListener: " +
+        throw std::runtime_error(std::string("QEMU ") + method + ": " +
                                  (audio_register_error_.empty() ? std::string("no answer")
                                                                 : audio_register_error_));
     }
+}
+
+void QemuDbusDisplay::register_audio_listener() {
+    register_listener("RegisterOutListener", audio_bus_, audio_transport_shutdown_fd_,
+                      audio_filter_slot_, &QemuDbusDisplay::audio_filter);
     std::lock_guard lock(stats_mutex_);
     audio_listener_registered_ = true;
     audio_listener_active_ = true;
+}
+
+void QemuDbusDisplay::register_microphone_listener() {
+    register_listener("RegisterInListener", microphone_bus_, microphone_transport_shutdown_fd_,
+                      microphone_filter_slot_, &QemuDbusDisplay::microphone_filter);
+    std::lock_guard lock(stats_mutex_);
+    microphone_listener_active_ = true;
 }
 
 int QemuDbusDisplay::audio_register_reply(sd_bus_message *message, void *userdata, sd_bus_error *) noexcept {
@@ -1585,6 +1679,223 @@ void QemuDbusDisplay::audio_loop() noexcept {
     audio_listener_active_ = false;
 }
 
+void QemuDbusDisplay::microphone_loop() noexcept {
+    try {
+        const auto interval = std::chrono::duration_cast<std::chrono::microseconds>(
+            options_.pump_interval);
+        while (!stopping_.load()) {
+            if (!microphone_bus_.pump_once(interval)) {
+                break;  // QEMU dropped the record listener; the console goes on
+            }
+        }
+    } catch (const std::exception& ex) {
+        if (!stopping_.load()) {
+            std::fprintf(stderr, "QSM_DIRECT_MICROPHONE listener failed: %s\n", ex.what());
+        }
+    } catch (...) {
+    }
+    std::lock_guard lock(stats_mutex_);
+    microphone_listener_active_ = false;
+}
+
+void QemuDbusDisplay::push_microphone(std::span<const std::int16_t> stereo_48k) {
+    if (stereo_48k.size() % 2U != 0U) {
+        return;
+    }
+    {
+        std::lock_guard lock(microphone_mutex_);
+        microphone_samples_.insert(microphone_samples_.end(), stereo_48k.begin(), stereo_48k.end());
+        const std::size_t limit = microphone_max_frames * 2U;
+        if (microphone_samples_.size() > limit) {
+            microphone_samples_.erase(microphone_samples_.begin(),
+                                      microphone_samples_.begin() +
+                                          static_cast<std::ptrdiff_t>(microphone_samples_.size() - limit));
+        }
+    }
+    std::lock_guard lock(stats_mutex_);
+    microphone_frames_in_ += stereo_48k.size() / 2U;
+}
+
+// Called with microphone_mutex_ held.  Resamples (nearest frame) from the
+// 48 kHz stereo queue to the stream's rate and channel count and encodes it
+// in the stream's PCM format; missing input is silence, so the guest's
+// recording keeps its timing when the browser sends nothing.
+void QemuDbusDisplay::fill_microphone(AudioStreamState& stream, std::size_t frames,
+                                      std::vector<std::uint8_t>& out) {
+    out.assign(frames * stream.bytes_per_frame, 0U);
+    const std::size_t sample_bytes = (static_cast<std::size_t>(stream.bits) + 7U) / 8U;
+    const std::size_t available = microphone_samples_.size() / 2U;
+    if (available > microphone_high_frames) {
+        const std::size_t drop = (available - microphone_target_frames) * 2U;
+        microphone_samples_.erase(microphone_samples_.begin(),
+                                  microphone_samples_.begin() + static_cast<std::ptrdiff_t>(drop));
+    }
+    double& position = microphone_positions_[stream.id];
+    const double step = 48000.0 / static_cast<double>(stream.sample_rate);
+    const bool audible = stream.enabled && !stream.muted;
+    for (std::size_t frame = 0; frame < frames; ++frame) {
+        const auto source = static_cast<std::size_t>(position);
+        const bool have = source * 2U + 1U < microphone_samples_.size();
+        for (std::size_t channel = 0; channel < stream.channels; ++channel) {
+            float value = 0.0F;
+            if (have && audible) {
+                const std::int16_t left = microphone_samples_[source * 2U];
+                const std::int16_t right = microphone_samples_[source * 2U + 1U];
+                const std::int32_t picked = stream.channels == 1U ? (left + right) / 2
+                                                                  : (channel % 2U == 0U ? left : right);
+                value = static_cast<float>(picked) / 32768.0F;
+                const std::uint8_t volume = channel < stream.volume.size() ? stream.volume[channel] : 255U;
+                value *= static_cast<float>(volume) / 255.0F;
+            }
+            encode_pcm_sample(value, stream.bits, stream.is_signed, stream.is_float, stream.big_endian,
+                              out.data() + frame * stream.bytes_per_frame + channel * sample_bytes);
+        }
+        position += step;
+    }
+    const auto consumed = std::min(static_cast<std::size_t>(position), microphone_samples_.size() / 2U);
+    microphone_samples_.erase(microphone_samples_.begin(),
+                              microphone_samples_.begin() + static_cast<std::ptrdiff_t>(consumed * 2U));
+    position -= static_cast<double>(static_cast<std::size_t>(position));
+}
+
+int QemuDbusDisplay::microphone_filter(sd_bus_message *message,
+                                       void *userdata,
+                                       sd_bus_error *) noexcept {
+    auto *self = static_cast<QemuDbusDisplay *>(userdata);
+    try {
+        return self->handle_microphone_message(message);
+    } catch (const std::exception& ex) {
+        std::fprintf(stderr, "QSM_DIRECT_MICROPHONE %s\n", ex.what());
+        return sd_bus_reply_method_errorf(message, "org.qemu.Display1.Error.Failed", "%s", ex.what());
+    } catch (...) {
+        return sd_bus_reply_method_errorf(message, "org.qemu.Display1.Error.Failed", "%s",
+                                          "microphone listener failure");
+    }
+}
+
+int QemuDbusDisplay::handle_microphone_message(sd_bus_message *message) {
+    const char *path = sd_bus_message_get_path(message);
+    if (path == nullptr || std::string_view(path) != microphone_listener_path) {
+        return 0;
+    }
+    constexpr std::array<std::string_view, 0U> no_extensions {};
+    if (const int handled = handle_properties(message, microphone_listener_interface, no_extensions);
+        handled != 0) {
+        return handled;
+    }
+    if (const int handled = handle_introspection(message, microphone_introspection_xml); handled != 0) {
+        return handled;
+    }
+    if (const int handled = handle_peer_standard(message); handled != 0) {
+        return handled;
+    }
+    const char *interface = microphone_listener_interface.data();
+    if (sd_bus_message_is_method_call(message, interface, "Init")) {
+        AudioStreamState state;
+        int is_signed = 0;
+        int is_float = 0;
+        int big_endian = 0;
+        dbus::check(sd_bus_message_read(message, "tybbuyuub", &state.id, &state.bits, &is_signed,
+                                        &is_float, &state.sample_rate, &state.channels,
+                                        &state.bytes_per_frame, &state.bytes_per_second, &big_endian),
+                    "read AudioInListener.Init");
+        state.is_signed = is_signed != 0;
+        state.is_float = is_float != 0;
+        state.big_endian = big_endian != 0;
+        const std::uint32_t sample_bytes = (static_cast<std::uint32_t>(state.bits) + 7U) / 8U;
+        if (state.id == 0U || state.bits < 8U || state.sample_rate == 0U || state.channels == 0U ||
+            static_cast<std::uint64_t>(sample_bytes) * state.channels > state.bytes_per_frame ||
+            (state.is_float && state.bits != 32U && state.bits != 64U) ||
+            (!state.is_float && state.bits > 32U)) {
+            return sd_bus_reply_method_errorf(message, "org.qemu.Display1.Error.InvalidAudioFormat",
+                                              "%s", "unsupported record format");
+        }
+        state.volume.assign(state.channels, 255U);
+        {
+            std::lock_guard lock(microphone_mutex_);
+            microphone_positions_[state.id] = 0.0;
+            microphone_streams_.insert_or_assign(state.id, std::move(state));
+        }
+        return sd_bus_reply_method_return(message, "");
+    }
+    if (sd_bus_message_is_method_call(message, interface, "Fini")) {
+        std::uint64_t id = 0U;
+        dbus::check(sd_bus_message_read(message, "t", &id), "read AudioInListener.Fini");
+        {
+            std::lock_guard lock(microphone_mutex_);
+            microphone_streams_.erase(id);
+            microphone_positions_.erase(id);
+        }
+        return sd_bus_reply_method_return(message, "");
+    }
+    if (sd_bus_message_is_method_call(message, interface, "SetEnabled")) {
+        std::uint64_t id = 0U;
+        int enabled = 0;
+        dbus::check(sd_bus_message_read(message, "tb", &id, &enabled), "read AudioInListener.SetEnabled");
+        {
+            std::lock_guard lock(microphone_mutex_);
+            if (const auto stream = microphone_streams_.find(id); stream != microphone_streams_.end()) {
+                stream->second.enabled = enabled != 0;
+            }
+        }
+        return sd_bus_reply_method_return(message, "");
+    }
+    if (sd_bus_message_is_method_call(message, interface, "SetVolume")) {
+        std::uint64_t id = 0U;
+        int muted = 0;
+        dbus::check(sd_bus_message_read(message, "tb", &id, &muted), "read AudioInListener.SetVolume");
+        const void *volume = nullptr;
+        std::size_t volume_size = 0U;
+        dbus::check(sd_bus_message_read_array(message, 'y', &volume, &volume_size),
+                    "read AudioInListener.SetVolume values");
+        {
+            std::lock_guard lock(microphone_mutex_);
+            if (const auto stream = microphone_streams_.find(id); stream != microphone_streams_.end()) {
+                stream->second.muted = muted != 0;
+                const auto *bytes = static_cast<const std::uint8_t *>(volume);
+                stream->second.volume.assign(bytes, bytes + volume_size);
+            }
+        }
+        return sd_bus_reply_method_return(message, "");
+    }
+    if (sd_bus_message_is_method_call(message, interface, "Read")) {
+        // QEMU waits for this reply on its main loop: answer from the queue,
+        // never wait for the browser.
+        std::uint64_t id = 0U;
+        std::uint64_t size = 0U;
+        dbus::check(sd_bus_message_read(message, "tt", &id, &size), "read AudioInListener.Read");
+        std::vector<std::uint8_t> data;
+        std::size_t frames = 0U;
+        {
+            std::lock_guard lock(microphone_mutex_);
+            const auto stream = microphone_streams_.find(id);
+            if (stream == microphone_streams_.end()) {
+                return sd_bus_reply_method_errorf(message, "org.qemu.Display1.Error.UnknownAudioStream",
+                                                  "Unknown audio stream %llu",
+                                                  static_cast<unsigned long long>(id));
+            }
+            const std::uint64_t capped = std::min<std::uint64_t>(size, stream->second.bytes_per_second);
+            frames = static_cast<std::size_t>(capped / stream->second.bytes_per_frame);
+            fill_microphone(stream->second, frames, data);
+        }
+        {
+            std::lock_guard lock(stats_mutex_);
+            ++microphone_reads_;
+        }
+        dbus::Message reply;
+        dbus::check(sd_bus_message_new_method_return(message, reply.put()), "new AudioInListener.Read reply");
+        dbus::check(sd_bus_message_append_array(reply.get(), 'y', data.data(), data.size()),
+                    "append AudioInListener.Read data");
+        dbus::check(sd_bus_send(nullptr, reply.get(), nullptr), "send AudioInListener.Read reply");
+        {
+            std::lock_guard lock(stats_mutex_);
+            microphone_frames_out_ += frames;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 void QemuDbusDisplay::publish(FrameToken frame) {
     if (callbacks_.on_frame) {
         callbacks_.on_frame(std::move(frame));
@@ -1651,6 +1962,10 @@ QemuDbusDisplay::Stats QemuDbusDisplay::stats() const {
         .audio_registration_failures = audio_registration_failures_,
         .audio_listener_registered = audio_listener_registered_,
         .audio_listener_active = audio_listener_active_,
+        .microphone_listener_active = microphone_listener_active_,
+        .microphone_reads = microphone_reads_,
+        .microphone_frames_in = microphone_frames_in_,
+        .microphone_frames_out = microphone_frames_out_,
     };
 }
 
