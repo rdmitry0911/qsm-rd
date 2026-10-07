@@ -68,14 +68,33 @@ encoding to a file):
   it back with glReadPixels and encodes it with NVENC -- that works.
 
 So with a virtio-gl guest on NVIDIA, the Kyber console shows no picture
-today.  An EGL (or Vulkan/CUDA) import feeding NVENC would cover it; I
-am glad to help with that, the readback code is in my repository.
+today.
+
+A fix, tested [2]: a patch on top of v2 adds --dmabuf-readback to
+kyber-qemu-server (358 lines, mostly one new file, LGPL like
+dmabuf.c).  It still requests DMA-BUF scanouts, imports each buffer
+with EGL (GBM platform, surfaceless context, the modifier passed),
+reads it back with glReadPixels and feeds your existing software path,
+so any --encoder works -- h264_nvenc on NVIDIA.  A buffer is imported
+once and read only after QEMU reports damage.  Same setup, a terminal
+running 'top -d 0.1' for 20 s: 1226 frames encoded with h264_nvenc,
+0 dropped, the picture correct; about 24% of one CPU core (36% with
+libx264).  The --dmabuf path is unchanged; kycontroller could choose
+'--dmabuf-readback --encoder h264_nvenc' when the render node belongs
+to the nvidia driver.
+
+To be fair about the trade-off: the readback copies every changed frame
+into system memory, so on AMD and Intel your zero-copy VAAPI path is
+likely the more efficient one.  The best of both would be zero-copy
+where VAAPI can import and encode, and the EGL readback everywhere
+else -- the same split would serve the WebRTC console.
 
 Maintainers: would one shared base series like this work for you, and
 is there a preferred name and place for the option that enables the
 D-Bus display?
 
 [1] https://lore.proxmox.com/pve-devel/20260826074347.1256659-1-alexandre.derumier@groupe-cyllene.com/
+[2] https://github.com/rdmitry0911/qsm-rd/blob/main/qsm-direct/upstream/kyber-nvidia/0001-kyber-qemu-server-read-DMA-BUF-scanouts-back-through.patch
 
 Thanks,
 Dmitry

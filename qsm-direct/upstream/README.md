@@ -28,6 +28,11 @@ with `git send-email`, and every contributor signs a CLA first
 
        git send-email upstream/pve-devel-rfc-followup.eml
 
+   [`kyber-nvidia/`](kyber-nvidia/) holds the patch the follow-up offers
+   for his kyber-qemu-server: `--dmabuf-readback` (EGL import +
+   glReadPixels, any encoder) so a virtio-gl guest streams on NVIDIA,
+   where his VAAPI zero-copy path cannot; tested on an RTX 3080.
+
 4. **Patch series** -- prepared in [`patches/`](patches/), one directory per
    Proxmox repository, generated with `git format-patch -s` against current
    upstream master; `0000-cover-letter.patch` is each series' cover letter.

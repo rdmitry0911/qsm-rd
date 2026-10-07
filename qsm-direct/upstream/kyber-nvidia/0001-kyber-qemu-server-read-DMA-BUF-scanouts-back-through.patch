@@ -1,0 +1,539 @@
+From 073c21317d87f9e98993bd9067fa8fdf0229e922 Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Wed, 7 Oct 2026 15:03:40 +0300
+Subject: [PATCH pve-qemu-kyber] kyber-qemu-server: read DMA-BUF scanouts back
+ through EGL (NVIDIA)
+
+The zero-copy path maps the scanout into a VAAPI surface and encodes
+there.  NVIDIA has no such VAAPI: nvidia-vaapi-driver only decodes, and
+the RGB frames context fails on the first frame ("Failed to create
+surface: 14 (the requested RT Format is not supported)"), so a
+virtio-gl guest streams nothing.  The buffer is block-linear, so the
+mmap fallback cannot read it either.
+
+--dmabuf-readback still requests DMA-BUF scanouts, but imports each
+buffer with EGL (GBM platform, surfaceless context, the modifier
+passed), blits it into a linear framebuffer honouring y0_top and reads
+it with glReadPixels into a BGRA surface for the software path, which
+encodes with --encoder (h264_nvenc on NVIDIA).  A buffer is imported
+once (keyed by its inode, as QEMU sends fresh fds for the same buffer)
+and read only when QEMU reported damage.
+
+Tested on an RTX 3080 (driver 595.91, QEMU 11.0, virtio-vga-gl guest on
+a private per-VM bus, 1280x800, a terminal running top -d 0.1): 20 s,
+h264_nvenc, 1226 frames encoded, 0 dropped, 581 scanouts and 579
+updates from the guest, the picture correct (orientation, colours);
+about 24 % of one CPU core with h264_nvenc, 36 % with libx264.  The
+--dmabuf (VAAPI) path is unchanged.
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ debian/control       |   1 +
+ kyber-qemu-server.mk |   4 +-
+ src/eglread.c        | 309 +++++++++++++++++++++++++++++++++++++++++++
+ src/kqs.h            |  11 ++
+ src/main.c           |  21 ++-
+ src/sink.c           |  15 +++
+ 6 files changed, 358 insertions(+), 3 deletions(-)
+ create mode 100644 src/eglread.c
+
+diff --git a/debian/control b/debian/control
+index 8b9a762..6abd2f8 100644
+--- a/debian/control
++++ b/debian/control
+@@ -11,6 +11,7 @@ Build-Depends: debhelper-compat (= 13),
+                 libclang-dev,
+                 libdrm-dev,
+                 libevdev-dev,
++                libepoxy-dev,
+                 libgbm-dev,
+                 libinput-dev,
+                 liblcms2-dev,
+diff --git a/kyber-qemu-server.mk b/kyber-qemu-server.mk
+index 761bca0..a9cb580 100644
+--- a/kyber-qemu-server.mk
++++ b/kyber-qemu-server.mk
+@@ -10,7 +10,7 @@ comma := ,
+ TX_INC ?= kyber-desktop/rootfs-x86_64-linux-gnu/include
+ TX_LIB ?= kyber-desktop/rootfs-x86_64-linux-gnu/lib/x86_64-linux-gnu
+ 
+-PKGS := gio-2.0 gio-unix-2.0 glib-2.0 libavutil libavcodec libavfilter libswscale libdrm
++PKGS := gio-2.0 gio-unix-2.0 glib-2.0 libavutil libavcodec libavfilter libswscale libdrm epoxy gbm
+ 
+ # Empty to build without one: the package sets LD_LIBRARY_PATH in its wrapper
+ # and none of the other binaries carry an rpath either.
+@@ -22,7 +22,7 @@ CFLAGS  += -std=gnu11 -Wall -Wextra -Wno-unused-parameter \
+ LDFLAGS += -L$(TX_LIB) $(if $(TX_RPATH),-Wl$(comma)-rpath$(comma)$(TX_RPATH))
+ LDLIBS  += -ltxproto $(shell pkg-config --libs $(PKGS))
+ 
+-SRCS := src/main.c src/listener.c src/surface.c src/sink.c src/dmabuf.c src/audio.c
++SRCS := src/main.c src/listener.c src/surface.c src/sink.c src/dmabuf.c src/eglread.c src/audio.c
+ OBJS := $(SRCS:.c=.o)
+ BIN  := kyber-qemu-server
+ 
+diff --git a/src/eglread.c b/src/eglread.c
+new file mode 100644
+index 0000000..ffd8dde
+--- /dev/null
++++ b/src/eglread.c
+@@ -0,0 +1,309 @@
++/*
++ * DMA-BUF readback through EGL: QEMU scanout descriptors -> CPU surface.
++ *
++ * The zero-copy path maps the scanout into a VAAPI surface. That needs a
++ * VAAPI driver which imports RGB buffers and encodes, which NVIDIA does not
++ * have: nvidia-vaapi-driver only decodes (VAEntrypointVLD), and creating the
++ * RGB frames context fails with "the requested RT Format is not supported".
++ * The buffer itself is also block-linear (modifier 0x300000000e08014...), so
++ * mapping the fd and reading it as linear memory is not an option either.
++ *
++ * EGL imports such a buffer on every vendor, modifier included. One blit into
++ * a linear framebuffer and a glReadPixels later the pixels are in system
++ * memory as BGRA, top row first, and the ordinary software path takes over
++ * with whatever encoder was asked for - h264_nvenc on NVIDIA.
++ *
++ * SPDX-License-Identifier: LGPL-2.1-or-later
++ */
++
++#include <drm_fourcc.h>
++#include <epoxy/egl.h>
++#include <epoxy/gl.h>
++#include <errno.h>
++#include <fcntl.h>
++#include <gbm.h>
++#include <sys/stat.h>
++
++#include "kqs.h"
++
++struct KqsEgl {
++    int drm_fd;
++    struct gbm_device *gbm;
++    EGLDisplay display;
++    EGLContext context;
++
++    /* The imported scanout, re-imported only when the buffer changes. */
++    GLuint texture, src_fbo;
++    GLuint dst_texture, dst_fbo;
++    int dst_w, dst_h;
++    dev_t dev;
++    ino_t ino;
++    int width, height;
++    uint32_t fourcc, stride, offset;
++    uint64_t modifier;
++    bool imported;
++    bool have_pixels;
++};
++
++static bool egl_fail(GError **error, const char *what)
++{
++    g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "%s failed (EGL 0x%x)",
++                what, (unsigned)eglGetError());
++    return false;
++}
++
++static bool gl_fail(GError **error, const char *what)
++{
++    GLenum err = glGetError();
++    if (err == GL_NO_ERROR)
++        return true;
++    g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "%s failed (GL 0x%x)",
++                what, (unsigned)err);
++    return false;
++}
++
++void kqs_egl_free(KqsEgl *e)
++{
++    if (!e)
++        return;
++    if (e->display != EGL_NO_DISPLAY) {
++        eglMakeCurrent(e->display, EGL_NO_SURFACE, EGL_NO_SURFACE, e->context);
++        if (e->src_fbo) glDeleteFramebuffers(1, &e->src_fbo);
++        if (e->texture) glDeleteTextures(1, &e->texture);
++        if (e->dst_fbo) glDeleteFramebuffers(1, &e->dst_fbo);
++        if (e->dst_texture) glDeleteTextures(1, &e->dst_texture);
++        eglMakeCurrent(e->display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
++        if (e->context != EGL_NO_CONTEXT)
++            eglDestroyContext(e->display, e->context);
++        eglTerminate(e->display);
++    }
++    if (e->gbm)
++        gbm_device_destroy(e->gbm);
++    if (e->drm_fd >= 0)
++        close(e->drm_fd);
++    g_free(e);
++}
++
++KqsEgl *kqs_egl_new(const char *render_node, GError **error)
++{
++    KqsEgl *e = g_new0(KqsEgl, 1);
++    e->display = EGL_NO_DISPLAY;
++    e->context = EGL_NO_CONTEXT;
++
++    e->drm_fd = open(render_node, O_RDWR | O_CLOEXEC);
++    if (e->drm_fd < 0) {
++        g_set_error(error, G_IO_ERROR, g_io_error_from_errno(errno),
++                    "cannot open %s: %s", render_node, g_strerror(errno));
++        goto fail;
++    }
++    e->gbm = gbm_create_device(e->drm_fd);
++    if (!e->gbm) {
++        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
++                    "gbm_create_device(%s) failed", render_node);
++        goto fail;
++    }
++
++    /* GBM platform: no window system and no pbuffer, on Mesa and NVIDIA alike. */
++    e->display = eglGetPlatformDisplayEXT(EGL_PLATFORM_GBM_KHR, e->gbm, NULL);
++    if (e->display == EGL_NO_DISPLAY) {
++        egl_fail(error, "eglGetPlatformDisplay(GBM)");
++        goto fail;
++    }
++    EGLint major, minor;
++    if (!eglInitialize(e->display, &major, &minor)) {
++        e->display = EGL_NO_DISPLAY;
++        egl_fail(error, "eglInitialize");
++        goto fail;
++    }
++    if (!epoxy_has_egl_extension(e->display, "EGL_EXT_image_dma_buf_import") ||
++        !epoxy_has_egl_extension(e->display, "EGL_KHR_surfaceless_context")) {
++        g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
++                    "EGL on %s lacks DMA-BUF import or surfaceless contexts",
++                    render_node);
++        goto fail;
++    }
++    if (!eglBindAPI(EGL_OPENGL_API)) {
++        egl_fail(error, "eglBindAPI(OpenGL)");
++        goto fail;
++    }
++    static const EGLint config_attribs[] = {
++        EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT, EGL_NONE,
++    };
++    EGLConfig config;
++    EGLint count = 0;
++    if (!eglChooseConfig(e->display, config_attribs, &config, 1, &count) || !count) {
++        egl_fail(error, "eglChooseConfig");
++        goto fail;
++    }
++    e->context = eglCreateContext(e->display, config, EGL_NO_CONTEXT, NULL);
++    if (e->context == EGL_NO_CONTEXT) {
++        egl_fail(error, "eglCreateContext");
++        goto fail;
++    }
++    if (!eglMakeCurrent(e->display, EGL_NO_SURFACE, EGL_NO_SURFACE, e->context)) {
++        egl_fail(error, "eglMakeCurrent");
++        goto fail;
++    }
++    g_message("EGL readback via %s: %s", render_node,
++              (const char *)glGetString(GL_RENDERER));
++    return e;
++
++fail:
++    kqs_egl_free(e);
++    return NULL;
++}
++
++/* Import the scanout as a texture behind a framebuffer, once per buffer. */
++static bool egl_import(KqsEgl *e, const KqsDmabuf *d, const struct stat *st,
++                       GError **error)
++{
++    if (e->src_fbo) { glDeleteFramebuffers(1, &e->src_fbo); e->src_fbo = 0; }
++    if (e->texture) { glDeleteTextures(1, &e->texture); e->texture = 0; }
++    e->imported = false;
++
++    EGLint attribs[32];
++    int n = 0;
++    attribs[n++] = EGL_WIDTH;                     attribs[n++] = d->backing_width;
++    attribs[n++] = EGL_HEIGHT;                    attribs[n++] = d->backing_height;
++    attribs[n++] = EGL_LINUX_DRM_FOURCC_EXT;      attribs[n++] = (EGLint)d->fourcc;
++    attribs[n++] = EGL_DMA_BUF_PLANE0_FD_EXT;     attribs[n++] = d->fds[0];
++    attribs[n++] = EGL_DMA_BUF_PLANE0_OFFSET_EXT; attribs[n++] = (EGLint)d->offsets[0];
++    attribs[n++] = EGL_DMA_BUF_PLANE0_PITCH_EXT;  attribs[n++] = (EGLint)d->strides[0];
++    /* Zero is QEMU's "no explicit modifier"; anything else must be passed. */
++    if (d->modifier != 0 && d->modifier != DRM_FORMAT_MOD_INVALID) {
++        attribs[n++] = EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT;
++        attribs[n++] = (EGLint)(d->modifier & 0xffffffffu);
++        attribs[n++] = EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT;
++        attribs[n++] = (EGLint)(d->modifier >> 32);
++    }
++    attribs[n++] = EGL_NONE;
++
++    EGLImageKHR image = eglCreateImageKHR(e->display, EGL_NO_CONTEXT,
++                                          EGL_LINUX_DMA_BUF_EXT, NULL, attribs);
++    if (image == EGL_NO_IMAGE_KHR)
++        return egl_fail(error, "eglCreateImageKHR(DMA-BUF)");
++
++    glGenTextures(1, &e->texture);
++    glBindTexture(GL_TEXTURE_2D, e->texture);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, (GLeglImageOES)image);
++    /* The texture keeps the buffer alive; the image is no longer needed. */
++    eglDestroyImageKHR(e->display, image);
++    if (!gl_fail(error, "glEGLImageTargetTexture2DOES"))
++        return false;
++
++    glGenFramebuffers(1, &e->src_fbo);
++    glBindFramebuffer(GL_FRAMEBUFFER, e->src_fbo);
++    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
++                           GL_TEXTURE_2D, e->texture, 0);
++    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
++        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
++                    "scanout framebuffer incomplete");
++        return false;
++    }
++
++    /* A linear destination of the same size, for the blit and the read. */
++    if (e->dst_w != d->backing_width || e->dst_h != d->backing_height) {
++        if (e->dst_fbo) glDeleteFramebuffers(1, &e->dst_fbo);
++        if (e->dst_texture) glDeleteTextures(1, &e->dst_texture);
++        glGenTextures(1, &e->dst_texture);
++        glBindTexture(GL_TEXTURE_2D, e->dst_texture);
++        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, d->backing_width,
++                     d->backing_height, 0, GL_BGRA, GL_UNSIGNED_BYTE, NULL);
++        glGenFramebuffers(1, &e->dst_fbo);
++        glBindFramebuffer(GL_FRAMEBUFFER, e->dst_fbo);
++        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
++                               GL_TEXTURE_2D, e->dst_texture, 0);
++        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
++            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
++                        "readback framebuffer incomplete");
++            return false;
++        }
++        e->dst_w = d->backing_width;
++        e->dst_h = d->backing_height;
++    }
++    if (!gl_fail(error, "configure the readback framebuffers"))
++        return false;
++
++    e->dev = st->st_dev;
++    e->ino = st->st_ino;
++    e->width = d->backing_width;
++    e->height = d->backing_height;
++    e->fourcc = d->fourcc;
++    e->stride = d->strides[0];
++    e->offset = d->offsets[0];
++    e->modifier = d->modifier;
++    e->imported = true;
++    e->have_pixels = false;
++    return true;
++}
++
++bool kqs_egl_read(KqsEgl *e, const KqsDmabuf *d, KqsSurface *out,
++                  GError **error)
++{
++    if (d->num_planes != 1 || d->fds[0] < 0) {
++        g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
++                    "EGL readback takes single-plane scanouts (got %d planes)",
++                    d->num_planes);
++        return false;
++    }
++    if (!eglMakeCurrent(e->display, EGL_NO_SURFACE, EGL_NO_SURFACE, e->context))
++        return egl_fail(error, "eglMakeCurrent");
++
++    /*
++     * QEMU sends fresh fds with every ScanoutDMABUF2, often for the same
++     * buffer. The inode identifies the buffer itself, so the import (the
++     * expensive part) happens only when the guest really switched buffers.
++     */
++    struct stat st;
++    if (fstat(d->fds[0], &st) < 0) {
++        g_set_error(error, G_IO_ERROR, g_io_error_from_errno(errno),
++                    "fstat of the scanout dmabuf failed: %s", g_strerror(errno));
++        return false;
++    }
++    if (!e->imported || e->dev != st.st_dev || e->ino != st.st_ino ||
++        e->width != d->backing_width || e->height != d->backing_height ||
++        e->fourcc != d->fourcc || e->stride != d->strides[0] ||
++        e->offset != d->offsets[0] || e->modifier != d->modifier) {
++        if (!egl_import(e, d, &st, error))
++            return false;
++    }
++
++    /* Damage carries no pixels: without it, the last read is still current. */
++    if (e->have_pixels && !d->dirty && out->data &&
++        out->generation == d->generation)
++        return true;
++
++    const int w = d->backing_width, h = d->backing_height;
++    if (!out->data || out->width != w || out->height != h) {
++        g_free(out->data);
++        out->data = g_malloc((gsize)w * h * 4);
++        out->width = w;
++        out->height = h;
++        out->stride = w * 4;
++        out->bpp = 4;
++    }
++    out->pix_fmt = AV_PIX_FMT_BGRA;   /* the alpha of a scanout carries nothing */
++    out->generation = d->generation;
++
++    /*
++     * glReadPixels returns the bottom row first. A y0_top scanout is flipped
++     * by the blit so that row zero of the result is the top of the picture;
++     * a bottom-up one (VirGL's usual case) is already in that order.
++     */
++    glBindFramebuffer(GL_READ_FRAMEBUFFER, e->src_fbo);
++    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, e->dst_fbo);
++    const GLint y0 = d->y0_top ? h : 0, y1 = d->y0_top ? 0 : h;
++    glBlitFramebuffer(0, y0, w, y1, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
++    glBindFramebuffer(GL_READ_FRAMEBUFFER, e->dst_fbo);
++    glReadBuffer(GL_COLOR_ATTACHMENT0);
++    glPixelStorei(GL_PACK_ALIGNMENT, 4);
++    glReadPixels(0, 0, w, h, GL_BGRA, GL_UNSIGNED_BYTE, out->data);
++    if (!gl_fail(error, "glReadPixels"))
++        return false;
++
++    out->dirty = true;
++    e->have_pixels = true;
++    return true;
++}
+diff --git a/src/kqs.h b/src/kqs.h
+index df945fc..ac21dca 100644
+--- a/src/kqs.h
++++ b/src/kqs.h
+@@ -133,6 +133,16 @@ AVFrame *kqs_dmabuf_to_vaapi(KqsHwCtx *h, const KqsDmabuf *d,
+  * encoder's public src_frames FIFO. Built lazily on the first frame, because
+  * geometry and pixel format are only known once QEMU has sent a Scanout.
+  */
++/*
++ * DMA-BUF readback through EGL, for GPUs whose VAAPI cannot import or encode
++ * an RGB scanout (NVIDIA). Fills a CPU surface for the software path.
++ */
++typedef struct KqsEgl KqsEgl;
++KqsEgl *kqs_egl_new(const char *render_node, GError **error);
++void kqs_egl_free(KqsEgl *e);
++bool kqs_egl_read(KqsEgl *e, const KqsDmabuf *d, KqsSurface *out,
++                  GError **error);
++
+ typedef struct KqsSink KqsSink;
+ 
+ typedef struct KqsSinkConfig {
+@@ -155,6 +165,7 @@ typedef struct KqsSinkConfig {
+      */
+     int out_w, out_h;
+     KqsHwCtx *hw;            /* non-NULL selects the zero-copy path */
++    KqsEgl *egl;             /* non-NULL: read dmabufs back, software path */
+ } KqsSinkConfig;
+ 
+ KqsSink *kqs_sink_new(const KqsSinkConfig *cfg);
+diff --git a/src/main.c b/src/main.c
+index 1dea654..31fea78 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -26,6 +26,7 @@ static int   opt_bitrate   = 8000;
+ static int   opt_width     = 1280;
+ static int   opt_height    = 800;
+ static gboolean opt_dmabuf = FALSE;
++static gboolean opt_dmabuf_readback = FALSE;
+ static char *opt_render_node = NULL;
+ static char *opt_kymux     = NULL;
+ static char *opt_kymux_audio = NULL;
+@@ -59,6 +60,9 @@ static const GOptionEntry entries[] = {
+     { "dmabuf", 'D', 0, G_OPTION_ARG_NONE, &opt_dmabuf,
+       "request DMA-BUF scanouts and encode on the GPU (needs QEMU "
+       "-display dbus,gl=on with a GL device)", NULL },
++    { "dmabuf-readback", 0, 0, G_OPTION_ARG_NONE, &opt_dmabuf_readback,
++      "request DMA-BUF scanouts, read them back through EGL and encode with "
++      "--encoder (GPUs without a VAAPI encoder, e.g. NVIDIA: h264_nvenc)", NULL },
+     { "width", 0, 0, G_OPTION_ARG_INT, &opt_width,
+       "encoder width, 0 to follow the guest (default: 1280)", "PX" },
+     { "height", 0, 0, G_OPTION_ARG_INT, &opt_height,
+@@ -90,6 +94,10 @@ int main(int argc, char **argv)
+     if (!opt_bus_name) opt_bus_name = g_strdup("org.qemu");
+     if (!opt_out)      opt_out      = g_strdup("kqs.mkv");
+     if (!opt_render_node) opt_render_node = g_strdup("/dev/dri/renderD128");
++    if (opt_dmabuf && opt_dmabuf_readback) {
++        g_printerr("--dmabuf and --dmabuf-readback exclude each other\n");
++        return 1;
++    }
+     if (!opt_encoder)
+         opt_encoder = g_strdup(opt_dmabuf ? "h264_vaapi" : "libx264");
+ 
+@@ -151,6 +159,14 @@ int main(int argc, char **argv)
+         }
+         g_message("zero-copy path via %s", opt_render_node);
+     }
++    KqsEgl *egl = NULL;
++    if (opt_dmabuf_readback) {
++        egl = kqs_egl_new(opt_render_node, &error);
++        if (!egl) {
++            g_printerr("%s\n", error->message);
++            return 1;
++        }
++    }
+ 
+     KqsSinkConfig scfg = {
+         .encoder      = opt_encoder,
+@@ -162,13 +178,15 @@ int main(int argc, char **argv)
+         .out_w        = opt_width,
+         .out_h        = opt_height,
+         .hw           = hw,
++        .egl          = egl,
+     };
+ 
+     KqsSink *sink = kqs_sink_new(&scfg);
+     g_autoptr(GMainLoop) loop = g_main_loop_new(NULL, FALSE);
+ 
+     KqsListener *listener = kqs_listener_new(bus, opt_bus_name, opt_console,
+-                                             sink, opt_fps, opt_dmabuf, loop,
++                                             sink, opt_fps,
++                                             opt_dmabuf || opt_dmabuf_readback, loop,
+                                              &error);
+     if (!listener) {
+         g_printerr("%s\n", error->message);
+@@ -189,5 +207,6 @@ int main(int argc, char **argv)
+     kqs_listener_free(listener);
+     kqs_sink_free(sink);
+     kqs_hw_free(hw);
++    kqs_egl_free(egl);
+     return 0;
+ }
+diff --git a/src/sink.c b/src/sink.c
+index 12d0244..c749610 100644
+--- a/src/sink.c
++++ b/src/sink.c
+@@ -33,6 +33,8 @@ struct KqsSink {
+     char *out_format;
+     char *kymux_uri;
+     KqsHwCtx *hw;              /* borrowed; non-NULL means zero-copy */
++    KqsEgl *egl;               /* borrowed; non-NULL means EGL readback */
++    KqsSurface readback;       /* the last dmabuf read back through EGL */
+ 
+     TXMainContext *tx;
+     AVBufferRef *encoder;
+@@ -63,6 +65,8 @@ KqsSink *kqs_sink_new(const KqsSinkConfig *cfg)
+     s->out_format   = g_strdup(cfg->out_format);
+     s->kymux_uri    = g_strdup(cfg->kymux_uri);
+     s->hw           = cfg->hw;
++    s->egl          = cfg->egl;
++    kqs_surface_init(&s->readback);
+     s->sws_in       = AV_PIX_FMT_NONE;
+     s->last_pts     = INT64_MIN;
+ 
+@@ -435,6 +439,16 @@ bool kqs_sink_push_dmabuf(KqsSink *s, const KqsDmabuf *d, int64_t pts_us,
+     if (!d->valid)
+         return true;
+ 
++    /*
++     * No VAAPI import (NVIDIA): read the scanout back through EGL and hand it
++     * to the software path, which encodes with whatever --encoder names.
++     */
++    if (s->egl) {
++        if (!kqs_egl_read(s->egl, d, &s->readback, error))
++            return false;
++        return kqs_sink_push(s, &s->readback, pts_us, error);
++    }
++
+     if (!s->hw) {
+         g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                     "dmabuf frame with no hardware context");
+@@ -475,6 +489,7 @@ void kqs_sink_free(KqsSink *s)
+ 
+     sink_teardown_full(s, true);
+     sws_freeContext(s->sws);
++    kqs_surface_clear(&s->readback);
+     g_free(s->encoder_name);
+     g_free(s->out_url);
+     g_free(s->out_format);
+-- 
+2.43.0
+
