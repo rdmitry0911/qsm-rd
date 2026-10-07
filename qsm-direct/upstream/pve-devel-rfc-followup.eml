@@ -43,10 +43,33 @@ A possible split:
    calls and UI entries in qemu-server and pve-manager.
 
 I am happy to rebase the WebRTC part onto Alexandre's DBusDisplay.pm
-and drop my p2p attach and the separate 'dbus' VGA flag.  Alexandre
-wrote that the DMA-BUF path is untested on NVIDIA: my add-on runs a
-virtio-gl guest with the DMA-BUF scanout on an RTX 3080, so I can test
-that patch there.
+and drop my p2p attach and the separate 'dbus' VGA flag.
+
+Alexandre wrote that the DMA-BUF path is untested on NVIDIA, so I tried
+it on an RTX 3080 (driver 595.91, nvidia-vaapi-driver 0.0.16, QEMU 11.0,
+a virtio-vga-gl guest on a private per-VM bus; kyber-qemu-server and
+txproto built from the v2 patch against Debian trixie's FFmpeg 7.1,
+encoding to a file):
+
+- --dmabuf (h264_vaapi): QEMU hands over the scanout (XB24/AB24 with
+  the NVIDIA block-linear modifier 0x300000000e08014), but the VAAPI
+  frames context fails on the first frame -- "Failed to create surface:
+  14 (the requested RT Format is not supported)" -- and nothing is
+  encoded.  With --encoder h264_nvenc it ends the same way, since the
+  path goes through VAAPI whatever the encoder.
+- The cause is the driver: on NVIDIA, VAAPI means nvidia-vaapi-driver,
+  which only decodes (VAEntrypointVLD): no encoding, no video
+  processing, no RGB surfaces.  The mmap fallback would not help
+  either, as a block-linear buffer does not read as linear memory.
+- Without --dmabuf, the listener received no scanout at all from the GL
+  display within 15 s (libx264 and h264_nvenc alike).
+- Control on the same VM: my worker imports the same DMA-BUF with EGL
+  (eglCreateImageKHR, EGL_LINUX_DMA_BUF_EXT with the modifier), reads
+  it back with glReadPixels and encodes it with NVENC -- that works.
+
+So with a virtio-gl guest on NVIDIA, the Kyber console shows no picture
+today.  An EGL (or Vulkan/CUDA) import feeding NVENC would cover it; I
+am glad to help with that, the readback code is in my repository.
 
 Maintainers: would one shared base series like this work for you, and
 is there a preferred name and place for the option that enables the
