@@ -21,6 +21,13 @@ with `git send-email`, and every contributor signs a CLA first
 
    (one-time setup: <https://git-send-email.io/>; sender
    `Dmitry R <rdmitry0911@gmail.com>`).
+   Sent on 2026-10-01.  Follow-up: [`pve-devel-rfc-followup.eml`](pve-devel-rfc-followup.eml)
+   answers the RFC thread with Alexandre Derumier in Cc and proposes one
+   shared D-Bus display base with his RDP/Kyber series (an earlier RFC on
+   the same foundation).  Reply to the RFC in Gmail and add the Cc, or:
+
+       git send-email upstream/pve-devel-rfc-followup.eml
+
 4. **Patch series** -- prepared in [`patches/`](patches/), one directory per
    Proxmox repository, generated with `git format-patch -s` against current
    upstream master; `0000-cover-letter.patch` is each series' cover letter.

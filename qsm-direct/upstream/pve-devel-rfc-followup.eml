@@ -1,0 +1,58 @@
+From: Dmitry R <rdmitry0911@gmail.com>
+To: pve-devel@lists.proxmox.com
+Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+Subject: Re: [RFC] WebRTC console for VMs via QEMU's D-Bus display
+In-Reply-To: <CAANzA5H4-dLnboSPPpA6yuw=R2wxQ8S1ewZMJwk+Fy4S9LGYEQ@mail.gmail.com>
+References: <CAANzA5H4-dLnboSPPpA6yuw=R2wxQ8S1ewZMJwk+Fy4S9LGYEQ@mail.gmail.com>
+
+Hi all, hi Alexandre,
+
+only after sending this RFC I noticed that Alexandre posted "add rdp &&
+kyber consoles for qemu over D-Bus display" in August [1].  Both
+proposals need the same foundation in qemu-server -- QEMU's D-Bus
+display -- and differ in what consumes it.  Rather than two competing
+ways to enable it, I would suggest one shared base with the consoles on
+top.
+
+What the two series have in common:
+- qemu-server enables '-display dbus' for a VM, and a separate package
+  attaches to it and streams the guest to the browser (RDP and Kyber
+  daemons there, a WebRTC media service here);
+- with GL, QEMU refuses VNC and SPICE next to the D-Bus display, so both
+  have to deal with a VM that has no VNC console.
+
+Where they differ, and why I think Alexandre's base is the better one:
+- His series runs a private dbus-daemon per VM; mine uses p2p=yes and
+  attaches every console with getfd + add_client.
+- With p2p=yes, each add_client replaces the previous connection, so
+  only one consumer can be attached at a time.  On a bus, RDP, Kyber
+  and WebRTC can attach to the same VM side by side.
+- With p2p=yes, QEMU 11.0 did not deliver audio in my tests: the
+  AudioOutListener gets the Init/SetEnabled calls made while
+  RegisterOutListener runs, then nothing (the same with a plain GDBus
+  client, so it does not look like a problem of my listener).  On a
+  private bus, which my add-on uses today, both playback and the
+  microphone (AudioInListener) work.
+
+A possible split:
+1. qemu-server: the per-VM D-Bus display (Alexandre's DBusDisplay.pm),
+   the option that enables it, 'rendernode' for virtio-gl (bug #4771)
+   and a 'dbus' driver for audio0.
+2. One package per console, each attaching as a client on that bus:
+   RDP and Kyber (Alexandre), WebRTC (mine, bug #8106), with their API
+   calls and UI entries in qemu-server and pve-manager.
+
+I am happy to rebase the WebRTC part onto Alexandre's DBusDisplay.pm
+and drop my p2p attach and the separate 'dbus' VGA flag.  Alexandre
+wrote that the DMA-BUF path is untested on NVIDIA: my add-on runs a
+virtio-gl guest with the DMA-BUF scanout on an RTX 3080, so I can test
+that patch there.
+
+Maintainers: would one shared base series like this work for you, and
+is there a preferred name and place for the option that enables the
+D-Bus display?
+
+[1] https://lore.proxmox.com/pve-devel/20260826074347.1256659-1-alexandre.derumier@groupe-cyllene.com/
+
+Thanks,
+Dmitry
