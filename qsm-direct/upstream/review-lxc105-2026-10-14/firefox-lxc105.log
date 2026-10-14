@@ -1,0 +1,8 @@
+LOCAL_NETWORK_PERMISSION_GRANTED
+QSM_SIGNAL_HTTP 200
+QSM_SIGNAL_HTTP 200
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 759, "decoded": 222}}]}
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 1512, "decoded": 463}}]}
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 2265, "decoded": 704}}]}
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 3017, "decoded": 945}}]}
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 3770, "decoded": 1185}}]}
