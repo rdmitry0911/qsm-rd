@@ -1169,6 +1169,11 @@ class BrowserWebRtcBridge:
         self._microphone_task: asyncio.Task[None] | None = None
         self._pc.on("track", self._on_track)
 
+        @self._pc.on("iceconnectionstatechange")
+        def on_iceconnectionstatechange() -> None:
+            print(f"qsm-direct-terminal: WebRTC ICE state={self._pc.iceConnectionState}",
+                  file=sys.stderr, flush=True)
+
         @self._pc.on("connectionstatechange")
         async def on_connectionstatechange() -> None:
             # This is deliberately diagnostic-only.  It contains neither the
@@ -1586,7 +1591,31 @@ class BrowserWebRtcBridge:
                 if not opus:
                     raise BridgeError("WebRTC Opus packetizer is unavailable")
                 transceiver.setCodecPreferences(opus)
-        await self._pc.setRemoteDescription(RTCSessionDescription(sdp=sdp, type=sdp_type))
+        candidate_lines = [line.split() for line in sdp.splitlines()
+                           if line.startswith("a=candidate:")]
+        mdns_candidates = sum(len(parts) > 4 and parts[4].endswith(".local")
+                              for parts in candidate_lines)
+        ice_offer = sdp
+        if mdns_candidates:
+            # mDNS names often cannot resolve across a routed LAN or VPN.
+            # aioice prunes every ICE component when those candidates are
+            # followed by end-of-candidates, so it gathers no local addresses
+            # at all. Keep discovery open: the browser can contact our numeric
+            # candidate and authenticated STUN learns its actual endpoint.
+            # The terminal's negotiation lease still bounds an absent peer.
+            ice_offer = "\r\n".join(line for line in sdp.splitlines()
+                                    if line != "a=end-of-candidates") + "\r\n"
+        await self._pc.setRemoteDescription(RTCSessionDescription(sdp=ice_offer, type=sdp_type))
+        # Diagnose unresolved mDNS offers without exposing SDP or addresses.
+        ice_transports = {transceiver.receiver.transport.transport
+                          for transceiver in self._pc.getTransceivers()}
+        if self._pc.sctp is not None:
+            ice_transports.add(self._pc.sctp.transport.transport)
+        remote_candidates = sum(len(transport.getRemoteCandidates())
+                                for transport in ice_transports)
+        print(f"qsm-direct-terminal: WebRTC offer candidates={len(candidate_lines)} "
+              f"mdns={mdns_candidates} resolved={remote_candidates}",
+              file=sys.stderr, flush=True)
         # This is server-to-browser only. It is intentionally separate from
         # qsm-control so pointer feedback remains latest-state data rather
         # than sitting behind reliable keyboard traffic. The browser

@@ -10,6 +10,7 @@ import tempfile
 import time
 import re
 import unittest
+from unittest.mock import AsyncMock, patch
 import av
 from fractions import Fraction
 from pathlib import Path
@@ -205,6 +206,41 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
 
 
 class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unresolved_mdns_offer_can_connect_by_authenticated_incoming_checks(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="qsm-browser-mdns.") as directory:
+            browser = RTCPeerConnection()
+            bridge = BrowserWebRtcBridge(Path(directory), fps=60)
+            browser.addTransceiver("video", direction="recvonly")
+            browser.addTransceiver("audio", direction="recvonly")
+            control = browser.createDataChannel("qsm-control", ordered=True)
+            try:
+                await browser.setLocalDescription(await browser.createOffer())
+                lines = browser.localDescription.sdp.splitlines()
+                self.assertIn("a=end-of-candidates", lines)
+                for index, line in enumerate(lines):
+                    if line.startswith("a=candidate:"):
+                        parts = line.split()
+                        parts[4] = "00000000-0000-4000-8000-000000000001.local"
+                        lines[index] = " ".join(parts)
+                bridge.start_taps()
+                resolver = AsyncMock(return_value=None)
+                protocol = type("UnavailableMdns", (), {"resolve": resolver})()
+                with patch("aioice.ice.get_or_create_mdns_protocol", AsyncMock(return_value=protocol)):
+                    answer = await bridge.answer_offer("\r\n".join(lines) + "\r\n")
+                self.assertGreater(resolver.await_count, 0)
+                self.assertIn("a=candidate:", answer["sdp"],
+                              "unresolved names must not suppress the server's local addresses")
+                await browser.setRemoteDescription(RTCSessionDescription(**answer))
+                deadline = time.monotonic() + 5
+                while control.readyState != "open" and time.monotonic() < deadline:
+                    await asyncio.sleep(0.01)
+                self.assertEqual(browser.connectionState, "connected")
+                self.assertEqual(bridge.connection_state, "connected")
+                self.assertEqual(control.readyState, "open")
+            finally:
+                await browser.close()
+                await bridge.close()
+
     async def test_hevc_answer_repeats_the_browsers_profile_tier_level(self) -> None:
         """libwebrtc matches H265 by profile, tier and level: the answer must echo them."""
         with tempfile.TemporaryDirectory(prefix="qsm-browser-hevc-fmtp.") as directory:

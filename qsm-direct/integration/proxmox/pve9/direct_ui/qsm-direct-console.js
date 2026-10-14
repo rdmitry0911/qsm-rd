@@ -2238,6 +2238,7 @@
                 const retry = document.createElement('button');
                 retry.type = 'button';
                 retry.textContent = gettext('Reconnect');
+                retry.style.cssText = 'pointer-events:auto;cursor:pointer;padding:6px 10px';
                 retry.addEventListener('click', () => popup.location.reload());
                 toolbar.append(retry);
             }

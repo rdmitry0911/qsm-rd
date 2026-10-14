@@ -713,7 +713,7 @@ const lifecycleFactory = new Function('env', `
 for (const result of [{ status: 'running' }, { status: 'stopped' }, null]) {
     const env = {
         status: { style: {} }, toolbar: { style: {}, append: () => { env.retries += 1; } },
-        document: { createElement: () => ({ addEventListener: () => undefined }) },
+        document: { createElement: () => ({ style: {}, addEventListener: () => undefined }) },
         popup: { location: { reload: () => undefined } },
         vmStatusUrl: () => '/webrtcstatus', gettext: text => text, VIEWER: true,
         closed: 0, surfaceClosed: 0, retries: 0,
