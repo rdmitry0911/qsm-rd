@@ -642,12 +642,22 @@
     const guestCaptureExitShortcut = (event) => event.code === 'Escape' &&
         event.ctrlKey && event.altKey && event.shiftKey && !event.metaKey;
 
-    const waitForIce = (peer) => new Promise((resolve) => {
+    const waitForIce = (peer) => new Promise((resolve, reject) => {
         if (peer.iceGatheringState === 'complete') { resolve(); return; }
-        const timer = window.setTimeout(resolve, 3000);
-        peer.addEventListener('icegatheringstatechange', () => {
-            if (peer.iceGatheringState === 'complete') { window.clearTimeout(timer); resolve(); }
-        }, { once: true });
+        const done = () => {
+            if (peer.iceGatheringState !== 'complete') { return; }
+            window.clearTimeout(timer);
+            peer.removeEventListener('icegatheringstatechange', done);
+            resolve();
+        };
+        const timer = window.setTimeout(() => {
+            peer.removeEventListener('icegatheringstatechange', done);
+            if (/^a=candidate:/m.test(peer.localDescription?.sdp || '')) { resolve(); }
+            else { reject(new Error(gettext('The browser could not prepare a WebRTC network connection. Check browser network permissions and VPN settings.'))); }
+        }, 10000);
+        // The first transition can be 'gathering', before any candidates.
+        // Keep listening until completion: the offer is sent only once.
+        peer.addEventListener('icegatheringstatechange', done);
     });
     // The SDP exchange and the per-VM codec policy go to the node-local QSM
     // signalling service, not to a PVE API route: PVE has no supported route
@@ -2204,16 +2214,33 @@
             }
             guestClipboardWaiters.clear();
         };
-        const closeForStoppedVm = () => {
+        let transportEndPending = false;
+        const closeForStoppedVm = async () => {
+            if (closed || transportEndPending) { return; }
+            transportEndPending = true;
+            let state;
+            try { state = await apiValue(vmStatusUrl(), 'GET', {}, null); }
+            catch (_error) { /* A failed status read does not prove VM shutdown. */ }
             if (closed) { return; }
-            status.textContent = gettext('The virtual machine was stopped. Closing console…');
-            // A state transition is dispatched while the peer is processing
-            // transport shutdown. Defer the actual close one task so browsers
-            // consistently complete that transition before the popup goes.
-            window.setTimeout(() => {
-                close();
+            close();
+            if (state && state.status === 'stopped') {
+                status.textContent = gettext('The virtual machine was stopped. Closing console…');
                 closeSurface();
-            }, 0);
+                return;
+            }
+            status.textContent = state && state.status === 'running'
+                ? gettext('WebRTC connection lost. The virtual machine is still running.')
+                : gettext('WebRTC connection lost. Could not confirm the virtual machine status.');
+            status.style.maxWidth = 'none';
+            toolbar.style.opacity = '1';
+            toolbar.style.transform = 'none';
+            if (VIEWER) {
+                const retry = document.createElement('button');
+                retry.type = 'button';
+                retry.textContent = gettext('Reconnect');
+                retry.addEventListener('click', () => popup.location.reload());
+                toolbar.append(retry);
+            }
         };
         popup.addEventListener('beforeunload', close, { once: true });
         window.addEventListener('beforeunload', close, { once: true });
@@ -3117,6 +3144,9 @@
             const offer = await peer.createOffer();
             await peer.setLocalDescription(offer);
             await waitForIce(peer);
+            if (!/^a=candidate:/m.test(peer.localDescription?.sdp || '')) {
+                throw new Error(gettext('The browser did not provide a WebRTC network address. Check browser network permissions and VPN settings.'));
+            }
             const requestSize = dimensions(video, sessionFps);
             const answer = await api(`/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/qsm-direct`, {
                 sdp: peer.localDescription.sdp, width: requestSize.width, height: requestSize.height, fps: requestSize.fps,

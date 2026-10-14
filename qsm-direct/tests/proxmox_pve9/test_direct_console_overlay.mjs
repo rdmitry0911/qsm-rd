@@ -697,3 +697,57 @@ assert.equal(typeof panelConfigOverlay.insertNodes, 'function',
 }
 
 console.log('QSM_DIRECT_PVE_UI_OVERLAY_OK');
+
+// A dead WebRTC transport is not proof that the QEMU process stopped.
+const lifecycleStart = source.indexOf('let transportEndPending = false;');
+const lifecycleEnd = source.indexOf("popup.addEventListener('beforeunload'", lifecycleStart);
+assert.ok(lifecycleStart >= 0 && lifecycleEnd > lifecycleStart);
+const lifecycleFactory = new Function('env', `
+    let closed = false;
+    const { status, toolbar, document, popup, apiValue, vmStatusUrl, gettext, VIEWER } = env;
+    const close = () => { closed = true; env.closed += 1; };
+    const closeSurface = () => { env.surfaceClosed += 1; };
+    ${source.slice(lifecycleStart, lifecycleEnd)}
+    return closeForStoppedVm;
+`);
+for (const result of [{ status: 'running' }, { status: 'stopped' }, null]) {
+    const env = {
+        status: { style: {} }, toolbar: { style: {}, append: () => { env.retries += 1; } },
+        document: { createElement: () => ({ addEventListener: () => undefined }) },
+        popup: { location: { reload: () => undefined } },
+        vmStatusUrl: () => '/webrtcstatus', gettext: text => text, VIEWER: true,
+        closed: 0, surfaceClosed: 0, retries: 0,
+        apiValue: async () => { if (result === null) { throw Error('network unavailable'); } return result; },
+    };
+    const ended = lifecycleFactory(env);
+    await Promise.all([ended(), ended()]);
+    assert.equal(env.closed, 1, 'several shutdown events must retire the peer only once');
+    assert.equal(env.surfaceClosed, result?.status === 'stopped' ? 1 : 0);
+    assert.equal(env.retries, result?.status === 'stopped' ? 0 : 1);
+    assert.equal(env.status.textContent.includes('was stopped'), result?.status === 'stopped',
+        'only a confirmed stopped VM may be described as stopped');
+}
+
+const iceStart = source.indexOf('const waitForIce = (peer)');
+const iceEnd = source.indexOf('\n    // The SDP exchange', iceStart);
+const iceFactory = new Function('window', 'gettext', `${source.slice(iceStart, iceEnd)}; return waitForIce;`);
+for (const complete of [true, false]) {
+    let timer, listener, resolved = false, removed = 0;
+    const clock = { setTimeout: callback => { timer = callback; return 1; }, clearTimeout: () => undefined };
+    const peer = {
+        iceGatheringState: 'new', localDescription: { sdp: '' },
+        addEventListener: (_name, callback) => { listener = callback; },
+        removeEventListener: () => { removed += 1; },
+    };
+    const gather = iceFactory(clock, text => text)(peer).then(() => { resolved = true; });
+    peer.iceGatheringState = 'gathering'; listener();
+    await Promise.resolve();
+    assert.equal(resolved, false, 'starting ICE gathering must not submit a candidate-free offer');
+    if (complete) {
+        peer.iceGatheringState = 'complete'; listener(); await gather;
+        assert.equal(resolved, true);
+    } else {
+        timer(); await assert.rejects(gather, /browser could not prepare a WebRTC/);
+    }
+    assert.equal(removed, 1, 'the ICE listener must be cleaned up on completion or timeout');
+}
