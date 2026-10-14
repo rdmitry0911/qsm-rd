@@ -1,0 +1,194 @@
+QSM Direct / Alexandre Derumier shared-base readiness audit
+Checked: 2026-10-14
+
+VERDICT
+
+The shared-base port is not implemented or qualified. The existing add-on,
+the original p2p patch series, and the NVIDIA Kyber adapter fix exist.
+They provide useful starting points and discussion material, but there is
+no revised shared-base series or test evidence for that integrated system.
+
+SCOPE AND BASELINES
+
+Inspected the local qsm-rd source, all prepared patch files, package
+builders, test registration, documentation, and local qemu-server and
+pve-manager checkouts (including the separate audio branches).
+
+Local qsm-rd HEAD:
+  9a2f574a5a420833d32e79eb7cbf186e24cfddae
+Remote main, fetched into a separate audit copy:
+  ff2317f5418af83631cd943cfbd982da67b80029
+The only additional remote commit changes the root README; it contains
+no shared-base code. Remote qsm-rd has only a main branch.
+
+Current upstream master, fetched into separate temporary audit copies:
+  qemu-server: a4efa5f9ad2afbf4dea02274ed7a6ff41cdcf0aa
+  pve-manager: 9c3f5e5258f73f31e273493232a79d615fd9e072
+
+Production nodes were not changed. Local upstream working trees and
+their branches were not changed. Temporary build/checkouts are under:
+  /tmp/qsm-shared-base-audit-20261014
+
+IMPLEMENTATION FINDINGS
+
+1. Shared qemu-server base: NOT DONE.
+   The prepared qemu-server patch 2 still generates:
+     -display dbus,p2p=yes,gl=...
+   See patches/qemu-server/0002-*.patch:109.
+   Patch 3 creates our own DBusDisplay.pm with attach_client and
+   webrtc_offer, using QMP getfd/add_client and SCM_RIGHTS. It is not
+   Alexandre's module that starts/stops a private daemon per VM.
+   The local upstream webrtc-console branch contains the same design.
+
+2. QSM attachment to the shared bus: NOT DONE.
+   src/qemu/qemu_dbus_display.cpp:452 supports both p2p and message buses.
+   That support predates the proposed port and passed local bus tests.
+   However, extensions/direct_terminal/qsm_direct_terminal.py:774
+   accepts only its own VM runtime socket, and the fallback address at
+   line 173 is <vm-runtime>/<VMID>/qemu-display1.bus.
+   The package starts its own daemon at line 803.
+   The PVE webrtcproxy contract still requires a passed display fd
+   (answer_webrtc at line 1832; WebRtcRequestHandler at line 1945).
+   There is no implemented shared-bus attach contract with Alexandre's
+   /run/qemu-server/<VMID>.dbusdisplay socket.
+
+3. API/UI: ORIGINAL INTEGRATION EXISTS; SHARED-BASE VERSION NOT DONE.
+   The viewer calls webrtcproxy and the package receives its display fd.
+   The standalone add-on still uses its own TCP 8007 signalling service
+   and writes display/audio arguments through its existing UI overlay.
+   The prepared native UI still exposes our dbus VGA flag. No revised
+   common configuration/interface is present.
+   The separate media service is already packaged, but this does not
+   establish its compatibility with a shared qemu-server bus lifecycle.
+
+4. Audio: PARTIAL PREPARATION, NOT SHARED-BASE QUALIFICATION.
+   qemu-server has a webrtc-console-audio branch at 67a2cc12; pve-manager
+   has a matching branch at 0a2c9d1c. Both are dated 2026-10-01.
+   They are absent from the exported 5+3 patch series. The server audio
+   branch still combines the backend with p2p=yes. Existing add-on
+   playback/microphone support does not qualify these native patches
+   against Alexandre's base.
+
+5. Kyber NVIDIA support: ADAPTER PATCH PREPARED; FULL CONSOLE UNVERIFIED.
+   kyber-nvidia/0001-*.patch adds --dmabuf-readback, EGL import/readback,
+   build dependencies, and use of the existing encoder path.
+   Its recorded 2026-10-07 test is capture/encoding to a file on an
+   RTX 3080: 1226 NVENC frames in 20 seconds, zero dropped in that test.
+   This is historical evidence in the patch and follow-up, not a new
+   test performed in this audit. It does not include the full Kyber
+   controller/proxy/browser path or automatic controller selection of
+   the new NVIDIA capture mode.
+
+6. OpenGL 4.6 / Venus: NO REBASE WORK FOUND.
+   No new common branch or updated exported series takes account of
+   the dependency mentioned by Alexandre. The current fetched upstream
+   QemuServer.pm has no Vulkan/Venus display option. The port must
+   explicitly identify the chosen baseline/dependency and resolve this
+   as part of the shared series.
+
+FRESH VERIFICATION OF THE CURRENT PACKAGE
+
+Fresh Release build, including qsm-direct-media-worker: PASS.
+Commands (source tree is qsm-direct):
+  cmake -S qsm-direct -B /tmp/qsm-shared-base-audit-20261014 \
+    -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+  cmake --build /tmp/qsm-shared-base-audit-20261014 --parallel 4
+  ctest --test-dir /tmp/qsm-shared-base-audit-20261014 \
+    --output-on-failure --parallel 4
+
+CTest: 14/14 PASS, including:
+  - core and D-Bus adapter tests;
+  - message-bus map and inline tests using fake QEMU;
+  - real QEMU CPU fixture with relative and absolute input;
+  - real QEMU CPU fixture encoded with h264_nvenc;
+  - guest channel/package, encoder policy, terminal provisioning;
+  - static package/API integration and console overlay checks.
+
+The real-QEMU tests use a small CPU/VGA fixture on this workstation,
+not a PVE browser console on the shared base. They explicitly disable
+audio. The NVENC probe reports 42 published / 28 encoded / 14 dropped
+frames, zero session errors and FFmpeg exit status 0; it is a smoke
+test, not a claim of zero drops or a performance qualification.
+
+Additional direct Python suites, not registered in CTest:
+  tests/signal/test_signal.py: 9 PASS
+  tests/proxmox_pve9/test_direct_terminal_audio.py: 4 PASS
+  tests/proxmox_pve9/test_direct_terminal_container_policy.py: 12 PASS
+The audio test emitted a ResourceWarning for an unclosed test socket.
+These are unit-level checks of the current implementation.
+
+Saved CTest log: review-2026-10-14/current-package-tests.txt
+Saved NVENC probe: review-2026-10-14/current-package-nvenc-probe.txt
+
+ORIGINAL PATCH APPLICABILITY
+
+All five original qemu-server patches and all three original
+pve-manager patches passed git apply --check and were applied in order
+to the fetched master commits above, in temporary checkouts only.
+This confirms mechanical applicability, not compatibility with
+Alexandre's patches or readiness of the proposed shared design.
+The native Perl/UI tests were not rerun in these temporary checkouts.
+
+MATERIAL INVENTORY
+
+Available for discussion:
+  - original RFC and shared-base follow-up (.eml files);
+  - feature request text and public bug #8106;
+  - original signed 5+3 patches and cover letters;
+  - signed NVIDIA adapter patch with recorded setup/results;
+  - source, installation/testing instructions and comparisons;
+  - reply to Alexandre and forum post drafts (local, untracked);
+  - this audit with fresh current-package test evidence.
+
+Missing for review of the completed port:
+  - a common qemu-server base extracted from Alexandre's v2, preserving
+    authorship, with an explicit base commit and dependency list;
+  - WebRTC patches and media-service changes on that base;
+  - native audio/configuration/UI changes exported with the series;
+  - updated cover letters describing the final design, patch ordering,
+    differences from both earlier proposals, and validation evidence;
+  - reproducible installation/build instructions for the combined stack;
+  - test reports tied to the exact combined commits and package versions;
+  - full NVIDIA Kyber browser test and capture-mode selection decision.
+
+The older integration/proxmox/pve9/upstream/RFC_CONSOLE_PROVIDER.md
+describes a different provider-registry proposal and still has name/email
+placeholders. It is not the current shared-base submission material.
+The upstream README previously said to send the original series as-is;
+this audit updates that guidance to state its actual architecture/status.
+
+REMAINING REVIEW AND VALIDATION WORK
+
+Implementation:
+  1. Extract the shared bus creation, configuration and VM start/stop
+     integration from v2. Decide the opt-in setting and audio0 backend
+     representation with maintainers; document them in the cover letter.
+  2. Attach QSM as a client of that bus with the PVE VM.Console gate.
+     Define the API-to-service request, bus ownership and session cleanup
+     contract; stop provisioning a second bus for that native mode.
+  3. Adapt native UI/status/viewer and clipboard/audio paths. Identify
+     which standalone add-on compatibility paths remain supported.
+  4. Integrate the NVIDIA capture fix with the chosen Kyber version and
+     define how kycontroller selects it. Account for the Venus baseline.
+
+Required evidence after implementation:
+  - config-to-QEMU-command tests for GL/non-GL, rendernode and audio;
+  - bus startup/failure/cleanup, VM stop/start and service restart;
+  - two VMs on one node and concurrent WebRTC + Kyber/RDP consumers;
+  - real PVE browser picture/input/resize, embedded and popup consoles;
+  - denied VM.Console and positive restricted-user access;
+  - playback, microphone and clipboard on the declared guest desktops;
+  - full NVIDIA Kyber browser session, plus software fallback and
+    AMD/Intel paths where hardware or collaborator reports are available;
+  - package installation/removal and effects on supported existing VMs.
+
+PUBLIC DISCUSSION SOURCES
+
+Alexandre's shared bus module, v2 patch 02/13:
+https://lore.proxmox.com/pve-devel/20260826074347.1256659-3-alexandre.derumier@groupe-cyllene.com/
+
+Alexandre's reply welcoming reworking the series:
+https://lore.proxmox.com/pve-devel/30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com/
+
+The existing reply draft uses future tense. It is a proposal to do this
+work and does not claim that the port has already been completed.

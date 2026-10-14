@@ -1,0 +1,18 @@
+......qsm-direct-terminal: alice@pve opens console 1 of container 105
+qsm-direct-terminal: bob@pve opens console 2 of container 105
+qsm-direct-terminal: alice@pve resumes console 1 of container 105
+.qsm-direct-terminal: console 1 of container 105 has a desktop of alice without a known owner; it is not handed out and is logged out after the grace period
+qsm-direct-terminal: bob@pve opens console 2 of container 105
+.qsm-direct-terminal: alice@pve opens console 1 of container 105
+qsm-direct-terminal: bob@pve opens console 2 of container 105
+qsm-direct-terminal: carol@pve opens console 1 of container 105
+.qsm-direct-terminal: alice@pve opens console 1 of container 105
+qsm-direct-terminal: alice@pve opens console 2 of container 105
+.qsm-direct-terminal: alice@pve opens console 1 of container 105
+qsm-direct-terminal: bob@pve opens console 2 of container 105
+.qsm-direct-terminal: alice@pve opens console 1 of container 105
+.
+----------------------------------------------------------------------
+Ran 12 tests in 0.009s
+
+OK

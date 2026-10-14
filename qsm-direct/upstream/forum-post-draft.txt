@@ -1,0 +1,34 @@
+Title: WebRTC desktop console for Proxmox VE — looking for feedback
+
+Hi guys, I've been working on a WebRTC console for Proxmox VE and would like to share it here. I wanted to use a VM desktop directly in the Proxmox web interface, with smoother scrolling, video and sound, without opening a separate remote desktop client. I've managed to get this working as an add-on for PVE 9 called QSM Direct.
+
+It takes the VM's display from QEMU over D-Bus and streams it to the browser. The console uses the existing PVE login and VM.Console permission. For VMs, desktop capture and keyboard/mouse input don't need a remote desktop server inside the guest. Clipboard integration needs a guest component.
+
+What works in the add-on:
+- H.264 streaming with NVENC, QSV or VA-API, with CPU encoding as a fallback;
+- virtio-gl for an accelerated Linux desktop, as well as non-GL display profiles;
+- sound, microphone and text clipboard in both directions;
+- the console inside the PVE interface or in a separate browser window.
+
+My GPU test setup is PVE 9 with an RTX 3080 and a Linux KDE guest. The stream runs at 1280x800, 60 fps with NVENC. That is the stream rate; the number of different pictures depends on what the guest renders.
+
+I also compared the two consoles on the same Standard VGA VM in a CPU-only lab. A 30 fps 720p clip delivered about 27 different pictures/s through QSM and 7 through noVNC, using about 20 and 120 Mbit/s respectively. noVNC opened faster and had lower latency for an isolated mouse event. The setup, method and results are here:
+https://github.com/rdmitry0911/qsm-rd/blob/main/qsm-direct/docs/COMPARISON.md
+
+One limitation worth mentioning: with the GL D-Bus display, QEMU cannot offer VNC or SPICE alongside it. A non-GL profile can keep VNC. The stock-PVE add-on needs TCP 8007 and UDP access from the browser to the node. The new native integration uses the existing PVE API for signalling and needs UDP for media. Installation details are in the repository:
+https://github.com/rdmitry0911/qsm-rd/tree/main/qsm-direct
+
+There is also a graphical console for LXC containers with a KDE desktop, supplied as a separate add-on with software inside the container.
+
+I've posted an RFC to pve-devel and prepared patches for qemu-server and pve-manager. This is still an add-on and an upstream proposal. Alexandre Derumier has a related RDP/Kyber series using QEMU's D-Bus display. I've tested its capture path on NVIDIA and prepared a fix; he has now replied and welcomed reworking his patches. I've now moved QSM onto that shared per-VM D-Bus foundation and tested it in a PVE 9 lab. A second independent display consumer can attach while the browser keeps streaming. Full Kyber/RDP browser integration still needs its own qualification; the shared-base patches and QSM port are ready for review.
+
+RFC and discussion:
+https://lore.proxmox.com/pve-devel/30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com/T/
+Feature request:
+https://bugzilla.proxmox.com/show_bug.cgi?id=8106
+
+I developed the prototype with help from an AI coding assistant, and reviewed and tested the code myself.
+
+Does anyone else use the PVE browser console for desktop work? I'd be interested in feedback, especially from people with Intel or AMD GPUs, as my hardware testing has mainly been on NVIDIA. Any feedback would be very much appreciated.
+
+Thank you, Dmitry

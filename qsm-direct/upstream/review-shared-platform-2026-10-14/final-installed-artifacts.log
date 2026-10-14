@@ -1,0 +1,7 @@
+227b388bbbdbfd570eadcefab34871e20148126a895e9035311dd880405d864c  /tmp/qemu-server_9.2.11_amd64.deb
+c145d28bce3b19b03bc9796253ee8b94fd01f7964e9e1ff979efe8b04cdde12c  /tmp/pve-manager_9.2.21_all.deb
+4dae20cc357b24ae5a7bb54f36885a5432e7f752df4230fa10669157817de00d  /tmp/qsm-pve-direct_0.4.0+shared3_amd64.deb
+pve-manager	9.2.21
+qemu-server	9.2.11
+qsm-pve-direct	0.4.0+shared3
+??5?????? c /etc/apt/sources.list.d/pve-enterprise.sources

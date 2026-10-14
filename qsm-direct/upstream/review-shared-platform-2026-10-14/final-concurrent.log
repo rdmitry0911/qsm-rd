@@ -1,0 +1,7 @@
+STATUS {"http":200,"dbus":1,"vnc":0,"status":"running"}
+OFFER_HTTP 200
+BROWSER_VIDEO_READY
+BROWSER_FRAMES_AFTER_SECOND_CONSUMER 704
+VIEWER { viewer: true, video: true, size: 1280, status: [] }
+BROWSER_EXIT 0
+SECOND_CONSUMER_EXIT 0

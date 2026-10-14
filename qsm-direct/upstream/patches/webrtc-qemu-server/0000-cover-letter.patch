@@ -1,0 +1,41 @@
+From 6a658d0340880cd2a2c3d4a0e109de9b0407a4ff Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Wed, 14 Oct 2026 19:24:55 +0300
+Subject: [PATCH 0/1] RFC WebRTC console API on the shared display foundation
+To: pve-devel@lists.proxmox.com
+Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+In-Reply-To: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+References: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+
+For bug #8106. Apply after the six shared-qemu-server patches
+(common head 873cf5c880b6a1d00d140f34f0de1e8de85242c1).
+
+WebRTC.pm is a consumer bridge; it does not own a bus or start an encoder.
+The root-only console service receives protocol v2 JSON with VMID and an
+API-authorized offer. Neither a display FD nor a browser-selected bus path
+is passed. Encoding and WebRTC remain in the separate qsm-pve-direct package.
+
+webrtcproxy and webrtcstatus require VM.Console. Codec policy reads require
+VM.Console; writes require VM.Config.Options. The small status route lets
+Console-only users wait for a VM to start without requiring VM.Audit.
+Native signalling and policy use PVE's same-origin API, without TCP 8007.
+
+Validation: full package build; native CPU and GL browsers; embedded and
+popup viewers in both opening orders; actual bidirectional audio and text
+clipboard; negative and positive ACL checks, including Console-only access.
+Legacy add-on and LXC service paths remain available in the media package.
+
+Review questions: API shape, minimal status route and policy permission.
+
+Dmitry R (1):
+  api: attach WebRTC consoles to the shared D-Bus display
+
+ src/PVE/API2/Qemu.pm         | 210 ++++++++++++++++++++++++++++++++++-
+ src/PVE/QemuServer/Makefile  |   1 +
+ src/PVE/QemuServer/WebRTC.pm |  81 ++++++++++++++
+ 3 files changed, 287 insertions(+), 5 deletions(-)
+ create mode 100644 src/PVE/QemuServer/WebRTC.pm
+
+-- 
+2.43.0
+

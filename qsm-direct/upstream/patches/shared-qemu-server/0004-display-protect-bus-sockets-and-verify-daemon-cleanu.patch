@@ -1,0 +1,92 @@
+From 07b0a204e7328f42225cbd9e1be0aec835bd654e Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Wed, 14 Oct 2026 18:07:59 +0300
+Subject: [PATCH 4/6] display: protect bus sockets and verify daemon cleanup
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ src/PVE/QemuServer/DBusDisplay.pm | 14 ++++++++++++++
+ src/test/dbus-display-test.pl     | 32 +++++++++++++++++++++++++++++++
+ 2 files changed, 46 insertions(+)
+ create mode 100644 src/test/dbus-display-test.pl
+
+diff --git a/src/PVE/QemuServer/DBusDisplay.pm b/src/PVE/QemuServer/DBusDisplay.pm
+index b8684be7..27109239 100644
+--- a/src/PVE/QemuServer/DBusDisplay.pm
++++ b/src/PVE/QemuServer/DBusDisplay.pm
+@@ -38,6 +38,7 @@ sub write_config {
+   <pidfile>$pidfile</pidfile>
+   <auth>EXTERNAL</auth>
+   <policy context="default">
++    <allow user="root"/>
+     <allow send_destination="*" eavesdrop="true"/>
+     <allow eavesdrop="true"/>
+     <allow own="*"/>
+@@ -65,6 +66,10 @@ sub start {
+         errmsg => "failed to start D-Bus daemon for VM $vmid",
+     );
+ 
++    my $socket = PVE::QemuServer::Helpers::dbus_socket($vmid);
++    die "D-Bus daemon for VM $vmid did not create its socket\n" if !-S $socket;
++    chmod 0600, $socket or die "unable to protect D-Bus display socket - $!\n";
++
+     return;
+ }
+ 
+@@ -75,6 +80,15 @@ sub stop {
+     if (my $pid = eval { PVE::Tools::file_read_firstline($pidfile) }) {
+         if ($pid =~ m/^(\d+)$/) {
+             $pid = $1;
++            # A stale pidfile must not terminate a reused, unrelated PID.
++            my $cmdline = eval { PVE::Tools::file_get_contents("/proc/$pid/cmdline") } // '';
++            my $config = config_file($vmid);
++            if ($cmdline !~ /(?:^|\0)--config-file=\Q$config\E(?:\0|$)/) {
++                unlink $pidfile;
++                unlink config_file($vmid);
++                unlink PVE::QemuServer::Helpers::dbus_socket($vmid);
++                return;
++            }
+             kill('TERM', $pid);
+ 
+             # Waited for: a dying daemon unlinks the new socket and holds the VM's scope
+diff --git a/src/test/dbus-display-test.pl b/src/test/dbus-display-test.pl
+new file mode 100644
+index 00000000..28a8c5c9
+--- /dev/null
++++ b/src/test/dbus-display-test.pl
+@@ -0,0 +1,32 @@
++#!/usr/bin/perl
++use v5.36;
++use lib '..';
++use File::Temp qw(tempdir);
++use Test::More;
++use PVE::Tools;
++use PVE::QemuServer::DBusDisplay;
++use PVE::QemuServer::Helpers;
++
++local $PVE::QemuServer::Helpers::var_run_tmpdir = tempdir(CLEANUP => 1);
++my ($one, $two) = (9101, 9102);
++PVE::QemuServer::DBusDisplay::start($one);
++PVE::QemuServer::DBusDisplay::start($two);
++my $socket = PVE::QemuServer::Helpers::dbus_socket($one);
++ok(-S $socket, 'first VM has a bus');
++ok(-S PVE::QemuServer::Helpers::dbus_socket($two), 'second VM has an independent bus');
++is((stat($socket))[2] & 0777, 0600, 'bus is root-private');
++my $pid = PVE::Tools::file_read_firstline(PVE::QemuServer::DBusDisplay::pidfile($one));
++PVE::QemuServer::DBusDisplay::stop($one);
++ok(!-e $socket, 'stop removes socket');
++ok(!PVE::ProcFSTools::check_process_running($pid), 'stop terminates daemon');
++ok(-S PVE::QemuServer::Helpers::dbus_socket($two), 'another VM is unaffected');
++PVE::QemuServer::DBusDisplay::start($one);
++ok(-S $socket, 'VM can restart');
++PVE::QemuServer::DBusDisplay::stop($one);
++# A PID left by a previous VM incarnation must not kill an unrelated process.
++PVE::Tools::file_set_contents(PVE::QemuServer::DBusDisplay::pidfile($one), "$$\n");
++PVE::QemuServer::DBusDisplay::stop($one);
++pass('stale pidfile did not kill the test process');
++PVE::QemuServer::DBusDisplay::stop($two);
++ok(!-e PVE::QemuServer::Helpers::dbus_socket($two), 'second VM cleanup');
++done_testing();
+-- 
+2.43.0
+

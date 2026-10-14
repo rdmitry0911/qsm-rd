@@ -1,0 +1,230 @@
+Internal ctest changing into directory: /tmp/qsm-shared-base-audit-20261014
+Test project /tmp/qsm-shared-base-audit-20261014
+      Start  1: qsm_shared_display
+ 1/15 Test  #1: qsm_shared_display ...................   Passed    0.30 sec
+      Start  2: qsm_direct_guest_channel
+ 2/15 Test  #2: qsm_direct_guest_channel .............   Passed    4.07 sec
+      Start  3: qsm_direct_guest_package
+ 3/15 Test  #3: qsm_direct_guest_package .............   Passed    0.04 sec
+      Start  4: qsm_direct_encoder_probe
+ 4/15 Test  #4: qsm_direct_encoder_probe .............   Passed    0.04 sec
+      Start  5: qsm_direct_terminal_autoprovision
+ 5/15 Test  #5: qsm_direct_terminal_autoprovision ....   Passed    1.51 sec
+      Start  6: qsm_direct_api_service_integration
+ 6/15 Test  #6: qsm_direct_api_service_integration ...   Passed    0.04 sec
+      Start  7: qsm_direct_pve_console_overlay
+ 7/15 Test  #7: qsm_direct_pve_console_overlay .......***Failed    0.12 sec
+node:internal/process/esm_loader:40
+      internalBinding('errors').triggerUncaughtException(
+                                ^
+
+AssertionError [ERR_ASSERTION]: a popup opened before Power On must use the protected PVE status route before creating WebRTC
+    at file:///home/dima/Projects/q-sunshine/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs:74:8
+    at ModuleJob.run (node:internal/modules/esm/module_job:195:25)
+    at async ModuleLoader.import (node:internal/modules/esm/loader:336:24)
+    at async loadESM (node:internal/process/esm_loader:34:7)
+    at async handleMainPromise (node:internal/modules/run_main:106:12) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: '/*\n' +
+    ' * qsm-pve-direct Console menu integration\n' +
+    ' * SPDX-License-Identifier: AGPL-3.0-or-later\n' +
+    ' *\n' +
+    ' * Browser-only PVE Console entry for the direct Display1 transport.\n' +
+    ' */\n' +
+    '(function () {\n' +
+    '    // Viewer mode: this file runs as the WebRTC console page that pveproxy\n' +
+    "    // serves for '?console=kvm&webrtc=1' (index.html.tpl sets the object).\n" +
+    "    // The page itself is the console, the offer goes to the VM's API call\n" +
+    '    // webrtcproxy (qemu-server, dbus-display=1), and the PVE UI overrides\n' +
+    '    // below are not registered -- their classes do not exist on that page.\n' +
+    "    const VIEWER = (typeof window !== 'undefined' && window.QSM_WEBRTC_VIEWER) || null;\n" +
+    "    const NATIVE_QEMU = !VIEWER && typeof PVE !== 'undefined' &&\n" +
+    "        typeof PVE.Utils?.openWebRTCViewer === 'function';\n" +
+    '    const defineOverride = (name, body) => {\n' +
+    '        const legacyQemu = /\\.(DisplayInputPanel|DisplayEdit|AudioInputPanel|AudioEdit|HardwareView|QemuConfig)Overlay$/.test(name);\n' +
+    '        if (!VIEWER && !(NATIVE_QEMU && legacyQemu)) { Ext.define(name, body); }\n' +
+    '    };\n' +
+    '    const MIN_VMID = 100;\n' +
+    '    const MAX_VMID = 999999999;\n' +
+    '    const MAX_QEMU_ARGS_BYTES = 8192;\n' +
+    "    const RUNTIME_PREFIX = '/run/qsm-pve-direct';\n" +
+    "    const DEFAULT_RENDER_NODE = '/dev/dri/renderD128';\n" +
+    "    const DIRECT_GPU_ID = 'qsm-direct-gpu';\n" +
+    "    const DIRECT_AGENT_ID = 'qsm-direct-agent';\n" +
+    "    const DIRECT_AUDIO_ID = 'qsm-direct-audio';\n" +
+    '    // VirGL is an optional acceleration profile, not a prerequisite for the\n' +
+    "    // browser transport. The CPU profile relies on PVE's stock VGA adapter\n" +
+    "    // and explicitly uses QEMU's non-GL Display1 backend.\n" +
+    '    const DISPLAY_PROFILE = Object.freeze({\n' +
+    "        virgl: 'virgl',\n" +
+    "        cpu: 'cpu',\n" +
+    '    });\n' +
+    "    // The non-GL D-Bus Display1 backend captures the active QEMU console's 2D\n" +
+    '    // surface, which is device-agnostic: Standard VGA, VirtIO-GPU (no GL) and\n' +
+    '    // VMware SVGA all render to an ordinary console the same way. VMware SVGA\n' +
+    '    // therefore works with the CPU profile (it cannot drive the VirGL/GL\n' +
+    '    // profile, which needs virtio-vga-gl). qxl is left out for now: its usual\n' +
+    '    // home is SPICE and it has not been qualified here.\n' +
+    "    const CPU_DISPLAY_VGA_TYPES = new Set(['std', 'virtio', 'vmware']);\n" +
+    '    // Console preferences are deliberately browser-local.  They do not\n' +
+    '    // contain a credential, VM identifier, SDP, or any host policy: the PVE\n' +
+    '    // Console route remains the sole authority for those.  Keeping the UI\n' +
+    '    // tuning here also means an administrator can use the same node with a\n' +
+    '    // conservative desktop profile while a LAN user selects an interactive\n' +
+    '    // one without changing a VM configuration.\n' +
+    "    const CONSOLE_SETTINGS_STORAGE_KEY = 'qsm-direct-console-settings-v1';\n" +
+    '    const KEYBOARD_PRIORITY = Object.freeze({\n' +
+    "        guest: 'guest-first',\n" +
+    '        // Raw delivery is deliberately a third choice rather than an\n' +
+    '        // implementation detail of guest-first. It is useful while setting\n' +
+    "        // up a VM's own shortcuts: every DOM press/release edge is sent to\n" +
+    '        // Display1 and QSM reserves no local capture-exit chord.\n' +
+    "        raw: 'raw-events',\n" +
+    "        client: 'client-first',\n" +
+    '    });\n' +
+    '    const CONSOLE_SETTING_SCHEMA = Object.freeze({\n' +
+    '        toolbarHotZonePx: { defaultValue: 32, minimum: 4, maximum: 160 },\n' +
+    '        toolbarNearbyPx: { defaultValue: 36, minimum: 0, maximum: 240 },\n' +
+    '        toolbarRevealDelayMs: { defaultValue: 650, minimum: 0, maximum: 5000 },\n' +
+    '        toolbarHideDelayMs: { defaultValue: 3000, minimum: 250, maximum: 30000 },\n' +
+    '        targetFps: { defaultValue: 60, minimum: 10, maximum: 240 },\n' +
+    '        playoutDelayMs: { defaultValue: 0, minimum: 0, maximum: 1000 },\n' +
+    '        resizeDebounceMs: { defaultValue: 400, minimum: 100, maximum: 3000 },\n' +
+    '        resizeSettleMs: { defaultValue: 1000, minimum: 250, maximum: 5000 },\n' +
+    '    });\n' +
+    '    // A guest compositor turns its virtual output off after an idle timeout\n' +
+    '    // (DPMS/screen blank).  QEMU Display1 keeps emitting a scanout, but every\n' +
+    '    // pixel is black and no mode change is applied until the guest wakes.\n' +
+    '    // Measured on PVE 9 with a KWin/Wayland guest: the desktop returns about\n' +
+    '    // 256 ms after the first browser mouse or key event, and never without\n' +
+    '    // one.  This constant is how long an all-black picture is tolerated\n' +
+    '    // before the Console explains it; a locked guest that keeps scanning out\n' +
+    '    // its last picture is covered by the stalled-resize path instead.\n' +
+    '    const GUEST_SLEEP_HINT_MS = 4000;\n' +
+    '\n' +
+    '    const defaultConsoleSettings = () => ({\n' +
+    '        ...Object.fromEntries(Object.entries(CONSOLE_SETTING_SCHEMA).map(\n' +
+    '            ([name, definition]) => [name, definition.defaultValue],\n' +
+    '        )),\n' +
+    '        // The direct Console is a remote-desktop window, so the guest gets\n' +
+    '        // received keys by default. The explicit client-first mode remains\n' +
+    '        // available for users who want browser/OS shortcuts to win.\n' +
+    '        keyboardPriority: KEYBOARD_PRIORITY.guest,\n' +
+    '    });\n' +
+    '    const readConsoleSettings = (storage) => {\n' +
+    '        const settings = defaultConsoleSettings();\n' +
+    '        try {\n' +
+    '            if (!storage) { return settings; }\n' +
+    "            const stored = JSON.parse(storage.getItem(CONSOLE_SETTINGS_STORAGE_KEY) || '{}');\n" +
+    "            if (!stored || typeof stored !== 'object' || Array.isArray(stored)) { return settings; }\n" +
+    '            for (const [name, definition] of Object.entries(CONSOLE_SETTING_SCHEMA)) {\n' +
+    '                const value = stored[name];\n' +
+    '                if (Number.isInteger(value) && value >= definition.minimum && value <= definition.maximum) {\n' +
+    '                    settings[name] = value;\n' +
+    '                }\n' +
+    '            }\n' +
+    '            if (Object.values(KEYBOARD_PRIORITY).includes(stored.keyboardPriority)) {\n' +
+    '                settings.keyboardPriority = stored.keyboardPriority;\n' +
+    '            }\n' +
+    '        } catch (_error) { /* A disabled/private localStorage uses defaults. */ }\n' +
+    '        return settings;\n' +
+    '    };\n' +
+    '    const writeConsoleSettings = (storage, settings) => {\n' +
+    '        try {\n' +
+    '            if (storage) { storage.setItem(CONSOLE_SETTINGS_STORAGE_KEY, JSON.stringify(settings)); }\n' +
+    '        }\n' +
+    '        catch (_error) { /* The active popup remains usable without persistence. */ }\n' +
+    '    };\n' +
+    "    // Display1 injects into QEMU's *active* input devices.  q35 normally\n" +
+    "    // supplies PS/2 plus VMware's vmmouse; a guest can select either one and\n" +
+    '    // make Display1 pointer events disappear even though the WebRTC channel\n' +
+    '    // is healthy.  A direct console owns one explicit USB keyboard and the\n' +
+    '    // existing PVE USB tablet, and removes both legacy alternatives.  Keep\n' +
+    '    // these exact args managed with the Display1 lifecycle: changing back to\n' +
+    "    // a normal PVE display restores PVE's normal input topology.\n" +
+    '    const DIRECT_INPUT_ARGUMENTS = [\n' +
+    "        '-machine vmport=off',\n" +
+    "        '-machine i8042=off',\n" +
+    "        '-device usb-kbd,id=qsm-direct-keyboard',\n" +
+    '    ];\n' +
+    '\n' +
+    "    const validNode = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$/.test(value);\n" +
+    '    const validVmid = (value) => Number.isInteger(value) && value >= MIN_VMID && value <= MAX_VMID;\n' +
+    "    const validRenderNode = (value) => typeof value === 'string' && /^\\/dev\\/dri\\/renderD[0-9]{1,4}$/.test(value);\n" +
+    "    const enabled = (value) => value === true || value === 1 || value === '1';\n" +
+    '    const displayProfile = (value) => Object.values(DISPLAY_PROFILE).includes(value)\n' +
+    '        ? value : DISPLAY_PROFILE.virgl;\n' +
+    "    const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n" +
+    '    const windowVmid = (window) => {\n' +
+    '        const selected = window && window.pveSelNode && window.pveSelNode.data;\n' +
+    '        const vmid = selected ? Number(selected.vmid) : NaN;\n' +
+    '        return validVmid(vmid) ? vmid : null;\n' +
+    '    };\n' +
+    '    // Audio is optional: Display1 carries it only when -display names a dbus\n' +
+    '    // audiodev.  48 kHz stereo is what the console encodes (Opus), so QEMU\n' +
+    '    // does no resampling the worker would otherwise have to undo.\n' +
+    "    const audioSuffix = (audio) => audio ? `,audiodev=${DIRECT_AUDIO_ID}` : '';\n" +
+    '    const displayArgument = (vmid, profile, rendernode, audio = false) => {\n' +
+    '        if (!validVmid(vmid)) {\n' +
+    "            throw new Error('invalid direct Display1 settings');\n" +
+    '        }\n' +
+    '        if (profile === DISPLAY_PROFILE.cpu) {\n' +
+    '            return `-display dbus,addr=unix:path=${RUNTIME_PREFIX}/${vmid}/qemu-display1.bus,gl=off${audioSuffix(audio)}`;\n' +
+    '        }\n' +
+    '        if (profile !== DISPLAY_PROFILE.virgl || !validRenderNode(rendernode)) {\n' +
+    "            throw new Error('invalid direct Display1 settings');\n" +
+    '        }\n' +
+    '        return `-display dbus,addr=unix:path=${RUNTIME_PREFIX}/${vmid}/qemu-display1.bus,gl=on,rendernode=${rendernode}${audioSuffix(audio)}`;\n' +
+    '    };\n' +
+    '    // hda-micro: speakers plus a microphone input, which the console feeds\n' +
+    "    // with the browser's microphone.\n" +
+    '    const AUDIO_ARGUMENTS = [\n' +
+    '        `-audiodev dbus,id=${DIRECT_AUDIO_ID},in.frequency=48000,in.channels=2,out.frequency=48000,out.channels=2`,\n' +
+    "        '-device ich9-intel-hda,id=qsm-direct-hda',\n" +
+    '        `-device hda-micro,id=qsm-direct-hda-codec,bus=qsm-direct-hda.0,audiodev=${DIRECT_AUDIO_ID}`,\n' +
+    '    ];\n' +
+    '    // Output only, as written by 0.4.0+git171; recognised and upgraded on save.\n' +
+    '    const LEGACY_AUDIO_ARGUMENTS = [\n' +
+    '        `-audiodev dbus,id=${DIRECT_AUDIO_ID},out.frequency=48000,out.channels=2`,\n' +
+    "        '-device ich9-intel-hda,id=qsm-direct-hda',\n" +
+    '        `-device hda-output,id=qsm-direct-hda-codec,bus=qsm-direct-hda.0,audiodev=${DIRECT_AUDIO_ID}`,\n' +
+    '    ];\n' +
+    '    const gpuArgument = () => `-device virtio-vga-gl,id=${DIRECT_GPU_ID}`;\n' +
+    '    const guestArguments = (vmid) => [\n' +
+    '        `-chardev socket,id=${DIRECT_AGENT_ID},path=${RUNTIME_PREFIX}/${vmid}/qsm-agent.sock,server=on,wait=off`,\n' +
+    "        '-device virtio-serial-pci,id=qsm-direct-serial',\n" +
+    '        `-device virtserialport,chardev=${DIRECT_AGENT_ID},name=org.qsm.direct.agent`,\n' +
+    '    ];\n' +
+    '    const virglDisplayPattern = (vmid) => new RegExp(\n' +
+    '        `(?:^|\\\\s)-display\\\\s+dbus,addr=unix:path=${escapeRegExp(RUNTIME_PREFIX)}/${vmid}/qemu-display1\\\\.bus,gl=on,rendernode=(/dev/'... 195091 more characters,
+  expected: /const vmStatusUrl = \(\) => `\/nodes\/\$\{encodeURIComponent\(node\)\}\/\$\{guestKind\}\/\$\{encodeURIComponent\(vmid\)\}\/status\/current`;/,
+  operator: 'match'
+}
+
+Node.js v18.19.1
+
+      Start  8: qmdp_core_tests
+ 8/15 Test  #8: qmdp_core_tests ......................   Passed    0.13 sec
+      Start  9: qmdp_dbus_integration_tests
+ 9/15 Test  #9: qmdp_dbus_integration_tests ..........   Passed    0.71 sec
+      Start 10: qmdp_no_gpu_ffmpeg_selftest
+10/15 Test #10: qmdp_no_gpu_ffmpeg_selftest ..........   Passed    0.91 sec
+      Start 11: qmdp_message_bus_map_e2e
+11/15 Test #11: qmdp_message_bus_map_e2e .............   Passed    1.25 sec
+      Start 12: qmdp_message_bus_inline_e2e
+12/15 Test #12: qmdp_message_bus_inline_e2e ..........   Passed    1.26 sec
+      Start 13: qmdp_real_qemu_e2e
+13/15 Test #13: qmdp_real_qemu_e2e ...................   Passed    1.81 sec
+      Start 14: qmdp_real_qemu_absolute_e2e
+14/15 Test #14: qmdp_real_qemu_absolute_e2e ..........   Passed    1.82 sec
+      Start 15: qmdp_real_qemu_nvenc_e2e
+15/15 Test #15: qmdp_real_qemu_nvenc_e2e .............   Passed    1.92 sec
+
+93% tests passed, 1 tests failed out of 15
+
+Total Test time (real) =  15.94 sec
+
+The following tests FAILED:
+	  7 - qsm_direct_pve_console_overlay (Failed)
+Errors while running CTest

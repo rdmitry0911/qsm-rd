@@ -4,6 +4,35 @@ Proxmox takes no pull requests: patches go to `pve-devel@lists.proxmox.com`
 with `git send-email`, and every contributor signs a CLA first
 ([developer documentation](https://pve.proxmox.com/wiki/Developer_Documentation)).
 
+## Shared-base status (2026-10-14)
+
+QSM now consumes Alexandre Derumier's shared per-VM D-Bus foundation.
+qemu-server owns the bus; WebRTC, encoding and guest companion support
+remain in the separate QSM package. Native browser signalling and codec
+settings use PVE's API on port 8006.
+
+The review-ready series are:
+
+1. [Common qemu-server foundation](patches/shared-qemu-server/0000-cover-letter.patch)
+   — six patches, including Alexandre's original patch with his authorship.
+2. [WebRTC qemu-server API](patches/webrtc-qemu-server/0000-cover-letter.patch)
+   — one patch above the common foundation.
+3. [pve-manager UI](patches/shared-pve-manager/0000-cover-letter.patch)
+   — three patches for native configuration and Console integration.
+4. [Optional Venus compatibility](patches/optional-venus/0000-cover-letter.patch)
+   — Markus Frank's adapted patch and a configuration test; not required.
+
+[Installation, protocol and validation](shared-platform-review-2026-10-14.txt)
+records source revisions, dependencies, migration commands and verified
+limitations. [Review evidence](review-shared-platform-2026-10-14/) contains
+build/test logs and the known laboratory display fixture.
+[Follow-up draft](pve-devel-shared-platform-followup.eml) is ready for review.
+Nothing in this update was sent to the mailing list or forum.
+
+The [earlier readiness audit](shared-base-audit-2026-10-14.txt) records the
+state before this implementation. The original p2p patch directories below
+are historical and should not be submitted as the shared-base revision.
+
 ## Order
 
 1. **CLA** -- sign the
@@ -33,14 +62,15 @@ with `git send-email`, and every contributor signs a CLA first
    glReadPixels, any encoder) so a virtio-gl guest streams on NVIDIA,
    where his VAAPI zero-copy path cannot; tested on an RTX 3080.
 
-4. **Patch series** -- prepared in [`patches/`](patches/), one directory per
-   Proxmox repository, generated with `git format-patch -s` against current
-   upstream master; `0000-cover-letter.patch` is each series' cover letter.
-   Send a series as is, e.g.
+4. **Original patch series** -- preserved in [`patches/`](patches/), one
+   directory per Proxmox repository, generated with `git format-patch -s`
+   for the initial RFC; `0000-cover-letter.patch` is each cover letter.
+   All five qemu-server patches and three pve-manager patches apply to
+   upstream master as checked on 2026-10-14, but still implement the
+   original p2p design. They are not the proposed shared-base series.
+   Use the new shared-base series linked above for review.
 
-       git send-email --to=pve-devel@lists.proxmox.com patches/qemu-server/*.patch
-
-   Patch 1 (render node, bug #4771) stands on its own and can go first.
+   Patch 1 (render node, bug #4771) is independent of the shared-base work.
 
 ## Rules the patches follow
 

@@ -1,0 +1,45 @@
+From: Dmitry R <rdmitry0911@gmail.com>
+To: pve-devel@lists.proxmox.com
+Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+Subject: Re: [RFC] WebRTC console for VMs via QEMU's D-Bus display
+In-Reply-To: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+References: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Hi Alexandre, hi all,
+
+I've reworked the per-VM D-Bus foundation from Alexandre's v2 and moved
+QSM's WebRTC console onto it. The original D-Bus patch retains Alexandre's
+authorship and sign-off. qemu-server owns the bus and its lifetime; the
+media service remains a separate package and attaches as a consumer.
+
+The proposed opt-in is a VM-wide dbus-display: 1. GPU type and rendernode
+remain in vga, and audio0 can select driver=dbus. CPU displays can keep
+VNC alongside D-Bus; virtio-gl cannot offer VNC/SPICE alongside it.
+
+I've separated the review into six common qemu-server patches, one
+WebRTC API patch above them, and three pve-manager patches. WebRTC offers,
+minimal VM status and codec settings use PVE's existing authenticated
+API. Console access/read settings require VM.Console; policy writes
+require VM.Config.Options. Native VM signalling no longer needs port 8007.
+
+The packages build with the upstream tests. In an isolated PVE 9 lab I
+checked CPU and GL display, embedded and popup consoles together, sound
+and microphone, clipboard in both directions and the API permissions.
+A second independent D-Bus capture consumer also ran while the browser
+continued decoding. The migration tool converts stopped QSM-managed VMs,
+saves a private backup and preserves unrelated arguments/guest channels.
+
+I've also adapted Markus Frank's Venus v4 configuration patch separately
+and tested its command generation. It is optional; I have not qualified
+Vulkan inside a guest. The NVIDIA EGL readback fix is kept separately too:
+its adapter-to-file check is not a full Kyber/RDP browser qualification.
+
+I'd appreciate feedback on the VM-wide option, bus ownership/lifecycle,
+audio defaults, and the API/UI split before treating these as final.
+The accompanying series contain the source bases and validation details.
+
+Thanks,
+Dmitry

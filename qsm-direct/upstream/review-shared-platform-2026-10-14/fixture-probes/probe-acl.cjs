@@ -1,0 +1,8 @@
+const fs=require('fs');const {chromium}=require('/opt/qsm-browser/node_modules/playwright');let browser;
+(async()=>{browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox']});const url='https://192.168.76.1:8006';
+for (const [user,file,allowed] of [['qsmsharedaudit@pve','/root/qsm-shared-audit.password',false],['qsmsharedconfig@pve','/root/qsm-shared-config.password',true]]) {
+ const context=await browser.newContext({ignoreHTTPSErrors:true});const r=await context.request.post(url+'/api2/json/access/ticket',{form:{username:user,password:fs.readFileSync(file,'utf8').trim()}});const auth=(await r.json()).data;if(!auth?.ticket)throw Error('LOGIN_FAILED');await context.addCookies([{name:'PVEAuthCookie',value:auth.ticket,url}]);const headers={CSRFPreventionToken:auth.CSRFPreventionToken};
+ if(!allowed){const offer=await context.request.post(url+'/api2/json/nodes/qsm-pve9-lab/qemu/106/webrtcproxy',{headers,form:{sdp:'v=0\r\n'}});if(offer.status()!==403)throw Error('CONSOLE_ACL_NOT_ENFORCED');console.log('NO_VM_CONSOLE_403');}
+ else {const write=await context.request.put(url+'/api2/json/nodes/qsm-pve9-lab/qemu/106/webrtcsettings',{headers,form:{codec:'h264',encoder:'software'}});if(write.status()!==200)throw Error('POLICY_WRITE_FAILED_'+write.status());const read=await context.request.get(url+'/api2/json/nodes/qsm-pve9-lab/qemu/106/webrtcsettings');const data=(await read.json()).data;if(data.codec!=='h264'||data.encoder!=='software')throw Error('POLICY_ROUND_TRIP_FAILED');console.log('POLICY_READ_WRITE_OK');}
+ await context.close();}
+})().catch(e=>{console.log('FAIL',e.message);process.exitCode=1}).finally(async()=>{if(browser)await browser.close()});

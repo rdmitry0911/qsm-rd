@@ -1,0 +1,157 @@
+From 23c3012bfb338c454153f06e08c7197554fce6ca Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Wed, 14 Oct 2026 18:19:39 +0300
+Subject: [PATCH 5/6] test: cover shared display audio and invalid
+ configurations
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ .../cfg2cmd/dbus-audio-without-display.conf   |  3 ++
+ src/test/cfg2cmd/dbus-display-audio.conf      |  8 ++++
+ src/test/cfg2cmd/dbus-display-audio.conf.cmd  | 37 +++++++++++++++++++
+ src/test/cfg2cmd/dbus-serial.conf             |  4 ++
+ src/test/cfg2cmd/virtio-gl-dbus-audio.conf    |  8 ++++
+ .../cfg2cmd/virtio-gl-dbus-audio.conf.cmd     | 36 ++++++++++++++++++
+ 6 files changed, 96 insertions(+)
+ create mode 100644 src/test/cfg2cmd/dbus-audio-without-display.conf
+ create mode 100644 src/test/cfg2cmd/dbus-display-audio.conf
+ create mode 100644 src/test/cfg2cmd/dbus-display-audio.conf.cmd
+ create mode 100644 src/test/cfg2cmd/dbus-serial.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl-dbus-audio.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl-dbus-audio.conf.cmd
+
+diff --git a/src/test/cfg2cmd/dbus-audio-without-display.conf b/src/test/cfg2cmd/dbus-audio-without-display.conf
+new file mode 100644
+index 00000000..a95a610f
+--- /dev/null
++++ b/src/test/cfg2cmd/dbus-audio-without-display.conf
+@@ -0,0 +1,3 @@
++# EXPECT_ERROR: audio driver 'dbus' needs 'dbus-display'
++vga: std
++audio0: device=ich9-intel-hda,driver=dbus
+diff --git a/src/test/cfg2cmd/dbus-display-audio.conf b/src/test/cfg2cmd/dbus-display-audio.conf
+new file mode 100644
+index 00000000..00fa7e98
+--- /dev/null
++++ b/src/test/cfg2cmd/dbus-display-audio.conf
+@@ -0,0 +1,8 @@
++# TEST: display also exported over D-Bus, VNC kept without GL
++smbios1: uuid=7b10d7af-b932-4c66-b2c3-3996152ec465
++vga: std
++vmgenid: c773c261-d800-4348-9f5d-167fadd53cf8
++
++dbus-display: 1
++
++audio0: device=ich9-intel-hda,driver=dbus
+diff --git a/src/test/cfg2cmd/dbus-display-audio.conf.cmd b/src/test/cfg2cmd/dbus-display-audio.conf.cmd
+new file mode 100644
+index 00000000..28cce448
+--- /dev/null
++++ b/src/test/cfg2cmd/dbus-display-audio.conf.cmd
+@@ -0,0 +1,37 @@
++/usr/bin/kvm \
++  -id 8006 \
++  -name vm8006 \
++  -no-shutdown \
++  -chardev 'socket,id=qmp,path=/var/run/qemu-server/8006.qmp,server=on,wait=off' \
++  -object 'monitor-qmp,chardev=qmp,id=monitor-qmp' \
++  -chardev 'socket,id=qmp-event,path=/var/run/qmeventd.sock,reconnect-ms=5000' \
++  -object 'monitor-qmp,chardev=qmp-event,id=monitor-qmp-event' \
++  -pidfile /var/run/qemu-server/8006.pid \
++  -daemonize \
++  -smbios 'type=1,uuid=7b10d7af-b932-4c66-b2c3-3996152ec465' \
++  -smp '1,sockets=1,cores=1,maxcpus=1' \
++  -nodefaults \
++  -boot 'menu=on,strict=on,reboot-timeout=1000,splash=/usr/share/qemu-server/bootsplash.jpg' \
++  -display 'dbus,addr=unix:path=/var/run/qemu-server/8006.dbusdisplay,gl=off,audiodev=dbus-backend0' \
++  -vnc 'unix:/var/run/qemu-server/8006.vnc,password=on' \
++  -cpu kvm64,enforce,+kvm_pv_eoi,+kvm_pv_unhalt,+lahf_lm,+sep \
++  -m 512 \
++  -global 'PIIX4_PM.disable_s3=1' \
++  -global 'PIIX4_PM.disable_s4=1' \
++  -device 'pci-bridge,id=pci.1,chassis_nr=1,bus=pci.0,addr=0x1e' \
++  -device 'pci-bridge,id=pci.2,chassis_nr=2,bus=pci.0,addr=0x1f' \
++  -device 'pci-bridge,id=pci.4,chassis_nr=4,bus=pci.1,addr=0x1c' \
++  -device 'vmgenid,guid=c773c261-d800-4348-9f5d-167fadd53cf8' \
++  -device 'piix3-usb-uhci,id=uhci,bus=pci.0,addr=0x1.0x2' \
++  -device 'usb-tablet,id=tablet,bus=uhci.0,port=1' \
++  -device 'ich9-intel-hda,id=audiodev0,bus=pci.2,addr=0xc' \
++  -device 'hda-micro,id=audiodev0-codec0,bus=audiodev0.0,cad=0,audiodev=dbus-backend0' \
++  -device 'hda-duplex,id=audiodev0-codec1,bus=audiodev0.0,cad=1,audiodev=dbus-backend0' \
++  -audiodev 'dbus,id=dbus-backend0,out.frequency=48000,out.channels=2,out.format=s16,in.frequency=48000,in.channels=2,in.format=s16' \
++  -device 'VGA,id=vga,bus=pci.0,addr=0x2' \
++  -device 'virtio-serial,id=spice,bus=pci.0,addr=0x9' \
++  -chardev 'qemu-vdagent,id=vdagent,name=vdagent,clipboard=on' \
++  -device 'virtserialport,chardev=vdagent,name=com.redhat.spice.0' \
++  -device 'virtio-balloon-pci,id=balloon0,bus=pci.0,addr=0x3,free-page-reporting=on' \
++  -iscsi 'initiator-name=iqn.1993-08.org.debian:01:aabbccddeeff' \
++  -machine 'type=pc+pve0'
+diff --git a/src/test/cfg2cmd/dbus-serial.conf b/src/test/cfg2cmd/dbus-serial.conf
+new file mode 100644
+index 00000000..aa9c9200
+--- /dev/null
++++ b/src/test/cfg2cmd/dbus-serial.conf
+@@ -0,0 +1,4 @@
++# EXPECT_ERROR: 'dbus-display' needs a graphical display, not 'serial0'
++vga: serial0
++serial0: socket
++dbus-display: 1
+diff --git a/src/test/cfg2cmd/virtio-gl-dbus-audio.conf b/src/test/cfg2cmd/virtio-gl-dbus-audio.conf
+new file mode 100644
+index 00000000..1bffd359
+--- /dev/null
++++ b/src/test/cfg2cmd/virtio-gl-dbus-audio.conf
+@@ -0,0 +1,8 @@
++# TEST: VirGL display exported over D-Bus with GL, no VNC next to it
++smbios1: uuid=7b10d7af-b932-4c66-b2c3-3996152ec465
++vga: virtio-gl,rendernode=/dev/dri/renderD129
++vmgenid: c773c261-d800-4348-9f5d-167fadd53cf8
++
++dbus-display: 1
++
++audio0: device=ich9-intel-hda,driver=dbus
+diff --git a/src/test/cfg2cmd/virtio-gl-dbus-audio.conf.cmd b/src/test/cfg2cmd/virtio-gl-dbus-audio.conf.cmd
+new file mode 100644
+index 00000000..58c1b3cf
+--- /dev/null
++++ b/src/test/cfg2cmd/virtio-gl-dbus-audio.conf.cmd
+@@ -0,0 +1,36 @@
++/usr/bin/kvm \
++  -id 8006 \
++  -name vm8006 \
++  -no-shutdown \
++  -chardev 'socket,id=qmp,path=/var/run/qemu-server/8006.qmp,server=on,wait=off' \
++  -object 'monitor-qmp,chardev=qmp,id=monitor-qmp' \
++  -chardev 'socket,id=qmp-event,path=/var/run/qmeventd.sock,reconnect-ms=5000' \
++  -object 'monitor-qmp,chardev=qmp-event,id=monitor-qmp-event' \
++  -pidfile /var/run/qemu-server/8006.pid \
++  -daemonize \
++  -smbios 'type=1,uuid=7b10d7af-b932-4c66-b2c3-3996152ec465' \
++  -smp '1,sockets=1,cores=1,maxcpus=1' \
++  -nodefaults \
++  -boot 'menu=on,strict=on,reboot-timeout=1000,splash=/usr/share/qemu-server/bootsplash.jpg' \
++  -display 'dbus,addr=unix:path=/var/run/qemu-server/8006.dbusdisplay,gl=on,audiodev=dbus-backend0,rendernode=/dev/dri/renderD129' \
++  -cpu kvm64,enforce,+kvm_pv_eoi,+kvm_pv_unhalt,+lahf_lm,+sep \
++  -m 512 \
++  -global 'PIIX4_PM.disable_s3=1' \
++  -global 'PIIX4_PM.disable_s4=1' \
++  -device 'pci-bridge,id=pci.1,chassis_nr=1,bus=pci.0,addr=0x1e' \
++  -device 'pci-bridge,id=pci.2,chassis_nr=2,bus=pci.0,addr=0x1f' \
++  -device 'pci-bridge,id=pci.4,chassis_nr=4,bus=pci.1,addr=0x1c' \
++  -device 'vmgenid,guid=c773c261-d800-4348-9f5d-167fadd53cf8' \
++  -device 'piix3-usb-uhci,id=uhci,bus=pci.0,addr=0x1.0x2' \
++  -device 'usb-tablet,id=tablet,bus=uhci.0,port=1' \
++  -device 'ich9-intel-hda,id=audiodev0,bus=pci.2,addr=0xc' \
++  -device 'hda-micro,id=audiodev0-codec0,bus=audiodev0.0,cad=0,audiodev=dbus-backend0' \
++  -device 'hda-duplex,id=audiodev0-codec1,bus=audiodev0.0,cad=1,audiodev=dbus-backend0' \
++  -audiodev 'dbus,id=dbus-backend0,out.frequency=48000,out.channels=2,out.format=s16,in.frequency=48000,in.channels=2,in.format=s16' \
++  -device 'virtio-vga-gl,id=vga,bus=pci.0,addr=0x2' \
++  -device 'virtio-serial,id=spice,bus=pci.0,addr=0x9' \
++  -chardev 'qemu-vdagent,id=vdagent,name=vdagent,clipboard=on' \
++  -device 'virtserialport,chardev=vdagent,name=com.redhat.spice.0' \
++  -device 'virtio-balloon-pci,id=balloon0,bus=pci.0,addr=0x3,free-page-reporting=on' \
++  -iscsi 'initiator-name=iqn.1993-08.org.debian:01:aabbccddeeff' \
++  -machine 'type=pc+pve0'
+-- 
+2.43.0
+

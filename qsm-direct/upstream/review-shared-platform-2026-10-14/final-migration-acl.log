@@ -1,0 +1,16 @@
+600 root /var/lib/qsm-pve-direct/migration/105-1791995089523811598.conf
+600 root /run/qemu-server/102.dbusdisplay
+600 root /run/qemu-server/105.dbusdisplay
+600 root /run/qemu-server/106.dbusdisplay
+args: -chardev socket,id=qsm-direct-agent,path=/run/qsm-pve-direct/105/qsm-agent.sock,server=on,wait=off -device virtio-serial-pci,id=qsm-direct-serial -device virtserialport,chardev=qsm-direct-agent,name=org.qsm.direct.agent -machine vmport=off -machine i8042=off -device usb-kbd,id=qsm-direct-keyboard
+bios: seabios
+boot: order=scsi0;ide2;ide3
+cores: 2
+cpu: host
+status: running
+active
+STATUS {"http":200,"status":"running"}
+OFFER_HTTP 200
+VIEWER { viewer: true, video: true, size: 1280, status: [] }
+NO_VM_CONSOLE_403
+POLICY_READ_WRITE_OK

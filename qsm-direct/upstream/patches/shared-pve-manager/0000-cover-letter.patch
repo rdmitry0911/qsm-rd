@@ -1,0 +1,44 @@
+From 72bc4d88ee469598e9d10382a7b533b475215bfe Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Wed, 14 Oct 2026 19:24:55 +0300
+Subject: [PATCH 0/3] RFC shared display configuration and native WebRTC console UI
+To: pve-devel@lists.proxmox.com
+Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+In-Reply-To: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+References: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+
+For bug #8106, based on pve-manager
+9c3f5e5258f73f31e273493232a79d615fd9e072.
+Requires the shared qemu-server and WebRTC API series. The browser viewer
+and media service are supplied by a separate console package.
+
+Expose the shared display checkbox, render node and D-Bus audio backend.
+Use WebRTC in the existing Console tab and menu when the VM exports a
+shared display and a console service is installed. Keep CPU noVNC available
+and respect an administrator's explicit xterm console preference.
+pveproxy serves the separately packaged viewer.
+
+Validation: JavaScript lint/bundle build and full pve-manager package/tests;
+real Chrome, authenticated PVE sessions, CPU and GL viewers, embedded and
+popup in both orders. Tests used packages built from this exact source.
+
+Review questions: checkbox placement, console preference and separate
+viewer packaging. The proposed dbus-display key is shared with qemu-server.
+
+Dmitry R (3):
+  pveproxy: serve the page of a WebRTC console viewer
+  ui: use WebRTC for displays with a shared bus and console service
+  ui: configure the shared D-Bus display, render node and audio
+
+ PVE/Service/pveproxy.pm              | 15 +++++++++
+ www/manager6/Utils.js                | 22 +++++++++++++
+ www/manager6/VNCConsole.js           | 15 ++++++++-
+ www/manager6/button/ConsoleButton.js | 31 ++++++++++++++++++
+ www/manager6/qemu/AudioEdit.js       |  1 +
+ www/manager6/qemu/Config.js          |  8 +++++
+ www/manager6/qemu/DisplayEdit.js     | 49 ++++++++++++++++++++++++++--
+ 7 files changed, 137 insertions(+), 4 deletions(-)
+
+-- 
+2.43.0
+

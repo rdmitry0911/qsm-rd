@@ -1,0 +1,124 @@
+QSM shared-platform implementation and review record — 2026-10-14
+
+State
+The QSM package migration onto Alexandre Derumier's common per-VM D-Bus
+foundation is implemented. Local upstream series and Debian packages are
+prepared. They are proposals, not merged Proxmox functionality. No mailing
+list/forum messages were sent by this task and no production node changed.
+
+Source and attribution
+QSM consumer implementation commit: 41ca4c5
+qemu-server base: a4efa5f9ad2afbf4dea02274ed7a6ff41cdcf0aa
+common head:      873cf5c880b6a1d00d140f34f0de1e8de85242c1
+WebRTC head:      6a658d0340880cd2a2c3d4a0e109de9b0407a4ff
+pve-manager base: 9c3f5e5258f73f31e273493232a79d615fd9e072
+pve-manager head: 72bc4d88ee469598e9d10382a7b533b475215bfe
+Alexandre's original v2 DBusDisplay patch retains his author and sign-off.
+The common modifications, WebRTC and UI patches are signed by Dmitry R.
+Optional Venus patch retains Markus Frank's author and original sign-off.
+The original exported p2p directories are historical, not this revision.
+
+Apply/build (clean upstream repositories at the bases above)
+  git am /path/to/upstream/patches/shared-qemu-server/000[1-6]-*.patch
+  git am /path/to/upstream/patches/webrtc-qemu-server/0001-*.patch
+  make deb                        # qemu-server, PVE Debian 13 build environment
+In pve-manager:
+  git am /path/to/upstream/patches/shared-pve-manager/000[1-3]-*.patch
+  make deb
+Build QSM on Debian 13 with the PVE 9 FFmpeg ABI:
+  QSM_DIRECT_DEB_VERSION=0.4.0+shared3 bash packaging/debian/build-qsm-pve-direct-deb.sh
+Optional Venus patches apply after the shared foundation; no QSM dependency.
+All exported required and optional patches were applied to clean clones.
+NVIDIA Kyber adapter patch remains in upstream/kyber-nvidia/ separately.
+
+Install/migrate (isolated test node first)
+  apt install ./qemu-server_9.2.11_amd64.deb ./pve-manager_9.2.21_all.deb               ./qsm-pve-direct_0.4.0+shared3_amd64.deb
+  systemctl restart pvedaemon pveproxy qsm-pve-direct-terminal
+Stop an existing QSM-managed VM, preview, then apply:
+  qsm-pve-direct-migrate VMID
+  qsm-pve-direct-migrate VMID --apply
+  qm start VMID
+Apply requires the native API to be installed and the VM stopped. A mode0600
+backup under /var/lib/qsm-pve-direct/migration contains the original full
+config. Unrelated args and the optional QSM serial companion are retained;
+only the owned display/GPU/audio pieces are translated into native options.
+A foreign profile or conflicting audio0 is refused. No args/credentials are
+printed by the preview. Restore the backup only while the VM is stopped.
+For a new VM: qm set VMID --dbus-display 1 --vga std
+For GL: --vga virtio-gl,rendernode=/dev/dri/renderD128
+Optional audio: --audio0 device=ich9-intel-hda,driver=dbus
+Reload the browser page after installation. Native Console is provided by
+pve-manager; the QSM overlay skips the legacy QEMU editor/Console overrides.
+The legacy unpatched-PVE add-on and LXC transport keep their old paths.
+The rebuilt PVE packages keep upstream version numbers and are local review
+artifacts: installing a stock package later can replace the proposed APIs.
+
+Ownership and protocol
+qemu-server starts one dbus-daemon before QEMU in the VM's scope. It cleans
+socket/daemon at VM stop/failure and protects against stale reused PIDs.
+The socket is root-owned mode0600 at /run/qemu-server/VMID.dbusdisplay.
+QSM never provisions/deletes that bus. Its service restart retires its own
+sessions and leaves QEMU's bus intact; reopening the console reconnects.
+Protocol v2 is one root-only Unix request, no SCM_RIGHTS descriptor:
+  {version:2,vmid:VMID,user:PVE_USER,offer:{sdp:..., ...}}
+Settings requests replace offer with settings:null (read) or
+settings:{codec:auto|h264|hevc,encoder:auto|hardware|software} (write).
+VMID and the root-owned running config derive the bus path independently;
+old saved addresses cannot redirect a native VM. The service checks SO_PEERCRED.
+Legacy v1 FD attachment remains supported, outside the native shared path.
+PVE authorizes all browser routes; the media service does not parse tickets.
+Native signalling uses port8006, while media still requires reachable UDP.
+Console-only status returns running/stopped, not the full VM.Audit payload.
+Policy updates preserve node-local explicit encoder/render-node choices.
+
+Validation and reproduction
+Full native qemu-server Debian build and upstream tests passed, including
+118 cfg2cmd cases and 9 actual dbus-daemon lifecycle checks. pve-manager lint,
+bundle and full Debian package/test build passed. Nonfatal lintian man-page
+formatting warnings are retained in the logs. QSM Release build passed;
+15 CTest cases passed (14 initial, one obsolete route expectation corrected
+and rerun); the shared test contains 13 ownership/protocol/migration cases.
+Additional signal/audio/container suites passed (9/4/12 cases).
+Installed package SHA256 values match the local artifacts; dpkg verification
+reported only the pre-existing lab APT repository configuration change.
+Final packages, rather than hand-copied development modules, were installed
+in the isolated nested PVE 9 lab and exercised with real Chrome/WebRTC.
+- CPU and GL: embedded then popup and popup then embedded, 829x514 frames.
+- Legacy VM105 was converted by the packaged command, started successfully,
+  and passed the two-viewer CPU gate with its optional companion retained.
+- Shared GL DMA-BUF consumer ran concurrently: 0 import failures/errors;
+  the browser decoded 704 more frames during the second consumer's capture.
+- Service restart preserved the same bus; VM stop removed it; restart created it.
+- No VM.Console: offer403. Console: settingsGET200/settingsPUT403.
+  VM.Config.Options: policy write/read200. Console without VM.Audit: video works.
+- Actual tone from guest decoded in browser, fake browser mic recorded by
+  guest ALSA; native QEMU clipboard with X11 spice-vdagent tested using only
+  synthetic markers. See final-media.log and guest-microphone.txt.
+
+Two-viewer reproduction on an authorized running VM:
+  node lab/proxmox9/qualify-pve-direct-embedded-window-e2e.cjs --native     --pve-url https://NODE:8006 --user USER@pve --password-file PRIVATE_FILE     --vmid VMID --chrome /usr/bin/google-chrome
+Playwright must be installed on the browser runner. Password file mode0600.
+Package documentation details display/audio setup; review evidence includes
+fixture-specific media/ACL probes (private passwords are not bundled).
+
+Review boundaries
+Top-level dbus-display naming, bus policy, audio defaults and API/UI choices
+need maintainer review. Full Kyber/RDP services/browser and runtime Venus
+were not qualified here. The NVIDIA patch's previous adapter-to-file test
+must not be described as a full Kyber integration test. Concurrent display
+capture is proven, not concurrent clipboard ownership: QEMU allows a single
+clipboard proxy. Native clipboard was checked with spice-vdagent on X11;
+the retained QSM companion supports existing desktop integrations but a new
+Wayland end-to-end clipboard qualification was not part of this run.
+Performance figures in older documents refer to their original setups and
+were not remeasured as benchmarks of the shared-platform revision.
+
+Materials
+patches/shared-qemu-server, patches/webrtc-qemu-server,
+patches/shared-pve-manager: cover letters, authorship and actual patch series.
+patches/optional-venus and kyber-nvidia: separate optional compatibility work.
+patches/qsm-shared-consumer: the QSM implementation diff for review.
+pve-devel-shared-platform-followup.eml: follow-up draft; forum-post-draft.txt:
+updated forum draft in the established author's style. Earlier reply has
+already been sent by the user; it is retained only as historical context.
+review-shared-platform-2026-10-14: build/test logs, fixture, SHA256SUMS.

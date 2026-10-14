@@ -1,0 +1,10 @@
+ok 1 - first VM has a bus
+ok 2 - second VM has an independent bus
+ok 3 - bus is root-private
+ok 4 - stop removes socket
+ok 5 - stop terminates daemon
+ok 6 - another VM is unaffected
+ok 7 - VM can restart
+ok 8 - stale pidfile did not kill the test process
+ok 9 - second VM cleanup
+1..9

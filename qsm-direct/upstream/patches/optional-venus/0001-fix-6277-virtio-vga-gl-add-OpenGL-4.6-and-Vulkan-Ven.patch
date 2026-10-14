@@ -1,0 +1,74 @@
+From 00c37887039757c8f42373c455238fb29b919d6e Mon Sep 17 00:00:00 2001
+From: Markus Frank <m.frank@proxmox.com>
+Date: Wed, 14 Oct 2026 18:54:41 +0300
+Subject: [PATCH 1/2] fix #6277: virtio-vga-gl: add OpenGL 4.6 and Vulkan
+ (Venus) support
+
+Rebase the v4 proposal onto the shared D-Bus display series. GPU
+features remain on the VGA device; the display bus is independent.
+
+Original v4: 20260831094605.114396-2-m.frank@proxmox.com
+
+Signed-off-by: Markus Frank <m.frank@proxmox.com>
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ src/PVE/QemuServer.pm | 36 +++++++++++++++++++++++++++++++++++-
+ 1 file changed, 35 insertions(+), 1 deletion(-)
+
+diff --git a/src/PVE/QemuServer.pm b/src/PVE/QemuServer.pm
+index b340565..ae06826 100644
+--- a/src/PVE/QemuServer.pm
++++ b/src/PVE/QemuServer.pm
+@@ -172,6 +172,20 @@ my $vga_fmt = {
+             qw(cirrus qxl qxl2 qxl3 qxl4 none serial0 serial1 serial2 serial3 std virtio virtio-gl vmware)
+         ],
+     },
++    'virgl-features' => {
++        description => 'Enable additional features on VirGL GPU.',
++        type => 'string',
++        optional => 1,
++        enum => ['opengl4.6', 'opengl4.6+vulkan'],
++    },
++    'virgl-memory-window' => {
++        description => 'Set the VirGL host memory window. This option allocates'
++            . ' host memory to act as VRAM in the VM.',
++        type => 'string',
++        default => '2048',
++        optional => 1,
++        enum => ['512', '1024', '2048', '4096', '8192'],
++    },
+     memory => {
+         description => "Sets the VGA memory (in MiB). Has no effect with serial display.",
+         type => 'integer',
+@@ -1600,7 +1614,27 @@ sub print_vga_device {
+         die "'rendernode' is only supported with the 'virtio-gl' display\n";
+     }
+ 
+-    return "$type,id=${vgaid}${memory}${max_outputs}${pciaddr}${edidoff}";
++    my $virgl_param = "";
++    my $virgl_mode = $vga->{'virgl-features'};
++    if ($virgl_mode) {
++        my $virgl_memory_window = $vga->{'virgl-memory-window'}
++            // $vga_fmt->{'virgl-memory-window'}->{'default'};
++        $virgl_param = ",hostmem=${virgl_memory_window}M,blob=on";
++
++        if ($virgl_mode eq 'opengl4.6+vulkan') {
++            $virgl_param .= ",venus=on";
++            log_warn(
++                "missing virgl render server for Vulkan (Venus) support! Please install 'virgl-server'.\n"
++            ) if !-e "/usr/libexec/virgl_render_server";
++        }
++    } elsif ($vga->{'virgl-memory-window'}) {
++        die "To use a VirGL host memory window, please select a compatible VirGL feature set.\n";
++    }
++
++    die "You need to use virtio-gl to enable OpenGL 4.6 or Vulkan support!\n"
++        if $virgl_mode && $vga->{type} ne 'virtio-gl';
++
++    return "$type,id=${vgaid}${memory}${max_outputs}${pciaddr}${edidoff}${virgl_param}";
+ }
+ 
+ sub vm_is_volid_owner {
+-- 
+2.43.0
+

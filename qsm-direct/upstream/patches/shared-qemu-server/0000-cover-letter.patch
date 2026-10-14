@@ -1,0 +1,89 @@
+From 873cf5c880b6a1d00d140f34f0de1e8de85242c1 Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Wed, 14 Oct 2026 19:24:55 +0300
+Subject: [PATCH 0/6] RFC shared D-Bus display foundation for console services
+To: pve-devel@lists.proxmox.com
+Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+In-Reply-To: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+References: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+
+This reworks Alexandre Derumier's v2 D-Bus display foundation, with his
+original patch and authorship retained. Thanks Alexandre for inviting the
+rework. It targets qemu-server a4efa5f9ad2afbf4dea02274ed7a6ff41cdcf0aa.
+
+The VM-wide opt-in proposed here is dbus-display: 1, independent of a
+particular console protocol. qemu-server owns one root-private per-VM bus,
+creates it before QEMU, and cleans it at VM stop and startup failure.
+GPU selection and rendernode stay in vga; audio0 can select driver=dbus.
+CPU display permits VNC alongside D-Bus; virtio-gl disables VNC/SPICE.
+
+This series includes the rendernode fix for #4771 and native audio/
+qemu-vdagent integration. No QSM package, encoder, WebRTC API, Kyber or RDP
+service is required by the common foundation.
+
+Validation: full qemu-server package build, 118 cfg2cmd cases and nine real
+bus lifecycle checks. In PVE 9, a second independent D-Bus consumer captured
+GL scanouts while the browser console continued decoding frames.
+
+Review questions: top-level dbus-display naming, root-only bus policy,
+audio defaults, and common lifecycle placement. The WebRTC consumer and
+pve-manager changes are separate series. Optional Markus Frank Venus work
+is also separate and not a prerequisite.
+
+Alexandre Derumier (1):
+  add D-Bus display support
+
+Dmitry R (5):
+  fix #4771: vga: add rendernode option for virtio-gl
+  display: integrate the per-VM D-Bus with graphics and audio
+  display: protect bus sockets and verify daemon cleanup
+  test: cover shared display audio and invalid configurations
+  test: run the shared bus lifecycle checks in the test target
+
+ src/PVE/API2/Qemu.pm                          |   6 +
+ src/PVE/QemuServer.pm                         | 111 ++++++++++++++---
+ src/PVE/QemuServer/DBusDisplay.pm             | 114 ++++++++++++++++++
+ src/PVE/QemuServer/Helpers.pm                 |   6 +
+ src/PVE/QemuServer/Makefile                   |   1 +
+ src/test/Makefile                             |   5 +-
+ .../cfg2cmd/dbus-audio-without-display.conf   |   3 +
+ src/test/cfg2cmd/dbus-display-audio.conf      |   8 ++
+ src/test/cfg2cmd/dbus-display-audio.conf.cmd  |  37 ++++++
+ src/test/cfg2cmd/dbus-display.conf            |   6 +
+ src/test/cfg2cmd/dbus-display.conf.cmd        |  33 +++++
+ src/test/cfg2cmd/dbus-serial.conf             |   4 +
+ src/test/cfg2cmd/dbus-without-display.conf    |   8 ++
+ .../cfg2cmd/rendernode-without-virgl.conf     |   5 +
+ src/test/cfg2cmd/virtio-gl-dbus-audio.conf    |   8 ++
+ .../cfg2cmd/virtio-gl-dbus-audio.conf.cmd     |  36 ++++++
+ src/test/cfg2cmd/virtio-gl-dbus.conf          |   6 +
+ src/test/cfg2cmd/virtio-gl-dbus.conf.cmd      |  32 +++++
+ src/test/cfg2cmd/virtio-gl-rendernode.conf    |   4 +
+ .../cfg2cmd/virtio-gl-rendernode.conf.cmd     |  34 ++++++
+ src/test/cfg2cmd/virtio-gl.conf               |   4 +
+ src/test/cfg2cmd/virtio-gl.conf.cmd           |  34 ++++++
+ src/test/dbus-display-test.pl                 |  32 +++++
+ src/test/run_config2command_tests.pl          |   3 +
+ 24 files changed, 521 insertions(+), 19 deletions(-)
+ create mode 100644 src/PVE/QemuServer/DBusDisplay.pm
+ create mode 100644 src/test/cfg2cmd/dbus-audio-without-display.conf
+ create mode 100644 src/test/cfg2cmd/dbus-display-audio.conf
+ create mode 100644 src/test/cfg2cmd/dbus-display-audio.conf.cmd
+ create mode 100644 src/test/cfg2cmd/dbus-display.conf
+ create mode 100644 src/test/cfg2cmd/dbus-display.conf.cmd
+ create mode 100644 src/test/cfg2cmd/dbus-serial.conf
+ create mode 100644 src/test/cfg2cmd/dbus-without-display.conf
+ create mode 100644 src/test/cfg2cmd/rendernode-without-virgl.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl-dbus-audio.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl-dbus-audio.conf.cmd
+ create mode 100644 src/test/cfg2cmd/virtio-gl-dbus.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl-dbus.conf.cmd
+ create mode 100644 src/test/cfg2cmd/virtio-gl-rendernode.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl-rendernode.conf.cmd
+ create mode 100644 src/test/cfg2cmd/virtio-gl.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl.conf.cmd
+ create mode 100644 src/test/dbus-display-test.pl
+
+-- 
+2.43.0
+

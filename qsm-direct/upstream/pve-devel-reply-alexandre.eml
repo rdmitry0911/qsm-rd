@@ -1,0 +1,37 @@
+From: Dmitry R <rdmitry0911@gmail.com>
+To: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+Cc: pve-devel@lists.proxmox.com
+Subject: Re: [RFC] WebRTC console for VMs via QEMU's D-Bus display
+In-Reply-To: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+References: <CAANzA5H4-dLnboSPPpA6yuw=R2wxQ8S1ewZMJwk+Fy4S9LGYEQ@mail.gmail.com>
+ <!~!UENERkVCMDkAAQACAAAAAAAAAAAAAAAAABgAAAAAAAAA0OHNyS9hYUaLr/vP3jA+aSKGAAAQAAAAi4n1RH8WAEKw4FoA6qqHrgEAAAAA@gmail.com>
+ <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Hi Alexandre,
+
+Thanks for your reply, and for making your patches available. I'm glad
+we can build on the same foundation.
+
+I'll work from your v2 series, first separating the shared qemu-server
+D-Bus display support from the console-specific parts. Then I'll rebase
+the WebRTC console onto that base, using the per-VM bus from your
+DBusDisplay.pm. I'll keep the media service in a separate package and
+preserve your authorship on the original patches.
+
+I'll also include the NVIDIA EGL readback fix I linked in my previous
+mail, keeping the existing VAAPI path available. My testing of that fix
+was limited to the capture/encoding adapter with output to a file; I
+still need to check it through the full Kyber console in the browser.
+
+I'll take the OpenGL 4.6 / Venus series you mentioned into account when
+rebasing. The shared base will still need feedback from the Proxmox
+developers on the configuration and integration.
+
+No problem about your availability. I'll send the revised patches to
+the list with you in Cc, so you can have a look when you have time.
+
+Thanks,
+Dmitry

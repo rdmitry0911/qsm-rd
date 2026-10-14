@@ -1,0 +1,29 @@
+From 873cf5c880b6a1d00d140f34f0de1e8de85242c1 Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Wed, 14 Oct 2026 18:45:58 +0300
+Subject: [PATCH 6/6] test: run the shared bus lifecycle checks in the test
+ target
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ src/test/Makefile | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/test/Makefile b/src/test/Makefile
+index cf589f41..66e045d0 100644
+--- a/src/test/Makefile
++++ b/src/test/Makefile
+@@ -1,6 +1,9 @@
+ all: test
+ 
+-test: test_snapshot test_cfg_to_cmd test_cfg_to_cmd_aarch64 test_pci_addr_conflicts test_pci_reservation test_qemu_img_convert test_migration test_restore_config test_parse_config
++test: test_dbus_display test_snapshot test_cfg_to_cmd test_cfg_to_cmd_aarch64 test_pci_addr_conflicts test_pci_reservation test_qemu_img_convert test_migration test_restore_config test_parse_config
++
++test_dbus_display: dbus-display-test.pl
++	perl -I../ ./dbus-display-test.pl
+ 
+ test_snapshot: run_snapshot_tests.pl
+ 	./run_snapshot_tests.pl
+-- 
+2.43.0
+

@@ -1,0 +1,17 @@
+STATUS {"http":200,"dbus":1,"vnc":1,"status":"running"}
+OFFER_HTTP 200
+POLICY_GET 200
+POLICY_PUT 403
+MICROPHONE_ENABLED
+SPEAKER_RMS 0.23469659181911395
+CLIPBOARD_COPY_WAITING
+GUEST_CLIPBOARD_MATCH true
+BROWSER_CLIPBOARD_SENT
+RTP {
+audio: { packets: 745, bytes: 239145 },
+video: { packets: 1764, bytes: 1091921 }
+}
+VIEWER { viewer: true, video: true, size: 1280, status: [] }
+GUEST_RECORD_EXIT 0
+BROWSER_EXIT 0
+GUEST_PASTE_MATCH True

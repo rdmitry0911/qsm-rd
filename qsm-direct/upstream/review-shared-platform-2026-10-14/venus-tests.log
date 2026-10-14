@@ -1,0 +1,131 @@
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+testing config to command stability
+ok 1 - 'spice-linux-5.0.conf' - Test for SPICE with SPICE with max_outputs
+ok 2 - 'vnc-clipboard-spice.conf' - Test for a VNC clipboard with a SPICE QXL display
+vIOMMU 'aw-bits' set to 39. Sometimes it is necessary to set the CPU's 'guest-phys-bits' to the same value.
+ok 3 - 'q35-viommu-intel-aw-bits.conf' - Check if aw-bits are propagated correctly to intel-iommu device
+ok 4 - 'q35-linux-ivshmem.conf' - Config with q35 and ivshmem
+ok 5 - virgl-feature-without-gl.conf
+ok 6 - 'ide-no-media-error.conf' - Config that doesn't specify an explicit `media` for an ISO drive
+ok 7 - 'dbus-display.conf' - display also exported over D-Bus, VNC kept without GL
+ok 8 - i440fx-viommu-intel.conf
+ok 9 - 'cpu-level.conf' - Test for a configuration where the 'level' option and some flags are set for a CPU
+ok 10 - 'scsihw-lsi53c810.conf' - Simple test for LSI 53c810 SCSI controller
+ok 11 - 'i440fx-win10-hostpci.conf' - Config with i440fx, NUMA, hostpci passthrough, EFI & Windows
+ok 12 - 'os-l24.conf' - Simple test for Linux OS type l24
+ok 13 - 'simple-virtio-blk.conf' - Test for a basic configuration with a VirtIO Block IOThread disk
+ok 14 - 'netdev-7.1.conf' - Simple test for netdev related stuff
+ok 15 - 'sev-std.conf' - Test raw efidisk size parameter
+ok 16 - 'custom-cpu-model-defaults.conf' - Check if custom CPU models are resolving defaults correctly
+ok 17 - 'rendernode-without-virgl.conf' - a render node needs the VirGL display
+ok 18 - 'q35-simple.conf' - Config with q35, Linux & nothing much else
+ok 19 - q35-viommu-intel.conf
+ok 20 - 'dbus-without-display.conf' - a D-Bus display needs a graphical display
+ok 21 - 'simple-lvm.conf' - Simple test for LVM backed VM
+ok 22 - 'q35-linux-hostpci-multifunction.conf' - Config with q35, NUMA, hostpci passthrough, EFI & Linux
+ok 23 - 'simple-rbd.conf' - Simple test for RBD && KRBD backend vm
+ok 24 - 'spice-enhancments.conf' - Test for SPICE enhancements
+ok 25 - 'q35-usb2.conf' - Test Q35 USB2 passthrough combination
+ok 26 - 'os-solaris.conf' - Simple test for OS type Solaris
+ok 27 - i440fx-viommu-virtio.conf
+ok 28 - 'sev-snp.conf' - Test raw efidisk size parameter
+ok 29 - 'memory-hotplug.conf' - basic memory hotplug
+ok 30 - 'qga-fs-freeze-backup-legacy.conf' - Ensure the deprecated freeze-fs-on-backup agent key is still parsed.
+ok 31 - 'old-unsupported-machine-version.conf' - Test machine version minimum requirement and expect fail on old version
+ok 32 - dbus-serial.conf
+ok 33 - 'netdev.conf' - Simple test for netdev related stuff
+ok 34 - dbus-audio-without-display.conf
+ok 35 - 'efi-raw.conf' - Test raw efidisk size parameter
+ok 36 - 'simple-disk-passthrough.conf' - Simple test for disk && cdrom passthrough
+ok 37 - 'q35-linux-hostpci.conf' - Config with q35, NUMA, hostpci passthrough, EFI & Linux
+ok 38 - 'q35-win7-hostpci.conf' - Config with q35, hostpci passthrough as pcie & Windows7
+ok 39 - 'sev-es.conf' - Test raw efidisk size parameter
+ok 40 - 'bootorder-legacy.conf' - Test for a specific bootorder given by legacy 'boot' value
+ok 41 - 'seabios_serial.conf' - Test for smm-related regression with SeaBIOS and serial display
+ok 42 - 'vnc-clipboard-std.conf' - Test for a VNC clipboard with a std display
+ok 43 - 'simple1.conf' - Simple test for a basic configuration with no special things
+ok 44 - 'q35-usb3.conf' - Test Q35 USB3 passthrough combination
+ok 45 - 'q35-simple-pinned-6.1.conf' - Config with q35, Linux & nothing much else
+ok 46 - 'memory-hugepages-1g.conf' - memory with 1gb hugepages
+ok 47 - scsiblk.conf
+ok 48 - 'q35-simple-6.0.conf' - Config with q35, Linux & nothing much else but on 6.0
+ok 49 - 'minimal-defaults-unsupported-pve-version.conf' - newer machine version than QEMU version installed on node
+ok 50 - 'bootorder-empty.conf' - Test for an empty boot parameter producing no bootindices either
+WARN: no efidisk configured! Using temporary efivars disk.
+ok 51 - 'efi-ovmf-without-efidisk.conf' - Test VM with OVMF/EFI but no persistent efidisk for backward compat.
+ok 52 - 'old-qemu.conf' - Test QEMU version detection and expect fail on old version
+ok 53 - 'simple-balloon-free-page-reporting.conf' - Simple test for balloon free page reporting enabled by default on 6.2
+ok 54 - 'efi-secboot-and-tpm-q35.conf' - Test newer 4MB efidisk with secureboot, smm enforce and a TPM device on Q35
+ok 55 - 'q35-linux-hostpci-mapping.conf' - Config with q35, NUMA, hostpci mapping passthrough, EFI & Linux
+ok 56 - 'dbus-display-audio.conf' - display also exported over D-Bus, VNC kept without GL
+ok 57 - 'q35-linux-hostpci-x-pci-overrides.conf' - Overriding PCI vendor/device IDs reported to guest
+ok 58 - 'q35-simple-7.0.conf' - Config with q35, Linux & nothing much else but on 7.0
+ok 59 - q35-viommu-virtio.conf
+ok 60 - 'simple1-template.conf' - Simple test for a basic template configuration
+ok 61 - 'qemu-xhci-7.1.conf' - Test for new xhci controller with new machine version
+ok 62 - q35-viommu-intel-guest-phys-bits.conf
+ok 63 - 'startdate-win11.conf' - Simple test for startdate parameter with Windows and explicitly disabled time drift fix
+# got expected warning 'warning: CPU flag/setting '-kvm_pv_unhalt' (set by custom CPU model) overwrites '+kvm_pv_unhalt' (set by PVE; to improve Linux guest spinlock performance)'
+ok 64 - 'custom-cpu-model-host-phys-bits.conf' - Check if custom CPU models are resolved correctly
+ok 65 - 'efi-secboot-and-tpm.conf' - Test newer 4MB efidisk with secureboot and a TPM device
+ok 66 - 'ostype-usb13-error.conf' - Test error for old ostype type with newer usb config
+ok 67 - 'netdev_vxlan.conf' - Test inheriting the MTU from a bridge with MTU != 1500
+ok 68 - 'scsihw-lsi.conf' - Simple test for LSI SCSI controller
+ok 69 - 'pinned-version.conf' - Simple test for a basic configuration with pinned QEMU machine version
+ok 70 - 'minimal-defaults.conf' - minimal configuration to detect default changes
+ok 71 - 'linux-bridges-qemu-11.1.conf' - Test that bridge pci.4 is added by default in qemu 11.1
+vIOMMU 'aw-bits' set to 39. Sometimes it is necessary to set the CPU's 'guest-phys-bits' to the same value.
+ok 72 - 'q35-viommu-virtio-aw-bits.conf' - Check if aw-bits are propagated correctly to virtio-iommu-pci device
+# got expected warning 'warning: CPU flag/setting '-kvm_pv_unhalt' (set by custom CPU model) overwrites '+kvm_pv_unhalt' (set by PVE; to improve Linux guest spinlock performance)'
+ok 73 - 'custom-cpu-model.conf' - Check if custom CPU models are resolved correctly
+ok 74 - 'cputype-icelake-client-deprecation.conf' - test CPU type deprecation for Icelake-Client (never existed in the wild)
+ok 75 - 'bootorder.conf' - Test for a specific bootorder given by 'boot: order=' property
+ok 76 - 'virtio-gl.conf' - VirGL display renders headless on the first render node
+ok 77 - 'win11-amd-host-11.0+pve2.conf' - Simple test for Windows 11 VM with AMD host CPU and machine version 11.0+pve2
+ok 78 - 'q35-win10-hostpci.conf' - Config with q35, NUMA, hostpci passthrough, EFI & Windows
+ok 79 - 'q35-linux-hostpci-template.conf' - Config with q35, NUMA, hostpci passthrough, EFI, TPM & Linux as a template
+ok 80 - 'os-other.conf' - Simple test for OS type other
+ok 81 - 'virtio-gl-dbus.conf' - VirGL display exported over D-Bus with GL, no VNC next to it
+ok 82 - 'virtio-gl-dbus-audio.conf' - VirGL display exported over D-Bus with GL, no VNC next to it
+ok 83 - 'simple-cifs.conf' - Simple test for a CIFS storage
+ok 84 - 'pinned-version-pxe-pve.conf' - for a basic configuration with a .pxe machine and +pve pinned
+ok 85 - 'memory-hotplug-hugepages.conf' - memory hotplug with 1GB hugepage
+ok 86 - 'ide.conf' - Config with default machine type, Linux & four IDE CD-ROMs
+ok 87 - 'q35-no-viommu-with-aw-bits.conf' - Check that aw-bits cannot be set without viommu
+ok 88 - 'q35-linux-hostpci-driver-keep.conf' - Config with q35, NUMA, hostpci passthrough, EFI & Linux & driver option
+ok 89 - 'startdate-l26.conf' - Simple test for startdate parameter with Linux
+ok 90 - 'win11-host-11.0+pve2.conf' - Simple test for Windows 11 VM with host CPU and machine version 11.0+pve2
+ok 91 - 'minimal-defaults-to-new-machine.conf' - newer machine version than QEMU version installed on node
+ok 92 - 'q35-usb13-error.conf' - Test usb error for q35 and older machine type
+ok 93 - 'q35-scsihw2.conf' - Config with q35, Linux & scsi15 with default controller to test scsihw2
+ok 94 - 'q35-windows-pinning.conf' - Config with q35, win, meta to test version pinning
+ok 95 - 'qemu-xhci-q35-7.1.conf' - Test Q35 USB passthrough combination with qemu-xhci
+ok 96 - 'memory-hugepages-2m.conf' - memory with 2mb hugepages
+ok 97 - 'scsihw-virtio-scsi-single.conf' - Simple test for VirtIO SCSI single controller
+ok 98 - 'q35-ide.conf' - Config with q35, Linux & four IDE CD-ROMs
+ok 99 - 'qga-minimal.conf' - Ensure agent sub-properties do not affect the QEMU command line.
+ok 100 - 'simple-zfs-over-iscsi.conf' - Simple test for zfs-over-scsi backed VM.
+ok 101 - 'virtio-gl-rendernode.conf' - VirGL display on an explicitly chosen render node
+ok 102 - 'qga-fs-freeze.conf' - Ensure agent sub-properties do not affect the QEMU command line.
+ok 103 - 'usb13-error.conf' - Test error for old machine type with newer usb config
+ok 104 - 'unsupported-storage-content-type.conf' - Unsupported storage content type in a volume disk
+ok 105 - 'simple-btrfs.conf' - Simple test for a BTRFS backed VM, which shouldn't use cache=none like other storages
+ok 106 - 'scsihw-megasas.conf' - Simple test for MegaRAID SAS SCSI controller
+ok 107 - aio.conf
+ok 108 - 'scsihw-pvscsi.conf' - Simple test for PVSCSI controller
+ok 109 - 'efidisk-on-rbd.conf' - Config with efi disk on RBD is very slow without cache - \#3329
+ok 110 - 'linux-hostpci-legacy-igd.conf' - Config with legacy-igd
+ok 111 - 'simple-11.0-binary.conf' - Simple test for a basic configuration and binary version 11.0
+ok 112 - 'simple-lvmthin.conf' - Simple test for LVMthin backed VM
+ok 113 - 'netdev-7.1-multiqueues.conf' - Simple test for netdev related stuff
+ok 114 - 'efi-raw-template.conf' - Test raw efidisk size parameter
+ok 115 - 'pinned-version-pxe.conf' - for a basic configuration with a .pxe machine
+ok 116 - 'simple-backingchain.conf' - Simple test for external snapshot backing chain
+ok 117 - 'netdev-7.0-multiqueues.conf' - Simple test for netdev multi queue on 7.0 machine version
+ok 118 - 'spice-usb3.conf' - Test for SPICE with a USB3 based SPICE port added
+ok 119 - 'spice-win.conf' - Test for SPICE under Win10 with a USB3 based SPICE port added
+1..119
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+testing config to command stability
+ok 1 - 'virtio-gl-shared-blob.conf' - VirGL display exported over D-Bus with GL, no VNC next to it
+1..1

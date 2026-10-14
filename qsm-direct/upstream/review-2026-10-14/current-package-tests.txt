@@ -1,0 +1,337 @@
+Start testing: Oct 14 17:22 EEST
+----------------------------------------------------------
+2/14 Testing: qsm_direct_guest_package
+2/14 Test: qsm_direct_guest_package
+Command: "/usr/bin/python3" "/home/dima/Projects/q-sunshine/qsm-direct/tests/direct_guest/test_qsm_desktop_package.py" "-v"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qsm_direct_guest_package" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+test_clipboard_service_has_a_deterministic_session_bus (__main__.QsmDesktopPackageTests.test_clipboard_service_has_a_deterministic_session_bus) ... ok
+test_package_builds_the_event_driven_state_watcher (__main__.QsmDesktopPackageTests.test_package_builds_the_event_driven_state_watcher) ... ok
+test_plasma_clipboard_is_event_driven_not_a_wayland_poll_storm (__main__.QsmDesktopPackageTests.test_plasma_clipboard_is_event_driven_not_a_wayland_poll_storm) ... ok
+test_service_uses_only_the_private_direct_virtio_port (__main__.QsmDesktopPackageTests.test_service_uses_only_the_private_direct_virtio_port) ... ok
+test_setup_enables_the_system_virtio_agent_for_the_selected_user (__main__.QsmDesktopPackageTests.test_setup_enables_the_system_virtio_agent_for_the_selected_user) ... ok
+test_wayland_bridge_waits_for_the_logged_in_compositor (__main__.QsmDesktopPackageTests.test_wayland_bridge_waits_for_the_logged_in_compositor) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.001s
+
+OK
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"qsm_direct_guest_package" end time: Oct 14 17:22 EEST
+"qsm_direct_guest_package" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/14 Testing: qsm_direct_encoder_probe
+3/14 Test: qsm_direct_encoder_probe
+Command: "/usr/bin/python3" "/home/dima/Projects/q-sunshine/qsm-direct/tests/proxmox_pve9/test_direct_encoder_probe.py" "-v"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qsm_direct_encoder_probe" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+test_auto_falls_back_to_verified_cpu_encoder (__main__.DirectEncoderProbeTests.test_auto_falls_back_to_verified_cpu_encoder) ... ok
+test_auto_prefers_verified_nvenc_with_worker_low_latency_options (__main__.DirectEncoderProbeTests.test_auto_prefers_verified_nvenc_with_worker_low_latency_options) ... ok
+test_auto_reports_a_node_without_any_usable_encoder (__main__.DirectEncoderProbeTests.test_auto_reports_a_node_without_any_usable_encoder) ... ok
+test_hardware_mode_never_selects_libx264 (__main__.DirectEncoderProbeTests.test_hardware_mode_never_selects_libx264) ... ok
+test_hevc_is_advertisable_only_after_a_hardware_probe (__main__.DirectEncoderProbeTests.test_hevc_is_advertisable_only_after_a_hardware_probe) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.000s
+
+OK
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"qsm_direct_encoder_probe" end time: Oct 14 17:22 EEST
+"qsm_direct_encoder_probe" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/14 Testing: qsm_direct_api_service_integration
+5/14 Test: qsm_direct_api_service_integration
+Command: "/usr/bin/python3" "/home/dima/Projects/q-sunshine/qsm-direct/tests/proxmox_pve9/test_direct_api_service_integration.py" "-v"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qsm_direct_api_service_integration" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+test_build_stages_the_signal_service_and_no_pve_daemon_hooks (__main__.DirectSignalServiceIntegrationTests.test_build_stages_the_signal_service_and_no_pve_daemon_hooks) ... ok
+test_postinst_migrates_off_the_retired_daemon_dropins (__main__.DirectSignalServiceIntegrationTests.test_postinst_migrates_off_the_retired_daemon_dropins) ... ok
+test_signal_service_and_unit_are_packaged (__main__.DirectSignalServiceIntegrationTests.test_signal_service_and_unit_are_packaged) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.000s
+
+OK
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"qsm_direct_api_service_integration" end time: Oct 14 17:22 EEST
+"qsm_direct_api_service_integration" time elapsed: 00:00:00
+----------------------------------------------------------
+
+7/14 Testing: qmdp_core_tests
+7/14 Test: qmdp_core_tests
+Command: "/tmp/qsm-shared-base-audit-20261014/qmdp_core_tests"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qmdp_core_tests" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+all qmdp core tests passed
+<end of output>
+Test time =   0.13 sec
+----------------------------------------------------------
+Test Passed.
+"qmdp_core_tests" end time: Oct 14 17:22 EEST
+"qmdp_core_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/14 Testing: qsm_direct_pve_console_overlay
+6/14 Test: qsm_direct_pve_console_overlay
+Command: "/usr/bin/node" "/home/dima/Projects/q-sunshine/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qsm_direct_pve_console_overlay" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+QSM_DIRECT_PVE_UI_OVERLAY_OK
+<end of output>
+Test time =   0.27 sec
+----------------------------------------------------------
+Test Passed.
+"qsm_direct_pve_console_overlay" end time: Oct 14 17:22 EEST
+"qsm_direct_pve_console_overlay" time elapsed: 00:00:00
+----------------------------------------------------------
+
+8/14 Testing: qmdp_dbus_integration_tests
+8/14 Test: qmdp_dbus_integration_tests
+Command: "/tmp/qsm-shared-base-audit-20261014/qmdp_dbus_integration_tests"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qmdp_dbus_integration_tests" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+QSM_DIRECT_MICROPHONE unavailable: QEMU RegisterInListener: Unknown object '/org/qemu/Display1/Audio'.
+QSM_DIRECT_MICROPHONE unavailable: QEMU RegisterInListener: Unknown object '/org/qemu/Display1/Audio'.
+QEMU D-Bus CPU integration
+  frames published/encoded/dropped: 41/26/14
+  map scanouts/updates: 2/39
+  final mode: 426x242
+  input keyboard/mouse: 2/4
+  audio writes/frames: 66/31680
+  snapshot: "/tmp/qsm-shared-base-audit-20261014/dbus-integration-last.ppm"
+all QEMU D-Bus CPU integration checks passed
+<end of output>
+Test time =   0.72 sec
+----------------------------------------------------------
+Test Passed.
+"qmdp_dbus_integration_tests" end time: Oct 14 17:22 EEST
+"qmdp_dbus_integration_tests" time elapsed: 00:00:00
+----------------------------------------------------------
+
+9/14 Testing: qmdp_no_gpu_ffmpeg_selftest
+9/14 Test: qmdp_no_gpu_ffmpeg_selftest
+Command: "/tmp/qsm-shared-base-audit-20261014/qmdp_dbus_selftest" "--output" "/tmp/qsm-shared-base-audit-20261014/ctest-selftest" "--duration-ms" "800"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qmdp_no_gpu_ffmpeg_selftest" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+QSM_DIRECT_MICROPHONE unavailable: QEMU RegisterInListener: Unknown object '/org/qemu/Display1/Audio'.
+QMDP no-GPU vertical slice
+  encoded frames: 27
+  output segments: 2
+  final mode: 854x480
+  shared-map scanouts/updates: 2/26
+  mailbox dropped: 1
+  audio callbacks/frames: 87/41760
+  ffmpeg exit status: 0
+  display audio registered/failures/writes: 1/0/87
+  mock audio listeners/writes/frames: 1/87/41760
+  session errors: 0
+  mock last error: <none>
+  output directory: "/tmp/qsm-shared-base-audit-20261014/ctest-selftest"
+<end of output>
+Test time =   0.91 sec
+----------------------------------------------------------
+Test Passed.
+"qmdp_no_gpu_ffmpeg_selftest" end time: Oct 14 17:22 EEST
+"qmdp_no_gpu_ffmpeg_selftest" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/14 Testing: qsm_direct_terminal_autoprovision
+4/14 Test: qsm_direct_terminal_autoprovision
+Command: "/usr/bin/python3" "/home/dima/Projects/q-sunshine/qsm-direct/tests/proxmox_pve9/test_direct_terminal_autoprovision.py" "-v"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qsm_direct_terminal_autoprovision" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+test_a_pending_change_does_not_hide_the_running_display (__main__.DirectTerminalAutoprovisionTests.test_a_pending_change_does_not_hide_the_running_display) ... ok
+test_absent_encoder_policy_uses_verified_auto_selection (__main__.DirectTerminalAutoprovisionTests.test_absent_encoder_policy_uses_verified_auto_selection) ... ok
+test_automatic_codec_policy_prefers_hevc_when_offered_and_probed (__main__.DirectTerminalAutoprovisionTests.test_automatic_codec_policy_prefers_hevc_when_offered_and_probed)
+``auto`` picks HEVC when the offer has H.265 and a probe cached one; else H.264. ... ok
+test_closed_browser_peer_retires_its_own_session_immediately (__main__.DirectTerminalAutoprovisionTests.test_closed_browser_peer_retires_its_own_session_immediately) ... ok
+test_connected_browser_session_is_not_closed_by_the_idle_lease (__main__.DirectTerminalAutoprovisionTests.test_connected_browser_session_is_not_closed_by_the_idle_lease)
+A live WebRTC peer refreshes its lease; a vanished one still expires. ... ok
+test_cpu_display1_accepts_only_stock_non_gl_vga_profiles (__main__.DirectTerminalAutoprovisionTests.test_cpu_display1_accepts_only_stock_non_gl_vga_profiles) ... ok
+test_display1_with_managed_audio_is_recognised (__main__.DirectTerminalAutoprovisionTests.test_display1_with_managed_audio_is_recognised) ... ok
+test_exited_media_worker_closes_its_webrtc_session_without_a_new_request (__main__.DirectTerminalAutoprovisionTests.test_exited_media_worker_closes_its_webrtc_session_without_a_new_request) ... qsm-direct-terminal: VM media transport ended vmid=321 exit_code=0
+ok
+test_qemu_generation_uses_pid_and_nonreusable_start_time (__main__.DirectTerminalAutoprovisionTests.test_qemu_generation_uses_pid_and_nonreusable_start_time) ... ok
+test_replacing_a_browser_console_closes_only_that_vms_old_session (__main__.DirectTerminalAutoprovisionTests.test_replacing_a_browser_console_closes_only_that_vms_old_session) ... ok
+test_saved_display1_argument_starts_a_private_bus_without_policy_file (__main__.DirectTerminalAutoprovisionTests.test_saved_display1_argument_starts_a_private_bus_without_policy_file) ... ok
+test_saved_qsm_guest_channel_requires_the_exact_three_arguments (__main__.DirectTerminalAutoprovisionTests.test_saved_qsm_guest_channel_requires_the_exact_three_arguments) ... ok
+test_terminal_service_allows_ice_interface_enumeration (__main__.DirectTerminalAutoprovisionTests.test_terminal_service_allows_ice_interface_enumeration) ... ok
+test_unconnected_browser_peer_does_not_hold_a_vm_worker_for_ten_minutes (__main__.DirectTerminalAutoprovisionTests.test_unconnected_browser_peer_does_not_hold_a_vm_worker_for_ten_minutes)
+An ICE path which can never connect must release its shared transport. ... qsm-direct-terminal: WebRTC negotiation timed out vmid=321
+ok
+test_vm_restart_retires_stale_video_and_input_transport (__main__.DirectTerminalAutoprovisionTests.test_vm_restart_retires_stale_video_and_input_transport)
+A QEMU restart must never retain its old final frame/input socket. ... qsm-direct-terminal: retiring VM media transport vmid=321: QEMU generation changed
+ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 1.259s
+
+OK
+<end of output>
+Test time =   1.81 sec
+----------------------------------------------------------
+Test Passed.
+"qsm_direct_terminal_autoprovision" end time: Oct 14 17:22 EEST
+"qsm_direct_terminal_autoprovision" time elapsed: 00:00:01
+----------------------------------------------------------
+
+10/14 Testing: qmdp_message_bus_map_e2e
+10/14 Test: qmdp_message_bus_map_e2e
+Command: "/home/dima/Projects/q-sunshine/qsm-direct/tests/run_message_bus_e2e.sh" "/tmp/qsm-shared-base-audit-20261014/qmdp-fake-qemu" "/tmp/qsm-shared-base-audit-20261014/qemu-display-probe" "/tmp/qsm-shared-base-audit-20261014/message-bus-map-e2e" "map"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qmdp_message_bus_map_e2e" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+FAKE_QEMU_READY name=org.qemu path=/org/qemu/Display1/Console_0
+FAKE_QEMU_RESULT frames=30 ui_info=1 keyboard=2 keyboard_press=1 keyboard_release=1 mouse=3 button_press=1 button_release=1 wheel_up=0 wheel_down=0 absolute=0:0x0 relative=1:3x-2 requested=320x180 listener=1 peer_completed=1
+QEMU_DISPLAY_PROBE_RESULT
+  frames published/encoded/dropped: 30/30/0
+  adapter frames/audio frames: 30/0
+  scanout inline/map: 0/1
+  updates inline/map: 0/29
+  stale geometry updates dropped: 0
+  cursor definitions/moves: 3/1
+  DMA-BUF scanouts/updates/failures: 0/0/0
+  input pointer mode: relative
+  audio init/writes/frames: 0/0/0
+  audio registration failures: 0
+  ffmpeg exit status: 0
+  session errors: 0
+<end of output>
+Test time =   1.26 sec
+----------------------------------------------------------
+Test Passed.
+"qmdp_message_bus_map_e2e" end time: Oct 14 17:22 EEST
+"qmdp_message_bus_map_e2e" time elapsed: 00:00:01
+----------------------------------------------------------
+
+11/14 Testing: qmdp_message_bus_inline_e2e
+11/14 Test: qmdp_message_bus_inline_e2e
+Command: "/home/dima/Projects/q-sunshine/qsm-direct/tests/run_message_bus_e2e.sh" "/tmp/qsm-shared-base-audit-20261014/qmdp-fake-qemu" "/tmp/qsm-shared-base-audit-20261014/qemu-display-probe" "/tmp/qsm-shared-base-audit-20261014/message-bus-inline-e2e" "inline"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qmdp_message_bus_inline_e2e" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+FAKE_QEMU_READY name=org.qemu path=/org/qemu/Display1/Console_0
+FAKE_QEMU_RESULT frames=30 ui_info=1 keyboard=2 keyboard_press=1 keyboard_release=1 mouse=3 button_press=1 button_release=1 wheel_up=0 wheel_down=0 absolute=0:0x0 relative=1:3x-2 requested=320x180 listener=1 peer_completed=1
+QEMU_DISPLAY_PROBE_RESULT
+  frames published/encoded/dropped: 30/30/0
+  adapter frames/audio frames: 30/0
+  scanout inline/map: 1/0
+  updates inline/map: 29/0
+  stale geometry updates dropped: 0
+  cursor definitions/moves: 3/1
+  DMA-BUF scanouts/updates/failures: 0/0/0
+  input pointer mode: relative
+  audio init/writes/frames: 0/0/0
+  audio registration failures: 0
+  ffmpeg exit status: 0
+  session errors: 0
+<end of output>
+Test time =   1.24 sec
+----------------------------------------------------------
+Test Passed.
+"qmdp_message_bus_inline_e2e" end time: Oct 14 17:22 EEST
+"qmdp_message_bus_inline_e2e" time elapsed: 00:00:01
+----------------------------------------------------------
+
+12/14 Testing: qmdp_real_qemu_e2e
+12/14 Test: qmdp_real_qemu_e2e
+Command: "/home/dima/Projects/q-sunshine/qsm-direct/tests/run_real_qemu_e2e.sh" "/tmp/qsm-shared-base-audit-20261014/qemu-display-probe" "/tmp/qsm-shared-base-audit-20261014/real-qemu-e2e" "/home/dima/Projects/q-sunshine/qsm-direct/tests/fixtures/qmdp_vga_smoke.S" "relative" "/usr/bin/qemu-system-x86_64" "/usr/bin/as" "/usr/bin/ld" "/usr/bin/ffprobe"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qmdp_real_qemu_e2e" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+REAL_QEMU_E2E_OK output=/tmp/qsm-shared-base-audit-20261014/real-qemu-e2e
+<end of output>
+Test time =   1.95 sec
+----------------------------------------------------------
+Test Passed.
+"qmdp_real_qemu_e2e" end time: Oct 14 17:22 EEST
+"qmdp_real_qemu_e2e" time elapsed: 00:00:01
+----------------------------------------------------------
+
+13/14 Testing: qmdp_real_qemu_absolute_e2e
+13/14 Test: qmdp_real_qemu_absolute_e2e
+Command: "/home/dima/Projects/q-sunshine/qsm-direct/tests/run_real_qemu_e2e.sh" "/tmp/qsm-shared-base-audit-20261014/qemu-display-probe" "/tmp/qsm-shared-base-audit-20261014/real-qemu-absolute-e2e" "/home/dima/Projects/q-sunshine/qsm-direct/tests/fixtures/qmdp_vga_smoke.S" "absolute" "/usr/bin/qemu-system-x86_64" "/usr/bin/as" "/usr/bin/ld" "/usr/bin/ffprobe"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qmdp_real_qemu_absolute_e2e" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+REAL_QEMU_E2E_OK output=/tmp/qsm-shared-base-audit-20261014/real-qemu-absolute-e2e
+<end of output>
+Test time =   1.82 sec
+----------------------------------------------------------
+Test Passed.
+"qmdp_real_qemu_absolute_e2e" end time: Oct 14 17:22 EEST
+"qmdp_real_qemu_absolute_e2e" time elapsed: 00:00:01
+----------------------------------------------------------
+
+1/14 Testing: qsm_direct_guest_channel
+1/14 Test: qsm_direct_guest_channel
+Command: "/usr/bin/python3" "/home/dima/Projects/q-sunshine/qsm-direct/tests/direct_guest/test_qsm_guest_channel.py" "-v"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qsm_direct_guest_channel" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+test_clipboard_operations (__main__.DirectGuestChannelTest.test_clipboard_operations) ... ok
+test_guest_clipboard_event_reaches_every_subscriber (__main__.DirectGuestChannelTest.test_guest_clipboard_event_reaches_every_subscriber) ... ok
+test_optional_guest_channel_uses_a_short_interaction_timeout (__main__.DirectGuestChannelTest.test_optional_guest_channel_uses_a_short_interaction_timeout) ... ok
+test_rejects_unsupported_operations_and_nul_clipboard (__main__.DirectGuestChannelTest.test_rejects_unsupported_operations_and_nul_clipboard) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 4.014s
+
+OK
+<end of output>
+Test time =   4.06 sec
+----------------------------------------------------------
+Test Passed.
+"qsm_direct_guest_channel" end time: Oct 14 17:22 EEST
+"qsm_direct_guest_channel" time elapsed: 00:00:04
+----------------------------------------------------------
+
+14/14 Testing: qmdp_real_qemu_nvenc_e2e
+14/14 Test: qmdp_real_qemu_nvenc_e2e
+Command: "/usr/bin/cmake" "-E" "env" "QMDP_REAL_QEMU_VIDEO_ENCODER=h264_nvenc" "/home/dima/Projects/q-sunshine/qsm-direct/tests/run_real_qemu_e2e.sh" "/tmp/qsm-shared-base-audit-20261014/qemu-display-probe" "/tmp/qsm-shared-base-audit-20261014/real-qemu-nvenc-e2e" "/home/dima/Projects/q-sunshine/qsm-direct/tests/fixtures/qmdp_vga_smoke.S" "relative" "/usr/bin/qemu-system-x86_64" "/usr/bin/as" "/usr/bin/ld" "/usr/bin/ffprobe"
+Directory: /tmp/qsm-shared-base-audit-20261014
+"qmdp_real_qemu_nvenc_e2e" start time: Oct 14 17:22 EEST
+Output:
+----------------------------------------------------------
+REAL_QEMU_E2E_OK output=/tmp/qsm-shared-base-audit-20261014/real-qemu-nvenc-e2e
+<end of output>
+Test time =   1.92 sec
+----------------------------------------------------------
+Test Passed.
+"qmdp_real_qemu_nvenc_e2e" end time: Oct 14 17:22 EEST
+"qmdp_real_qemu_nvenc_e2e" time elapsed: 00:00:01
+----------------------------------------------------------
+
+End testing: Oct 14 17:22 EEST

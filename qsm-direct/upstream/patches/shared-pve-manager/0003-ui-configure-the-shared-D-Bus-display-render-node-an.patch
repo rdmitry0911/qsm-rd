@@ -1,0 +1,117 @@
+From 72bc4d88ee469598e9d10382a7b533b475215bfe Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Wed, 14 Oct 2026 18:45:58 +0300
+Subject: [PATCH 3/3] ui: configure the shared D-Bus display, render node and
+ audio
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ www/manager6/qemu/AudioEdit.js   |  1 +
+ www/manager6/qemu/DisplayEdit.js | 49 ++++++++++++++++++++++++++++++--
+ 2 files changed, 47 insertions(+), 3 deletions(-)
+
+diff --git a/www/manager6/qemu/AudioEdit.js b/www/manager6/qemu/AudioEdit.js
+index ba588edc..064e94d2 100644
+--- a/www/manager6/qemu/AudioEdit.js
++++ b/www/manager6/qemu/AudioEdit.js
+@@ -35,6 +35,7 @@ Ext.define('PVE.qemu.AudioInputPanel', {
+             fieldLabel: gettext('Backend Driver'),
+             comboItems: [
+                 ['spice', 'SPICE'],
++                ['dbus', gettext('D-Bus display (WebRTC console)')],
+                 ['none', `${Proxmox.Utils.NoneText} (${gettext('Dummy Device')})`],
+             ],
+         },
+diff --git a/www/manager6/qemu/DisplayEdit.js b/www/manager6/qemu/DisplayEdit.js
+index 3f583adb..baa9ae9e 100644
+--- a/www/manager6/qemu/DisplayEdit.js
++++ b/www/manager6/qemu/DisplayEdit.js
+@@ -4,17 +4,23 @@ Ext.define('PVE.qemu.DisplayInputPanel', {
+     onlineHelp: 'qm_display',
+ 
+     onGetValues: function (values) {
++        let dbusDisplay = [true, 1, '1'].includes(values['dbus-display']);
++        delete values['dbus-display'];
++        if (!values.rendernode || values.type !== 'virtio-gl') {
++            delete values.rendernode;
++        }
+         let ret = PVE.Parser.printPropertyString(values, 'type');
+         if (ret === '') {
+-            return { delete: 'vga' };
++            return { delete: 'vga', 'dbus-display': dbusDisplay ? 1 : 0 };
+         }
+-        return { vga: ret };
++        return { vga: ret, 'dbus-display': dbusDisplay ? 1 : 0 };
+     },
+ 
+     viewModel: {
+         data: {
+             type: '__default__',
+             clipboard: '__default__',
++            dbus: false,
+         },
+         formulas: {
+             matchNonGUIOption: function (get) {
+@@ -36,6 +42,9 @@ Ext.define('PVE.qemu.DisplayInputPanel', {
+                 }
+             },
+             isVNC: (get) => get('clipboard') === 'vnc',
++            isVirGL: (get) => get('type') === 'virtio-gl',
++            // QEMU allows neither VNC nor SPICE next to a GL-enabled D-Bus display
++            hideDBusGLHint: (get) => !get('dbus') || !get('isVirGL'),
+             hideDefaultHint: (get) => get('isVNC') || get('matchNonGUIOption'),
+             hideVNCHint: (get) => !get('isVNC') || get('matchNonGUIOption'),
+         },
+@@ -78,6 +87,39 @@ Ext.define('PVE.qemu.DisplayInputPanel', {
+     ],
+ 
+     advancedItems: [
++        {
++            xtype: 'proxmoxcheckbox',
++            name: 'dbus-display',
++            fieldLabel: gettext('D-Bus display'),
++            boxLabel: gettext('shared by browser console services'),
++            bind: {
++                value: '{dbus}',
++                disabled: '{matchNonGUIOption}',
++            },
++        },
++        {
++            xtype: 'displayfield',
++            name: 'dbusGLHint',
++            userCls: 'pmx-hint',
++            value: gettext(
++                'With VirGL, the display exported over D-Bus replaces the noVNC and SPICE consoles.',
++            ),
++            bind: {
++                hidden: '{hideDBusGLHint}',
++            },
++        },
++        {
++            xtype: 'proxmoxtextfield',
++            name: 'rendernode',
++            fieldLabel: gettext('Render node'),
++            emptyText: gettext('First GPU'),
++            deleteEmpty: false,
++            regex: /^\/dev\/dri\/renderD\d+$/,
++            regexText: '/dev/dri/renderD129',
++            bind: {
++                disabled: '{!isVirGL}',
++            },
++        },
+         {
+             xtype: 'proxmoxKVComboBox',
+             name: 'clipboard',
+@@ -158,7 +200,8 @@ Ext.define('PVE.qemu.DisplayEdit', {
+             success: function (response) {
+                 me.vmconfig = response.result.data;
+                 let vga = me.vmconfig.vga || '__default__';
+-                me.setValues(PVE.Parser.parsePropertyString(vga, 'type'));
++                me.setValues({ ...PVE.Parser.parsePropertyString(vga, 'type'),
++                    'dbus-display': me.vmconfig['dbus-display'] || 0 });
+             },
+         });
+     },
+-- 
+2.43.0
+

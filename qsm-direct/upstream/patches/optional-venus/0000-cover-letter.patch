@@ -1,0 +1,37 @@
+From a94f0378755f5d2a18baf8828e03f286a1a0bc9b Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Wed, 14 Oct 2026 19:24:55 +0300
+Subject: [PATCH 0/2] RFC optional Venus compatibility above the shared display base
+To: pve-devel@lists.proxmox.com
+Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+In-Reply-To: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+References: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+
+Optional compatibility work, not a requirement for the shared platform.
+Markus Frank's v4 patch retains his authorship and sign-off. It was adapted
+to the current VGA code and checked with the shared D-Bus configuration.
+Apply after the shared base (and the WebRTC series if using QSM).
+
+Configuration tests cover a shared GL display with blobs and rejection of
+VirGL features on non-GL VGA. Full cfg2cmd checks pass. Vulkan/OpenGL 4.6
+inside a guest was not runtime-qualified in this work. This does not claim
+that the underlying QEMU/VirGL Venus patches have been merged.
+
+Dmitry R (1):
+  test: exercise shared D-Bus display with optional VirGL blobs
+
+Markus Frank (1):
+  fix #6277: virtio-vga-gl: add OpenGL 4.6 and Vulkan (Venus) support
+
+ src/PVE/QemuServer.pm                         | 36 ++++++++++++++++++-
+ .../cfg2cmd/virgl-feature-without-gl.conf     |  2 ++
+ src/test/cfg2cmd/virtio-gl-shared-blob.conf   |  6 ++++
+ .../cfg2cmd/virtio-gl-shared-blob.conf.cmd    | 32 +++++++++++++++++
+ 4 files changed, 75 insertions(+), 1 deletion(-)
+ create mode 100644 src/test/cfg2cmd/virgl-feature-without-gl.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl-shared-blob.conf
+ create mode 100644 src/test/cfg2cmd/virtio-gl-shared-blob.conf.cmd
+
+-- 
+2.43.0
+

@@ -1,0 +1,8 @@
+./usr/lib/python3.12/unittest/case.py:589: ResourceWarning: unclosed <socket.socket fd=3, family=1, type=5, proto=0>
+  if method() is not None:
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+...
+----------------------------------------------------------------------
+Ran 4 tests in 0.007s
+
+OK

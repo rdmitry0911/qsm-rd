@@ -1,0 +1,13 @@
+QEMU_DISPLAY_PROBE_RESULT
+  frames published/encoded/dropped: 42/28/14
+  adapter frames/audio frames: 28/0
+  scanout inline/map: 42/0
+  updates inline/map: 0/0
+  stale geometry updates dropped: 0
+  cursor definitions/moves: 0/1
+  DMA-BUF scanouts/updates/failures: 0/0/0
+  input pointer mode: relative
+  audio init/writes/frames: 0/0/0
+  audio registration failures: 0
+  ffmpeg exit status: 0
+  session errors: 0

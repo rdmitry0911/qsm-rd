@@ -1,0 +1,141 @@
+From 1e81746b3e813f9c60aabda23b4569689c207fa9 Mon Sep 17 00:00:00 2001
+From: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+Date: Wed, 26 Aug 2026 09:43:34 +0200
+Subject: [PATCH 1/6] add D-Bus display support
+
+Add a private D-Bus daemon per VM for QEMU's -display dbus.
+
+Signed-off-by: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ src/PVE/QemuServer/DBusDisplay.pm | 100 ++++++++++++++++++++++++++++++
+ src/PVE/QemuServer/Helpers.pm     |   6 ++
+ 2 files changed, 106 insertions(+)
+ create mode 100644 src/PVE/QemuServer/DBusDisplay.pm
+
+diff --git a/src/PVE/QemuServer/DBusDisplay.pm b/src/PVE/QemuServer/DBusDisplay.pm
+new file mode 100644
+index 00000000..b8684be7
+--- /dev/null
++++ b/src/PVE/QemuServer/DBusDisplay.pm
+@@ -0,0 +1,100 @@
++package PVE::QemuServer::DBusDisplay;
++
++# A private D-Bus bus per VM for QEMU's -display dbus. QEMU connects to the
++# address rather than creating it, and every QEMU wants to own org.qemu, so the
++# session bus would cap a node at one VM. libvirt does the same.
++
++use strict;
++use warnings;
++
++use Time::HiRes qw(usleep);
++
++use PVE::ProcFSTools;
++use PVE::Tools qw(file_set_contents);
++use PVE::QemuServer::Helpers;
++
++sub config_file {
++    my ($vmid) = @_;
++    return "$PVE::QemuServer::Helpers::var_run_tmpdir/$vmid.dbusdisplay.conf";
++}
++
++sub pidfile {
++    my ($vmid) = @_;
++    return "$PVE::QemuServer::Helpers::var_run_tmpdir/$vmid.dbusdisplay.pid";
++}
++
++sub write_config {
++    my ($vmid) = @_;
++
++    my $socket = PVE::QemuServer::Helpers::dbus_socket($vmid);
++    my $pidfile = pidfile($vmid);
++
++    my $conf = <<"EOF";
++<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
++ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
++<busconfig>
++  <type>org.qemu</type>
++  <listen>unix:path=$socket</listen>
++  <pidfile>$pidfile</pidfile>
++  <auth>EXTERNAL</auth>
++  <policy context="default">
++    <allow send_destination="*" eavesdrop="true"/>
++    <allow eavesdrop="true"/>
++    <allow own="*"/>
++  </policy>
++</busconfig>
++EOF
++
++    my $path = config_file($vmid);
++    file_set_contents($path, $conf, 0600);
++
++    return $path;
++}
++
++# Called inside the VM's systemd scope, so it dies with the VM, as swtpm does.
++sub start {
++    my ($vmid) = @_;
++
++    stop($vmid); # a survivor from an unclean stop still holds the socket
++
++    my $config = write_config($vmid);
++    unlink PVE::QemuServer::Helpers::dbus_socket($vmid);
++
++    PVE::Tools::run_command(
++        ['dbus-daemon', "--config-file=$config", '--fork'],
++        errmsg => "failed to start D-Bus daemon for VM $vmid",
++    );
++
++    return;
++}
++
++sub stop {
++    my ($vmid) = @_;
++
++    my $pidfile = pidfile($vmid);
++    if (my $pid = eval { PVE::Tools::file_read_firstline($pidfile) }) {
++        if ($pid =~ m/^(\d+)$/) {
++            $pid = $1;
++            kill('TERM', $pid);
++
++            # Waited for: a dying daemon unlinks the new socket and holds the VM's scope
++            # cgroup open, which blocks the next start.
++            for (my $waited = 0; $waited < 5; $waited += 0.05) {
++                last if !PVE::ProcFSTools::check_process_running($pid);
++                usleep(50_000);
++            }
++            if (PVE::ProcFSTools::check_process_running($pid)) {
++                warn "D-Bus daemon for VM $vmid did not exit, killing it\n";
++                kill('KILL', $pid);
++            }
++        }
++    }
++
++    unlink $pidfile;
++    unlink config_file($vmid);
++    unlink PVE::QemuServer::Helpers::dbus_socket($vmid);
++
++    return;
++}
++
++1;
+diff --git a/src/PVE/QemuServer/Helpers.pm b/src/PVE/QemuServer/Helpers.pm
+index dd17eef5..816f7aad 100644
+--- a/src/PVE/QemuServer/Helpers.pm
++++ b/src/PVE/QemuServer/Helpers.pm
+@@ -140,6 +140,12 @@ sub vnc_socket {
+     return "${var_run_tmpdir}/$vmid.vnc";
+ }
+ 
++sub dbus_socket {
++    my ($vmid) = @_;
++    # dbusdisplay, not dbus: keep it apart from the dbus-vmstate helper's files.
++    return "${var_run_tmpdir}/$vmid.dbusdisplay";
++}
++
+ # Parse the cmdline of a running kvm/qemu-* process and return arguments as hash
+ sub parse_cmdline {
+     my ($pid) = @_;
+-- 
+2.43.0
+

@@ -1,0 +1,366 @@
+From 6a658d0340880cd2a2c3d4a0e109de9b0407a4ff Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Wed, 14 Oct 2026 18:19:39 +0300
+Subject: [PATCH 1/1] api: attach WebRTC consoles to the shared D-Bus display
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ src/PVE/API2/Qemu.pm         | 210 ++++++++++++++++++++++++++++++++++-
+ src/PVE/QemuServer/Makefile  |   1 +
+ src/PVE/QemuServer/WebRTC.pm |  81 ++++++++++++++
+ 3 files changed, 287 insertions(+), 5 deletions(-)
+ create mode 100644 src/PVE/QemuServer/WebRTC.pm
+
+diff --git a/src/PVE/API2/Qemu.pm b/src/PVE/API2/Qemu.pm
+index bb19ade2..04289463 100644
+--- a/src/PVE/API2/Qemu.pm
++++ b/src/PVE/API2/Qemu.pm
+@@ -48,6 +48,7 @@ use PVE::QemuServer::RNG;
+ use PVE::QemuServer::RunState;
+ use PVE::QemuServer::USB;
+ use PVE::QemuServer::Virtiofs qw(max_virtiofs);
++use PVE::QemuServer::WebRTC;
+ use PVE::QemuServer::DBusVMState;
+ use PVE::QemuMigrate;
+ use PVE::QemuMigrate::Helpers;
+@@ -3026,8 +3027,9 @@ __PACKAGE__->register_method({
+         my $conf = PVE::QemuConfig->load_config($vmid, $node); # check if VM exists
+ 
+         my $serial;
+-        if ($conf->{vga}) {
+-            my $vga = PVE::QemuServer::parse_vga($conf->{vga});
++        if ($conf->{vga} || $conf->{'dbus-display'}) {
++            my $vga = PVE::QemuServer::parse_vga($conf->{vga} // 'std');
++            my $dbus_gl = PVE::QemuServer::dbus_gl_display($vga, $conf);
+             $serial = $vga->{type} if defined($vga->{type}) && $vga->{type} =~ m/^serial\d+$/;
+             die "VM $vmid has no VNC console: its GL display is exported over D-Bus\n"
+                 if PVE::QemuServer::dbus_gl_display($vga, $conf);
+@@ -3362,6 +3364,183 @@ __PACKAGE__->register_method({
+     },
+ });
+ 
++__PACKAGE__->register_method({
++    name => 'webrtcproxy',
++    path => '{vmid}/webrtcproxy',
++    method => 'POST',
++    protected => 1,
++    proxyto => 'node',
++    permissions => {
++        check => ['perm', '/vms/{vmid}', ['VM.Console']],
++    },
++    description => "Attach a WebRTC console to the display of a running VM that is exported"
++        . " over the shared D-Bus ('dbus-display'). The SDP offer is handed, together with a"
++        . " VM identifier, to the WebRTC console service of the node, which"
++        . " is provided by a separate package.",
++    parameters => {
++        additionalProperties => 0,
++        properties => {
++            node => get_standard_option('pve-node'),
++            vmid => get_standard_option('pve-vmid'),
++            sdp => {
++                description => "The browser's WebRTC session description (SDP offer).",
++                type => 'string',
++                maxLength => 64 * 1024,
++            },
++            width => {
++                description => "Width of the console viewport in pixels.",
++                type => 'integer',
++                minimum => 64,
++                maximum => 16384,
++                optional => 1,
++            },
++            height => {
++                description => "Height of the console viewport in pixels.",
++                type => 'integer',
++                minimum => 64,
++                maximum => 16384,
++                optional => 1,
++            },
++            fps => {
++                description => "Requested frame rate.",
++                type => 'integer',
++                minimum => 10,
++                maximum => 240,
++                optional => 1,
++            },
++        },
++    },
++    returns => {
++        type => 'object',
++        properties => {
++            type => {
++                type => 'string',
++                enum => ['answer'],
++            },
++            sdp => {
++                description => "The WebRTC session description of the console (SDP answer).",
++                type => 'string',
++            },
++        },
++    },
++    code => sub {
++        my ($param) = @_;
++
++        my $rpcenv = PVE::RPCEnvironment::get();
++        my $authuser = $rpcenv->get_user();
++
++        my $vmid = $param->{vmid};
++        my $conf = PVE::QemuConfig->load_config($vmid, $param->{node});
++
++        die "VM $vmid not running\n" if !PVE::QemuServer::check_running($vmid);
++
++        die "VM $vmid does not export its display over the shared D-Bus ('dbus-display')\n"
++            if !$conf->{'dbus-display'};
++
++        my $offer = { sdp => $param->{sdp} };
++        for my $opt (qw(width height fps)) {
++            $offer->{$opt} = int($param->{$opt}) if defined($param->{$opt});
++        }
++
++        return PVE::QemuServer::WebRTC::offer($vmid, $authuser, $offer);
++    },
++});
++
++__PACKAGE__->register_method({
++    name => 'webrtcstatus',
++    path => '{vmid}/webrtcstatus',
++    method => 'GET',
++    protected => 1,
++    proxyto => 'node',
++    permissions => { check => ['perm', '/vms/{vmid}', ['VM.Console']] },
++    description => "Get only the VM run state needed by a WebRTC console.",
++    parameters => {
++        additionalProperties => 0,
++        properties => {
++            node => get_standard_option('pve-node'),
++            vmid => get_standard_option('pve-vmid'),
++        },
++    },
++    returns => {
++        type => 'object',
++        properties => { status => { type => 'string', enum => ['running', 'stopped'] } },
++    },
++    code => sub {
++        my ($param) = @_;
++        PVE::QemuConfig->load_config($param->{vmid}, $param->{node});
++        return {
++            status => PVE::QemuServer::check_running($param->{vmid}) ? 'running' : 'stopped' };
++    },
++});
++
++__PACKAGE__->register_method({
++    name => 'webrtcsettings-get',
++    path => '{vmid}/webrtcsettings',
++    method => 'GET',
++    protected => 1,
++    proxyto => 'node',
++    permissions => { check => ['perm', '/vms/{vmid}', ['VM.Console']] },
++    description => "Read or update the WebRTC console's node-local media policy.",
++    parameters => {
++        additionalProperties => 0,
++        properties => {
++            node => get_standard_option('pve-node'),
++            vmid => get_standard_option('pve-vmid'),
++        },
++    },
++    returns => {
++        type => 'object',
++        properties => {
++            codec => { type => 'string', enum => ['auto', 'h264', 'hevc'] },
++            encoder => { type => 'string', enum => ['auto', 'hardware', 'software'] },
++        },
++    },
++    code => sub {
++        my ($param) = @_;
++        my $vmid = $param->{vmid};
++        my $conf = PVE::QemuConfig->load_config($vmid, $param->{node});
++        die "VM $vmid has no shared D-Bus display\n" if !$conf->{'dbus-display'};
++        my $user = PVE::RPCEnvironment::get()->get_user();
++        my $settings;
++        return PVE::QemuServer::WebRTC::settings($vmid, $user, $settings);
++    },
++});
++
++__PACKAGE__->register_method({
++    name => 'webrtcsettings-put',
++    path => '{vmid}/webrtcsettings',
++    method => 'PUT',
++    protected => 1,
++    proxyto => 'node',
++    permissions => { check => ['perm', '/vms/{vmid}', ['VM.Config.Options']] },
++    description => "Read or update the WebRTC console's node-local media policy.",
++    parameters => {
++        additionalProperties => 0,
++        properties => {
++            node => get_standard_option('pve-node'),
++            vmid => get_standard_option('pve-vmid'),
++            codec => { type => 'string', enum => ['auto', 'h264', 'hevc'] },
++            encoder => { type => 'string', enum => ['auto', 'hardware', 'software'] },
++        },
++    },
++    returns => {
++        type => 'object',
++        properties => {
++            codec => { type => 'string', enum => ['auto', 'h264', 'hevc'] },
++            encoder => { type => 'string', enum => ['auto', 'hardware', 'software'] },
++        },
++    },
++    code => sub {
++        my ($param) = @_;
++        my $vmid = $param->{vmid};
++        my $conf = PVE::QemuConfig->load_config($vmid, $param->{node});
++        die "VM $vmid has no shared D-Bus display\n" if !$conf->{'dbus-display'};
++        my $user = PVE::RPCEnvironment::get()->get_user();
++        my $settings = { codec => $param->{codec}, encoder => $param->{encoder} };
++        return PVE::QemuServer::WebRTC::settings($vmid, $user, $settings);
++    },
++});
++
+ __PACKAGE__->register_method({
+     name => 'spiceproxy',
+     path => '{vmid}/spiceproxy',
+@@ -3489,6 +3668,21 @@ __PACKAGE__->register_method({
+                 type => 'boolean',
+                 optional => 1,
+             },
++            dbus => {
++                description => "The display is exported on a shared per-VM D-Bus.",
++                type => 'boolean',
++                optional => 1,
++            },
++            webrtc => {
++                description => "The node offers a WebRTC console for this D-Bus display.",
++                type => 'boolean',
++                optional => 1,
++            },
++            vnc => {
++                description => "The display also offers a VNC console.",
++                type => 'boolean',
++                optional => 1,
++            },
+             agent => {
+                 description => "QEMU Guest Agent is enabled in config.",
+                 type => 'boolean',
+@@ -3514,11 +3708,17 @@ __PACKAGE__->register_method({
+ 
+         $status->{ha} = PVE::HA::Config::get_service_status("vm:$param->{vmid}");
+ 
+-        if ($conf->{vga}) {
+-            my $vga = PVE::QemuServer::parse_vga($conf->{vga});
++        if ($conf->{vga} || $conf->{'dbus-display'}) {
++            my $vga = PVE::QemuServer::parse_vga($conf->{vga} // 'std');
++            my $dbus_gl = PVE::QemuServer::dbus_gl_display($vga, $conf);
+             my $spice = defined($vga->{type}) && $vga->{type} =~ /^virtio/;
+             $spice ||= PVE::QemuServer::vga_conf_has_spice($conf->{vga});
+-            $status->{spice} = 1 if $spice;
++            $status->{spice} = 1 if $spice && !$dbus_gl;
++            if ($conf->{'dbus-display'}) {
++                $status->{dbus} = 1;
++                $status->{webrtc} = -S $PVE::QemuServer::WebRTC::WEBRTC_SERVICE_SOCKET ? 1 : 0;
++                $status->{vnc} = $dbus_gl ? 0 : 1;
++            }
+             $status->{clipboard} = $vga->{clipboard};
+         }
+         $status->{agent} = 1 if PVE::QemuServer::Agent::get_qga_key($conf, 'enabled');
+diff --git a/src/PVE/QemuServer/Makefile b/src/PVE/QemuServer/Makefile
+index f053feb3..f9cbe64c 100644
+--- a/src/PVE/QemuServer/Makefile
++++ b/src/PVE/QemuServer/Makefile
+@@ -31,6 +31,7 @@ SOURCES=Agent.pm	\
+ 	StateFile.pm	\
+ 	USB.pm		\
+ 	Virtiofs.pm	\
++	WebRTC.pm	\
+ 	VolumeChain.pm
+ 
+ .PHONY: install
+diff --git a/src/PVE/QemuServer/WebRTC.pm b/src/PVE/QemuServer/WebRTC.pm
+new file mode 100644
+index 00000000..6c53d3ab
+--- /dev/null
++++ b/src/PVE/QemuServer/WebRTC.pm
+@@ -0,0 +1,81 @@
++package PVE::QemuServer::WebRTC;
++
++use strict;
++use warnings;
++
++use IO::Handle;
++use IO::Socket::UNIX;
++use JSON;
++use Socket qw(SOCK_STREAM);
++
++use PVE::Tools;
++
++use PVE::QemuServer::Helpers;
++
++# A console service that turns the D-Bus display into a WebRTC stream, run on
++# the node by a separate package, listens here.  Its request is one JSON line
++# carrying the browser's SDP offer, with the VMID identifying the existing
++# per-VM D-Bus; its reply is one JSON line.
++our $WEBRTC_SERVICE_SOCKET = '/run/webrtc-console/offer.sock';
++
++# Hand a browser's WebRTC offer and VM identifier to the
++# console service and return its SDP answer.
++sub request {
++    my ($vmid, $request, $timeout) = @_;
++
++    my $path = $WEBRTC_SERVICE_SOCKET;
++    my @st = lstat($path);
++    die "no WebRTC console service is installed on this node\n" if !@st;
++    # Only a root-owned service receives API-authorized console requests.
++    die "refusing WebRTC console service socket '$path' not owned by root\n"
++        if !-S _ || $st[4] != 0;
++
++    my $service = IO::Socket::UNIX->new(Type => SOCK_STREAM, Peer => $path)
++        or die "unable to connect to the WebRTC console service - $!\n";
++
++    my $wire = encode_json($request);
++    $service->autoflush(1);
++    print {$service} "$wire\n"
++        or die "unable to send the offer to the WebRTC console service\n";
++
++    my $line;
++    eval {
++        PVE::Tools::run_with_timeout($timeout // 30, sub { $line = <$service>; });
++    };
++    my $err = $@;
++    close($service);
++    die "WebRTC console service did not answer - $err" if $err;
++    die "WebRTC console service closed the connection\n" if !defined($line);
++
++    my $reply = eval { decode_json($line) };
++    die "invalid reply from the WebRTC console service\n" if ref($reply) ne 'HASH';
++    die "WebRTC console service: " . ($reply->{error} // 'unknown error') . "\n"
++        if !$reply->{ok};
++
++    return $reply;
++}
++
++sub settings {
++    my ($vmid, $user, $settings) = @_;
++    return request($vmid,
++        { version => 2, vmid => int($vmid), user => $user, settings => $settings })->{data};
++}
++
++sub offer {
++    my ($vmid, $user, $offer) = @_;
++    my $bus = PVE::QemuServer::Helpers::dbus_socket($vmid);
++    my @st = lstat($bus);
++    die "VM $vmid has no safe shared D-Bus display - stop and start it\n"
++        if !@st || !-S _ || $st[4] != 0 || ($st[2] & 0077);
++    my $reply =
++        request($vmid, { version => 2, vmid => int($vmid), user => $user, offer => $offer });
++    my $answer = $reply->{answer};
++    die "invalid SDP answer from the WebRTC console service\n"
++        if ref($answer) ne 'HASH'
++        || ($answer->{type} // '') ne 'answer'
++        || !defined($answer->{sdp});
++
++    return $answer;
++}
++
++1;
+-- 
+2.43.0
+

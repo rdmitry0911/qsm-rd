@@ -1,0 +1,17 @@
+shared-qemu-server
+Applying: add D-Bus display support
+Applying: fix #4771: vga: add rendernode option for virtio-gl
+Applying: display: integrate the per-VM D-Bus with graphics and audio
+Applying: display: protect bus sockets and verify daemon cleanup
+Applying: test: cover shared display audio and invalid configurations
+Applying: test: run the shared bus lifecycle checks in the test target
+webrtc-qemu-server
+Applying: api: attach WebRTC consoles to the shared D-Bus display
+optional-venus
+Applying: fix #6277: virtio-vga-gl: add OpenGL 4.6 and Vulkan (Venus) support
+Applying: test: exercise shared D-Bus display with optional VirGL blobs
+shared-pve-manager
+Applying: pveproxy: serve the page of a WebRTC console viewer
+Applying: ui: use WebRTC for displays with a shared bus and console service
+Applying: ui: configure the shared D-Bus display, render node and audio
+ALL_EXPORTED_SERIES_APPLY_OK

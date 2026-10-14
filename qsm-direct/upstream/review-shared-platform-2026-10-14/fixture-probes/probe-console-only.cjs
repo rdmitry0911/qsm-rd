@@ -1,0 +1,10 @@
+const fs=require('fs');let browser; const {chromium}=require('/opt/qsm-browser/node_modules/playwright');
+(async()=>{browser=await chromium.launch({headless:true,executablePath:'/usr/bin/google-chrome',args:['--no-sandbox','--disable-dev-shm-usage','--ignore-certificate-errors']});
+const ctx=await browser.newContext({ignoreHTTPSErrors:true}); const url='https://192.168.76.1:8006';
+const r=await ctx.request.post(url+'/api2/json/access/ticket',{form:{username:'qsmsharedaudit@pve',password:fs.readFileSync('/root/qsm-shared-audit.password','utf8').trim()}}); const auth=(await r.json()).data;
+if(!auth?.ticket)throw Error('LOGIN_FAILED');await ctx.addCookies([{name:'PVEAuthCookie',value:auth.ticket,url}]);
+const stat=await ctx.request.get(url+'/api2/json/nodes/qsm-pve9-lab/qemu/102/webrtcstatus');const d=(await stat.json()).data; console.log('STATUS',JSON.stringify({http:stat.status(),dbus:d?.dbus,vnc:d?.vnc,status:d?.status}));
+const page=await ctx.newPage();page.on('pageerror',e=>console.log('PAGE_ERROR',e.name,e.message.slice(0,180)));page.on('response',r=>{if(r.url().includes('webrtcproxy'))console.log('OFFER_HTTP',r.status())});
+await page.goto(url+'/?console=kvm&webrtc=1&vmid=102&node=qsm-pve9-lab',{waitUntil:'domcontentloaded'}); await page.waitForTimeout(10000);
+console.log('VIEWER',await page.evaluate(()=>({viewer:!!window.QSM_WEBRTC_VIEWER,video:!!document.querySelector('video'),size:document.querySelector('video')?.videoWidth,status:[...document.querySelectorAll('span,div')].filter(x=>x.textContent?.startsWith('Could not create')).map(x=>x.textContent.slice(0,150)).slice(0,2)})));
+await page.locator('video').screenshot({path:'/root/shared-gl-console.png'});await browser.close();})().catch(e=>{console.log('FAIL',e.name,e.message.slice(0,160));process.exitCode=1;}).finally(async()=>{if(browser)await browser.close()});
