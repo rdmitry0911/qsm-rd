@@ -677,12 +677,17 @@
         if (!ticket || !user) { throw new Error('not authenticated'); }
         const headers = { 'Authorization': `Bearer ${ticket}`, 'X-QSM-User': user };
         const options = { method, mode: 'cors', cache: 'no-store', credentials: 'omit', headers };
+        if (method === 'GET') { options.signal = AbortSignal.timeout(10000); }
         if (method !== 'GET') {
             headers['Content-Type'] = 'application/json';
             options.body = JSON.stringify(params || {});
         }
         const response = await fetch(`https://${location.hostname}:${SIGNAL_PORT}${path}`, options);
-        if (!response.ok) { throw new Error(`signal ${response.status}`); }
+        if (!response.ok) {
+            const error = new Error(`signal ${response.status}`);
+            error.status = response.status;
+            throw error;
+        }
         const body = await response.json();
         return body && body.data;
     };
@@ -3380,6 +3385,12 @@
                 me.menu.push({ xtype: 'menuitem', itemId: 'qsm-direct', text: 'QSM Direct',
                     iconCls: 'fa fa-desktop', disabled: !me.enableQsmDirect,
                     handler: () => openConsole(me, me.nodename, Number(me.vmid), null, kind) });
+                if (kind === 'lxc') {
+                    me.menu.push({ xtype: 'menuitem', itemId: 'qsm-direct-connection',
+                        text: gettext('Check QSM Direct connection…'), hidden: true,
+                        iconCls: 'fa fa-exclamation-triangle',
+                        handler: () => window.open(`https://${location.hostname}:${SIGNAL_PORT}/`, '_blank', 'noopener') });
+                }
             }
             me.callParent();
         },
@@ -3488,18 +3499,47 @@
             const vmid = ct ? Number(ct.vmid) : NaN;
             if (!validNode(ct && ct.node) || !validVmid(vmid)) { return; }
             let enabled = null;
+            let error = null;
+            let pending = false;
+            let observedMenu = null;
             const apply = () => {
+                if (me.destroyed) { return false; }
                 const button = me.down('#qsm-direct-console-button');
-                if (button && enabled !== null) { button.setEnableQsmDirect(enabled); }
+                if (button && enabled !== null) {
+                    button.setEnableQsmDirect(enabled);
+                    const hint = button.down('#qsm-direct-connection');
+                    if (hint) {
+                        hint.setHidden(!error);
+                        const restricted = error && [401, 403, 404].includes(error.status);
+                        hint.setDisabled(!!restricted);
+                        hint.setText(error && error.status === 404
+                            ? gettext('QSM Direct is not configured for this container')
+                            : restricted ? gettext('QSM Direct access denied')
+                            : gettext('Check QSM Direct connection…'));
+                        hint.setTooltip(gettext('Open the QSM service to check its certificate and network access, then reopen this menu.'));
+                    }
+                }
+                const menu = button && button.getMenu();
+                if (menu && observedMenu !== menu) {
+                    observedMenu = menu;
+                    menu.on('beforeshow', () => { if (!enabled) { refresh(); } });
+                }
                 return Boolean(button);
             };
-            signalRequest('GET', `/nodes/${encodeURIComponent(ct.node)}/lxc/${encodeURIComponent(vmid)}/qsm-direct-settings`)
-                .then(() => { enabled = true; }, () => { enabled = false; })
-                .then(() => {
-                    if (!apply() && typeof me.on === 'function') {
-                        me.on('afterrender', apply, me, { single: true });
-                    }
-                });
+            const refresh = () => {
+                if (pending || me.destroyed) { return; }
+                pending = true;
+                signalRequest('GET', `/nodes/${encodeURIComponent(ct.node)}/lxc/${encodeURIComponent(vmid)}/qsm-direct-settings`)
+                    .then(() => { enabled = true; error = null; }, reason => { enabled = false; error = reason; })
+                    .then(() => { pending = false; apply(); });
+            };
+            // Register before the asynchronous probe: a failed fetch can
+            // finish after afterrender, when adding that listener is too late.
+            if (typeof me.on === 'function') {
+                me.on('afterrender', apply, me, { single: true });
+            }
+            apply();
+            refresh();
         },
     });
 

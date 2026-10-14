@@ -698,6 +698,83 @@ assert.equal(typeof panelConfigOverlay.insertNodes, 'function',
 
 console.log('QSM_DIRECT_PVE_UI_OVERLAY_OK');
 
+// A TLS/network failure must remain unavailable until an authenticated
+// retry succeeds. The render event can precede the failed fetch result.
+{
+    const lxcOverlay = definitions.get('PVE.qsmDirect.LxcConfigOverlay');
+    const originalFetch = globalThis.fetch;
+    globalThis.window = { Proxmox: { UserName: 'tester@pve' } };
+    globalThis.Proxmox.UserName = 'tester@pve';
+    globalThis.Ext.util = { Cookies: { get: () => 'test-ticket' } };
+    globalThis.location = { hostname: 'pve-a' };
+    let finishRequest, requestCount = 0, afterRender, beforeShow;
+    let rendered = false, enabled, hintHidden, hintDisabled, hintText;
+    globalThis.fetch = (url, options) => {
+        requestCount += 1;
+        assert.equal(url, 'https://pve-a:8007/nodes/pve-a/lxc/105/qsm-direct-settings');
+        assert.equal(options.headers.Authorization, 'Bearer test-ticket');
+        assert.equal(options.credentials, 'omit');
+        assert.ok(options.signal, 'availability checks must have a bounded timeout');
+        return new Promise((resolve, reject) => { finishRequest = { resolve, reject }; });
+    };
+    const hint = {
+        setHidden: value => { hintHidden = value; },
+        setDisabled: value => { hintDisabled = value; },
+        setText: value => { hintText = value; },
+        setTooltip: () => undefined,
+    };
+    const menu = { on: (event, callback) => {
+        assert.equal(event, 'beforeshow'); beforeShow = callback;
+    } };
+    const button = {
+        setEnableQsmDirect: value => { enabled = value; },
+        down: () => hint,
+        getMenu: () => menu,
+    };
+    const view = {
+        pveSelNode: { data: { node: 'pve-a', vmid: 105 } },
+        callParent: () => undefined,
+        down: () => rendered ? button : null,
+        on: (event, callback) => { assert.equal(event, 'afterrender'); afterRender = callback; },
+    };
+    try {
+        lxcOverlay.initComponent.call(view);
+        assert.equal(typeof afterRender, 'function', 'install render hook before the probe settles');
+        rendered = true; afterRender();
+        finishRequest.reject(new TypeError('TLS/network failed'));
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(enabled, false);
+        assert.equal(hintHidden, false);
+        assert.equal(hintDisabled, false, 'network failure must offer a certificate/network check');
+        beforeShow(); beforeShow();
+        assert.equal(requestCount, 2, 'opening the menu retries once and coalesces concurrent probes');
+        finishRequest.resolve({ ok: false, status: 403 });
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(enabled, false, 'a failed permission check must not enable a console');
+        assert.equal(hintDisabled, true);
+        assert.match(hintText, /access denied/);
+        beforeShow();
+        finishRequest.resolve({ ok: true, json: async () => ({ data: {} }) });
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(enabled, true, 'a successful authenticated retry enables QSM without reloading');
+        assert.equal(hintHidden, true);
+        beforeShow(); assert.equal(requestCount, 3, 'available menus do not need repeat probes');
+        view.destroyed = true; enabled = false;
+        // Also cover late failure callbacks after navigation away.
+        const abandoned = { ...view, destroyed: false, down: () => {
+            assert.fail('destroyed view must not update components');
+        } };
+        abandoned.down = () => null;
+        lxcOverlay.initComponent.call(abandoned);
+        abandoned.destroyed = true;
+        abandoned.down = () => { assert.fail('destroyed view must not update components'); };
+        finishRequest.reject(new TypeError('network failed'));
+        await new Promise(resolve => setImmediate(resolve));
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+}
+
 // A dead WebRTC transport is not proof that the QEMU process stopped.
 const lifecycleStart = source.indexOf('let transportEndPending = false;');
 const lifecycleEnd = source.indexOf("popup.addEventListener('beforeunload'", lifecycleStart);
