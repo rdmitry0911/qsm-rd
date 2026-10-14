@@ -236,6 +236,10 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter)
 
     if(Python3_Interpreter_FOUND)
+        add_test(NAME qsm_shared_display
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_shared_display.py -v)
+        set_tests_properties(qsm_shared_display PROPERTIES TIMEOUT 20)
         add_test(
             NAME qsm_direct_guest_channel
             COMMAND ${Python3_EXECUTABLE}

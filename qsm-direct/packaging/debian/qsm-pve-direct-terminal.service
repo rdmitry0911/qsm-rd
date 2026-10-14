@@ -6,7 +6,7 @@ Before=pve-guests.service
 
 [Service]
 Type=simple
-# webrtc-console: the socket qemu-server's webrtcproxy passes VM displays to
+# webrtc-console: root-only requests from qemu-server's WebRTC API
 RuntimeDirectory=qsm-pve-direct-terminal webrtc-console
 RuntimeDirectoryMode=0750
 # Keeps who owns which container console across restarts and upgrades; a
@@ -32,6 +32,8 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full
+# Native media settings are written here after the PVE API's permission check.
+ReadWritePaths=/etc/qsm-pve-direct/instances.d
 ProtectClock=true
 ProtectControlGroups=true
 ProtectKernelLogs=true

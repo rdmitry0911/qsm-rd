@@ -202,14 +202,20 @@ class VmPolicyStore:
             raise SignalError(400, "invalid policy")
         if not self._directory.is_dir() or self._directory.stat().st_uid not in (0, os.geteuid()):
             raise SignalError(503, "policy unavailable")
-        existing = self.read(vmid)
+        self.read(vmid)  # Validate the existing root-owned policy before updating it.
         address = self._read_dbus_address(vmid)
         temporary = self._directory / f".{vmid}.conf.tmp"
         lines = [f"QSM_DIRECT_QEMU_DBUS_ADDRESS={address}\n"] if address else []
         lines += [f"QSM_DIRECT_CODEC={codec}\n", f"QSM_DIRECT_ENCODER_MODE={encoder}\n"]
-        # Preserve a pinned explicit encoder if one was set out of band.
-        if existing.get("encoder_binary"):
-            lines.append(f"QSM_DIRECT_ENCODER={existing['encoder_binary']}\n")
+        # Keep administrator-pinned encoders and render nodes across a UI
+        # policy update. These are node-local choices, not browser fields.
+        try:
+            existing_lines = self._path(vmid).read_text(encoding="utf-8").splitlines()
+        except FileNotFoundError:
+            existing_lines = []
+        for line in existing_lines:
+            if line.startswith(("QSM_DIRECT_ENCODER=", "QSM_DIRECT_VAAPI_RENDER_NODE=")):
+                lines.append(line + "\n")
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:

@@ -26,6 +26,12 @@ function options(argv) {
     const seen = new Set();
     for (let index = 0; index < argv.length; index += 1) {
         const flag = argv[index];
+        if (flag === '--native') {
+            if (seen.has(flag)) { fail('INVALID_ARGUMENTS'); }
+            seen.add(flag);
+            value.native = true;
+            continue;
+        }
         if (!flags.has(flag) || index + 1 === argv.length || seen.has(flag)) { fail('INVALID_ARGUMENTS'); }
         seen.add(flag);
         value[flag.slice(2)] = argv[++index];
@@ -173,13 +179,16 @@ async function openWindow(page, config) {
     const box = await button.boundingBox();
     if (!box) { fail('CONSOLE_BUTTON_UNAVAILABLE'); }
     await page.mouse.click(box.x + box.width - 6, box.y + box.height / 2);
-    const item = page.locator('.x-menu:visible .x-menu-item').filter({ hasText: /^QSM Direct$/ });
+    const item = page.locator('.x-menu:visible .x-menu-item').filter({
+        hasText: config.native ? /^WebRTC$/ : /^QSM Direct$/,
+    });
     if (await item.count() !== 1) { fail('QSM_DIRECT_MENU_UNAVAILABLE'); }
     const popupPromise = page.waitForEvent('popup');
     await item.click();
     const popup = await popupPromise;
     popup.setDefaultTimeout(config.timeout);
     await waitVideo(popup, config.timeout);
+    if (config.native && !popup.url().includes('webrtc=1')) { fail('NATIVE_VIEWER_ROUTE_UNAVAILABLE'); }
     return popup;
 }
 

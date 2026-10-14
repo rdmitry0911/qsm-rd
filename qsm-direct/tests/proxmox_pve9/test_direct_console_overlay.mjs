@@ -71,8 +71,8 @@ assert.match(source, /if \(me\.qsmDirectSession\) \{ me\.qsmDirectSession\.close
     'leaving the PVE Console card must retire its embedded WebRTC session');
 assert.match(source, /window\.open\('', windowId,/,
     'QSM Direct must create a separate browser popup synchronously from the menu action');
-assert.match(source, /const vmStatusUrl = \(\) => `\/nodes\/\$\{encodeURIComponent\(node\)\}\/\$\{guestKind\}\/\$\{encodeURIComponent\(vmid\)\}\/status\/current`;/,
-    'a popup opened before Power On must use the protected PVE status route before creating WebRTC');
+assert.match(source, /VIEWER \? 'webrtcstatus' : 'status\/current'/,
+    'native consoles must poll the VM.Console status route without requiring VM.Audit');
 assert.match(source, /Virtual machine is stopped\. Waiting for it to start…/,
     'a stopped VM must leave the popup open with an explicit start wait state');
 assert.match(source, /if \(!await waitForVmStart\(\)\) \{ return; \}/,
@@ -137,10 +137,14 @@ assert.match(source, /Guest display looks asleep\. Move the mouse or press a key
     'an all-black decoded picture must be explained as a sleeping guest with the wake action');
 assert.match(source, /const answer = VIEWER \? await pveWebrtcOffer\(params\) : await signalRequest\('POST', url, params\);/,
     'the SDP offer goes to the node-local signalling service (or, in the PVE viewer page, to webrtcproxy)');
-assert.match(source, /await signalRequest\('GET', vmMediaPolicyUrl\(\), \{\}\)/,
-    'the codec policy read must use the signalling service');
-assert.match(source, /await signalRequest\('PUT', vmMediaPolicyUrl\(\), \{/,
-    'the codec policy write must use the signalling service');
+assert.match(source, /await mediaPolicyRequest\('GET', \{\}\)/,
+    'the codec policy read must use the authenticated API for this console');
+assert.match(source, /await mediaPolicyRequest\('PUT', \{/,
+    'the codec policy write must use the authenticated API for this console');
+assert.match(source, /if \(!VIEWER\) \{ return signalRequest\(method, vmMediaPolicyUrl\(\), params\); \}/,
+    'existing standalone consoles must retain their signalling service');
+assert.match(source, /\/webrtcsettings`;/,
+    'native consoles must read and write media policy through the PVE API');
 assert.match(source, /'Authorization': `Bearer \$\{ticket\}`, 'X-QSM-User': user/,
     'the ticket must travel in an Authorization header, never the URL or an ambient cookie');
 assert.match(source, /const state = await apiValue\(vmStatusUrl\(\), 'GET'/,

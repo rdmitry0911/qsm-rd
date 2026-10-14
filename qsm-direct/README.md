@@ -4,8 +4,32 @@
 rectangle-by-rectangle noVNC picture with a 60 fps WebRTC stream — encoded in
 hardware where the node has NVENC, QSV or VA-API, on the CPU otherwise — in
 the same browser tab, with the same PVE login and the same `VM.Console`
-permission. Nothing to install on the client, and nothing patched inside
-pveproxy or pvedaemon: they run stock.
+permission. Nothing to install on the client.
+
+## Native shared platform
+
+The current upstream proposal uses Alexandre Derumier's per-VM D-Bus
+foundation. qemu-server owns the bus; QSM attaches as a display consumer.
+Native signalling and codec settings use the existing PVE API on port 8006.
+CPU displays keep noVNC available; GL displays use the D-Bus console.
+
+Apply the [shared-base and native UI series](upstream/README.md), install
+qsm-pve-direct, then stop and convert an existing managed VM:
+
+```sh
+qsm-pve-direct-migrate <vmid>          # preview
+qsm-pve-direct-migrate <vmid> --apply  # private backup, then update
+qm start <vmid>
+```
+
+For a new VM, enable `dbus-display: 1`, select `vga: std` or
+`vga: virtio-gl,rendernode=/dev/dri/renderD128`, and optionally select
+`audio0: device=ich9-intel-hda,driver=dbus`. See the
+[validated package and migration instructions](packaging/debian/README.qsm-pve-direct).
+The upstream patches are proposals; stock PVE still uses the add-on mode
+below. LXC also keeps its existing signalling service.
+
+## Legacy add-on architecture
 
 ```mermaid
 flowchart LR

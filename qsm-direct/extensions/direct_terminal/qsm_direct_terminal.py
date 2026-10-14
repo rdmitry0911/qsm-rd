@@ -113,7 +113,8 @@ def _read_root_file(path: Path, *, maximum: int = MAX_REQUEST_BYTES) -> bytes:
         os.close(descriptor)
 
 
-def _load_instance(instance_directory: Path, vmid: int, vm_runtime_directory: Path) -> dict[str, str]:
+def _load_instance(instance_directory: Path, vmid: int, vm_runtime_directory: Path,
+                   shared_bus_directory: Path | None = None) -> dict[str, str]:
     if not _valid_vmid(vmid) or not instance_directory.is_absolute() or not vm_runtime_directory.is_absolute():
         raise DirectTerminalError("direct-terminal VM policy is invalid")
     content = _read_root_file(instance_directory / f"{vmid}.conf", maximum=16 * 1024)
@@ -133,7 +134,11 @@ def _load_instance(instance_directory: Path, vmid: int, vm_runtime_directory: Pa
             raise DirectTerminalError("direct-terminal VM policy is invalid")
         values[key] = value
     expected_bus = f"unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus"
-    if values.get("QSM_DIRECT_QEMU_DBUS_ADDRESS") != expected_bus:
+    if shared_bus_directory is not None:
+        # A native display's address comes from the VMID, never from a policy
+        # file or browser request. Ignore a legacy address left by an upgrade.
+        values["QSM_DIRECT_QEMU_DBUS_ADDRESS"] = _shared_bus_address(shared_bus_directory, vmid)
+    elif values.get("QSM_DIRECT_QEMU_DBUS_ADDRESS") != expected_bus:
         raise DirectTerminalError("direct-terminal VM has an invalid Display1 address")
     encoder = values.get("QSM_DIRECT_ENCODER", "")
     if encoder and not _ENCODER_PATTERN.fullmatch(encoder):
@@ -158,7 +163,8 @@ def _load_instance(instance_directory: Path, vmid: int, vm_runtime_directory: Pa
 
 
 def _load_optional_instance(instance_directory: Path, vmid: int,
-                            vm_runtime_directory: Path) -> dict[str, str]:
+                            vm_runtime_directory: Path,
+                            shared_bus_directory: Path | None = None) -> dict[str, str]:
     """Load an optional root-owned codec policy, with a portable default.
 
     The PVE VM config is the source of truth for whether Display1 is enabled.
@@ -171,12 +177,48 @@ def _load_optional_instance(instance_directory: Path, vmid: int,
     except FileNotFoundError:
         return {
             "QSM_DIRECT_QEMU_DBUS_ADDRESS":
-                f"unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus",
+                (_shared_bus_address(shared_bus_directory, vmid) if shared_bus_directory is not None
+                 else f"unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus"),
             "QSM_DIRECT_CODEC": "auto",
             "QSM_DIRECT_ENCODER_MODE": "auto",
             "QSM_DIRECT_ENCODER": "auto",
         }
-    return _load_instance(instance_directory, vmid, vm_runtime_directory)
+    return _load_instance(instance_directory, vmid, vm_runtime_directory, shared_bus_directory)
+
+
+def _shared_bus_address(directory: Path, vmid: int) -> str:
+    if not directory.is_absolute() or not _valid_vmid(vmid):
+        raise DirectTerminalError("shared display address is invalid")
+    return f"unix:path={directory}/{vmid}.dbusdisplay"
+
+
+def _shared_display_profile(config: str) -> str | None:
+    """The running config opts in to qemu-server's common display bus."""
+    lines = _current_section(config)
+    enabled = [line.partition(":")[2].strip() for line in lines
+               if line.startswith("dbus-display:")]
+    if enabled != ["1"]:
+        return None
+    vga = _pve_vga_option(config)
+    kind = (vga or {}).get("type", "std")
+    if kind == "virtio-gl":
+        return "virgl"
+    if kind in {"std", "virtio", "vmware", "cirrus", "qxl", "qxl2", "qxl3", "qxl4"}:
+        return "cpu"
+    return None
+
+
+def _require_shared_bus(directory: Path, vmid: int) -> None:
+    path = directory / f"{vmid}.dbusdisplay"
+    try:
+        metadata = path.lstat()
+        parent = directory.lstat()
+    except OSError as error:
+        raise DirectTerminalError("shared display bus is unavailable; stop and start the VM") from error
+    if (not stat.S_ISDIR(parent.st_mode) or parent.st_mode & 0o022 or
+            not stat.S_ISSOCK(metadata.st_mode) or metadata.st_mode & 0o077 or
+            (os.geteuid() == 0 and (metadata.st_uid != 0 or parent.st_uid != 0))):
+        raise DirectTerminalError("shared display bus is unsafe")
 
 
 def _read_pve_vm_config(path: Path) -> str | None:
@@ -931,9 +973,8 @@ class DirectSessionManager:
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run_loop, name="qsm-direct-webrtc", daemon=True)
         self._sessions: dict[str, DirectSession] = {}
-        # Display1 accepts one capture peer per VM. A transport owns that one
-        # worker and fans its encoded media out to all PVE-authorized browser
-        # sessions for the VM; it is not a single-viewer limitation.
+        # QSM shares one capture/encoder worker among its browser viewers.
+        # Other console services can independently join the common display bus.
         self._transports: dict[object, DirectVmTransport] = {}
         # Container consoles: (VMID, slot) -> the PVE user it belongs to.
         # Kept in the root-only runtime directory so a service restart (a
@@ -1147,10 +1188,30 @@ class DirectSessionManager:
         if not _valid_vmid(vmid):
             return False
         config = _read_pve_vm_config(self._pve_config_directory / f"{vmid}.conf")
-        return config is not None and _managed_display_enabled(config, vmid, self._vm_runtime_directory)
+        return config is not None and (_shared_display_profile(config) is not None or
+                                      _managed_display_enabled(config, vmid, self._vm_runtime_directory))
 
     def _start_configured_display_buses(self) -> tuple[int, ...]:
         """Create QEMU buses before the user starts a Display1-configured VM."""
+        # A migrated VM may keep its optional Wayland desktop companion. Its
+        # serial socket needs a directory before QEMU starts, but its display
+        # bus still belongs exclusively to qemu-server.
+        try:
+            entries = tuple(self._pve_config_directory.iterdir())
+        except FileNotFoundError:
+            entries = ()
+        for entry in entries:
+            match = _PVE_VM_CONFIG_PATTERN.fullmatch(entry.name)
+            if match is None:
+                continue
+            vmid = int(match.group(1))
+            if not _valid_vmid(vmid):
+                continue
+            config = _read_pve_vm_config(entry)
+            if (config is not None and _shared_display_profile(config) is not None and
+                    _managed_guest_channel_enabled(config, vmid, self._vm_runtime_directory)):
+                _safe_runtime_directory(self._vm_runtime_directory)
+                _safe_runtime_directory(self._vm_runtime_directory / str(vmid))
         configured = self._configured_vms()
         for vmid in configured:
             policy = _load_optional_instance(
@@ -1276,8 +1337,13 @@ class DirectSessionManager:
         if len(self._sessions) >= MAX_SESSIONS:
             raise DirectTerminalError("direct-terminal session capacity is exhausted")
         if container is None:
-            policy = _load_optional_instance(self._instance_directory, vmid, self._vm_runtime_directory)
-            if display_fd is None:
+            config = _read_pve_vm_config(self._pve_config_directory / f"{vmid}.conf")
+            shared = config is not None and _shared_display_profile(config) is not None
+            policy = _load_optional_instance(self._instance_directory, vmid, self._vm_runtime_directory,
+                                            self._qemu_pid_directory if shared else None)
+            if shared:
+                _require_shared_bus(self._qemu_pid_directory, vmid)
+            elif display_fd is None:
                 self._dbus.ensure(vmid, policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"])
             current_generation = _qemu_process_generation(self._qemu_pid_directory, vmid)
         else:
@@ -1474,7 +1540,15 @@ class DirectSessionManager:
             # scanout for which QEMU rejects SetUIInfo, while VirGL must keep
             # treating such a rejection as a real display failure.
             config = _read_pve_vm_config(self._pve_config_directory / f"{vmid}.conf")
-            if display_fd is not None:
+            shared_profile = _shared_display_profile(config) if config is not None else None
+            if shared_profile is not None:
+                profile = shared_profile
+                _require_shared_bus(self._qemu_pid_directory, vmid)
+                # Recompute after the config read, rather than trusting the
+                # request or an old encoder-policy file.
+                policy = {**policy, "QSM_DIRECT_QEMU_DBUS_ADDRESS":
+                          _shared_bus_address(self._qemu_pid_directory, vmid)}
+            elif display_fd is not None:
                 # qemu-server checked the VGA option; only its type matters here.
                 vga = _pve_vga_option(config) if config is not None else None
                 profile = "virgl" if vga is not None and vga.get("type") == "virtio-gl" else "cpu"
@@ -1492,11 +1566,15 @@ class DirectSessionManager:
             # clipboard (qemu-vdagent + spice-vdagent in the guest): the worker
             # bridges it to this socketpair in the guest-agent protocol.
             clipboard_theirs: socket.socket | None = None
-            if display_fd is not None:
+            companion = config is not None and _managed_guest_channel_enabled(
+                config, vmid, self._vm_runtime_directory)
+            if display_fd is not None or (shared_profile is not None and not companion):
                 clipboard_ours, clipboard_theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
             display_arguments = (["--dbus-fd", str(display_fd), "--clipboard-fd", str(clipboard_theirs.fileno())]
                                  if display_fd is not None and clipboard_theirs is not None
                                  else ["--dbus-address", policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"]])
+            if shared_profile is not None and clipboard_theirs is not None:
+                display_arguments += ["--clipboard-fd", str(clipboard_theirs.fileno())]
             arguments = [
                 "/usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker",
                 *display_arguments,
@@ -1526,8 +1604,9 @@ class DirectSessionManager:
             worker = subprocess.Popen(
                 arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=None,
                 env=self._child_environment(), close_fds=True, start_new_session=True,
-                pass_fds=(display_fd, clipboard_theirs.fileno(), pcm_theirs.fileno())
-                if display_fd is not None and clipboard_theirs is not None else (pcm_theirs.fileno(),),
+                pass_fds=tuple(fd for fd in (
+                    display_fd, clipboard_theirs.fileno() if clipboard_theirs is not None else None,
+                    pcm_theirs.fileno()) if fd is not None),
             )
             pcm_theirs.close()
             if clipboard_theirs is not None:
@@ -1551,7 +1630,7 @@ class DirectSessionManager:
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
                 qemu_generation=generation, codec=codec, guest=guest,
-                attached_by_pve=display_fd is not None, pcm=pcm,
+                attached_by_pve=display_fd is not None or shared_profile is not None, pcm=pcm,
                 microphone=MicrophoneRoute(lambda data: pcm.send(PCM_MICROPHONE, data)))
             self._transports[vmid] = transport
             print(
@@ -1829,17 +1908,20 @@ class DirectSessionManager:
             raise DirectTerminalError(
                 f"direct-terminal WebRTC negotiation failed: {suffix}") from error
 
-    def answer_webrtc(self, request: Any, display_fd: int) -> dict[str, str]:
-        """Answer a WebRTC offer that qemu-server forwarded with a display fd.
+    def answer_webrtc(self, request: Any, display_fd: int | None = None) -> dict[str, str]:
+        """Answer a PVE-authorized offer on the shared bus (protocol v2).
 
         The request comes from the webrtcproxy API call, which already
         authenticated the PVE user, checked VM.Console and attached the fd to
-        the VM's D-Bus display (``vga: ...,dbus=1``).  The fd stays owned by
-        the caller; a started worker inherits its own copy.
+        the VM's display. Version 2 has no descriptor: the root-owned config
+        and VMID select the existing qemu-server bus. Version 1 accepts the
+        original p2p descriptor for compatibility with older installations.
         """
-        if not isinstance(request, dict) or request.get("version") != 1 or \
+        if not isinstance(request, dict) or request.get("version") not in (1, 2) or \
                 set(request) != {"version", "vmid", "user", "offer"}:
             raise DirectTerminalError("direct-terminal webrtc request is invalid")
+        if (request["version"] == 1) != (display_fd is not None):
+            raise DirectTerminalError("direct-terminal webrtc transport is invalid")
         vmid, user, offer = request["vmid"], request["user"], request["offer"]
         if (type(vmid) is not int or not _valid_vmid(vmid) or not isinstance(user, str) or
                 not _SUBJECT_PATTERN.fullmatch(user) or not isinstance(offer, dict) or
@@ -1851,6 +1933,11 @@ class DirectSessionManager:
             if type(value) is not int or not minimum <= value <= maximum:
                 raise DirectTerminalError("direct-terminal webrtc request is invalid")
         width, height = width - width % 2, height - height % 2
+        if request["version"] == 2:
+            config = _read_pve_vm_config(self._pve_config_directory / f"{vmid}.conf")
+            if config is None or _shared_display_profile(config) is None:
+                raise DirectTerminalError("VM is not configured for the shared D-Bus display")
+            _require_shared_bus(self._qemu_pid_directory, vmid)
         if self._closed:
             raise DirectTerminalError("direct-terminal is stopped")
         future: Future[dict[str, str]] = asyncio.run_coroutine_threadsafe(
@@ -1864,6 +1951,35 @@ class DirectSessionManager:
             future.cancel()
             raise DirectTerminalError(
                 f"direct-terminal WebRTC negotiation failed: {type(error).__name__}") from error
+
+    def webrtc_settings(self, request: Any) -> dict[str, str]:
+        """Codec policy on the root-only API service socket.
+
+        The PVE API checks VM.Console for reads and VM.Config.Options for
+        writes. No ticket or browser-selected file path reaches this service.
+        """
+        if (not isinstance(request, dict) or set(request) != {"version", "vmid", "user", "settings"}
+                or request.get("version") != 2 or not _valid_vmid(request.get("vmid"))
+                or not isinstance(request.get("user"), str)
+                or not _SUBJECT_PATTERN.fullmatch(request["user"])):
+            raise DirectTerminalError("invalid WebRTC settings request")
+        config = _read_pve_vm_config(self._pve_config_directory / f"{request['vmid']}.conf")
+        if config is None or _shared_display_profile(config) is None:
+            raise DirectTerminalError("VM is not configured for the shared D-Bus display")
+        try:
+            from signal_service.qsm_direct_signal import VmPolicyStore, SignalError
+        except ModuleNotFoundError:
+            from extensions.signal.qsm_direct_signal import VmPolicyStore, SignalError
+        store = VmPolicyStore(self._instance_directory)
+        settings = request["settings"]
+        try:
+            if settings is None:
+                return store.read(request["vmid"])
+            if not isinstance(settings, dict) or set(settings) != {"codec", "encoder"}:
+                raise DirectTerminalError("invalid WebRTC settings")
+            return store.write(request["vmid"], settings["codec"], settings["encoder"])
+        except (SignalError, TypeError) as error:
+            raise DirectTerminalError("invalid or unavailable WebRTC settings") from error
 
     def close(self) -> None:
         if self._closed:
@@ -1943,7 +2059,7 @@ class PveRequestHandler(socketserver.BaseRequestHandler):
 
 
 class WebRtcRequestHandler(socketserver.BaseRequestHandler):
-    """One offer from qemu-server's webrtcproxy: a JSON line plus a display fd."""
+    """A root-only JSON offer; legacy protocol v1 also carries a display fd."""
 
     def handle(self) -> None:
         server = self.server
@@ -1960,11 +2076,16 @@ class WebRtcRequestHandler(socketserver.BaseRequestHandler):
                 if not block:
                     break
                 payload.extend(block)
-            if b"\n" not in payload or len(descriptors) != 1:
+            if b"\n" not in payload or len(descriptors) > 1 or _flags & socket.MSG_CTRUNC:
                 raise DirectTerminalError("direct-terminal webrtc request is incomplete")
             request = json.loads(bytes(payload).split(b"\n", 1)[0].decode("utf-8"))
-            answer = server.sessions.answer_webrtc(request, descriptors[0])
-            response = {"ok": True, "answer": {"type": answer["type"], "sdp": answer["sdp"]}}
+            if isinstance(request, dict) and "settings" in request:
+                if descriptors:
+                    raise DirectTerminalError("settings request cannot carry a descriptor")
+                response = {"ok": True, "data": server.sessions.webrtc_settings(request)}
+            else:
+                answer = server.sessions.answer_webrtc(request, descriptors[0] if descriptors else None)
+                response = {"ok": True, "answer": {"type": answer["type"], "sdp": answer["sdp"]}}
         except ContainerConsoleBusyError as error:
             response = {"ok": False, "error": "all consoles are in use"}
             print(f"qsm-direct-terminal: webrtc request rejected: {error}", file=sys.stderr)

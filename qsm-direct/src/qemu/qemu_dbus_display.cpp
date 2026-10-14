@@ -2076,6 +2076,9 @@ int QemuDbusDisplay::clipboard_request_reply(sd_bus_message *message, void *user
     auto *self = static_cast<QemuDbusDisplay *>(userdata);
     try {
         if (sd_bus_message_is_method_error(message, nullptr)) {
+            const auto* error = sd_bus_message_get_error(message);
+            std::fprintf(stderr, "QSM_DIRECT_CLIPBOARD guest request failed: %s\n",
+                         error && error->name ? error->name : "unknown");
             return 0;
         }
         const char *mime = nullptr;
@@ -2093,6 +2096,8 @@ int QemuDbusDisplay::clipboard_request_reply(sd_bus_message *message, void *user
             return 0;
         }
         self->clipboard_guest_text_ = std::move(text);
+        std::fprintf(stderr, "QSM_DIRECT_CLIPBOARD guest text bytes=%zu\n",
+                     self->clipboard_guest_text_.size());
         self->clipboard_write("EVENT_CLIP " + (self->clipboard_guest_text_.empty()
                                                    ? std::string("-")
                                                    : base64_encode(self->clipboard_guest_text_)));

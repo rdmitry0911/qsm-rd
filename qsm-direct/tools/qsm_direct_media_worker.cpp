@@ -271,7 +271,7 @@ Options parse_options(int argc, char **argv) {
             }
             options.pcm_fd = std::stoi(value);
         } else if (argument == "--clipboard-fd") {
-            // QSF guest-agent line stream to the terminal (with --dbus-fd):
+            // QSF guest-agent line stream to the terminal (on either D-Bus transport):
             // bridges QEMU's D-Bus clipboard to the browser.
             const std::string value(next(index, argument));
             if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos ||
@@ -1815,14 +1815,14 @@ int run(const Options &options) {
         // there is no bus name to address.
         display_options.p2p_fd = qmdp::UniqueFd(options.dbus_fd);
         display_options.destination.clear();
-        if (options.clipboard_fd >= 0) {
-            display_options.clipboard_fd = qmdp::UniqueFd(options.clipboard_fd);
-        }
     } else {
         display_options.bus_address = options.dbus_address;
-        // The package-owned per-VM endpoint is a private session bus.  QEMU owns
-        // the org.qemu name there; this is not a peer-to-peer D-Bus socket.
+        // QEMU owns org.qemu on the VM's private bus, whether qemu-server or
+        // a legacy add-on installation created that bus.
         display_options.destination = "org.qemu";
+    }
+    if (options.clipboard_fd >= 0) {
+        display_options.clipboard_fd = qmdp::UniqueFd(options.clipboard_fd);
     }
     display_options.enable_audio = true;
     display_options.require_audio = false;

@@ -8,11 +8,14 @@
     // Viewer mode: this file runs as the WebRTC console page that pveproxy
     // serves for '?console=kvm&webrtc=1' (index.html.tpl sets the object).
     // The page itself is the console, the offer goes to the VM's API call
-    // webrtcproxy (qemu-server, vga: ...,dbus=1), and the PVE UI overrides
+    // webrtcproxy (qemu-server, dbus-display=1), and the PVE UI overrides
     // below are not registered -- their classes do not exist on that page.
     const VIEWER = (typeof window !== 'undefined' && window.QSM_WEBRTC_VIEWER) || null;
+    const NATIVE_QEMU = !VIEWER && typeof PVE !== 'undefined' &&
+        typeof PVE.Utils?.openWebRTCViewer === 'function';
     const defineOverride = (name, body) => {
-        if (!VIEWER) { Ext.define(name, body); }
+        const legacyQemu = /\.(DisplayInputPanel|DisplayEdit|AudioInputPanel|AudioEdit|HardwareView|QemuConfig)Overlay$/.test(name);
+        if (!VIEWER && !(NATIVE_QEMU && legacyQemu)) { Ext.define(name, body); }
     };
     const MIN_VMID = 100;
     const MAX_VMID = 999999999;
@@ -1847,6 +1850,18 @@
         settingsButton.addEventListener('click', () => setSettingsPanelOpen(!settingsPanelOpen));
         closeSettings.addEventListener('click', () => setSettingsPanelOpen(false));
         const vmMediaPolicyUrl = () => `/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/qsm-direct-settings`;
+        const mediaPolicyRequest = async (method, params) => {
+            if (!VIEWER) { return signalRequest(method, vmMediaPolicyUrl(), params); }
+            const body = new URLSearchParams(params || {});
+            const url = `/api2/json/nodes/${encodeURIComponent(node)}/qemu/${encodeURIComponent(vmid)}/webrtcsettings`;
+            const response = await fetch(url, {
+                method, credentials: 'same-origin', cache: 'no-store',
+                headers: { 'CSRFPreventionToken': VIEWER.csrf },
+                ...(method === 'GET' ? {} : { body }),
+            });
+            if (!response.ok) { throw new Error(`webrtcsettings ${response.status}`); }
+            return (await response.json()).data;
+        };
         const validVmMediaPolicy = (value) => value && ['auto', 'h264', 'hevc'].includes(value.codec) &&
             ['auto', 'hardware', 'software'].includes(value.encoder);
         const loadVmMediaPolicy = async () => {
@@ -1856,7 +1871,7 @@
             encoderInput.disabled = true;
             saveMediaPolicy.disabled = true;
             try {
-                const value = await signalRequest('GET', vmMediaPolicyUrl(), {});
+                const value = await mediaPolicyRequest('GET', {});
                 if (!validVmMediaPolicy(value)) { throw new Error('invalid VM media policy'); }
                 codecInput.value = value.codec;
                 encoderInput.value = value.encoder;
@@ -1882,7 +1897,7 @@
             encoderInput.disabled = true;
             saveMediaPolicy.disabled = true;
             try {
-                const value = await signalRequest('PUT', vmMediaPolicyUrl(), {
+                const value = await mediaPolicyRequest('PUT', {
                     codec: codecInput.value, encoder: encoderInput.value,
                 });
                 if (!validVmMediaPolicy(value)) { throw new Error('invalid saved VM media policy'); }
@@ -2208,7 +2223,7 @@
             }, 500);
         }
 
-        const vmStatusUrl = () => `/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/status/current`;
+        const vmStatusUrl = () => `/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/${VIEWER ? 'webrtcstatus' : 'status/current'}`;
         const waitForVmStart = async () => {
             // Opening Console is a valid action before Power On.  Do not
             // create a single-use WebRTC offer until QEMU exists: PVE would
@@ -3327,7 +3342,8 @@
         initComponent: function () {
             const me = this;
             const kind = me.consoleType === 'kvm' ? 'qemu' : (me.consoleType === 'lxc' ? 'lxc' : null);
-            if (kind && validNode(me.nodename) && validVmid(Number(me.vmid))) {
+            if (kind && !(NATIVE_QEMU && kind === 'qemu') &&
+                validNode(me.nodename) && validVmid(Number(me.vmid))) {
                 me.itemId = 'qsm-direct-console-button';
                 me.menu = (me.menu || []).map((item) => Ext.apply({}, item));
                 me.menu.push({ xtype: 'menuitem', itemId: 'qsm-direct', text: 'QSM Direct',
@@ -3354,7 +3370,7 @@
     defineOverride('PVE.qsmDirect.PanelConfigConsoleOverlay', {
         override: 'PVE.panel.Config',
         insertNodes: function (items) {
-            if (Array.isArray(items)) {
+            if (!NATIVE_QEMU && Array.isArray(items)) {
                 items.forEach((item) => {
                     if (item && item.itemId === 'console' &&
                         item.xtype === 'pveNoVncConsole' && item.consoleType === 'kvm') {

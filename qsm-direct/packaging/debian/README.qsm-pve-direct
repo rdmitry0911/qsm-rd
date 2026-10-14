@@ -1,8 +1,39 @@
 qsm-pve-direct for Proxmox VE 9
 ===============================
 
-`qsm-pve-direct` is a browser-native PVE console transport. Install it as the
-sole non-stock console transport on the node.
+`qsm-pve-direct` is a browser-native PVE console transport.
+
+Native shared platform (patched qemu-server and pve-manager)
+---------------------------------------------------------
+Install the shared-base and WebRTC patches from upstream/README.md, then
+install this package. Stop each VM before changing its display configuration:
+
+    qm set <vmid> --dbus-display 1 --vga std
+    qm set <vmid> --audio0 device=ich9-intel-hda,driver=dbus
+
+For VirGL use --vga virtio-gl,rendernode=/dev/dri/renderD128 instead.
+For existing QSM-managed VMs, preview and apply the conversion:
+
+    qsm-pve-direct-migrate <vmid>
+    qsm-pve-direct-migrate <vmid> --apply
+
+The tool preserves unrelated QEMU arguments and the optional QSM guest
+companion, and makes a private configuration backup before applying changes.
+Start the VM and reload the PVE browser page. Its Console tab and menu use
+WebRTC, with noVNC still available for CPU displays.
+
+qemu-server owns /run/qemu-server/<vmid>.dbusdisplay and its VM lifecycle.
+QSM is a consumer; restarting its service does not replace that bus. Other
+display consumers may attach independently. Signalling, status and codec
+settings use authenticated PVE API routes on port 8006; native VM consoles
+do not require port 8007. VM.Console permits viewing/settings reads;
+VM.Config.Options permits settings writes. Clipboard uses qemu-vdagent and
+spice-vdagent in X11 guests, or the retained QSM companion for configured
+desktop guests. Concurrent clipboard ownership across protocols is not
+provided by QEMU's single clipboard proxy.
+
+Legacy add-on and LXC mode (unpatched PVE)
+----------------------------------------
 
 It uses PVE's existing authenticated Web UI session and `VM.Console` ACL.
 The browser sends its WebRTC SDP offer to the node-local signalling service
