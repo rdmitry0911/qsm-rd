@@ -122,3 +122,25 @@ pve-devel-shared-platform-followup.eml: follow-up draft; forum-post-draft.txt:
 updated forum draft in the established author's style. Earlier reply has
 already been sent by the user; it is retained only as historical context.
 review-shared-platform-2026-10-14: build/test logs, fixture, SHA256SUMS.
+
+Production follow-up: shared4, 2026-10-14
+Installed on 192.168.64.20 after shared3. VM103 was migrated/restarted with
+explicit user authorization; VM104 and containers remained running.
+An actual user connection through VPN timed out after 20 seconds; capture
+continued normally. The old client incorrectly labelled every lost peer
+or data channel as a stopped VM. shared4 verifies status before that label,
+keeps the viewer and offers Reconnect when the VM is running or status is
+unknown. ICE gathering now waits for completion or a bounded 10-second
+fallback with candidates; the listener survives the initial gathering
+transition. Candidate-free offers are rejected with browser/VPN guidance.
+Behavior tests cover running/stopped/unavailable status, repeated shutdown
+events, and gathering transitions/completion/timeout. They pass.
+Commit: 1b2864d. Patch: patches/qsm-shared-consumer/0002-*.patch.
+
+A separate Chrome 145 browser on the LAN connected to the native API bridge
+and decoded video for over30 seconds. Signalling in that diagnostic runner
+used root CLI API calls, not a browser user's authentication fixture; UDP,
+DTLS/SRTP and Chrome's H.264 decoding crossed the real LAN. This verifies
+browser/media connectivity on the LAN, not the user's VPN path.
+The VPN client still requires its own retest; do not claim that updating
+shared4 proves its UDP path or browser permissions are correct.

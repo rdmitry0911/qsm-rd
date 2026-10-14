@@ -1,0 +1,161 @@
+From 1b2864dae11cd43b70d3f7a0c52a09a4f7d011f6 Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Wed, 14 Oct 2026 22:09:58 +0300
+Subject: [PATCH] Confirm VM shutdown before closing consoles and await ICE
+ candidates
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ .../pve9/direct_ui/qsm-direct-console.js      | 56 ++++++++++++++-----
+ .../test_direct_console_overlay.mjs           | 54 ++++++++++++++++++
+ 2 files changed, 97 insertions(+), 13 deletions(-)
+
+diff --git a/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js b/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js
+index 208d5c4..6d852b2 100644
+--- a/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js
++++ b/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js
+@@ -642,12 +642,22 @@
+     const guestCaptureExitShortcut = (event) => event.code === 'Escape' &&
+         event.ctrlKey && event.altKey && event.shiftKey && !event.metaKey;
+ 
+-    const waitForIce = (peer) => new Promise((resolve) => {
++    const waitForIce = (peer) => new Promise((resolve, reject) => {
+         if (peer.iceGatheringState === 'complete') { resolve(); return; }
+-        const timer = window.setTimeout(resolve, 3000);
+-        peer.addEventListener('icegatheringstatechange', () => {
+-            if (peer.iceGatheringState === 'complete') { window.clearTimeout(timer); resolve(); }
+-        }, { once: true });
++        const done = () => {
++            if (peer.iceGatheringState !== 'complete') { return; }
++            window.clearTimeout(timer);
++            peer.removeEventListener('icegatheringstatechange', done);
++            resolve();
++        };
++        const timer = window.setTimeout(() => {
++            peer.removeEventListener('icegatheringstatechange', done);
++            if (/^a=candidate:/m.test(peer.localDescription?.sdp || '')) { resolve(); }
++            else { reject(new Error(gettext('The browser could not prepare a WebRTC network connection. Check browser network permissions and VPN settings.'))); }
++        }, 10000);
++        // The first transition can be 'gathering', before any candidates.
++        // Keep listening until completion: the offer is sent only once.
++        peer.addEventListener('icegatheringstatechange', done);
+     });
+     // The SDP exchange and the per-VM codec policy go to the node-local QSM
+     // signalling service, not to a PVE API route: PVE has no supported route
+@@ -2204,16 +2214,33 @@
+             }
+             guestClipboardWaiters.clear();
+         };
+-        const closeForStoppedVm = () => {
++        let transportEndPending = false;
++        const closeForStoppedVm = async () => {
++            if (closed || transportEndPending) { return; }
++            transportEndPending = true;
++            let state;
++            try { state = await apiValue(vmStatusUrl(), 'GET', {}, null); }
++            catch (_error) { /* A failed status read does not prove VM shutdown. */ }
+             if (closed) { return; }
+-            status.textContent = gettext('The virtual machine was stopped. Closing console…');
+-            // A state transition is dispatched while the peer is processing
+-            // transport shutdown. Defer the actual close one task so browsers
+-            // consistently complete that transition before the popup goes.
+-            window.setTimeout(() => {
+-                close();
++            close();
++            if (state && state.status === 'stopped') {
++                status.textContent = gettext('The virtual machine was stopped. Closing console…');
+                 closeSurface();
+-            }, 0);
++                return;
++            }
++            status.textContent = state && state.status === 'running'
++                ? gettext('WebRTC connection lost. The virtual machine is still running.')
++                : gettext('WebRTC connection lost. Could not confirm the virtual machine status.');
++            status.style.maxWidth = 'none';
++            toolbar.style.opacity = '1';
++            toolbar.style.transform = 'none';
++            if (VIEWER) {
++                const retry = document.createElement('button');
++                retry.type = 'button';
++                retry.textContent = gettext('Reconnect');
++                retry.addEventListener('click', () => popup.location.reload());
++                toolbar.append(retry);
++            }
+         };
+         popup.addEventListener('beforeunload', close, { once: true });
+         window.addEventListener('beforeunload', close, { once: true });
+@@ -3117,6 +3144,9 @@
+             const offer = await peer.createOffer();
+             await peer.setLocalDescription(offer);
+             await waitForIce(peer);
++            if (!/^a=candidate:/m.test(peer.localDescription?.sdp || '')) {
++                throw new Error(gettext('The browser did not provide a WebRTC network address. Check browser network permissions and VPN settings.'));
++            }
+             const requestSize = dimensions(video, sessionFps);
+             const answer = await api(`/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/qsm-direct`, {
+                 sdp: peer.localDescription.sdp, width: requestSize.width, height: requestSize.height, fps: requestSize.fps,
+diff --git a/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs b/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
+index c08dab2..ea84e8b 100644
+--- a/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
++++ b/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
+@@ -697,3 +697,57 @@ assert.equal(typeof panelConfigOverlay.insertNodes, 'function',
+ }
+ 
+ console.log('QSM_DIRECT_PVE_UI_OVERLAY_OK');
++
++// A dead WebRTC transport is not proof that the QEMU process stopped.
++const lifecycleStart = source.indexOf('let transportEndPending = false;');
++const lifecycleEnd = source.indexOf("popup.addEventListener('beforeunload'", lifecycleStart);
++assert.ok(lifecycleStart >= 0 && lifecycleEnd > lifecycleStart);
++const lifecycleFactory = new Function('env', `
++    let closed = false;
++    const { status, toolbar, document, popup, apiValue, vmStatusUrl, gettext, VIEWER } = env;
++    const close = () => { closed = true; env.closed += 1; };
++    const closeSurface = () => { env.surfaceClosed += 1; };
++    ${source.slice(lifecycleStart, lifecycleEnd)}
++    return closeForStoppedVm;
++`);
++for (const result of [{ status: 'running' }, { status: 'stopped' }, null]) {
++    const env = {
++        status: { style: {} }, toolbar: { style: {}, append: () => { env.retries += 1; } },
++        document: { createElement: () => ({ addEventListener: () => undefined }) },
++        popup: { location: { reload: () => undefined } },
++        vmStatusUrl: () => '/webrtcstatus', gettext: text => text, VIEWER: true,
++        closed: 0, surfaceClosed: 0, retries: 0,
++        apiValue: async () => { if (result === null) { throw Error('network unavailable'); } return result; },
++    };
++    const ended = lifecycleFactory(env);
++    await Promise.all([ended(), ended()]);
++    assert.equal(env.closed, 1, 'several shutdown events must retire the peer only once');
++    assert.equal(env.surfaceClosed, result?.status === 'stopped' ? 1 : 0);
++    assert.equal(env.retries, result?.status === 'stopped' ? 0 : 1);
++    assert.equal(env.status.textContent.includes('was stopped'), result?.status === 'stopped',
++        'only a confirmed stopped VM may be described as stopped');
++}
++
++const iceStart = source.indexOf('const waitForIce = (peer)');
++const iceEnd = source.indexOf('\n    // The SDP exchange', iceStart);
++const iceFactory = new Function('window', 'gettext', `${source.slice(iceStart, iceEnd)}; return waitForIce;`);
++for (const complete of [true, false]) {
++    let timer, listener, resolved = false, removed = 0;
++    const clock = { setTimeout: callback => { timer = callback; return 1; }, clearTimeout: () => undefined };
++    const peer = {
++        iceGatheringState: 'new', localDescription: { sdp: '' },
++        addEventListener: (_name, callback) => { listener = callback; },
++        removeEventListener: () => { removed += 1; },
++    };
++    const gather = iceFactory(clock, text => text)(peer).then(() => { resolved = true; });
++    peer.iceGatheringState = 'gathering'; listener();
++    await Promise.resolve();
++    assert.equal(resolved, false, 'starting ICE gathering must not submit a candidate-free offer');
++    if (complete) {
++        peer.iceGatheringState = 'complete'; listener(); await gather;
++        assert.equal(resolved, true);
++    } else {
++        timer(); await assert.rejects(gather, /browser could not prepare a WebRTC/);
++    }
++    assert.equal(removed, 1, 'the ICE listener must be cleaned up on completion or timeout');
++}
+-- 
+2.43.0
+
