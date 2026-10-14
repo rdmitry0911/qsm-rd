@@ -1,0 +1,145 @@
+From 48b16b4a5bc9effce4f8913dc3784b1b7390aed4 Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Wed, 14 Oct 2026 22:50:02 +0300
+Subject: [PATCH] Keep ICE viable for unresolved Firefox mDNS offers and enable
+ reconnect clicks
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+---
+ .../browser_bridge/qsm_browser_bridge.py      | 31 +++++++++++++++-
+ .../pve9/direct_ui/qsm-direct-console.js      |  1 +
+ .../browser_bridge/test_browser_bridge.py     | 36 +++++++++++++++++++
+ .../test_direct_console_overlay.mjs           |  2 +-
+ 4 files changed, 68 insertions(+), 2 deletions(-)
+
+diff --git a/qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py b/qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py
+index 3a14e6a..45ff5fa 100644
+--- a/qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py
++++ b/qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py
+@@ -1169,6 +1169,11 @@ class BrowserWebRtcBridge:
+         self._microphone_task: asyncio.Task[None] | None = None
+         self._pc.on("track", self._on_track)
+ 
++        @self._pc.on("iceconnectionstatechange")
++        def on_iceconnectionstatechange() -> None:
++            print(f"qsm-direct-terminal: WebRTC ICE state={self._pc.iceConnectionState}",
++                  file=sys.stderr, flush=True)
++
+         @self._pc.on("connectionstatechange")
+         async def on_connectionstatechange() -> None:
+             # This is deliberately diagnostic-only.  It contains neither the
+@@ -1586,7 +1591,31 @@ class BrowserWebRtcBridge:
+                 if not opus:
+                     raise BridgeError("WebRTC Opus packetizer is unavailable")
+                 transceiver.setCodecPreferences(opus)
+-        await self._pc.setRemoteDescription(RTCSessionDescription(sdp=sdp, type=sdp_type))
++        candidate_lines = [line.split() for line in sdp.splitlines()
++                           if line.startswith("a=candidate:")]
++        mdns_candidates = sum(len(parts) > 4 and parts[4].endswith(".local")
++                              for parts in candidate_lines)
++        ice_offer = sdp
++        if mdns_candidates:
++            # mDNS names often cannot resolve across a routed LAN or VPN.
++            # aioice prunes every ICE component when those candidates are
++            # followed by end-of-candidates, so it gathers no local addresses
++            # at all. Keep discovery open: the browser can contact our numeric
++            # candidate and authenticated STUN learns its actual endpoint.
++            # The terminal's negotiation lease still bounds an absent peer.
++            ice_offer = "\r\n".join(line for line in sdp.splitlines()
++                                    if line != "a=end-of-candidates") + "\r\n"
++        await self._pc.setRemoteDescription(RTCSessionDescription(sdp=ice_offer, type=sdp_type))
++        # Diagnose unresolved mDNS offers without exposing SDP or addresses.
++        ice_transports = {transceiver.receiver.transport.transport
++                          for transceiver in self._pc.getTransceivers()}
++        if self._pc.sctp is not None:
++            ice_transports.add(self._pc.sctp.transport.transport)
++        remote_candidates = sum(len(transport.getRemoteCandidates())
++                                for transport in ice_transports)
++        print(f"qsm-direct-terminal: WebRTC offer candidates={len(candidate_lines)} "
++              f"mdns={mdns_candidates} resolved={remote_candidates}",
++              file=sys.stderr, flush=True)
+         # This is server-to-browser only. It is intentionally separate from
+         # qsm-control so pointer feedback remains latest-state data rather
+         # than sitting behind reliable keyboard traffic. The browser
+diff --git a/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js b/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js
+index 6d852b2..1fe560e 100644
+--- a/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js
++++ b/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js
+@@ -2238,6 +2238,7 @@
+                 const retry = document.createElement('button');
+                 retry.type = 'button';
+                 retry.textContent = gettext('Reconnect');
++                retry.style.cssText = 'pointer-events:auto;cursor:pointer;padding:6px 10px';
+                 retry.addEventListener('click', () => popup.location.reload());
+                 toolbar.append(retry);
+             }
+diff --git a/qsm-direct/tests/browser_bridge/test_browser_bridge.py b/qsm-direct/tests/browser_bridge/test_browser_bridge.py
+index 4536c86..cba6a02 100644
+--- a/qsm-direct/tests/browser_bridge/test_browser_bridge.py
++++ b/qsm-direct/tests/browser_bridge/test_browser_bridge.py
+@@ -10,6 +10,7 @@ import tempfile
+ import time
+ import re
+ import unittest
++from unittest.mock import AsyncMock, patch
+ import av
+ from fractions import Fraction
+ from pathlib import Path
+@@ -205,6 +206,41 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
+ 
+ 
+ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
++    async def test_unresolved_mdns_offer_can_connect_by_authenticated_incoming_checks(self) -> None:
++        with tempfile.TemporaryDirectory(prefix="qsm-browser-mdns.") as directory:
++            browser = RTCPeerConnection()
++            bridge = BrowserWebRtcBridge(Path(directory), fps=60)
++            browser.addTransceiver("video", direction="recvonly")
++            browser.addTransceiver("audio", direction="recvonly")
++            control = browser.createDataChannel("qsm-control", ordered=True)
++            try:
++                await browser.setLocalDescription(await browser.createOffer())
++                lines = browser.localDescription.sdp.splitlines()
++                self.assertIn("a=end-of-candidates", lines)
++                for index, line in enumerate(lines):
++                    if line.startswith("a=candidate:"):
++                        parts = line.split()
++                        parts[4] = "00000000-0000-4000-8000-000000000001.local"
++                        lines[index] = " ".join(parts)
++                bridge.start_taps()
++                resolver = AsyncMock(return_value=None)
++                protocol = type("UnavailableMdns", (), {"resolve": resolver})()
++                with patch("aioice.ice.get_or_create_mdns_protocol", AsyncMock(return_value=protocol)):
++                    answer = await bridge.answer_offer("\r\n".join(lines) + "\r\n")
++                self.assertGreater(resolver.await_count, 0)
++                self.assertIn("a=candidate:", answer["sdp"],
++                              "unresolved names must not suppress the server's local addresses")
++                await browser.setRemoteDescription(RTCSessionDescription(**answer))
++                deadline = time.monotonic() + 5
++                while control.readyState != "open" and time.monotonic() < deadline:
++                    await asyncio.sleep(0.01)
++                self.assertEqual(browser.connectionState, "connected")
++                self.assertEqual(bridge.connection_state, "connected")
++                self.assertEqual(control.readyState, "open")
++            finally:
++                await browser.close()
++                await bridge.close()
++
+     async def test_hevc_answer_repeats_the_browsers_profile_tier_level(self) -> None:
+         """libwebrtc matches H265 by profile, tier and level: the answer must echo them."""
+         with tempfile.TemporaryDirectory(prefix="qsm-browser-hevc-fmtp.") as directory:
+diff --git a/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs b/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
+index ea84e8b..4df163a 100644
+--- a/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
++++ b/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
+@@ -713,7 +713,7 @@ const lifecycleFactory = new Function('env', `
+ for (const result of [{ status: 'running' }, { status: 'stopped' }, null]) {
+     const env = {
+         status: { style: {} }, toolbar: { style: {}, append: () => { env.retries += 1; } },
+-        document: { createElement: () => ({ addEventListener: () => undefined }) },
++        document: { createElement: () => ({ style: {}, addEventListener: () => undefined }) },
+         popup: { location: { reload: () => undefined } },
+         vmStatusUrl: () => '/webrtcstatus', gettext: text => text, VIEWER: true,
+         closed: 0, surfaceClosed: 0, retries: 0,
+-- 
+2.43.0
+

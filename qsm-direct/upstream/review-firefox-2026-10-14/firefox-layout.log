@@ -1,0 +1,40 @@
+LOCAL_NETWORK_PERMISSION_GRANTED
+STATE_HTTP 200
+OFFER_LAYOUT {'bundle': ['0', '1', '2'], 'media': [{'kind': 'video', 'port': '9', 'candidates': 4, 'mid': '0'}, {'kind': 'audio', 'port': '9', 'candidates': 4, 'mid': '1'}, {'kind': 'application', 'port': '9', 'candidates': 2, 'mid': '2'}]}
+OFFER_HTTP 200
+ANSWER_LAYOUT {'bundle': ['0', '1', '2'], 'media': [{'kind': 'video', 'port': '9', 'candidates': 0, 'mid': '0'}, {'kind': 'audio', 'port': '9', 'candidates': 0, 'mid': '1'}, {'kind': 'application', 'port': '9', 'candidates': 0, 'mid': '2'}]}
+BROWSER_PROBE {"videoWidth": 0, "events": [["remote-start", "answer", 0], ["remote-end"]], "peers": [{"state": "new", "ice": "new", "signaling": "stable", "remote": true, "localCandidates": 10, "reports": []}]}
+STATE_HTTP 200
+Traceback (most recent call last):
+  File "/tmp/qsm-firefox-layout-probe.py", line 69, in <module>
+    asyncio.run(main())
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/tmp/qsm-firefox-layout-probe.py", line 66, in main
+    stats=await page.evaluate("""async()=>{const out={videoWidth:document.querySelector('video')?.videoWidth,events:window.__events,peers:[]};for(const pc of window.__peers){const reports=[];for(const r of (await pc.getStats()).values()){if(r.type==='candidate-pair')reports.push({type:r.type,state:r.state,nominated:r.nominated,requestsSent:r.requestsSent,responsesReceived:r.responsesReceived});if(r.type==='inbound-rtp'&&r.kind==='video')reports.push({type:r.type,packets:r.packetsReceived,decoded:r.framesDecoded});}out.peers.push({state:pc.connectionState,ice:pc.iceConnectionState,signaling:pc.signalingState,remote:!!pc.remoteDescription,localCandidates:(pc.localDescription?.sdp.match(/a=candidate:/g)||[]).length,reports});}return out}""")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/takt-launch-browser/lib/python3.12/site-packages/playwright/async_api/_generated.py", line 9421, in evaluate
+    await self._impl_obj.evaluate(
+  File "/tmp/takt-launch-browser/lib/python3.12/site-packages/playwright/_impl/_page.py", line 474, in evaluate
+    return await self._main_frame.evaluate(expression, arg)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/takt-launch-browser/lib/python3.12/site-packages/playwright/_impl/_frame.py", line 346, in evaluate
+    await self._channel.send(
+  File "/tmp/takt-launch-browser/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 76, in send
+    return await self._connection.wrap_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/takt-launch-browser/lib/python3.12/site-packages/playwright/_impl/_connection.py", line 632, in wrap_api_call
+    raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+playwright._impl._errors.Error: Page.evaluate: Peer connection is closed
+@debugger eval code line 311 > eval:1:591
+async*evaluate@debugger eval code:318:18
+@debugger eval code:1:44
+@debugger eval code:1:62
+

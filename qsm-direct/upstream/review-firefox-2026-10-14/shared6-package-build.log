@@ -1,0 +1,51 @@
+-- The CXX compiler identification is GNU 14.2.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- The C compiler identification is GNU 14.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Configuring done (0.6s)
+-- Generating done (0.0s)
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    QMDP_BUILD_QT_CLIENT
+
+
+-- Build files have been written to: /work/shared-platform-qsm/.packaging-build/qsm-pve-direct/build.rQJa0T/cmake
+[1/25] Building CXX object CMakeFiles/qmdp_core.dir/src/capture/mapped_region.cpp.o
+[2/25] Building CXX object CMakeFiles/qmdp_core.dir/src/core/pixel_format.cpp.o
+[3/25] Building CXX object CMakeFiles/qmdp_core.dir/src/core/audio_fifo.cpp.o
+[4/25] Building CXX object CMakeFiles/qmdp_core.dir/src/core/session.cpp.o
+[5/25] Building CXX object CMakeFiles/qmdp_core.dir/src/core/resize_coalescer.cpp.o
+[6/25] Building CXX object CMakeFiles/qmdp_core.dir/src/capture/cpu_framebuffer.cpp.o
+[7/25] Linking CXX static library libqmdp_core.a
+[8/25] wayland-scanner wlr-screencopy-unstable-v1
+[9/25] wayland-scanner wlr-virtual-pointer-unstable-v1
+[10/25] wayland-scanner wlr-output-management-unstable-v1
+[11/25] wayland-scanner virtual-keyboard-unstable-v1
+[12/25] Building CXX object CMakeFiles/qmdp_dbus.dir/src/dbus/sd_bus.cpp.o
+[13/25] Building CXX object CMakeFiles/qmdp_pipeline.dir/src/pipeline/desktop_session.cpp.o
+[14/25] Building C object CMakeFiles/qmdp_wlroots.dir/generated/wlroots/wlr-screencopy-unstable-v1-protocol.c.o
+[15/25] Building C object CMakeFiles/qmdp_wlroots.dir/generated/wlroots/wlr-virtual-pointer-unstable-v1-protocol.c.o
+[16/25] Building C object CMakeFiles/qmdp_wlroots.dir/generated/wlroots/wlr-output-management-unstable-v1-protocol.c.o
+[17/25] Building C object CMakeFiles/qmdp_wlroots.dir/generated/wlroots/virtual-keyboard-unstable-v1-protocol.c.o
+[18/25] Linking CXX static library libqmdp_pipeline.a
+[19/25] Building CXX object CMakeFiles/qmdp_dbus.dir/src/capture/dmabuf_readback.cpp.o
+[20/25] Building CXX object CMakeFiles/qmdp_wlroots.dir/src/wlroots/wlroots_display.cpp.o
+[21/25] Linking CXX static library libqmdp_wlroots.a
+[22/25] Building CXX object CMakeFiles/qmdp_dbus.dir/src/qemu/qemu_dbus_display.cpp.o
+[23/25] Linking CXX static library libqmdp_dbus.a
+[24/25] Building CXX object CMakeFiles/qsm-direct-media-worker.dir/tools/qsm_direct_media_worker.cpp.o
+[25/25] Linking CXX executable qsm-direct-media-worker
+dpkg-deb: building package 'qsm-pve-direct' in '/work/shared-platform-qsm/dist/qsm-pve-direct_0.4.0+shared6_amd64.deb'.
+QSM_DIRECT_DEB_BUILD_OK artifact=/work/shared-platform-qsm/dist/qsm-pve-direct_0.4.0+shared6_amd64.deb

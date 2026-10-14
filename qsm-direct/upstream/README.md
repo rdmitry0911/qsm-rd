@@ -29,6 +29,12 @@ build/test logs and the known laboratory display fixture.
 [Follow-up draft](pve-devel-shared-platform-followup.eml) is ready for review.
 Nothing in this update was sent to the mailing list or forum.
 
+The current consumer package is `0.4.0+shared6`. It includes the Firefox
+mDNS/ICE fix and clickable Reconnect after the initial shared3 lab build.
+[Firefox verification](review-firefox-2026-10-14/README.txt) records the
+reproduction and native HTTP/browser checks. All three QSM consumer patches
+are in [qsm-shared-consumer/](patches/qsm-shared-consumer/).
+
 The [earlier readiness audit](shared-base-audit-2026-10-14.txt) records the
 state before this implementation. The original p2p patch directories below
 are historical and should not be submitted as the shared-base revision.

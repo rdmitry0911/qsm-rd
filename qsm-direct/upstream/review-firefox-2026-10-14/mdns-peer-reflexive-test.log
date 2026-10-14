@@ -1,0 +1,18 @@
+/usr/lib/python3/dist-packages/aiortc/rtcdtlstransport.py:63: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  .not_valid_before(datetime.datetime.utcnow() - datetime.timedelta(days=1))
+/usr/lib/python3/dist-packages/aiortc/rtcdtlstransport.py:64: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=30))
+qsm-direct-terminal: WebRTC offer candidates=6 mdns=6 resolved=0
+qsm-direct-terminal: WebRTC video answer codec=video/H264 pt=99 fmtp=level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
+qsm-direct-terminal: WebRTC ICE state=checking
+qsm-direct-terminal: WebRTC connection state=connecting
+qsm-direct-terminal: WebRTC ICE state=completed
+qsm-direct-terminal: WebRTC connection state=connected
+Executing <Task pending name='Task-2' coro=<BrowserBridgeAsyncTests.test_unresolved_mdns_offer_can_connect_by_authenticated_incoming_checks() running at /home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py:242> wait_for=<_GatheringFuture pending cb=[Task.task_wakeup()] created at /usr/lib/python3.12/asyncio/tasks.py:712> cb=[_run_until_complete_cb() at /usr/lib/python3.12/asyncio/base_events.py:182] created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.452 seconds
+qsm-direct-terminal: WebRTC ICE state=closed
+qsm-direct-terminal: WebRTC connection state=closed
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.523s
+
+OK

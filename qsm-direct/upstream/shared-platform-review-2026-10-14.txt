@@ -144,3 +144,17 @@ DTLS/SRTP and Chrome's H.264 decoding crossed the real LAN. This verifies
 browser/media connectivity on the LAN, not the user's VPN path.
 The VPN client still requires its own retest; do not claim that updating
 shared4 proves its UDP path or browser permissions are correct.
+
+Firefox follow-up: shared6, 2026-10-14
+shared5 fixes the Reconnect pointer-events bug and adds safe ICE diagnostics.
+shared6 fixes an actual Firefox/mDNS negotiation failure: aioice pruned all
+components when unresolved .local names were followed by end-of-candidates.
+The server therefore advertised no addresses, despite healthy QEMU capture.
+For mDNS offers QSM keeps discovery open; authenticated incoming STUN learns
+the browser endpoint, with existing DTLS validation and bounded negotiation.
+The unresolved-name regression connects real peers;21 bridge tests pass.
+Native authenticated HTTP, Firefox video and Reconnect are checked against
+the installed package. See review-firefox-2026-10-14/README.txt and logs.
+Code commit48b16b4, patches/qsm-shared-consumer/0003-*.patch. The Proxmox
+shared-base/API/UI series is unchanged; these fixes belong to the media
+consumer. Current QSM and matching LXC packages use0.4.0+shared6.
