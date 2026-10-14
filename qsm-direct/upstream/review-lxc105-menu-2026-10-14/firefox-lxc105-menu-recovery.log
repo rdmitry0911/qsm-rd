@@ -1,0 +1,13 @@
+LOCAL_NETWORK_PERMISSION_GRANTED
+SETTINGS_REQUEST GET 0
+NETWORK_FAILURE_STATE {"enabled": false, "hintHidden": false}
+SETTINGS_REQUEST GET 1
+MENU_AFTER_CLICK {'visible': True, 'disabled': False, 'modals': []}
+QSM_SIGNAL_HTTP 200
+MENU_RECOVERED_WITH_AUTHENTICATED_REQUEST
+QSM_SIGNAL_HTTP 200
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 751, "decoded": 235}}]}
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 1504, "decoded": 477}}]}
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 2257, "decoded": 718}}]}
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 3009, "decoded": 958}}]}
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 3762, "decoded": 1199}}]}

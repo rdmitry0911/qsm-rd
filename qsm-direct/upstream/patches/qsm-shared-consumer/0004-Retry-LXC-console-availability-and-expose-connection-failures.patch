@@ -1,0 +1,193 @@
+From e7dcb2375dd8bb2ecd22d15753d9206eeb11e4f2 Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Wed, 14 Oct 2026 23:41:32 +0300
+Subject: [PATCH] Retry LXC console availability and expose connection failures
+
+---
+ .../pve9/direct_ui/qsm-direct-console.js      | 58 +++++++++++---
+ .../test_direct_console_overlay.mjs           | 77 +++++++++++++++++++
+ 2 files changed, 126 insertions(+), 9 deletions(-)
+
+diff --git a/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js b/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js
+index 1fe560e..a7f69ee 100644
+--- a/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js
++++ b/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js
+@@ -677,12 +677,17 @@
+         if (!ticket || !user) { throw new Error('not authenticated'); }
+         const headers = { 'Authorization': `Bearer ${ticket}`, 'X-QSM-User': user };
+         const options = { method, mode: 'cors', cache: 'no-store', credentials: 'omit', headers };
++        if (method === 'GET') { options.signal = AbortSignal.timeout(10000); }
+         if (method !== 'GET') {
+             headers['Content-Type'] = 'application/json';
+             options.body = JSON.stringify(params || {});
+         }
+         const response = await fetch(`https://${location.hostname}:${SIGNAL_PORT}${path}`, options);
+-        if (!response.ok) { throw new Error(`signal ${response.status}`); }
++        if (!response.ok) {
++            const error = new Error(`signal ${response.status}`);
++            error.status = response.status;
++            throw error;
++        }
+         const body = await response.json();
+         return body && body.data;
+     };
+@@ -3380,6 +3385,12 @@
+                 me.menu.push({ xtype: 'menuitem', itemId: 'qsm-direct', text: 'QSM Direct',
+                     iconCls: 'fa fa-desktop', disabled: !me.enableQsmDirect,
+                     handler: () => openConsole(me, me.nodename, Number(me.vmid), null, kind) });
++                if (kind === 'lxc') {
++                    me.menu.push({ xtype: 'menuitem', itemId: 'qsm-direct-connection',
++                        text: gettext('Check QSM Direct connection…'), hidden: true,
++                        iconCls: 'fa fa-exclamation-triangle',
++                        handler: () => window.open(`https://${location.hostname}:${SIGNAL_PORT}/`, '_blank', 'noopener') });
++                }
+             }
+             me.callParent();
+         },
+@@ -3488,18 +3499,47 @@
+             const vmid = ct ? Number(ct.vmid) : NaN;
+             if (!validNode(ct && ct.node) || !validVmid(vmid)) { return; }
+             let enabled = null;
++            let error = null;
++            let pending = false;
++            let observedMenu = null;
+             const apply = () => {
++                if (me.destroyed) { return false; }
+                 const button = me.down('#qsm-direct-console-button');
+-                if (button && enabled !== null) { button.setEnableQsmDirect(enabled); }
++                if (button && enabled !== null) {
++                    button.setEnableQsmDirect(enabled);
++                    const hint = button.down('#qsm-direct-connection');
++                    if (hint) {
++                        hint.setHidden(!error);
++                        const restricted = error && [401, 403, 404].includes(error.status);
++                        hint.setDisabled(!!restricted);
++                        hint.setText(error && error.status === 404
++                            ? gettext('QSM Direct is not configured for this container')
++                            : restricted ? gettext('QSM Direct access denied')
++                            : gettext('Check QSM Direct connection…'));
++                        hint.setTooltip(gettext('Open the QSM service to check its certificate and network access, then reopen this menu.'));
++                    }
++                }
++                const menu = button && button.getMenu();
++                if (menu && observedMenu !== menu) {
++                    observedMenu = menu;
++                    menu.on('beforeshow', () => { if (!enabled) { refresh(); } });
++                }
+                 return Boolean(button);
+             };
+-            signalRequest('GET', `/nodes/${encodeURIComponent(ct.node)}/lxc/${encodeURIComponent(vmid)}/qsm-direct-settings`)
+-                .then(() => { enabled = true; }, () => { enabled = false; })
+-                .then(() => {
+-                    if (!apply() && typeof me.on === 'function') {
+-                        me.on('afterrender', apply, me, { single: true });
+-                    }
+-                });
++            const refresh = () => {
++                if (pending || me.destroyed) { return; }
++                pending = true;
++                signalRequest('GET', `/nodes/${encodeURIComponent(ct.node)}/lxc/${encodeURIComponent(vmid)}/qsm-direct-settings`)
++                    .then(() => { enabled = true; error = null; }, reason => { enabled = false; error = reason; })
++                    .then(() => { pending = false; apply(); });
++            };
++            // Register before the asynchronous probe: a failed fetch can
++            // finish after afterrender, when adding that listener is too late.
++            if (typeof me.on === 'function') {
++                me.on('afterrender', apply, me, { single: true });
++            }
++            apply();
++            refresh();
+         },
+     });
+ 
+diff --git a/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs b/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
+index 4df163a..ab85b79 100644
+--- a/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
++++ b/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
+@@ -698,6 +698,83 @@ assert.equal(typeof panelConfigOverlay.insertNodes, 'function',
+ 
+ console.log('QSM_DIRECT_PVE_UI_OVERLAY_OK');
+ 
++// A TLS/network failure must remain unavailable until an authenticated
++// retry succeeds. The render event can precede the failed fetch result.
++{
++    const lxcOverlay = definitions.get('PVE.qsmDirect.LxcConfigOverlay');
++    const originalFetch = globalThis.fetch;
++    globalThis.window = { Proxmox: { UserName: 'tester@pve' } };
++    globalThis.Proxmox.UserName = 'tester@pve';
++    globalThis.Ext.util = { Cookies: { get: () => 'test-ticket' } };
++    globalThis.location = { hostname: 'pve-a' };
++    let finishRequest, requestCount = 0, afterRender, beforeShow;
++    let rendered = false, enabled, hintHidden, hintDisabled, hintText;
++    globalThis.fetch = (url, options) => {
++        requestCount += 1;
++        assert.equal(url, 'https://pve-a:8007/nodes/pve-a/lxc/105/qsm-direct-settings');
++        assert.equal(options.headers.Authorization, 'Bearer test-ticket');
++        assert.equal(options.credentials, 'omit');
++        assert.ok(options.signal, 'availability checks must have a bounded timeout');
++        return new Promise((resolve, reject) => { finishRequest = { resolve, reject }; });
++    };
++    const hint = {
++        setHidden: value => { hintHidden = value; },
++        setDisabled: value => { hintDisabled = value; },
++        setText: value => { hintText = value; },
++        setTooltip: () => undefined,
++    };
++    const menu = { on: (event, callback) => {
++        assert.equal(event, 'beforeshow'); beforeShow = callback;
++    } };
++    const button = {
++        setEnableQsmDirect: value => { enabled = value; },
++        down: () => hint,
++        getMenu: () => menu,
++    };
++    const view = {
++        pveSelNode: { data: { node: 'pve-a', vmid: 105 } },
++        callParent: () => undefined,
++        down: () => rendered ? button : null,
++        on: (event, callback) => { assert.equal(event, 'afterrender'); afterRender = callback; },
++    };
++    try {
++        lxcOverlay.initComponent.call(view);
++        assert.equal(typeof afterRender, 'function', 'install render hook before the probe settles');
++        rendered = true; afterRender();
++        finishRequest.reject(new TypeError('TLS/network failed'));
++        await new Promise(resolve => setImmediate(resolve));
++        assert.equal(enabled, false);
++        assert.equal(hintHidden, false);
++        assert.equal(hintDisabled, false, 'network failure must offer a certificate/network check');
++        beforeShow(); beforeShow();
++        assert.equal(requestCount, 2, 'opening the menu retries once and coalesces concurrent probes');
++        finishRequest.resolve({ ok: false, status: 403 });
++        await new Promise(resolve => setImmediate(resolve));
++        assert.equal(enabled, false, 'a failed permission check must not enable a console');
++        assert.equal(hintDisabled, true);
++        assert.match(hintText, /access denied/);
++        beforeShow();
++        finishRequest.resolve({ ok: true, json: async () => ({ data: {} }) });
++        await new Promise(resolve => setImmediate(resolve));
++        assert.equal(enabled, true, 'a successful authenticated retry enables QSM without reloading');
++        assert.equal(hintHidden, true);
++        beforeShow(); assert.equal(requestCount, 3, 'available menus do not need repeat probes');
++        view.destroyed = true; enabled = false;
++        // Also cover late failure callbacks after navigation away.
++        const abandoned = { ...view, destroyed: false, down: () => {
++            assert.fail('destroyed view must not update components');
++        } };
++        abandoned.down = () => null;
++        lxcOverlay.initComponent.call(abandoned);
++        abandoned.destroyed = true;
++        abandoned.down = () => { assert.fail('destroyed view must not update components'); };
++        finishRequest.reject(new TypeError('network failed'));
++        await new Promise(resolve => setImmediate(resolve));
++    } finally {
++        globalThis.fetch = originalFetch;
++    }
++}
++
+ // A dead WebRTC transport is not proof that the QEMU process stopped.
+ const lifecycleStart = source.indexOf('let transportEndPending = false;');
+ const lifecycleEnd = source.indexOf("popup.addEventListener('beforeunload'", lifecycleStart);
+-- 
+2.43.0
+

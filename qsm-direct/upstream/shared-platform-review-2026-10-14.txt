@@ -157,4 +157,21 @@ Native authenticated HTTP, Firefox video and Reconnect are checked against
 the installed package. See review-firefox-2026-10-14/README.txt and logs.
 Code commit48b16b4, patches/qsm-shared-consumer/0003-*.patch. The Proxmox
 shared-base/API/UI series is unchanged; these fixes belong to the media
-consumer. Current QSM and matching LXC packages use0.4.0+shared6.
+consumer. That qualification used QSM and matching LXC packages0.4.0+shared6.
+
+LXC menu follow-up: shared7, 2026-10-14
+The user reports a disabled QSM Direct item for running container105. LXC
+still uses the authenticated separate TLS service on8007; the previous
+LAN test accepted TLS errors and cannot prove the user's Firefox trusts
+that origin or reaches it through the VPN. The node serves identical
+certificates on8006 and8007. The exact client-side failure remains to be
+confirmed by the user; certificate exceptions may be scoped to the port.
+shared7 fixes the one-shot menu probe: reopening the menu retries a failed
+check, concurrent probes are coalesced, GET checks time out after10 seconds,
+and a network failure offers a credential-free connection-check link.
+Permission/configuration errors remain disabled and show an explanation.
+The afterrender listener is installed before the asynchronous result, and
+late responses after navigation do not touch destroyed components.
+Regression tests exercise network failure,403 denial, successful recovery,
+render timing and destruction. Installed QSM and matching LXC packages:
+0.4.0+shared7. See review-lxc105-menu-2026-10-14 for browser evidence.
