@@ -80,7 +80,46 @@ class SharedDisplayTests(unittest.TestCase):
         manager._qemu_pid_directory = self.busdir
         manager._vm_runtime_directory = self.root / "legacy"
         manager._closed = True
+        manager._lxc_config_directory = self.root / "lxc"
+        manager._container_instance_directory = self.root / "containers"
         return manager
+
+    def container_policy(self):
+        (self.root / "lxc").mkdir()
+        (self.root / "lxc/105.conf").write_text("unprivileged: 1\n")
+        (self.root / "containers").mkdir()
+        policy = self.root / "containers/105.conf"
+        policy.write_text("QSM_DIRECT_LXC_DISPLAY=slots\nQSM_DIRECT_LXC_SLOTS=2\n"
+                          "QSM_DIRECT_LXC_GRACE=300\nQSM_DIRECT_ENCODER=h264_nvenc\n")
+        policy.chmod(0o600)
+        return policy
+
+    def test_container_settings_stay_in_the_container_namespace(self):
+        policy = self.container_policy()
+        manager = self.manager()
+        request = {"version": 2, "kind": "lxc", "vmid": 105, "user": "u@pve", "settings": None}
+        self.assertEqual(manager.webrtc_settings(request), {"codec": "auto", "encoder": "auto"})
+        value = manager.webrtc_settings({**request, "settings": {"codec": "h264", "encoder": "hardware"}})
+        self.assertEqual(manager.webrtc_settings(request), value)
+        self.assertIn("QSM_DIRECT_LXC_DISPLAY=slots\n", policy.read_text())
+        self.assertIn("QSM_DIRECT_LXC_SLOTS=2\n", policy.read_text())
+        self.assertIn("QSM_DIRECT_ENCODER=h264_nvenc\n", policy.read_text())
+        self.assertFalse((self.policy / "105.conf").exists())
+        for override in ({"kind": "qemu"}, {"kind": "other"}, {"vmid": 106}):
+            with self.assertRaises(DirectTerminalError):
+                manager.webrtc_settings({**request, **override})
+
+    def test_guest_kind_never_falls_back_to_another_guest_type(self):
+        self.container_policy()
+        manager = self.manager()
+        request = {"version": 2, "kind": "lxc", "vmid": 105, "user": "u@pve",
+                   "offer": {"sdp": "v=0\r\n"}}
+        with self.assertRaisesRegex(DirectTerminalError, "is stopped"):
+            manager.answer_webrtc(request)
+        for override in ({"kind": "qemu"}, {"vmid": 321}, {"kind": "other"},
+                         {"version": 1}, {"path": "/tmp/foreign"}):
+            with self.assertRaises(DirectTerminalError):
+                manager.answer_webrtc({**request, **override})
 
     def test_profile_uses_only_the_running_opt_in(self):
         self.assertEqual(_shared_display_profile("dbus-display: 1\n"), "cpu")

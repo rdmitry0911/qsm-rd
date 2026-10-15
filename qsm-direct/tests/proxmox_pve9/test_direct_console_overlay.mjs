@@ -71,7 +71,7 @@ assert.match(source, /if \(me\.qsmDirectSession\) \{ me\.qsmDirectSession\.close
     'leaving the PVE Console card must retire its embedded WebRTC session');
 assert.match(source, /window\.open\('', windowId,/,
     'QSM Direct must create a separate browser popup synchronously from the menu action');
-assert.match(source, /VIEWER \? 'webrtcstatus' : 'status\/current'/,
+assert.match(source, /nativeConsole \? 'webrtcstatus' : 'status\/current'/,
     'native consoles must poll the VM.Console status route without requiring VM.Audit');
 assert.match(source, /Virtual machine is stopped\. Waiting for it to start…/,
     'a stopped VM must leave the popup open with an explicit start wait state');
@@ -827,4 +827,41 @@ for (const complete of [true, false]) {
         timer(); await assert.rejects(gather, /browser could not prepare a WebRTC/);
     }
     assert.equal(removed, 1, 'the ICE listener must be cleaned up on completion or timeout');
+}
+
+// With the common PVE platform, the LXC availability probe must never
+// read a bearer ticket or contact the legacy HTTPS service.
+{
+    const nativeDefinitions = new Map();
+    const seen = [];
+    const nativeContext = {
+        gettext: text => text, AbortSignal, URLSearchParams,
+        window: {},
+        PVE: { Utils: { openWebRTCViewer: () => undefined } },
+        Proxmox: { CSRFPreventionToken: 'test-csrf' },
+        Ext: {
+            define: (name, body) => nativeDefinitions.set(name, body),
+            util: { Cookies: { get: () => assert.fail('native LXC must use the PVE session') } },
+        },
+        fetch: async (url, options) => {
+            seen.push({ url, options });
+            return { ok: true, json: async () => ({ data: { codec: 'auto', encoder: 'auto' } }) };
+        },
+    };
+    vm.runInNewContext(source, nativeContext);
+    let enabled = false;
+    const menu = { on: () => undefined };
+    const button = { down: () => null, getMenu: () => menu,
+        setEnableQsmDirect: value => { enabled = value; } };
+    nativeDefinitions.get('PVE.qsmDirect.LxcConfigOverlay').initComponent.call({
+        callParent: () => undefined,
+        pveSelNode: { data: { node: 'pve-a', vmid: 105 } },
+        down: () => button, on: () => undefined,
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(enabled, true);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].url, '/api2/json/nodes/pve-a/lxc/105/webrtcsettings');
+    assert.equal(seen[0].options.credentials, 'same-origin');
+    assert.equal(seen[0].options.headers, undefined);
 }

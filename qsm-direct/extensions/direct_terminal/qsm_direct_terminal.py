@@ -1918,7 +1918,10 @@ class DirectSessionManager:
         original p2p descriptor for compatibility with older installations.
         """
         if not isinstance(request, dict) or request.get("version") not in (1, 2) or \
-                set(request) != {"version", "vmid", "user", "offer"}:
+                set(request) - {"kind"} != {"version", "vmid", "user", "offer"}:
+            raise DirectTerminalError("direct-terminal webrtc request is invalid")
+        kind = request.get("kind", "qemu")
+        if kind not in ("qemu", "lxc") or (request["version"] == 1 and "kind" in request):
             raise DirectTerminalError("direct-terminal webrtc request is invalid")
         if (request["version"] == 1) != (display_fd is not None):
             raise DirectTerminalError("direct-terminal webrtc transport is invalid")
@@ -1933,7 +1936,10 @@ class DirectSessionManager:
             if type(value) is not int or not minimum <= value <= maximum:
                 raise DirectTerminalError("direct-terminal webrtc request is invalid")
         width, height = width - width % 2, height - height % 2
-        if request["version"] == 2:
+        if kind == "lxc":
+            if self._container_policy(vmid) is None:
+                raise DirectTerminalError("container is not configured for a graphical console")
+        elif request["version"] == 2:
             config = _read_pve_vm_config(self._pve_config_directory / f"{vmid}.conf")
             if config is None or _shared_display_profile(config) is None:
                 raise DirectTerminalError("VM is not configured for the shared D-Bus display")
@@ -1958,19 +1964,27 @@ class DirectSessionManager:
         The PVE API checks VM.Console for reads and VM.Config.Options for
         writes. No ticket or browser-selected file path reaches this service.
         """
-        if (not isinstance(request, dict) or set(request) != {"version", "vmid", "user", "settings"}
+        if (not isinstance(request, dict) or set(request) - {"kind"} != {"version", "vmid", "user", "settings"}
                 or request.get("version") != 2 or not _valid_vmid(request.get("vmid"))
                 or not isinstance(request.get("user"), str)
                 or not _SUBJECT_PATTERN.fullmatch(request["user"])):
             raise DirectTerminalError("invalid WebRTC settings request")
-        config = _read_pve_vm_config(self._pve_config_directory / f"{request['vmid']}.conf")
-        if config is None or _shared_display_profile(config) is None:
-            raise DirectTerminalError("VM is not configured for the shared D-Bus display")
+        kind = request.get("kind", "qemu")
+        if kind not in ("qemu", "lxc"):
+            raise DirectTerminalError("invalid WebRTC settings request")
+        if kind == "lxc":
+            if self._container_policy(request["vmid"]) is None:
+                raise DirectTerminalError("container is not configured for a graphical console")
+        else:
+            config = _read_pve_vm_config(self._pve_config_directory / f"{request['vmid']}.conf")
+            if config is None or _shared_display_profile(config) is None:
+                raise DirectTerminalError("VM is not configured for the shared D-Bus display")
         try:
-            from signal_service.qsm_direct_signal import VmPolicyStore, SignalError
+            from signal_service.qsm_direct_signal import ContainerPolicyStore, VmPolicyStore, SignalError
         except ModuleNotFoundError:
-            from extensions.signal.qsm_direct_signal import VmPolicyStore, SignalError
-        store = VmPolicyStore(self._instance_directory)
+            from extensions.signal.qsm_direct_signal import ContainerPolicyStore, VmPolicyStore, SignalError
+        store = (ContainerPolicyStore(self._container_instance_directory) if kind == "lxc"
+                 else VmPolicyStore(self._instance_directory))
         settings = request["settings"]
         try:
             if settings is None:

@@ -3,8 +3,8 @@ qsm-pve-direct for Proxmox VE 9
 
 `qsm-pve-direct` is a browser-native PVE console transport.
 
-Native shared platform (patched qemu-server and pve-manager)
----------------------------------------------------------
+Native shared platform (patched Proxmox packages)
+------------------------------------------------
 Install the shared-base and WebRTC patches from upstream/README.md, then
 install this package. Stop each VM before changing its display configuration:
 
@@ -25,15 +25,20 @@ WebRTC, with noVNC still available for CPU displays.
 qemu-server owns /run/qemu-server/<vmid>.dbusdisplay and its VM lifecycle.
 QSM is a consumer; restarting its service does not replace that bus. Other
 display consumers may attach independently. Signalling, status and codec
-settings use authenticated PVE API routes on port 8006; native VM consoles
-do not require port 8007. VM.Console permits viewing/settings reads;
+settings use authenticated PVE API routes on port 8006. With the matching
+pve-container WebRTC patches, LXC consoles use the same API and the common
+PVE::WebRTC Unix-socket transport from pve-guest-common. Neither VM nor LXC
+native consoles require port 8007 or a separate certificate exception.
+Enable qsm-pve-direct-terminal.service; the separate signal service is only
+for legacy add-on installations. WebRTC media still uses negotiated UDP
+ports directly between browser and host. VM.Console permits viewing/settings reads;
 VM.Config.Options permits settings writes. Clipboard uses qemu-vdagent and
 spice-vdagent in X11 guests, or the retained QSM companion for configured
 desktop guests. Concurrent clipboard ownership across protocols is not
 provided by QEMU's single clipboard proxy.
 
-Legacy add-on and LXC mode (unpatched PVE)
-----------------------------------------
+Legacy add-on mode (unpatched PVE)
+--------------------------------
 
 It uses PVE's existing authenticated Web UI session and `VM.Console` ACL.
 The browser sends its WebRTC SDP offer to the node-local signalling service

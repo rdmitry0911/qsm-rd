@@ -360,7 +360,11 @@ def _default_package_version() -> str:
     if completed.returncode != 0:
         raise UnsupportedPve("pve-manager is unavailable")
     fields = completed.stdout.strip().split("\t", 1)
-    if len(fields) != 2 or fields[0] != "installed" or not _VERSION_PATTERN.fullmatch(fields[1]):
+    # Another PVE package may queue pve-manager's trigger before our postinst
+    # runs. Its configured files are still present and must pass the usual
+    # version/hash checks; a pending trigger is not an unsupported upgrade.
+    configured_states = {"installed", "triggers-pending", "triggers-awaited"}
+    if len(fields) != 2 or fields[0] not in configured_states or not _VERSION_PATTERN.fullmatch(fields[1]):
         raise UnsupportedPve("pve-manager is unavailable")
     return fields[1]
 

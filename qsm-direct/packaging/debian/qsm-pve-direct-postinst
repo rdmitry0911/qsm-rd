@@ -41,7 +41,7 @@ case "${1:-}" in
             systemctl enable --now qsm-pve-direct-cert-reload.timer || true
         fi
         /usr/sbin/qsm-pve-direct-ui reconcile || echo "qsm-pve-direct: PVE Console UI was not changed" >&2
-        echo "qsm-pve-direct installed; enable qsm-pve-direct-terminal.service and qsm-pve-direct-signal.service, then configure QSM Display1 for each VM."
+        echo "qsm-pve-direct installed; enable qsm-pve-direct-terminal.service for the native Proxmox WebRTC API. qsm-pve-direct-signal.service is needed only for legacy installations."
         ;;
     triggered)
         /usr/sbin/qsm-pve-direct-ui reconcile || echo "qsm-pve-direct: PVE Console UI was not changed" >&2

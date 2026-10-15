@@ -669,7 +669,30 @@
     // cookie, so they are CSRF-safe.  waitMsgTarget spinners are handled by
     // the callers; these helpers only perform the cross-origin request.
     const SIGNAL_PORT = 8007;
+    const pveConsoleRequest = async (method, path, params) => {
+        const options = { method, credentials: 'same-origin', cache: 'no-store' };
+        if (method === 'GET') {
+            options.signal = AbortSignal.timeout(10000);
+        } else {
+            options.headers = { CSRFPreventionToken: Proxmox.CSRFPreventionToken };
+            options.body = new URLSearchParams(params || {});
+        }
+        const response = await fetch(`/api2/json${path}`, options);
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            const error = new Error(`WebRTC ${response.status}: ${body.message || ''}`.trim());
+            error.status = response.status;
+            throw error;
+        }
+        return body && body.data;
+    };
     const signalRequest = async (method, path, params) => {
+        // On the shared platform containers use the same PVE origin and
+        // session/CSRF checks as VM consoles. Port 8007 is legacy-only.
+        if (NATIVE_QEMU && /^\/nodes\/[^/]+\/lxc\/\d+\/qsm-direct(?:-settings)?$/.test(path)) {
+            return pveConsoleRequest(method, path.replace(/qsm-direct-settings$/, 'webrtcsettings')
+                .replace(/qsm-direct$/, 'webrtcproxy'), params);
+        }
         const cookieName = (window.Proxmox && Proxmox.Setup && Proxmox.Setup.auth_cookie_name)
             || 'PVEAuthCookie';
         const ticket = Ext.util.Cookies.get(cookieName);
@@ -734,6 +757,7 @@
     // service tells the two apart from the node's own guest configs.
     const openConsole = function (button, node, vmid, embeddedFrame = null, kind = 'qemu') {
         const guestKind = kind === 'lxc' ? 'lxc' : 'qemu';
+        const nativeConsole = Boolean(VIEWER) || (NATIVE_QEMU && guestKind === 'lxc');
         const embedded = Boolean(embeddedFrame) && !VIEWER;
         let popup;
         if (VIEWER) {
@@ -2256,7 +2280,7 @@
             }, 500);
         }
 
-        const vmStatusUrl = () => `/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/${VIEWER ? 'webrtcstatus' : 'status/current'}`;
+        const vmStatusUrl = () => `/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/${nativeConsole ? 'webrtcstatus' : 'status/current'}`;
         const waitForVmStart = async () => {
             // Opening Console is a valid action before Power On.  Do not
             // create a single-use WebRTC offer until QEMU exists: PVE would
@@ -3389,7 +3413,10 @@
                     me.menu.push({ xtype: 'menuitem', itemId: 'qsm-direct-connection',
                         text: gettext('Check QSM Direct connection…'), hidden: true,
                         iconCls: 'fa fa-exclamation-triangle',
-                        handler: () => window.open(`https://${location.hostname}:${SIGNAL_PORT}/`, '_blank', 'noopener') });
+                        handler: () => {
+                            if (NATIVE_QEMU) { if (me.qsmDirectRefresh) { me.qsmDirectRefresh(); } }
+                            else { window.open(`https://${location.hostname}:${SIGNAL_PORT}/`, '_blank', 'noopener'); }
+                        } });
                 }
             }
             me.callParent();
@@ -3515,12 +3542,16 @@
                         hint.setText(error && error.status === 404
                             ? gettext('QSM Direct is not configured for this container')
                             : restricted ? gettext('QSM Direct access denied')
+                            : NATIVE_QEMU ? gettext('Retry QSM Direct connection')
                             : gettext('Check QSM Direct connection…'));
-                        hint.setTooltip(gettext('Open the QSM service to check its certificate and network access, then reopen this menu.'));
+                        hint.setTooltip(NATIVE_QEMU
+                            ? gettext('Retry the console availability check through the Proxmox API.')
+                            : gettext('Open the QSM service to check its certificate and network access, then reopen this menu.'));
                     }
                 }
                 const menu = button && button.getMenu();
                 if (menu && observedMenu !== menu) {
+                    button.qsmDirectRefresh = refresh;
                     observedMenu = menu;
                     menu.on('beforeshow', () => { if (!enabled) { refresh(); } });
                 }

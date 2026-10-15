@@ -33,7 +33,7 @@ PrivateTmp=true
 ProtectHome=true
 ProtectSystem=full
 # Native media settings are written here after the PVE API's permission check.
-ReadWritePaths=/etc/qsm-pve-direct/instances.d
+ReadWritePaths=/etc/qsm-pve-direct/instances.d /etc/qsm-pve-direct/containers.d
 ProtectClock=true
 ProtectControlGroups=true
 ProtectKernelLogs=true
