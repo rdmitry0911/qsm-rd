@@ -1,0 +1,15 @@
+Public discussion checked2026-10-15.
+
+Forum: the supplied topic contains the author's initial post dated
+2026-10-14T16:06:02+0200; no later replies were present when fetched.
+https://forum.proxmox.com/threads/187042/
+
+Mailing list: public thread has four messages. Last is Dmitry's reply
+2026-10-14 14:19UTC to Alexandre. No later public response was present.
+https://lore.proxmox.com/pve-devel/30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com/T/
+
+The follow-up mail replies to the actual Message-ID of that last reply:
+<!~!UENERkVCMDkAAQACAAAAAAAAAAAAAAAAABgAAAAAAAAA0OHNyS9hYUaLr/vP3jA+aSKGAAAQAAAAstAJPIalg0ijK0cfuWlSvgEAAAAA@gmail.com>
+
+Both updated texts are drafts. No forum post or mailing-list message has
+been sent by this task. This check covers public archives, not private mail.

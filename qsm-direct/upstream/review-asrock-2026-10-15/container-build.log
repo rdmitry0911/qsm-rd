@@ -1,0 +1,479 @@
+fatal: not a git repository: /home/dima/Projects/proxmox-upstream/shared-platform/pve-container/.git/worktrees/pve-container-6.1.14
+rm -rf pve-container-6.1.14+webrtc1 pve-container-6.1.14+webrtc1.tmp; mkdir pve-container-6.1.14+webrtc1.tmp
+cp -t pve-container-6.1.14+webrtc1.tmp -a debian src/*
+echo "git clone git://git.proxmox.com/git/pve-container\\ngit checkout " >pve-container-6.1.14+webrtc1.tmp/debian/SOURCE
+mv pve-container-6.1.14+webrtc1.tmp pve-container-6.1.14+webrtc1
+cd pve-container-6.1.14+webrtc1; dpkg-buildpackage -b -us -uc
+dpkg-buildpackage: info: source package pve-container
+dpkg-buildpackage: info: source version 6.1.14+webrtc1
+dpkg-buildpackage: info: source distribution trixie
+dpkg-buildpackage: info: source changed by Dmitry R <rdmitry0911@gmail.com>
+ dpkg-source --before-build .
+dpkg-buildpackage: info: host architecture amd64
+ debian/rules clean
+make[1]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+dh clean
+   dh_auto_clean
+	make -j64 distclean
+make[2]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+make -C test clean
+make[3]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/test'
+rm -rf tmprootfs
+make[3]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/test'
+make cleanup-docgen
+make[3]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+rm -f *.xml.tmp *.1 *.5 *.8 *.adoc docinfo.xml
+rm -rf generated
+make[3]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+rm -f *.1 *.5 *.tmp *.bash-completion *.bash-completion
+make[2]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+   dh_clean
+make[1]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+ debian/rules binary
+make[1]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+dh binary
+   dh_update_autotools_config
+   dh_autoreconf
+   dh_auto_configure
+   dh_auto_build
+	make -j64 "INSTALL=install --strip-program=true"
+make[2]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+make[2]: Nothing to be done for 'all'.
+make[2]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+   dh_auto_test
+	make -j64 test
+make[2]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+make -C test test
+make[3]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/test'
+if test -e /run/lock/sbuild; then \
+	echo skipping userns tests in sbuild environment ; \
+else \
+	lxc-usernsexec -m "u:0:`id -u`:1" -m "g:0:`id -g`:1" -- ./run_setup_tests.pl ; \
+fi
+./run_snapshot_tests.pl
+skipping userns tests in sbuild environment
+if test -e /run/lock/sbuild; then \
+	echo skipping userns tests in sbuild environment ; \
+else \
+	lxc-usernsexec -m "u:0:`id -u`:1" -m "g:0:`id -g`:1" -- ./bindmount_test.pl ; \
+fi
+./run_idmap_tests.pl
+skipping userns tests in sbuild environment
+perl ./webrtc_test.pl
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+    # validation took 0.0019 seconds
+All tests successful.
+Files=1, Tests=5,  1 wallclock secs ( 0.01 usr  0.01 sys +  0.34 cusr  0.06 csys =  0.42 CPU)
+Result: PASS
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+file /etc/pve/storage.cfg line 3 (section 'local') - unable to parse value of 'maxfiles': unknown property type
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+file /etc/pve/storage.cfg line 3 (section 'local') - unable to parse value of 'maxfiles': unknown property type
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+file /etc/pve/storage.cfg line 3 (section 'local') - unable to parse value of 'maxfiles': unknown property type
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+file /etc/pve/storage.cfg line 3 (section 'local') - unable to parse value of 'maxfiles': unknown property type
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 1 - webrtcproxy is handled by the privileged daemon
+ok 2 - webrtcproxy is routed to the owning node
+ok 3 - webrtcproxy retains its specific ACL boundary
+ok 4 - webrtcproxy rejects additional parameters
+ok 5 - webrtcstatus is handled by the privileged daemon
+ok 6 - webrtcstatus is routed to the owning node
+ok 7 - webrtcstatus retains its specific ACL boundary
+ok 8 - webrtcstatus rejects additional parameters
+ok 9 - webrtcsettings-get is handled by the privileged daemon
+ok 10 - webrtcsettings-get is routed to the owning node
+ok 11 - webrtcsettings-get retains its specific ACL boundary
+ok 12 - webrtcsettings-get rejects additional parameters
+ok 13 - webrtcsettings-put is handled by the privileged daemon
+ok 14 - webrtcsettings-put is routed to the owning node
+ok 15 - webrtcsettings-put retains its specific ACL boundary
+ok 16 - webrtcsettings-put rejects additional parameters
+ok 17 - offers are CSRF-protected writes
+ok 18 - offers are bounded
+ok 19 - settings writes use PUT
+1..19
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+snapshot create failed: starting cleanup
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+freeze disabled
+snapshot create failed: starting cleanup
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+snapshot create failed: starting cleanup
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+snapshot create failed: starting cleanup
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+volume snapshot delete disabled
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+volume snapshot delete disabled
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+vm 205 - unable to parse value of 'vmstate' - unknown setting 'vmstate'
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+vm 205 - unable to parse value of 'vmstate' - unknown setting 'vmstate'
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+All tests successful.
+Files=1, Tests=42,  1 wallclock secs ( 0.03 usr  0.00 sys +  0.43 cusr  0.47 csys =  0.93 CPU)
+Result: PASS
+make[3]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/test'
+make[2]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+   create-stamp debian/debhelper-build-stamp
+   dh_prep
+   dh_auto_install --destdir=debian/pve-container/
+	make -j64 install DESTDIR=/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14\+webrtc1/debian/pve-container AM_UPDATE_INFO_DIR=no "INSTALL=install --strip-program=true"
+make[2]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+cp /usr/share/pve-doc-generator/pct.adoc pct.adoc.tmp
+cp /usr/share/pve-doc-generator/pve-copyright.adoc pve-copyright.adoc.tmp
+cp /usr/share/pve-doc-generator/docinfo.xml docinfo.xml.tmp
+mv pct.adoc.tmp pct.adoc
+PVE_GENERATING_DOCS=1 perl -I. -e "use PVE::CLI::pct;print PVE::CLI::pct->generate_asciidoc_synopsis();" > generated/pct.1-synopsis.adoc.tmp
+mv pve-copyright.adoc.tmp pve-copyright.adoc
+mv docinfo.xml.tmp docinfo.xml
+PVE_GENERATING_DOCS=1 perl -I. /usr/share/pve-doc-generator/gen-pct-mountpoint-opts.pl >generated/pct-mountpoint-opts.adoc.tmp
+PVE_GENERATING_DOCS=1 perl -I. /usr/share/pve-doc-generator/gen-pct-network-opts.pl >generated/pct-network-opts.adoc.tmp
+PVE_GENERATING_DOCS=1 perl -I. /usr/share/pve-doc-generator/gen-pct.conf.5-opts.pl >generated/pct.conf.5-opts.adoc.tmp
+cp /usr/share/pve-doc-generator/pct.conf.adoc pct.conf.adoc.tmp
+PVE_GENERATING_DOCS=1 perl -I. -T -e "use PVE::CLI::pct; PVE::CLI::pct->generate_bash_completions();" >pct.bash-completion.tmp
+PVE_GENERATING_DOCS=1 perl -I. -T -e "use PVE::CLI::pct; PVE::CLI::pct->generate_zsh_completions();" >pct.zsh-completion.tmp
+cp /usr/share/lxc/config/common.seccomp pve-userns.seccomp
+mv pct.conf.adoc.tmp pct.conf.adoc
+echo 'keyctl errno 38' >> pve-userns.seccomp
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Unable to open syslog: OsOs {  { codecode: : 22, , kindkind: : NotFoundNotFound, , messagemessage: : ""No such file or directoryNo such file or directory"" } }
+
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+mv generated/pct-network-opts.adoc.tmp generated/pct-network-opts.adoc
+mv generated/pct.conf.5-opts.adoc.tmp generated/pct.conf.5-opts.adoc
+mv generated/pct-mountpoint-opts.adoc.tmp generated/pct-mountpoint-opts.adoc
+/usr/bin/asciidoc-pve compile-man -o pct.conf.5 pct.conf.adoc
+mv pct.bash-completion.tmp pct.bash-completion
+mv generated/pct.1-synopsis.adoc.tmp generated/pct.1-synopsis.adoc
+/usr/bin/asciidoc-pve compile-man -o pct.1 pct.adoc
+mv pct.zsh-completion.tmp pct.zsh-completion
+link 'first_guest_boot_delay' target 'sysadmin.adoc' is not a manual page, ignoring
+link 'sysboot_edit_kernel_cmdline' target 'sysadmin.adoc' is not a manual page, ignoring
+Note: Writing pct.conf.5
+test -z "${PVE_DOC_INSTANTVIEW}" || man -l pct.conf.5
+Note: Writing pct.1
+test -z "${PVE_DOC_INSTANTVIEW}" || man -l pct.1
+PVE_GENERATING_DOCS=1 perl -I. -T -e "use PVE::CLI::pct; PVE::CLI::pct->verify_api();"
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+install -d /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/sbin
+install -m 0755 pct /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/sbin
+install -d /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/lxc
+install -m 0755 lxcnetaddbr /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/lxc
+install -m 0755 pve-container-stop-wrapper /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/lxc
+install -d -m0755 /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/lib/systemd/system
+install -m0644 pve-container@.service /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/lib/systemd/system/
+install -m0644 pve-container-debug@.service /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/lib/systemd/system/
+install -m0644 'system-pve\x2dcontainer.slice' /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/lib/systemd/system/
+install -d /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/lxc/hooks
+install -m 0755 lxc-pve-prestart-hook /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/lxc/hooks
+install -m 0755 lxc-pve-autodev-hook /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/lxc/hooks
+install -m 0755 lxc-pve-poststop-hook /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/lxc/hooks
+install -d /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/lxc/config
+install -m 0644 pve-userns.seccomp /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/lxc/config/pve-userns.seccomp
+install -d /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/lxc/config/common.conf.d
+install -m 0644 lxc-pve.conf /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/lxc/config/common.conf.d/01-pve.conf
+install -d /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/lxc/config/userns.conf.d
+install -m 0644 lxc-pve-userns.conf /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/lxc/config/userns.conf.d/01-pve.conf
+install -m 0644 -D pct.bash-completion /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/bash-completion/completions//pct
+install -m 0644 -D pct.zsh-completion /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/zsh/vendor-completions//_pct
+make -C PVE install
+make[3]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE'
+install -d -m 0755 /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE
+for i in LXC.pm; do install -D -m 0644 $i /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE/$i; done
+make -C API2 install
+make[4]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE/API2'
+install -d -m 0755 /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE/API2
+for i in LXC.pm; do install -D -m 0644 $i /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE/API2/$i; done
+make -C LXC install
+make[5]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE/API2/LXC'
+install -d -m 0755 /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE/API2/LXC
+for i in Config.pm Status.pm Snapshot.pm; do install -D -m 0644 $i /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE/API2/LXC/$i; done
+make[5]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE/API2/LXC'
+make[4]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE/API2'
+make -C LXC install
+make[4]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE/LXC'
+install -d -m 0755 /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE/LXC
+for i in CGroup.pm Command.pm Config.pm Create.pm Migrate.pm Monitor.pm Namespaces.pm Setup.pm Tools.pm; do install -D -m 0644 $i /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE/LXC/$i; done
+make -C Setup install
+make[5]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE/LXC/Setup'
+install -d -m 0755 /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE/LXC/Setup
+for i in Plugin.pm Base.pm Alpine.pm ArchLinux.pm CentOS.pm Debian.pm Devuan.pm Fedora.pm Gentoo.pm SUSE.pm Ubuntu.pm NixOS.pm OpenEuler.pm Unmanaged.pm ; do install -D -m 0644 $i /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE/LXC/Setup/$i; done
+make[5]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE/LXC/Setup'
+make[4]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE/LXC'
+make -C VZDump install
+make[4]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE/VZDump'
+install -D -m 0644 LXC.pm /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE/VZDump/LXC.pm
+install -D -m 0644 ConvertOVZ.pm /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE/VZDump/ConvertOVZ.pm
+make[4]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE/VZDump'
+make -C CLI install
+make[4]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE/CLI'
+install -d -m 0755 /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE/CLI
+for i in pct.pm; do install -D -m 0644 $i /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/perl5/PVE/CLI/$i; done
+make[4]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE/CLI'
+make[3]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/PVE'
+install -d /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/man/man1/
+install -d /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/man/man5/
+install -m 0644 pct.1 /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/man/man1/
+gzip -9 /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/man/man1//pct.1
+install -m 0644 pct.conf.5 /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/man/man5/
+gzip -9 /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/man/man5//pct.conf.5
+cd /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/share/man/man5/; ln -s pct.conf.5.gz ct.conf.5.gz
+install -D -m 0644 10-pve-ct-inotify-limits.conf /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/usr/lib/sysctl.d/10-pve-ct-inotify-limits.conf
+install -D -m 0644 pve-container-mounthotplug /work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1/debian/pve-container/etc/apparmor.d/pve-container-mounthotplug
+make[2]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+   debian/rules override_dh_install
+make[2]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+dh_apparmor -p pve-container --profile-name=pve-container-mounthotplug
+make[2]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+   dh_installdocs
+   dh_installchangelogs
+   dh_installman
+   debian/rules override_dh_installsystemd
+make[2]: Entering directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+dh_installsystemd -ppve-container --no-start --no-enable --no-restart-after-upgrade -r 'system-pve\x2dcontainer.slice'
+make[2]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+   dh_perl
+   dh_link
+   dh_strip_nondeterminism
+   dh_compress
+   dh_fixperms
+   dh_missing
+   dh_installdeb
+   dh_gencontrol
+   dh_md5sums
+   dh_builddeb
+dpkg-deb: building package 'pve-container' in '../pve-container_6.1.14+webrtc1_all.deb'.
+make[1]: Leaving directory '/work/shared-platform/pve-container-6.1.14/pve-container-6.1.14+webrtc1'
+ dpkg-genbuildinfo --build=binary -O../pve-container_6.1.14+webrtc1_amd64.buildinfo
+ dpkg-genchanges --build=binary -O../pve-container_6.1.14+webrtc1_amd64.changes
+dpkg-genchanges: info: binary-only upload (no source code included)
+ dpkg-source --after-build .
+dpkg-buildpackage: info: binary-only upload (no source included)
+lintian pve-container_6.1.14+webrtc1_all.deb
+running with root privileges is not recommended!
+W: pve-container: groff-message troff:<standard input>:182: warning: macro 'an-trap' not defined [usr/share/man/man1/pct.1.gz:1]
+W: pve-container: groff-message troff:<standard input>:47: warning: macro 'an-trap' not defined [usr/share/man/man5/pct.conf.5.gz:1]

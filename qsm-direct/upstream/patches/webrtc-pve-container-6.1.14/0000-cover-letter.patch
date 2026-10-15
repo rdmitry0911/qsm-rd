@@ -1,0 +1,12 @@
+From: Dmitry R <rdmitry0911@gmail.com>
+Subject: [PATCH 0/2] RFC LXC WebRTC API on pve-container6.1.14
+To: pve-devel@lists.proxmox.com
+Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+
+Base:1c0488315a1df22a9bba635a81e7543b5ce664b7 (pve-container6.1.14).
+This variant contains the same API/ACL implementation as webrtc-pve-container,
+rebased on6.1.14 so newer nodes do not need a downgrade. Patch0002 sets the
+local review package version6.1.14+webrtc1. It depends on shared-guest-common.
+
+This is an alternative to the6.1.13 variant; do not apply both variants.
+The API and package build tests passed; see review-asrock-2026-10-15.

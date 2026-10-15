@@ -1,0 +1,5 @@
+LOCAL_NETWORK_PERMISSION_GRANTED
+STATE_HTTP 200
+ASROCK_NATIVE_API {"webrtcstatus": {"status": 200, "data": {"status": "stopped"}}, "webrtcsettings": {"status": 200, "data": {"codec": "auto", "encoder": "auto"}}}
+ASROCK_WEBRTC_MENU_AVAILABLE
+NO_PORT_8007_REQUESTS

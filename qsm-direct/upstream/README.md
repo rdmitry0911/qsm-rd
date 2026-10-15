@@ -4,7 +4,7 @@ Proxmox takes no pull requests: patches go to `pve-devel@lists.proxmox.com`
 with `git send-email`, and every contributor signs a CLA first
 ([developer documentation](https://pve.proxmox.com/wiki/Developer_Documentation)).
 
-## Shared-base status (2026-10-14)
+## Shared-base status (2026-10-15)
 
 QSM now consumes Alexandre Derumier's shared per-VM D-Bus foundation.
 qemu-server owns the bus; WebRTC, encoding and guest companion support
@@ -16,11 +16,18 @@ The review-ready series are:
 1. [Common qemu-server foundation](patches/shared-qemu-server/0000-cover-letter.patch)
    — six patches, including Alexandre's original patch with his authorship.
 2. [WebRTC qemu-server API](patches/webrtc-qemu-server/0000-cover-letter.patch)
-   — one patch above the common foundation.
+   — two patches above the common foundation; patch 0002 uses shared-guest-common.
 3. [pve-manager UI](patches/shared-pve-manager/0000-cover-letter.patch)
    — three patches for native configuration and Console integration.
 4. [Optional Venus compatibility](patches/optional-venus/0000-cover-letter.patch)
    — Markus Frank's adapted patch and a configuration test; not required.
+5. [Common guest WebRTC transport](patches/shared-guest-common/0000-cover-letter.patch)
+   — shared local service IPC, needed before WebRTC qemu-server patch 0002.
+6. [LXC WebRTC API on 6.1.14](patches/webrtc-pve-container-6.1.14/0000-cover-letter.patch)
+   — the API and local package version on the newer container baseline.
+
+[Published preview and deb packages](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261015-shared9)
+include the installation order, hashes and source/review archives.
 
 [Installation, protocol and validation](shared-platform-review-2026-10-14.txt)
 records source revisions, dependencies, migration commands and verified

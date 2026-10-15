@@ -13,6 +13,12 @@ foundation. qemu-server owns the bus; QSM attaches as a display consumer.
 Native signalling and codec settings use the existing PVE API on port 8006.
 CPU displays keep noVNC available; GL displays use the D-Bus console.
 
+[Shared9 preview packages](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261015-shared9)
+include the matching Proxmox packages, installation notes and checksums.
+LXC uses the same authenticated API for availability, offers and settings.
+Native VM and LXC consoles need no separate HTTPS port or certificate
+exception; WebRTC media still needs UDP connectivity to the node.
+
 Apply the [shared-base and native UI series](upstream/README.md), install
 qsm-pve-direct, then stop and convert an existing managed VM:
 
@@ -27,7 +33,7 @@ For a new VM, enable `dbus-display: 1`, select `vga: std` or
 `audio0: device=ich9-intel-hda,driver=dbus`. See the
 [validated package and migration instructions](packaging/debian/README.qsm-pve-direct).
 The upstream patches are proposals; stock PVE still uses the add-on mode
-below. LXC also keeps its existing signalling service.
+below. LXC guest desktop/session setup remains in its separate package.
 
 ## Legacy add-on architecture
 
@@ -194,7 +200,7 @@ feel.
   service and all its encoder workers run under a 1 GiB `MemoryMax`, which a
   systemd drop-in can raise.
 
-## Install
+## Legacy add-on installation (stock PVE)
 
 Build the PVE 9 package on Debian 13 with
 `packaging/debian/build-qsm-pve-direct-deb.sh` (or in a throwaway chroot with

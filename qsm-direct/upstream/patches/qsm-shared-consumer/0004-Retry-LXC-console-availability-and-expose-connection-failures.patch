@@ -3,6 +3,7 @@ From: Dmitry R <rdmitry0911@gmail.com>
 Date: Wed, 14 Oct 2026 23:41:32 +0300
 Subject: [PATCH] Retry LXC console availability and expose connection failures
 
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
 ---
  .../pve9/direct_ui/qsm-direct-console.js      | 58 +++++++++++---
  .../test_direct_console_overlay.mjs           | 77 +++++++++++++++++++

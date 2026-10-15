@@ -1,0 +1,46 @@
+QSM shared9 native platform preview,2026-10-15
+
+Download the host packages from:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261015-shared9
+Verify the SHA256SUMS file. These are matching patched PVE9/Debian13
+packages; install them together. The package manager may update official
+PVE library dependencies. Tested source/package bases and boundaries are
+in the two review directories linked below.
+
+On the PVE host, from the download directory:
+
+apt install ./libpve-guest-common-perl_6.0.5+webrtc1_all.deb \
+  ./qemu-server_9.2.11+shared2_amd64.deb \
+  ./pve-manager_9.2.21_all.deb \
+  ./pve-container_6.1.14+webrtc1_all.deb \
+  ./qsm-pve-direct_0.4.0+shared9_amd64.deb \
+  ./qsm-pve-direct-lxc_0.4.0+shared9_all.deb
+systemctl enable --now qsm-pve-direct-terminal.service
+qsm-pve-direct-ui reconcile
+
+The LXC host package includes its guest payload. The optional standalone
+qsm-console-guest deb is for inside an LXC guest, not an additional host
+component. See packaging/debian/README.qsm-pve-direct for LXC setup.
+
+For an existing QSM VM, stop it before applying the display conversion:
+qsm-pve-direct-migrate <vmid>
+qsm-pve-direct-migrate <vmid> --apply
+qm start <vmid>
+
+The migration tool saves a private configuration backup and keeps unrelated
+arguments and guest channels. Native bus ownership starts with the next VM
+start. Refresh PVE with Ctrl+F5 after the package update.
+
+Native VM and LXC signalling/status/settings use existing HTTPS8006 and
+PVE session/CSRF/ACL checks. WebRTC media uses negotiated UDP. The old
+qsm-pve-direct-signal8007 service remains optional compatibility for
+unmigrated add-on consumers. Once those consumers are migrated, disable it:
+systemctl disable --now qsm-pve-direct-signal.service qsm-pve-direct-cert-reload.timer
+
+The shared-base and API patches are an upstream proposal. Runtime Venus
+and full Kyber/RDP browser integration are not qualified by this preview.
+CPU and GL browser media, audio/clipboard checks and their fixture-specific
+limits are documented under upstream/review-shared-platform-2026-10-14;
+Firefox native VM/LXC checks are under review-native-lxc-2026-10-15.
+The second-node installation on the6.1.14 baseline is documented under
+review-asrock-2026-10-15; its configured QSM VM remains stopped for user test.

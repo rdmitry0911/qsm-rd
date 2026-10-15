@@ -2,52 +2,57 @@ From: Dmitry R <rdmitry0911@gmail.com>
 To: pve-devel@lists.proxmox.com
 Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
 Subject: Re: [RFC] WebRTC console for VMs via QEMU's D-Bus display
-In-Reply-To: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+In-Reply-To: <!~!UENERkVCMDkAAQACAAAAAAAAAAAAAAAAABgAAAAAAAAA0OHNyS9hYUaLr/vP3jA+aSKGAAAQAAAAstAJPIalg0ijK0cfuWlSvgEAAAAA@gmail.com>
 References: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
+ <!~!UENERkVCMDkAAQACAAAAAAAAAAAAAAAAABgAAAAAAAAA0OHNyS9hYUaLr/vP3jA+aSKGAAAQAAAAstAJPIalg0ijK0cfuWlSvgEAAAAA@gmail.com>
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
 Hi Alexandre, hi all,
 
-I've reworked the per-VM D-Bus foundation from Alexandre's v2 and moved
-QSM's WebRTC console onto it. The original D-Bus patch retains Alexandre's
-authorship and sign-off. qemu-server owns the bus and its lifetime; the
-media service remains a separate package and attaches as a consumer.
+Following up on my reply yesterday: I've completed the QSM port to the
+shared per-VM D-Bus foundation and uploaded the source, patches and a
+matching preview build:
 
-The proposed opt-in is a VM-wide dbus-display: 1. GPU type and rendernode
-remain in vga, and audio0 can select driver=dbus. CPU displays can keep
-VNC alongside D-Bus; virtio-gl cannot offer VNC/SPICE alongside it.
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261015-shared9
 
-I've separated the review into six common qemu-server patches, two
-WebRTC API patches above them, and three pve-manager patches. WebRTC offers,
-minimal VM status and codec settings use PVE's existing authenticated
-API. Console access/read settings require VM.Console; policy writes
-require VM.Config.Options. A pve-guest-common patch extracts the shared
-local service transport, and a pve-container patch adds the equivalent
-LXC API. Native VM and LXC signalling no longer needs port 8007.
+The original D-Bus patch retains Alexandre's authorship and sign-off.
+qemu-server owns the bus and its lifetime; QSM attaches as a consumer.
+The proposed opt-in is dbus-display: 1, with GPU type/rendernode in vga
+and driver=dbus for audio0. CPU displays can keep VNC; GL displays cannot
+provide VNC/SPICE alongside the D-Bus display.
 
-On the installed packages I checked Firefox video and saving the existing
-media policy for an LXC container, and VM video/Reconnect, with the legacy
-HTTPS service stopped. Unauthenticated reads and writes without a CSRF
-token are rejected. Graphical container sessions and encoding remain in
-the console provider; the stock LXC terminal console is preserved.
+The common display foundation, WebRTC API and pve-manager UI are separate
+series. A small pve-guest-common module now handles the local console
+service exchange for both VM and LXC APIs. Native signalling, status and
+media settings use PVE's existing HTTPS origin on8006, with VM.Console
+for offers/reads and VM.Config.Options for settings writes. There is no
+separate HTTPS port; WebRTC media still uses UDP.
 
-The packages build with the upstream tests. In an isolated PVE 9 lab I
-checked CPU and GL display, embedded and popup consoles together, sound
-and microphone, clipboard in both directions and the API permissions.
-A second independent D-Bus capture consumer also ran while the browser
-continued decoding. The migration tool converts stopped QSM-managed VMs,
-saves a private backup and preserves unrelated arguments/guest channels.
+I checked Firefox video and an ordinary Reconnect in the embedded VM
+console, and LXC video/settings, with the old8007 service stopped.
+Anonymous reads and writes without a CSRF token are rejected. The Firefox
+mDNS negotiation and reconnect issues found during VPN testing are fixed.
+The earlier shared-base lab checks also covered CPU/GL display, audio,
+microphone, clipboard and a second independent display consumer.
 
-I've also adapted Markus Frank's Venus v4 configuration patch separately
-and tested its command generation. It is optional; I have not qualified
-Vulkan inside a guest. The NVIDIA EGL readback fix is kept separately too:
-its adapter-to-file check is not a full Kyber/RDP browser qualification.
+The graphical LXC sessions and provisioning remain in a separate add-on.
+Their API patches can be reviewed independently of the QEMU foundation.
+There are builds against pve-container6.1.13 and6.1.14, so the newer
+container package does not need to be downgraded.
 
-I'd appreciate feedback on the VM-wide option, bus ownership/lifecycle,
-audio defaults, and the API/UI split before treating these as final.
-The accompanying series contain the source bases and validation details.
+Markus Frank's Venus configuration adaptation and the NVIDIA readback
+patch remain separate optional work. Runtime Venus and full Kyber/RDP
+browser integration have not been qualified by these tests.
+
+The source bases, package hashes, test logs and migration instructions
+are here:
+https://github.com/rdmitry0911/qsm-rd/tree/main/qsm-direct/upstream
+
+I'd appreciate feedback on the VM-wide option, bus lifetime, audio
+configuration and the API/service split. The patches are still a proposal;
+I have not treated the new configuration as an agreed upstream interface.
 
 Thanks,
 Dmitry

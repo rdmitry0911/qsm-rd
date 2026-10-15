@@ -1,0 +1,23 @@
+Native shared-platform preview for Proxmox VE9
+
+QSM now consumes the per-VM D-Bus foundation based on Alexandre Derumier's
+patches. qemu-server owns the bus. Matching API/UI packages expose native
+VM and LXC consoles through the existing PVE HTTPS8006 origin; WebRTC media
+still uses UDP. Firefox mDNS negotiation and Reconnect are fixed.
+
+Assets include matching host deb packages, the optional LXC guest payload,
+source/review archives and SHA256SUMS. Installation commands and migration:
+https://github.com/rdmitry0911/qsm-rd/blob/main/qsm-direct/upstream/INSTALL-shared9.txt
+
+This prerelease contains patched Proxmox packages. The older stock-PVE
+add-on remains available in earlier releases. The container build uses
+6.1.14+webrtc1, preserving the newer container baseline.
+
+Verified: package builds and API/ACL tests; real authenticated Firefox
+VM video/Reconnect and LXC video/settings with8007 stopped, anonymous reads
+and missing-CSRF writes rejected. A second PVE node has the matching
+packages installed and a stopped VM converted for the user's next start.
+No running guest was rebooted during that installation.
+
+Patch series, source bases, logs and qualification boundaries:
+https://github.com/rdmitry0911/qsm-rd/tree/main/qsm-direct/upstream
