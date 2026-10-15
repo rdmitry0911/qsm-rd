@@ -1,0 +1,405 @@
+From 1d8f2fb773cefa56d90d60e9f9e25c7447b7b3c6 Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Thu, 15 Oct 2026 09:42:23 +0300
+Subject: [PATCH] Route native LXC consoles through the common Proxmox WebRTC
+ API
+
+---
+ .../direct_terminal/qsm_direct_terminal.py    | 32 ++++++++++-----
+ .../pve9/direct_ui/qsm-direct-console.js      | 37 ++++++++++++++++--
+ .../pve9/direct_ui/qsm_pve_direct_ui.py       |  6 ++-
+ .../packaging/debian/README.qsm-pve-direct    | 17 +++++---
+ .../debian/build-qsm-pve-direct-lxc-deb.sh    |  2 +-
+ .../packaging/debian/qsm-pve-direct-postinst  |  2 +-
+ .../debian/qsm-pve-direct-terminal.service    |  2 +-
+ .../test_direct_console_overlay.mjs           | 39 ++++++++++++++++++-
+ .../test_direct_ui_package_state.py           | 29 ++++++++++++++
+ .../tests/proxmox_pve9/test_shared_display.py | 39 +++++++++++++++++++
+ 10 files changed, 182 insertions(+), 23 deletions(-)
+ create mode 100644 qsm-direct/tests/proxmox_pve9/test_direct_ui_package_state.py
+
+diff --git a/qsm-direct/extensions/direct_terminal/qsm_direct_terminal.py b/qsm-direct/extensions/direct_terminal/qsm_direct_terminal.py
+index af4fd35..686c23b 100644
+--- a/qsm-direct/extensions/direct_terminal/qsm_direct_terminal.py
++++ b/qsm-direct/extensions/direct_terminal/qsm_direct_terminal.py
+@@ -1918,7 +1918,10 @@ class DirectSessionManager:
+         original p2p descriptor for compatibility with older installations.
+         """
+         if not isinstance(request, dict) or request.get("version") not in (1, 2) or \
+-                set(request) != {"version", "vmid", "user", "offer"}:
++                set(request) - {"kind"} != {"version", "vmid", "user", "offer"}:
++            raise DirectTerminalError("direct-terminal webrtc request is invalid")
++        kind = request.get("kind", "qemu")
++        if kind not in ("qemu", "lxc") or (request["version"] == 1 and "kind" in request):
+             raise DirectTerminalError("direct-terminal webrtc request is invalid")
+         if (request["version"] == 1) != (display_fd is not None):
+             raise DirectTerminalError("direct-terminal webrtc transport is invalid")
+@@ -1933,7 +1936,10 @@ class DirectSessionManager:
+             if type(value) is not int or not minimum <= value <= maximum:
+                 raise DirectTerminalError("direct-terminal webrtc request is invalid")
+         width, height = width - width % 2, height - height % 2
+-        if request["version"] == 2:
++        if kind == "lxc":
++            if self._container_policy(vmid) is None:
++                raise DirectTerminalError("container is not configured for a graphical console")
++        elif request["version"] == 2:
+             config = _read_pve_vm_config(self._pve_config_directory / f"{vmid}.conf")
+             if config is None or _shared_display_profile(config) is None:
+                 raise DirectTerminalError("VM is not configured for the shared D-Bus display")
+@@ -1958,19 +1964,27 @@ class DirectSessionManager:
+         The PVE API checks VM.Console for reads and VM.Config.Options for
+         writes. No ticket or browser-selected file path reaches this service.
+         """
+-        if (not isinstance(request, dict) or set(request) != {"version", "vmid", "user", "settings"}
++        if (not isinstance(request, dict) or set(request) - {"kind"} != {"version", "vmid", "user", "settings"}
+                 or request.get("version") != 2 or not _valid_vmid(request.get("vmid"))
+                 or not isinstance(request.get("user"), str)
+                 or not _SUBJECT_PATTERN.fullmatch(request["user"])):
+             raise DirectTerminalError("invalid WebRTC settings request")
+-        config = _read_pve_vm_config(self._pve_config_directory / f"{request['vmid']}.conf")
+-        if config is None or _shared_display_profile(config) is None:
+-            raise DirectTerminalError("VM is not configured for the shared D-Bus display")
++        kind = request.get("kind", "qemu")
++        if kind not in ("qemu", "lxc"):
++            raise DirectTerminalError("invalid WebRTC settings request")
++        if kind == "lxc":
++            if self._container_policy(request["vmid"]) is None:
++                raise DirectTerminalError("container is not configured for a graphical console")
++        else:
++            config = _read_pve_vm_config(self._pve_config_directory / f"{request['vmid']}.conf")
++            if config is None or _shared_display_profile(config) is None:
++                raise DirectTerminalError("VM is not configured for the shared D-Bus display")
+         try:
+-            from signal_service.qsm_direct_signal import VmPolicyStore, SignalError
++            from signal_service.qsm_direct_signal import ContainerPolicyStore, VmPolicyStore, SignalError
+         except ModuleNotFoundError:
+-            from extensions.signal.qsm_direct_signal import VmPolicyStore, SignalError
+-        store = VmPolicyStore(self._instance_directory)
++            from extensions.signal.qsm_direct_signal import ContainerPolicyStore, VmPolicyStore, SignalError
++        store = (ContainerPolicyStore(self._container_instance_directory) if kind == "lxc"
++                 else VmPolicyStore(self._instance_directory))
+         settings = request["settings"]
+         try:
+             if settings is None:
+diff --git a/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js b/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js
+index a7f69ee..dcbff39 100644
+--- a/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js
++++ b/qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js
+@@ -669,7 +669,30 @@
+     // cookie, so they are CSRF-safe.  waitMsgTarget spinners are handled by
+     // the callers; these helpers only perform the cross-origin request.
+     const SIGNAL_PORT = 8007;
++    const pveConsoleRequest = async (method, path, params) => {
++        const options = { method, credentials: 'same-origin', cache: 'no-store' };
++        if (method === 'GET') {
++            options.signal = AbortSignal.timeout(10000);
++        } else {
++            options.headers = { CSRFPreventionToken: Proxmox.CSRFPreventionToken };
++            options.body = new URLSearchParams(params || {});
++        }
++        const response = await fetch(`/api2/json${path}`, options);
++        const body = await response.json().catch(() => ({}));
++        if (!response.ok) {
++            const error = new Error(`WebRTC ${response.status}: ${body.message || ''}`.trim());
++            error.status = response.status;
++            throw error;
++        }
++        return body && body.data;
++    };
+     const signalRequest = async (method, path, params) => {
++        // On the shared platform containers use the same PVE origin and
++        // session/CSRF checks as VM consoles. Port 8007 is legacy-only.
++        if (NATIVE_QEMU && /^\/nodes\/[^/]+\/lxc\/\d+\/qsm-direct(?:-settings)?$/.test(path)) {
++            return pveConsoleRequest(method, path.replace(/qsm-direct-settings$/, 'webrtcsettings')
++                .replace(/qsm-direct$/, 'webrtcproxy'), params);
++        }
+         const cookieName = (window.Proxmox && Proxmox.Setup && Proxmox.Setup.auth_cookie_name)
+             || 'PVEAuthCookie';
+         const ticket = Ext.util.Cookies.get(cookieName);
+@@ -734,6 +757,7 @@
+     // service tells the two apart from the node's own guest configs.
+     const openConsole = function (button, node, vmid, embeddedFrame = null, kind = 'qemu') {
+         const guestKind = kind === 'lxc' ? 'lxc' : 'qemu';
++        const nativeConsole = Boolean(VIEWER) || (NATIVE_QEMU && guestKind === 'lxc');
+         const embedded = Boolean(embeddedFrame) && !VIEWER;
+         let popup;
+         if (VIEWER) {
+@@ -2256,7 +2280,7 @@
+             }, 500);
+         }
+ 
+-        const vmStatusUrl = () => `/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/${VIEWER ? 'webrtcstatus' : 'status/current'}`;
++        const vmStatusUrl = () => `/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/${nativeConsole ? 'webrtcstatus' : 'status/current'}`;
+         const waitForVmStart = async () => {
+             // Opening Console is a valid action before Power On.  Do not
+             // create a single-use WebRTC offer until QEMU exists: PVE would
+@@ -3389,7 +3413,10 @@
+                     me.menu.push({ xtype: 'menuitem', itemId: 'qsm-direct-connection',
+                         text: gettext('Check QSM Direct connection…'), hidden: true,
+                         iconCls: 'fa fa-exclamation-triangle',
+-                        handler: () => window.open(`https://${location.hostname}:${SIGNAL_PORT}/`, '_blank', 'noopener') });
++                        handler: () => {
++                            if (NATIVE_QEMU) { if (me.qsmDirectRefresh) { me.qsmDirectRefresh(); } }
++                            else { window.open(`https://${location.hostname}:${SIGNAL_PORT}/`, '_blank', 'noopener'); }
++                        } });
+                 }
+             }
+             me.callParent();
+@@ -3515,12 +3542,16 @@
+                         hint.setText(error && error.status === 404
+                             ? gettext('QSM Direct is not configured for this container')
+                             : restricted ? gettext('QSM Direct access denied')
++                            : NATIVE_QEMU ? gettext('Retry QSM Direct connection')
+                             : gettext('Check QSM Direct connection…'));
+-                        hint.setTooltip(gettext('Open the QSM service to check its certificate and network access, then reopen this menu.'));
++                        hint.setTooltip(NATIVE_QEMU
++                            ? gettext('Retry the console availability check through the Proxmox API.')
++                            : gettext('Open the QSM service to check its certificate and network access, then reopen this menu.'));
+                     }
+                 }
+                 const menu = button && button.getMenu();
+                 if (menu && observedMenu !== menu) {
++                    button.qsmDirectRefresh = refresh;
+                     observedMenu = menu;
+                     menu.on('beforeshow', () => { if (!enabled) { refresh(); } });
+                 }
+diff --git a/qsm-direct/integration/proxmox/pve9/direct_ui/qsm_pve_direct_ui.py b/qsm-direct/integration/proxmox/pve9/direct_ui/qsm_pve_direct_ui.py
+index 04555ab..e65d958 100644
+--- a/qsm-direct/integration/proxmox/pve9/direct_ui/qsm_pve_direct_ui.py
++++ b/qsm-direct/integration/proxmox/pve9/direct_ui/qsm_pve_direct_ui.py
+@@ -360,7 +360,11 @@ def _default_package_version() -> str:
+     if completed.returncode != 0:
+         raise UnsupportedPve("pve-manager is unavailable")
+     fields = completed.stdout.strip().split("\t", 1)
+-    if len(fields) != 2 or fields[0] != "installed" or not _VERSION_PATTERN.fullmatch(fields[1]):
++    # Another PVE package may queue pve-manager's trigger before our postinst
++    # runs. Its configured files are still present and must pass the usual
++    # version/hash checks; a pending trigger is not an unsupported upgrade.
++    configured_states = {"installed", "triggers-pending", "triggers-awaited"}
++    if len(fields) != 2 or fields[0] not in configured_states or not _VERSION_PATTERN.fullmatch(fields[1]):
+         raise UnsupportedPve("pve-manager is unavailable")
+     return fields[1]
+ 
+diff --git a/qsm-direct/packaging/debian/README.qsm-pve-direct b/qsm-direct/packaging/debian/README.qsm-pve-direct
+index ee411dc..34201bf 100644
+--- a/qsm-direct/packaging/debian/README.qsm-pve-direct
++++ b/qsm-direct/packaging/debian/README.qsm-pve-direct
+@@ -3,8 +3,8 @@ qsm-pve-direct for Proxmox VE 9
+ 
+ `qsm-pve-direct` is a browser-native PVE console transport.
+ 
+-Native shared platform (patched qemu-server and pve-manager)
+----------------------------------------------------------
++Native shared platform (patched Proxmox packages)
++------------------------------------------------
+ Install the shared-base and WebRTC patches from upstream/README.md, then
+ install this package. Stop each VM before changing its display configuration:
+ 
+@@ -25,15 +25,20 @@ WebRTC, with noVNC still available for CPU displays.
+ qemu-server owns /run/qemu-server/<vmid>.dbusdisplay and its VM lifecycle.
+ QSM is a consumer; restarting its service does not replace that bus. Other
+ display consumers may attach independently. Signalling, status and codec
+-settings use authenticated PVE API routes on port 8006; native VM consoles
+-do not require port 8007. VM.Console permits viewing/settings reads;
++settings use authenticated PVE API routes on port 8006. With the matching
++pve-container WebRTC patches, LXC consoles use the same API and the common
++PVE::WebRTC Unix-socket transport from pve-guest-common. Neither VM nor LXC
++native consoles require port 8007 or a separate certificate exception.
++Enable qsm-pve-direct-terminal.service; the separate signal service is only
++for legacy add-on installations. WebRTC media still uses negotiated UDP
++ports directly between browser and host. VM.Console permits viewing/settings reads;
+ VM.Config.Options permits settings writes. Clipboard uses qemu-vdagent and
+ spice-vdagent in X11 guests, or the retained QSM companion for configured
+ desktop guests. Concurrent clipboard ownership across protocols is not
+ provided by QEMU's single clipboard proxy.
+ 
+-Legacy add-on and LXC mode (unpatched PVE)
+-----------------------------------------
++Legacy add-on mode (unpatched PVE)
++--------------------------------
+ 
+ It uses PVE's existing authenticated Web UI session and `VM.Console` ACL.
+ The browser sends its WebRTC SDP offer to the node-local signalling service
+diff --git a/qsm-direct/packaging/debian/build-qsm-pve-direct-lxc-deb.sh b/qsm-direct/packaging/debian/build-qsm-pve-direct-lxc-deb.sh
+index 22b94a9..d91a759 100644
+--- a/qsm-direct/packaging/debian/build-qsm-pve-direct-lxc-deb.sh
++++ b/qsm-direct/packaging/debian/build-qsm-pve-direct-lxc-deb.sh
+@@ -35,7 +35,7 @@ Section: admin
+ Priority: optional
+ Architecture: all
+ Maintainer: Dmitry R <rdmitry0911@gmail.com>
+-Depends: qsm-pve-direct (= $package_version), pve-container, python3
++Depends: qsm-pve-direct (= $package_version), pve-container (>= 6.1.13+webrtc1), python3
+ Breaks: qsm-pve-direct (<< $package_version)
+ Replaces: qsm-pve-direct (<< $package_version)
+ Description: QSM Direct graphical console for LXC containers on Proxmox VE
+diff --git a/qsm-direct/packaging/debian/qsm-pve-direct-postinst b/qsm-direct/packaging/debian/qsm-pve-direct-postinst
+index 149a220..aed081f 100644
+--- a/qsm-direct/packaging/debian/qsm-pve-direct-postinst
++++ b/qsm-direct/packaging/debian/qsm-pve-direct-postinst
+@@ -41,7 +41,7 @@ case "${1:-}" in
+             systemctl enable --now qsm-pve-direct-cert-reload.timer || true
+         fi
+         /usr/sbin/qsm-pve-direct-ui reconcile || echo "qsm-pve-direct: PVE Console UI was not changed" >&2
+-        echo "qsm-pve-direct installed; enable qsm-pve-direct-terminal.service and qsm-pve-direct-signal.service, then configure QSM Display1 for each VM."
++        echo "qsm-pve-direct installed; enable qsm-pve-direct-terminal.service for the native Proxmox WebRTC API. qsm-pve-direct-signal.service is needed only for legacy installations."
+         ;;
+     triggered)
+         /usr/sbin/qsm-pve-direct-ui reconcile || echo "qsm-pve-direct: PVE Console UI was not changed" >&2
+diff --git a/qsm-direct/packaging/debian/qsm-pve-direct-terminal.service b/qsm-direct/packaging/debian/qsm-pve-direct-terminal.service
+index c9fa8ca..99d8421 100644
+--- a/qsm-direct/packaging/debian/qsm-pve-direct-terminal.service
++++ b/qsm-direct/packaging/debian/qsm-pve-direct-terminal.service
+@@ -33,7 +33,7 @@ PrivateTmp=true
+ ProtectHome=true
+ ProtectSystem=full
+ # Native media settings are written here after the PVE API's permission check.
+-ReadWritePaths=/etc/qsm-pve-direct/instances.d
++ReadWritePaths=/etc/qsm-pve-direct/instances.d /etc/qsm-pve-direct/containers.d
+ ProtectClock=true
+ ProtectControlGroups=true
+ ProtectKernelLogs=true
+diff --git a/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs b/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
+index ab85b79..f805e35 100644
+--- a/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
++++ b/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
+@@ -71,7 +71,7 @@ assert.match(source, /if \(me\.qsmDirectSession\) \{ me\.qsmDirectSession\.close
+     'leaving the PVE Console card must retire its embedded WebRTC session');
+ assert.match(source, /window\.open\('', windowId,/,
+     'QSM Direct must create a separate browser popup synchronously from the menu action');
+-assert.match(source, /VIEWER \? 'webrtcstatus' : 'status\/current'/,
++assert.match(source, /nativeConsole \? 'webrtcstatus' : 'status\/current'/,
+     'native consoles must poll the VM.Console status route without requiring VM.Audit');
+ assert.match(source, /Virtual machine is stopped\. Waiting for it to start…/,
+     'a stopped VM must leave the popup open with an explicit start wait state');
+@@ -828,3 +828,40 @@ for (const complete of [true, false]) {
+     }
+     assert.equal(removed, 1, 'the ICE listener must be cleaned up on completion or timeout');
+ }
++
++// With the common PVE platform, the LXC availability probe must never
++// read a bearer ticket or contact the legacy HTTPS service.
++{
++    const nativeDefinitions = new Map();
++    const seen = [];
++    const nativeContext = {
++        gettext: text => text, AbortSignal, URLSearchParams,
++        window: {},
++        PVE: { Utils: { openWebRTCViewer: () => undefined } },
++        Proxmox: { CSRFPreventionToken: 'test-csrf' },
++        Ext: {
++            define: (name, body) => nativeDefinitions.set(name, body),
++            util: { Cookies: { get: () => assert.fail('native LXC must use the PVE session') } },
++        },
++        fetch: async (url, options) => {
++            seen.push({ url, options });
++            return { ok: true, json: async () => ({ data: { codec: 'auto', encoder: 'auto' } }) };
++        },
++    };
++    vm.runInNewContext(source, nativeContext);
++    let enabled = false;
++    const menu = { on: () => undefined };
++    const button = { down: () => null, getMenu: () => menu,
++        setEnableQsmDirect: value => { enabled = value; } };
++    nativeDefinitions.get('PVE.qsmDirect.LxcConfigOverlay').initComponent.call({
++        callParent: () => undefined,
++        pveSelNode: { data: { node: 'pve-a', vmid: 105 } },
++        down: () => button, on: () => undefined,
++    });
++    await new Promise(resolve => setImmediate(resolve));
++    assert.equal(enabled, true);
++    assert.equal(seen.length, 1);
++    assert.equal(seen[0].url, '/api2/json/nodes/pve-a/lxc/105/webrtcsettings');
++    assert.equal(seen[0].options.credentials, 'same-origin');
++    assert.equal(seen[0].options.headers, undefined);
++}
+diff --git a/qsm-direct/tests/proxmox_pve9/test_direct_ui_package_state.py b/qsm-direct/tests/proxmox_pve9/test_direct_ui_package_state.py
+new file mode 100644
+index 0000000..2119ccf
+--- /dev/null
++++ b/qsm-direct/tests/proxmox_pve9/test_direct_ui_package_state.py
+@@ -0,0 +1,29 @@
++"""PVE UI stays available during an ordinary multi-package upgrade."""
++import subprocess
++import sys
++import unittest
++from pathlib import Path
++from unittest.mock import patch
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "integration/proxmox/pve9/direct_ui"))
++from qsm_pve_direct_ui import _default_package_version, UnsupportedPve
++
++
++class PackageStateTests(unittest.TestCase):
++    def test_configured_package_with_pending_triggers_is_usable(self):
++        for state in ("installed", "triggers-pending", "triggers-awaited"):
++            with self.subTest(state=state), patch("qsm_pve_direct_ui.subprocess.run", return_value=
++                    subprocess.CompletedProcess([], 0, state + "\t9.2.21\n")):
++                self.assertEqual(_default_package_version(), "9.2.21")
++
++    def test_unconfigured_or_malformed_packages_remain_unsupported(self):
++        for value in ("half-configured\t9.2.21", "half-installed\t9.2.21",
++                      "config-files\t9.2.21", "not-installed\t9.2.21", "installed", "installed\t../bad"):
++            with self.subTest(value=value), patch("qsm_pve_direct_ui.subprocess.run", return_value=
++                    subprocess.CompletedProcess([], 0, value)):
++                with self.assertRaises(UnsupportedPve):
++                    _default_package_version()
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/qsm-direct/tests/proxmox_pve9/test_shared_display.py b/qsm-direct/tests/proxmox_pve9/test_shared_display.py
+index 370dae8..b074fba 100644
+--- a/qsm-direct/tests/proxmox_pve9/test_shared_display.py
++++ b/qsm-direct/tests/proxmox_pve9/test_shared_display.py
+@@ -80,8 +80,47 @@ class SharedDisplayTests(unittest.TestCase):
+         manager._qemu_pid_directory = self.busdir
+         manager._vm_runtime_directory = self.root / "legacy"
+         manager._closed = True
++        manager._lxc_config_directory = self.root / "lxc"
++        manager._container_instance_directory = self.root / "containers"
+         return manager
+ 
++    def container_policy(self):
++        (self.root / "lxc").mkdir()
++        (self.root / "lxc/105.conf").write_text("unprivileged: 1\n")
++        (self.root / "containers").mkdir()
++        policy = self.root / "containers/105.conf"
++        policy.write_text("QSM_DIRECT_LXC_DISPLAY=slots\nQSM_DIRECT_LXC_SLOTS=2\n"
++                          "QSM_DIRECT_LXC_GRACE=300\nQSM_DIRECT_ENCODER=h264_nvenc\n")
++        policy.chmod(0o600)
++        return policy
++
++    def test_container_settings_stay_in_the_container_namespace(self):
++        policy = self.container_policy()
++        manager = self.manager()
++        request = {"version": 2, "kind": "lxc", "vmid": 105, "user": "u@pve", "settings": None}
++        self.assertEqual(manager.webrtc_settings(request), {"codec": "auto", "encoder": "auto"})
++        value = manager.webrtc_settings({**request, "settings": {"codec": "h264", "encoder": "hardware"}})
++        self.assertEqual(manager.webrtc_settings(request), value)
++        self.assertIn("QSM_DIRECT_LXC_DISPLAY=slots\n", policy.read_text())
++        self.assertIn("QSM_DIRECT_LXC_SLOTS=2\n", policy.read_text())
++        self.assertIn("QSM_DIRECT_ENCODER=h264_nvenc\n", policy.read_text())
++        self.assertFalse((self.policy / "105.conf").exists())
++        for override in ({"kind": "qemu"}, {"kind": "other"}, {"vmid": 106}):
++            with self.assertRaises(DirectTerminalError):
++                manager.webrtc_settings({**request, **override})
++
++    def test_guest_kind_never_falls_back_to_another_guest_type(self):
++        self.container_policy()
++        manager = self.manager()
++        request = {"version": 2, "kind": "lxc", "vmid": 105, "user": "u@pve",
++                   "offer": {"sdp": "v=0\r\n"}}
++        with self.assertRaisesRegex(DirectTerminalError, "is stopped"):
++            manager.answer_webrtc(request)
++        for override in ({"kind": "qemu"}, {"vmid": 321}, {"kind": "other"},
++                         {"version": 1}, {"path": "/tmp/foreign"}):
++            with self.assertRaises(DirectTerminalError):
++                manager.answer_webrtc({**request, **override})
++
+     def test_profile_uses_only_the_running_opt_in(self):
+         self.assertEqual(_shared_display_profile("dbus-display: 1\n"), "cpu")
+         self.assertEqual(_shared_display_profile("dbus-display: 1\nvga: virtio-gl\n"), "virgl")
+-- 
+2.43.0
+

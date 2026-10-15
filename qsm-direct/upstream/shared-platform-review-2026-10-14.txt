@@ -175,3 +175,51 @@ late responses after navigation do not touch destroyed components.
 Regression tests exercise network failure,403 denial, successful recovery,
 render timing and destruction. Installed QSM and matching LXC packages:
 0.4.0+shared7. See review-lxc105-menu-2026-10-14 for browser evidence.
+
+
+Native LXC follow-up: shared9, 2026-10-15
+The common PVE::WebRTC transport is now in pve-guest-common. QEMU keeps its
+VM-specific shared-bus safety check and delegates the local JSON exchange.
+pve-container adds protected, node-proxied webrtcproxy, webrtcstatus and
+GET/PUT webrtcsettings, retaining VM.Console versus VM.Config.Options.
+QSM validates an explicit guest kind on the root-only service socket and
+reads/writes the appropriate existing VM or container policy namespace.
+Its native LXC frontend uses same-origin cookie/CSRF API calls on8006.
+The legacy cross-origin bearer-ticket path remains for unpatched installs.
+
+Versions installed on192.168.64.20:
+  libpve-guest-common-perl6.0.5+webrtc1
+  qemu-server9.2.11+shared2
+  pve-container6.1.13+webrtc1
+  qsm-pve-direct and qsm-pve-direct-lxc0.4.0+shared9
+  pve-manager9.2.21 (the previous shared-platform build is unchanged)
+
+shared8 introduced the native LXC API path. During installed-package
+qualification its settings write exposed a missing systemd ReadWritePaths
+entry for containers.d; shared9 grants only that specific directory in
+addition to instances.d. The UI installer also accepts the configured
+triggers-pending/awaited dpkg states, preserving version/hash validation;
+it previously removed the overlay during a multi-package upgrade before
+pve-manager's pending trigger ran. The corrected installed UI is active.
+
+Final Firefox qualification ran with8007 stopped and no listener present.
+CT105: authenticated settings GET/PUT and offer POST200; video1280x726,
+ICE/peer connected; no guest login. Missing-CSRF PUT and anonymous GET401.
+VM103: embedded video and an ordinary Reconnect click pass over native HTTP.
+Both browser runners assert zero8007 requests and block that port locally.
+The 56 Python Proxmox regressions, JS behavior checks, common guest tests,
+19 LXC endpoint ACL/schema assertions and package builds pass. The standard
+container build skips user-namespace setup/bindmount tests under the usual
+sbuild marker because nested user namespaces are unavailable here; its
+snapshot/idmap and new WebRTC tests run. See review-native-lxc-2026-10-15.
+
+The common display bus and all guests remained running. VM104 still has its
+legacy QSM display configuration; the separate HTTPS compatibility service
+was restored after qualification for that VM. Native VM103 and CT105 do not
+need it. Removing all legacy consumers is a distinct remaining migration,
+not a dependency of their new API path. Rollback packages/config/API backup
+are under /root/qsm-shared-platform-20261014/rollback-shared8 on the node.
+
+Source commits: pve-guest-common5b61a9d, pve-containera8bbb28,
+qemu-server3b7deebe, QSM1d8f2fb. New series: shared-guest-common,
+webrtc-pve-container, webrtc-qemu-server0002, qsm-shared-consumer0005.

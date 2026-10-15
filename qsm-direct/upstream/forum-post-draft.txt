@@ -15,10 +15,10 @@ My GPU test setup is PVE 9 with an RTX 3080 and a Linux KDE guest. The stream ru
 I also compared the two consoles on the same Standard VGA VM in a CPU-only lab. A 30 fps 720p clip delivered about 27 different pictures/s through QSM and 7 through noVNC, using about 20 and 120 Mbit/s respectively. noVNC opened faster and had lower latency for an isolated mouse event. The setup, method and results are here:
 https://github.com/rdmitry0911/qsm-rd/blob/main/qsm-direct/docs/COMPARISON.md
 
-One limitation worth mentioning: with the GL D-Bus display, QEMU cannot offer VNC or SPICE alongside it. A non-GL profile can keep VNC. The stock-PVE add-on needs TCP 8007 and UDP access from the browser to the node. The new native integration uses the existing PVE API for signalling and needs UDP for media. Installation details are in the repository:
+One limitation worth mentioning: with the GL D-Bus display, QEMU cannot offer VNC or SPICE alongside it. A non-GL profile can keep VNC. The stock-PVE add-on needs TCP 8007 and UDP access from the browser to the node. The new native integration uses the existing PVE API for both VM and LXC signalling, without a separate HTTPS port. WebRTC still needs UDP for media. Installation details are in the repository:
 https://github.com/rdmitry0911/qsm-rd/tree/main/qsm-direct
 
-There is also a graphical console for LXC containers with a KDE desktop, supplied as a separate add-on with software inside the container.
+There is also a graphical console for LXC containers with a KDE desktop, supplied as a separate add-on with software inside the container. I've checked Firefox video and media settings with the old signalling service stopped.
 
 I've posted an RFC to pve-devel and prepared patches for qemu-server and pve-manager. This is still an add-on and an upstream proposal. Alexandre Derumier has a related RDP/Kyber series using QEMU's D-Bus display. I've tested its capture path on NVIDIA and prepared a fix; he has now replied and welcomed reworking his patches. I've now moved QSM onto that shared per-VM D-Bus foundation and tested it in a PVE 9 lab. A second independent display consumer can attach while the browser keeps streaming. Full Kyber/RDP browser integration still needs its own qualification; the shared-base patches and QSM port are ready for review.
 

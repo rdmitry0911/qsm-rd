@@ -1,0 +1,129 @@
+rm -rf libpve-guest-common-perl-[0-9]*/ *.deb *.dsc *.changes *.buildinfo *.build libpve-guest-common-perl*.tar*
+rm -rf libpve-guest-common-perl-6.0.5+webrtc1 libpve-guest-common-perl-6.0.5+webrtc1.tmp
+cp -a src libpve-guest-common-perl-6.0.5+webrtc1.tmp
+cp -a debian libpve-guest-common-perl-6.0.5+webrtc1.tmp/
+echo "git clone git://git.proxmox.com/git/pve-guest-common.git\\ngit checkout 5b61a9d090ce8823ebbe1798da19612f10fcfc54" > libpve-guest-common-perl-6.0.5+webrtc1.tmp/debian/SOURCE
+mv libpve-guest-common-perl-6.0.5+webrtc1.tmp libpve-guest-common-perl-6.0.5+webrtc1
+cd libpve-guest-common-perl-6.0.5+webrtc1; dpkg-buildpackage -b -us -uc
+dpkg-buildpackage: info: source package libpve-guest-common-perl
+dpkg-buildpackage: info: source version 6.0.5+webrtc1
+dpkg-buildpackage: info: source distribution trixie
+dpkg-buildpackage: info: source changed by Dmitry R <rdmitry0911@gmail.com>
+ dpkg-source --before-build .
+dpkg-buildpackage: info: host architecture amd64
+ debian/rules clean
+make[1]: Entering directory '/work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1'
+dh clean
+   dh_auto_clean
+   dh_clean
+make[1]: Leaving directory '/work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1'
+ debian/rules binary
+make[1]: Entering directory '/work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1'
+dh binary
+   dh_update_autotools_config
+   dh_autoreconf
+   dh_auto_configure
+   dh_auto_build
+	make -j64 "INSTALL=install --strip-program=true"
+make[2]: Entering directory '/work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1'
+make[2]: Nothing to be done for 'all'.
+make[2]: Leaving directory '/work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1'
+   dh_auto_test
+	make -j64 check
+make[2]: Entering directory '/work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1'
+make -C tests check
+make[3]: Entering directory '/work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/tests'
+perl -I.. ./abstract-config-tests.pl
+perl -I.. ./webrtc-tests.pl
+ok 1 - a missing service is explicit
+ok 2 - ordinary files cannot receive authorized requests
+ok 3 - qemu receives an answer over the common socket
+ok 4 - qemu preserves the SDP answer
+ok 5 - qemu carries the guest identity without a PVE ticket
+ok 6 - qemu fixture is released
+ok 7 - lxc receives an answer over the common socket
+ok 8 - lxc preserves the SDP answer
+ok 9 - lxc carries the guest identity without a PVE ticket
+ok 10 - lxc fixture is released
+1..10
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+# Subtest: parse_pending_delete
+    ok 1
+    ok 2
+    ok 3
+    ok 4
+    ok 5
+    1..5
+ok 1 - parse_pending_delete
+# Subtest: print_pending_delete
+    ok 1
+    ok 2
+    1..2
+ok 2 - print_pending_delete
+# Subtest: add_to_pending_delete
+    ok 1
+    ok 2
+    ok 3
+    ok 4
+    1..4
+ok 3 - add_to_pending_delete
+# Subtest: remove_from_pending_delete
+    ok 1
+    ok 2
+    ok 3
+    1..3
+ok 4 - remove_from_pending_delete
+# Subtest: cleanup_pending
+    ok 1
+    ok 2
+    ok 3
+    1..3
+ok 5 - cleanup_pending
+1..5
+make[3]: Leaving directory '/work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/tests'
+make[2]: Leaving directory '/work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1'
+   create-stamp debian/debhelper-build-stamp
+   dh_prep
+   dh_auto_install --destdir=debian/libpve-guest-common-perl/
+	make -j64 install DESTDIR=/work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5\+webrtc1/debian/libpve-guest-common-perl AM_UPDATE_INFO_DIR=no "INSTALL=install --strip-program=true"
+make[2]: Entering directory '/work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1'
+install -d /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE
+install -m 0644 PVE/WebRTC.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/
+install -m 0644 PVE/GuestHelpers.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/
+install -m 0644 PVE/AbstractConfig.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/
+install -m 0644 PVE/AbstractMigrate.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/
+install -m 0644 PVE/ReplicationConfig.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/
+install -m 0644 PVE/ReplicationState.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/
+install -m 0644 PVE/Replication.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/
+install -m 0644 PVE/StorageTunnel.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/
+install -m 0644 PVE/Tunnel.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/
+install -d /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/Mapping
+install -m 0644 PVE/Mapping/Dir.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/Mapping/
+install -m 0644 PVE/Mapping/PCI.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/Mapping/
+install -m 0644 PVE/Mapping/USB.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/Mapping/
+install -d /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/VZDump
+install -m 0644 PVE/VZDump/Plugin.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/VZDump/
+install -m 0644 PVE/VZDump/Common.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/VZDump/
+install -m 0644 PVE/VZDump/JobBase.pm /work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1/debian/libpve-guest-common-perl/usr/share/perl5/PVE/VZDump/
+make[2]: Leaving directory '/work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1'
+   dh_installdocs
+   dh_installchangelogs
+   dh_perl
+   dh_link
+   dh_strip_nondeterminism
+   dh_compress
+   dh_fixperms
+   dh_missing
+   dh_installdeb
+   dh_gencontrol
+   dh_md5sums
+   dh_builddeb
+dpkg-deb: building package 'libpve-guest-common-perl' in '../libpve-guest-common-perl_6.0.5+webrtc1_all.deb'.
+make[1]: Leaving directory '/work/shared-platform/pve-guest-common/libpve-guest-common-perl-6.0.5+webrtc1'
+ dpkg-genbuildinfo --build=binary -O../libpve-guest-common-perl_6.0.5+webrtc1_amd64.buildinfo
+ dpkg-genchanges --build=binary -O../libpve-guest-common-perl_6.0.5+webrtc1_amd64.changes
+dpkg-genchanges: info: binary-only upload (no source code included)
+ dpkg-source --after-build .
+dpkg-buildpackage: info: binary-only upload (no source included)
+lintian libpve-guest-common-perl_6.0.5+webrtc1_all.deb
+running with root privileges is not recommended!

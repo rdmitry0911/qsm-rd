@@ -1,0 +1,300 @@
+From a8bbb28e1595763383dc966f2a975e52189b5a4b Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Thu, 15 Oct 2026 09:32:45 +0300
+Subject: [PATCH] Add authorized WebRTC console endpoints for containers
+
+---
+ debian/changelog        |   6 ++
+ debian/control          |   4 +-
+ src/PVE/API2/LXC.pm     | 174 ++++++++++++++++++++++++++++++++++++++++
+ src/test/Makefile       |   5 +-
+ src/test/webrtc_test.pl |  22 +++++
+ 5 files changed, 208 insertions(+), 3 deletions(-)
+ create mode 100644 src/test/webrtc_test.pl
+
+diff --git a/debian/changelog b/debian/changelog
+index 09f6a4d..6209ee7 100644
+--- a/debian/changelog
++++ b/debian/changelog
+@@ -1,3 +1,9 @@
++pve-container (6.1.13+webrtc1) trixie; urgency=medium
++
++  * Route VM and container WebRTC consoles through the common local service.
++
++ -- Dmitry R <rdmitry0911@gmail.com>  Thu, 15 Oct 2026 00:30:00 +0300
++
+ pve-container (6.1.13) trixie; urgency=medium
+ 
+   * fix #7667: device passthrough: only evaluate errno when querying the
+diff --git a/debian/control b/debian/control
+index 238bffc..233cb5b 100644
+--- a/debian/control
++++ b/debian/control
+@@ -7,7 +7,7 @@ Build-Depends: debhelper-compat (= 13),
+                libpve-access-control (>= 8.0.0~),
+                libpve-cluster-perl,
+                libpve-common-perl (>= 8.1.0),
+-               libpve-guest-common-perl (>= 5.1.0),
++               libpve-guest-common-perl (>= 6.0.5+webrtc1),
+                libpve-rs-perl (>= 0.11~),
+                libpve-storage-perl,
+                libtest-mockmodule-perl,
+@@ -27,7 +27,7 @@ Depends: binutils,
+          libpve-access-control (>= 9.0.7~),
+          libpve-cluster-perl,
+          libpve-common-perl (>= 9.1.18~),
+-         libpve-guest-common-perl (>= 5.1.3),
++         libpve-guest-common-perl (>= 6.0.5+webrtc1),
+          libpve-rs-perl (>= 0.11~),
+          libpve-storage-perl (>= 8.3.5),
+          lxc-pve (>= 6.0.5-3~~),
+diff --git a/src/PVE/API2/LXC.pm b/src/PVE/API2/LXC.pm
+index 22320ba..27dcded 100644
+--- a/src/PVE/API2/LXC.pm
++++ b/src/PVE/API2/LXC.pm
+@@ -26,6 +26,7 @@ use PVE::SafeSyslog;
+ use PVE::Storage;
+ use PVE::Ticket;
+ use PVE::Tools qw(extract_param run_command);
++use PVE::WebRTC;
+ use PVE::VZDump::Plugin;
+ 
+ use PVE::LXC;
+@@ -699,6 +700,9 @@ __PACKAGE__->register_method({
+             { subdir => 'pending' },
+             { subdir => 'status' },
+             { subdir => 'vncproxy' },
++            { subdir => 'webrtcproxy' },
++            { subdir => 'webrtcsettings' },
++            { subdir => 'webrtcstatus' },
+             { subdir => 'termproxy' },
+             { subdir => 'vncwebsocket' },
+             { subdir => 'spiceproxy' },
+@@ -934,6 +938,176 @@ __PACKAGE__->register_method({
+ 
+ my $sslcert;
+ 
++__PACKAGE__->register_method({
++    name => 'webrtcproxy',
++    path => '{vmid}/webrtcproxy',
++    method => 'POST',
++    protected => 1,
++    proxyto => 'node',
++    permissions => {
++        check => ['perm', '/vms/{vmid}', ['VM.Console']],
++    },
++    description => "Attach a WebRTC console to a running container. A separate node-local"
++        . " console service provides the graphical display and answers the SDP offer.",
++    parameters => {
++        additionalProperties => 0,
++        properties => {
++            node => get_standard_option('pve-node'),
++            vmid => get_standard_option('pve-vmid'),
++            sdp => {
++                description => "The browser's WebRTC session description (SDP offer).",
++                type => 'string',
++                maxLength => 64 * 1024,
++            },
++            width => {
++                description => "Width of the console viewport in pixels.",
++                type => 'integer',
++                minimum => 64,
++                maximum => 16384,
++                optional => 1,
++            },
++            height => {
++                description => "Height of the console viewport in pixels.",
++                type => 'integer',
++                minimum => 64,
++                maximum => 16384,
++                optional => 1,
++            },
++            fps => {
++                description => "Requested frame rate.",
++                type => 'integer',
++                minimum => 10,
++                maximum => 240,
++                optional => 1,
++            },
++        },
++    },
++    returns => {
++        type => 'object',
++        properties => {
++            type => {
++                type => 'string',
++                enum => ['answer'],
++            },
++            sdp => {
++                description => "The WebRTC session description of the console (SDP answer).",
++                type => 'string',
++            },
++        },
++    },
++    code => sub {
++        my ($param) = @_;
++
++        my $rpcenv = PVE::RPCEnvironment::get();
++        my $authuser = $rpcenv->get_user();
++
++        my $vmid = $param->{vmid};
++        my $conf = PVE::LXC::Config->load_config($vmid, $param->{node});
++
++        die "CT $vmid not running\n" if !PVE::LXC::check_running($vmid);
++
++        my $offer = { sdp => $param->{sdp} };
++        for my $opt (qw(width height fps)) {
++            $offer->{$opt} = int($param->{$opt}) if defined($param->{$opt});
++        }
++
++        return PVE::WebRTC::offer('lxc', $vmid, $authuser, $offer);
++    },
++});
++
++__PACKAGE__->register_method({
++    name => 'webrtcstatus',
++    path => '{vmid}/webrtcstatus',
++    method => 'GET',
++    protected => 1,
++    proxyto => 'node',
++    permissions => { check => ['perm', '/vms/{vmid}', ['VM.Console']] },
++    description => "Get only the container run state needed by a WebRTC console.",
++    parameters => {
++        additionalProperties => 0,
++        properties => {
++            node => get_standard_option('pve-node'),
++            vmid => get_standard_option('pve-vmid'),
++        },
++    },
++    returns => {
++        type => 'object',
++        properties => { status => { type => 'string', enum => ['running', 'stopped'] } },
++    },
++    code => sub {
++        my ($param) = @_;
++        PVE::LXC::Config->load_config($param->{vmid}, $param->{node});
++        return {
++            status => PVE::LXC::check_running($param->{vmid}) ? 'running' : 'stopped' };
++    },
++});
++
++__PACKAGE__->register_method({
++    name => 'webrtcsettings-get',
++    path => '{vmid}/webrtcsettings',
++    method => 'GET',
++    protected => 1,
++    proxyto => 'node',
++    permissions => { check => ['perm', '/vms/{vmid}', ['VM.Console']] },
++    description => "Read or update the WebRTC console's node-local media policy.",
++    parameters => {
++        additionalProperties => 0,
++        properties => {
++            node => get_standard_option('pve-node'),
++            vmid => get_standard_option('pve-vmid'),
++        },
++    },
++    returns => {
++        type => 'object',
++        properties => {
++            codec => { type => 'string', enum => ['auto', 'h264', 'hevc'] },
++            encoder => { type => 'string', enum => ['auto', 'hardware', 'software'] },
++        },
++    },
++    code => sub {
++        my ($param) = @_;
++        my $vmid = $param->{vmid};
++        my $conf = PVE::LXC::Config->load_config($vmid, $param->{node});
++        my $user = PVE::RPCEnvironment::get()->get_user();
++        my $settings;
++        return PVE::WebRTC::settings('lxc', $vmid, $user, $settings);
++    },
++});
++
++__PACKAGE__->register_method({
++    name => 'webrtcsettings-put',
++    path => '{vmid}/webrtcsettings',
++    method => 'PUT',
++    protected => 1,
++    proxyto => 'node',
++    permissions => { check => ['perm', '/vms/{vmid}', ['VM.Config.Options']] },
++    description => "Read or update the WebRTC console's node-local media policy.",
++    parameters => {
++        additionalProperties => 0,
++        properties => {
++            node => get_standard_option('pve-node'),
++            vmid => get_standard_option('pve-vmid'),
++            codec => { type => 'string', enum => ['auto', 'h264', 'hevc'] },
++            encoder => { type => 'string', enum => ['auto', 'hardware', 'software'] },
++        },
++    },
++    returns => {
++        type => 'object',
++        properties => {
++            codec => { type => 'string', enum => ['auto', 'h264', 'hevc'] },
++            encoder => { type => 'string', enum => ['auto', 'hardware', 'software'] },
++        },
++    },
++    code => sub {
++        my ($param) = @_;
++        my $vmid = $param->{vmid};
++        my $conf = PVE::LXC::Config->load_config($vmid, $param->{node});
++        my $user = PVE::RPCEnvironment::get()->get_user();
++        my $settings = { codec => $param->{codec}, encoder => $param->{encoder} };
++        return PVE::WebRTC::settings('lxc', $vmid, $user, $settings);
++    },
++});
++
+ __PACKAGE__->register_method({
+     name => 'vncproxy',
+     path => '{vmid}/vncproxy',
+diff --git a/src/test/Makefile b/src/test/Makefile
+index 91ae6ff..4e45a5d 100644
+--- a/src/test/Makefile
++++ b/src/test/Makefile
+@@ -2,7 +2,7 @@ RUN_USERNS := lxc-usernsexec -m "u:0:`id -u`:1" -m "g:0:`id -g`:1" --
+ 
+ all: test
+ 
+-test: test_setup test_snapshot test_bindmount test_idmap
++test: test_setup test_snapshot test_bindmount test_idmap test_webrtc
+ 
+ test_setup: run_setup_tests.pl
+ 	if test -e /run/lock/sbuild; then \
+@@ -26,3 +26,6 @@ test_idmap: run_idmap_tests.pl
+ 
+ clean:
+ 	rm -rf tmprootfs
++
++test_webrtc:
++	perl ./webrtc_test.pl
+diff --git a/src/test/webrtc_test.pl b/src/test/webrtc_test.pl
+new file mode 100644
+index 0000000..88b9cc4
+--- /dev/null
++++ b/src/test/webrtc_test.pl
+@@ -0,0 +1,22 @@
++#!/usr/bin/perl
++use strict;
++use warnings;
++use lib '..';
++use Test::More;
++use PVE::API2::LXC;
++
++for my $name (qw(webrtcproxy webrtcstatus webrtcsettings-get webrtcsettings-put)) {
++    my $method = PVE::API2::LXC->map_method_by_name($name);
++    ok($method->{protected}, "$name is handled by the privileged daemon");
++    is($method->{proxyto}, 'node', "$name is routed to the owning node");
++    is_deeply($method->{permissions}->{check},
++        ['perm', '/vms/{vmid}', [$name eq 'webrtcsettings-put' ? 'VM.Config.Options' : 'VM.Console']],
++        "$name retains its specific ACL boundary");
++    ok(!$method->{parameters}->{additionalProperties}, "$name rejects additional parameters");
++}
++my $offer = PVE::API2::LXC->map_method_by_name('webrtcproxy');
++is($offer->{method}, 'POST', 'offers are CSRF-protected writes');
++is($offer->{parameters}->{properties}->{sdp}->{maxLength}, 65536, 'offers are bounded');
++is(PVE::API2::LXC->map_method_by_name('webrtcsettings-put')->{method}, 'PUT', 'settings writes use PUT');
++
++done_testing();
+-- 
+2.43.0
+

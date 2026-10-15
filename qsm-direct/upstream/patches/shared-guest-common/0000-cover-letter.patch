@@ -1,0 +1,21 @@
+From: Dmitry R <rdmitry0911@gmail.com>
+Subject: [PATCH 0/1] RFC Common WebRTC console service transport for VM and container APIs
+To: pve-devel@lists.proxmox.com
+Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+
+Base: pve-guest-common6.0.5.
+Apply shared-guest-common before webrtc-qemu-server0002 or webrtc-pve-container.
+
+The API authorizes VM.Console for offers/status/settings reads and
+VM.Config.Options for settings writes. Protected, node-proxied methods
+send guest kind/VMID and the authorized user to a root-owned local Unix
+socket. Media remains with a separately packaged console service. No
+browser ticket, display FD or browser-selected filesystem path is passed.
+
+Both native VM and LXC signalling use the existing PVE HTTPS origin8006;
+only WebRTC media needs its negotiated UDP transport. The stock LXC
+terminal console remains available. LXC graphic session provisioning,
+slot isolation and encoding remain in the console provider, not PVE.
+
+Local package version suffixes identify the tested review build. See
+review-native-lxc-2026-10-15 for package hashes and runtime evidence.

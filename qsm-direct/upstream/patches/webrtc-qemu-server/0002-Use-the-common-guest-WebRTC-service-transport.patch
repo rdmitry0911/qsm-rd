@@ -1,0 +1,136 @@
+From 3b7deebe630b46f661ad1bd2162a5ba3bf73d5de Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Thu, 15 Oct 2026 09:32:29 +0300
+Subject: [PATCH] Use the common guest WebRTC service transport
+
+---
+ debian/changelog             |  6 ++++
+ debian/control               |  4 +--
+ src/PVE/QemuServer/WebRTC.pm | 63 ++----------------------------------
+ 3 files changed, 11 insertions(+), 62 deletions(-)
+
+diff --git a/debian/changelog b/debian/changelog
+index c705f8db..2fba38f9 100644
+--- a/debian/changelog
++++ b/debian/changelog
+@@ -1,3 +1,9 @@
++qemu-server (9.2.11+shared2) trixie; urgency=medium
++
++  * Route VM and container WebRTC consoles through the common local service.
++
++ -- Dmitry R <rdmitry0911@gmail.com>  Thu, 15 Oct 2026 00:30:00 +0300
++
+ qemu-server (9.2.11) trixie; urgency=medium
+ 
+   * hotplug pending: improve handling of machine type, only querying it when
+diff --git a/debian/control b/debian/control
+index 5d8b2f17..eddc6a33 100644
+--- a/debian/control
++++ b/debian/control
+@@ -11,7 +11,7 @@ Build-Depends: debhelper-compat (= 13),
+                libpve-apiclient-perl,
+                libpve-cluster-perl,
+                libpve-common-perl (>= 9.1.9),
+-               libpve-guest-common-perl (>= 5.2.2),
++               libpve-guest-common-perl (>= 6.0.5+webrtc1),
+                libpve-network-perl,
+                libpve-rs-perl (>= 0.14.0),
+                libpve-storage-perl (>= 9.1.10),
+@@ -45,7 +45,7 @@ Depends: conntrack,
+          libpve-apiclient-perl,
+          libpve-cluster-perl,
+          libpve-common-perl (>= 9.1.11~),
+-         libpve-guest-common-perl (>= 5.2.2),
++         libpve-guest-common-perl (>= 6.0.5+webrtc1),
+          libpve-rs-perl (>= 0.14.0),
+          libpve-storage-perl (>= 9.1.13~),
+          libterm-readline-gnu-perl,
+diff --git a/src/PVE/QemuServer/WebRTC.pm b/src/PVE/QemuServer/WebRTC.pm
+index 6c53d3ab..bac79583 100644
+--- a/src/PVE/QemuServer/WebRTC.pm
++++ b/src/PVE/QemuServer/WebRTC.pm
+@@ -3,62 +3,13 @@ package PVE::QemuServer::WebRTC;
+ use strict;
+ use warnings;
+ 
+-use IO::Handle;
+-use IO::Socket::UNIX;
+-use JSON;
+-use Socket qw(SOCK_STREAM);
+-
+-use PVE::Tools;
++use PVE::WebRTC;
+ 
+ use PVE::QemuServer::Helpers;
+ 
+-# A console service that turns the D-Bus display into a WebRTC stream, run on
+-# the node by a separate package, listens here.  Its request is one JSON line
+-# carrying the browser's SDP offer, with the VMID identifying the existing
+-# per-VM D-Bus; its reply is one JSON line.
+-our $WEBRTC_SERVICE_SOCKET = '/run/webrtc-console/offer.sock';
+-
+-# Hand a browser's WebRTC offer and VM identifier to the
+-# console service and return its SDP answer.
+-sub request {
+-    my ($vmid, $request, $timeout) = @_;
+-
+-    my $path = $WEBRTC_SERVICE_SOCKET;
+-    my @st = lstat($path);
+-    die "no WebRTC console service is installed on this node\n" if !@st;
+-    # Only a root-owned service receives API-authorized console requests.
+-    die "refusing WebRTC console service socket '$path' not owned by root\n"
+-        if !-S _ || $st[4] != 0;
+-
+-    my $service = IO::Socket::UNIX->new(Type => SOCK_STREAM, Peer => $path)
+-        or die "unable to connect to the WebRTC console service - $!\n";
+-
+-    my $wire = encode_json($request);
+-    $service->autoflush(1);
+-    print {$service} "$wire\n"
+-        or die "unable to send the offer to the WebRTC console service\n";
+-
+-    my $line;
+-    eval {
+-        PVE::Tools::run_with_timeout($timeout // 30, sub { $line = <$service>; });
+-    };
+-    my $err = $@;
+-    close($service);
+-    die "WebRTC console service did not answer - $err" if $err;
+-    die "WebRTC console service closed the connection\n" if !defined($line);
+-
+-    my $reply = eval { decode_json($line) };
+-    die "invalid reply from the WebRTC console service\n" if ref($reply) ne 'HASH';
+-    die "WebRTC console service: " . ($reply->{error} // 'unknown error') . "\n"
+-        if !$reply->{ok};
+-
+-    return $reply;
+-}
+-
+ sub settings {
+     my ($vmid, $user, $settings) = @_;
+-    return request($vmid,
+-        { version => 2, vmid => int($vmid), user => $user, settings => $settings })->{data};
++    return PVE::WebRTC::settings('qemu', $vmid, $user, $settings);
+ }
+ 
+ sub offer {
+@@ -67,15 +18,7 @@ sub offer {
+     my @st = lstat($bus);
+     die "VM $vmid has no safe shared D-Bus display - stop and start it\n"
+         if !@st || !-S _ || $st[4] != 0 || ($st[2] & 0077);
+-    my $reply =
+-        request($vmid, { version => 2, vmid => int($vmid), user => $user, offer => $offer });
+-    my $answer = $reply->{answer};
+-    die "invalid SDP answer from the WebRTC console service\n"
+-        if ref($answer) ne 'HASH'
+-        || ($answer->{type} // '') ne 'answer'
+-        || !defined($answer->{sdp});
+-
+-    return $answer;
++    return PVE::WebRTC::offer('qemu', $vmid, $user, $offer);
+ }
+ 
+ 1;
+-- 
+2.43.0
+

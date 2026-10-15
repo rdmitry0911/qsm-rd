@@ -1,0 +1,15 @@
+qsm-pve-direct PVE UI: active
+CT 105: console policy present; container running
+  console 1: display active, login active; login screen; free
+  console 2: display active, login active; login screen; free
+  default session type   wayland
+  GPU in container       NVIDIA GeForce RTX 3080
+status: running
+status: running
+libpve-guest-common-perl	6.0.5+webrtc1
+pve-container	6.1.13+webrtc1
+qemu-server	9.2.11+shared2
+qsm-pve-direct	0.4.0+shared9
+qsm-pve-direct-lxc	0.4.0+shared9
+active
+active

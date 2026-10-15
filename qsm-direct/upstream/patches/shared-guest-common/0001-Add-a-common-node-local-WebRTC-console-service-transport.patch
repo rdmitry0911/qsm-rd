@@ -1,0 +1,192 @@
+From 5b61a9d090ce8823ebbe1798da19612f10fcfc54 Mon Sep 17 00:00:00 2001
+From: Dmitry R <rdmitry0911@gmail.com>
+Date: Thu, 15 Oct 2026 09:32:45 +0300
+Subject: [PATCH] Add a common node-local WebRTC console service transport
+
+---
+ debian/changelog          |  6 ++++
+ src/Makefile              |  1 +
+ src/PVE/WebRTC.pm         | 74 +++++++++++++++++++++++++++++++++++++++
+ src/tests/Makefile        |  5 ++-
+ src/tests/webrtc-tests.pl | 46 ++++++++++++++++++++++++
+ 5 files changed, 131 insertions(+), 1 deletion(-)
+ create mode 100644 src/PVE/WebRTC.pm
+ create mode 100644 src/tests/webrtc-tests.pl
+
+diff --git a/debian/changelog b/debian/changelog
+index 8813b3c..d146dd0 100644
+--- a/debian/changelog
++++ b/debian/changelog
+@@ -1,3 +1,9 @@
++libpve-guest-common-perl (6.0.5+webrtc1) trixie; urgency=medium
++
++  * Route VM and container WebRTC consoles through the common local service.
++
++ -- Dmitry R <rdmitry0911@gmail.com>  Thu, 15 Oct 2026 00:30:00 +0300
++
+ libpve-guest-common-perl (6.0.5) trixie; urgency=medium
+ 
+   * tunnel: treat reader_stderr as optional parameter in read_tunnel, fixing a
+diff --git a/src/Makefile b/src/Makefile
+index 030e7f7..a1010b0 100644
+--- a/src/Makefile
++++ b/src/Makefile
+@@ -6,6 +6,7 @@ all:
+ 
+ install: PVE
+ 	install -d ${PERL5DIR}/PVE
++	install -m 0644 PVE/WebRTC.pm ${PERL5DIR}/PVE/
+ 	install -m 0644 PVE/GuestHelpers.pm ${PERL5DIR}/PVE/
+ 	install -m 0644 PVE/AbstractConfig.pm ${PERL5DIR}/PVE/
+ 	install -m 0644 PVE/AbstractMigrate.pm ${PERL5DIR}/PVE/
+diff --git a/src/PVE/WebRTC.pm b/src/PVE/WebRTC.pm
+new file mode 100644
+index 0000000..f73fc2a
+--- /dev/null
++++ b/src/PVE/WebRTC.pm
+@@ -0,0 +1,74 @@
++package PVE::WebRTC;
++
++use strict;
++use warnings;
++
++use IO::Handle;
++use IO::Socket::UNIX;
++use JSON;
++use Socket qw(SOCK_STREAM);
++
++use PVE::Tools;
++
++# A console service that turns a guest display into a WebRTC stream, run on
++# the node by a separate package, listens here.  Its request is one JSON line
++# carrying the guest kind/VMID and browser's offer or media settings; its
++# reply is one JSON line. PVE API endpoints authorize each operation before
++# calling this root-only transport. The service is provided separately.
++our $WEBRTC_SERVICE_SOCKET = '/run/webrtc-console/offer.sock';
++
++# Hand a browser's WebRTC offer and VM identifier to the
++# console service and return its SDP answer.
++sub request {
++    my ($request, $timeout) = @_;
++
++    my $path = $WEBRTC_SERVICE_SOCKET;
++    my @st = lstat($path);
++    die "no WebRTC console service is installed on this node\n" if !@st;
++    # Only a root-owned service receives API-authorized console requests.
++    die "refusing WebRTC console service socket '$path' not owned by root\n"
++        if !-S _ || $st[4] != 0;
++
++    my $service = IO::Socket::UNIX->new(Type => SOCK_STREAM, Peer => $path)
++        or die "unable to connect to the WebRTC console service - $!\n";
++
++    my $wire = encode_json($request);
++    $service->autoflush(1);
++    print {$service} "$wire\n"
++        or die "unable to send the offer to the WebRTC console service\n";
++
++    my $line;
++    eval {
++        PVE::Tools::run_with_timeout($timeout // 30, sub { $line = <$service>; });
++    };
++    my $err = $@;
++    close($service);
++    die "WebRTC console service did not answer - $err" if $err;
++    die "WebRTC console service closed the connection\n" if !defined($line);
++
++    my $reply = eval { decode_json($line) };
++    die "invalid reply from the WebRTC console service\n" if ref($reply) ne 'HASH';
++    die "WebRTC console service: " . ($reply->{error} // 'unknown error') . "\n"
++        if !$reply->{ok};
++
++    return $reply;
++}
++
++sub settings {
++    my ($kind, $vmid, $user, $settings) = @_;
++    return request({ version => 2, kind => $kind, vmid => int($vmid), user => $user,
++        settings => $settings })->{data};
++}
++
++sub offer {
++    my ($kind, $vmid, $user, $offer) = @_;
++    my $reply = request({ version => 2, kind => $kind, vmid => int($vmid), user => $user,
++        offer => $offer });
++    my $answer = $reply->{answer};
++    die "invalid SDP answer from the WebRTC console service\n"
++        if ref($answer) ne 'HASH' || ($answer->{type} // '') ne 'answer'
++        || !defined($answer->{sdp});
++    return $answer;
++}
++
++1;
+diff --git a/src/tests/Makefile b/src/tests/Makefile
+index 2fec185..baef5aa 100644
+--- a/src/tests/Makefile
++++ b/src/tests/Makefile
+@@ -2,7 +2,10 @@
+ all:
+ 
+ .PHONY: check abstract-config
+-check: abstract-config
++check: abstract-config webrtc
+ 
+ abstract-config: abstract-config-tests.pl
+ 	perl -I.. ./abstract-config-tests.pl
++
++webrtc: webrtc-tests.pl
++	perl -I.. ./webrtc-tests.pl
+diff --git a/src/tests/webrtc-tests.pl b/src/tests/webrtc-tests.pl
+new file mode 100644
+index 0000000..cefc1a7
+--- /dev/null
++++ b/src/tests/webrtc-tests.pl
+@@ -0,0 +1,46 @@
++#!/usr/bin/perl
++use strict;
++use warnings;
++use lib '..';
++use File::Temp qw(tempdir);
++use IO::Socket::UNIX;
++use JSON;
++use Socket qw(SOCK_STREAM);
++use Test::More;
++use PVE::WebRTC;
++
++my $directory = tempdir(CLEANUP => 1);
++local $PVE::WebRTC::WEBRTC_SERVICE_SOCKET = "$directory/service.sock";
++eval { PVE::WebRTC::settings('lxc', 105, 'u@pve', undef) };
++like($@, qr/no WebRTC console service/, 'a missing service is explicit');
++open(my $ordinary, '>', $PVE::WebRTC::WEBRTC_SERVICE_SOCKET) or die $!;
++close($ordinary);
++eval { PVE::WebRTC::settings('lxc', 105, 'u@pve', undef) };
++like($@, qr/not owned by root/, 'ordinary files cannot receive authorized requests');
++unlink($PVE::WebRTC::WEBRTC_SERVICE_SOCKET);
++
++SKIP: {
++    skip 'root ownership checks require a root build fixture', 8 if $> != 0;
++    for my $kind (qw(qemu lxc)) {
++        my $server = IO::Socket::UNIX->new(Type => SOCK_STREAM, Local => $PVE::WebRTC::WEBRTC_SERVICE_SOCKET,
++            Listen => 1) or die $!;
++        my $pid = fork(); die $! if !defined($pid);
++        if (!$pid) {
++            my $client = $server->accept() or die $!;
++            my $request = decode_json(scalar <$client>);
++            my $valid = $request->{version} == 2 && $request->{kind} eq $kind
++                && $request->{vmid} == 105 && $request->{user} eq 'u@pve'
++                && $request->{offer}->{sdp} eq "v=0\r\n"
++                && !exists($request->{ticket});
++            print {$client} encode_json({ok => $valid ? 1 : 0, answer => {type => 'answer', sdp => "v=0\r\n"}}) . "\n";
++            close($client); exit($valid ? 0 : 1);
++        }
++        my $answer = PVE::WebRTC::offer($kind, 105, 'u@pve', {sdp => "v=0\r\n"});
++        is($answer->{type}, 'answer', "$kind receives an answer over the common socket");
++        is($answer->{sdp}, "v=0\r\n", "$kind preserves the SDP answer");
++        waitpid($pid, 0); is($?, 0, "$kind carries the guest identity without a PVE ticket");
++        close($server); unlink($PVE::WebRTC::WEBRTC_SERVICE_SOCKET);
++        ok(!-e $PVE::WebRTC::WEBRTC_SERVICE_SOCKET, "$kind fixture is released");
++    }
++}
++done_testing();
+-- 
+2.43.0
+

@@ -29,13 +29,23 @@ build/test logs and the known laboratory display fixture.
 [Follow-up draft](pve-devel-shared-platform-followup.eml) is ready for review.
 Nothing in this update was sent to the mailing list or forum.
 
-The current consumer package is `0.4.0+shared7`. It includes the Firefox
+The current consumer package is `0.4.0+shared9`. It includes the Firefox
 mDNS/ICE fix and clickable Reconnect after the initial shared3 lab build.
 [Firefox verification](review-firefox-2026-10-14/README.txt) records the
 reproduction and native HTTP/browser checks. shared7 adds LXC menu retries
 and a connection-check link after a network or TLS failure; see the
 [LXC menu verification](review-lxc105-menu-2026-10-14/README.txt).
 QSM consumer patches are in [qsm-shared-consumer/](patches/qsm-shared-consumer/).
+
+The native LXC follow-up routes availability, offers, status and media
+settings through the existing PVE HTTPS origin, just like VM consoles.
+Apply [shared-guest-common](patches/shared-guest-common/0000-cover-letter.patch)
+before WebRTC qemu-server patch 0002 and
+[webrtc-pve-container](patches/webrtc-pve-container/0000-cover-letter.patch).
+The [installed-package verification](review-native-lxc-2026-10-15/README.txt)
+records Firefox video/settings for CT105 and VM103/Reconnect with the
+8007 service stopped. VM104 retains its legacy configuration and the
+compatibility service; no guest was restarted for this follow-up.
 
 The [earlier readiness audit](shared-base-audit-2026-10-14.txt) records the
 state before this implementation. The original p2p patch directories below

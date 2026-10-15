@@ -1,7 +1,7 @@
 From 6a658d0340880cd2a2c3d4a0e109de9b0407a4ff Mon Sep 17 00:00:00 2001
 From: Dmitry R <rdmitry0911@gmail.com>
 Date: Wed, 14 Oct 2026 19:24:55 +0300
-Subject: [PATCH 0/1] RFC WebRTC console API on the shared display foundation
+Subject: [PATCH 0/2] RFC WebRTC console API on the shared display foundation
 To: pve-devel@lists.proxmox.com
 Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
 In-Reply-To: <30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com>
@@ -39,3 +39,8 @@ Dmitry R (1):
 -- 
 2.43.0
 
+
+Follow-up0002 extracts the JSON service transport to PVE::WebRTC in
+pve-guest-common, shared with the LXC API. Apply shared-guest-common first.
+The VM-specific safe shared-display check remains in QemuServer::WebRTC.
+The service accepts old v2 VM requests without a kind for rolling upgrades.

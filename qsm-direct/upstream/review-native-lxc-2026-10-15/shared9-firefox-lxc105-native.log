@@ -1,0 +1,17 @@
+LOCAL_NETWORK_PERMISSION_GRANTED
+LXC_NATIVE_HTTP GET webrtcsettings 200
+LXC_NATIVE_HTTP PUT webrtcsettings 401
+MISSING_CSRF_REJECTED 401
+UNAUTHENTICATED_READ_REJECTED 401
+STATE_HTTP 200
+LXC_NATIVE_HTTP GET webrtcstatus 200
+LXC_NATIVE_HTTP POST webrtcproxy 200
+LXC_NATIVE_HTTP GET webrtcsettings 200
+LXC_NATIVE_HTTP PUT webrtcsettings 200
+LXC_NATIVE_SETTINGS_ROUNDTRIP_OK
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 1321, "decoded": 402}}]}
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 1983, "decoded": 614}}]}
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 2736, "decoded": 854}}]}
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 3495, "decoded": 1095}}]}
+FIREFOX_LXC105_VIDEO {"media": {"width": 1280, "height": 726, "ready": 4}, "peers": [{"state": "connected", "ice": "connected", "video": {"packets": 4264, "decoded": 1344}}]}
+NO_PORT_8007_REQUESTS

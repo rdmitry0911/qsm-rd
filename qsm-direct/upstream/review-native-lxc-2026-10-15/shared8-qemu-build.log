@@ -1,0 +1,1057 @@
+rm -rf qemu-server-9.2.11+shared2 qemu-server-9.2.11+shared2.tmp
+cp -a src qemu-server-9.2.11+shared2.tmp
+cp -a debian qemu-server-9.2.11+shared2.tmp/
+echo "git clone git://git.proxmox.com/git/qemu-server.git\\ngit checkout 3b7deebe630b46f661ad1bd2162a5ba3bf73d5de" > qemu-server-9.2.11+shared2.tmp/debian/SOURCE
+mv qemu-server-9.2.11+shared2.tmp qemu-server-9.2.11+shared2
+cd qemu-server-9.2.11+shared2; dpkg-buildpackage -b -us -uc
+dpkg-buildpackage: info: source package qemu-server
+dpkg-buildpackage: info: source version 9.2.11+shared2
+dpkg-buildpackage: info: source distribution trixie
+dpkg-buildpackage: info: source changed by Dmitry R <rdmitry0911@gmail.com>
+ dpkg-source --before-build .
+dpkg-buildpackage: info: host architecture amd64
+ debian/rules clean
+make[1]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2'
+dh clean
+   dh_auto_clean
+	make -j64 distclean
+make[2]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2'
+make -C test clean
+make[3]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/test'
+rm -rf MigrationTest/run parse-config-output
+make[3]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/test'
+make -C bin clean
+make[3]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/bin'
+make cleanup-docgen
+make[4]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/bin'
+rm -f *.xml.tmp *.1 *.5 *.8 *.adoc docinfo.xml
+rm -rf generated
+make[4]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/bin'
+make[3]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/bin'
+make[2]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2'
+   dh_clean
+make[1]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2'
+ debian/rules binary
+make[1]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2'
+dh binary
+   dh_update_autotools_config
+   dh_autoreconf
+   dh_auto_configure
+   dh_auto_build
+	make -j64 "INSTALL=install --strip-program=true"
+make[2]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2'
+make[2]: Nothing to be done for 'all'.
+make[2]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2'
+   dh_auto_test
+	make -j64 test
+make[2]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2'
+make -C test
+make[3]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/test'
+perl -I../ ./dbus-display-test.pl
+./run_snapshot_tests.pl
+perl -I../ ./run_config2command_tests.pl
+perl -I../ ./run_config2command_tests.pl cfg2cmd/aarch64
+./run_pci_addr_checks.pl
+./run_pci_reservation_tests.pl
+perl -I../ ./run_qemu_img_convert_tests.pl
+./run_qemu_migrate_tests.pl 341_running_efidisk_targetstorage_dir
+./run_qemu_migrate_tests.pl 341_running_efidisk
+./run_qemu_migrate_tests.pl 149_running_vdisk_alloc_and_pvesm_free_fail
+./run_qemu_migrate_tests.pl 149_running_vdisk_alloc_fail
+./run_qemu_migrate_tests.pl 149_vdisk_free_fail
+./run_qemu_migrate_tests.pl 105_replicated_run_replication_fail
+./run_qemu_migrate_tests.pl 1033_running_query_migrate_fail
+./run_qemu_migrate_tests.pl 4567_targetstorage_dirotherdir
+./run_qemu_migrate_tests.pl 4567_running
+./run_qemu_migrate_tests.pl 4567_offline
+./run_qemu_migrate_tests.pl 149_running_orphaned_disk_targetstorage_zfs
+./run_qemu_migrate_tests.pl 149_running_orphaned_disk
+./run_qemu_migrate_tests.pl 149_targetstorage_map_lvmzfs_defaultlvm
+./run_qemu_migrate_tests.pl 149_targetstorage_map_dirzfs_lvmdir
+./run_qemu_migrate_tests.pl 149_running_targetstorage_map_lvmzfs_defaultlvm
+./run_qemu_migrate_tests.pl 149_running_targetstorage_map_lvmzfs_dirdir
+./run_qemu_migrate_tests.pl 149_running_targetstorage_zfs
+./run_qemu_migrate_tests.pl 149_running_wrong_size
+./run_qemu_migrate_tests.pl 149_running_missing_size
+./run_qemu_migrate_tests.pl 105_local_device_shared
+./run_qemu_migrate_tests.pl 105_local_device_in_snapshot
+./run_qemu_migrate_tests.pl 105_local_device
+./run_qemu_migrate_tests.pl 105_cdrom_in_snapshot
+./run_qemu_migrate_tests.pl 105_local_iso_in_snapshot
+./run_qemu_migrate_tests.pl 105_cdrom
+./run_qemu_migrate_tests.pl 149_running_missing_option_withlocaldisks
+./run_qemu_migrate_tests.pl 149_running_missing_option_online
+./run_qemu_migrate_tests.pl 1033_running_customcpu
+./run_qemu_migrate_tests.pl 105_replicated_to_non_replication_target
+./run_qemu_migrate_tests.pl 105_running_replicated
+./run_qemu_migrate_tests.pl 105_replicated
+./run_qemu_migrate_tests.pl 105_running_replicated_without_snapshot
+./run_qemu_migrate_tests.pl 105_replicated_without_snapshot
+./run_qemu_migrate_tests.pl 1033_running
+./run_qemu_migrate_tests.pl 149_locked
+./run_qemu_migrate_tests.pl 149_storage_not_available
+./run_qemu_migrate_tests.pl 149_running
+./run_qemu_migrate_tests.pl 149_running_drive_mirror_fail
+./run_qemu_migrate_tests.pl 149_running_unused_block_job_cancel_fail
+./run_qemu_migrate_tests.pl 149_offline
+./run_qemu_migrate_tests.pl 149_storage_migrate_fail
+./run_qemu_migrate_tests.pl 111_running_pending
+./run_qemu_migrate_tests.pl 123_alias_fail
+./run_qemu_restore_config_tests.pl
+./run_parse_config_tests.pl
+Unable to open syslog: Os { code: 2, kind: Unable to open syslog: NotFoundOs,  { messagecode: : "2No such file or directory, "kind }: 
+NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Smartmatch is deprecated at ./run_pci_addr_checks.pl line 90.
+1..1
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+testing PCI(e) address conflicts
+# OK: ignore conflict for '0:1' between 'ehci' and 'piix3'
+# OK: ignore conflict for '0:2' between 'legacy-igd' and 'vga'
+# OK: ignore conflict for '0:5' between 'pci.3' and 'scsihw0'
+ok 1 - reservation-is-respected
+ok 1 - PCI(e) address conflict check, ignored: 3
+1..1
+ok 1 - first VM has a bus
+ok 2 - second VM has an independent bus
+ok 3 - bus is root-private
+#105_local_iso_in_snapshot - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_running_missing_option_withlocaldisks - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#105_replicated_without_snapshot - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_running - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#105_local_device_shared - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+ok 4 - stop removes socket
+ok 5 - stop terminates daemon
+ok 6 - another VM is unaffected
+#149_running_unused_block_job_cancel_fail - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+ok 7 - VM can restart
+#149_running_targetstorage_map_lvmzfs_dirdir - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: #149_running_targetstorage_zfs - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#105_local_device - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+2, kind: NotFound, message: "No such file or directory" }
+#149_running_missing_option_online - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+ok 8 - stale pidfile did not kill the test process
+#1033_running - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#1033_running_customcpu - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#4567_running - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#341_running_efidisk - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_locked - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#105_replicated_run_replication_fail - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#105_running_replicated_without_snapshot - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_targetstorage_map_dirzfs_lvmdir - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+ok 9 - second VM cleanup
+1..9
+#149_running_wrong_size - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#341_running_efidisk_targetstorage_dir - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_running_vdisk_alloc_fail - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#4567_targetstorage_dirotherdir - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_targetstorage_map_lvmzfs_defaultlvm - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#1033_running_query_migrate_fail - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_storage_not_available - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#105_cdrom - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_running_orphaned_disk - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#105_replicated_to_non_replication_target - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_running_targetstorage_map_lvmzfs_defaultlvm - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_running_orphaned_disk_targetstorage_zfs - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#105_cdrom_in_snapshot - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_running_drive_mirror_fail - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_vdisk_free_fail - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#105_replicated - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_running_missing_size - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_offline - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#105_local_device_in_snapshot - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#4567_offline - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#105_running_replicated - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_running_vdisk_alloc_and_pvesm_free_fail - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+ok 1 - qcow2raw
+ok 2 - raw2qcow2
+ok 3 - local2rbd
+ok 4 - rbd2local
+ok 5 - local2zos
+ok 6 - zos2local
+ok 7 - zos2rbd
+ok 8 - rbd2zos
+ok 9 - local2lvmthin
+ok 10 - lvmthin2local
+ok 11 - zeroinit
+ok 12 - notexistingstorage
+ok 13 - vmdkfile
+ok 14 - notexistingfile
+ok 15 - efidisk
+ok 16 - efi2zos
+ok 17 - bwlimit
+ok 18 - krbdsnapshot
+ok 19 - rbdsnapshot
+ok 20 - btrfs_raw_snapshots
+ok 21 - btrfs_qcow2_snapshots
+ok 22 - lvmsnapshot
+ok 23 - qcow2snapshot
+ok 24 - qcow2_external_snapshot
+ok 25 - lvmqcow2_external_snapshot
+ok 26 - qcow2_external_snapshot_target
+ok 27 - qcow2_external_snapshot_target_zeroinit
+ok 28 - lvmqcow2_external_snapshot_target
+1..28
+#111_running_pending - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#149_storage_migrate_fail - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+#123_alias_fail - Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+1..4
+ok 1 - 179.conf
+ok 2 - 1422.conf
+ok 3 - 142.conf
+ok 4 - 139.conf
+#149_running_missing_option_withlocaldisks - unable to open monitor socket
+#149_running_missing_option_withlocaldisks - 
+#149_running_missing_option_withlocaldisks - migration aborted
+ok 1 - 149_running_missing_option_withlocaldisks
+1..1
+#149_running_targetstorage_map_lvmzfs_dirdir - unable to open monitor socket
+#149_running_targetstorage_map_lvmzfs_dirdir - 
+Subroutine qmp_cmd redefined at snapshot-test.pm line 358.
+Subroutine do_snapshots_type redefined at snapshot-test.pm line 407.
+Subroutine vm_start redefined at snapshot-test.pm line 411.
+Subroutine vm_stop redefined at snapshot-test.pm line 424.
+#105_local_device - migration aborted
+#1033_running - unable to open monitor socket
+#1033_running - 
+ok 1 - 105_replicated_without_snapshot
+1..1
+ok 1 - 105_local_device
+1..1
+#149_running - unable to open monitor socket
+#149_running - 
+#105_local_iso_in_snapshot - migration aborted
+ok 1 - 105_local_iso_in_snapshot
+1..1
+ok 1 - 105_local_device_shared
+1..1
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+1..20
+vm 8006 - unable to parse value of 'numa' - type check ('boolean') failed - got 'verify meee~ :)'
+#149_running_unused_block_job_cancel_fail - unable to open monitor socket
+#149_running_unused_block_job_cancel_fail - 
+#4567_running - unable to open monitor socket
+#4567_running - 
+#4567_running - migration aborted
+#149_running_missing_option_online - migration aborted
+ok 1 - verify-snapshot.conf
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+vm 8006 - skipping unknown section: 'special:unknown123'
+vm 8006 - skipping unknown section: 'special:unknown124'
+vm 8006 - skipping unknown section: 'special:unknown125'
+vm 8006 - skipping unknown section: ':3'
+ok 2 - unknown-sections.conf
+vm 8006 - duplicate section: pending
+vm 8006 - duplicate special section: cloudinit
+ok 1 - 149_running_missing_option_online
+1..1
+vm 8006 - duplicate snapshot section: foo
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+testing config to command stability
+testing config to command stability
+ok 1 - 4567_running
+1..1
+ok 1 - 'simple-x86-on-arm-host.conf' - Simple test for a basic config with aarch64 set as the host arch and x86_64 as the VM arch
+ok 1 - 'q35-scsihw2.conf' - Config with q35, Linux & scsi15 with default controller to test scsihw2
+ok 2 - 'simple-arm.conf' - Simple test for a basic configuration with aarch64 set as architecture
+ok 3 - duplicate-sections.conf
+ok 3 - 'simple-arm-host.conf' - Simple test for a basic configuration with aarch64 set as the host architecture
+1..3
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 2 - 'scsihw-virtio-scsi-single.conf' - Simple test for VirtIO SCSI single controller
+ok 3 - 'qga-fs-freeze-backup-legacy.conf' - Ensure the deprecated freeze-fs-on-backup agent key is still parsed.
+ok 4 - 'ostype-usb13-error.conf' - Test error for old ostype type with newer usb config
+ok 4 - locked.conf
+vm 8006 - unable to parse value of 'numa' - type check ('boolean') failed - got 'verify meee~ :)'
+ok 5 - 'linux-bridges-qemu-11.1.conf' - Test that bridge pci.4 is added by default in qemu 11.1
+#149_running_targetstorage_zfs - unable to open monitor socket
+#149_running_targetstorage_zfs - 
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 6 - 'simple1-template.conf' - Simple test for a basic template configuration
+ok 7 - 'sev-snp.conf' - Test raw efidisk size parameter
+ok 5 - cloudinit-snapshot.conf
+ok 1 - 149_targetstorage_map_dirzfs_lvmdir
+1..1
+ok 8 - 'simple-btrfs.conf' - Simple test for a BTRFS backed VM, which shouldn't use cache=none like other storages
+ok 9 - 'scsihw-lsi.conf' - Simple test for LSI SCSI controller
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 10 - 'qga-minimal.conf' - Ensure agent sub-properties do not affect the QEMU command line.
+ok 6 - regular-vm-efi.conf
+ok 11 - 'sev-std.conf' - Test raw efidisk size parameter
+ok 12 - 'q35-linux-hostpci-multifunction.conf' - Config with q35, NUMA, hostpci passthrough, EFI & Linux
+#105_running_replicated_without_snapshot - unable to open monitor socket
+#105_running_replicated_without_snapshot - 
+ok 13 - 'qemu-xhci-q35-7.1.conf' - Test Q35 USB passthrough combination with qemu-xhci
+ok 14 - 'ide.conf' - Config with default machine type, Linux & four IDE CD-ROMs
+ok 15 - 'usb13-error.conf' - Test error for old machine type with newer usb config
+ok 7 - plain.conf
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 16 - 'q35-linux-hostpci-x-pci-overrides.conf' - Overriding PCI vendor/device IDs reported to guest
+ok 17 - 'minimal-defaults.conf' - minimal configuration to detect default changes
+ok 18 - 'q35-no-viommu-with-aw-bits.conf' - Check that aw-bits cannot be set without viommu
+ok 19 - 'cpu-level.conf' - Test for a configuration where the 'level' option and some flags are set for a CPU
+# got expected warning 'warning: CPU flag/setting '-kvm_pv_unhalt' (set by custom CPU model) overwrites '+kvm_pv_unhalt' (set by PVE; to improve Linux guest spinlock performance)'
+ok 8 - sections.conf
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 20 - 'custom-cpu-model.conf' - Check if custom CPU models are resolved correctly
+ok 21 - 'startdate-win11.conf' - Simple test for startdate parameter with Windows and explicitly disabled time drift fix
+ok 22 - 'win11-host-11.0+pve2.conf' - Simple test for Windows 11 VM with host CPU and machine version 11.0+pve2
+ok 23 - 'netdev-7.1-multiqueues.conf' - Simple test for netdev related stuff
+ok 24 - 'efi-secboot-and-tpm.conf' - Test newer 4MB efidisk with secureboot and a TPM device
+ok 25 - 'win11-amd-host-11.0+pve2.conf' - Simple test for Windows 11 VM with AMD host CPU and machine version 11.0+pve2
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 26 - 'netdev-7.0-multiqueues.conf' - Simple test for netdev multi queue on 7.0 machine version
+ok 27 - 'seabios_serial.conf' - Test for smm-related regression with SeaBIOS and serial display
+ok 28 - 'q35-simple-pinned-6.1.conf' - Config with q35, Linux & nothing much else
+#105_replicated_run_replication_fail - migration aborted
+ok 29 - 'virtio-gl-rendernode.conf' - VirGL display on an explicitly chosen render node
+ok 30 - 'q35-simple-6.0.conf' - Config with q35, Linux & nothing much else but on 6.0
+ok 31 - 'memory-hotplug-hugepages.conf' - memory hotplug with 1GB hugepage
+vIOMMU 'aw-bits' set to 39. Sometimes it is necessary to set the CPU's 'guest-phys-bits' to the same value.
+ok 32 - 'q35-viommu-virtio-aw-bits.conf' - Check if aw-bits are propagated correctly to virtio-iommu-pci device
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 33 - 'simple-backingchain.conf' - Simple test for external snapshot backing chain
+ok 9 - snapshots.conf
+ok 1 - 105_replicated_run_replication_fail
+1..1
+ok 1 - 4567_offline
+1..1
+ok 34 - aio.conf
+ok 35 - q35-viommu-virtio.conf
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 10 - fleecing-section.conf
+ok 36 - 'virtio-gl-dbus-audio.conf' - VirGL display exported over D-Bus with GL, no VNC next to it
+ok 37 - 'memory-hotplug.conf' - basic memory hotplug
+ok 11 - verify-snapshot.conf
+ok 38 - 'os-other.conf' - Simple test for OS type other
+ok 12 - unknown-sections.conf
+ok 13 - duplicate-sections.conf
+ok 39 - 'pinned-version-pxe.conf' - for a basic configuration with a .pxe machine
+#105_running_replicated - unable to open monitor socket
+#105_running_replicated - 
+ok 40 - 'simple-balloon-free-page-reporting.conf' - Simple test for balloon free page reporting enabled by default on 6.2
+ok 1 - 149_offline
+1..1
+ok 1 - 105_replicated_to_non_replication_target
+1..1
+ok 41 - 'linux-hostpci-legacy-igd.conf' - Config with legacy-igd
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ok 42 - 'old-unsupported-machine-version.conf' - Test machine version minimum requirement and expect fail on old version
+ipcc_send_rec[3] failed: Connection refused
+#149_running_missing_size - unable to open monitor socket
+#149_running_missing_size - 
+#1033_running_customcpu - unable to open monitor socket
+#1033_running_customcpu - 
+ok 43 - 'memory-hugepages-2m.conf' - memory with 2mb hugepages
+#341_running_efidisk_targetstorage_dir - unable to open monitor socket
+#341_running_efidisk_targetstorage_dir - 
+ok 14 - locked.conf
+ok 44 - scsiblk.conf
+ok 15 - cloudinit-snapshot.conf
+ok 45 - 'simple1.conf' - Simple test for a basic configuration with no special things
+#149_running_vdisk_alloc_fail - unable to open monitor socket
+#149_running_vdisk_alloc_fail - 
+ok 46 - 'q35-win10-hostpci.conf' - Config with q35, NUMA, hostpci passthrough, EFI & Windows
+ok 47 - 'pinned-version-pxe-pve.conf' - for a basic configuration with a .pxe machine and +pve pinned
+ok 48 - 'efi-raw-template.conf' - Test raw efidisk size parameter
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 16 - regular-vm-efi.conf
+ok 49 - 'spice-usb3.conf' - Test for SPICE with a USB3 based SPICE port added
+ok 50 - 'q35-usb13-error.conf' - Test usb error for q35 and older machine type
+ok 51 - 'q35-windows-pinning.conf' - Config with q35, win, meta to test version pinning
+#341_running_efidisk - unable to open monitor socket
+#341_running_efidisk - 
+ok 52 - 'netdev_vxlan.conf' - Test inheriting the MTU from a bridge with MTU != 1500
+#105_local_device_in_snapshot - migration aborted
+#149_running_wrong_size - unable to open monitor socket
+#149_running_wrong_size - 
+ok 17 - plain.conf
+#105_cdrom - migration aborted
+ok 53 - 'q35-linux-hostpci-template.conf' - Config with q35, NUMA, hostpci passthrough, EFI, TPM & Linux as a template
+ok 54 - 'efi-raw.conf' - Test raw efidisk size parameter
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+#111_running_pending - unable to open monitor socket
+#111_running_pending - 
+ok 55 - 'simple-11.0-binary.conf' - Simple test for a basic configuration and binary version 11.0
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+#149_running_drive_mirror_fail - unable to open monitor socket
+#149_running_drive_mirror_fail - 
+ok 56 - 'simple-cifs.conf' - Simple test for a CIFS storage
+#149_storage_not_available - migration aborted
+ok 18 - sections.conf
+vIOMMU 'aw-bits' set to 39. Sometimes it is necessary to set the CPU's 'guest-phys-bits' to the same value.
+ok 57 - 'q35-viommu-intel-aw-bits.conf' - Check if aw-bits are propagated correctly to intel-iommu device
+#149_storage_migrate_fail - migration aborted
+ok 58 - 'efidisk-on-rbd.conf' - Config with efi disk on RBD is very slow without cache - \#3329
+#149_locked - migration aborted
+ok 1 - 105_cdrom
+1..1
+ok 1 - 105_local_device_in_snapshot
+1..1
+ok 59 - 'scsihw-megasas.conf' - Simple test for MegaRAID SAS SCSI controller
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 60 - 'old-qemu.conf' - Test QEMU version detection and expect fail on old version
+ok 61 - 'unsupported-storage-content-type.conf' - Unsupported storage content type in a volume disk
+ok 62 - 'q35-linux-hostpci.conf' - Config with q35, NUMA, hostpci passthrough, EFI & Linux
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 63 - 'simple-lvmthin.conf' - Simple test for LVMthin backed VM
+ok 1 - 4567_targetstorage_dirotherdir
+ok 64 - 'os-l24.conf' - Simple test for Linux OS type l24
+1..1
+ok 65 - dbus-serial.conf
+ok 1 - 149_storage_not_available
+1..1
+ok 66 - 'vnc-clipboard-std.conf' - Test for a VNC clipboard with a std display
+ok 19 - snapshots.conf
+ok 67 - dbus-audio-without-display.conf
+#1033_running_query_migrate_fail - unable to open monitor socket
+#1033_running_query_migrate_fail - 
+ok 1 - 149_storage_migrate_fail
+1..1
+#149_running_orphaned_disk - unable to open monitor socket
+#149_running_orphaned_disk - 
+ok 68 - 'scsihw-lsi53c810.conf' - Simple test for LSI 53c810 SCSI controller
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 20 - fleecing-section.conf
+ok 69 - 'netdev-7.1.conf' - Simple test for netdev related stuff
+ok 1 - 149_locked
+1..1
+#149_running_orphaned_disk_targetstorage_zfs - unable to open monitor socket
+#149_running_orphaned_disk_targetstorage_zfs - 
+#149_running_targetstorage_map_lvmzfs_defaultlvm - unable to open monitor socket
+#149_running_targetstorage_map_lvmzfs_defaultlvm - 
+#105_cdrom_in_snapshot - migration aborted
+ipcc_send_rec[1] failed: Connection refused
+ok 70 - 'q35-linux-hostpci-driver-keep.conf' - Config with q35, NUMA, hostpci passthrough, EFI & Linux & driver option
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 71 - 'minimal-defaults-unsupported-pve-version.conf' - newer machine version than QEMU version installed on node
+ok 72 - 'ide-no-media-error.conf' - Config that doesn't specify an explicit `media` for an ISO drive
+#149_vdisk_free_fail - migration problems
+ok 73 - 'q35-linux-hostpci-mapping.conf' - Config with q35, NUMA, hostpci mapping passthrough, EFI & Linux
+ok 74 - i440fx-viommu-intel.conf
+ok 75 - 'q35-usb3.conf' - Test Q35 USB3 passthrough combination
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 76 - 'rendernode-without-virgl.conf' - a render node needs the VirGL display
+#149_running_vdisk_alloc_and_pvesm_free_fail - unable to open monitor socket
+#149_running_vdisk_alloc_and_pvesm_free_fail - 
+ok 77 - 'bootorder.conf' - Test for a specific bootorder given by 'boot: order=' property
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 78 - 'virtio-gl.conf' - VirGL display renders headless on the first render node
+ok 79 - 'os-solaris.conf' - Simple test for OS type Solaris
+ok 1 - 105_cdrom_in_snapshot
+1..1
+ok 80 - 'simple-zfs-over-iscsi.conf' - Simple test for zfs-over-scsi backed VM.
+ok 1 - 149_vdisk_free_fail
+1..1
+ok 81 - q35-viommu-intel.conf
+ok 82 - 'spice-linux-5.0.conf' - Test for SPICE with SPICE with max_outputs
+# got expected warning 'warning: CPU flag/setting '-kvm_pv_unhalt' (set by custom CPU model) overwrites '+kvm_pv_unhalt' (set by PVE; to improve Linux guest spinlock performance)'
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 83 - 'custom-cpu-model-host-phys-bits.conf' - Check if custom CPU models are resolved correctly
+ok 84 - 'cputype-icelake-client-deprecation.conf' - test CPU type deprecation for Icelake-Client (never existed in the wild)
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 85 - 'q35-simple.conf' - Config with q35, Linux & nothing much else
+ok 1 - 149_targetstorage_map_lvmzfs_defaultlvm
+1..1
+ok 86 - 'qemu-xhci-7.1.conf' - Test for new xhci controller with new machine version
+ok 1 - 105_replicated
+1..1
+ok 87 - 'simple-rbd.conf' - Simple test for RBD && KRBD backend vm
+ipcc_send_rec[1] failed: Connection refused
+ok 88 - 'vnc-clipboard-spice.conf' - Test for a VNC clipboard with a SPICE QXL display
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 89 - 'simple-lvm.conf' - Simple test for LVM backed VM
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 90 - q35-viommu-intel-guest-phys-bits.conf
+ok 91 - 'q35-usb2.conf' - Test Q35 USB2 passthrough combination
+ok 92 - 'q35-linux-ivshmem.conf' - Config with q35 and ivshmem
+ok 93 - 'q35-win7-hostpci.conf' - Config with q35, hostpci passthrough as pcie & Windows7
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 94 - 'scsihw-pvscsi.conf' - Simple test for PVSCSI controller
+snapshot create failed: starting cleanup
+ok 95 - 'dbus-without-display.conf' - a D-Bus display needs a graphical display
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 96 - 'bootorder-legacy.conf' - Test for a specific bootorder given by legacy 'boot' value
+ok 97 - 'netdev.conf' - Simple test for netdev related stuff
+ok 98 - 'simple-disk-passthrough.conf' - Simple test for disk && cdrom passthrough
+ok 99 - 'virtio-gl-dbus.conf' - VirGL display exported over D-Bus with GL, no VNC next to it
+ok 100 - i440fx-viommu-virtio.conf
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 101 - 'simple-virtio-blk.conf' - Test for a basic configuration with a VirtIO Block IOThread disk
+snapshot create failed: starting cleanup
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 102 - 'bootorder-empty.conf' - Test for an empty boot parameter producing no bootindices either
+ok 103 - 'sev-es.conf' - Test raw efidisk size parameter
+ok 104 - 'q35-simple-7.0.conf' - Config with q35, Linux & nothing much else but on 7.0
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+#123_alias_fail - migration aborted
+ok 105 - 'q35-ide.conf' - Config with q35, Linux & four IDE CD-ROMs
+ok 106 - 'minimal-defaults-to-new-machine.conf' - newer machine version than QEMU version installed on node
+ok 107 - 'memory-hugepages-1g.conf' - memory with 1gb hugepages
+ok 108 - 'efi-secboot-and-tpm-q35.conf' - Test newer 4MB efidisk with secureboot, smm enforce and a TPM device on Q35
+ok 109 - 'startdate-l26.conf' - Simple test for startdate parameter with Linux
+WARN: no efidisk configured! Using temporary efivars disk.
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 110 - 'efi-ovmf-without-efidisk.conf' - Test VM with OVMF/EFI but no persistent efidisk for backward compat.
+ok 111 - 'dbus-display-audio.conf' - display also exported over D-Bus, VNC kept without GL
+snapshot create failed: starting cleanup
+ok 112 - 'qga-fs-freeze.conf' - Ensure agent sub-properties do not affect the QEMU command line.
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 113 - 'spice-enhancments.conf' - Test for SPICE enhancements
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 114 - 'spice-win.conf' - Test for SPICE under Win10 with a USB3 based SPICE port added
+ok 115 - 'i440fx-win10-hostpci.conf' - Config with i440fx, NUMA, hostpci passthrough, EFI & Windows
+ok 1 - 123_alias_fail
+1..1
+ok 116 - 'custom-cpu-model-defaults.conf' - Check if custom CPU models are resolving defaults correctly
+ok 117 - 'pinned-version.conf' - Simple test for a basic configuration with pinned QEMU machine version
+ok 118 - 'dbus-display.conf' - display also exported over D-Bus, VNC kept without GL
+1..118
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+snapshot create failed: starting cleanup
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+volume snapshot delete disabled
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+volume snapshot delete disabled
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+#149_running_vdisk_alloc_fail - migration problems
+ok 1 - 149_running_vdisk_alloc_fail
+1..1
+All tests successful.
+Files=1, Tests=50,  1 wallclock secs ( 0.03 usr  0.01 sys +  0.74 cusr  0.51 csys =  1.29 CPU)
+Result: PASS
+./test_get_replicatable_volumes.pl
+#149_running_vdisk_alloc_and_pvesm_free_fail - migration problems
+#149_running_drive_mirror_fail - migration problems
+ok 1 - 149_running_vdisk_alloc_and_pvesm_free_fail
+1..1
+ok 1 - 149_running_drive_mirror_fail
+1..1
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+ok 1 - test non existent storage
+ok 2 - test with disk from other VM (not owner)
+ok 3 - test missing replicate feature
+ok 4 - test raw path disk with replicate enabled
+ok 5 - test raw path disk with replicate disabled
+ok 6 - test CDROM with iso file
+ok 7 - test CDROM with access to physical 'cdrom' device
+ok 8 - test hidden volid in snapshot
+ok 9 - test volid with different replicate setting in snapshot
+ok 10 - test vm with replicatable unused volumes
+ok 11 - test vm with non-replicatable unused volumes
+1..11
+ok 1 - 149_running_targetstorage_map_lvmzfs_dirdir
+1..1
+ok 1 - 1033_running
+1..1
+#149_running_unused_block_job_cancel_fail - migration problems
+ok 1 - 149_running_unused_block_job_cancel_fail
+1..1
+ok 1 - 149_running
+1..1
+ok 1 - 105_running_replicated_without_snapshot
+1..1
+ok 1 - 149_running_targetstorage_zfs
+1..1
+ok 1 - 149_running_missing_size
+ok 1 - 105_running_replicated
+1..1
+1..1
+ok 1 - 1033_running_customcpu
+1..1
+ok 1 - 341_running_efidisk
+1..1
+ok 1 - 149_running_wrong_size
+1..1
+#1033_running_query_migrate_fail - migration problems
+ok 1 - 1033_running_query_migrate_fail
+1..1
+ok 1 - 149_running_orphaned_disk
+1..1
+ok 1 - 149_running_targetstorage_map_lvmzfs_defaultlvm
+1..1
+ok 1 - 341_running_efidisk_targetstorage_dir
+1..1
+ok 1 - 149_running_orphaned_disk_targetstorage_zfs
+1..1
+ok 1 - 111_running_pending
+1..1
+make[3]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/test'
+make -C bin test
+make[3]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/bin'
+PVE_GENERATING_DOCS=1 perl -I.. ./qm verifyapi
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+make[3]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/bin'
+make[2]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2'
+   create-stamp debian/debhelper-build-stamp
+   dh_prep
+   dh_auto_install --destdir=debian/qemu-server/
+	make -j64 install DESTDIR=/work/shared-platform/qemu-server/qemu-server-9.2.11\+shared2/debian/qemu-server AM_UPDATE_INFO_DIR=no "INSTALL=install --strip-program=true"
+make[2]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2'
+make -C PVE install
+make[3]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE'
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE
+install -m 0644 QemuServer.pm QemuMigrate.pm QMPClient.pm QemuConfig.pm /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/
+make -C VZDump install
+make[4]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/VZDump'
+install -D -m 0644 QemuServer.pm /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/VZDump/QemuServer.pm
+make[4]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/VZDump'
+make -C API2 install
+make[4]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/API2'
+install -d -m 0755 /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/API2
+install -D -m 0644 Qemu.pm /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/API2/Qemu.pm
+make -C Qemu install
+make[5]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/API2/Qemu'
+install -d -m 0755 /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/API2/Qemu
+for i in Agent.pm CPU.pm CPUFlags.pm HMPPerms.pm Machine.pm; do install -D -m 0644 $i /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/API2/Qemu/$i; done
+make[5]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/API2/Qemu'
+make -C NodeCapabilities install
+make[5]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/API2/NodeCapabilities'
+for i in Qemu/Migration.pm; do install -D -m 0644 $i /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/API2/NodeCapabilities/$i; done
+make[5]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/API2/NodeCapabilities'
+make[4]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/API2'
+make -C CLI install
+make[4]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/CLI'
+install -d -m 0755 /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/CLI
+for i in qm.pm qmrestore.pm; do install -D -m 0644 $i /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/CLI/$i; done
+make[4]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/CLI'
+make -C QemuConfig install
+make[4]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/QemuConfig'
+for i in NoWrite.pm; do install -D -m 0644 $i /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/QemuConfig/$i; done
+make[4]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/QemuConfig'
+make -C QemuMigrate install
+make[4]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/QemuMigrate'
+for i in Helpers.pm; do install -D -m 0644 $i /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/QemuMigrate/$i; done
+make[4]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/QemuMigrate'
+make -C QemuServer install
+make[4]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/QemuServer'
+for i in Agent.pm Blockdev.pm BlockJob.pm Cfg2Cmd.pm CGroup.pm Cloudinit.pm CPUConfig.pm CPUFlags.pm DBusDisplay.pm DBusVMState.pm Drive.pm DriveDevice.pm Helpers.pm ImportDisk.pm Machine.pm Memory.pm MetaInfo.pm Monitor.pm Network.pm OVMF.pm PCI.pm QemuImage.pm QMPHelpers.pm QSD.pm RNG.pm RunState.pm StateFile.pm USB.pm Virtiofs.pm WebRTC.pm VolumeChain.pm; do install -D -m 0644 $i /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/QemuServer/$i; done
+make -C Cfg2Cmd install
+make[5]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/QemuServer/Cfg2Cmd'
+for i in Timer.pm; do install -D -m 0644 $i /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/QemuServer/Cfg2Cmd/$i; done
+make[5]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/QemuServer/Cfg2Cmd'
+make -C PCI install
+make[5]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/QemuServer/PCI'
+for i in Mdev.pm; do install -D -m 0644 $i /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/perl5/PVE/QemuServer/PCI/$i; done
+make[5]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/QemuServer/PCI'
+make[4]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE/QemuServer'
+make[3]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/PVE'
+make -C bin install
+make[3]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/bin'
+cp /usr/share/pve-doc-generator/qm.adoc qm.adoc.tmp
+cp /usr/share/pve-doc-generator/pve-copyright.adoc pve-copyright.adoc.tmp
+cp /usr/share/pve-doc-generator/docinfo.xml docinfo.xml.tmp
+cp /usr/share/pve-doc-generator/qm-cloud-init.adoc qm-cloud-init.adoc.tmp
+PVE_GENERATING_DOCS=1 perl -I.. -I. -e "use PVE::CLI::qm;print PVE::CLI::qm->generate_asciidoc_synopsis();" > generated/qm.1-synopsis.adoc.tmp
+cp /usr/share/pve-doc-generator/qm-pci-passthrough.adoc qm-pci-passthrough.adoc.tmp
+mv qm.adoc.tmp qm.adoc
+mv pve-copyright.adoc.tmp pve-copyright.adoc
+mv docinfo.xml.tmp docinfo.xml
+mv qm-cloud-init.adoc.tmp qm-cloud-init.adoc
+mv qm-pci-passthrough.adoc.tmp qm-pci-passthrough.adoc
+PVE_GENERATING_DOCS=1 perl -I.. -I. /usr/share/pve-doc-generator/gen-qm-cloud-init-opts.pl >generated/qm-cloud-init-opts.adoc.tmp
+PVE_GENERATING_DOCS=1 perl -I.. -I. /usr/share/pve-doc-generator/gen-qm.conf.5-opts.pl >generated/qm.conf.5-opts.adoc.tmp
+cp /usr/share/pve-doc-generator/qmrestore.adoc qmrestore.adoc.tmp
+cp /usr/share/pve-doc-generator/qm.conf.adoc qm.conf.adoc.tmp
+mv qmrestore.adoc.tmp qmrestore.adoc
+PVE_GENERATING_DOCS=1 perl -I.. -I. -e "use PVE::CLI::qmrestore;print PVE::CLI::qmrestore->generate_asciidoc_synopsis();" > generated/qmrestore.1-synopsis.adoc.tmp
+PVE_GENERATING_DOCS=1 perl -I.. -T -e "use PVE::CLI::qm; PVE::CLI::qm->generate_bash_completions();" >qm.bash-completion.tmp
+PVE_GENERATING_DOCS=1 perl -I.. -T -e "use PVE::CLI::qmrestore; PVE::CLI::qmrestore->generate_bash_completions();" >qmrestore.bash-completion.tmp
+PVE_GENERATING_DOCS=1 perl -I.. -T -e "use PVE::CLI::qm; PVE::CLI::qm->generate_zsh_completions();" >qm.zsh-completion.tmp
+mv qm.conf.adoc.tmp qm.conf.adoc
+PVE_GENERATING_DOCS=1 perl -I.. -T -e "use PVE::CLI::qmrestore; PVE::CLI::qmrestore->generate_zsh_completions();" >qmrestore.zsh-completion.tmp
+cp /usr/share/pve-doc-generator/cpu-models.conf.adoc cpu-models.conf.adoc.tmp
+mv cpu-models.conf.adoc.tmp cpu-models.conf.adoc
+PVE_GENERATING_DOCS=1 perl -I.. -I. /usr/share/pve-doc-generator/gen-cpu-models.conf.5-opts.pl >generated/cpu-models.conf.5-opts.adoc.tmp
+Unable to open syslog: Unable to open syslog: OsOs {  { codecode: : 22, , kindkind: : NotFoundNotFound, , messagemessage: : ""No such file or directoryNo such file or directory"" } }
+
+mv generated/cpu-models.conf.5-opts.adoc.tmp generated/cpu-models.conf.5-opts.adoc
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+/usr/bin/asciidoc-pve compile-man -o cpu-models.conf.5 cpu-models.conf.adoc
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+mv generated/qm-cloud-init-opts.adoc.tmp generated/qm-cloud-init-opts.adoc
+mv generated/qm.conf.5-opts.adoc.tmp generated/qm.conf.5-opts.adoc
+/usr/bin/asciidoc-pve compile-man -o qm.conf.5 qm.conf.adoc
+mv qm.zsh-completion.tmp qm.zsh-completion
+mv qmrestore.zsh-completion.tmp qmrestore.zsh-completion
+mv generated/qmrestore.1-synopsis.adoc.tmp generated/qmrestore.1-synopsis.adoc
+/usr/bin/asciidoc-pve compile-man -o qmrestore.1 qmrestore.adoc
+mv qmrestore.bash-completion.tmp qmrestore.bash-completion
+Note: Writing cpu-models.conf.5
+mv qm.bash-completion.tmp qm.bash-completion
+mv generated/qm.1-synopsis.adoc.tmp generated/qm.1-synopsis.adoc
+/usr/bin/asciidoc-pve compile-man -o qm.1 qm.adoc
+link 'chapter_firmware_updates' target 'sysadmin.adoc' is not a manual page, ignoring
+link 'chapter_qm_vcpu_list' target 'qm-vcpu-list.adoc' is not a manual page, ignoring
+link 'chapter_firmware_updates' target 'sysadmin.adoc' is not a manual page, ignoring
+link 'ballooning-target' target 'sysadmin.adoc' is not a manual page, ignoring
+link 'first_guest_boot_delay' target 'sysadmin.adoc' is not a manual page, ignoring
+link 'sysadmin_network_masquerading' target 'sysadmin.adoc' is not a manual page, ignoring
+link 'sysboot_edit_kernel_cmdline' target 'sysadmin.adoc' is not a manual page, ignoring
+link 'sysboot_edit_kernel_cmdline' target 'sysadmin.adoc' is not a manual page, ignoring
+link 'sysboot_edit_kernel_cmdline' target 'sysadmin.adoc' is not a manual page, ignoring
+test -z "${PVE_DOC_INSTANTVIEW}" || man -l cpu-models.conf.5
+Note: Writing qmrestore.1
+test -z "${PVE_DOC_INSTANTVIEW}" || man -l qmrestore.1
+Note: Writing qm.conf.5
+test -z "${PVE_DOC_INSTANTVIEW}" || man -l qm.conf.5
+Note: Writing qm.1
+test -z "${PVE_DOC_INSTANTVIEW}" || man -l qm.1
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/sbin
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/lib/qemu-server
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/man/man1/
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/man/man5/
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/qemu-server
+install -m 0644 -D qm.bash-completion /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/bash-completion/completions//qm
+install -m 0644 -D qmrestore.bash-completion /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/bash-completion/completions//qmrestore
+install -m 0644 -D qm.zsh-completion /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/zsh/vendor-completions//_qm
+install -m 0644 -D qmrestore.zsh-completion /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/zsh/vendor-completions//_qmrestore
+install -m 0755 qm /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/sbin
+install -m 0755 qmrestore /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/sbin
+install -m 0755 qmextract /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/lib/qemu-server
+install -m 0644 qm.1 /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/man/man1/
+install -m 0644 qmrestore.1 /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/man/man1/
+install -m 0644 cpu-models.conf.5 /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/man/man5/
+install -m 0644 qm.conf.5 /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/man/man5/
+cd /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/man/man5/; ln -s -f qm.conf.5.gz vm.conf.5.gz
+make[3]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/bin'
+make -C qmeventd install
+make[3]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/qmeventd'
+cc -g -O2 -Werror=implicit-function-declaration -ffile-prefix-map=/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2=. -fstack-protector-strong -fstack-clash-protection -Wformat -Werror=format-security -fcf-protection -O2 -Werror -Wall -Wextra -Wpedantic -Wtype-limits -Wl,-z,relro -std=gnu11 -I/usr/include/json-c -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -I/usr/include/sysprof-6 -pthread  -o qmeventd qmeventd.c -Wl,-z,relro -ljson-c -lglib-2.0 
+cp /usr/share/pve-doc-generator/qmeventd.adoc qmeventd.adoc.tmp
+mv qmeventd.adoc.tmp qmeventd.adoc
+cp /usr/share/pve-doc-generator/qmeventd.8-synopsis.adoc generated/qmeventd.8-synopsis.adoc.tmp
+cp /usr/share/pve-doc-generator/pve-copyright.adoc pve-copyright.adoc.tmp
+mv generated/qmeventd.8-synopsis.adoc.tmp generated/qmeventd.8-synopsis.adoc
+cp /usr/share/pve-doc-generator/docinfo.xml docinfo.xml.tmp
+mv pve-copyright.adoc.tmp pve-copyright.adoc
+mv docinfo.xml.tmp docinfo.xml
+/usr/bin/asciidoc-pve compile-man -o qmeventd.8 qmeventd.adoc
+Note: Writing qmeventd.8
+test -z "${PVE_DOC_INSTANTVIEW}" || man -l qmeventd.8
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/sbin
+install -m 0755 qmeventd /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/sbin
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/lib/systemd/system
+install -m 0644 qmeventd.service /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/lib/systemd/system
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/man/man8
+install -m 0644 qmeventd.8 /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/man/man8
+make[3]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/qmeventd'
+make -C query-machine-capabilities install
+make[3]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/query-machine-capabilities'
+cc -g -O2 -Werror=implicit-function-declaration -ffile-prefix-map=/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2=. -fstack-protector-strong -fstack-clash-protection -Wformat -Werror=format-security -fcf-protection -O2 -fanalyzer -Werror -Wall -Wextra -Wpedantic -Wtype-limits -Wl,-z,relro -std=gnu11 -o query-machine-capabilities query-machine-capabilities.c -Wl,-z,relro
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/libexec/qemu-server
+install -m 0755 query-machine-capabilities /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/libexec/qemu-server
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/lib/systemd/system
+install -m 0644 pve-query-machine-capabilities.service /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/lib/systemd/system
+make[3]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/query-machine-capabilities'
+make -C usr install
+make[3]: Entering directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/usr'
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/qemu-server
+install -m 0644 pve-usb.cfg /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/qemu-server
+install -m 0644 pve-q35.cfg /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/qemu-server
+install -m 0644 pve-q35-4.0.cfg /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/qemu-server
+install -m 0644 -D bootsplash.jpg /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/share/qemu-server
+install -D -m 0644 modules-load.conf /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/lib/modules-load.d/qemu-server.conf
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/libexec/qemu-server
+install -m 0755 pve-bridge /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/libexec/qemu-server/pve-bridge
+install -m 0755 pve-bridge-hotplug /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/libexec/qemu-server/pve-bridge-hotplug
+install -m 0755 pve-bridgedown /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/libexec/qemu-server/pve-bridgedown
+install -D -m 0755 dbus-vmstate /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server//usr/libexec/qemu-server/dbus-vmstate
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/lib/systemd
+install -D -m 0644 pve-dbus-vmstate@.service /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/lib/systemd/system/pve-dbus-vmstate@.service
+install -d /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/dbus-1
+install -D -m 0644 org.qemu.VMState1.conf /work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/debian/qemu-server/usr/share/dbus-1/system.d/org.qemu.VMState1.conf
+make[3]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2/usr'
+make[2]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2'
+   dh_installdocs
+   dh_installchangelogs
+   dh_installman
+   dh_installtmpfiles
+   dh_installsystemd
+   dh_perl
+   dh_link
+   dh_strip_nondeterminism
+   dh_compress
+   dh_fixperms
+   dh_missing
+   dh_dwz -a
+dwz: debian/qemu-server/usr/sbin/qmeventd: DWARF compression not beneficial - old size 20102 new size 20228
+   dh_strip -a
+   dh_makeshlibs -a
+   dh_shlibdeps -a
+   dh_installdeb
+   dh_gencontrol
+   dh_md5sums
+   dh_builddeb
+dpkg-deb: building package 'qemu-server' in '../qemu-server_9.2.11+shared2_amd64.deb'.
+dpkg-deb: building package 'qemu-server-dbgsym' in '../qemu-server-dbgsym_9.2.11+shared2_amd64.deb'.
+make[1]: Leaving directory '/work/shared-platform/qemu-server/qemu-server-9.2.11+shared2'
+ dpkg-genbuildinfo --build=binary -O../qemu-server_9.2.11+shared2_amd64.buildinfo
+ dpkg-genchanges --build=binary -O../qemu-server_9.2.11+shared2_amd64.changes
+dpkg-genchanges: info: binary-only upload (no source code included)
+ dpkg-source --after-build .
+dpkg-buildpackage: info: binary-only upload (no source included)
+lintian qemu-server_9.2.11+shared2_amd64.deb qemu-server-dbgsym_9.2.11+shared2_amd64.deb
+running with root privileges is not recommended!
+W: qemu-server: groff-message troff:<standard input>:10157: warning [p 86, 5.2i]: cannot break line [usr/share/man/man1/qm.1.gz:2]
+W: qemu-server: groff-message troff:<standard input>:10197: warning [p 86, 10.3i]: cannot break line [usr/share/man/man1/qm.1.gz:3]
+W: qemu-server: groff-message troff:<standard input>:344: warning: macro 'an-trap' not defined [usr/share/man/man1/qm.1.gz:1]
+W: qemu-server: groff-message troff:<standard input>:47: warning: macro 'an-trap' not defined [usr/share/man/man5/qm.conf.5.gz:1]

@@ -19,11 +19,19 @@ The proposed opt-in is a VM-wide dbus-display: 1. GPU type and rendernode
 remain in vga, and audio0 can select driver=dbus. CPU displays can keep
 VNC alongside D-Bus; virtio-gl cannot offer VNC/SPICE alongside it.
 
-I've separated the review into six common qemu-server patches, one
-WebRTC API patch above them, and three pve-manager patches. WebRTC offers,
+I've separated the review into six common qemu-server patches, two
+WebRTC API patches above them, and three pve-manager patches. WebRTC offers,
 minimal VM status and codec settings use PVE's existing authenticated
 API. Console access/read settings require VM.Console; policy writes
-require VM.Config.Options. Native VM signalling no longer needs port 8007.
+require VM.Config.Options. A pve-guest-common patch extracts the shared
+local service transport, and a pve-container patch adds the equivalent
+LXC API. Native VM and LXC signalling no longer needs port 8007.
+
+On the installed packages I checked Firefox video and saving the existing
+media policy for an LXC container, and VM video/Reconnect, with the legacy
+HTTPS service stopped. Unauthenticated reads and writes without a CSRF
+token are rejected. Graphical container sessions and encoding remain in
+the console provider; the stock LXC terminal console is preserved.
 
 The packages build with the upstream tests. In an isolated PVE 9 lab I
 checked CPU and GL display, embedded and popup consoles together, sound
