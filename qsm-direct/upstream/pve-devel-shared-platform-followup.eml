@@ -15,7 +15,10 @@ Following up on my reply yesterday: I've completed the QSM port to the
 shared per-VM D-Bus foundation and uploaded the source, patches and a
 matching preview build:
 
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261015-shared9
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261015-shared10
+
+The shared10 update uses the same shared9 Proxmox platform packages.
+Its incremental change is tablet cursor/selection input.
 
 The original D-Bus patch retains Alexandre's authorship and sign-off.
 qemu-server owns the bus and its lifetime; QSM attaches as a consumer.
@@ -26,12 +29,12 @@ provide VNC/SPICE alongside the D-Bus display.
 The common display foundation, WebRTC API and pve-manager UI are separate
 series. A small pve-guest-common module now handles the local console
 service exchange for both VM and LXC APIs. Native signalling, status and
-media settings use PVE's existing HTTPS origin on8006, with VM.Console
+media settings use PVE's existing HTTPS origin on port 8006, with VM.Console
 for offers/reads and VM.Config.Options for settings writes. There is no
 separate HTTPS port; WebRTC media still uses UDP.
 
 I checked Firefox video and an ordinary Reconnect in the embedded VM
-console, and LXC video/settings, with the old8007 service stopped.
+console, and LXC video/settings, with the old port 8007 service stopped.
 Anonymous reads and writes without a CSRF token are rejected. The Firefox
 mDNS negotiation and reconnect issues found during VPN testing are fixed.
 The earlier shared-base lab checks also covered CPU/GL display, audio,
@@ -39,7 +42,7 @@ microphone, clipboard and a second independent display consumer.
 
 The graphical LXC sessions and provisioning remain in a separate add-on.
 Their API patches can be reviewed independently of the QEMU foundation.
-There are builds against pve-container6.1.13 and6.1.14, so the newer
+There are builds against pve-container 6.1.13 and 6.1.14, so the newer
 container package does not need to be downgraded.
 
 Markus Frank's Venus configuration adaptation and the NVIDIA readback

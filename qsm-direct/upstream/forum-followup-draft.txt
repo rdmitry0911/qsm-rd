@@ -8,8 +8,8 @@ per-VM D-Bus foundation from Alexandre's patches. qemu-server owns the bus
 and QSM connects to it as a consumer, so other console implementations can
 use the same display too.
 
-The native integration now uses the normal Proxmox API on8006 for both VMs
-and LXC containers. TCP8007 and the separate certificate exception are no
+The native integration now uses the normal Proxmox API on port 8006 for
+both VMs and LXC containers. TCP 8007 and the separate certificate exception are no
 longer needed for this version. WebRTC still needs UDP access between the
 browser and the node.
 
@@ -18,12 +18,16 @@ VPN testing. I've checked VM video/Reconnect and the LXC graphical console
 with the old signalling service stopped, including saving the container's
 media settings through the PVE API.
 
-The source and matching deb packages are here:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261015-shared9
+Tablet input is also updated: sliding one finger now just moves the
+cursor. Hold for half a second before moving to select or drag; hold
+and lift to right-click. Old saved defaults are updated automatically.
 
-This is a preview build with matching patched Proxmox packages; the release
-notes list what to install. The shared-base patches are still an upstream
-proposal. The older stock-PVE add-on continues to use8007.
+The source and matching deb packages are here:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261015-shared10
+
+This is an incremental preview on the shared9 platform packages; the
+release notes list what to install. The shared-base patches are
+still an upstream proposal. The older stock-PVE add-on continues to use port 8007.
 
 If anyone tries this with Intel or AMD encoding, I'd be interested in how
 it works on your setup. Thank you for any feedback.

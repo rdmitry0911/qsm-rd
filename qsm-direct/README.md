@@ -6,6 +6,13 @@ hardware where the node has NVENC, QSV or VA-API, on the CPU otherwise — in
 the same browser tab, with the same PVE login and the same `VM.Console`
 permission. Nothing to install on the client.
 
+On a tablet, slide one finger to move the cursor and tap to click. Hold
+for half a second before moving to select or drag; hold and lift without
+moving for a right click. Two fingers scroll and a pinch zooms the view.
+Bindings can be changed under Console settings / Touch gestures.
+The [shared10 touch update](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261015-shared10)
+also updates the old saved one-finger selection default.
+
 ## Native shared platform
 
 The current upstream proposal uses Alexandre Derumier's per-VM D-Bus

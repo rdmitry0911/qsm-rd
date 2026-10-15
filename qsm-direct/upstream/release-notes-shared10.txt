@@ -1,0 +1,23 @@
+Tablet cursor and selection update for the native shared platform
+
+Sliding one finger now moves the guest cursor without holding a mouse
+button. Hold for half a second before moving to select or drag; hold
+and lift without moving to right-click. Existing saved default bindings
+are migrated. Settings / Touch gestures remains configurable.
+
+Interrupted gestures release their mouse button on cancellation, lost
+pointer capture, window blur and a hidden page.
+
+This is an incremental preview: use the matching Proxmox platform packages
+from shared9, then install both shared10 host packages. No guest restart
+or guest-agent update is needed. Reload PVE and reopen the console.
+
+Installation and host virtio-gl prerequisites:
+https://github.com/rdmitry0911/qsm-rd/blob/main/qsm-direct/upstream/INSTALL-shared10.txt
+
+Verified: gesture behavior tests and real Chromium 145 touch emulation
+against native VM consoles on two nodes, with live video and input sent
+over the real WebRTC data channels. Firefox video/Reconnect also passed on the second node's CPU display.
+The Raphael iGPU reset during virtio-gl testing, terminating QEMU; that
+AMD GL configuration is not qualified. Physical tablet testing remains
+for the user. Source, matching debs, qualification and SHA256SUMS are included.

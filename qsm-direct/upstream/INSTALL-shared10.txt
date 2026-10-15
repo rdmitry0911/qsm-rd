@@ -1,0 +1,37 @@
+QSM shared10 tablet input update, 2026-10-15
+
+This updates QSM on the shared9 native platform. Install the matching
+Proxmox platform packages first, following INSTALL-shared9.txt:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261015-shared9
+
+Download the shared10 assets and verify SHA256SUMS:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261015-shared10
+
+On the host, install both matching QSM packages:
+apt install ./qsm-pve-direct_0.4.0+shared10_amd64.deb \
+  ./qsm-pve-direct-lxc_0.4.0+shared10_all.deb
+
+The optional qsm-console-guest package is for inside LXC, not the host.
+The touch fix is browser code and requires no guest upgrade or restart.
+Refresh the PVE page and reopen the console after installing.
+
+Slide one finger to move the cursor. Tap to click. Hold for 0.5 seconds,
+then move to select or drag; hold and lift to right-click. Two fingers
+scroll. Existing saved default bindings are migrated automatically;
+deliberate alternative bindings are retained. Settings / Touch gestures
+can change these assignments.
+
+Host requirements for virtio-gl, independently of this input update:
+libGL.so.1, libEGL.so.1, the GPU's Mesa driver, and a working DRM render
+device are required on the PVE host. Installing libraries inside a guest
+does not satisfy the host check. On the tested AMD/Debian 13 host:
+apt install libgl1 libegl1 libegl-mesa0 libgl1-mesa-dri
+ls -l /dev/dri/renderD*
+
+The host GPU must be driven by amdgpu/i915/etc. A GPU assigned to a guest
+through vfio-pci cannot also supply the host render device. Check driver
+blacklists if an available host GPU has no render node. A CPU display
+does not need virtio-gl's host GPU requirements.
+
+Qualification and reproducible touch checks:
+upstream/review-touch-2026-10-15/README.txt

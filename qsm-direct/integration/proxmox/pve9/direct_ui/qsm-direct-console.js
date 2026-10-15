@@ -825,15 +825,26 @@
         // The single touch behaviour is "direct" (a tap acts where you touch,
         // the guest cursor is shown as an overlay).  Which finger gesture
         // triggers which guest action is configurable (Settings), with working
-        // defaults: tap=left click, long-press=right click, 1-finger drag=
-        // drag/select, 2-finger drag=scroll, pinch=zoom, 3-finger tap=middle.
-        const GESTURE_ACTIONS = ['leftClick', 'rightClick', 'middleClick', 'drag', 'scroll', 'zoom'];
-        const GESTURES = ['tap', 'longPress', 'drag1', 'tap2', 'drag2', 'pinch', 'tap3', 'none'];
-        const DEFAULT_GESTURE_MAP = { leftClick: 'tap', rightClick: 'longPress', middleClick: 'tap3', drag: 'drag1', scroll: 'drag2', zoom: 'pinch' };
+        // defaults: 1-finger motion=move, hold then move=drag/select,
+        // tap=left click, hold then lift=right click, 2-finger motion=scroll.
+        const GESTURE_ACTIONS = ['move', 'leftClick', 'rightClick', 'middleClick', 'drag', 'scroll', 'zoom'];
+        const GESTURES = ['tap', 'longPress', 'drag1', 'holdDrag', 'tap2', 'drag2', 'pinch', 'tap3', 'none'];
+        const DEFAULT_GESTURE_MAP = { move: 'drag1', leftClick: 'tap', rightClick: 'longPress', middleClick: 'tap3', drag: 'holdDrag', scroll: 'drag2', zoom: 'pinch' };
         const gestureMap = { ...DEFAULT_GESTURE_MAP };
         try {
             const raw = browserStorage && browserStorage.getItem('qsm-gestures');
-            if (raw) { const p = JSON.parse(raw); for (const a of GESTURE_ACTIONS) { if (GESTURES.includes(p[a])) { gestureMap[a] = p[a]; } } }
+            if (raw) {
+                const p = JSON.parse(raw);
+                for (const a of GESTURE_ACTIONS) { if (GESTURES.includes(p[a])) { gestureMap[a] = p[a]; } }
+                if (p.move === undefined) {
+                    // Upgrade the old one-finger selection binding as well as
+                    // fresh defaults; retain other deliberate custom bindings.
+                    if (p.drag === 'drag1') { gestureMap.drag = 'holdDrag'; }
+                    else if (GESTURE_ACTIONS.some(a => a !== 'move' && gestureMap[a] === 'drag1')) {
+                        gestureMap.move = 'none';
+                    }
+                }
+            }
         } catch (_error) { /* defaults remain */ }
         let gestureToAction = {};
         const rebuildGestureMap = () => {
@@ -1238,11 +1249,12 @@
         gesturesTitle.textContent = gettext('Touch gestures');
         gesturesTitle.style.cssText = 'font-weight:600;margin:16px 0 8px';
         const gesturesHint = document.createElement('p');
-        gesturesHint.textContent = gettext('On a touchscreen the guest cursor is shown and a tap acts where you touch. Assign a gesture to each action; each gesture can drive only one action.');
+        gesturesHint.textContent = gettext('Slide one finger to move the cursor. Hold for half a second, then move to drag or select. Hold and lift without moving for a right click. Each gesture can drive only one action.');
         gesturesHint.style.cssText = 'margin:0 0 8px;color:#cbd5e1;line-height:1.35';
         const gesturesForm = document.createElement('div');
         gesturesForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 160px;gap:8px;align-items:center';
         const GESTURE_ACTION_LABELS = {
+            move: gettext('Move cursor'),
             leftClick: gettext('Left click'),
             rightClick: gettext('Right click'),
             middleClick: gettext('Middle click'),
@@ -1254,6 +1266,7 @@
             tap: gettext('1-finger tap'),
             longPress: gettext('Long press'),
             drag1: gettext('1-finger drag'),
+            holdDrag: gettext('Hold, then drag'),
             tap2: gettext('2-finger tap'),
             drag2: gettext('2-finger drag'),
             pinch: gettext('Pinch (spread)'),
@@ -2815,11 +2828,10 @@
             });
             // Touch and pen input (Android tablets/phones and other
             // touchscreens).  The mouse handlers above stay the desktop path;
-            // these fire only for non-mouse pointers.  Gestures: a quick tap is
-            // a left click at the touched point (two quick taps read as a
-            // double click on the guest naturally); dragging holds the left
-            // button so a finger can select or drag; a long press is a right
-            // click — the only way to raise a guest context menu from touch.
+            // these fire only for non-mouse pointers. A slide moves without
+            // a button. Holding before a slide selects; holding and lifting
+            // without moving right-clicks. Defer that click until release so
+            // it cannot open a context menu before a selection drag.
             // A brief marker shows exactly where each touch registered.
             const touchMarker = document.createElement('div');
             touchMarker.setAttribute('aria-hidden', 'true');
@@ -2841,12 +2853,12 @@
             const touchPoints = new Map(); // pointerId -> {startX,startY,x,y}
             let peakFingers = 0;
             let oneMoved = false;
-            let oneLongFired = false;
+            let oneLongReady = false;
             let oneStartX = 0;
             let oneStartY = 0;
             let oneLongTimer = null;
             let heldDragButton = 0;
-            let contAct = null;      // active continuous action ('drag'|'scroll'|'zoom')
+            let contAct = null;      // active continuous action ('move'|'drag'|'scroll'|'zoom')
             let contLastX = 0;
             let contLastY = 0;
             let scrollAccumY = 0;
@@ -2864,9 +2876,10 @@
             const pointDistance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
             // --- action executors ---
             const clickAction = (action, clientX, clientY) => {
-                const button = action === 'rightClick' ? 3 : action === 'middleClick' ? 2 : 1;
                 queuePointer(pointerForMouseEvent({ clientX, clientY }));
                 flushPointer(true);
+                if (action === 'move') { return; }
+                const button = action === 'rightClick' ? 3 : action === 'middleClick' ? 2 : 1;
                 sendMouseButton(button, true);
                 sendMouseButton(button, false);
             };
@@ -2887,17 +2900,19 @@
             const beginContinuous = (action, sx, sy) => {
                 contAct = action || null;
                 contLastX = sx; contLastY = sy; scrollAccumY = 0;
-                if (contAct === 'drag') {
+                if (contAct === 'drag' || contAct === 'move') {
                     queuePointer(pointerForMouseEvent({ clientX: sx, clientY: sy }));
                     flushPointer(true);
-                    sendMouseButton(1, true);
-                    heldDragButton = 1;
+                    if (contAct === 'drag') {
+                        sendMouseButton(1, true);
+                        heldDragButton = 1;
+                    }
                 }
             };
             const stepContinuous = (x, y) => {
                 const dx = x - contLastX; const dy = y - contLastY;
                 contLastX = x; contLastY = y;
-                if (contAct === 'drag') {
+                if (contAct === 'drag' || contAct === 'move') {
                     queuePointer(pointerForMouseEvent({ clientX: x, clientY: y }));
                     flushPointer(true);
                 } else if (contAct === 'scroll') {
@@ -2931,15 +2946,15 @@
             const resetInteraction = () => {
                 clearOneLong();
                 if (heldDragButton) { sendMouseButton(heldDragButton, false); heldDragButton = 0; }
-                peakFingers = 0; oneMoved = false; oneLongFired = false;
+                peakFingers = 0; oneMoved = false; oneLongReady = false;
                 contAct = null; twoLocked = null; twoMoved = false;
             };
             const finalizeInteraction = (px, py) => {
                 clearOneLong();
                 if (peakFingers === 1) {
                     if (contAct) { endContinuous(px, py); }
-                    else if (!oneMoved && !oneLongFired) {
-                        const act = gestureToAction.tap;
+                    else if (!oneMoved) {
+                        const act = gestureToAction[oneLongReady ? 'longPress' : 'tap'];
                         if (act) { clickAction(act, px, py); }
                     }
                 } else if (peakFingers === 2) {
@@ -2954,6 +2969,20 @@
                 }
                 resetInteraction();
             };
+            const cancelTouchInteraction = () => {
+                touchPoints.clear();
+                resetInteraction();
+                releaseHeldInput();
+            };
+            popup.addEventListener('blur', cancelTouchInteraction);
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) { cancelTouchInteraction(); }
+            });
+            video.addEventListener('lostpointercapture', (event) => {
+                if (event.pointerType !== 'mouse' && touchPoints.has(event.pointerId)) {
+                    cancelTouchInteraction();
+                }
+            });
             // --- pointer events (touch/pen only; mouse keeps the desktop path) ---
             video.addEventListener('pointerdown', (event) => {
                 if (event.pointerType === 'mouse') { return; }
@@ -2966,19 +2995,16 @@
                     ensurePlaying();
                     video.focus({ preventScroll: true });
                     if (toolbarVisible && !toolbarPinned) { hideToolbarNow(); }
-                    oneMoved = false; oneLongFired = false; contAct = null;
+                    oneMoved = false; oneLongReady = false; contAct = null;
                     oneStartX = event.clientX; oneStartY = event.clientY;
                     showTouchMarker(event.clientX, event.clientY);
+                    queuePointer(pointerForMouseEvent(event));
                     placeGuestCursor();
                     clearOneLong();
                     oneLongTimer = popup.setTimeout(() => {
                         oneLongTimer = null;
                         if (peakFingers !== 1 || oneMoved) { return; }
-                        const act = gestureToAction.longPress;
-                        if (!act) { return; }
-                        oneLongFired = true;
-                        const p = touchPoints.values().next().value;
-                        clickAction(act, p ? p.x : oneStartX, p ? p.y : oneStartY);
+                        oneLongReady = true;
                     }, 500);
                 } else if (n === 2) {
                     // A second finger cancels any one-finger action in progress.
@@ -3002,12 +3028,13 @@
                 const n = touchPoints.size;
                 if (n === 1 && peakFingers === 1) {
                     const dx = event.clientX - oneStartX; const dy = event.clientY - oneStartY;
-                    if (!oneMoved && (Math.abs(dx) > 18 || Math.abs(dy) > 18)) {
+                    if (!oneMoved && Math.hypot(dx, dy) > 8) {
                         oneMoved = true;
                         clearOneLong();
-                        if (!oneLongFired) { beginContinuous(gestureToAction.drag1, oneStartX, oneStartY); }
+                        beginContinuous(gestureToAction[oneLongReady ? 'holdDrag' : 'drag1'], oneStartX, oneStartY);
                     }
-                    if (oneMoved && !oneLongFired && contAct) { stepContinuous(event.clientX, event.clientY); }
+                    if (oneMoved && contAct) { stepContinuous(event.clientX, event.clientY); }
+                    else { queuePointer(pointerForMouseEvent(event)); }
                     showTouchMarker(event.clientX, event.clientY);
                 } else if (n === 2) {
                     const [a, b] = twoPoints();
