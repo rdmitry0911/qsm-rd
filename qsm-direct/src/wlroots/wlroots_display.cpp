@@ -12,6 +12,7 @@
 #include <poll.h>
 #include <sys/eventfd.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <wayland-client.h>
 #include <xkbcommon/xkbcommon.h>
@@ -22,6 +23,7 @@
 #include <cstring>
 #include <ctime>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <vector>
 
@@ -95,6 +97,7 @@ struct WlrootsDisplay::Impl {
     zwlr_output_manager_v1 *output_manager {};
     zwlr_virtual_pointer_v1 *pointer {};
     zwp_virtual_keyboard_v1 *keyboard {};
+    wl_keyboard *keyboard_observer {};
 
     // --- output management (resize) ---
     struct Head {
@@ -114,6 +117,7 @@ struct WlrootsDisplay::Impl {
     xkb_keymap *keymap {};
     xkb_state *xkb {};
     std::array<std::uint32_t, 4> last_mods {};
+    std::set<std::uint32_t> pressed_keys;
 
     // --- threads ---
     int wake_fd {-1};
@@ -568,6 +572,65 @@ struct WlrootsDisplay::Impl {
     }
 
     // ------------------------------------------------------------ keyboard
+    // Follow the compositor's real keymap: the native login screen may have
+    // changed it after this virtual keyboard was created. Tracking US modifiers
+    // against e.g. a German map incorrectly turns AltGr into ordinary Alt.
+    static void observer_keymap(void *data, wl_keyboard *, std::uint32_t format,
+                                std::int32_t fd, std::uint32_t size) {
+        auto *self = static_cast<Impl *>(data);
+        struct stat metadata {};
+        if (format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1 || size < 2U || size > 4U * 1024U * 1024U ||
+                fstat(fd, &metadata) != 0 || metadata.st_size < static_cast<off_t>(size)) {
+            ::close(fd);
+            return;
+        }
+        void *mapped = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
+        ::close(fd);
+        if (mapped == MAP_FAILED) { return; }
+        auto *text = static_cast<const char *>(mapped);
+        std::lock_guard lock(self->request_mutex);
+        xkb_keymap *replacement = text[size - 1U] == '\0' ?
+            xkb_keymap_new_from_string(self->xkb_ctx, text, XKB_KEYMAP_FORMAT_TEXT_V1,
+                                      XKB_KEYMAP_COMPILE_NO_FLAGS) : nullptr;
+        munmap(mapped, size);
+        if (replacement == nullptr) { return; }
+        xkb_state *state = xkb_state_new(replacement);
+        if (state == nullptr) { xkb_keymap_unref(replacement); return; }
+        for (auto code : self->pressed_keys) {
+            xkb_state_update_key(state, code + 8U, XKB_KEY_DOWN);
+        }
+        // Retain lock keys across layout changes, translating modifier names
+        // rather than assuming the old and new map use identical indices.
+        xkb_mod_mask_t locked = 0;
+        if (self->xkb != nullptr && self->keymap != nullptr) {
+            auto previous = xkb_state_serialize_mods(self->xkb, XKB_STATE_MODS_LOCKED);
+            for (xkb_mod_index_t i = 0; i < xkb_keymap_num_mods(self->keymap) && i < 32U; ++i) {
+                if ((previous & (1U << i)) == 0) { continue; }
+                const char *name = xkb_keymap_mod_get_name(self->keymap, i);
+                auto index = xkb_keymap_mod_get_index(replacement, name);
+                if (index < 32U) { locked |= (1U << index); }
+            }
+        }
+        xkb_state_update_mask(state,
+            xkb_state_serialize_mods(state, XKB_STATE_MODS_DEPRESSED), 0, locked, 0, 0, 0);
+        if (self->xkb != nullptr) { xkb_state_unref(self->xkb); }
+        if (self->keymap != nullptr) { xkb_keymap_unref(self->keymap); }
+        self->keymap = replacement;
+        self->xkb = state;
+        self->last_mods.fill(UINT32_MAX);  // announce the new map's modifiers on the next key
+    }
+    static void observer_enter(void *, wl_keyboard *, std::uint32_t, wl_surface *, wl_array *) {}
+    static void observer_leave(void *, wl_keyboard *, std::uint32_t, wl_surface *) {}
+    static void observer_key(void *, wl_keyboard *, std::uint32_t, std::uint32_t,
+                             std::uint32_t, std::uint32_t) {}
+    static void observer_modifiers(void *, wl_keyboard *, std::uint32_t, std::uint32_t,
+                                   std::uint32_t, std::uint32_t, std::uint32_t) {}
+    static void observer_repeat(void *, wl_keyboard *, std::int32_t, std::int32_t) {}
+    static constexpr wl_keyboard_listener keyboard_listener {
+        observer_keymap, observer_enter, observer_leave, observer_key,
+        observer_modifiers, observer_repeat
+    };
+
     void setup_keyboard() {
         if (keyboard_manager == nullptr || seat == nullptr) { return; }
         xkb_ctx = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
@@ -593,6 +656,8 @@ struct WlrootsDisplay::Impl {
         zwp_virtual_keyboard_v1_keymap(keyboard, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1, fd,
                                        static_cast<std::uint32_t>(length));
         ::close(fd);
+        keyboard_observer = wl_seat_get_keyboard(seat);
+        wl_keyboard_add_listener(keyboard_observer, &keyboard_listener, this);
     }
 };
 
@@ -661,6 +726,7 @@ void WlrootsDisplay::stop() noexcept {
     for (auto &head : d.heads) { zwlr_output_head_v1_destroy(head.head); }
     d.heads.clear();
     if (d.pointer != nullptr) { zwlr_virtual_pointer_v1_destroy(d.pointer); }
+    if (d.keyboard_observer != nullptr) { wl_keyboard_destroy(d.keyboard_observer); }
     if (d.keyboard != nullptr) { zwp_virtual_keyboard_v1_destroy(d.keyboard); }
     if (d.display != nullptr) {
         wl_display_flush(d.display);
@@ -723,6 +789,7 @@ void WlrootsDisplay::key(std::uint32_t qemu_key_number, bool pressed) {
     const auto code = evdev_from_qemu_key(qemu_key_number);
     if (code == 0U || d.keyboard == nullptr) { return; }
     std::lock_guard lock(d.request_mutex);
+    if (pressed) { d.pressed_keys.insert(code); } else { d.pressed_keys.erase(code); }
     zwp_virtual_keyboard_v1_key(d.keyboard, now_ms(), code,
                                 pressed ? WL_KEYBOARD_KEY_STATE_PRESSED : WL_KEYBOARD_KEY_STATE_RELEASED);
     // wlroots does not derive modifiers from a virtual keyboard's keys; track

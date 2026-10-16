@@ -29,6 +29,7 @@ for script in qsm-login qsm-greeter qsm-session-launch qsm-seat-keeper qsm-conso
               qsm-clipboard-agent qsm-native-seat qsm-native-session qsm-native-profile; do
     install -m 0755 "$LXC_DIR/$script" "$lib/$script"
 done
+install -m 0644 "$LXC_DIR/qsm_native_keyboard.py" "$lib/qsm_native_keyboard.py"
 install -m 0644 "$LXC_DIR/qsm-display-sway.conf" "$stage/usr/share/qsm-console/sway.conf"
 for unit in qsm-display@.service qsm-seat-keeper@.service qsm-login@.service qsm-consoles.service \
             qsm-native-seat-udev.service qsm-native-seat-control@.service qsm-native-sddm.service; do

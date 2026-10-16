@@ -268,7 +268,9 @@ def remove_legacy_session(vmid: int, uid: int) -> None:
              "if [ -e /etc/systemd/system/qsm-login@.service ]; then "
              "systemctl stop 'qsm-session-*.service' 'qsm-login@*.service' 'qsm-seat-keeper@*.service' "
              "'qsm-display@*.service' 2>/dev/null; fi; "
-             "rm -f " + " ".join(LEGACY_FILES) + "; rm -rf /usr/local/lib/qsm-direct; "
+             "for f in " + " ".join(shlex.quote(p) for p in LEGACY_FILES) + "; do "
+             "dpkg-query -S \"$f\" >/dev/null 2>&1 || rm -f \"$f\"; done; "
+             "rm -rf /usr/local/lib/qsm-direct; "
              "rmdir /etc/systemd/user/plasma-kwin_wayland.service.d 2>/dev/null; systemctl daemon-reload", check=False)
 
 
@@ -279,6 +281,7 @@ def install_guest_package(vmid: int, session: str) -> None:
     run(["pct", "push", str(vmid), str(GUEST_PACKAGE), "/root/qsm-console-guest.deb", "--perms", "0644"])
     ct(vmid, "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && "
              "apt-get install -y -qq --reinstall --no-install-recommends -o Dpkg::Use-Pty=0 "
+             "-o Dpkg::Options::=--force-confmiss "
              "/root/qsm-console-guest.deb kwin-wayland plasma-workspace-wayland; "
              "rc=$?; rm -f /root/qsm-console-guest.deb; exit $rc", timeout=1800)
     push(vmid, session + "\n", "/etc/qsm-direct/session-type")

@@ -234,6 +234,8 @@ def pam_session() -> None:
         display = (display_socket(slot) if service.endswith('greeter') else
                    RUNTIME / f'wayland-{slot}')
         if kind == 'open_session':
+            from qsm_native_keyboard import NativeKeyboard
+            NativeKeyboard(slot).reset(greeter=service.endswith('greeter'))
             if service in ('sddm', 'qsm-sddm'):
                 for entry in configuration()['slots']:
                     if entry['slot'] != slot:
@@ -542,6 +544,13 @@ def control(slot: int) -> None:
     proxy.start()
     if not ready.wait(15):
         raise ValueError('native desktop display proxy did not start')
+    from qsm_native_keyboard import NativeKeyboard
+    keyboard = NativeKeyboard(slot, lambda: bool(user_sessions(seat)))
+    keyboard_ready = threading.Event()
+    keyboard_thread = threading.Thread(target=keyboard.serve, args=(keyboard_ready,), daemon=True)
+    keyboard_thread.start()
+    if not keyboard_ready.wait(5):
+        raise ValueError('native keyboard control did not start')
     path = directory / 'control'
     if path.exists():
         if not stat.S_ISSOCK(path.lstat().st_mode):
@@ -556,7 +565,7 @@ def control(slot: int) -> None:
         server.listen(4)
         server.settimeout(1)
         while True:
-            if not proxy.is_alive():
+            if not proxy.is_alive() or not keyboard_thread.is_alive():
                 raise ValueError('native desktop display proxy stopped')
             try:
                 connection, _ = server.accept()
@@ -570,6 +579,10 @@ def control(slot: int) -> None:
                     if request.get('op') == 'status':
                         reply = ({'ok': True, 'user': sessions[0][1]['Name'] if sessions else None}
                                  if sessions or native_greeter_ready(seat) else {'ok': False})
+                        reply['keyboard_sync'] = True
+                    elif request.get('op') == 'input_ready':
+                        keyboard.sync_input()
+                        reply = {'ok': True}
                     elif request.get('op') == 'reset':
                         for identifier, _data in sessions:
                             terminate_session(identifier, seat)

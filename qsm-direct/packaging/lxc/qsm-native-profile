@@ -34,9 +34,13 @@ def configure() -> None:
         (Path('/etc/pam.d') / ('qsm-' + service)).write_text(text)
     Path('/etc/pam.d/qsm-sddm-autologin').write_text('auth requisite pam_deny.so\naccount requisite pam_deny.so\n')
     (DIRECTORY / 'greeter-pam-env').write_text('XDG_RUNTIME_DIR OVERRIDE=/run/qsm-native/greeter-${XDG_SEAT}\n')
-    # SDDM configuration order: distro defaults, administrator drop-ins, main.
+    # Read compiled distro defaults too: Ubuntu selects ubuntu-theme there,
+    # even when no administrator configuration files exist.
     stock = configparser.ConfigParser(interpolation=None, strict=False)
     stock.optionxform = str
+    defaults = subprocess.run(['/usr/bin/sddm', '--example-config'], check=True,
+                              capture_output=True, text=True, timeout=10).stdout
+    stock.read_string(defaults)
     stock.read([str(p) for directory in ('/usr/lib/sddm/sddm.conf.d', '/etc/sddm.conf.d')
                 for p in sorted(Path(directory).glob('*.conf'))] + ['/etc/sddm.conf'])
     theme = stock.get('Theme', 'Current', fallback='')
@@ -45,7 +49,8 @@ def configure() -> None:
     config = configparser.ConfigParser(interpolation=None)
     config.optionxform = str
     config.read_dict({
-        'General': {'DisplayServer': 'wayland', 'GreeterEnvironment': 'QT_QUICK_BACKEND=software',
+        'General': {'DisplayServer': 'wayland', 'GreeterEnvironment': ('QT_QUICK_BACKEND=software,'
+                                           'QML2_IMPORT_PATH=/opt/qsm-native-sddm/share/qt5/qml'),
                     'HaltCommand': '/bin/false', 'RebootCommand': '/bin/false'},
         'Theme': {'Current': theme, 'ThemeDir': '/usr/share/sddm/themes'},
         'Wayland': {'SessionDir': '/usr/share/wayland-sessions',

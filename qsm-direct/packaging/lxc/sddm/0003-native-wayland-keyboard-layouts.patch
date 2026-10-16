@@ -1,0 +1,255 @@
+From: Dmitry R <rdmitry0911@gmail.com>
+Subject: [PATCH] Connect native Wayland keyboard model to restricted seat layout API
+
+Expose registered XKB layouts through the original SDDM keyboard model and
+confirm layout selection against the per-seat controller. Authentication
+and the system theme remain owned by SDDM. Bound the private layout popup
+to a scrollable height so the full XKB registry remains usable.
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+
+diff --git a/components/2.0/ComboBox.qml b/components/2.0/ComboBox.qml
+index 26bbef3..6a95944 100644
+--- a/components/2.0/ComboBox.qml
++++ b/components/2.0/ComboBox.qml
+@@ -191,7 +191,7 @@ FocusScope {
+ 
+         ListView {
+             id: listView
+-            width: container.width; height: (container.height - 2*container.borderWidth) * count + container.borderWidth
++            width: container.width; height: dropDown.height
+             delegate: myDelegate
+             highlight: Rectangle {
+                 anchors.horizontalCenter: parent ? parent.horizontalCenter : undefined;
+@@ -211,7 +211,7 @@ FocusScope {
+         states: [
+             State {
+                 name: "visible";
+-                PropertyChanges { target: dropDown; height: (container.height - 2*container.borderWidth) * listView.count + container.borderWidth}
++                PropertyChanges { target: dropDown; height: Math.min(240, (container.height - 2*container.borderWidth) * listView.count + container.borderWidth)}
+             }
+         ]
+     }
+diff --git a/src/greeter/CMakeLists.txt b/src/greeter/CMakeLists.txt
+index 72769e4..8e85644 100644
+--- a/src/greeter/CMakeLists.txt
++++ b/src/greeter/CMakeLists.txt
+@@ -42,6 +42,7 @@ qt_add_resources(RESOURCES ${CMAKE_CURRENT_BINARY_DIR}/theme.qrc)
+ add_executable(${GREETER_TARGET} ${GREETER_SOURCES} ${RESOURCES})
+ target_link_libraries(${GREETER_TARGET}
+                       Qt${QT_MAJOR_VERSION}::Quick
++                      Qt${QT_MAJOR_VERSION}::Network
+                       ${LIBXCB_LIBRARIES}
+                       ${LIBXKB_LIBRARIES})
+ 
+diff --git a/src/greeter/KeyboardModel.cpp b/src/greeter/KeyboardModel.cpp
+index 6ebfefb..206a6f5 100644
+--- a/src/greeter/KeyboardModel.cpp
++++ b/src/greeter/KeyboardModel.cpp
+@@ -38,6 +38,7 @@ namespace SDDM {
+         } else if (QGuiApplication::platformName().contains(QLatin1String("wayland"))) {
+             m_backend = new WaylandKeyboardBackend(d);
+             m_backend->init();
++            m_backend->connectEventsDispatcher(this);
+         }
+     }
+ 
+diff --git a/src/greeter/waylandkeyboardbackend.cpp b/src/greeter/waylandkeyboardbackend.cpp
+index fcea536..981ceb6 100644
+--- a/src/greeter/waylandkeyboardbackend.cpp
++++ b/src/greeter/waylandkeyboardbackend.cpp
+@@ -20,16 +20,19 @@
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ ***************************************************************************/
+ 
+-#include <QDir>
+ #include <QDebug>
+ #include <QGuiApplication>
+-#include <QInputMethod>
++#include <QJsonArray>
++#include <QJsonDocument>
++#include <QJsonObject>
++#include <QLocalSocket>
++#include <QRegularExpression>
++#include <QTimer>
+ 
+ #include "KeyboardModel.h"
+ #include "KeyboardModel_p.h"
+ #include "KeyboardLayout.h"
+ #include "waylandkeyboardbackend.h"
+-#include <qxmlstream.h>
+ 
+ namespace SDDM {
+ 
+@@ -38,80 +41,97 @@ WaylandKeyboardBackend::WaylandKeyboardBackend(KeyboardModelPrivate *kmp)
+ {
+ }
+ 
+-WaylandKeyboardBackend::~WaylandKeyboardBackend()
+-{
+-}
+-
++WaylandKeyboardBackend::~WaylandKeyboardBackend() = default;
+ 
+-QList<QObject *> parseRules(const QString &filename, int &current)
++QJsonObject WaylandKeyboardBackend::request(const QJsonObject &message)
+ {
+-    // FIXME: https://github.com/sddm/sddm/pull/1664#discussion_r1115361314
+-    current = 0;
+-    QFile file(filename);
+-    qDebug() << "Parsing xkb rules from" << file.fileName();
+-    if (!file.open(QFile::ReadOnly | QFile::Text)) {
+-        qWarning() << "Cannot open the rules file" << file.fileName();
++    const QString seat = qEnvironmentVariable("XDG_SEAT");
++    static const QRegularExpression pattern(QStringLiteral("^seatqsm([1-8])$"));
++    const auto match = pattern.match(seat);
++    if (!match.hasMatch())
+         return {};
++    QLocalSocket connection;
++    connection.connectToServer(QStringLiteral("/run/qsm-native/keyboard-%1.sock").arg(match.captured(1)));
++    if (!connection.waitForConnected(300))
++        return {};
++    connection.write(QJsonDocument(message).toJson(QJsonDocument::Compact) + '\n');
++    connection.flush();
++    QByteArray reply;
++    while (!reply.contains('\n')) {
++        if (!connection.bytesAvailable() && !connection.waitForReadyRead(500))
++            return {};
++        reply += connection.readAll();
++        if (reply.size() > 262144)
++            return {};
+     }
++    return QJsonDocument::fromJson(reply).object();
++}
+ 
+-    QList<QObject *> layouts;
+-
+-    QString lastName, lastDescription;
+-
+-    QStringList path;
+-    QXmlStreamReader reader(&file);
+-    while (!reader.atEnd()) {
+-        const auto token = reader.readNext();
+-        if (token == QXmlStreamReader::StartElement) {
+-            path << reader.name().toString();
+-            QString strPath = path.join(QLatin1String("/"));
+-
+-            if (strPath.endsWith(QLatin1String("layoutList/layout/configItem/name"))) {
+-                lastName = reader.readElementText().trimmed();
+-            } else if (strPath.endsWith(QLatin1String("layoutList/layout/configItem/description"))) {
+-                // TODO: This should be translated using i18nd("xkeyboard-config", lastDescription)
+-                lastDescription = reader.readElementText().trimmed();
+-            }
+-        }
+-        // don't use token here, readElementText() above can have moved us forward meanwhile
+-        if (reader.tokenType() == QXmlStreamReader::EndElement) {
+-            const QString strPath = path.join(QLatin1String("/"));
+-            if (strPath.endsWith(QLatin1String("layoutList/layout/configItem/description"))) {
+-                layouts << new KeyboardLayout(lastName, lastDescription);
+-            }
+-            path.removeLast();
+-        }
++void WaylandKeyboardBackend::init()
++{
++    const auto reply = request({{QStringLiteral("op"), QStringLiteral("get")}});
++    if (!reply.value(QStringLiteral("ok")).toBool()) {
++        d->enabled = false;
++        return;
+     }
+-
+-    if (reader.hasError()) {
+-        qWarning() << "Failed to parse the rules file" << file.fileName();
+-        return {};
++    for (const auto &value : reply.value(QStringLiteral("layouts")).toArray()) {
++        const auto layout = value.toObject();
++        const QString name = layout.value(QStringLiteral("name")).toString();
++        if (name.isEmpty())
++            continue;
++        d->layouts << new KeyboardLayout(name, layout.value(QStringLiteral("description")).toString());
+     }
+-    return layouts;
++    update(reply);
++    d->enabled = !d->layouts.isEmpty();
+ }
+ 
+-void WaylandKeyboardBackend::init()
++void WaylandKeyboardBackend::update(const QJsonObject &reply)
+ {
+-    // TODO: We can't actually switch keyboard layout yet, so don't populate a list of layouts
+-    // so that themes can know to not show the option to change layout
+-    // d->layouts = parseRules(QStringLiteral("/usr/share/X11/xkb/rules/evdev.xml"), d->layout_id);
++    if (!reply.value(QStringLiteral("ok")).toBool())
++        return;
++    const QString selected = reply.value(QStringLiteral("layout")).toString();
++    for (int index = 0; index < d->layouts.size(); ++index) {
++        auto *layout = qobject_cast<KeyboardLayout *>(d->layouts[index]);
++        if (layout && layout->shortName() == selected) {
++            m_confirmedLayout = index;
++            d->layout_id = index;
++            return;
++        }
++    }
+ }
+ 
+ void WaylandKeyboardBackend::disconnect()
+ {
++    delete m_timer;
++    m_timer = nullptr;
+ }
+ 
+ void WaylandKeyboardBackend::sendChanges()
+ {
++    if (d->layout_id < 0 || d->layout_id >= d->layouts.size()) {
++        d->layout_id = m_confirmedLayout;
++        return;
++    }
++    auto *layout = qobject_cast<KeyboardLayout *>(d->layouts[d->layout_id]);
++    const auto reply = request({{QStringLiteral("op"), QStringLiteral("set")},
++                                {QStringLiteral("layout"), layout->shortName()}});
++    d->layout_id = m_confirmedLayout; // Keep the confirmed selection on failure.
++    update(reply);
+ }
+ 
+ void WaylandKeyboardBackend::dispatchEvents()
+ {
++    update(request({{QStringLiteral("op"), QStringLiteral("get")}}));
+ }
+ 
+ void WaylandKeyboardBackend::connectEventsDispatcher(KeyboardModel *model)
+ {
+-    Q_UNUSED(model);
++    if (!d->enabled)
++        return;
++    m_timer = new QTimer(model);
++    m_timer->setInterval(500);
++    QObject::connect(m_timer, SIGNAL(timeout()), model, SLOT(dispatchEvents()));
++    m_timer->start();
+ }
+ 
+ } // namespace SDDM
+diff --git a/src/greeter/waylandkeyboardbackend.h b/src/greeter/waylandkeyboardbackend.h
+index 1ab4348..c8315ef 100644
+--- a/src/greeter/waylandkeyboardbackend.h
++++ b/src/greeter/waylandkeyboardbackend.h
+@@ -21,6 +21,8 @@
+ #define WAYLANDKEYBOARDBACKEND_H
+ 
+ #include "KeyboardBackend.h"
++#include <QJsonObject>
++class QTimer;
+ 
+ namespace SDDM {
+ 
+@@ -36,6 +38,12 @@ public:
+     void dispatchEvents() override;
+ 
+     void connectEventsDispatcher(KeyboardModel *model) override;
++
++private:
++    QJsonObject request(const QJsonObject &message);
++    void update(const QJsonObject &reply);
++    QTimer *m_timer = nullptr;
++    int m_confirmedLayout = 0;
+ };
+ 
+ } // namespace SDDM

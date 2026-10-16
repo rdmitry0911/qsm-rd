@@ -1,3 +1,6 @@
+Historical shared11 baseline. For the shared12 layout fix and CT105 migration,
+see layout-and-ct105.txt in this directory.
+
 Native SDDM LXC profile qualification, 2026-10-16
 ================================================
 

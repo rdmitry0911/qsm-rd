@@ -1,0 +1,20 @@
+Compositing
+===========
+Compositing is active
+Compositing Type: OpenGL
+OpenGL vendor string: NVIDIA Corporation
+OpenGL renderer string: NVIDIA GeForce RTX 3080/PCIe/SSE2
+OpenGL version string: 3.1.0 NVIDIA 595.91.07
+OpenGL platform interface: EGL
+OpenGL shading language version string: 1.40 NVIDIA via Cg compiler
+Driver: NVIDIA
+Driver version: 595.91.7
+GPU class: Unknown
+OpenGL version: 3.1
+GLSL version: 1.40
+Linux kernel version: 7.0.14
+Direct rendering: Requires strict binding: no
+GLSL shaders:  yes
+Texture NPOT support:  yes
+Virtual Machine:  no
+OpenGL 2 Shaders are used

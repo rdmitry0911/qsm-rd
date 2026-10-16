@@ -1,0 +1,109 @@
+Native SDDM layout follow-up and CT105 migration, 2026-10-16
+==========================================================
+
+Packages: qsm-{pve-direct,pve-direct-lxc,console-guest} 0.4.0+shared12;
+optional private qsm-console-sddm 0.21.0+qsm2 (Ubuntu 24.04 / Qt 5).
+This extends the shared11 baseline in qualification.txt. Its old layout
+limitation and statement that CT105 was not migrated are superseded here.
+
+Implementation
+--------------
+The native SDDM Wayland backend populates its original keyboard model from
+the installed XKB base-layout registry. A restricted Unix API applies the
+actual map through the root per-seat controller. Only root and SDDM may use
+the endpoint; it accepts registered layout IDs, never compositor commands.
+A desktop owns its own layout and rejects greeter changes while logged in.
+Selection state is separate for each seat. A fresh greeter starts with the
+first valid system XKBLAYOUT (otherwise us); releasing an idle greeter or
+logging out restores that default. The desktop outer map starts with us.
+
+New virtual keyboards upload a US map without invalidating Sway's cached
+configuration. The host negotiates keyboard_sync with the native controller
+and waits for input_ready before exposing a newly started media worker.
+The controller forces a distinct intermediate map when the actual device
+maps differ. The worker follows wl_keyboard keymaps and translates modifier
+state into that map, including held keys and lock modifiers.
+
+The private SDDM QML directory bounds its layout list to 240 pixels with
+scrolling. System themes and distro QML files are unchanged. Native profile
+activation now reads the distro SDDM --example-config defaults before its
+administrator drop-ins: Ubuntu's compiled ubuntu-theme default is retained
+when /etc/sddm.conf and drop-ins do not exist.
+
+Qualification
+-------------
+PASS CT108: original maya theme, bounded layout menu, actual US/Russian/German
+     selection using the theme UI. Physical G,H,B,D,T,N keys produce
+     "привет ПРИВЕТ" with Shift; German AltRight+Q produces @, Y/Z exchange
+     and Shift+2 produces a double quote. See layout-*.png.
+PASS CT108: seat 1 ru while seat 2 stays us.
+PASS CT108: a third virtual keyboard deliberately uploads US while the
+     compositor's configuration still says ru; the real input_ready endpoint
+     restores Russian on all three keyboards, preserving seat 2's US map.
+     The existing browser still types Russian afterwards.
+PASS CT108: UID 1000 gets EACCES on the keyboard control socket. Layout set
+     through the live API is rejected while a native desktop is active.
+PASS CT108: normal PAM login opens Plasma after changing layouts; native
+     logout/reset returns to a fresh greeter on the existing video stream.
+PASS: package verification found a pre-existing repeated-enable bug: legacy
+     cleanup removed package-owned PAM files and dpkg treated their absence
+     as an administrator deletion. Cleanup now preserves package-owned paths;
+     installation restores missing conffiles. Repeated native enable in CT108
+     preserves its profile and both classic PAM files; package file checks
+     pass on the host and both containers. CT105's ready seats stay running.
+PASS: 32 direct-terminal and 13 native helper/keyboard unit tests (45 total).
+     Shell/Python syntax and git diff whitespace checks pass. Both the host
+     C++ media worker and the private Qt 5 SDDM package build successfully.
+
+CT105 on 192.168.64.20
+----------------------
+Before migration: unprivileged Ubuntu 24.04, qsm UID 1000, two tty slots,
+NVIDIA physical card0/renderD128 passthrough, classic QSM profile.
+No active desktop was present; three older qsm sessions were closing.
+
+Created PVE/ZFS snapshot qsm-before-native-sddm-20261016, saved the original
+PVE config and host console policy under /root/qsm-native-seat-lab/105-before-native,
+and saved guest settings/PAM/accounts under a root-only /root archive.
+Upgraded the matching host/LXC/guest packages, installed private SDDM qsm2,
+and enabled two native seats. Restarted CT105 only. Existing GPU passthrough
+and qsm's password were retained (private before/after shadow digest check).
+
+PASS: both seatqsm1/2 have active native controllers and ready SDDM greeters.
+PASS: the distro ubuntu-theme/maya is selected from compiled defaults.
+PASS: real PVE GUI -> QSM Direct -> native SDDM on Chromium 1280x800 and
+      Firefox 1280x726. Russian lower/upper case works in both browsers.
+PASS: a new nonadmin qsm-layout-check UID 1001 authenticates through PAM and
+      starts a native Plasma session (Service=qsm-sddm, seatqsm1).
+PASS: KWin supportInformation reports active OpenGL, NVIDIA Corporation,
+      NVIDIA GeForce RTX 3080/PCIe/SSE2, EGL, driver 595.91.7.
+PASS: after transport cleanup, closing Chromium and opening Firefox resumes
+      the same desktop/logind session 99671 with a new media worker.
+PASS: no port 8007 requests were attempted (blocked and asserted by drivers).
+PASS: test account and its password/home are removed after logout; qsm UID
+      1000 and its original password remain unchanged. Both seats left at
+      fresh US greeters, available for the user's own login.
+PASS: VM103/104 retain their original QEMU PIDs 2792970/2104260.
+
+Limits
+------
+The native profile remains an opt-in Ubuntu 24.04 / Qt 5 / Plasma Wayland
+qualification. The selector covers base XKB layouts; it does not configure
+custom variants/options or layout-switching shortcuts. Audio/microphone
+and tablet gestures were not requalified in this follow-up. No host reboot
+was performed. Node 172.16.16.17 was not changed in this follow-up.
+
+Reproduction
+------------
+Use browser-lab.py from this directory. QSM_LAB_VMID is restricted to 108 or
+105 (default 108). QSM_TEST_ACCOUNT accepts only the named ephemeral lab
+accounts, never qsm. QSM_LAB_BROWSER=firefox uses Playwright Firefox; provide
+MOZ_GMP_PATH when its OpenH264 plugin needs an offline installation.
+The driver additionally supports wheel (dy). To test reconnect, close the
+viewer, wait for host transport cleanup, then reopen it from the PVE menu.
+Credentials stay in memory; no traces or credential-bearing URLs are saved.
+
+For the native input upload test, use disposable CT108 with seat1 showing
+its ru greeter, seat2 us and one browser attached to seat1. Copy and run
+keyboard-probe.py as root inside that CT. It creates and then removes only
+its own additional keeper process, checks input_ready, and forks a child
+with UID/GID 1000 to verify the socket's access restriction.

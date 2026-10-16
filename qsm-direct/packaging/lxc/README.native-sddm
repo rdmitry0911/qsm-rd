@@ -57,9 +57,9 @@ Get the upstream source and invoke the builder:
     bash qsm-direct/packaging/lxc/build-qsm-console-sddm-deb.sh
 
 The builder exports the pinned v0.21.0 commit and applies the checked-in
-patches; it does not use or modify the checkout's working tree. The two
-patches contain the upstream VT-less change and a small native greeter
-lifecycle/PAM namespace integration. See sddm/*.patch for provenance.
+patches; it does not use or modify the checkout's working tree. The patches
+contain the upstream VT-less change, native greeter lifecycle/PAM namespace
+integration and the per-seat Wayland keyboard backend. See sddm/*.patch for provenance.
 Only /opt/qsm-native-sddm and package documentation are installed. Themes,
 public units, /etc/pam.d/sddm* and distribution binaries remain owned by the
 distribution. qsm-native-profile creates separate qsm-sddm PAM services by
@@ -73,25 +73,43 @@ Activate on a PVE node (restarts the selected container)
 -------------------------------------------------------
 Install matching qsm-pve-direct and qsm-pve-direct-lxc packages. The guest
 must already contain a complete Plasma desktop (e.g. kde-plasma-desktop).
-Copy qsm-console-sddm_0.21.0+qsm1_amd64.deb to the node, then run:
+Copy qsm-console-sddm_0.21.0+qsm2_amd64.deb to the node, then run:
 
   qsm-pve-direct-lxc enable VMID --login-manager sddm \
-    --sddm-deb /root/qsm-console-sddm_0.21.0+qsm1_amd64.deb \
+    --sddm-deb /root/qsm-console-sddm_0.21.0+qsm2_amd64.deb \
     --user USER --uid UID --no-gpu --restart
 
-Omit --no-gpu when physical GPU rendering is wanted; the virtual graphical
-seat itself does not require a physical GPU. User creation/admin/grace
+Omit --no-gpu to set up physical GPU passthrough and its userspace drivers.
+If passthrough already exists, --no-gpu leaves it available and avoids
+reinstalling the drivers. The virtual seat itself needs no physical GPU. User creation/admin/grace
 options retain their existing semantics; add --no-admin when appropriate.
 Set a local account password with pct exec VMID -- passwd USER. Selection
 of this profile is retained on subsequent enable runs and guest upgrades.
 
 Configuration: /etc/qsm-direct/{login-manager,native-seats.json,sddm.conf}.
-The native configuration takes its theme from the system SDDM configuration
-at activation. Change [Theme] Current in the native sddm.conf to another
+The native configuration takes its theme from compiled distribution defaults
+and the system SDDM configuration at activation. Change [Theme] Current in the native sddm.conf to another
 installed Qt 5 compatible theme. Restart qsm-native-sddm to apply it, which
-ends its current desktops. Native Wayland SDDM 0.21 does not implement its
-keyboard-layout selector: some themes show an unknown layout (maya: ?? zz).
-Actual console keyboard input works. This upstream UI limitation remains.
+ends its current desktops.
+
+The original theme's Layout selector now selects real XKB base layouts on
+that seat. The private SDDM keyboard backend talks to a restricted root
+controller over a Unix socket; ordinary desktop accounts cannot use it.
+The selector lists the container's installed XKB registry. Its private QML
+component uses a bounded, scrollable menu without modifying the system theme
+or the distribution's shared QML files. US, Russian with Shift and German
+with AltGr have been qualified through the real WebRTC console.
+
+A new greeter starts with the first valid XKBLAYOUT in /etc/default/keyboard
+(or us). Another seat retains its own selection. A new media worker uploads
+its initial US map; the host waits for the controller to restore the selected
+greeter map before offering browser input. The worker follows compositor
+keymap updates so modifiers use the selected layout. The selected map is
+confirmed by the controller, rather than changing only the flag in the UI.
+On login the outer map returns to US: the nested desktop manages its own
+keyboard layouts. Logout or release of an idle login screen starts a fresh
+greeter and restores the system default. Custom XKB variants/options and
+layout-switching shortcuts are not configured by this selector.
 
 The host creates as many seats as the container's running tty count (1..8).
 Changing tty requires stopped-container seat reconfiguration as described

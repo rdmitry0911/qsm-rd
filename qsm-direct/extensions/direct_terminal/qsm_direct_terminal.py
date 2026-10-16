@@ -1732,6 +1732,18 @@ class DirectSessionManager:
                 raise DirectTerminalError(
                     "direct-terminal container display is not available "
                     f"(worker exit code {worker.returncode}; is the container session running?)")
+            if slot is not None:
+                # Native SDDM may have selected another keymap. The new virtual
+                # keyboard uploads its initial US map while starting; restore
+                # the seat's current map before exposing browser input.
+                loop = asyncio.get_running_loop()
+                status = await loop.run_in_executor(
+                    None, _container_slot_command, init_pid, slot, {"op": "status"}, 5.0)
+                if isinstance(status, dict) and status.get("keyboard_sync") is True:
+                    synced = await loop.run_in_executor(
+                        None, _container_slot_command, init_pid, slot, {"op": "input_ready"}, 8.0)
+                    if not isinstance(synced, dict) or synced.get("ok") is not True:
+                        raise DirectTerminalError("direct-terminal native keyboard is not ready")
             guest = (QsmGuestChannel(connector=_container_clipboard_connector(init_pid, slot), keep_connected=True)
                      if slot is not None else None)
             pcm = PcmLink(pcm_ours)

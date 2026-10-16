@@ -8,7 +8,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 SOURCE_COMMIT=63780fcd79f1dbf81a30eef48c28c699ab15aded
 : "${QSM_SDDM_SOURCE_DIR:?set QSM_SDDM_SOURCE_DIR to an upstream sddm Git checkout}"
 output="${QSM_DIRECT_DEB_OUTPUT_DIR:-$ROOT_DIR/dist}"
-version="${QSM_SDDM_DEB_VERSION:-0.21.0+qsm1}"
+version="${QSM_SDDM_DEB_VERSION:-0.21.0+qsm2}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/source" "$work/stage/DEBIAN" "$work/debian" "$output"
@@ -20,6 +20,7 @@ cmake -S "$work/source" -B "$work/build" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/opt/qsm-native-sddm -DBUILD_WITH_QT6=OFF \
     -DINSTALL_PAM_CONFIGURATION=OFF -DBUILD_MAN_PAGES=OFF \
     -DDATA_INSTALL_DIR=/usr/share/sddm \
+    -DQML_INSTALL_DIR=/opt/qsm-native-sddm/share/qt5/qml \
     -DCONFIG_FILE=/etc/qsm-direct/sddm.conf -DCONFIG_DIR=/etc/qsm-direct/sddm.conf.d
 cmake --build "$work/build" -j"${QSM_DIRECT_DEB_JOBS:-4}"
 DESTDIR="$work/stage" cmake --install "$work/build"
@@ -52,7 +53,7 @@ Section: x11
 Priority: optional
 Architecture: $(dpkg --print-architecture)
 Maintainer: Dmitry R <rdmitry0911@gmail.com>
-Depends: sddm, qsm-console-guest (>= 0.4.0+shared11), $dependencies
+Depends: sddm, qsm-console-guest (>= 0.4.0+shared12), $dependencies
 Description: Native SDDM on virtual graphical seats for QSM LXC consoles
  Full SDDM daemon and greeter, privately installed under /opt, with the
  upstream VT-less seat change and native greeter reset/session integration.
