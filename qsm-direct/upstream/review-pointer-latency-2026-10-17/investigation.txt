@@ -1,0 +1,188 @@
+LXC mouse/cursor latency investigation, 2026-10-17
+=================================================
+
+User report: ordinary mouse, LXC CT105. Investigation started on October 16.
+No input was injected into the user's CT105 desktop. No runtime package,
+configuration, compositor, container or VM was restarted/changed for this
+investigation. CT105 was inspected for compositor versions and Wayland
+capabilities; active testing was confined to disposable CT108.
+
+Finding
+-------
+The LXC cursor currently takes the full input -> compositor -> capture ->
+encode -> network -> decode -> presentation path. In the wlroots backend,
+begin_capture() passes overlay_cursor=1 to wlr-screencopy. The same backend
+publishes a transparent 1x1 cursor, intentionally hiding the browser's own
+pointer to avoid showing two arrows. This is a confirmed latency contributor,
+not a measurement of all latency on the user's device/VPN.
+
+QSM's VM path already uses a locally drawn OS/CSS cursor. Its input transport
+also already has the key low-latency split for both backends:
+- qsm-control: reliable/ordered keys, buttons and other stateful actions;
+- qsm-pointer: unordered with maxRetransmits=0, replaceable motion samples;
+- qsm-guest-cursor: unordered guest cursor position/state, while bitmap/shape
+  definitions go reliably over qsm-control.
+Sequence checks reject stale coordinates. A reliable position immediately
+precedes each button edge to preserve click/drag ordering across channels.
+A new network listener/port is not required to separate cursor rendering.
+
+Relevant code at the investigated revision f14606e:
+- src/wlroots/wlroots_display.cpp: begin_capture, emit_transparent_cursor,
+  service_capture, absolute_pointer.
+- integration/proxmox/pve9/direct_ui/qsm-direct-console.js: placeGuestCursor,
+  sendPointer, queuePointer, flushPointer, peer.ontrack, applyConsoleSettings.
+- extensions/browser_bridge/qsm_browser_bridge.py: _on_datachannel,
+  _publish_cursor, UnixInputEgress.
+
+Measurements
+------------
+Real authenticated PVE GUI -> CT108 -> QSM Direct -> native Breeze greeter.
+Host Vilnius; CT108 Ubuntu 24.04, Sway 1.9, wlroots 0.17.1, pixman rendering,
+no GPU passed to the guest. Host capture/encode worker used H.264 libx264
+at --fps 60. CT105's observed worker uses h264_nvenc at --fps 60: the lab
+numbers must not be presented as a measurement of CT105's GPU path or VPN.
+Chromium 145.0.7632.6 viewport/video 1280x800; Firefox 155.0, 1280x726,
+OpenH264 plugin 2.6.0.
+
+Times are actual DOM mousemove -> changed cursor pixels in the presented
+video, read on requestVideoFrameCallback with performance.now. The ROI is
+48x56 pixels in an otherwise static backdrop, away from clock and controls.
+A pixel counts as changed above summed RGB difference 100; 35 changed pixels
+identify arrival. Native CSS/OS cursor rendering is excluded by drawing only
+the HTMLVideoElement into a private canvas. No screenshots or user content
+are saved by the measurement. Pointer samples alternate between two known
+positions, with settling time between samples.
+
+Run                                      n   median    p95       input -> send
+Firefox, exploratory baseline            12   36.0 ms   38.0 ms  median 3.0 ms
+Firefox, repeat + stationary control      12   52.5 ms   87.0 ms  median 2.5 ms
+Chromium, stationary control             12   56.8 ms   64.2 ms  median 6.75 ms
+
+Every sampled pointer-channel send had bufferedAmount=0. Both final runs
+include a same-position mouse event: it was received, but no cursor-pixel
+change was detected before the 2.5 second timeout, as expected. The initial
+exploratory Firefox run predates that negative-control addition. Its raw
+samples are retained separately rather than pooled into the later run.
+Medians use the middle-pair average; p95 uses the nearest rank. With n=12,
+p95 is effectively the maximum sample. Browser scheduling, seat and overlap
+with a retiring lab transport can vary between runs. This is diagnostic
+sampling, not a controlled before/after benchmark of an optimization.
+
+The forwarding delay is comparatively small in these runs; most elapsed
+time occurs after sending the mouse coordinate. Local cursor motion would
+avoid that network/video round trip, but application hover, selection and
+window repaint would still need it. This probe does not measure physical
+hardware-cursor latency, user network RTT or improvements after a fix.
+
+Comparison with other projects (primary sources)
+------------------------------------------------
+noVNC: its Cursor class uses a native CSS cursor bitmap/hotspot where
+supported. Its canvas fallback follows local mousemove coordinates rather
+than waiting for server-returned cursor motion.
+https://github.com/novnc/noVNC/blob/4a2cc175ae8af50fe8cb85a05d40908c01c43f6a/core/util/cursor.js
+
+SPICE: client mouse mode uses an absolute pointing device and the local
+client mouse. Server cursor shapes are separate from display updates;
+server position messages do not drive the client-mode cursor. The protocol
+also defines motion acknowledgements to limit flooding.
+https://www.spice-space.org/spice-protocol.html
+
+Selkies: its WebRTC engine separates ordered input/control traffic from an
+unordered channel for coalesced pointer motion. QSM already follows this
+transport pattern; it does not by itself remove a cursor burned into video.
+https://docs.selkies.io/latest/reference/webrtc_engine
+Inspected repository head: 6b9f17a54ffca34b44531d41185907bc96e4161e.
+
+WayVNC: its factory uses ext-image-copy-capture for a separate cursor session
+when the compositor exposes it. Its wlr-screencopy fallback has output
+capture but no corresponding cursor factory. This closely matches the
+compatibility constraint encountered here.
+https://github.com/any1/wayvnc/blob/b286ab91d0f41056317fb942e20fd117c2561228/src/screencopy-interface.c
+https://github.com/any1/wayvnc/blob/b286ab91d0f41056317fb942e20fd117c2561228/src/ext-image-copy-capture.c
+
+Protocol constraint on CT105 and CT108
+-------------------------------------
+Both running registries expose wlr-screencopy v3, virtual-pointer v2 and
+wp_cursor_shape_manager_v1. Neither exposes ext_image_copy_capture_manager_v1
+or ext_output_image_capture_source_manager_v1. The cursor-shape protocol
+allows a client to request a shape; it is not an API for observing another
+client's currently displayed cursor bitmap.
+https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/main/staging/cursor-shape/cursor-shape-v1.xml
+
+ext-image-copy-capture supports a separate pointer-cursor capture session,
+including the cursor image, hotspot, visibility/entry and position, while
+normal image capture can omit cursors. Sway 1.11 introduces the protocols
+and requires wlroots 0.19.0. Updating the compositor alone is insufficient:
+QSM must bind those interfaces and select cursor-free video as well.
+https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/main/staging/ext-image-copy-capture/ext-image-copy-capture-v1.xml
+https://github.com/swaywm/sway/releases/tag/1.11
+
+Recommended implementation order
+--------------------------------
+1. Add a capability-negotiated cursor metadata path to the LXC backend.
+   Obtain the actual bitmap/hotspot/visibility from the compositor and feed
+   the existing CursorState/shape channel. Capture desktop pixels without
+   cursor compositing. Desktop position is driven by the browser's native
+   mouse, as with the VM path; metadata supplies shape changes, not a delayed
+   position for every local mouse move. Preserve hidden cursors and restore
+   state after reconnect. Retain video cursor fallback when metadata is not
+   available. Simply painting a generic local arrow over the existing video
+   would create two pointers and lose text/resize cursor semantics.
+
+   Supply a compatible compositor through a separately packaged/private
+   Sway/wlroots build, or separately qualify a protocol backport. Prefer a
+   side-by-side installation over upgrading the container's whole OS. First
+   qualify this on CT108, including SDDM -> Plasma -> logout and two seats,
+   before changing the user's CT105 compositor/session.
+
+2. Use the standard receiver jitterBufferTarget (milliseconds) where
+   supported, with feature-detected playoutDelayHint (seconds) fallback.
+   The checked Firefox exposes jitterBufferTarget but not playoutDelayHint;
+   the current QSM playout slider therefore has no effect there. Set the
+   target on video arrival and on settings updates, then measure actual
+   jitterBufferDelay deltas / jitterBufferEmittedCount deltas. A zero target
+   is a hint and does not promise zero buffering; the browser has its own
+   minimum and network loss-recovery requirements. No A/B benefit is claimed
+   by this investigation: the change is not implemented/deployed here.
+   https://w3c.github.io/webrtc-pc/#dom-rtcrtpreceiver-jitterbuffertarget
+
+3. Independently reduce application response latency. Measure capture start,
+   compositor readiness, encode, RTP receipt and presentation under continuous
+   motion/drag, not only isolated cursor jumps. Audit the wait scheduled after
+   capture completion, latest-frame queues, browser jitter buffering and
+   actual fresh-frame cadence. Compare fixed 60 fps encoding with the rate
+   of newly captured images rather than treating them as identical.
+
+   For pointer input, evaluate immediate first send and a bounded latest-only
+   pending sample rather than an unconditional wait for rAF. Drop/replace
+   queued motion under data-channel backpressure, without dropping key or
+   button transitions. Existing sampled send delays are only a few ms, so
+   this is secondary to removing the video dependency of the cursor.
+
+Acceptance measurements for the implementation
+----------------------------------------------
+- One locally responsive pointer; no delayed duplicate in the video.
+- Correct arrow, text, link, resize, busy and hidden cursor states, hotspot
+  and scaling, including reconnect and display resize.
+- Loss/reordering does not move the cursor backwards or change click target;
+  press/release, drag and clipboard traffic retain their existing ordering.
+- Same-profile A/B on CT108 for cursor motion and actual window drag/hover;
+  compare Firefox/Chromium with LAN and emulated RTT/loss separately.
+- Only after the above, qualify the actual CT105/VPN path. Local cursor motion
+  and remote application response must be reported as separate metrics.
+
+Reproduce the measurements
+--------------------------
+Use ../review-native-login-2026-10-16/browser-lab.py with its sibling
+pointer_probe.py. QSM_LAB_VMID=108 and QSM_TEST_ACCOUNT=none avoid reading any
+local account password. Set QSM_LAB_BROWSER=firefox and MOZ_GMP_PATH for the
+offline OpenH264 installation, or QSM_CHROMIUM_EXECUTABLE for Chromium.
+After NATIVE_VIDEO send JSON: {"op":"measure_pointer","name":"pointer-run"}
+Then {"op":"quit"}. Output goes to QSM_LAB_ARTIFACTS/name.json. The operation
+is restricted to CT108. The probe never writes auth tickets/SDP or input
+payloads. Browser auth still uses the normal protected PVE GUI/API.
+
+Run wayland-capabilities.py as root inside a container to print registry
+interfaces from seat2. It only gets globals, does not bind input devices,
+and closes the connection. The JSON files in this directory record the
+actual registries observed in CT105 and CT108.

@@ -1,0 +1,118 @@
+{
+  "setup": {
+    "width": 1280,
+    "height": 726,
+    "cursor": "url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIW2NgYGBgAAAABQABOz4IWwAAABBkZUJHMDJBRTUwMUQ1MjlERTJFRcx/k6oAAAAASUVORK5CYII=\") 0 0, default",
+    "receiver_features": {
+      "jitterBufferTarget": true,
+      "playoutDelayHint": false
+    }
+  },
+  "stationary_control": {
+    "timeout": true,
+    "input_seen": true
+  },
+  "samples": [
+    {
+      "input_to_video_ms": 53,
+      "changed_pixels": 46,
+      "media_time": 0,
+      "processing_ms": 0.8,
+      "event_to_send_ms": 2,
+      "sctp_buffered_bytes": 0
+    },
+    {
+      "input_to_video_ms": 52,
+      "changed_pixels": 119,
+      "media_time": 0,
+      "processing_ms": 0.7,
+      "event_to_send_ms": 0,
+      "sctp_buffered_bytes": 0
+    },
+    {
+      "input_to_video_ms": 87,
+      "changed_pixels": 44,
+      "media_time": 0,
+      "processing_ms": 0.6,
+      "event_to_send_ms": 0,
+      "sctp_buffered_bytes": 0
+    },
+    {
+      "input_to_video_ms": 54,
+      "changed_pixels": 118,
+      "media_time": 0,
+      "processing_ms": 3.1,
+      "event_to_send_ms": 3,
+      "sctp_buffered_bytes": 0
+    },
+    {
+      "input_to_video_ms": 53,
+      "changed_pixels": 44,
+      "media_time": 0,
+      "processing_ms": 0.6,
+      "event_to_send_ms": 2,
+      "sctp_buffered_bytes": 0
+    },
+    {
+      "input_to_video_ms": 53,
+      "changed_pixels": 119,
+      "media_time": 0,
+      "processing_ms": 0.7,
+      "event_to_send_ms": 3,
+      "sctp_buffered_bytes": 0
+    },
+    {
+      "input_to_video_ms": 37,
+      "changed_pixels": 53,
+      "media_time": 0,
+      "processing_ms": 0.5,
+      "event_to_send_ms": 3,
+      "sctp_buffered_bytes": 0
+    },
+    {
+      "input_to_video_ms": 37,
+      "changed_pixels": 119,
+      "media_time": 0,
+      "processing_ms": 0.9,
+      "event_to_send_ms": 4,
+      "sctp_buffered_bytes": 0
+    },
+    {
+      "input_to_video_ms": 51,
+      "changed_pixels": 44,
+      "media_time": 0,
+      "processing_ms": 0.8,
+      "event_to_send_ms": -1,
+      "sctp_buffered_bytes": 0
+    },
+    {
+      "input_to_video_ms": 52,
+      "changed_pixels": 119,
+      "media_time": 0,
+      "processing_ms": 0.7,
+      "event_to_send_ms": 2,
+      "sctp_buffered_bytes": 0
+    },
+    {
+      "input_to_video_ms": 52,
+      "changed_pixels": 44,
+      "media_time": 0,
+      "processing_ms": 0.5,
+      "event_to_send_ms": 3,
+      "sctp_buffered_bytes": 0
+    },
+    {
+      "input_to_video_ms": 56,
+      "changed_pixels": 120,
+      "media_time": 0,
+      "processing_ms": 2.9,
+      "event_to_send_ms": 3,
+      "sctp_buffered_bytes": 0
+    }
+  ],
+  "successes": 12,
+  "median_ms": 52.5,
+  "p95_ms": 87,
+  "limitation": "Headless browser on the lab client; not the user VPN/device or physical pointer latency.",
+  "browser_version": "155.0"
+}

@@ -72,6 +72,12 @@ async def main():
                     box=await popup.locator('video').bounding_box()
                     await popup.mouse.click(box['x']+command['x'],box['y']+command['y'])
                     print('CLICK_OK',flush=True)
+                elif op=='measure_pointer':
+                    assert VMID==108, 'pointer probing is restricted to disposable CT108'
+                    from pointer_probe import measure_pointer
+                    name=command['name'];assert re.fullmatch('[a-z0-9-]+',name)
+                    output=Path(os.environ.get('QSM_LAB_ARTIFACTS','/tmp/qsm-lxc-native-login'))/(name+'.json')
+                    await measure_pointer(popup,output)
                 elif op=='wheel':
                     await popup.mouse.wheel(0,command['dy']);print('WHEEL_OK',flush=True)
                 elif op=='focus':
