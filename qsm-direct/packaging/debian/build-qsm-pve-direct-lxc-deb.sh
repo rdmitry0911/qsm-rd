@@ -23,11 +23,31 @@ guest="$OUTPUT_DIR/qsm-console-guest_${package_version}_all.deb"
 package=qsm-pve-direct-lxc
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
-install -d "$stage/usr/sbin" "$stage/usr/share/$package" "$stage/usr/share/doc/$package" "$stage/DEBIAN"
+install -d "$stage/usr/sbin" "$stage/usr/share/$package" "$stage/usr/share/doc/$package" "$stage/DEBIAN" "$stage/usr/lib/qsm-pve-direct" "$stage/usr/lib/systemd/system"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-lxc" "$stage/usr/sbin/qsm-pve-direct-lxc"
+install -m 0755 "$PACKAGE_DIR/qsm-native-vkms" "$stage/usr/lib/qsm-pve-direct/qsm-native-vkms"
+install -m 0644 "$PACKAGE_DIR/qsm-native-vkms.service" "$stage/usr/lib/systemd/system/qsm-native-vkms.service"
 install -m 0644 "$guest" "$stage/usr/share/$package/qsm-console-guest.deb"
 install -m 0644 "$ROOT_DIR/packaging/lxc/guest/README" "$stage/usr/share/doc/$package/README.guest"
 
+install -m 0644 "$ROOT_DIR/packaging/lxc/README.native-sddm" "$stage/usr/share/doc/$package/README.native-sddm"
+
+cat > "$stage/DEBIAN/postinst" <<'POSTINST'
+#!/bin/sh
+set -e
+if [ "${1:-}" = configure ] && [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+fi
+POSTINST
+chmod 0755 "$stage/DEBIAN/postinst"
+cat > "$stage/DEBIAN/prerm" <<'PRERM'
+#!/bin/sh
+set -e
+if [ "${1:-}" = remove ] && [ -d /run/systemd/system ]; then
+    systemctl disable --now qsm-native-vkms.service || true
+fi
+PRERM
+chmod 0755 "$stage/DEBIAN/prerm"
 cat > "$stage/DEBIAN/control" <<EOF
 Package: $package
 Version: $package_version

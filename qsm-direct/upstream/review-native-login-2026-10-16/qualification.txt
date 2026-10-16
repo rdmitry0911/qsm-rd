@@ -1,0 +1,110 @@
+Native SDDM LXC profile qualification, 2026-10-16
+================================================
+
+Implementation: full native SDDM, not a greeter preview/test-mode or a QSM
+implementation of the greeter authentication protocol. One daemon owns two
+real graphical logind seats and their PAM user sessions. Original system
+maya theme is selected through the ubuntu-theme alternative.
+
+Environment
+-----------
+PVE node Vilnius, 192.168.64.20, kernel 7.0.14-14-pve.
+Disposable CT108 qsm-native-seat-lab, unprivileged Ubuntu 24.04, 4 cores,
+4 GiB RAM, 16 GiB rootfs, DHCP 192.168.64.181, two tty slots.
+SDDM 0.21.0 (pinned upstream commit + two checked-in patches), Qt 5.15,
+Plasma 5.27; software rendering/encoding. No physical GPU passed to CT108.
+Two ephemeral local accounts qsm-test-a/b, random passwords stored only in
+root-readable files inside the test container. No credentials in artifacts.
+
+Results
+-------
+PASS: host creates dedicated VKMS instances and persistent device aliases.
+PASS: private guest udev metadata makes seatqsm1/2 CanGraphical=yes,
+      CanTTY=no. No host VT is passed into the guest.
+PASS: deb installation and CT restart bring up both native SDDM greeters
+      automatically. No hand-installed runtime scripts are required.
+PASS: no port 8007 requests (blocked and asserted by the final browser driver).
+PASS: real authenticated PVE GUI -> Console -> QSM Direct -> WebRTC video,
+      original SDDM theme, username/password entered as physical key events.
+PASS: both Chromium and Firefox display the native greeter and deliver input.
+      Chromium used locally installed 1208; Firefox used OpenH264 2.6.0.
+PASS: wrong password rejected by the system PAM authentication stack.
+PASS: correct passwords create real active native user sessions on separate
+      seats (Service=qsm-sddm, Class=user, correct UID/seat). Two different
+      users run Plasma concurrently, visible through separate WebRTC consoles.
+PASS: a second native login of the same local account is rejected by the
+      PAM session hook; its existing desktop remains active on the first seat.
+PASS: ordinary Plasma logout returns to native SDDM on the same video stream;
+      another account's seat remains active. Final runtime additionally reaps
+      the closed scope so the session clipboard/audio agent does not linger.
+PASS: a live Wayland connection held by the desktop account receives EOF on
+      logout. Display access is revoked, not only the filesystem ACL.
+PASS: desktop account can connect to its proxy, but gets EACCES for the other
+      seat's proxy and for the persistent outer display socket.
+PASS: supplying another VMID for the passed DRM device is rejected before
+      writing its udev record: dedicated VKMS instance ownership is checked.
+PASS: root status/reset API reports the current native user and returns to
+      a ready greeter after forced session termination. Idle greeter reset
+      clears a partially entered username. It does not reset another seat.
+PASS: after closing the browser, the host keeps its desktop for the configured
+      30 second lab grace interval, then logs it out and releases the slot.
+PASS: greeter resizes to Chromium 1280x800 and Firefox 1280x726.
+PASS: native user session starts the existing clipboard/audio agent; its
+      sockets and PipeWire QSM Console/QSM Microphone devices are present.
+PASS: stable device recovery with changed DRM minors. With CT108 stopped,
+      its dedicated instances were removed and a temporary owned VKMS device
+      reserved the first minor. The restore service recreated CT108 cards as
+      226:2 and 226:3 instead of 226:1 and 226:2. The unchanged stable devN
+      passthrough entries booted CT108 into both native greeters. The temporary
+      device/registry were removed. A real host reboot was not performed.
+PASS: re-running enable without --login-manager retains the native profile.
+PASS: explicit rollback to qsm with --restart brings up qsm-login@1/2; native
+      enable with its deb and --restart brings back both native SDDM seats.
+PASS: VM103/104 PIDs remain 2792970/2104260; CT105 guest package/config/profile
+      are unchanged. Host QSM runtime/LXC packages were updated to shared11.
+PASS: 32 direct-terminal tests, including failed/malformed status replies;
+      four native helper tests (FD/memfd relay, disconnect FD leak, manifest
+      ownership/mode/path/duplicate/symlink rejection, stale PAM cleanup
+      preserving a replacement desktop). Guest systemd unit
+      verification passed on CT108. Shell/Python syntax checks pass.
+
+Qualification limits
+--------------------
+The profile is opt-in, initially Ubuntu 24.04 / Qt 5 / Plasma Wayland only.
+Other desktop managers, Qt 6 themes and X11 native sessions are not qualified.
+Same-account parallel Plasma desktops are intentionally rejected. Actual
+browser audio playback, microphone and tablet gestures were not requalified
+in this native-seat run; basic session-agent/device startup was checked.
+SDDM 0.21 Wayland lacks keyboard layout switching in the greeter backend;
+maya shows its unknown-layout placeholder (?? zz). Keyboard input works.
+The restore path was exercised with changed minors; no host reboot was done.
+Production CT105 and node 172.16.16.17 were not migrated to native SDDM.
+
+Review entry points
+-------------------
+packaging/lxc/README.native-sddm: architecture, build, activation, rollback.
+packaging/lxc/sddm/*.patch: pinned upstream VT-less change and local lifecycle
+  / PAM namespace patch. Both daemon and greeter are the full native SDDM.
+packaging/lxc/qsm-native-seat: virtual-seat and Wayland lifecycle boundary.
+packaging/debian/qsm-native-vkms: host-only owned-device lifecycle/registry.
+
+Reproduce browser input
+-----------------------
+Install Playwright Chromium and use browser-lab.py with root SSH access.
+QSM_TEST_ACCOUNT selects qsm-test-a or qsm-test-b (default a). For the local
+cached executable used in this run set QSM_CHROMIUM_EXECUTABLE to its path.
+QSM_LAB_ARTIFACTS controls the screenshot directory. The driver logs in to
+PVE through the real GUI with an in-memory root@pam ticket, then opens CT108.
+It reads only the selected ephemeral password from CT108 /root into memory.
+Public JSON commands, one per stdin line, for the 1280x800 maya greeter:
+  {"op":"click","x":640,"y":336}
+  {"op":"type","value":"qsm-test-a"}
+  {"op":"keys","keys":["Tab"]}
+  {"op":"password"}
+  {"op":"keys","keys":["Enter"]}
+  {"op":"wait"}
+  {"op":"snapshot","name":"native-desktop"}
+  {"op":"quit"}
+The password command sends real Shift/key-code edges and never echoes the
+password. The driver aborts legacy port 8007 requests and asserts none were
+attempted on exit. Do not collect browser traces containing live auth data.

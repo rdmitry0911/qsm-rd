@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """QSM Direct login manager for one container console ("slot").
 
-A container has no VT, so greetd/SDDM cannot run.  Like the ttys of PVE's
+The current container profile has no graphical logind seat and uses this
+login manager. Native display managers need a separate virtual-seat backend;
+SDDM has upstream support for running without kernel VTs. Like the ttys of PVE's
 terminal console, a container has several QSM consoles (qsm-display@N: a
 headless sway each); every PVE Console gets one of them, starting at its
 login screen, and never sees another Console's desktop.  qsm-login@N is the

@@ -223,7 +223,10 @@ value applies at the container's next start (host and container both read
 the running value).  One container account can have one console desktop at a
 time (two Plasma sessions of one user break each other).
 
-A container has no VT, so greetd/SDDM cannot run (an enabled SDDM is disabled).
+The original login profile supplies no graphical logind seat and disables
+the ordinary display manager in favour of qsm-login. The optional native
+SDDM profile supplies dedicated VKMS/logind seats without host VTs; see
+the LXC package README.native-sddm for activation and qualification.
 The login screen lists the container's accounts (new ones appear live); pick
 one, enter its password, choose Plasma (Wayland) or Plasma (X11).  qsm-login
 checks the password with PAM (service qsm-login) and starts the session
@@ -261,3 +264,10 @@ Notes: the in-session screen locker's auto-lock is disabled (console access is
 already gated by PVE) and KScreen's automatic mode selection is off (the
 console window decides the resolution).  X11 clients render through SHM: the
 headless display offers no DRM device for Xwayland's glamor.
+
+Native LXC SDDM profile (opt-in)
+------------------------------
+qsm-pve-direct-lxc enable supports --login-manager sddm --sddm-deb FILE
+--restart. Dedicated virtual graphical seats let a full SDDM authenticate
+and own desktop sessions without host VTs. See the LXC package
+README.native-sddm for the qualified Ubuntu/Qt 5 profile and rollback.

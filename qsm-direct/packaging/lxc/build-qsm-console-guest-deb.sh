@@ -26,11 +26,12 @@ install -d "$lib" "$stage/usr/share/qsm-console" "$stage/usr/lib/systemd/system"
     "$stage/usr/lib/systemd/user/plasma-kwin_wayland.service.d" "$stage/etc/pam.d" \
     "$stage/usr/share/doc/$package" "$stage/DEBIAN"
 for script in qsm-login qsm-greeter qsm-session-launch qsm-seat-keeper qsm-consoles qsm-display-start \
-              qsm-clipboard-agent; do
+              qsm-clipboard-agent qsm-native-seat qsm-native-session qsm-native-profile; do
     install -m 0755 "$LXC_DIR/$script" "$lib/$script"
 done
 install -m 0644 "$LXC_DIR/qsm-display-sway.conf" "$stage/usr/share/qsm-console/sway.conf"
-for unit in qsm-display@.service qsm-seat-keeper@.service qsm-login@.service qsm-consoles.service; do
+for unit in qsm-display@.service qsm-seat-keeper@.service qsm-login@.service qsm-consoles.service \
+            qsm-native-seat-udev.service qsm-native-seat-control@.service qsm-native-sddm.service; do
     install -m 0644 "$LXC_DIR/guest/$unit" "$stage/usr/lib/systemd/system/$unit"
 done
 install -m 0644 "$LXC_DIR/guest/qsm-nested.conf" \
@@ -38,6 +39,7 @@ install -m 0644 "$LXC_DIR/guest/qsm-nested.conf" \
 install -m 0644 "$LXC_DIR/guest/pam-qsm-login" "$stage/etc/pam.d/qsm-login"
 install -m 0644 "$LXC_DIR/guest/pam-qsm-direct-session" "$stage/etc/pam.d/qsm-direct-session"
 install -m 0644 "$LXC_DIR/guest/README" "$stage/usr/share/doc/$package/README"
+install -m 0644 "$LXC_DIR/README.native-sddm" "$stage/usr/share/doc/$package/README.native-sddm"
 for script in postinst prerm postrm; do
     install -m 0755 "$LXC_DIR/guest/$script" "$stage/DEBIAN/$script"
 done

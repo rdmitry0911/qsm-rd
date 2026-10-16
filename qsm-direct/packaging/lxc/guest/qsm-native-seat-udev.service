@@ -1,0 +1,14 @@
+[Unit]
+Description=Prepare native QSM virtual graphics seats
+DefaultDependencies=no
+After=systemd-tmpfiles-setup.service
+Before=systemd-logind.service display-manager.service
+ConditionPathExists=/etc/qsm-direct/native-seats.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/qsm-console/qsm-native-seat prepare
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

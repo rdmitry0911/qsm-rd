@@ -4,5 +4,6 @@ set -e
 if [ -d /run/systemd/system ]; then systemctl daemon-reload || true; fi
 if [ "${1:-}" = purge ]; then
     rm -rf /etc/qsm-direct /var/lib/qsm-login
+    rm -f /etc/pam.d/qsm-sddm /etc/pam.d/qsm-sddm-greeter /etc/pam.d/qsm-sddm-autologin
 fi
 exit 0

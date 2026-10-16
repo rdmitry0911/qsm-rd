@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -130,6 +131,21 @@ class ContainerSlotTests(unittest.TestCase):
         slot = restarted._slots[(105, alice)]
         self.assertEqual(slot.owner, "alice@pve")
         self.assertIsNotNone(slot.detached_at)  # no Console survives a restart: the grace period runs
+
+
+class ContainerOccupantReplyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_failed_or_malformed_status_is_not_a_free_login_screen(self):
+        manager = DirectSessionManager.__new__(DirectSessionManager)
+        manager._slots = {}
+        module = sys.modules[DirectSessionManager.__module__]
+        for response, expected in [({'ok': False}, None), ({'user': None}, None),
+                                   ([], None), (None, None), ({'ok': True}, None),
+                                   ({'ok': True, 'user': 1000}, None),
+                                   ({'ok': True, 'user': None}, ''),
+                                   ({'ok': True, 'user': 'alice'}, 'alice')]:
+            with self.subTest(response=response), mock.patch.object(
+                    module, '_container_slot_command', return_value=response):
+                self.assertEqual(await manager._console_occupants(105, '100:1', 1), {1: expected})
 
 
 class ConsoleCountTests(unittest.TestCase):

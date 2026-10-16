@@ -1133,7 +1133,9 @@ class DirectSessionManager:
             status = await loop.run_in_executor(
                 None, _container_slot_command, init_pid, number, {"op": "status"}, 5.0)
             account = status.get("user") if isinstance(status, dict) else None
-            occupants[number] = None if status is None else (account if isinstance(account, str) else "")
+            occupants[number] = (account if isinstance(account, str) else "") if (
+                isinstance(status, dict) and status.get("ok") is True and "user" in status
+                and (account is None or isinstance(account, str) and bool(account))) else None
         return occupants
 
     def _slot_detached(self, key: object) -> None:

@@ -1,0 +1,16 @@
+[Unit]
+Description=Restore dedicated VKMS displays for native QSM container seats
+After=pve-cluster.service systemd-udev-trigger.service
+Before=pve-guests.service
+RequiresMountsFor=/sys/kernel/config
+ConditionDirectoryNotEmpty=/var/lib/qsm-pve-direct/native-seats
+
+[Service]
+Type=oneshot
+# Preserve existing physical DRM numbering before creating virtual cards.
+ExecStartPre=/usr/bin/udevadm settle --timeout=30
+ExecStart=/usr/lib/qsm-pve-direct/qsm-native-vkms restore
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

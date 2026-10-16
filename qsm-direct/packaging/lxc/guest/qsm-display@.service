@@ -1,4 +1,5 @@
 [Unit]
+Before=qsm-native-sddm.service
 Description=QSM Direct console %i display (headless sway)
 PartOf=qsm-consoles.service
 

@@ -188,7 +188,8 @@ def install_nvidia_userspace(vmid: int, run_file: str | None) -> None:
 def require_plasma(vmid: int) -> None:
     if ct(vmid, "command -v apt-get", check=False).returncode != 0:
         raise SetupError("the container is not Debian/Ubuntu (no apt-get); the console package needs apt")
-    if ct(vmid, "command -v startplasma-wayland || command -v startplasma-x11", check=False).returncode != 0:
+    if ct(vmid, "(command -v startplasma-wayland || command -v startplasma-x11) && "
+                "test -d /usr/share/plasma/shells/org.kde.plasma.desktop", check=False).returncode != 0:
         raise SetupError("no KDE Plasma session found in the container; install a Plasma desktop first "
                          "(e.g. apt install kde-plasma-desktop)")
 
@@ -277,7 +278,7 @@ def install_guest_package(vmid: int, session: str) -> None:
     info(f"installing the container console package into CT {vmid}")
     run(["pct", "push", str(vmid), str(GUEST_PACKAGE), "/root/qsm-console-guest.deb", "--perms", "0644"])
     ct(vmid, "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && "
-             "apt-get install -y -qq --no-install-recommends -o Dpkg::Use-Pty=0 "
+             "apt-get install -y -qq --reinstall --no-install-recommends -o Dpkg::Use-Pty=0 "
              "/root/qsm-console-guest.deb kwin-wayland plasma-workspace-wayland; "
              "rc=$?; rm -f /root/qsm-console-guest.deb; exit $rc", timeout=1800)
     push(vmid, session + "\n", "/etc/qsm-direct/session-type")
@@ -309,13 +310,72 @@ def password_is_set(vmid: int, user: str) -> bool:
     return len(fields) > 1 and fields[1] == "P"
 
 
+def native_profile(vmid: int) -> bool:
+    return ct(vmid, "cat /etc/qsm-direct/login-manager 2>/dev/null", check=False).stdout.strip() == "sddm"
+
+
+def configure_native(vmid: int, conf: Path, slots: int, package: Path | None) -> bool:
+    helper = '/usr/lib/qsm-pve-direct/qsm-native-vkms'
+    manifest = json.loads(run([helper, 'create', str(vmid), '--slots', str(slots)]).stdout)
+    text = conf.read_text()
+    used = {int(m.group(1)) for m in re.finditer(r'^dev(\d+):', text, re.M)}
+    present = set(re.findall(r'^dev\d+:\s*([^,\s]+)', text, re.M))
+    changed = False
+    for entry in manifest['slots']:
+        if entry['device'] in present:
+            continue
+        index = next(n for n in range(256) if n not in used)
+        run(['pct', 'set', str(vmid), f'--dev{index}', entry['device'] + ',mode=0600'])
+        used.add(index)
+        changed = True
+    run(['systemctl', 'daemon-reload'])
+    run(['systemctl', 'enable', 'qsm-native-vkms.service'])
+    run(['systemctl', 'start', 'qsm-native-vkms.service'])
+    push(vmid, json.dumps(manifest) + '\n', '/etc/qsm-direct/native-seats.json')
+    if package:
+        push(vmid, package, '/root/qsm-console-sddm.deb')
+        ct(vmid, 'export DEBIAN_FRONTEND=noninteractive; '
+                 'apt-get install -y -qq --reinstall --no-install-recommends -o Dpkg::Use-Pty=0 '
+                 '/root/qsm-console-sddm.deb; rc=$?; rm -f /root/qsm-console-sddm.deb; exit $rc', timeout=1800)
+    # Stop the former login managers before native SDDM owns authentication.
+    ct(vmid, "systemctl stop 'qsm-login@*.service' 'qsm-session-*.service'")
+    ct(vmid, '/usr/lib/qsm-console/qsm-native-profile configure')
+    ct(vmid, 'systemctl disable --now sddm.service', check=False)
+    return changed
+
+
+def reboot_container(vmid: int) -> None:
+    info(f'restarting CT {vmid} to apply native graphical seats')
+    run(['pct', 'reboot', str(vmid)], timeout=300)
+    for _ in range(60):
+        if ct_status(vmid) == 'running' and ct(vmid, 'true', check=False).returncode == 0:
+            return
+        time.sleep(2)
+    raise SetupError(f'CT {vmid} did not finish restarting')
+
+
 # ------------------------------------------------------------------ commands
 def cmd_enable(args: argparse.Namespace) -> int:
     conf = require_container(args.vmid)
     if not GUEST_PACKAGE.is_file():
         raise SetupError(f"{GUEST_PACKAGE} is missing (is qsm-pve-direct-lxc installed?)")
+    was_native = native_profile(args.vmid)
+    manager = args.login_manager or ('sddm' if was_native else 'qsm')
+    if was_native and manager != 'sddm':
+        if not args.restart:
+            raise SetupError('switching from native SDDM requires --restart')
+        ct(args.vmid, '/usr/lib/qsm-console/qsm-native-profile disable')
+        reboot_container(args.vmid)
+    native_deb = Path(args.sddm_deb).resolve() if args.sddm_deb else None
+    if manager == 'sddm':
+        if args.session != 'wayland':
+            raise SetupError('the native SDDM profile currently supports Wayland sessions')
+        if not was_native and (not native_deb or not native_deb.is_file()):
+            raise SetupError('first native activation requires --sddm-deb FILE (qsm-console-sddm)')
+        if not was_native and not args.restart:
+            raise SetupError('native graphical seats require a container restart; use --restart')
     changed = False if args.no_gpu else configure_gpu(args.vmid, conf)
-    if changed:
+    if changed and manager != 'sddm':
         if args.restart:
             info(f"restarting CT {args.vmid} to apply GPU access")
             run(["pct", "reboot", str(args.vmid)], timeout=300)
@@ -332,14 +392,23 @@ def cmd_enable(args: argparse.Namespace) -> int:
     remove_legacy_session(args.vmid, args.uid)
     slots = running_consoles(args.vmid)
     install_guest_package(args.vmid, args.session)
+    if manager == 'sddm':
+        changed = configure_native(args.vmid, conf, slots, native_deb) or changed
+        if args.restart:
+            reboot_container(args.vmid)
+        elif changed:
+            raise SetupError('native device configuration changed; restart the container before connecting')
+        ct(args.vmid, 'systemctl start qsm-native-sddm.service')
     write_policy(args.vmid, args.uid, args.grace)
     for _ in range(30):
         if ct(args.vmid, f"ls /run/qsm-display-{slots}/ 2>/dev/null | grep -Eq '^wayland-[0-9]+$'",
               check=False).returncode == 0:
             break
         time.sleep(1)
+    if manager == 'sddm':
+        info(f"native SDDM: {slots} virtual seats; rerun setup after changing the tty count")
     info(f"enabled: CT {args.vmid} -> Console -> \"QSM Direct\": one console per tty (now {slots}; a changed "
-         f"tty option applies at the container's next start), each with its own login screen (default session {args.session}; a closed console's desktop "
+         f"tty option requires native seat reconfiguration when using SDDM), each with its own login screen (default session {args.session}; a closed console's desktop "
          f"waits {args.grace} s for its PVE user, then logs out)")
     if not password_is_set(args.vmid, args.user):
         info(f"{args.user} has no password and cannot log in yet -- set one with: pct exec {args.vmid} -- passwd {args.user}")
@@ -348,6 +417,8 @@ def cmd_enable(args: argparse.Namespace) -> int:
 
 def cmd_session(args: argparse.Namespace) -> int:
     require_container(args.vmid)
+    if native_profile(args.vmid):
+        raise SetupError('native SDDM offers the installed Wayland sessions; select one on its login screen')
     push(args.vmid, args.type + "\n", "/etc/qsm-direct/session-type")
     info(f"CT {args.vmid}: the login screen now offers {args.type} by default "
          "(a user's last choice on the login screen still wins; it applies at the next login)")
@@ -369,6 +440,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"CT {args.vmid}: console policy {'present' if enabled else 'absent'}; container {ct_status(args.vmid)}")
     if enabled and ct_status(args.vmid) == "running":
         slots = running_consoles(args.vmid)
+        native = native_profile(args.vmid)
+        print(f"  login manager          {'native SDDM' if native else 'QSM'}")
         owners = {}
         init_pid = run(["lxc-info", "-n", str(args.vmid), "-p", "-H"], check=False).stdout.strip()
         try:
@@ -381,9 +454,13 @@ def cmd_status(args: argparse.Namespace) -> int:
             pass
         for number in range(1, slots + 1):
             states = [ct(args.vmid, f"systemctl is-active {unit}", check=False).stdout.strip()
-                      for unit in (f"qsm-display@{number}.service", f"qsm-login@{number}.service")]
+                      for unit in (f"qsm-display@{number}.service", "qsm-native-sddm.service" if native else f"qsm-login@{number}.service")]
             user = ct(args.vmid, f"systemctl is-active --quiet qsm-session-{number}.service && "
                                  f"cat /run/qsm-login/{number}/user", check=False).stdout.strip()
+            if native:
+                seat_user = ct(args.vmid, f"loginctl show-seat seatqsm{number} -p ActiveSession --value", check=False).stdout.strip()
+                user = ct(args.vmid, f"loginctl show-session {shlex.quote(seat_user)} -p Name --value", check=False).stdout.strip() if seat_user else ''
+                if user == 'sddm': user = ''
             owner, left = owners.get(number, (None, None))
             pve = "free" if owner is None else (f"PVE {owner}, connected" if left is None else
                                                 f"PVE {owner}, closed {int(time.time() - left)} s ago")
@@ -403,8 +480,8 @@ def cmd_disable(args: argparse.Namespace) -> int:
         path.unlink()
         info(f"CT {args.vmid}: console policy removed (the Console button no longer offers QSM Direct)")
     if ct_status(args.vmid) == "running":
-        ct(args.vmid, "systemctl disable --now qsm-consoles.service; systemctl stop 'qsm-session-*.service' "
-                      + " ".join(slot_units(range(1, MAX_SLOTS + 1))), check=False)
+        ct(args.vmid, "systemctl disable --now qsm-native-sddm.service qsm-consoles.service; systemctl stop 'qsm-session-*.service' "
+                      + " ".join(slot_units(range(1, MAX_SLOTS + 1))) + " 'qsm-native-seat-control@*.service'", check=False)
         info(f"CT {args.vmid}: console display, login screen and sessions stopped "
              "(files and GPU passthrough left in place)")
     return 0
@@ -419,13 +496,16 @@ def main(argv: list[str] | None = None) -> int:
     enable.add_argument("--uid", type=int, default=1000)
     enable.add_argument("--session", choices=("wayland", "x11"), default="wayland",
                         help="session type the login screen offers by default")
+    enable.add_argument('--login-manager', choices=('qsm', 'sddm'),
+                        help='login manager (new containers default to qsm; existing selection is retained)')
+    enable.add_argument('--sddm-deb', help='qsm-console-sddm package for native SDDM activation/update')
     enable.add_argument("--nvidia-run", help="NVIDIA .run installer matching the host driver")
     enable.add_argument("--no-gpu", action="store_true", help="do not pass through the GPU")
     enable.add_argument("--no-admin", action="store_true",
                         help="do not add the desktop user to the sudo (polkit administrator) group")
     enable.add_argument("--grace", type=int, default=300,
                         help="seconds a closed console's desktop waits for its PVE user before logout (default 300)")
-    enable.add_argument("--restart", action="store_true", help="restart the container if GPU access changed")
+    enable.add_argument("--restart", action="store_true", help="restart the container to apply GPU access or native SDDM seats")
     enable.set_defaults(func=cmd_enable)
     session = sub.add_parser("session", help="set the login screen's default session type")
     session.add_argument("vmid", type=int)

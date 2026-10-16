@@ -1,0 +1,628 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""Virtual-seat infrastructure for the native SDDM container profile.
+
+Authentication and desktop session ownership remain with SDDM/PAM. This
+program provides seat metadata, display access and the host status/reset API.
+"""
+from __future__ import annotations
+
+import array
+import fcntl
+import json
+import os
+import pwd
+import re
+import signal
+import shutil
+import socket
+import stat
+import struct
+import subprocess
+import sys
+import time
+import threading
+from pathlib import Path
+
+CONFIG = Path('/etc/qsm-direct/native-seats.json')
+RUNTIME = Path('/run/qsm-native')
+SEAT = re.compile(r'seatqsm([1-8])\Z')
+SESSION = re.compile(r'[A-Za-z0-9_-]{1,64}\Z')
+
+
+def command(argv: list[str], timeout: int = 15) -> str:
+    return subprocess.run(argv, check=True, text=True, capture_output=True,
+                          timeout=timeout).stdout.strip()
+
+
+def configuration() -> dict:
+    fd = os.open(CONFIG, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        meta = os.fstat(fd)
+        if not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o022:
+            raise ValueError('native seat manifest must be a root-owned regular file')
+        if meta.st_size > 16384:
+            raise ValueError('native seat manifest is too large')
+        config = json.loads(os.read(fd, 16385))
+    finally:
+        os.close(fd)
+    if not isinstance(config, dict):
+        raise ValueError('native seat manifest must be an object')
+    vmid = config.get('vmid')
+    if type(vmid) is not int or vmid <= 0:
+        raise ValueError('invalid container ID')
+    slots = config.get('slots')
+    if not isinstance(slots, list) or not 1 <= len(slots) <= 8:
+        raise ValueError('invalid console count')
+    seen: set[int] = set()
+    for entry in slots:
+        if not isinstance(entry, dict):
+            raise ValueError('native seat entry must be an object')
+        slot, card = entry.get('slot'), entry.get('card')
+        if type(slot) is not int or slot not in range(1, 9) or slot in seen:
+            raise ValueError('invalid or duplicate console slot')
+        device = entry.get('device')
+        if device is None and isinstance(card, str) and re.fullmatch(r'card[0-9]{1,5}', card):
+            device = f'/dev/dri/{card}'
+        if device != f'/dev/qsm-native/{vmid}-seat{slot}' and not (
+                isinstance(device, str) and re.fullmatch(r'/dev/dri/card[0-9]{1,5}', device)):
+            raise ValueError('invalid virtual DRM device path')
+        entry['device'] = device
+        seen.add(slot)
+    return config
+
+
+def slot_config(seat: str) -> tuple[int, dict]:
+    match = SEAT.fullmatch(seat)
+    if not match:
+        raise ValueError('not a QSM virtual seat')
+    slot = int(match[1])
+    entry = next((s for s in configuration()['slots'] if s['slot'] == slot), None)
+    if entry is None:
+        raise ValueError('seat is not configured')
+    return slot, entry
+
+
+def root_directory(path: Path, mode: int = 0o700) -> None:
+    path.mkdir(mode=mode, parents=True, exist_ok=True)
+    meta = path.lstat()
+    if not stat.S_ISDIR(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o022:
+        raise ValueError(f'unsafe native-seat directory: {path}')
+    os.chmod(path, mode)
+
+
+def prepare() -> None:
+    """Publish only dedicated VKMS devices in this container's udev database."""
+    config = configuration()
+    root_directory(RUNTIME, 0o755)
+    root_directory(Path('/run/qsm-login'), 0o711)
+    udev = Path('/run/udev')
+    for path in (udev, udev / 'data', udev / 'tags'):
+        root_directory(path, 0o755)
+        if path.stat().st_dev != Path('/run').stat().st_dev or path.is_mount():
+            raise ValueError('refusing to write a shared or separately mounted udev database')
+    for entry in config['slots']:
+        slot = entry['slot']
+        node = Path(entry['device'])
+        meta = node.stat()
+        if not stat.S_ISCHR(meta.st_mode) or os.major(meta.st_rdev) != 226:
+            raise ValueError('native seat device is not a DRM character device')
+        major, minor = os.major(meta.st_rdev), os.minor(meta.st_rdev)
+        device = (Path('/sys/dev/char') / f'{major}:{minor}').resolve(strict=True)
+        card = device.name
+        expected = Path(f'/sys/devices/faux/qsm-{config["vmid"]}-seat{slot}/drm/{card}')
+        if not re.fullmatch(r'card[0-9]+', card) or device != expected:
+            raise ValueError('seat device is not its dedicated QSM VKMS instance')
+        root_directory(Path('/dev/dri'), 0o755)
+        standard = Path('/dev/dri') / card
+        if standard.exists():
+            if standard.stat().st_rdev != meta.st_rdev:
+                raise ValueError('native DRM name collides with another device')
+        elif not standard.is_symlink():
+            standard.symlink_to(node)
+        identity = f'c{major}:{minor}'
+        target = udev / 'data' / identity
+        content = (f'I:{time.monotonic_ns() // 1000}\nE:ID_SEAT=seatqsm{slot}\n'
+                   'G:seat\nG:master-of-seat\nQ:seat\nQ:master-of-seat\nV:1\n')
+        if target.is_symlink():
+            raise ValueError('udev database entry is a symlink')
+        temporary = target.with_suffix('.qsm-new')
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+        try:
+            os.write(fd, content.encode())
+        finally:
+            os.close(fd)
+        temporary.replace(target)
+        for tag in ('seat', 'master-of-seat'):
+            directory = udev / 'tags' / tag
+            root_directory(directory, 0o755)
+            fd = os.open(directory / identity, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+            os.close(fd)
+        root_directory(RUNTIME / str(slot))
+    print('QSM_NATIVE_SEATS_PREPARED')
+
+
+def display_socket(slot: int) -> Path:
+    record = RUNTIME / f'display-{slot}'
+    if os.geteuid() != 0:
+        fd = os.open(record, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            meta = os.fstat(fd)
+            if not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o022:
+                raise ValueError('unsafe display endpoint record')
+            value = os.read(fd, 256).decode().strip()
+        finally:
+            os.close(fd)
+        if not re.fullmatch(rf'/run/qsm-display-{slot}/wayland-[0-9]+', value):
+            raise ValueError('invalid display endpoint record')
+        path = Path(value)
+        if not stat.S_ISSOCK(path.lstat().st_mode):
+            raise ValueError('virtual display is not ready')
+        return path
+    directory = Path(f'/run/qsm-display-{slot}')
+    candidates = sorted(p for p in directory.iterdir()
+                        if re.fullmatch(r'wayland-[0-9]+', p.name)
+                        and stat.S_ISSOCK(p.lstat().st_mode))
+    if len(candidates) != 1:
+        raise ValueError('virtual display is not ready or is ambiguous')
+    fd = os.open(record, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
+    try:
+        os.write(fd, (str(candidates[0]) + '\n').encode())
+    finally:
+        os.close(fd)
+    return candidates[0]
+
+
+def session_properties(identifier: str) -> dict[str, str]:
+    if not SESSION.fullmatch(identifier):
+        raise ValueError('invalid logind session ID')
+    text = command(['loginctl', 'show-session', identifier, '-p', 'Name', '-p', 'User',
+                    '-p', 'Seat', '-p', 'Class', '-p', 'Service', '-p', 'State'])
+    return dict(line.split('=', 1) for line in text.splitlines() if '=' in line)
+
+
+def user_sessions(seat: str) -> list[tuple[str, dict[str, str]]]:
+    slot_config(seat)
+    identifiers = command(['loginctl', 'show-seat', seat, '-p', 'Sessions', '--value']).split()
+    result = []
+    for identifier in identifiers:
+        data = session_properties(identifier)
+        if (data.get('Seat') == seat and data.get('Class') == 'user'
+                and data.get('Service') in ('sddm', 'qsm-sddm') and data.get('State') != 'closing'):
+            result.append((identifier, data))
+    return result
+
+
+def pam_session() -> None:
+    """A PAM session hook; it never receives or authenticates a password."""
+    seat = os.environ.get('XDG_SEAT', '')
+    slot, _entry = slot_config(seat)
+    kind = os.environ.get('PAM_TYPE')
+    service = os.environ.get('PAM_SERVICE')
+    if kind not in ('open_session', 'close_session') or service not in ('sddm', 'sddm-greeter', 'qsm-sddm', 'qsm-sddm-greeter'):
+        raise ValueError('unexpected native PAM invocation')
+    account = pwd.getpwnam(os.environ.get('PAM_USER', ''))
+    identifier = os.environ.get('XDG_SESSION_ID', '')
+    if not SESSION.fullmatch(identifier):
+        raise ValueError('PAM did not supply a logind session ID')
+    directory = RUNTIME / str(slot)
+    root_directory(directory)
+    with (RUNTIME / 'pam.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        state = directory / (identifier + '.json')
+        display = (display_socket(slot) if service.endswith('greeter') else
+                   RUNTIME / f'wayland-{slot}')
+        if kind == 'open_session':
+            if service in ('sddm', 'qsm-sddm'):
+                for entry in configuration()['slots']:
+                    if entry['slot'] != slot:
+                        for _id, other in user_sessions(f'seatqsm{entry["slot"]}'):
+                            if other.get('Name') == account.pw_name:
+                                raise ValueError('this account already has a desktop on another console')
+            if service in ('sddm-greeter', 'qsm-sddm-greeter'):
+                runtime = RUNTIME / f'greeter-{seat}'
+                runtime.mkdir(mode=0o700, exist_ok=True)
+                if runtime.is_symlink() or not runtime.is_dir():
+                    raise ValueError('unsafe greeter runtime')
+                os.chown(runtime, account.pw_uid, account.pw_gid)
+                os.chmod(runtime, 0o700)
+            else:
+                clip = Path(f'/run/qsm-login/clip-{slot}')
+                if clip.is_symlink():
+                    raise ValueError('unsafe clipboard runtime')
+                if clip.exists():
+                    shutil.rmtree(clip)
+                clip.mkdir(mode=0o700, parents=True, exist_ok=True)
+                if clip.is_symlink() or not clip.is_dir():
+                    raise ValueError('unsafe clipboard runtime')
+                os.chown(clip, account.pw_uid, account.pw_gid)
+                os.chmod(clip, 0o700)
+            command(['setfacl', '-m', f'u:{account.pw_uid}:rw', str(display)])
+            temporary = state.with_suffix('.new')
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(fd, 'w') as target:
+                json.dump({'uid': account.pw_uid, 'service': service}, target)
+            temporary.replace(state)
+        else:
+            state.unlink(missing_ok=True)
+            still_used = any(json.loads(p.read_text()).get('uid') == account.pw_uid
+                             for p in directory.glob('*.json'))
+            if not still_used:
+                command(['setfacl', '-x', f'u:{account.pw_uid}', str(display)])
+                if not service.endswith('greeter'):
+                    stop_desktop(account.pw_name)
+
+
+def stop_desktop(user: str) -> None:
+    # Plasma runs parts of its desktop in the user manager outside the PAM
+    # scope. Stop only graphical services, retaining unrelated SSH sessions.
+    subprocess.run(['systemctl', '--user', '-M', f'{user}@', '--no-block', 'stop',
+                    'plasma-workspace.target', 'graphical-session.target', 'plasma-*.service'],
+                   capture_output=True, timeout=15, check=False)
+
+
+def forward_wayland(source: socket.socket, target: socket.socket) -> None:
+    """Relay the byte stream and SCM_RIGHTS in order, closing received copies."""
+    try:
+        while True:
+            data, ancillary, flags, _address = source.recvmsg(65536, socket.CMSG_SPACE(256 * 4))
+            descriptors = []
+            outgoing = []
+            for level, kind, value in ancillary:
+                if level == socket.SOL_SOCKET and kind == socket.SCM_RIGHTS:
+                    fds = array.array('i')
+                    fds.frombytes(value[:len(value) - len(value) % fds.itemsize])
+                    descriptors.extend(fds)
+                    outgoing.append((level, kind, value))
+            try:
+                if flags & socket.MSG_CTRUNC:
+                    raise OSError('truncated Wayland descriptor transfer')
+                if not data:
+                    break
+                sent = target.sendmsg([data], outgoing)
+                if sent == 0:
+                    raise OSError('Wayland proxy peer closed')
+                if sent < len(data):
+                    target.sendall(data[sent:])
+            finally:
+                for descriptor in descriptors:
+                    os.close(descriptor)
+    except OSError:
+        pass
+    finally:
+        for endpoint in (source, target):
+            try:
+                endpoint.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+
+def compositor() -> None:
+    """Give SDDM an owned Wayland endpoint backed by the persistent display."""
+    seat = os.environ.get('XDG_SEAT', '')
+    slot, _entry = slot_config(seat)
+    runtime = Path(os.environ.get('XDG_RUNTIME_DIR', ''))
+    if runtime != RUNTIME / f'greeter-{seat}' or runtime.stat().st_uid != os.getuid():
+        raise ValueError('SDDM greeter runtime is not isolated by seat')
+    path = runtime / 'wayland-0'
+    display = display_socket(slot)
+    # A logind reset may SIGKILL the old compositor before its finally block.
+    # The per-seat lock prevents removing the socket of a live compositor.
+    lock_fd = os.open(runtime / 'compositor.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    if path.exists() or path.is_symlink():
+        previous = path.lstat()
+        if not stat.S_ISSOCK(previous.st_mode) or previous.st_uid != os.getuid():
+            raise ValueError('unsafe greeter display endpoint')
+        path.unlink()
+    endpoints: set[socket.socket] = set()
+    connections_lock = threading.Lock()
+
+    def relay(front: socket.socket, back: socket.socket) -> None:
+        reverse = threading.Thread(target=forward_wayland, args=(back, front), daemon=True)
+        reverse.start()
+        forward_wayland(front, back)
+        reverse.join()
+        with connections_lock:
+            endpoints.discard(front)
+            endpoints.discard(back)
+        front.close()
+        back.close()
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(path))
+    server.listen(8)
+    def stop(_signal, _frame):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    try:
+        while True:
+            front, _address = server.accept()
+            if len(endpoints) >= 32:
+                front.close()
+                continue
+            back = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                back.connect(str(display))
+            except OSError:
+                front.close()
+                back.close()
+                continue
+            with connections_lock:
+                endpoints.update((front, back))
+            threading.Thread(target=relay, args=(front, back), daemon=True).start()
+    finally:
+        server.close()
+        for endpoint in tuple(endpoints):
+            try:
+                endpoint.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            endpoint.close()
+        if path.exists() and stat.S_ISSOCK(path.lstat().st_mode):
+            path.unlink()
+        os.close(lock_fd)
+
+
+def active_users(slot: int) -> set[int]:
+    """Reap PAM records after a helper was killed before close_session."""
+    users = set()
+    for state in (RUNTIME / str(slot)).glob('*.json'):
+        try:
+            data = json.loads(state.read_text())
+        except FileNotFoundError:
+            continue
+        if data['service'].endswith('greeter'):
+            continue
+        try:
+            session = session_properties(state.stem)
+        except subprocess.CalledProcessError:
+            session = {}
+        if (session.get('State') != 'closing' and session.get('Seat') == f'seatqsm{slot}'
+                and session.get('User') == str(data['uid'])
+                and session.get('Service') in ('sddm', 'qsm-sddm')):
+            users.add(data['uid'])
+        else:
+            with (RUNTIME / 'pam.lock').open('a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                if state.exists():
+                    state.unlink()
+                    still_used = any(json.loads(other.read_text()).get('uid') == data['uid']
+                                     for other in (RUNTIME / str(slot)).glob('*.json'))
+                    if not still_used:
+                        command(['setfacl', '-x', f"u:{data['uid']}", str(RUNTIME / f'wayland-{slot}')])
+                        stop_desktop(pwd.getpwuid(data['uid']).pw_name)
+    return users
+
+
+def reap_closing_sessions(slot: int) -> None:
+    # logind normally retains processes after PAM logout (KillUserProcesses=no).
+    # Reap only closed QSM sessions, including their clipboard/audio agents.
+    # Unrelated SSH sessions and the account's user manager are untouched.
+    identifiers = command(['loginctl', 'show-seat', f'seatqsm{slot}', '-p', 'Sessions', '--value']).split()
+    for identifier in identifiers:
+        try:
+            data = session_properties(identifier)
+            if (data.get('State') == 'closing' and data.get('Service') == 'qsm-sddm'
+                    and data.get('Seat') == f'seatqsm{slot}'):
+                # Released scopes are abandoned when KillUserProcesses=no;
+                # logind TerminateSession is then a no-op. Stop the verified
+                # QSM session scope directly to reap its remaining processes.
+                command(['systemctl', 'stop', '--no-block', f'session-{identifier}.scope'])
+        except subprocess.CalledProcessError:
+            pass  # A concurrent PAM close already removed this session.
+
+
+def desktop_proxy(slot: int, ready: threading.Event, pairs: set, guard) -> None:
+    """Revoke live display connections as well as access on native logout.
+
+    Desktop users never receive direct access to the persistent outer sway.
+    Even an application surviving its PAM scope cannot draw over the next
+    user's greeter, retain screen capture or inject input into that display.
+    """
+    path = RUNTIME / f'wayland-{slot}'
+    if path.exists() or path.is_symlink():
+        if not stat.S_ISSOCK(path.lstat().st_mode) or path.lstat().st_uid != 0:
+            raise ValueError('unsafe native desktop proxy endpoint')
+        path.unlink()
+    def relay(front, back, uid):
+        reverse = threading.Thread(target=forward_wayland, args=(back, front), daemon=True)
+        reverse.start()
+        forward_wayland(front, back)
+        reverse.join()
+        with guard:
+            pairs.discard((front, back, uid))
+        front.close()
+        back.close()
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+        server.bind(str(path))
+        os.chmod(path, 0o600)
+        # Restore access when only the control service was restarted.
+        for uid in active_users(slot):
+            command(['setfacl', '-m', f'u:{uid}:rw', str(path)])
+        server.listen(16)
+        server.settimeout(0.5)
+        ready.set()
+        while True:
+            allowed = active_users(slot)
+            reap_closing_sessions(slot)
+            with guard:
+                for front, back, uid in tuple(pairs):
+                    if uid not in allowed:
+                        for endpoint in (front, back):
+                            try:
+                                endpoint.shutdown(socket.SHUT_RDWR)
+                            except OSError:
+                                pass
+            try:
+                front, _ = server.accept()
+            except socket.timeout:
+                continue
+            _pid, uid, _gid = struct.unpack('3i', front.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+            if uid not in active_users(slot) or len(pairs) >= 64:
+                front.close()
+                continue
+            back = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                back.connect(str(display_socket(slot)))
+            except OSError:
+                front.close()
+                back.close()
+                continue
+            with guard:
+                pairs.add((front, back, uid))
+            threading.Thread(target=relay, args=(front, back, uid), daemon=True).start()
+
+
+def desktop() -> None:
+    slot, _entry = slot_config(os.environ.get('XDG_SEAT', ''))
+    display = str(RUNTIME / f'wayland-{slot}')
+    os.environ.update(WAYLAND_DISPLAY=display, QSM_OUTER_DISPLAY=display,
+                      QSM_DISPLAY_SOCKET=display,
+                      QSM_CLIPBOARD_SOCKET=f'/run/qsm-login/clip-{slot}/agent.sock')
+    if any('startplasma-' in arg for arg in sys.argv[2:]):
+        os.environ['QSM_SESSION_TYPE'] = os.environ.get('XDG_SESSION_TYPE', 'wayland')
+        os.execv('/usr/lib/qsm-console/qsm-session-launch', ['qsm-session-launch'])
+    os.execv('/usr/share/sddm/scripts/wayland-session', ['wayland-session', *sys.argv[2:]])
+
+
+def native_greeter_ready(seat: str) -> bool:
+    identifiers = command(['loginctl', 'show-seat', seat, '-p', 'Sessions', '--value']).split()
+    for identifier in identifiers:
+        try:
+            data = session_properties(identifier)
+        except subprocess.CalledProcessError:
+            continue
+        if (data.get('Service') in ('sddm-greeter', 'qsm-sddm-greeter')
+                and data.get('State') == 'active'):
+            endpoint = RUNTIME / f'greeter-{seat}/wayland-0'
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                    probe.settimeout(0.5)
+                    probe.connect(str(endpoint))
+                return True
+            except OSError:
+                pass
+    return False
+
+
+def control(slot: int) -> None:
+    seat = f'seatqsm{slot}'
+    slot_config(seat)
+    directory = Path(f'/run/qsm-login/{slot}')
+    root_directory(directory)
+    root_directory(RUNTIME, 0o755)
+    root_directory(RUNTIME / str(slot))
+    ready = threading.Event()
+    pairs = set()
+    guard = threading.Lock()
+    proxy = threading.Thread(target=desktop_proxy, args=(slot, ready, pairs, guard), daemon=True)
+    proxy.start()
+    if not ready.wait(15):
+        raise ValueError('native desktop display proxy did not start')
+    path = directory / 'control'
+    if path.exists():
+        if not stat.S_ISSOCK(path.lstat().st_mode):
+            raise ValueError('unsafe existing control endpoint')
+        path.unlink()
+    with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as server:
+        previous = os.umask(0o077)
+        try:
+            server.bind(str(path))
+        finally:
+            os.umask(previous)
+        server.listen(4)
+        server.settimeout(1)
+        while True:
+            if not proxy.is_alive():
+                raise ValueError('native desktop display proxy stopped')
+            try:
+                connection, _ = server.accept()
+            except socket.timeout:
+                continue
+            with connection:
+                connection.settimeout(45)
+                try:
+                    request = json.loads(connection.recv(4096))
+                    sessions = user_sessions(seat)
+                    if request.get('op') == 'status':
+                        reply = ({'ok': True, 'user': sessions[0][1]['Name'] if sessions else None}
+                                 if sessions or native_greeter_ready(seat) else {'ok': False})
+                    elif request.get('op') == 'reset':
+                        for identifier, _data in sessions:
+                            command(['loginctl', 'terminate-session', identifier])
+                        # Reset an unused greeter too, clearing half-typed credentials.
+                        if not sessions:
+                            identifiers = command(['loginctl', 'show-seat', seat, '-p', 'Sessions', '--value']).split()
+                            for identifier in identifiers:
+                                data = session_properties(identifier)
+                                if data.get('Service') in ('sddm-greeter', 'qsm-sddm-greeter'):
+                                    command(['loginctl', 'terminate-session', identifier])
+                        deadline = time.monotonic() + 30
+                        while True:
+                            # Authentication may have been accepted just before
+                            # the reset, with PAM still opening its user session.
+                            # Cancel that session too as soon as logind sees it.
+                            remaining = user_sessions(seat)
+                            for identifier, _data in remaining:
+                                command(['loginctl', 'terminate-session', identifier])
+                            if not remaining and not pairs and native_greeter_ready(seat):
+                                break
+                            if time.monotonic() > deadline:
+                                raise TimeoutError('native session has not ended')
+                            time.sleep(0.1)
+                        active_users(slot)
+                        reply = {'ok': True}
+                    else:
+                        reply = {'ok': False}
+                except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+                    reply = {'ok': False}
+                connection.send(json.dumps(reply).encode())
+
+
+def main() -> None:
+    mode = sys.argv[1] if len(sys.argv) > 1 else ''
+    if mode not in ('compositor', 'session') and os.geteuid() != 0:
+        raise PermissionError('this native-seat operation requires root')
+    if mode == 'prepare':
+        prepare()
+    elif mode == 'start':
+        config = configuration()
+        slots = [entry['slot'] for entry in config['slots']]
+        tty_count = max(1, min(8, sum(bool(re.fullmatch(r'tty[0-9]+', p.name))
+                                      for p in Path('/dev').iterdir())))
+        if sorted(slots) != list(range(1, tty_count + 1)):
+            raise ValueError('native manifest does not match tty count; rerun host enable after changing tty')
+        for slot in slots:
+            command(['systemctl', 'start', f'qsm-display@{slot}.service',
+                     f'qsm-seat-keeper@{slot}.service', f'qsm-native-seat-control@{slot}.service'])
+            deadline = time.monotonic() + 15
+            while True:
+                try:
+                    display_socket(slot)
+                    break
+                except (OSError, ValueError):
+                    if time.monotonic() > deadline:
+                        raise ValueError('native outer display did not become ready')
+                    time.sleep(0.1)
+        print(f'qsm-consoles: {len(slots)} native SDDM graphical seats')
+    elif mode == 'pam':
+        pam_session()
+    elif mode == 'compositor':
+        compositor()
+    elif mode == 'session':
+        desktop()
+    elif mode == 'control' and len(sys.argv) == 3 and re.fullmatch('[1-8]', sys.argv[2]):
+        control(int(sys.argv[2]))
+    else:
+        raise ValueError('usage: qsm-native-seat prepare|start|pam|compositor|session|control N')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        # No credentials are handled by this program or included in its errors.
+        print(f'qsm-native-seat: {error}', file=sys.stderr)
+        sys.exit(1)

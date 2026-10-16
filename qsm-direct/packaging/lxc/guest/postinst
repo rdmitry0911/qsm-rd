@@ -24,11 +24,13 @@ configure)
     fi
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload || true
-        # A display manager needs a VT, which a container has not (SDDM only
-        # waits for a graphical seat); the console login screen replaces it.
-        if systemd-detect-virt --container --quiet && [ -L /etc/systemd/system/display-manager.service ]; then
+        # This profile supplies no graphical logind seat for the ordinary
+        # display manager; its own per-console login manager is used instead.
+        # Native VT-less SDDM needs a separate virtual-seat integration.
+        if [ "$(cat /etc/qsm-direct/login-manager 2>/dev/null || true)" != sddm ] && \
+            systemd-detect-virt --container --quiet && [ -L /etc/systemd/system/display-manager.service ]; then
             manager=$(basename "$(readlink -f /etc/systemd/system/display-manager.service)")
-            echo "qsm-console-guest: disabling $manager (no VT in a container)"
+            echo "qsm-console-guest: disabling $manager (QSM per-console login profile)"
             systemctl disable --now "$manager" || true
         fi
         systemctl enable qsm-consoles.service || true

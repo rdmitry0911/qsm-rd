@@ -1,0 +1,128 @@
+Native LXC login screen: virtual-seat investigation, 2026-10-16
+
+Requested direction
+-------------------
+Use the system's display manager for its real greeter, PAM authentication,
+session startup and logout. QSM should supply a virtual console/seat and
+transport its video and input. Reimplementing an SDDM greeter protocol or
+copying the theme onto qsm-login would leave QSM owning authentication and
+does not meet this direction.
+
+Observed on Vilnius CT105 (read-only inspection)
+----------------------------------------------
+Unprivileged Ubuntu container; systemd 255.4-1ubuntu8.18.
+SDDM 0.20.0-2ubuntu4.2; Plasma workspace 5.27.12; KWin 5.27.11.
+/etc/X11/default-display-manager selects /usr/bin/sddm.
+The ubuntu-theme alternative points to the installed SDDM maya theme.
+No sddm-theme-breeze package is installed; matching the installed system
+currently means maya. A KDE/Breeze look requires its actual theme package.
+
+Two existing QSM slots are running. Both use headless sway + qsm-login
+and the custom PyQt greeter. No user desktop was logged in at inspection.
+SDDM is disabled by the current guest package.
+
+logind reports seat0 CanGraphical=no and CanTTY=no.
+/dev/tty0 does not exist. /dev/tty1 and /dev/tty2 are PTYs, major/minor
+136:1 and 136:2. Read-only VT_GETSTATE ioctl returns ENOTTY on both.
+Creating another PTY named ttyN will not implement a kernel virtual terminal.
+
+The container's passed-through NVIDIA card0/renderD128 exist. Its udev
+database/tag directories are absent, and udevadm only reports kernel device
+properties, not graphical-seat tags. A DRM node alone has not made a
+graphical seat visible to logind in this setup.
+
+Upstream findings
+-----------------
+SDDM PR1863 was merged on 2024-02-27:
+https://github.com/sddm/sddm/pull/1863
+Merge commit: abb9f9eea9ffb31506a89d5f5de1060bea076056.
+It handles seats without VTs using CanTTY and conditional XDG_VTNR/PAM_TTY
+and VT operations. The upstream 0.20 source corresponding to the installed
+version lacks that support; the unpatched 0.21.0 tag inspected here also
+predates the merge. Distribution backports in the installed Ubuntu build
+must be checked rather than inferred from the version number.
+
+SDDM's SeatManager additionally waits for logind CanGraphical before it
+creates a display. VT-less support therefore does not solve graphical-seat
+discovery by itself. The current logind implementation derives CanGraphical
+from a master-of-seat device. Its device enumeration uses udev seat tags.
+
+Primary sources inspected:
+https://github.com/sddm/sddm/blob/v0.20.0/src/daemon/SeatManager.cpp
+https://github.com/sddm/sddm/blob/develop/src/daemon/Display.cpp
+https://github.com/sddm/sddm/blob/develop/src/helper/backend/PamBackend.cpp
+https://github.com/systemd/systemd/blob/v255/src/login/logind-seat.c
+https://github.com/systemd/systemd/blob/v255/src/login/logind.c
+
+Candidate virtual-display foundation
+------------------------------------
+VKMS provides software DRM/KMS displays. Current upstream documentation
+describes multiple independent instances through configfs:
+https://docs.kernel.org/gpu/vkms.html
+
+Vilnius kernel 7.0.14-14-pve has an installed, signed in-tree vkms module.
+It was not loaded during this investigation. Module presence is not proof
+that this particular PVE build supplies every documented configfs feature.
+Kernel API support and isolation still need a separate lab check.
+
+VKMS is a candidate, not a verified requirement. If the existing headless
+Wayland display can be exposed as a proper virtual logind seat with fewer
+dependencies, that is also suitable. The required interface is the virtual
+seat, rather than emulation of host VT ioctls or a fake login screen.
+
+Proposed ownership and integration
+----------------------------------
+1. QSM's platform backend creates one independently owned virtual seat per
+   console slot, including a persistent display, pointer/keyboard and
+   container-local seat/device metadata. No host tty is passed through.
+2. Container logind discovers each seat as graphical and without kernel
+   VTs. A native SDDM build with the upstream VT-less fixes manages the
+   seats. One display-manager daemon manages the container's seats; starting
+   an unrelated full SDDM daemon per slot would conflict on its D-Bus name.
+3. SDDM uses the container's configured theme and authenticates with its
+   own PAM stack. SDDM also owns starting and stopping desktop sessions.
+   QSM's qsm-login password-check/session-launch path is not used in this
+   profile. Native profile selection must be explicit until it is qualified.
+4. The media/input endpoint must persist across greeter -> desktop -> logout,
+   or provide a reliable reattach handshake for each display transition.
+   Existing wlr-screencopy/virtual-input capture must be tested against the
+   chosen native display backend; an SDDM greeter screenshot proves neither
+   desktop capture nor session handover.
+5. The existing host allocator keeps the PVE-user/slot ownership policy.
+   Status/reset must use the display manager/logind session state, replacing
+   the current qsm-login control protocol for this profile. A closed console
+   must never release a logged-in desktop to a different PVE user.
+6. Same-account concurrent Plasma sessions remain a separate constraint:
+   multiple seats do not by themselves isolate the per-user systemd manager,
+   D-Bus or home configuration.
+
+Prototype acceptance criteria
+-----------------------------
+Use a disposable test container. First prove logind CanGraphical=yes and
+CanTTY=no for an isolated virtual seat, then start the full native SDDM
+daemon in normal mode. Neither --test-mode nor greeter-only theme preview
+qualifies as native authentication.
+
+Verify an incorrect password, a correct password for an ephemeral test
+account, desktop startup, real logind session/seat assignment, logout back
+to the greeter, two seats with different users, ownership/reset, resizing,
+video/input continuity and clipboard/audio session-agent integration.
+Check that running guests and host DRM/VT ownership are unaffected.
+
+Investigation result before implementation
+------------------------------------------
+The architectural route is identified and the live-container limitations
+are measured. No full native-SDDM session has been demonstrated in LXC by
+this investigation. No VKMS device, virtual seat or test container was
+created; no live console, display manager, host module or package was changed.
+The earlier blanket claim that SDDM cannot run without VTs was corrected
+in source comments/documentation. Runtime conversion remains to be built
+and qualified; existing packages still use qsm-login.
+
+Implementation follow-up
+------------------------
+The isolated native implementation is now built and exercised on Vilnius
+CT108. See review-native-login-2026-10-16/qualification.txt and
+packaging/lxc/README.native-sddm for the implemented profile, evidence and
+remaining compatibility limits. The earlier boundary above describes the
+read-only investigation phase, before the implementation request.

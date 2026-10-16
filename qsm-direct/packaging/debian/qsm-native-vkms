@@ -1,0 +1,154 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""Create dedicated VKMS devices with stable names for native LXC seats."""
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+
+CONFIGFS = Path('/sys/kernel/config/vkms')
+DEVICES = Path('/dev/qsm-native')
+REGISTRY = Path('/var/lib/qsm-pve-direct/native-seats')
+
+
+def root_directory(path: Path) -> None:
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    meta = path.lstat()
+    if not stat.S_ISDIR(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o022:
+        raise ValueError(f'unsafe VKMS management directory: {path}')
+
+
+def instance(vmid: int, slot: int) -> Path:
+    return CONFIGFS / f'qsm-{vmid}-seat{slot}'
+
+
+def create_one(vmid: int, slot: int) -> dict:
+    path = instance(vmid, slot)
+    if not path.exists():
+        path.mkdir()
+    if (path / 'enabled').read_text().strip() != '1':
+        for group, name in [('planes', 'plane0'), ('crtcs', 'crtc0'),
+                            ('encoders', 'encoder0'), ('connectors', 'connector0')]:
+            (path / group / name).mkdir(exist_ok=True)
+        (path / 'planes/plane0/type').write_text('1\n')
+        (path / 'connectors/connector0/status').write_text('1\n')
+        for name, target in [
+            ('planes/plane0/possible_crtcs/crtc0', 'crtcs/crtc0'),
+            ('encoders/encoder0/possible_crtcs/crtc0', 'crtcs/crtc0'),
+            ('connectors/connector0/possible_encoders/encoder0', 'encoders/encoder0'),
+        ]:
+            link = path / name
+            if link.is_symlink():
+                if link.resolve() != path / target:
+                    raise ValueError('unexpected VKMS pipeline link')
+            else:
+                link.symlink_to(path / target)
+        (path / 'enabled').write_text('1\n')
+    cards = [p for p in (Path('/sys/devices/faux') / path.name / 'drm').glob('card*')
+             if re.fullmatch(r'card[0-9]+', p.name)]
+    if len(cards) != 1:
+        raise ValueError('VKMS instance has no unique DRM card')
+    major, minor = map(int, (cards[0] / 'dev').read_text().strip().split(':'))
+    if major != 226:
+        raise ValueError('unexpected VKMS device number')
+    alias = DEVICES / f'{vmid}-seat{slot}'
+    number = os.makedev(major, minor)
+    if alias.exists() or alias.is_symlink():
+        meta = alias.lstat()
+        if not stat.S_ISCHR(meta.st_mode) or meta.st_uid != 0:
+            raise ValueError('unsafe stable VKMS device name')
+        if meta.st_rdev != number:
+            alias.unlink()
+    if not alias.exists():
+        os.mknod(alias, stat.S_IFCHR | 0o600, number)
+    os.chmod(alias, 0o600)
+    return {'slot': slot, 'device': str(alias)}
+
+
+def create(vmid: int, slots: int, remember: bool = True) -> dict:
+    if not CONFIGFS.is_dir():
+        subprocess.run(['modprobe', 'vkms', 'create_default_dev=0'], check=True)
+    if not CONFIGFS.is_dir():
+        raise ValueError('this kernel does not provide VKMS configfs instances')
+    root_directory(DEVICES)
+    root_directory(REGISTRY)
+    previous = REGISTRY / f'{vmid}.json'
+    if previous.exists() and json.loads(previous.read_text()).get('slots') != slots:
+        raise ValueError('native seat count changed; stop the container and remove its old seats before resizing')
+    manifest = {'vmid': vmid, 'slots': [create_one(vmid, n) for n in range(1, slots + 1)]}
+    if remember:
+        target = REGISTRY / f'{vmid}.json'
+        temporary = target.with_suffix('.new')
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            os.write(descriptor, json.dumps({'vmid': vmid, 'slots': slots}).encode())
+        finally:
+            os.close(descriptor)
+        temporary.replace(target)
+    return manifest
+
+
+def remove(vmid: int) -> None:
+    result = subprocess.run(['pct', 'status', str(vmid)], capture_output=True, text=True, check=False)
+    if result.returncode == 0 and 'running' in result.stdout:
+        raise ValueError('stop the container before removing its virtual seats')
+    for slot in range(1, 9):
+        path = instance(vmid, slot)
+        if not path.is_dir():
+            continue
+        (path / 'enabled').write_text('0\n')
+        for relative in ('planes/plane0/possible_crtcs/crtc0',
+                         'encoders/encoder0/possible_crtcs/crtc0',
+                         'connectors/connector0/possible_encoders/encoder0'):
+            link = path / relative
+            if link.is_symlink():
+                link.unlink()
+        for relative in ('planes/plane0', 'connectors/connector0', 'encoders/encoder0', 'crtcs/crtc0'):
+            child = path / relative
+            if child.exists():
+                child.rmdir()
+        path.rmdir()
+        alias = DEVICES / f'{vmid}-seat{slot}'
+        if alias.exists() and stat.S_ISCHR(alias.lstat().st_mode):
+            alias.unlink()
+    (REGISTRY / f'{vmid}.json').unlink(missing_ok=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('operation', choices=('create', 'remove', 'restore'))
+    parser.add_argument('vmid', type=int, nargs='?')
+    parser.add_argument('--slots', type=int, default=2, choices=range(1, 9))
+    args = parser.parse_args()
+    if os.geteuid() != 0:
+        parser.error('requires root')
+    if args.operation != 'restore' and (args.vmid is None or args.vmid < 100):
+        parser.error('a valid PVE container ID is required')
+    descriptor = os.open('/run/qsm-native-vkms.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if args.operation == 'create':
+            print(json.dumps(create(args.vmid, args.slots)))
+        elif args.operation == 'remove':
+            remove(args.vmid)
+        elif REGISTRY.exists():
+            for path in sorted(REGISTRY.glob('*.json')):
+                meta = path.lstat()
+                if not stat.S_ISREG(meta.st_mode) or meta.st_uid != 0 or meta.st_mode & 0o022:
+                    raise ValueError('unsafe VKMS registry entry')
+                data = json.loads(path.read_text())
+                if (type(data.get('vmid')) is not int or data['vmid'] < 100
+                        or path.stem != str(data['vmid']) or type(data.get('slots')) is not int
+                        or not 1 <= data['slots'] <= 8):
+                    raise ValueError('invalid VKMS registry entry')
+                print(json.dumps(create(data['vmid'], data['slots'], remember=False)))
+
+
+if __name__ == '__main__':
+    main()

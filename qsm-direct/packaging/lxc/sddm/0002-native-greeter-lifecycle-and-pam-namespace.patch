@@ -1,0 +1,102 @@
+From: Dmitry R <rdmitry0911@gmail.com>
+Subject: [PATCH] Recreate terminated native greeters and isolate container PAM services
+
+Native Wayland greeters may exit as soon as authentication is accepted,
+before sessionStarted arrives. An idle greeter terminated by logind must
+recreate its display; a terminated user helper must also recreate it even
+if its exit code overlaps HELPER_AUTH_ERROR. Use separate PAM names so
+activation does not replace the distribution SDDM authentication files.
+
+Signed-off-by: Dmitry R <rdmitry0911@gmail.com>
+
+diff --git a/src/daemon/Display.cpp b/src/daemon/Display.cpp
+index 1a0a369..d1f52c6 100644
+--- a/src/daemon/Display.cpp
++++ b/src/daemon/Display.cpp
+@@ -159,6 +159,13 @@ namespace SDDM {
+         connect(this, &Display::loginFailed, m_socketServer, &SocketServer::loginFailed);
+         connect(this, &Display::loginSucceeded, m_socketServer, &SocketServer::loginSucceeded);
+ 
++        connect(m_greeter, &Greeter::sessionFinished, this, [this] {
++            // An externally terminated idle greeter must be recreated. This
++            // also cancels authentication that was still pending at reset.
++            if (m_started && !m_userLoginAccepted) {
++                stop();
++            }
++        }, Qt::QueuedConnection);
+         connect(m_greeter, &Greeter::failed, this, &Display::stop);
+         connect(m_greeter, &Greeter::ttyFailed, this, [this] {
+             ++s_ttyFailures;
+@@ -478,6 +485,7 @@ namespace SDDM {
+         }
+ 
+         if (success) {
++            m_userLoginAccepted = true; // The greeter may exit before sessionStarted arrives.
+             qDebug() << "Authentication for user " << user << " successful";
+ 
+             if (!m_reuseSessionId.isNull()) {
+@@ -536,7 +544,7 @@ namespace SDDM {
+         // we want to avoid greeter from restarting when an authentication
+         // error happens (in this case we want to show the message from the
+         // greeter
+-        if (status != Auth::HELPER_AUTH_ERROR)
++        if (status != Auth::HELPER_AUTH_ERROR || m_userLoginAccepted)
+             stop();
+     }
+ 
+diff --git a/src/daemon/Display.h b/src/daemon/Display.h
+index a70671a..70c2432 100644
+--- a/src/daemon/Display.h
++++ b/src/daemon/Display.h
+@@ -95,6 +95,7 @@ namespace SDDM {
+         DisplayServerType m_displayServerType = X11DisplayServerType;
+ 
+         bool m_relogin { true };
++        bool m_userLoginAccepted { false };
+         bool m_started { false };
+ 
+         int m_terminalId = -1;
+diff --git a/src/daemon/Greeter.cpp b/src/daemon/Greeter.cpp
+index f898a72..6fc0f58 100644
+--- a/src/daemon/Greeter.cpp
++++ b/src/daemon/Greeter.cpp
+@@ -330,6 +330,7 @@ namespace SDDM {
+         } else if (status == Auth::HELPER_SESSION_ERROR) {
+             Q_EMIT failed();
+         }
++        Q_EMIT sessionFinished();
+     }
+ 
+     bool Greeter::isRunning() const {
+diff --git a/src/daemon/Greeter.h b/src/daemon/Greeter.h
+index 8cc996d..5c70e4a 100644
+--- a/src/daemon/Greeter.h
++++ b/src/daemon/Greeter.h
+@@ -61,6 +61,7 @@ namespace SDDM {
+         void authError(const QString &message, Auth::Error error);
+ 
+     signals:
++        void sessionFinished();
+         void ttyFailed();
+         void failed();
+         void displayServerFailed();
+diff --git a/src/helper/backend/PamBackend.cpp b/src/helper/backend/PamBackend.cpp
+index f371c33..a75ceaf 100644
+--- a/src/helper/backend/PamBackend.cpp
++++ b/src/helper/backend/PamBackend.cpp
+@@ -217,12 +217,12 @@ namespace SDDM {
+     bool PamBackend::start(const QString &user) {
+         bool result;
+ 
+-        QString service = QStringLiteral("sddm");
++        QString service = QStringLiteral("qsm-sddm");
+ 
+         if (user == QStringLiteral("sddm") && m_greeter)
+-            service = QStringLiteral("sddm-greeter");
++            service = QStringLiteral("qsm-sddm-greeter");
+         else if (m_autologin)
+-            service = QStringLiteral("sddm-autologin");
++            service = QStringLiteral("qsm-sddm-autologin");
+         result = m_pam->start(service, user);
+ 
+         if (!result)

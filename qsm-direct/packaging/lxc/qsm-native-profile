@@ -1,0 +1,87 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
+"""Select the native SDDM profile without replacing distro configuration."""
+import configparser
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+DIRECTORY = Path('/etc/qsm-direct')
+
+
+def configure() -> None:
+    if not Path('/opt/qsm-native-sddm/bin/sddm').is_file():
+        raise ValueError('install qsm-console-sddm before selecting the native profile')
+    if not (DIRECTORY / 'native-seats.json').is_file():
+        raise ValueError('the host must supply a native seat manifest first')
+    if not Path('/run/systemd/container').exists():
+        raise ValueError('the native QSM profile is for LXC containers')
+    # Copy the distro authentication/account/password stack verbatim. Only the
+    # session's loginuid is optional: unprivileged containers cannot set it.
+    # The stock sddm files remain owned and maintained by the distribution.
+    for service in ('sddm', 'sddm-greeter'):
+        source = Path('/etc/pam.d') / service
+        text = source.read_text()
+        if 'qsm-native-seat pam' in text:
+            raise ValueError('stock SDDM PAM stack contains prototype QSM hooks; restore it first')
+        text = re.sub(r'(?m)^(session\s+)required(\s+pam_loginuid\.so\b)', r'\1optional\2', text)
+        text += '\n# Native QSM seat session access; authentication stays above.\n'
+        text += 'session required pam_exec.so /usr/lib/qsm-console/qsm-native-seat pam\n'
+        if service.endswith('greeter'):
+            text += 'session required pam_env.so conffile=/etc/qsm-direct/greeter-pam-env readenv=0\n'
+        (Path('/etc/pam.d') / ('qsm-' + service)).write_text(text)
+    Path('/etc/pam.d/qsm-sddm-autologin').write_text('auth requisite pam_deny.so\naccount requisite pam_deny.so\n')
+    (DIRECTORY / 'greeter-pam-env').write_text('XDG_RUNTIME_DIR OVERRIDE=/run/qsm-native/greeter-${XDG_SEAT}\n')
+    # SDDM configuration order: distro defaults, administrator drop-ins, main.
+    stock = configparser.ConfigParser(interpolation=None, strict=False)
+    stock.optionxform = str
+    stock.read([str(p) for directory in ('/usr/lib/sddm/sddm.conf.d', '/etc/sddm.conf.d')
+                for p in sorted(Path(directory).glob('*.conf'))] + ['/etc/sddm.conf'])
+    theme = stock.get('Theme', 'Current', fallback='')
+    if not re.fullmatch(r'[A-Za-z0-9_.-]*', theme):
+        raise ValueError('invalid system SDDM theme name')
+    config = configparser.ConfigParser(interpolation=None)
+    config.optionxform = str
+    config.read_dict({
+        'General': {'DisplayServer': 'wayland', 'GreeterEnvironment': 'QT_QUICK_BACKEND=software',
+                    'HaltCommand': '/bin/false', 'RebootCommand': '/bin/false'},
+        'Theme': {'Current': theme, 'ThemeDir': '/usr/share/sddm/themes'},
+        'Wayland': {'SessionDir': '/usr/share/wayland-sessions',
+                    'CompositorCommand': '/usr/lib/qsm-console/qsm-native-seat compositor',
+                    'SessionCommand': '/usr/lib/qsm-console/qsm-native-session'},
+        'X11': {'SessionDir': '/etc/qsm-direct/no-x11-sessions'},
+        'Users': {'ReuseSession': 'false', 'RememberLastUser': 'false', 'RememberLastSession': 'false'},
+        'Autologin': {'User': '', 'Session': '', 'Relogin': 'false'},
+    })
+    # This file is explicitly managed by profile selection, not by upgrades.
+    with (DIRECTORY / 'sddm.conf').open('w') as target:
+        config.write(target, space_around_delimiters=False)
+    (DIRECTORY / 'no-x11-sessions').mkdir(exist_ok=True)
+    (DIRECTORY / 'login-manager').write_text('sddm\n')
+    subprocess.run(['systemctl', 'enable', 'qsm-native-seat-udev.service', 'qsm-native-sddm.service'], check=True)
+    print('Native SDDM selected; restart the container to enumerate its virtual seats.')
+
+
+def main():
+    if os.geteuid() != 0 or sys.argv[1:] not in (['configure'], ['disable']):
+        raise ValueError('usage (root): qsm-native-profile configure|disable')
+    os.umask(0o022)
+    if sys.argv[1] == 'configure':
+        configure()
+    else:
+        subprocess.run(['systemctl', 'disable', '--now', 'qsm-native-sddm.service',
+                        'qsm-native-seat-udev.service'], check=True)
+        subprocess.run(['systemctl', 'stop', 'qsm-native-seat-control@*.service'], check=True)
+        (DIRECTORY / 'login-manager').write_text('qsm\n')
+        (DIRECTORY / 'native-seats.json').unlink(missing_ok=True)
+        print('Native SDDM disabled; restart the container before starting QSM login.')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f'qsm-native-profile: {error}', file=sys.stderr)
+        sys.exit(1)

@@ -1,0 +1,18 @@
+[Unit]
+Description=Native SDDM on QSM virtual graphical seats
+Documentation=man:sddm(1)
+Requires=qsm-native-seat-udev.service qsm-consoles.service
+After=systemd-user-sessions.service systemd-logind.service qsm-native-seat-udev.service qsm-consoles.service
+Conflicts=sddm.service lightdm.service gdm.service gdm3.service
+ConditionPathExists=/etc/qsm-direct/native-seats.json
+PartOf=qsm-consoles.service
+StartLimitIntervalSec=30
+StartLimitBurst=3
+
+[Service]
+ExecStart=/opt/qsm-native-sddm/bin/sddm
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

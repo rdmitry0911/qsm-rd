@@ -1,0 +1,120 @@
+Native SDDM profile for QSM Direct LXC consoles
+=============================================
+
+This opt-in profile runs the complete SDDM daemon and its original greeter
+with the container's selected system theme. SDDM/PAM authenticates users,
+opens real logind sessions and handles desktop logout. qsm-login and the
+custom QSM greeter are not used. The existing Proxmox WebRTC API on HTTPS
+8006 carries the console; no extra signalling port is introduced.
+
+Qualification target: unprivileged Ubuntu 24.04, systemd 255, Qt 5 / Plasma
+5.27, PVE kernel 7.0.14-14-pve. Other distributions, Qt 6 themes and display
+managers such as GDM are not qualified. This first profile offers installed
+Wayland sessions; Plasma is integrated with the existing QSM clipboard and
+sound agent. X11 remains available through the original QSM login profile.
+
+Foundation
+----------
+Each console has a dedicated VKMS configfs instance named qsm-VMID-seatN.
+The host keeps a stable /dev/qsm-native/VMID-seatN alias and restores the
+instances before pve-guests starts. This requires VKMS configfs support in
+the host kernel; an older VKMS module with only one global display is not
+sufficient. The helper refuses that case. It never passes host VT devices
+or alters the physical GPU's seat assignment.
+
+The unprivileged guest publishes seat metadata only for its own VKMS
+instances in its private /run/udev database, before logind starts. These
+become seatqsm1, seatqsm2, ... with CanGraphical=yes and CanTTY=no. The
+system SDDM is replaced as the running display manager by a private SDDM
+build with the upstream VT-less support. One daemon manages all seats.
+
+Each seat retains the existing headless sway and permanent input devices
+across greeter -> desktop -> logout. Native greeter Wayland sockets relay
+SCM_RIGHTS as well as bytes, with isolated runtimes for the shared sddm
+account. Desktop connections use a root-owned proxy. PAM grants access only
+to that seat's logged-in account; on logout the proxy revokes existing
+connections too, stops Plasma graphical services and reaps processes in
+closed QSM sessions. SSH sessions are not terminated. The host retains its
+PVE-user ownership and reconnect/grace policy. Status failures leave a slot
+unavailable rather than declaring it a free login screen.
+
+Plasma's per-user systemd manager and D-Bus are shared across its sessions.
+Consequently one account may have only one QSM desktop in the container.
+Different accounts can use different seats concurrently. This restriction
+is checked in the native PAM session hook before granting display access.
+
+Build the optional SDDM package (inside Ubuntu 24.04)
+---------------------------------------------------
+Install build dependencies:
+  apt-get install build-essential cmake git pkg-config file dpkg-dev \
+    qtbase5-dev qtdeclarative5-dev qttools5-dev qttools5-dev-tools \
+    libpam0g-dev libsystemd-dev systemd-dev libxcb-xkb-dev libxkbcommon-dev \
+    libxkbcommon-x11-dev libxcb1-dev libxau-dev
+
+Get the upstream source and invoke the builder:
+  git clone https://github.com/sddm/sddm.git /path/to/sddm
+  QSM_SDDM_SOURCE_DIR=/path/to/sddm \
+    bash qsm-direct/packaging/lxc/build-qsm-console-sddm-deb.sh
+
+The builder exports the pinned v0.21.0 commit and applies the checked-in
+patches; it does not use or modify the checkout's working tree. The two
+patches contain the upstream VT-less change and a small native greeter
+lifecycle/PAM namespace integration. See sddm/*.patch for provenance.
+Only /opt/qsm-native-sddm and package documentation are installed. Themes,
+public units, /etc/pam.d/sddm* and distribution binaries remain owned by the
+distribution. qsm-native-profile creates separate qsm-sddm PAM services by
+copying the installed distro stacks: authentication/account/password rules
+are preserved, pam_loginuid is optional in the container's session stack,
+and a session-only access hook is appended. The hook never sees passwords.
+Autologin is disabled. Re-run profile configuration after intentionally
+changing the distro SDDM PAM policy, before starting new native sessions.
+
+Activate on a PVE node (restarts the selected container)
+-------------------------------------------------------
+Install matching qsm-pve-direct and qsm-pve-direct-lxc packages. The guest
+must already contain a complete Plasma desktop (e.g. kde-plasma-desktop).
+Copy qsm-console-sddm_0.21.0+qsm1_amd64.deb to the node, then run:
+
+  qsm-pve-direct-lxc enable VMID --login-manager sddm \
+    --sddm-deb /root/qsm-console-sddm_0.21.0+qsm1_amd64.deb \
+    --user USER --uid UID --no-gpu --restart
+
+Omit --no-gpu when physical GPU rendering is wanted; the virtual graphical
+seat itself does not require a physical GPU. User creation/admin/grace
+options retain their existing semantics; add --no-admin when appropriate.
+Set a local account password with pct exec VMID -- passwd USER. Selection
+of this profile is retained on subsequent enable runs and guest upgrades.
+
+Configuration: /etc/qsm-direct/{login-manager,native-seats.json,sddm.conf}.
+The native configuration takes its theme from the system SDDM configuration
+at activation. Change [Theme] Current in the native sddm.conf to another
+installed Qt 5 compatible theme. Restart qsm-native-sddm to apply it, which
+ends its current desktops. Native Wayland SDDM 0.21 does not implement its
+keyboard-layout selector: some themes show an unknown layout (maya: ?? zz).
+Actual console keyboard input works. This upstream UI limitation remains.
+
+The host creates as many seats as the container's running tty count (1..8).
+Changing tty requires stopped-container seat reconfiguration as described
+below; it cannot silently allocate another host DRM card to an old seat.
+
+Inspect:
+  qsm-pve-direct-lxc status VMID
+  pct exec VMID -- loginctl list-seats
+  pct exec VMID -- loginctl show-seat seatqsm1 -p CanGraphical -p CanTTY
+  pct exec VMID -- journalctl -u qsm-native-sddm -b
+
+Return to the original QSM login profile:
+  qsm-pve-direct-lxc enable VMID --login-manager qsm \
+    --user USER --uid UID --no-gpu --restart
+
+Disable the graphical console entirely:
+  qsm-pve-direct-lxc disable VMID
+
+Device passthrough and VKMS registry are retained on disable/rollback, like
+existing GPU passthrough. To remove seats or change their number, first
+stop that container, delete only its /dev/qsm-native/VMID-seatN devN entries
+from its PVE config, then run:
+  /usr/lib/qsm-pve-direct/qsm-native-vkms remove VMID
+After starting the container, rerun native enable with --restart to allocate
+the current tty count. Never delete another container's configfs instances.
+The helper does not unload VKMS or change other displays.

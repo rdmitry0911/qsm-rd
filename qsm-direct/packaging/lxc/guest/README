@@ -20,7 +20,10 @@ Each desktop session also runs qsm-clipboard-agent, reachable by that user
 only over /run/qsm-login/clip-N: Klipper <-> the browser console's clipboard,
 and a "QSM Console" sound card plus a "QSM Microphone" (pipewire-pulse pipe
 sink/source, the session's default devices) relayed to the console.  A
-container has no VT, so greetd/SDDM cannot run; an enabled SDDM is disabled.
+original QSM login profile supplies no graphical logind seat, so its
+ordinary display manager is disabled. The optional native SDDM profile
+provides dedicated VKMS/logind seats and runs the real system greeter.
+See README.native-sddm for installation, supported systems and rollback.
 Only the current client of a display -- its login screen or its logged-in user
 -- may connect to it (a POSIX ACL on the display socket).  The default session
 type offered by the login screen is in /etc/qsm-direct/session-type.
