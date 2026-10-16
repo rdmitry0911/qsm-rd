@@ -3,6 +3,7 @@
 import array
 import json
 import tempfile
+import subprocess
 from unittest import mock
 import os
 from pathlib import Path
@@ -74,6 +75,21 @@ class WaylandDescriptorRelayTests(unittest.TestCase):
             for endpoint in (sender, ingress, egress):
                 endpoint.close()
         self.assertEqual(len(os.listdir('/proc/self/fd')), before)
+
+
+class NativeLogindRaceTests(unittest.TestCase):
+    def test_only_confirmed_session_disappearance_is_ignored(self):
+        lookup = MODULE['seat_session_properties']
+        error = subprocess.CalledProcessError(1, ['loginctl', 'show-session', 'old'])
+        with mock.patch.dict(lookup.__globals__, {
+                'session_properties': mock.Mock(side_effect=error),
+                'command': mock.Mock(return_value='new')}):
+            self.assertEqual(lookup('old', 'seatqsm1'), {})
+        with mock.patch.dict(lookup.__globals__, {
+                'session_properties': mock.Mock(side_effect=error),
+                'command': mock.Mock(return_value='old new')}):
+            with self.assertRaises(subprocess.CalledProcessError):
+                lookup('old', 'seatqsm1')
 
 
 class NativeSessionCleanupTests(unittest.TestCase):

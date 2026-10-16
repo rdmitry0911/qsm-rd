@@ -181,12 +181,33 @@ def session_properties(identifier: str) -> dict[str, str]:
     return dict(line.split('=', 1) for line in text.splitlines() if '=' in line)
 
 
+def seat_session_properties(identifier: str, seat: str) -> dict[str, str]:
+    try:
+        return session_properties(identifier)
+    except subprocess.CalledProcessError:
+        # Sessions can disappear after show-seat while logind finishes logout.
+        # Only ignore a confirmed disappearance; other logind failures remain
+        # unavailable to the host allocator, never a free login screen.
+        current = command(['loginctl', 'show-seat', seat, '-p', 'Sessions', '--value']).split()
+        if identifier not in current:
+            return {}
+        raise
+
+
+def terminate_session(identifier: str, seat: str) -> None:
+    try:
+        command(['loginctl', 'terminate-session', identifier])
+    except subprocess.CalledProcessError:
+        if seat_session_properties(identifier, seat):
+            raise
+
+
 def user_sessions(seat: str) -> list[tuple[str, dict[str, str]]]:
     slot_config(seat)
     identifiers = command(['loginctl', 'show-seat', seat, '-p', 'Sessions', '--value']).split()
     result = []
     for identifier in identifiers:
-        data = session_properties(identifier)
+        data = seat_session_properties(identifier, seat)
         if (data.get('Seat') == seat and data.get('Class') == 'user'
                 and data.get('Service') in ('sddm', 'qsm-sddm') and data.get('State') != 'closing'):
             result.append((identifier, data))
@@ -551,14 +572,14 @@ def control(slot: int) -> None:
                                  if sessions or native_greeter_ready(seat) else {'ok': False})
                     elif request.get('op') == 'reset':
                         for identifier, _data in sessions:
-                            command(['loginctl', 'terminate-session', identifier])
+                            terminate_session(identifier, seat)
                         # Reset an unused greeter too, clearing half-typed credentials.
                         if not sessions:
                             identifiers = command(['loginctl', 'show-seat', seat, '-p', 'Sessions', '--value']).split()
                             for identifier in identifiers:
-                                data = session_properties(identifier)
+                                data = seat_session_properties(identifier, seat)
                                 if data.get('Service') in ('sddm-greeter', 'qsm-sddm-greeter'):
-                                    command(['loginctl', 'terminate-session', identifier])
+                                    terminate_session(identifier, seat)
                         deadline = time.monotonic() + 30
                         while True:
                             # Authentication may have been accepted just before
@@ -566,7 +587,7 @@ def control(slot: int) -> None:
                             # Cancel that session too as soon as logind sees it.
                             remaining = user_sessions(seat)
                             for identifier, _data in remaining:
-                                command(['loginctl', 'terminate-session', identifier])
+                                terminate_session(identifier, seat)
                             if not remaining and not pairs and native_greeter_ready(seat):
                                 break
                             if time.monotonic() > deadline:

@@ -43,6 +43,8 @@ PASS: desktop account can connect to its proxy, but gets EACCES for the other
       seat's proxy and for the persistent outer display socket.
 PASS: supplying another VMID for the passed DRM device is rejected before
       writing its udev record: dedicated VKMS instance ownership is checked.
+PASS: ten consecutive native resets across both seats return success in
+      0.15..0.19 seconds each. Confirmed session-disappearance races are retried.
 PASS: root status/reset API reports the current native user and returns to
       a ready greeter after forced session termination. Idle greeter reset
       clears a partially entered username. It does not reset another seat.
@@ -63,9 +65,9 @@ PASS: explicit rollback to qsm with --restart brings up qsm-login@1/2; native
 PASS: VM103/104 PIDs remain 2792970/2104260; CT105 guest package/config/profile
       are unchanged. Host QSM runtime/LXC packages were updated to shared11.
 PASS: 32 direct-terminal tests, including failed/malformed status replies;
-      four native helper tests (FD/memfd relay, disconnect FD leak, manifest
+      five native helper tests (FD/memfd relay, disconnect FD leak, manifest
       ownership/mode/path/duplicate/symlink rejection, stale PAM cleanup
-      preserving a replacement desktop). Guest systemd unit
+      preserving a replacement desktop, confirmed logind session disappearance). Guest systemd unit
       verification passed on CT108. Shell/Python syntax checks pass.
 
 Qualification limits
