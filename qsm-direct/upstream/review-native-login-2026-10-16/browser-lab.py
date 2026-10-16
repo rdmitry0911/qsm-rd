@@ -18,8 +18,8 @@ async def main():
     Path(os.environ.get('QSM_LAB_ARTIFACTS','/tmp/qsm-lxc-native-login')).mkdir(parents=True,exist_ok=True)
     ticket=ssh("perl -MPVE::AccessControl -MPVE::Cluster -e 'PVE::Cluster::cfs_update(); print scalar PVE::AccessControl::assemble_ticket(q{root@pam})'")
     account=os.environ.get('QSM_TEST_ACCOUNT','qsm-test-a')
-    assert account in ('qsm-test-a','qsm-test-b','qsm-layout-check')
-    secret=ssh(f'pct exec {VMID} -- cat /root/'+account+'.password').strip()
+    assert account in ('qsm-test-a','qsm-test-b','qsm-layout-check','none')
+    secret=ssh(f'pct exec {VMID} -- cat /root/'+account+'.password').strip() if account!='none' else None
     async with async_playwright() as p:
         if os.environ.get('QSM_LAB_BROWSER')=='firefox':
             browser=await p.firefox.launch(headless=True,env=dict(os.environ),firefox_user_prefs={
@@ -83,6 +83,7 @@ async def main():
                     assert command['value'] in ['qsm-test-a','qsm-test-b','invalid-qsm-test','qsm-layout-check']
                     await popup.keyboard.type(command['value'],delay=30);print('TEXT_OK',flush=True)
                 elif op=='password':
+                    assert secret is not None, 'greeter-only mode has no credentials'
                     for ch in secret:
                         if ch.isupper(): key='Shift+Key'+ch
                         elif ch.islower(): key='Key'+ch.upper()
@@ -98,7 +99,8 @@ async def main():
                     print('NO_PORT_8007_REQUESTS',flush=True)
                     break
         except Exception as error:
-            message=str(error).replace(ticket,'[ticket]').replace(secret,'[password]')
+            message=str(error).replace(ticket,'[ticket]')
+            if secret:message=message.replace(secret,'[password]')
             print('BROWSER_ERROR',message,flush=True)
             raise RuntimeError('browser native-login qualification failed') from None
         finally:await browser.close()

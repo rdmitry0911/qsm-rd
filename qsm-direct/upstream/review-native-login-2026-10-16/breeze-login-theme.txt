@@ -1,0 +1,39 @@
+Original KDE Plasma login appearance: Breeze, 2026-10-16
+=======================================================
+
+The initial CT105 minimal KDE installation had only the old SDDM Maya theme;
+its compiled Ubuntu default selected ubuntu-theme, which resolved to Maya.
+That was the installed SDDM default, but not the original KDE Plasma Breeze
+login appearance requested by the user. This follow-up corrects that choice.
+
+Installed the distribution's sddm-theme-breeze 4:5.27.12-0ubuntu0.1 in CT108
+and CT105. No theme QML, images, fonts or other package files were modified.
+The ubuntu-theme alternative now resolves to /usr/share/sddm/themes/breeze.
+CT105 explicitly selects Current=breeze in [Theme] of the standard
+/etc/sddm.conf.d/kde_settings.conf; qsm-native-profile configure transfers
+that selection into /etc/qsm-direct/sddm.conf. It survives profile selection
+through the normal system-theme configuration; no platform default is forced
+onto other containers or administrator-selected themes.
+
+Verified original clock/date, avatar list, password box, background, session
+selector and layout menu over the real PVE GUI/WebRTC console. Chromium on
+CT108 and Firefox on CT105 show the package's actual Breeze login screen.
+The layout menu changes a real XKB layout and displays its confirmed name.
+CT108's ephemeral qsm-test-a account authenticated via native SDDM/PAM,
+started Plasma, and logged out through KSMServer back to native Breeze.
+No ephemeral account or password was created/read on CT105 for this review:
+QSM_TEST_ACCOUNT=none now supports greeter-only browser inspection.
+
+The first SDDM restart was guarded by an all-greeter session check. The user
+then logged in as qsm on seatqsm1 (session 99770). A later attempted refresh
+was stopped by the same guard; that user session remained active. Theme
+configuration and appearance were checked on the other free native seat.
+The qsm password still matches its private pre-migration digest. No container
+or VM was restarted in this follow-up; native SDDM was restarted only while
+no desktop was active. The stock theme's ordinary idle fade is unchanged.
+
+Verification: dpkg -V sddm-theme-breeze reports no altered package files;
+Python syntax and git whitespace checks pass. This is a configuration/theme
+package change, so the QSM runtime debs remain shared12 / SDDM qsm2. Existing
+shared12 screenshots/qualification describe the earlier Maya baseline; the
+Breeze screenshots and this note supersede its theme choice for CT105.

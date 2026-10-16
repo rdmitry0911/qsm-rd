@@ -88,9 +88,17 @@ of this profile is retained on subsequent enable runs and guest upgrades.
 
 Configuration: /etc/qsm-direct/{login-manager,native-seats.json,sddm.conf}.
 The native configuration takes its theme from compiled distribution defaults
-and the system SDDM configuration at activation. Change [Theme] Current in the native sddm.conf to another
-installed Qt 5 compatible theme. Restart qsm-native-sddm to apply it, which
-ends its current desktops.
+and the system SDDM configuration at activation. For the original KDE Plasma
+login appearance, install its actual theme package (Ubuntu 24.04):
+  apt-get install sddm-theme-breeze
+Select Current=breeze in [Theme] of /etc/sddm.conf.d/kde_settings.conf, then
+rerun qsm-native-profile configure inside the container. Existing explicit
+settings in /etc/sddm.conf take precedence over drop-ins. Check the selected
+Current in /etc/qsm-direct/sddm.conf. Minimal KDE installations can contain
+only Maya, which has a different appearance; QSM does not redraw either theme.
+Apply a changed theme when no user desktops are active by restarting
+qsm-native-sddm. A restart ends that display manager's current sessions. Other
+installed Qt 5 compatible themes can be selected through the same settings.
 
 The original theme's Layout selector now selects real XKB base layouts on
 that seat. The private SDDM keyboard backend talks to a restricted root
