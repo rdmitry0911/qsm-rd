@@ -415,6 +415,13 @@ This matters especially for NVENC: FFmpeg forces an IDR/reset of rate control
 on live bitrate changes even though the codec object is kept open. Frequent
 small adjustments in shared20 could therefore make a static desktop pulse.
 
+NVENC and software H.264 use on-demand recovery keyframes, rather than a
+full IDR every half second. Under a one-frame VBV, those periodic refreshes
+made static text blur and sharpen even with an unchanged bitrate. New
+viewers, PLI feedback and a broken local reference chain still request IDRs;
+an unanswered local request is retried at most once a second until recovery.
+Real NVENC rate changes can still produce a brief quality transition.
+
 Settings shows the current target and ceiling for the active producer. Save a
 new ceiling, close all its viewers and reopen the console to apply that policy.
 The `webrtcsettings` API still stores `bitrate` in kbit/s and requires
@@ -432,7 +439,8 @@ For links below the encoder's practical minimum, lower the console resolution
 or FPS or select software encoding. This release adapts bitrate, not resolution
 or FPS. Abrupt bandwidth drops can still cause a short recovery interruption.
 See [initial bitrate qualification](upstream/review-adaptive-bitrate-2026-10-17/qualification.txt) and
-[stability regression checks](upstream/review-adaptive-stability-2026-10-17/qualification.txt).
+[controller stability checks](upstream/review-adaptive-stability-2026-10-17/qualification.txt) and
+[full-resolution keyframe checks](upstream/review-keyframe-stability-2026-10-17/qualification.txt).
 
 ### Sleeping and locked guests
 

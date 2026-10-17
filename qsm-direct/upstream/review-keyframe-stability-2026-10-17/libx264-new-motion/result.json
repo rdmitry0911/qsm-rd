@@ -1,0 +1,22 @@
+{
+  "target": 8000,
+  "maximum": 8000,
+  "overflows": 4,
+  "drops": 170,
+  "changes": 9,
+  "targets": [
+    4000,
+    2000,
+    2500,
+    3125,
+    3906,
+    4882,
+    6102,
+    7627,
+    8000
+  ],
+  "demand": [
+    6718
+  ],
+  "state": "connected"
+}

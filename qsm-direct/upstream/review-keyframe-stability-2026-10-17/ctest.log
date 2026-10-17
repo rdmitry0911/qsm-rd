@@ -1,0 +1,38 @@
+Internal ctest changing into directory: /tmp/qsm-local-cursor/tests-build
+Test project /tmp/qsm-local-cursor/tests-build
+      Start  1: qsm_shared_display
+ 1/16 Test  #1: qsm_shared_display ...................   Passed    0.36 sec
+      Start  2: qsm_direct_guest_channel
+ 2/16 Test  #2: qsm_direct_guest_channel .............   Passed    4.07 sec
+      Start  3: qsm_direct_guest_package
+ 3/16 Test  #3: qsm_direct_guest_package .............   Passed    0.05 sec
+      Start  4: qsm_direct_encoder_probe
+ 4/16 Test  #4: qsm_direct_encoder_probe .............   Passed    0.05 sec
+      Start  5: qsm_direct_terminal_autoprovision
+ 5/16 Test  #5: qsm_direct_terminal_autoprovision ....   Passed    1.56 sec
+      Start  6: qsm_direct_api_service_integration
+ 6/16 Test  #6: qsm_direct_api_service_integration ...   Passed    0.04 sec
+      Start  7: qsm_direct_pve_console_overlay
+ 7/16 Test  #7: qsm_direct_pve_console_overlay .......   Passed    0.15 sec
+      Start  8: qsm_local_cursor
+ 8/16 Test  #8: qsm_local_cursor .....................   Passed    0.10 sec
+      Start  9: qsm_receiver_playout
+ 9/16 Test  #9: qsm_receiver_playout .................   Passed    0.11 sec
+      Start 10: qsm_pointer_pacing
+10/16 Test #10: qsm_pointer_pacing ...................   Passed    0.11 sec
+      Start 11: qsm_touch_gestures
+11/16 Test #11: qsm_touch_gestures ...................   Passed    0.11 sec
+      Start 12: qmdp_core_tests
+12/16 Test #12: qmdp_core_tests ......................   Passed    0.14 sec
+      Start 13: qmdp_dbus_integration_tests
+13/16 Test #13: qmdp_dbus_integration_tests ..........   Passed    0.74 sec
+      Start 14: qmdp_no_gpu_ffmpeg_selftest
+14/16 Test #14: qmdp_no_gpu_ffmpeg_selftest ..........   Passed    0.91 sec
+      Start 15: qmdp_message_bus_map_e2e
+15/16 Test #15: qmdp_message_bus_map_e2e .............   Passed    1.32 sec
+      Start 16: qmdp_message_bus_inline_e2e
+16/16 Test #16: qmdp_message_bus_inline_e2e ..........   Passed    1.25 sec
+
+100% tests passed, 0 tests failed out of 16
+
+Total Test time (real) =  11.10 sec

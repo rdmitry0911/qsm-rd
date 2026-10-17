@@ -633,7 +633,10 @@ public:
         context_->pix_fmt = AV_PIX_FMT_YUV420P;
         context_->time_base = AVRational {1, static_cast<int>(fps)};
         context_->framerate = AVRational {static_cast<int>(fps), 1};
-        context_->gop_size = 30;
+        // WebRTC asks for an IDR at join/recovery. Periodic full refreshes
+        // under a one-frame VBV visibly blur then refine an unchanged desktop.
+        // INT_MAX is an effectively unbounded GOP accepted by both encoders.
+        context_->gop_size = INT_MAX;
         context_->max_b_frames = 0;
         context_->bit_rate = static_cast<std::int64_t>(bitrate_kbps) * 1000;
         context_->rc_max_rate = context_->bit_rate;
@@ -658,7 +661,7 @@ public:
             (void) av_dict_set(&options, "preset", "ultrafast", 0);
             (void) av_dict_set(&options, "tune", "zerolatency", 0);
             (void) av_dict_set(&options, "x264-params",
-                           "aud=1:keyint=30:min-keyint=30:scenecut=0:bframes=0:"
+                           "aud=1:keyint=infinite:scenecut=0:bframes=0:"
                            "repeat-headers=1:sliced-threads=1:sync-lookahead=0:rc-lookahead=0",
                            0);
         }
@@ -693,7 +696,8 @@ public:
 
     // Called only on the video thread. FFmpeg's libx264/NVENC wrappers
     // reconfigure rate control on the next submitted frame without reopening
-    // the codec, resetting timestamps or breaking the prediction chain.
+    // the codec or resetting timestamps. NVENC also resets rate control and
+    // forces an IDR, so the controller must avoid unnecessary changes.
     void set_bitrate(std::uint32_t bitrate_kbps) {
         if (bitrate_kbps < 500U || bitrate_kbps > 100'000U) {
             throw WorkerError("invalid live video bitrate");
@@ -1127,7 +1131,7 @@ private:
                                                    // Plain VBR retains a one-frame VBV budget without padding
                                                    // an idle desktop with CBR filler NALs.
                                                    "-rc", "vbr",
-                                                   "-g", "30", "-bf", "0"});
+                                                   "-g", std::to_string(INT_MAX), "-bf", "0"});
             } else if (encoder_ == "libx264") {
                 // Keep software H.264 on slice, rather than frame, threads.
                 // Frame threading retains several pictures before emitting the
@@ -1137,7 +1141,7 @@ private:
                 // fallback.
                 arguments.insert(arguments.end(), {"-threads", "2", "-thread_type", "slice", "-slices", "2",
                                                    "-preset", "ultrafast", "-tune", "zerolatency",
-                                                   "-x264-params", "aud=1:keyint=30:min-keyint=30:scenecut=0:bframes=0:repeat-headers=1"});
+                                                   "-x264-params", "aud=1:keyint=infinite:scenecut=0:bframes=0:repeat-headers=1"});
             }
             // FFmpeg's NVENC default is an effectively unbounded output
             // delay. `-delay 0` above is therefore essential rather than a

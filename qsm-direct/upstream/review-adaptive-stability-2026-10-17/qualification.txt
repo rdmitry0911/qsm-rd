@@ -122,3 +122,12 @@ No C++ worker changes: both staged shared21 and installed shared20 binaries
 have SHA256 3d16783dfa10e3e7053a5f0eea11a685f541138f23b6b1d5f0572b1a3ebb2ded.
 Candidate bridge matches the staged deb and the isolated module tested on-node.
 No actual-user confirmation after deployment is assumed.
+
+Follow-up qualification (shared22)
+----------------------------------
+The user reported remaining blur/sharpen pulsing after shared21. Its stable
+controller result remains valid, but the coarse whole-frame threshold did
+not establish static text stability. Full-resolution text-region checks
+reproduce pulses from the unchanged periodic 30-frame GOP, even at constant
+bitrate. See ../review-keyframe-stability-2026-10-17/qualification.txt for the
+encoder fix and the stronger measurements.

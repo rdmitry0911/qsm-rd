@@ -780,6 +780,30 @@ class PacketTrackTests(unittest.IsolatedAsyncioTestCase):
         track.put_nowait(EncodedUnit(b"P6", False, 1500))
         self.assertEqual(bytes(await track.recv()), b"P6")
 
+    async def test_missing_recovery_idr_retries_without_periodic_keyframes(self) -> None:
+        track = _PacketTrack("video", maximum_queue=4)
+        requested = []
+        track.on_keyframe_required = lambda: requested.append(True)
+        with patch("extensions.browser_bridge.qsm_browser_bridge.time.monotonic") as now:
+            now.return_value = 10.0
+            track.put_nowait(EncodedUnit(b"P0", False, 1500))
+            # The first request is lost/throttled before the producer is ready.
+            for tick in (10.01, 10.25, 10.99):
+                now.return_value = tick
+                track.put_nowait(EncodedUnit(b"P", False, 1500))
+            self.assertEqual(len(requested), 1)
+            now.return_value = 11.0
+            track.put_nowait(EncodedUnit(b"P", False, 1500))
+            self.assertEqual(len(requested), 2)
+            self.assertTrue(track._queue.empty())
+            track.put_nowait(EncodedUnit(b"recovery IDR", True, 1500))
+            self.assertTrue((await track.recv()).is_keyframe)
+            now.return_value = 20.0
+            track.put_nowait(EncodedUnit(b"healthy P", False, 1500))
+            self.assertEqual(bytes(await track.recv()), b"healthy P")
+            self.assertEqual(len(requested), 2, "healthy video must not trigger periodic IDRs")
+        track.end_nowait()
+
     async def test_video_starts_at_a_keyframe_and_audio_keeps_its_fifo(self) -> None:
         video = _PacketTrack("video", maximum_queue=4)
         video.put_nowait(EncodedUnit(b"unusable P", False, 1500))

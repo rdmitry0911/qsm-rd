@@ -1,0 +1,116 @@
+{
+  "h264_nvenc-baseline-static": {
+    "final": {
+      "target": 8000,
+      "maximum": 8000,
+      "overflows": 6,
+      "drops": 123,
+      "changes": 0,
+      "targets": [],
+      "demand": [
+        7223
+      ],
+      "state": "connected"
+    },
+    "decoded": 1214,
+    "lost": 0,
+    "freezes": 0,
+    "freeze_seconds": 0,
+    "dropped": 0,
+    "pli": 0,
+    "text_max_mean_rgb_delta": 12.487965846994536
+  },
+  "h264_nvenc-new-motion": {
+    "final": {
+      "target": 8000,
+      "maximum": 8000,
+      "overflows": 50,
+      "drops": 570,
+      "changes": 13,
+      "targets": [
+        4000,
+        2000,
+        2500,
+        3125,
+        1562,
+        1952,
+        2440,
+        3050,
+        3812,
+        4765,
+        5956,
+        7445,
+        8000
+      ],
+      "demand": [
+        8087
+      ],
+      "state": "connected"
+    },
+    "decoded": 8633,
+    "lost": 206,
+    "freezes": 5,
+    "freeze_seconds": 4.287,
+    "dropped": 0,
+    "pli": 0,
+    "text_max_mean_rgb_delta": 72.67278142076503,
+    "last25s_motion_fraction": 1.0
+  },
+  "h264_nvenc-new-static": {
+    "final": {
+      "target": 8000,
+      "maximum": 8000,
+      "overflows": 3,
+      "drops": 154,
+      "changes": 0,
+      "targets": [],
+      "demand": [
+        6453
+      ],
+      "state": "connected"
+    },
+    "decoded": 1216,
+    "lost": 0,
+    "freezes": 0,
+    "freeze_seconds": 0,
+    "dropped": 0,
+    "pli": 0,
+    "text_max_mean_rgb_delta": 0.002442964480874317
+  },
+  "libx264-new-motion": {
+    "final": {
+      "target": 8000,
+      "maximum": 8000,
+      "overflows": 4,
+      "drops": 170,
+      "changes": 9,
+      "targets": [
+        4000,
+        2000,
+        2500,
+        3125,
+        3906,
+        4882,
+        6102,
+        7627,
+        8000
+      ],
+      "demand": [
+        6718
+      ],
+      "state": "connected"
+    },
+    "decoded": 8909,
+    "lost": 174,
+    "freezes": 1,
+    "freeze_seconds": 3.135,
+    "dropped": 0,
+    "pli": 1,
+    "text_max_mean_rgb_delta": 42.16246448087432,
+    "last25s_motion_fraction": 1.0
+  },
+  "tested_package_components": {
+    "worker_sha256": "0bec14e7f9ce068df2f760e1383e8ab99c40e8b2bc57ad32f099774f386307e6",
+    "bridge_sha256": "a659daa83d85c9eb507065720342a73679822d0e4857290fa69723d0af3058e8"
+  }
+}

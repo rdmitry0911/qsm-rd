@@ -686,7 +686,7 @@ class _PacketTrack(MediaStreamTrack):
         self._pts = 0
         self._closed = False
         self._waiting_for_keyframe = kind == "video"
-        self._recovery_requested = False
+        self._last_recovery_request = float("-inf")
         self.on_keyframe_required: Callable[[], None] | None = None
         self.dropped_units = 0
         self.overflows = 0
@@ -703,9 +703,13 @@ class _PacketTrack(MediaStreamTrack):
                 break
 
     def _request_recovery(self) -> None:
-        if not self._recovery_requested and self.on_keyframe_required is not None:
+        # A request may arrive before the worker connects, be throttled by a
+        # concurrent PLI, or produce an IDR while the sender is still starting.
+        # Retry only while waiting: recovery must not rely on periodic IDRs.
+        now = time.monotonic()
+        if self.on_keyframe_required is not None and now - self._last_recovery_request >= 1.0:
             self.on_keyframe_required()
-            self._recovery_requested = True
+            self._last_recovery_request = now
 
     def put_nowait(self, unit: EncodedUnit) -> None:
         if self._closed:
@@ -719,7 +723,7 @@ class _PacketTrack(MediaStreamTrack):
             if self.kind == "video":
                 self._clear_queue()
                 self._waiting_for_keyframe = True
-                self._recovery_requested = False
+                self._last_recovery_request = float("-inf")
             else:
                 # Opus packets do not have a video reference chain. Keep the
                 # existing bounded audio FIFO and discard only its oldest unit.
@@ -731,7 +735,7 @@ class _PacketTrack(MediaStreamTrack):
                 self._request_recovery()
                 return
             self._waiting_for_keyframe = False
-            self._recovery_requested = False
+            self._last_recovery_request = float("-inf")
             self.recoveries += 1
         self._queue.put_nowait((unit, pts))
 

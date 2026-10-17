@@ -1,0 +1,145 @@
+QSM Direct shared22: remove periodic desktop quality pulses, 2026-10-17
+
+Observed defect
+---------------
+The user confirmed that the remaining flicker is text/details becoming blurry
+and sharp repeatedly. CT105's original shared21 log has long intervals at a
+constant 8000 kbit/s, zero remote loss and no additional FIFO overflows.
+The previous controller fix reduced one cause but did not remove this one.
+Its coarse 160x100 whole-frame measurement diluted small text/edge changes.
+
+LibavVideoEncoder forced an IDR every 30 frames, twice a second at 60fps.
+With a one-frame VBV, an IDR cannot retain the quality of the accumulated
+predictive picture. The next P-frames refine it, until the next forced IDR.
+This reproduces on a deterministic static text/details fixture at constant
+bitrate, independently of adaptive rate changes or network loss.
+
+Implementation
+--------------
+- An effectively unbounded GOP (INT_MAX) replaces gop_size=30. libx264 also
+  uses keyint=infinite and disables scene-cut keyframes. Corresponding
+  external NVENC/libx264 fallback arguments match. H.264 NVENC, software
+  H.264 and experimental HEVC NVENC use the shared VM/LXC video worker.
+- Joining, a broken local reference chain and RTCP PLI still request an IDR.
+  A startup qualification exposed a previously masked recovery race: the
+  bridge could count a throttled/early request as sent and then wait forever
+  when no periodic IDRs arrived. While waiting for an IDR it now retries at
+  most once a second; accepting an IDR stops retries. A focused test covers
+  the missing initial response and the absence of later healthy-stream probes.
+- Bitrate adaptation, policy ceilings, packet pacing, low-delay VBV, codec
+  selection, guest display components and Proxmox API schemas are retained.
+  FFmpeg NVENC still forces an IDR on actual rate reconfiguration. A genuine
+  network-driven change or a joining viewer can therefore briefly change
+  quality; this fix removes unnecessary periodic full refreshes.
+
+Encoder-level checks
+--------------------
+build-encoder-probes.py extracts the exact production class and the shared21
+class from commit e690083, generates a deterministic 1970x1220 static image
+with 15px text plus fine color detail, and makes standalone decoder probes.
+Requires Pillow/DejaVu Sans and C++20 libavcodec/libavutil/libswscale; tested
+with the node's FFmpeg 7 libraries and NVIDIA GPU. Run each executable in a
+directory containing the generated fixture.bgra. Input-file reads are checked.
+
+Static: encode/decode 600 frames at 8 Mbit/s, force an IDR at frame 347.
+Count actual keyframes; measure unscaled 800x1220 text-region luma changes.
+Steady-state metrics exclude frames 0..90 and 347..437, where a requested
+IDR is expected to blur/refine the image. They are not excluded from decode
+or keyframe counts. Shared21 produces 21 keyframes; candidate produces two
+(initial plus requested). All 600 frames decode. The baseline is NOT used
+as a passing stability check: its recurring pulses must be measurable.
+Candidate NVENC, libx264 and HEVC NVENC must have no >0.15 luma mean-delta
+samples in the steady-state windows. encoder-results.txt records the values.
+
+Dynamic: 1200 synthetic moving frames, requests at frames 7/17/49, rate
+changes at 301/607/913 (away from former GOP boundaries). All 1200 frames
+must decode; every explicitly requested frame must be a keyframe. NVENC
+has seven keys (initial + three requests + three real rate changes);
+libx264 has four (initial + three requests). Segment-throughput prints have
+legacy 300-frame boundaries and are diagnostic, not exact per-rate averages.
+
+Browser qualification
+---------------------
+Only disposable CT108 is logged into qsm-test-a for these tests. Its original
+fixture and media policy are saved first. Grace is temporarily 1800 seconds.
+The Qt fixture draws the generated static PNG while /tmp/qsm-video-static
+exists, otherwise runs its existing continuous 60Hz moving desktop pattern.
+Modifier keepalives prevent the five-minute desktop idle lock. The actual
+CT105 desktop is never opened/resized/captured for qualification.
+
+The production service and API remain on shared21 throughout qualification.
+isolated-bridge.py runs over root-authenticated SSH stdio, uses candidate
+bridge.py with either installed shared21 or unpacked shared22 C++ worker,
+and private sockets against CT108 seat1. No HTTP listener; SDP/ICE credentials
+stay in memory and authenticated pipes, never saved numeric logs.
+
+Use ../review-video-pacing-2026-10-17/network-setup.sh for the dedicated
+qsm-pacing namespace. Only UDP on that veth is shaped; real interfaces and
+VPN remain unchanged. Copy isolated-bridge.py to the host stability directory
+as isolated-bridge22.py; unpack candidate deb into its worker22 subdirectory.
+Run firefox-flicker.py inside the namespace as dima with MOZ_GMP_PATH pointing
+to the existing OpenH264 GMP and Playwright Firefox installed. SSH root and
+sudo namespace access are lab prerequisites. Artifacts go to /tmp/qsm-flicker2.
+
+The browser crops the decoded 1970x1220 picture to an 800x1220 text region
+without scaling, and samples mean absolute RGB difference every 100ms after
+a five-second warmup. Static cases each run 20s on a loss-free 20Mbit/s link
+with nominal 80ms RTT. Baseline must exceed mean delta 2/255; candidate must
+stay below 0.15/255, without any encoder rate changes or network losses.
+A synthetic RTCP PLI is passed through the actual video sender's RTCP handler
+after each case; video must keep decoding. Standalone probes separately
+verify actual requested keyframe output. The initial candidate run exposed
+the startup race above and was discarded before final qualification.
+
+Motion cases use candidate NVENC and libx264 at 1970x1220, maximum 8Mbps:
+20Mbps for 15s -> 4Mbps for 25s -> 20Mbps for 110s, queue 300/50/300,
+nominal 80ms RTT. Must lower target below 4Mbps, restore 8Mbps without
+reconnecting, decode >5000 frames, and still have >=80% moving samples in
+the last 25s. Brief recovery pauses at real bandwidth changes are recorded;
+zero freezes during the transition is not a pass criterion.
+
+Limits
+------
+These are component tests with a real browser and CT108, not new VM/QEMU or
+PVE authorization qualification, nor confirmation of the user's actual VPN.
+Both VM/LXC share this encoder/bridge path, but new impaired-network browser
+checks cover LXC only. QSV/VA-API GOP settings are unchanged. No resolution
+or FPS adaptation, new ports, guest package/display changes or VM/CT restarts.
+
+Primary implementation references
+---------------------------------
+NVIDIA recommends a long/unbounded GOP and force-IDR recovery for low-latency
+streaming. FFmpeg NVENC uses a positive AVCodecContext.gop_size as gopLength.
+https://docs.nvidia.com/video-technologies/video-codec-sdk/13.0/nvenc-video-encoder-api-prog-guide/index.html
+https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1/libavcodec/nvenc.c
+
+Automated verification
+-----------------------
+47 browser bridge/controller tests pass locally and on node aiortc 1.11.
+34 terminal tests and 16 C++/worker/component suites pass with the production C++ change.
+Host/LXC helper/guest debs build as 0.4.0+shared22. Tested isolated worker and
+bridge hashes are compared against the final host package before deployment.
+
+The local aiortc 1.6 test environment emits an existing STUN teardown warning
+after the successful unittest result. The target aiortc 1.11 run is clean.
+
+Final results
+-------------
+Firefox static text region at constant 8Mbps, no network loss or rate changes:
+  shared21 worker: peak RGB mean delta 12.48797/255; 150/150 changed samples.
+  shared22 worker: peak 0.002443/255; 0/150 changed samples.
+Exact-class static probes: shared21 21 keys in 600 frames, shared22 two
+(initial + requested), all frames decoded. Steady-state luma peaks: NVENC 0,
+libx264 0.03106, HEVC NVENC 0.00935; no >0.15 threshold crossings.
+All three moving encoder probes decode all 1200 frames across unaligned rate
+changes and requested IDRs.
+
+Firefox moving 20 -> 4 -> 20Mbps, 1970x1220, 8Mbps ceiling:
+  h264_nvenc-new-motion: decoded=8633, freezes=5, freeze_seconds=4.287, lost=206, final_target=8000, final25s_motion=1.000
+  libx264-new-motion: decoded=8909, freezes=1, freeze_seconds=3.135, lost=174, final_target=8000, final25s_motion=1.000
+Both recover to 8Mbps without reconnecting; all synthetic PLI handoff checks
+pass. Queue/drop counters include initial pre-connect startup and real
+congestion/reconfiguration recovery; full values are in samples.jsonl.
+Original CT108 test account is logged out, fixture/policy restored, temporary
+PNG/flag and isolated impairment namespace removed. Production deployment
+occurs only after all these checks; see release DEPLOYMENT.txt.

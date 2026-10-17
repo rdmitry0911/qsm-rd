@@ -1,0 +1,19 @@
+encoder=h264_nvenc decoded=600 keys=21 text_max_delta=10.2263 text_mean_delta=0.958963 flashes=338 mbps=6.99493 max_encode_ms=11.9158
+encoder=h264_nvenc decoded=600 keys=2 text_max_delta=0 text_mean_delta=0 flashes=0 mbps=6.43848 max_encode_ms=12.53
+encoder=hevc_nvenc decoded=600 keys=2 text_max_delta=0.00935143 text_mean_delta=0.00101105 flashes=0 mbps=6.91842 max_encode_ms=11.9616
+encoder=libx264 decoded=600 keys=2 text_max_delta=0.0310574 text_mean_delta=0.00218098 flashes=0 mbps=3.51275 max_encode_ms=13.5751
+segment=0 mbps=6.85684 decoded=300
+segment=1 mbps=2.67413 decoded=600
+segment=2 mbps=9.68224 decoded=900
+segment=3 mbps=1.3889 decoded=1200
+{"encoder":"h264_nvenc","bitrate_kbps":8000,"frames":1200,"decoded":1200,"forced_idrs":3,"keys":7,"max_frame_bytes":23281,"mbps":5.28028,"max_encode_ms":6.51327}
+segment=0 mbps=7.28757 decoded=300
+segment=1 mbps=2.55919 decoded=600
+segment=2 mbps=10.7231 decoded=900
+segment=3 mbps=0.705262 decoded=1200
+{"encoder":"hevc_nvenc","bitrate_kbps":8000,"frames":1200,"decoded":1200,"forced_idrs":3,"keys":7,"max_frame_bytes":25636,"mbps":5.45686,"max_encode_ms":7.53977}
+segment=0 mbps=6.60143 decoded=300
+segment=1 mbps=1.62643 decoded=600
+segment=2 mbps=10.0041 decoded=900
+segment=3 mbps=0.359149 decoded=1200
+{"encoder":"libx264","bitrate_kbps":8000,"frames":1200,"decoded":1200,"forced_idrs":3,"keys":4,"max_frame_bytes":24113,"mbps":4.77597,"max_encode_ms":7.24902}
