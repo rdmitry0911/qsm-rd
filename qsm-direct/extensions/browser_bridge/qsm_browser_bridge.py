@@ -33,7 +33,7 @@ from aiortc import (MediaStreamTrack, RTCPeerConnection, RTCSessionDescription,
                     RTCRtpSender)
 from aiortc import codecs as aiortc_codecs
 import aiortc.rtcrtpsender as aiortc_rtcrtpsender
-from aiortc.codecs.h264 import PACKET_MAX
+from aiortc.codecs.h264 import H264Encoder
 from aiortc.mediastreams import convert_timebase
 from aiortc.mediastreams import MediaStreamError
 from aiortc.rtcrtpparameters import RTCRtcpFeedback, RTCRtpCodecParameters
@@ -72,6 +72,9 @@ MAX_CONTROL_MESSAGE_BYTES = 1024
 # JSON/base64 envelope is larger, while interactive input remains constrained
 # by MAX_CONTROL_MESSAGE_BYTES below.
 MAX_GUEST_CONTROL_MESSAGE_BYTES = 2 * 1024 * 1024
+# Payload budget leaves room for RTP extensions, SRTP authentication, RTX,
+# UDP and IPv6 even on a VPN path whose MTU is only 1280–1300 bytes.
+VIDEO_RTP_PAYLOAD_MAX = 1150
 VIDEO_TIME_BASE = Fraction(1, 90_000)
 AUDIO_TIME_BASE = Fraction(1, 48_000)
 # The matching worker requests the same node-local socket capacity.  It holds
@@ -94,6 +97,46 @@ H265_DEFAULT_PARAMETERS = {"profile-id": "1", "tier-flag": "0", "level-id": "120
 _H265_FMTP_VALUE = re.compile(r"\A[A-Za-z0-9]{1,32}\Z")
 _HEVC_CODEC_LOCK = threading.Lock()
 _HEVC_PACKETIZER_INSTALLED = False
+_H264_PACKETIZER_INSTALLED = False
+
+
+class _H264Packetizer(H264Encoder):
+    """RFC 6184 single-NAL/FU-A payloads with QSM's VPN-safe size budget.
+
+    Keep aiortc's encoder and Annex-B parser, but scope packet sizing to this
+    sender instead of changing the third-party module's global PACKET_MAX.
+    Small NALs travel individually; aggregation is optional in mode 1.
+    """
+
+    @classmethod
+    def _packetize(cls, packages: Any) -> list[bytes]:
+        payloads: list[bytes] = []
+        for nal in packages:
+            if len(nal) <= VIDEO_RTP_PAYLOAD_MAX:
+                payloads.append(nal)
+                continue
+            indicator = (nal[0] & 0xE0) | 28
+            nal_type = nal[0] & 0x1F
+            available = VIDEO_RTP_PAYLOAD_MAX - 2
+            for offset in range(1, len(nal), available):
+                end = min(len(nal), offset + available)
+                flags = nal_type | (0x80 if offset == 1 else 0) | (0x40 if end == len(nal) else 0)
+                payloads.append(bytes([indicator, flags]) + nal[offset:end])
+        return payloads
+
+
+def _install_h264_packetizer() -> None:
+    global _H264_PACKETIZER_INSTALLED
+    with _HEVC_CODEC_LOCK:
+        if _H264_PACKETIZER_INSTALLED:
+            return
+        original = aiortc_rtcrtpsender.get_encoder
+        def get_encoder(codec: RTCRtpCodecParameters) -> object:
+            if codec.mimeType.lower() == "video/h264":
+                return _H264Packetizer()
+            return original(codec)
+        aiortc_rtcrtpsender.get_encoder = get_encoder
+        _H264_PACKETIZER_INSTALLED = True
 
 
 class _HevcPacketizer:
@@ -138,14 +181,14 @@ class _HevcPacketizer:
     def _packetize_nal(nal: bytes) -> list[bytes]:
         if len(nal) < 2:
             raise BridgeError("malformed HEVC access unit")
-        if len(nal) <= PACKET_MAX:
+        if len(nal) <= VIDEO_RTP_PAYLOAD_MAX:
             return [nal]
         # RFC 7798 section 4.4.3: FU PayloadHdr retains F and LayerId/TID,
         # replaces the NAL type with 49, then carries S/E and the original
         # six-bit type in a one-byte FU header.
         fu_indicator = bytes([(nal[0] & 0x81) | (49 << 1), nal[1]])
         original_type = (nal[0] >> 1) & 0x3f
-        available = PACKET_MAX - 3
+        available = VIDEO_RTP_PAYLOAD_MAX - 3
         payload = memoryview(nal)[2:]
         result: list[bytes] = []
         offset = 0
@@ -1148,6 +1191,7 @@ class BrowserWebRtcBridge:
                  on_microphone: Callable[[object, bytes], None] | None = None) -> None:
         if video_codec not in VIDEO_CODECS:
             raise BridgeError("invalid direct browser video codec")
+        _install_h264_packetizer()
         if video_codec == "hevc":
             _install_hevc_packetizer()
         try:

@@ -1,0 +1,50 @@
+Low-MTU VPN follow-up — 2026-10-17
+=================================
+
+The user reported fewer interruptions with shared14, but remaining video
+freezes/disappearances. Raising Firefox jitterBufferTarget to 120 ms made no
+observable difference according to the user.
+
+Path evidence from the PVE host to the reported VPN client, 10.90.10.21:
+- The gateway returns ICMP fragmentation needed, MTU=1300, for a 1378-byte
+  IPv4 probe with DF set.
+- A 1300-byte DF IPv4 packet succeeds (~32 ms ICMP RTT).
+- A 1301-byte DF IPv4 packet fails immediately with Message too long after
+  the kernel learns the path MTU. No interface/router MTU was changed.
+
+aiortc's existing H.264 packetizer allowed a 1300-byte RTP payload. The RTP
+headers/extensions, SRTP tag, UDP and IP headers make the resulting datagram
+larger than the observed path MTU. Complex/large video frames exercise the
+full payload size more frequently. This is a concrete compatibility defect;
+confirmation of the user's final playback experience remains outstanding.
+
+shared15:
+- QSM-specific H.264 single-NAL/FU-A packetization caps RTP payloads at 1150
+  bytes; Annex-B parsing and codec behavior remain provided by aiortc.
+- The optional HEVC packetizer uses the same payload budget.
+- The change is scoped to QSM's encoder factory. The third-party aiortc
+  module's global PACKET_MAX is not modified.
+- Shared14's bounded reference-preserving queue and IDR recovery are retained.
+- Codec, desktop frame rate, encoder bitrate, guest packages and compositor
+  are unchanged. No resolution reduction or new network port is introduced.
+
+Validation:
+29 bridge tests pass, including H.264 fragmentation/reassembly at exact
+payload boundaries, real encoder/packetizer/depacketizer/decoder comparison,
+factory isolation/idempotence and actual RTP/RTX serialization with extensions,
+IPv6/UDP overhead and the maximum supported SRTP authentication tag. Those
+constructed datagrams fit within 1280 bytes.
+
+Actual authenticated PVE Console in Firefox 155 on CT108 decodes the new
+H.264 packetizer, including fragmented initial IDRs; receiver reports no loss,
+frame drops or freezes. A metadata-only sample of 3235 actual outgoing packets
+shows maximum IPv4 packet length 1218, zero packets above 1300, and zero first
+fragments (10 seconds). No packet payload/media capture was saved. The socket
+sampler filters to UDP source ports owned by the QSM terminal service.
+
+qsm-pve-direct 0.4.0+shared15 installed on 192.168.64.20. The transport restart
+requires viewer reconnection. CT105's qsm desktop session 101122 was retained;
+no container/compositor/VM restart. Shared13 LXC helper/guest and private Sway
+remain compatible. VM103/104 QEMU processes remain unchanged. No update on
+172.16.16.17. The user was asked to reopen QSM, restore the experimental decoder
+playout target to 0 ms and retest YouTube over the actual VPN.

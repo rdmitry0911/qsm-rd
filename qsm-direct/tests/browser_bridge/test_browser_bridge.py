@@ -16,7 +16,7 @@ from fractions import Fraction
 from pathlib import Path
 
 from aiortc import RTCPeerConnection, RTCRtpSender, RTCSessionDescription
-from aiortc.codecs.h264 import H264Encoder
+from aiortc.codecs.h264 import H264Encoder, H264PayloadDescriptor
 from aiortc.rtp import RTCP_PSFB_PLI, RtcpPsfbPacket
 
 from extensions.browser_bridge.qsm_browser_bridge import (
@@ -55,12 +55,60 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     _AudioAssembler,
     _PacketTrack,
     _HevcPacketizer,
+    _H264Packetizer,
+    VIDEO_RTP_PAYLOAD_MAX,
     _h265_offer_details,
     _VideoAssembler,
 )
 
 
 class BrowserBridgeAssemblerTests(unittest.TestCase):
+    def test_h264_vpn_payload_budget_preserves_nals_at_fragment_boundaries(self) -> None:
+        packetizer = _H264Packetizer()
+        for length in (2, 100, VIDEO_RTP_PAYLOAD_MAX, VIDEO_RTP_PAYLOAD_MAX + 1,
+                       2 * (VIDEO_RTP_PAYLOAD_MAX - 2) + 1, 16000):
+            nal = b"\x65" + b"\xff" * (length - 1)
+            packet = av.Packet(b"\x00\x00\x00\x01" + nal)
+            packet.pts, packet.time_base = 1500, VIDEO_TIME_BASE
+            payloads, timestamp = packetizer.pack(packet)
+            self.assertEqual(timestamp, 1500)
+            self.assertTrue(all(len(p) <= VIDEO_RTP_PAYLOAD_MAX for p in payloads))
+            restored = b"".join(H264PayloadDescriptor.parse(p)[1] for p in payloads)
+            self.assertEqual(restored, b"\x00\x00\x00\x01" + nal)
+
+    def test_h264_packetizer_factory_is_scoped_and_idempotent(self) -> None:
+        import aiortc.codecs.h264 as h264
+        import aiortc.rtcrtpsender as sender
+        from aiortc.rtcrtpparameters import RTCRtpCodecParameters
+        from extensions.browser_bridge.qsm_browser_bridge import _install_h264_packetizer
+        original_limit = h264.PACKET_MAX
+        _install_h264_packetizer()
+        factory = sender.get_encoder
+        _install_h264_packetizer()
+        self.assertIs(factory, sender.get_encoder)
+        codec = RTCRtpCodecParameters(mimeType="video/H264", clockRate=90000, payloadType=102)
+        self.assertIsInstance(sender.get_encoder(codec), _H264Packetizer)
+        self.assertEqual(h264.PACKET_MAX, original_limit)
+
+    def test_srtp_rtx_ipv6_datagram_fits_a_1300_byte_vpn_path(self) -> None:
+        from aiortc.rtp import RtpPacket, HeaderExtensionsMap, wrap_rtx
+        from aiortc.rtcrtpparameters import RTCRtpParameters, RTCRtpHeaderExtensionParameters
+        extension_map = HeaderExtensionsMap()
+        extension_map.configure(RTCRtpParameters(headerExtensions=[
+            RTCRtpHeaderExtensionParameters(id=1, uri="urn:ietf:params:rtp-hdrext:sdes:mid"),
+            RTCRtpHeaderExtensionParameters(id=2, uri="http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"),
+        ]))
+        packet = RtpPacket(payload_type=102, sequence_number=1, timestamp=1, ssrc=1,
+                           payload=b"x" * VIDEO_RTP_PAYLOAD_MAX)
+        packet.extensions.mid = "video"
+        packet.extensions.abs_send_time = 123456
+        retransmission = wrap_rtx(packet, payload_type=103, sequence_number=2, ssrc=2)
+        for rtp in (packet, retransmission):
+            # IPv6 + UDP + maximum supported SRTP authentication tag (GCM).
+            wire_length = len(rtp.serialize(extension_map)) + 40 + 8 + 16
+            self.assertLessEqual(wire_length, 1280)
+
+
     def test_hevc_rfc7798_packetizer_keeps_nal_headers_and_fu_boundaries(self) -> None:
         packetizer = _HevcPacketizer()
         packet = av.Packet(
@@ -684,7 +732,9 @@ class PacketTrackTests(unittest.IsolatedAsyncioTestCase):
             if n == 10:
                 continue  # One frame-time pause in the RTP consumer.
             for _ in range(2 if n == 11 else 1):
-                decoded.extend(luma(f) for f in decoder.decode(await track.recv()))
+                payloads, _timestamp = _H264Packetizer().pack(await track.recv())
+                annex_b = b"".join(H264PayloadDescriptor.parse(p)[1] for p in payloads)
+                decoded.extend(luma(f) for f in decoder.decode(av.Packet(annex_b)))
         self.assertEqual(decoded, expected, "a scheduler pause must not damage later reference frames")
 
     async def test_late_subscriber_does_not_replay_a_stale_idr_then_skip_references(self) -> None:
