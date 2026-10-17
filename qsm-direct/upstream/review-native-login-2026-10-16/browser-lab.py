@@ -91,7 +91,11 @@ async def main():
                         const report=receiver ? Array.from((await receiver.getStats()).values()).find(s=>s.type==='inbound-rtp'&&s.kind==='video') : null;
                         return {jitterBufferTarget:receiver?.jitterBufferTarget,playoutDelayHint:receiver?.playoutDelayHint,
                             jitterBufferDelay:report?.jitterBufferDelay,jitterBufferEmittedCount:report?.jitterBufferEmittedCount,
-                            framesDecoded:report?.framesDecoded,framesDropped:report?.framesDropped};
+                            framesDecoded:report?.framesDecoded,framesDropped:report?.framesDropped,
+                            framesReceived:report?.framesReceived,packetsLost:report?.packetsLost,
+                            freezeCount:report?.freezeCount,totalFreezesDuration:report?.totalFreezesDuration,
+                            pliCount:report?.pliCount,nackCount:report?.nackCount,
+                            bytesReceived:report?.bytesReceived};
                     }""")
                     print('RECEIVER_STATS',json.dumps(stats),flush=True)
                 elif op in ('measure_fresh_frames','measure_cursor_shapes'):

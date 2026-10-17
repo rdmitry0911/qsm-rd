@@ -1,0 +1,19 @@
+{
+  "browser": "Firefox 155.0",
+  "container": 108,
+  "encoder": "h264_nvenc",
+  "source": "60 Hz Qt fullscreen moving-picture fixture inside Plasma",
+  "network": "lab LAN, not user VPN",
+  "jitterBufferTarget": 0,
+  "framesReceived": 4565,
+  "framesDecoded": 4564,
+  "framesDropped": 0,
+  "packetsLost": 0,
+  "freezeCount": 0,
+  "totalFreezesDuration": 0,
+  "pliCount": 0,
+  "nackCount": 0,
+  "bytesReceived": 102656329,
+  "jitterBufferDelay": 38.473889,
+  "jitterBufferEmittedCount": 4565
+}

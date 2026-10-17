@@ -22,6 +22,7 @@ import struct
 import re
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -77,12 +78,11 @@ AUDIO_TIME_BASE = Fraction(1, 48_000)
 # a burst of an H.264 IDR while the ingress thread queues its previous record
 # into asyncio; it is never exposed as a browser presentation queue.
 LOCAL_MEDIA_SOCKET_BUFFER_BYTES = 2 * 1024 * 1024
-# This route is an interactive console, not a recorder.  A browser which is
-# temporarily behind must receive the current encoded picture rather than a
-# small backlog of already obsolete mouse/desktop updates.  Audio can retain a
-# few 20 ms Opus packets for normal WebRTC jitter handling without becoming a
-# visible lip-sync delay.
-VIDEO_QUEUE_DEPTH = 1
+# A short burst must retain encoded reference frames: arbitrary P-frame
+# replacement corrupts all dependent frames until the next IDR. Bound this
+# FIFO to four frames (about 67 ms at 60 fps); a genuine overrun resets the
+# decoder chain and requests a new keyframe instead of forwarding broken data.
+VIDEO_QUEUE_DEPTH = 4
 AUDIO_QUEUE_DEPTH = 4
 VIDEO_CODECS = frozenset({"h264", "hevc"})
 # RFC 7798 section 7.1 fmtp keys a browser may put on its H265 offer and that
@@ -418,44 +418,78 @@ class _PacketTrack(MediaStreamTrack):
     def __init__(self, kind: str, *, maximum_queue: int) -> None:
         super().__init__()
         self.kind = kind
-        self._queue: asyncio.Queue[EncodedUnit | None] = asyncio.Queue(maxsize=maximum_queue)
+        self._queue: asyncio.Queue[tuple[EncodedUnit, int] | None] = asyncio.Queue(maxsize=maximum_queue)
         self._pts = 0
         self._closed = False
+        self._waiting_for_keyframe = kind == "video"
+        self._recovery_requested = False
+        self.on_keyframe_required: Callable[[], None] | None = None
+        self.dropped_units = 0
+        self.overflows = 0
+        self.delivered_units = 0
+        self.recoveries = 0
+
+    def _clear_queue(self) -> None:
+        while not self._queue.empty():
+            try:
+                item = self._queue.get_nowait()
+                if item is not None:
+                    self.dropped_units += 1
+            except asyncio.QueueEmpty:
+                break
+
+    def _request_recovery(self) -> None:
+        if not self._recovery_requested and self.on_keyframe_required is not None:
+            self.on_keyframe_required()
+            self._recovery_requested = True
 
     def put_nowait(self, unit: EncodedUnit) -> None:
         if self._closed:
             return
-        # Prefer current video/audio over latency growth.  The next IDR lets
-        # the browser recover after a pressure drop; no local reader is ever
-        # allowed to pause a capture/encoder thread.
-        while self._queue.full():
-            try:
+        # Account for every produced sample, including ones discarded under
+        # pressure. Compressing the RTP clock on a drop causes A/V drift.
+        pts = self._pts
+        self._pts += unit.duration
+        if self._queue.full():
+            self.overflows += 1
+            if self.kind == "video":
+                self._clear_queue()
+                self._waiting_for_keyframe = True
+                self._recovery_requested = False
+            else:
+                # Opus packets do not have a video reference chain. Keep the
+                # existing bounded audio FIFO and discard only its oldest unit.
                 self._queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-        self._queue.put_nowait(unit)
+                self.dropped_units += 1
+        if self.kind == "video" and self._waiting_for_keyframe:
+            if not unit.keyframe:
+                self.dropped_units += 1
+                self._request_recovery()
+                return
+            self._waiting_for_keyframe = False
+            self._recovery_requested = False
+            self.recoveries += 1
+        self._queue.put_nowait((unit, pts))
 
     def end_nowait(self) -> None:
         if self._closed:
             return
         self._closed = True
-        while self._queue.full():
-            try:
-                self._queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
+        self.on_keyframe_required = None
+        self._clear_queue()
         self._queue.put_nowait(None)
 
     async def recv(self) -> av.Packet:
-        unit = await self._queue.get()
-        if unit is None:
+        item = await self._queue.get()
+        if item is None:
             raise MediaStreamError
+        unit, pts = item
+        self.delivered_units += 1
         packet = av.Packet(unit.data)
-        packet.pts = self._pts
-        packet.dts = self._pts
+        packet.pts = pts
+        packet.dts = pts
         packet.time_base = VIDEO_TIME_BASE if self.kind == "video" else AUDIO_TIME_BASE
         packet.is_keyframe = unit.keyframe
-        self._pts += unit.duration
         return packet
 
 
@@ -492,8 +526,9 @@ class _TrackFanout:
 
     def put_nowait(self, unit: EncodedUnit) -> None:
         if not self._closed:
-            if unit.keyframe:
-                self._bootstrap = unit
+            # A cached IDR followed by a recent P-frame is not a valid
+            # bootstrap: that P-frame also needs all intervening references.
+            self._bootstrap = unit if unit.keyframe else None
             for track in tuple(self._tracks):
                 track.put_nowait(unit)
 
@@ -1149,6 +1184,8 @@ class BrowserWebRtcBridge:
         self._pointer_order = PointerSequenceFilter()
         self.input = shared_input or UnixInputEgress(
             runtime_directory, expected_uid=expected_producer_uid)
+        self._last_keyframe_request = float("-inf")
+        self.video_track.on_keyframe_required = self._request_video_keyframe
         self._guest_dispatch = guest_dispatch
         # The terminal service owns the lifetime of the shared producer.  A
         # browser closing its tab used to leave this bridge subscribed until
@@ -1167,6 +1204,7 @@ class BrowserWebRtcBridge:
         # a track on it only while the user has the microphone switched on.
         self._on_microphone = on_microphone
         self._microphone_task: asyncio.Task[None] | None = None
+        self._health_task: asyncio.Task[None] | None = None
         self._pc.on("track", self._on_track)
 
         @self._pc.on("iceconnectionstatechange")
@@ -1185,8 +1223,33 @@ class BrowserWebRtcBridge:
                 file=sys.stderr,
                 flush=True,
             )
+            if self._pc.connectionState == "connected" and self._health_task is None:
+                self._health_task = asyncio.create_task(self._report_media_health())
             if self._pc.connectionState in {"closed", "failed"}:
                 self._notify_terminal()
+
+    async def _report_media_health(self) -> None:
+        # Numeric transport counters only: no media, credentials or addresses.
+        previous_time = time.monotonic()
+        previous_frames = self.video_track.delivered_units
+        while not self._closed:
+            await asyncio.sleep(10)
+            if self._closed or self._pc.connectionState != "connected":
+                return
+            now = time.monotonic()
+            frames = self.video_track.delivered_units
+            report = await self._pc.getStats()
+            remote = next((r for r in report.values()
+                           if r.type == "remote-inbound-rtp" and r.kind == "video"), None)
+            loss = getattr(remote, "packetsLost", 0)
+            fraction = getattr(remote, "fractionLost", 0)
+            rtt = getattr(remote, "roundTripTime", None)
+            rtt_ms = round(rtt * 1000) if rtt is not None else -1
+            print(f"qsm-direct-terminal: media health video_fps={(frames - previous_frames) / max(0.001, now - previous_time):.1f} "
+                  f"queue={self.video_track._queue.qsize()} drops={self.video_track.dropped_units} "
+                  f"overflows={self.video_track.overflows} waiting_idr={int(self.video_track._waiting_for_keyframe)} "
+                  f"remote_lost={loss} loss_fraction={fraction} rtt_ms={rtt_ms}", file=sys.stderr, flush=True)
+            previous_time, previous_frames = now, frames
 
     @property
     def terminal(self) -> bool:
@@ -1466,6 +1529,18 @@ class BrowserWebRtcBridge:
                 return f"codec={codec.mimeType} pt={codec.payloadType} fmtp={parameters or 'none'}"
         return "codec=none"
 
+    def _request_video_keyframe(self) -> None:
+        # Many losses can produce a PLI burst. Restarting an external encoder
+        # for every report creates another freeze instead of repairing video.
+        now = time.monotonic()
+        if now - self._last_keyframe_request < 0.25:
+            return
+        try:
+            self.input.request_keyframe()
+            self._last_keyframe_request = now
+        except BridgeError:
+            pass  # The producer may already be retiring.
+
     def _attach_video_recovery(self, sender: object) -> None:
         """Bridge RTCP PLI to the external Display1 encoder.
 
@@ -1481,12 +1556,7 @@ class BrowserWebRtcBridge:
 
         async def receive_with_recovery(packet: object) -> None:
             if isinstance(packet, RtcpPsfbPacket) and packet.fmt == RTCP_PSFB_PLI:
-                try:
-                    self.input.request_keyframe()
-                except BridgeError:
-                    # The worker may be retiring with its VM. Preserve the
-                    # sender's ordinary RTCP state transition in that case.
-                    pass
+                self._request_video_keyframe()
             await receive_rtcp(packet)
 
         # Install before SDP application can start RTP/RTCP tasks. The hook is
@@ -1670,6 +1740,9 @@ class BrowserWebRtcBridge:
         if self._closed:
             return
         self._closed = True
+        if self._health_task is not None:
+            self._health_task.cancel()
+            await asyncio.gather(self._health_task, return_exceptions=True)
         if self._microphone_task is not None:
             self._microphone_task.cancel()
         if self._owns_media:

@@ -1,0 +1,71 @@
+Video interruption investigation and shared14 hotfix — 2026-10-17
+===============================================================
+
+Reported setup: CT105 on 192.168.64.20, Firefox over VPN. Audio interruptions
+were initially untested. The existing Plasma session was kept (101122, qsm).
+No desktop, compositor, VM or container was restarted for this hotfix. The
+normal host package install restarted the transport; viewers must reconnect.
+
+Confirmed defect
+----------------
+The browser bridge used a one-frame latest-only queue AFTER H.264 encoding.
+A short RTP-consumer/scheduler delay could replace a reference P-frame with a
+later dependent frame. RTP packet sequence numbers did not reflect that local
+frame drop, so the browser could receive an apparently complete but damaged
+predictive chain. A cached old IDR replayed to a late subscriber also did not
+contain references for current P-frames.
+
+reproduce-queue.py, run against the previous bridge, encodes 60 genuine H.264
+frames. One overwritten frame (#10) corrupts decoded frames 11–29; decoding
+recovers at the next IDR (#30). This demonstrates a transport defect, not a
+complete causal proof for every interruption in the user's YouTube session.
+
+Changes
+-------
+- Four-frame bounded FIFO absorbs short bursts without dropping references.
+- A real video overflow clears the invalid pending chain and requests an IDR.
+  Dependent frames are withheld until that IDR arrives. Recovery requests are
+  coalesced per overflow; RTCP PLI/queue recovery has a 250 ms per-peer limit.
+- RTP timestamps retain elapsed produced media time when units are dropped.
+  Opus keeps its existing bounded oldest-only drop behavior.
+- Late subscribers no longer receive a stale IDR followed by skipped references.
+- Numeric transport health is logged every ten seconds: queue/drop/recovery
+  state, outgoing FPS, remote RTCP loss/RTT; the media worker reports capture,
+  encoded unit, local socket-failure and keyframe-request counts. No addresses,
+  SDP, credentials or media are logged. Queue drop counters are cumulative;
+  startup negotiation can fill the not-yet-consumed queue. Ongoing loss must
+  be assessed from changes between successive reports.
+
+Validation
+----------
+26 bridge tests pass, including a real H.264 encoder/decoder reference-chain
+regression, pressure recovery/timestamps, late subscription, Opus FIFO and PLI
+burst behavior. 32 terminal tests and 16 CTest suites pass. The system aiortc
+1.6/aioice test environment emits STUN teardown warnings; the same warnings
+were reproduced with the untouched shared13 code (21 passing tests).
+
+Actual authenticated PVE Console on CT108, Firefox 155, both libx264 and host
+NVENC, with a 60 Hz fullscreen Qt moving-picture fixture inside real Plasma:
+- libx264 snapshot: decoded 2590, dropped 0, lost 0, freezes 0, PLI/NACK 0.
+- NVENC final snapshot: received 4565, decoded 4564, dropped 0, lost 0,
+  freezes 0, PLI/NACK 0 (about 76 seconds at 60 fps).
+- Steady server delivery about 60 fps, empty queue, no additional queue
+  overflows or local media socket failures after startup negotiation.
+- Native HTTPS/WebRTC only; completed runs assert no legacy 8007 requests.
+- The CT108 hardware-encoder test policy was restored to its original software
+  policy, the motion fixture stopped, and its test desktop logged out.
+
+On the user's reconnected CT105/VPN peer, steady delivery was 60 fps and queue
+counters remained unchanged after startup. RTCP reports nevertheless show
+network loss (80 -> 109 -> 166 -> 253 packets across successive reports) and
+RTT about 110–115 ms. The localhost/lab test does not reproduce that VPN and
+does not prove the user's YouTube playback is now interruption-free. Browser
+receiver diagnostics/user feedback are still needed to assess remaining VPN
+jitter/loss. Decoder jitter target/default and encoder bitrate are unchanged.
+
+Deployment
+----------
+qsm-pve-direct 0.4.0+shared14 installed on 192.168.64.20. Existing shared13 LXC
+helper/guest, Sway 1.11+qsm1, native SDDM and Breeze remain compatible and do
+not require reinstalling. CT105's qsm session 101122 remains active. VM103/104
+retain their original QEMU PIDs 2792970 / 2104260. Node 172.16.16.17 unchanged.

@@ -1689,6 +1689,8 @@ void write_wlroots_diagnostic(std::string_view event,
               << " errors=" << stats.errors
               << " display_failed=" << (stats.display_failed ? "yes" : "no")
               << " captured_frames=" << display.frames
+              << " idr_requests=" << source.keyframe_requests
+              << " encoded_units=" << egress.video_access_units
               << " separate_cursor=" << display.separate_cursor
               << " cursor_images=" << display.cursor_images
               << " cursor_fallbacks=" << display.cursor_fallbacks
@@ -1862,11 +1864,16 @@ int run_with_display(const Options &options, DirectMediaAdapter &media, qmdp::IQ
         // browser console window follows the VM lifecycle.
         const auto capture_deadline = std::chrono::steady_clock::now() + 3s;
         bool capture_diagnostic_written = false;
+        auto next_health_diagnostic = std::chrono::steady_clock::now() + 10s;
         while (!stopping.load() && !session.display_failed()) {
             if (!capture_diagnostic_written && std::chrono::steady_clock::now() >= capture_deadline) {
                 const auto stats = session.stats();
                 diagnostic("CAPTURE_AFTER_3S", stats);
                 capture_diagnostic_written = true;
+            }
+            if (std::chrono::steady_clock::now() >= next_health_diagnostic) {
+                diagnostic("HEALTH", session.stats());
+                next_health_diagnostic = std::chrono::steady_clock::now() + 10s;
             }
             std::this_thread::sleep_for(100ms);
         }

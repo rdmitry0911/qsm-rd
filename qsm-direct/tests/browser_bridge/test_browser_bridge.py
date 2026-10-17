@@ -346,6 +346,11 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                 await sender._handle_rtcp_packet(non_pli)
                 self.assertEqual(requested, ["idr"])
                 self.assertEqual(sender.feedback, [pli, non_pli])
+                await sender._handle_rtcp_packet(pli)
+                self.assertEqual(requested, ["idr"], "a PLI burst must not restart the encoder repeatedly")
+                bridge._last_keyframe_request -= 0.3
+                await sender._handle_rtcp_packet(pli)
+                self.assertEqual(requested, ["idr", "idr"])
             finally:
                 await bridge.close()
 
@@ -611,6 +616,90 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PacketTrackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_short_video_burst_keeps_the_complete_prediction_chain(self) -> None:
+        track = _PacketTrack("video", maximum_queue=4)
+        for n in range(4):
+            track.put_nowait(EncodedUnit(bytes([n]), n == 0, 1500))
+        packets = [await track.recv() for _ in range(4)]
+        self.assertEqual([bytes(p) for p in packets], [bytes([n]) for n in range(4)])
+        self.assertEqual([p.pts for p in packets], [0, 1500, 3000, 4500])
+        self.assertEqual(track.dropped_units, 0)
+
+    async def test_video_overrun_waits_for_idr_and_preserves_elapsed_media_time(self) -> None:
+        track = _PacketTrack("video", maximum_queue=2)
+        requested = []
+        track.on_keyframe_required = lambda: requested.append(True)
+        track.put_nowait(EncodedUnit(b"I0", True, 1500))
+        await track.recv()
+        for payload in (b"P1", b"P2", b"P3", b"P4"):
+            track.put_nowait(EncodedUnit(payload, False, 1500))
+        self.assertEqual(requested, [True], "one overflow must request one recovery, not an IDR storm")
+        self.assertTrue(track._queue.empty(), "dependent P-frames must not escape after a reference drop")
+        track.put_nowait(EncodedUnit(b"I5", True, 1500))
+        packet = await track.recv()
+        self.assertEqual(bytes(packet), b"I5")
+        self.assertTrue(packet.is_keyframe)
+        self.assertEqual(packet.pts, 7500)
+        track.put_nowait(EncodedUnit(b"P6", False, 1500))
+        self.assertEqual(bytes(await track.recv()), b"P6")
+
+    async def test_video_starts_at_a_keyframe_and_audio_keeps_its_fifo(self) -> None:
+        video = _PacketTrack("video", maximum_queue=4)
+        video.put_nowait(EncodedUnit(b"unusable P", False, 1500))
+        self.assertTrue(video._queue.empty())
+        audio = _PacketTrack("audio", maximum_queue=2)
+        for n in range(3):
+            audio.put_nowait(EncodedUnit(bytes([n]), False, 960))
+        first, second = await audio.recv(), await audio.recv()
+        self.assertEqual((bytes(first), first.pts), (b"\x01", 960))
+        self.assertEqual((bytes(second), second.pts), (b"\x02", 1920))
+
+    async def test_real_h264_survives_a_short_consumer_pause(self) -> None:
+        encoder = av.CodecContext.create("libx264", "w")
+        encoder.width, encoder.height = 160, 96
+        encoder.pix_fmt, encoder.time_base = "yuv420p", Fraction(1, 60)
+        encoder.options = {"preset": "ultrafast", "tune": "zerolatency", "crf": "20",
+                           "x264-params": "keyint=30:min-keyint=30:scenecut=0:ref=1"}
+        units = []
+        for n in range(40):
+            frame = av.VideoFrame(160, 96, "rgb24")
+            rgb = bytearray([20, 70, 120] * (160 * 96))
+            x = (n * 7) % 120
+            for y in range(20, 80):
+                rgb[(y * 160 + x) * 3:(y * 160 + x + 40) * 3] = bytes([240, 220, 30]) * 40
+            frame.planes[0].update(rgb)
+            frame.pts = n
+            units.extend(EncodedUnit(bytes(p), p.is_keyframe, 1500) for p in encoder.encode(frame))
+        units.extend(EncodedUnit(bytes(p), p.is_keyframe, 1500) for p in encoder.encode(None))
+        reference, decoder = av.CodecContext.create("h264", "r"), av.CodecContext.create("h264", "r")
+        def luma(frame):
+            plane = frame.planes[0]
+            data = bytes(plane)
+            return b"".join(data[y * plane.line_size:y * plane.line_size + frame.width] for y in range(frame.height))
+        expected = [luma(reference.decode(av.Packet(u.data))[0]) for u in units]
+        track = _PacketTrack("video", maximum_queue=4)
+        decoded = []
+        for n, unit in enumerate(units):
+            track.put_nowait(unit)
+            if n == 10:
+                continue  # One frame-time pause in the RTP consumer.
+            for _ in range(2 if n == 11 else 1):
+                decoded.extend(luma(f) for f in decoder.decode(await track.recv()))
+        self.assertEqual(decoded, expected, "a scheduler pause must not damage later reference frames")
+
+    async def test_late_subscriber_does_not_replay_a_stale_idr_then_skip_references(self) -> None:
+        from extensions.browser_bridge.qsm_browser_bridge import _TrackFanout
+        source = _TrackFanout()
+        source.put_nowait(EncodedUnit(b"old I", True, 1500))
+        source.put_nowait(EncodedUnit(b"P1", False, 1500))
+        late = source.subscribe(kind="video", maximum_queue=4)
+        self.assertTrue(late._queue.empty())
+        source.put_nowait(EncodedUnit(b"P2", False, 1500))
+        self.assertTrue(late._queue.empty())
+        source.put_nowait(EncodedUnit(b"fresh I", True, 1500))
+        self.assertEqual(bytes(await late.recv()), b"fresh I")
+
+
     async def test_packet_track_keeps_packets_encoded_and_uses_media_clock(self) -> None:
         track = _PacketTrack("video", maximum_queue=1)
         track.put_nowait(EncodedUnit(b"h264", True, 3000))
