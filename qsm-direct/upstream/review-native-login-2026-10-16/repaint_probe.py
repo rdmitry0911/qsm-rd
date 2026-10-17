@@ -87,7 +87,7 @@ async def measure_cursor_shapes(page, output):
     await page.locator('video').screenshot(path=str(output.with_suffix('.png')))
     import hashlib
     print('CURSOR_SHAPE_DIAGNOSTIC',json.dumps([{'kind':s.split('(')[0],'hash':hashlib.sha256(s.encode()).hexdigest()} for s in shapes]),flush=True)
-    assert shapes[0].startswith('url(') and shapes[1].startswith('url(') and shapes[0]!=shapes[1], 'arrow/I-beam CSS shape did not change' 
+    assert shapes[0].startswith('url(') and shapes[1].startswith('url(') and shapes[0]!=shapes[1], 'arrow/I-beam CSS shape did not change'
     hidden=shapes[2]=='none'
     if not hidden:
         hidden=await page.evaluate(r"""async css=>{
@@ -98,7 +98,7 @@ async def measure_cursor_shapes(page, output):
             const pixels=ctx.getImageData(0,0,c.width,c.height).data;
             return Array.from(pixels).every((value,index)=>index%4!==3||value===0);
         }""",shapes[2])
-    assert hidden,'blank guest cursor must hide the native cursor' 
+    assert hidden,'blank guest cursor must hide the native cursor'
     assert shapes[3]==shapes[0],'arrow must return after a hidden cursor'
     result={'browser_version':page.context.browser.version,'arrow':True,'ibeam':True,'hidden':True,'restored':True}
     output.write_text(json.dumps(result,indent=2)+'\n');print('CURSOR_SHAPES',json.dumps(result),flush=True)

@@ -1,0 +1,12 @@
+qsm-pve-direct	0.4.0+shared13
+qsm-pve-direct-lxc	0.4.0+shared13
+qsm-console-guest	0.4.0+shared13
+qsm-console-sddm	0.21.0+qsm2
+qsm-console-sway	1.11+qsm1
+active
+active
+active
+101085 111 sddm seatqsm2 - active no -
+101102 111 sddm seatqsm1 - active no -
+2104260 kvm
+2792970 kvm
