@@ -1,0 +1,5 @@
+segment=0 mbps=7.21371 decoded=300
+segment=1 mbps=2.42044 decoded=600
+segment=2 mbps=10.8808 decoded=900
+segment=3 mbps=0.833978 decoded=1200
+{"encoder":"hevc_nvenc","bitrate_kbps":8000,"frames":1200,"decoded":1200,"forced_idrs":3,"keys":43,"max_frame_bytes":24672,"mbps":5.33723,"max_encode_ms":13.043}

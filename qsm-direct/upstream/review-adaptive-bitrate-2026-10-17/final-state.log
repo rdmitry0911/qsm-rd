@@ -1,0 +1,14 @@
+active
+active
+2792970
+2104260
+101085 111 sddm seatqsm2 - active no -
+101660 111 sddm seatqsm1 - active no -
+101105 107 sddm seatqsm2 - active no -
+101849 107 sddm seatqsm1 - active no -
+QSM_DIRECT_LXC_UID=1000
+QSM_DIRECT_LXC_DISPLAY=slots
+QSM_DIRECT_LXC_GRACE=300
+QSM_DIRECT_CODEC=h264
+QSM_DIRECT_ENCODER_MODE=software
+QSM_DIRECT_BITRATE_KBPS=8000

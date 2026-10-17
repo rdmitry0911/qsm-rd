@@ -1,0 +1,16 @@
+TAP version 13
+# QSM_DIRECT_PVE_UI_OVERLAY_OK
+# Subtest: /home/dima/Projects/q-sunshine/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
+ok 1 - /home/dima/Projects/q-sunshine/qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
+  ---
+  duration_ms: 126.600637
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 134.265518

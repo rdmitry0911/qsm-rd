@@ -1,0 +1,32 @@
+segment=0 mbps=6.87 decoded=300
+segment=1 mbps=2.58197 decoded=600
+segment=2 mbps=9.85369 decoded=900
+segment=3 mbps=1.31191 decoded=1200
+{"encoder":"h264_nvenc","bitrate_kbps":8000,"frames":1200,"decoded":1200,"forced_idrs":3,"keys":43,"max_frame_bytes":23342,"mbps":5.15439,"max_encode_ms":5.37678}
+[libx264 @ 0x646187832500] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x646187832500] profile Constrained Baseline, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x646187832500] max bitrate less than average bitrate, assuming CBR
+[libx264 @ 0x646187832500] max bitrate less than average bitrate, assuming CBR
+[libx264 @ 0x646187832500] VBV underflow (frame 919, -16800 bits)
+[libx264 @ 0x646187832500] VBV underflow (frame 949, -16792 bits)
+[libx264 @ 0x646187832500] VBV underflow (frame 979, -16800 bits)
+[libx264 @ 0x646187832500] VBV underflow (frame 1009, -16792 bits)
+[libx264 @ 0x646187832500] VBV underflow (frame 1039, -16800 bits)
+[libx264 @ 0x646187832500] VBV underflow (frame 1069, -16792 bits)
+[libx264 @ 0x646187832500] VBV underflow (frame 1099, -16800 bits)
+[libx264 @ 0x646187832500] VBV underflow (frame 1129, -16792 bits)
+[libx264 @ 0x646187832500] VBV underflow (frame 1159, -16800 bits)
+[libx264 @ 0x646187832500] VBV underflow (frame 1189, -16792 bits)
+[libx264 @ 0x646187832500] frame I:43    Avg QP:34.66  size: 11223
+[libx264 @ 0x646187832500] frame P:1157  Avg QP:35.73  size:  9775
+[libx264 @ 0x646187832500] mb I  I16..4: 100.0%  0.0%  0.0%
+[libx264 @ 0x646187832500] mb P  I16..4:  8.8%  0.0%  0.0%  P16..4: 49.3%  0.0%  0.0%  0.0%  0.0%    skip:41.9%
+[libx264 @ 0x646187832500] coded y,uvDC,uvAC intra: 2.5% 51.1% 5.9% inter: 0.5% 53.0% 4.4%
+[libx264 @ 0x646187832500] i16 v,h,dc,p: 24% 29%  4% 42%
+[libx264 @ 0x646187832500] i8c dc,h,v,p: 39% 13%  7% 42%
+[libx264 @ 0x646187832500] kb/s:4716.86
+segment=0 mbps=6.63668 decoded=300
+segment=1 mbps=1.61822 decoded=600
+segment=2 mbps=10.1999 decoded=900
+segment=3 mbps=0.412659 decoded=1200
+{"encoder":"libx264","bitrate_kbps":8000,"frames":1200,"decoded":1200,"forced_idrs":3,"keys":43,"max_frame_bytes":24589,"mbps":4.71686,"max_encode_ms":6.77694}
