@@ -1,0 +1,14 @@
+{
+  "frames": 182,
+  "max_changed_pixels": 0,
+  "sprite": {
+    "width": 32,
+    "height": 32,
+    "visible_pixels": 336
+  },
+  "css_cursor_sha256": "967fafb46be8637d253e23e94b85cda89d6ec65a5f400b574a6570f25093082b",
+  "native_css_cursor": true,
+  "video_cursor_absent": true,
+  "browser_version": "155.0",
+  "positions": 12
+}

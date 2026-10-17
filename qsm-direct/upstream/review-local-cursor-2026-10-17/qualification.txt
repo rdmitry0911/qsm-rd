@@ -1,0 +1,106 @@
+Independent LXC cursor and capture pacing — 2026-10-17
+=====================================================
+
+Implemented in the agreed order:
+1. Optional private Sway 1.11/wlroots 0.19 compositor; separate cursor image,
+   hotspot, position and visibility using ext-image-copy-capture-v1. Output
+   video excludes the cursor. The existing shared cursor transport delivers
+   the real sprite to the browser's native CSS cursor. Touch uses the newest
+   local position. Unsupported compositors retain cursor-in-video capture.
+2. Standard RTCRtpReceiver.jitterBufferTarget (milliseconds), with the older
+   playoutDelayHint (seconds) as fallback. Used on track attachment and when
+   settings change. Zero is a browser target, not a promise of zero buffering.
+3. Capture starts are paced from the preceding start, removing the extra
+   frame interval after completion. Pointer delivery sends isolated input
+   immediately and coalesces continuous motion at 8 ms intervals. SCTP
+   backpressure retains one newest position, with a 1024-byte send threshold.
+   Click-position fences and keyboard/button events retain ordered delivery.
+
+Private compositor
+------------------
+qsm-console-sway 1.11+qsm1 installs only /opt/qsm-native-sway and its copyright
+files under /usr/share/doc. Distro Sway/libraries are not replaced. Headless
+backend, pixman/GLES2, GBM and Xwayland; physical input/DRM backends are disabled.
+Five pinned pristine upstream source trees plus builder, commit manifest and
+SOURCE.SHA256 are attached as complete corresponding source. The archive was
+unpacked and rebuilt on Ubuntu 24.04 successfully, without upstream Git repos.
+Build prerequisites and activation are in packaging/lxc/README.native-sway.
+
+CT108 qualification, 192.168.64.20
+---------------------------------
+Ubuntu 24.04, pixman capture, host libx264, 1280x726 (Firefox) or 1280x800
+(Chromium). Real PVE root@pam login, real Console menu and native HTTPS/WebRTC
+on 8006. Browser tickets/test passwords stayed in memory; no API/auth bypass.
+All browser runs block legacy 8007 and completed runs asserted no requests.
+
+- Both native SDDM/Breeze greeters start with Sway 1.11.
+- Real PAM login qsm-test-a -> Plasma Wayland succeeded.
+- Firefox 155: 12 backdrop pointer moves, 192 observed video frames, zero
+  changed pixels in the cursor ROIs; native CSS cursor received.
+- Qt/Xwayland fixture inside Plasma: arrow, I-beam, blank/transparent cursor
+  and restored arrow passed in Firefox 155 and Chromium 145.0.7632.6.
+- Per-seat keyboard API on seat2: US -> German -> queried German -> US.
+- Firefox and Chromium receiver getter reports jitterBufferTarget=0.
+
+Measurements are DOM input -> changed guest video pixels, sampled with
+requestVideoFrameCallback. They include actual Qt painting/KWin composition,
+capture, encoding, transport, decoding and browser presentation. They exclude
+physical mouse/display scanout latency. Cursor CSS rendering is excluded from
+these application/window measurements. They are lab LAN results, not the
+user's VPN/device or CT105 GPU timings.
+
+                                  Hover median/p95       Window drag median/p95
+Before capture/input pacing       53 / 54 ms (n=20)       54 / 71 ms (n=8)
+Capture pacing only               70 / 71 ms              69.5 / 71 ms
+Final Firefox                     53 / 60 ms              52.5 / 58 ms
+Final Chromium                    55.1 / 76.2 ms          56.7 / 57.1 ms
+
+The separate browser sessions show variability; these results do NOT establish
+an improvement in isolated application-response median. Local cursor movement
+no longer waits for that video path. No physical cursor latency number is
+claimed. Firefox's actual average jitter buffering was about 12–13 ms in
+these runs despite a zero target.
+
+A separate 5-second continuous Qt repaint probe counts fresh video content,
+not repeated H.264 frames. With only capture pacing varied:
+- Previous scheduling: 154 fresh / 299 presented, 30.78 fresh fps.
+- New scheduling: 284 fresh / 294 presented, 56.61 fresh fps.
+The old cadence was roughly half-rate despite a nominal 60-fps encoded stream.
+
+Final DOM mousemove -> unordered SCTP send, 20 samples:
+- Firefox: median 1 ms, p95 2 ms (cross-window performance clock precision).
+- Chromium: median 0.10 ms, p95 0.20 ms (same parent performance clock).
+All sampled SCTP bufferedAmount values were zero. Raw JSON is included.
+
+CT105 deployment
+----------------
+The user explicitly authorized ending the current qsm desktop. Both native
+seats were restarted onto /opt/qsm-native-sway/bin/sway. Guest 0.4.0+shared13,
+private Sway 1.11+qsm1, native SDDM 0.21.0+qsm2; host qsm-pve-direct and LXC
+helper 0.4.0+shared13. Original Breeze theme passes dpkg verification.
+The qsm account/password hash was verified unchanged without publishing it.
+NVIDIA passthrough retained; a separate GLES2 smoke test reported RTX 3080,
+NVIDIA 595.91.07. Native console capture uses host h264_nvenc.
+
+Actual Firefox 155 / CT105 native greeter:
+- 12 mouse moves, 182 video frames, zero cursor-ROI changed pixels.
+- Real 32x32 CSS sprite, 336 nontransparent pixels; no transparent placeholder.
+- Worker: separate_cursor=1, cursor_fallbacks=0, no media errors.
+- Both seats left at native Breeze login screens. No password was reset.
+- VM103 and VM104 retained their original QEMU processes, 2792970 / 2104260.
+- Host signalling/terminal services restarted by the normal package upgrade;
+  the VM processes and PVE management services were not restarted.
+- Node 172.16.16.17 was not changed in this follow-up.
+
+Automated validation
+--------------------
+16 CTest suites passed, including four browser behavior suites (native cursor,
+receiver target/fallback units, immediate/coalesced input with ordered fence
+and backpressure, existing touch gestures), core/D-Bus/media integration and
+PVE console overlay contracts. Thirteen native seat/keyboard tests and thirteen
+container policy tests also passed. Shell/Python syntax and diff checks passed.
+
+Browser audio, microphone and tablet gestures were not requalified live in
+this follow-up. Native Qt6/other distributions are not qualified. The distro
+Sway fallback remains supported and was exercised while staging the new worker
+before the compositor update. No extra network port or input channel is added.

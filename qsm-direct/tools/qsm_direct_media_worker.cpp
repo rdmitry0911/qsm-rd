@@ -1689,6 +1689,9 @@ void write_wlroots_diagnostic(std::string_view event,
               << " errors=" << stats.errors
               << " display_failed=" << (stats.display_failed ? "yes" : "no")
               << " captured_frames=" << display.frames
+              << " separate_cursor=" << display.separate_cursor
+              << " cursor_images=" << display.cursor_images
+              << " cursor_fallbacks=" << display.cursor_fallbacks
               << " capture_failures=" << display.capture_failures
               << " size=" << display.width << 'x' << display.height
               << " shm_format=0x" << std::hex << display.shm_format << std::dec

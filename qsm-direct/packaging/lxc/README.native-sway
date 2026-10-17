@@ -1,0 +1,49 @@
+Private Sway compositor for independent cursor capture
+======================================================
+
+qsm-console-sway installs Sway 1.11, wlroots 0.19.0, Wayland 1.23.1,
+pixman 0.44.2 and libinput 1.26.2 under /opt/qsm-native-sway. It does not
+replace distro executables or libraries. qsm-display-start prefers this
+compositor when installed; without it, the distro compositor remains usable.
+Only the headless backend is built, with pixman/GLES2, GBM and Xwayland.
+The distro SDDM theme, PAM stack and desktop packages remain unchanged.
+
+Build on Ubuntu 24.04 (amd64), with updates enabled:
+
+  apt-get install build-essential git meson ninja-build pkg-config file \
+    dpkg-dev libwayland-dev wayland-protocols libdrm-dev libgbm-dev \
+    libegl1-mesa-dev libgles2-mesa-dev libpixman-1-dev libxkbcommon-dev \
+    libjson-c-dev libpcre2-dev libcairo2-dev libpango1.0-dev \
+    libgdk-pixbuf-2.0-dev libevdev-dev libxcb-icccm4-dev \
+    libxcb-composite0-dev libxcb-render0-dev libxcb-xfixes0-dev \
+    libxcb-res0-dev libxcb-ewmh-dev libxcb-shape0-dev libxcb-xinput-dev \
+    libffi-dev libxml2-dev libinput-dev libudev-dev libmtdev-dev
+
+The complete source archive can also be unpacked and rebuilt directly:
+
+  tar -xzf qsm-console-sway_1.11+qsm1_source.tar.gz -C source-directory
+  QSM_SWAY_SOURCE_DIR="$PWD/source-directory" \
+    bash source-directory/build-qsm-console-sway-deb.sh
+
+Its SOURCE.SHA256 is checked before building. Alternatively, clone the five upstream repositories into one directory using the names in
+build-qsm-console-sway-deb.sh. The builder exports only its pinned commits;
+local working-tree edits are ignored. Set QSM_SWAY_SOURCE_DIR to that parent
+directory and run the builder. It emits the deb and a complete corresponding
+source archive including all five projects and the build script. Upstream
+licenses are included in the package. wayland-protocols >= 1.41 is needed at
+build time (provided by noble-updates); it is not needed at runtime.
+
+Activation requires restarting qsm-display@N, which terminates that seat's
+nested desktop. First test on a disposable container. On a live system,
+apply after logout; installing this package itself restarts no services.
+Restarting the shared qsm-native-sddm service would also terminate users on
+other seats. A distro compositor can be selected again by removing this
+optional package and restarting the displays after logout.
+
+The media worker discovers ext-image-copy-capture-v1 and
+ext-output-image-capture-source-v1. It captures cursor-free video and streams
+cursor pixels, hotspot and visibility separately. Desktop browsers use their
+native CSS cursor, moving locally without a server round trip. Pointer input
+still uses the existing unordered, non-retransmitting qsm-pointer channel;
+buttons and their position fence keep the ordered qsm-control channel.
+If cursor capture is unavailable, the older cursor-in-video path is retained.

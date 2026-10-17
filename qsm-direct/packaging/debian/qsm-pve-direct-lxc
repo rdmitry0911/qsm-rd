@@ -370,6 +370,9 @@ def cmd_enable(args: argparse.Namespace) -> int:
         ct(args.vmid, '/usr/lib/qsm-console/qsm-native-profile disable')
         reboot_container(args.vmid)
     native_deb = Path(args.sddm_deb).resolve() if args.sddm_deb else None
+    sway_deb = Path(args.sway_deb).resolve() if args.sway_deb else None
+    if sway_deb and not sway_deb.is_file():
+        raise SetupError(f'private Sway package does not exist: {sway_deb}')
     if manager == 'sddm':
         if args.session != 'wayland':
             raise SetupError('the native SDDM profile currently supports Wayland sessions')
@@ -395,6 +398,12 @@ def cmd_enable(args: argparse.Namespace) -> int:
     remove_legacy_session(args.vmid, args.uid)
     slots = running_consoles(args.vmid)
     install_guest_package(args.vmid, args.session)
+    if sway_deb:
+        push(args.vmid, sway_deb, '/root/qsm-console-sway.deb')
+        ct(args.vmid, 'export DEBIAN_FRONTEND=noninteractive; '
+                     'apt-get install -y -qq --no-install-recommends -o Dpkg::Use-Pty=0 '
+                     '/root/qsm-console-sway.deb; rc=$?; rm -f /root/qsm-console-sway.deb; exit $rc', timeout=1800)
+        info('private Sway installed; existing displays keep running until logout/restart')
     if manager == 'sddm':
         changed = configure_native(args.vmid, conf, slots, native_deb) or changed
         if args.restart:
@@ -501,6 +510,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="session type the login screen offers by default")
     enable.add_argument('--login-manager', choices=('qsm', 'sddm'),
                         help='login manager (new containers default to qsm; existing selection is retained)')
+    enable.add_argument('--sway-deb', help='optional qsm-console-sway package for separate cursor capture')
     enable.add_argument('--sddm-deb', help='qsm-console-sddm package for native SDDM activation/update')
     enable.add_argument("--nvidia-run", help="NVIDIA .run installer matching the host driver")
     enable.add_argument("--no-gpu", action="store_true", help="do not pass through the GPU")

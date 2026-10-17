@@ -1,0 +1,88 @@
+{
+  "browser_version": "155.0",
+  "samples": [
+    {
+      "event_to_send_ms": 2,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 1,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 1,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 1,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 2,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 1,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 0,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 0,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 1,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 0,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 2,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 2,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 0,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 1,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 1,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 1,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 1,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 1,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 1,
+      "buffered_bytes": 0
+    },
+    {
+      "event_to_send_ms": 0,
+      "buffered_bytes": 0
+    }
+  ],
+  "n": 20,
+  "median_ms": 1.0,
+  "p95_ms": 2
+}

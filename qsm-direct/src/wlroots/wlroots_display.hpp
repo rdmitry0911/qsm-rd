@@ -32,7 +32,8 @@ struct WlrootsDisplayOptions {
 // IQemuDisplay backed by a headless wlroots compositor (sway) that hosts a
 // container's desktop session (a nested KWin/Plasma, or a rootful Xwayland
 // running an X11 session).  Protocols, all unrestricted in sway:
-//   capture  zwlr_screencopy_manager_v1   (damage-driven, SHM, cursor composited)
+//   capture  zwlr_screencopy_manager_v1   (damage-driven, SHM)
+//   cursor   ext_image_copy_capture_v1    (optional separate sprite + hotspot)
 //   pointer  zwlr_virtual_pointer_v1      (absolute motion, buttons, wheel)
 //   keyboard zwp_virtual_keyboard_v1      (evdev keycodes + xkb modifiers)
 //   resize   zwlr_output_manager_v1       (custom mode on the headless output)
@@ -60,6 +61,9 @@ public:
     struct Stats {
         std::uint64_t frames {};
         std::uint64_t capture_failures {};
+        bool separate_cursor {};
+        std::uint64_t cursor_images {};
+        std::uint64_t cursor_fallbacks {};
         std::uint64_t reallocations {};
         std::uint64_t resizes_applied {};
         std::uint64_t resizes_failed {};

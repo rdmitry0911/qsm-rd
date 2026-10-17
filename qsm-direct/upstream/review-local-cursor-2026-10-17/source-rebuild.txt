@@ -1,0 +1,2 @@
+dpkg-deb: building package 'qsm-console-sway' in '/root/verified-native-packages/qsm-console-sway_1.11+qsm1_amd64.deb'.
+QSM_CONSOLE_SWAY_DEB_BUILD_OK artifact=/root/verified-native-packages/qsm-console-sway_1.11+qsm1_amd64.deb

@@ -168,6 +168,9 @@ if(QMDP_BUILD_TOOLS AND QMDP_BUILD_DBUS)
             file(MAKE_DIRECTORY ${QMDP_WLR_GENERATED_DIR})
             set(QMDP_WLR_GENERATED_SOURCES)
             foreach(protocol
+                    ext-foreign-toplevel-list-v1
+                    ext-image-capture-source-v1
+                    ext-image-copy-capture-v1
                     wlr-screencopy-unstable-v1
                     wlr-virtual-pointer-unstable-v1
                     wlr-output-management-unstable-v1
@@ -288,6 +291,12 @@ if(BUILD_TESTING)
                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_direct_console_overlay.mjs
             )
             set_tests_properties(qsm_direct_pve_console_overlay PROPERTIES TIMEOUT 20)
+            foreach(browser_test local_cursor receiver_playout pointer_pacing touch_gestures)
+                add_test(NAME qsm_${browser_test}
+                    COMMAND ${QSM_DIRECT_NODE_EXECUTABLE}
+                        ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_${browser_test}.mjs)
+                set_tests_properties(qsm_${browser_test} PROPERTIES TIMEOUT 20)
+            endforeach()
         endif()
     endif()
 

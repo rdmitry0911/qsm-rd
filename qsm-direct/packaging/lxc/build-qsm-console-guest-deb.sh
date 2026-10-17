@@ -40,6 +40,7 @@ install -m 0644 "$LXC_DIR/guest/qsm-nested.conf" \
 install -m 0644 "$LXC_DIR/guest/pam-qsm-login" "$stage/etc/pam.d/qsm-login"
 install -m 0644 "$LXC_DIR/guest/pam-qsm-direct-session" "$stage/etc/pam.d/qsm-direct-session"
 install -m 0644 "$LXC_DIR/guest/README" "$stage/usr/share/doc/$package/README"
+install -m 0644 "$LXC_DIR/README.native-sway" "$stage/usr/share/doc/$package/README.native-sway"
 install -m 0644 "$LXC_DIR/README.native-sddm" "$stage/usr/share/doc/$package/README.native-sddm"
 for script in postinst prerm postrm; do
     install -m 0755 "$LXC_DIR/guest/$script" "$stage/DEBIAN/$script"

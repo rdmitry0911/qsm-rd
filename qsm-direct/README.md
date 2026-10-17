@@ -359,6 +359,16 @@ microphone work as for a VM: the session agent gives each desktop session a
 pipewire-pulse) and relays both. Details:
 [packaging/debian/README.qsm-pve-direct](packaging/debian/README.qsm-pve-direct).
 
+For local cursor rendering on Ubuntu 24.04, optionally install the private
+Sway 1.11 package with `qsm-pve-direct-lxc enable <vmid> --sway-deb FILE`
+(add `--no-gpu --no-admin` when preserving an existing GPU/user profile).
+Running desktops are preserved during installation: apply the compositor
+change after logout by restarting the displays/login manager. The host
+worker then captures cursor-free video and sends the real cursor shape,
+hotspot and visibility separately; a desktop browser moves its native cursor
+locally. Older compositors retain cursor-in-video capture. Build instructions
+and activation details: [README.native-sway](packaging/lxc/README.native-sway).
+
 ## Native Proxmox integration (proposed)
 
 [`upstream/`](upstream/) holds patch series for qemu-server and pve-manager

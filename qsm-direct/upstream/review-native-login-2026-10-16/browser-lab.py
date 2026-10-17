@@ -13,7 +13,7 @@ HOST='192.168.64.20'
 VMID=int(os.environ.get('QSM_LAB_VMID','108'))
 assert VMID in (105,108)
 def ssh(command):
-    return subprocess.run(['ssh','-o','BatchMode=yes','root@'+HOST,command],check=True,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE).stdout
+    return subprocess.run(['ssh','-o','BatchMode=yes','root@'+HOST,command],check=True,text=True,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.PIPE).stdout
 async def main():
     Path(os.environ.get('QSM_LAB_ARTIFACTS','/tmp/qsm-lxc-native-login')).mkdir(parents=True,exist_ok=True)
     ticket=ssh("perl -MPVE::AccessControl -MPVE::Cluster -e 'PVE::Cluster::cfs_update(); print scalar PVE::AccessControl::assemble_ticket(q{root@pam})'")
@@ -29,6 +29,13 @@ async def main():
             browser=await p.chromium.launch(executable_path=os.environ.get('QSM_CHROMIUM_EXECUTABLE',p.chromium.executable_path),headless=True,args=['--autoplay-policy=no-user-gesture-required'])
         try:
             context=await browser.new_context(ignore_https_errors=True,viewport={'width':1280,'height':800})
+            await context.add_init_script("""
+                window.qsmLabPeers = [];
+                const NativePeer = window.RTCPeerConnection;
+                window.RTCPeerConnection = class extends NativePeer {
+                    constructor(...args) { super(...args); window.qsmLabPeers.push(this); }
+                };
+            """)
             legacy_requests=[]
             context.on('request', lambda request: legacy_requests.append(True) if ':8007/' in request.url else None)
             await context.route('**:8007/**', lambda route: route.abort())
@@ -72,6 +79,40 @@ async def main():
                     box=await popup.locator('video').bounding_box()
                     await popup.mouse.click(box['x']+command['x'],box['y']+command['y'])
                     print('CLICK_OK',flush=True)
+                elif op=='measure_dispatch':
+                    assert VMID==108
+                    from dispatch_probe import measure_dispatch
+                    name=command['name'];assert re.fullmatch('[a-z0-9-]+',name)
+                    await measure_dispatch(popup,Path(os.environ.get('QSM_LAB_ARTIFACTS','/tmp/qsm-lxc-native-login'))/(name+'.json'))
+                elif op=='receiver_stats':
+                    stats=await page.evaluate("""async () => {
+                        const peer=window.qsmLabPeers.at(-1);
+                        const receiver=peer?.getReceivers().find(r=>r.track.kind==='video');
+                        const report=receiver ? Array.from((await receiver.getStats()).values()).find(s=>s.type==='inbound-rtp'&&s.kind==='video') : null;
+                        return {jitterBufferTarget:receiver?.jitterBufferTarget,playoutDelayHint:receiver?.playoutDelayHint,
+                            jitterBufferDelay:report?.jitterBufferDelay,jitterBufferEmittedCount:report?.jitterBufferEmittedCount,
+                            framesDecoded:report?.framesDecoded,framesDropped:report?.framesDropped};
+                    }""")
+                    print('RECEIVER_STATS',json.dumps(stats),flush=True)
+                elif op in ('measure_fresh_frames','measure_cursor_shapes'):
+                    assert VMID==108
+                    from repaint_probe import measure_fresh_frames,measure_cursor_shapes
+                    name=command['name'];assert re.fullmatch('[a-z0-9-]+',name)
+                    function=measure_fresh_frames if op=='measure_fresh_frames' else measure_cursor_shapes
+                    await function(popup,Path(os.environ.get('QSM_LAB_ARTIFACTS','/tmp/qsm-lxc-native-login'))/(name+'.json'))
+                elif op=='measure_repaint':
+                    assert VMID==108
+                    from repaint_probe import measure_repaint
+                    name=command['name'];assert re.fullmatch('[a-z0-9-]+',name)
+                    await measure_repaint(popup,Path(os.environ.get('QSM_LAB_ARTIFACTS','/tmp/qsm-lxc-native-login'))/(name+'.json'))
+                elif op=='measure_local_cursor':
+                    if VMID==105:
+                        sessions=ssh('pct exec 105 -- loginctl list-sessions --no-legend')
+                        assert account=='none' and all(line.split()[2]=='sddm' for line in sessions.splitlines() if 'seatqsm' in line), 'CT105 probe requires greeters only'
+                    else:assert VMID==108
+                    from local_cursor_probe import measure_local_cursor
+                    name=command['name'];assert re.fullmatch('[a-z0-9-]+',name)
+                    await measure_local_cursor(popup,Path(os.environ.get('QSM_LAB_ARTIFACTS','/tmp/qsm-lxc-native-login'))/(name+'.json'))
                 elif op=='measure_pointer':
                     assert VMID==108, 'pointer probing is restricted to disposable CT108'
                     from pointer_probe import measure_pointer

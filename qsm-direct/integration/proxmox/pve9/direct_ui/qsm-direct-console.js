@@ -84,6 +84,19 @@
         // available for users who want browser/OS shortcuts to win.
         keyboardPriority: KEYBOARD_PRIORITY.guest,
     });
+    // Standard receiver target is in milliseconds; the older Chromium hint
+    // uses seconds. This is a target: the browser can enforce a larger floor.
+    const applyReceiverPlayoutDelay = (receiver, milliseconds) => {
+        if (!receiver) { return; }
+        if ('jitterBufferTarget' in receiver) {
+            try { receiver.jitterBufferTarget = milliseconds; return; }
+            catch (_error) { /* Try the older hint if this setter rejects it. */ }
+        }
+        if ('playoutDelayHint' in receiver) {
+            try { receiver.playoutDelayHint = milliseconds / 1000; }
+            catch (_error) { /* A receiver can reject an unsupported target. */ }
+        }
+    };
     const readConsoleSettings = (storage) => {
         const settings = defaultConsoleSettings();
         try {
@@ -1355,14 +1368,9 @@
         let observer = null;
         let closed = false;
         let closeWatcher = null;
-        let pointerFrame = null;
-        // Fallback flush timer.  requestAnimationFrame is paused by the browser
-        // when this console's window stops compositing — which is exactly what
-        // happens to the embedded-card console while a second Console (a
-        // separate window, or one in full screen) is on top.  Without a timer
-        // racing the frame callback, the occluded console's pointer motion is
-        // queued but never delivered, so the guest cursor freezes at the last
-        // position sent before the switch.
+        // Send an isolated input immediately; retain one newest sample while
+        // pacing continuous motion to at most 125 updates/second.
+        let nextPointerSendAt = 0;
         let pointerTimer = null;
         let pendingPointer = null;
         let latestPointer = null;
@@ -1730,11 +1738,18 @@
             const state = latestGuestCursor;
             const shape = state && guestCursorShapes.get(state.shape_id);
             const guestReady = !!(state && state.visible && shape && video.videoWidth && video.videoHeight);
+            if (state && !state.visible) {
+                guestCursor.style.display = 'none';
+                guestPointer.style.display = 'none';
+                appliedGuestCursor = 'none';
+                video.style.cursor = 'none';
+                return;
+            }
             if (usingTouchInput) {
                 // Touch: there is no OS cursor to style and VirGL does not draw
-                // the cursor into the video, so ALWAYS render a cursor overlay
-                // where the pointer is.  Prefer the guest's own bitmap at its
-                // reported position; fall back to a synthetic arrow at the last
+                // the cursor into the video, so render an overlay locally.
+                // Prefer the guest's bitmap at the newest local input position;
+                // fall back to a synthetic arrow at the last
                 // position we drove the pointer to, so a cursor is never missing
                 // while the guest has not streamed its shape yet.
                 guestCursor.style.display = 'none';
@@ -1752,7 +1767,7 @@
                     boxH = Math.max(1, shape.height * scale);
                     offX = shape.hotspot_x * scale;
                     offY = shape.hotspot_y * scale;
-                    gxp = state.x; gyp = state.y;
+                    gxp = lastSentGuestX ?? state.x; gyp = lastSentGuestY ?? state.y;
                 } else if (lastSentGuestX !== null && video.videoWidth) {
                     img = SYNTHETIC_CURSOR;
                     boxW = SYNTHETIC_CURSOR_W;      // fixed on-screen size: the
@@ -1849,10 +1864,7 @@
         const applyConsoleSettings = () => {
             writeConsoleSettings(browserStorage, settings);
             updateGuestKeyboardLock();
-            if (videoReceiver && 'playoutDelayHint' in videoReceiver) {
-                try { videoReceiver.playoutDelayHint = settings.playoutDelayMs / 1000; }
-                catch (_error) { /* The browser may clamp an unsupported hint. */ }
-            }
+            applyReceiverPlayoutDelay(videoReceiver, settings.playoutDelayMs);
             if (toolbarTimer !== null) {
                 popup.clearTimeout(toolbarTimer);
                 toolbarTimer = null;
@@ -2094,7 +2106,12 @@
             });
         });
         const sendPointer = (value) => {
-            if (pointer && pointer.readyState === 'open') { pointer.send(JSON.stringify(value)); diagPointerSent += 1; diagLastInput = value.op || 'pointer'; }
+            if (!pointer || pointer.readyState !== 'open' || pointer.bufferedAmount > 1024) { return false; }
+            try { pointer.send(JSON.stringify(value)); }
+            catch (_error) { return false; }
+            diagPointerSent += 1;
+            diagLastInput = value.op || 'pointer';
+            return true;
         };
         const sendMouseButton = (button, down) => {
             if (!Number.isInteger(button) || button < 1 || button > 5) { return; }
@@ -2236,7 +2253,6 @@
             stopMicrophone();
             if (peer) { peer.close(); }
             if (closeWatcher !== null) { window.clearInterval(closeWatcher); }
-            if (pointerFrame !== null) { popup.cancelAnimationFrame(pointerFrame); }
             if (pointerTimer !== null) { popup.clearTimeout(pointerTimer); }
             if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); }
             if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); }
@@ -2441,10 +2457,7 @@
                 // rather than making an older browser unable to connect.
                 if (event.track.kind === 'video' && event.receiver) {
                     videoReceiver = event.receiver;
-                    if ('playoutDelayHint' in videoReceiver) {
-                        try { videoReceiver.playoutDelayHint = settings.playoutDelayMs / 1000; }
-                        catch (_error) { /* Older browsers may reject the hint. */ }
-                    }
+                    applyReceiverPlayoutDelay(videoReceiver, settings.playoutDelayMs);
                 }
                 let stream = event.streams && event.streams[0];
                 if (!stream) {
@@ -2616,23 +2629,23 @@
                 retryStalledResize();
             };
             const flushPointer = (reliable = false) => {
-                if (pointerFrame !== null) {
-                    popup.cancelAnimationFrame(pointerFrame);
-                    pointerFrame = null;
-                }
                 if (pointerTimer !== null) {
                     popup.clearTimeout(pointerTimer);
                     pointerTimer = null;
                 }
-                const value = pendingPointer || latestPointer;
+                const value = reliable ? (pendingPointer || latestPointer) : pendingPointer;
                 pendingPointer = null;
-                if (!value) { return; }
-                // The position immediately preceding a button edge is sent
-                // on the ordered channel.  SCTP does not order different
-                // data channels, therefore only flushing `qsm-pointer` here
-                // could press on the old position under loss or reordering.
+                if (!value || closed) { return; }
+                // Fence the position and button on the same ordered channel:
+                // SCTP does not order messages across different data channels.
                 if (reliable) { send(value); }
-                else { sendPointer(value); }
+                else if (sendPointer(value)) { nextPointerSendAt = popup.performance.now() + 8; }
+                else if (pointer && pointer.readyState === 'open') {
+                    // Backpressure retains only the latest coordinate; reliable
+                    // keyboard/button events never enter this motion queue.
+                    pendingPointer = value;
+                    pointerTimer = popup.setTimeout(() => flushPointer(false), 8);
+                }
             };
             const queuePointer = (value) => {
                 noteGuestInput();
@@ -2640,20 +2653,11 @@
                 pointerSequence = (pointerSequence + 1) >>> 0;
                 latestPointer = sample;
                 pendingPointer = sample;
-                if (pointerFrame === null && pointerTimer === null) {
-                    // Input delivery is paced to the browser compositor, not to
-                    // its separately throttleable timer queue: while this window
-                    // is visible the frame callback wins and one latest sample
-                    // is retained per presented frame (click edges flush it
-                    // synchronously below).  A timer races it purely as a
-                    // fallback for an occluded/background window, whose
-                    // requestAnimationFrame the browser pauses — there the timer
-                    // keeps the guest pointer following the mouse instead of
-                    // freezing it at the pre-switch position.  Whichever fires
-                    // first flushes and cancels the other.
-                    pointerFrame = popup.requestAnimationFrame(() => flushPointer(false));
-                    pointerTimer = popup.setTimeout(() => flushPointer(false), 50);
-                }
+                const delay = Math.max(0, nextPointerSendAt - popup.performance.now());
+                // A timer throttled while backgrounded must not delay fresh
+                // input after this console is focused again.
+                if (delay === 0) { flushPointer(false); }
+                else if (pointerTimer === null) { pointerTimer = popup.setTimeout(() => flushPointer(false), delay); }
             };
             const pointerForMouseEvent = (event) => {
                 // The video is position:fixed;inset:0;width:100vw;height:100vh, so

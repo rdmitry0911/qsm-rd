@@ -10,4 +10,8 @@ if [ -c /dev/dri/renderD128 ]; then
 else
     export WLR_RENDERER=pixman
 fi
-exec /usr/bin/sway --unsupported-gpu -c /usr/share/qsm-console/sway.conf
+compositor=/usr/bin/sway
+if [ -x /opt/qsm-native-sway/bin/sway ]; then
+    compositor=/opt/qsm-native-sway/bin/sway
+fi
+exec "$compositor" --unsupported-gpu -c /usr/share/qsm-console/sway.conf

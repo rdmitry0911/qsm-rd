@@ -3,6 +3,9 @@
 #include "core/frame.hpp"
 #include "core/pixel_format.hpp"
 
+#include "ext-image-capture-source-v1-client-protocol.h"
+#include "ext-image-copy-capture-v1-client-protocol.h"
+
 #include "virtual-keyboard-unstable-v1-client-protocol.h"
 #include "wlr-output-management-unstable-v1-client-protocol.h"
 #include "wlr-screencopy-unstable-v1-client-protocol.h"
@@ -99,6 +102,22 @@ struct WlrootsDisplay::Impl {
     zwp_virtual_keyboard_v1 *keyboard {};
     wl_keyboard *keyboard_observer {};
 
+    ext_image_copy_capture_manager_v1 *cursor_manager {};
+    ext_output_image_capture_source_manager_v1 *cursor_source_manager {};
+    ext_image_capture_source_v1 *cursor_source {};
+    wl_pointer *cursor_pointer {};
+    ext_image_copy_capture_cursor_session_v1 *cursor_session {};
+    ext_image_copy_capture_session_v1 *cursor_capture {};
+    ext_image_copy_capture_frame_v1 *cursor_frame {};
+    std::unique_ptr<ShmBuffer> cursor_buffer;
+    CursorState cursor_state;
+    bool separate_cursor {}, cursor_constraints_ready {}, cursor_unavailable {};
+    bool cursor_frame_ready {}, cursor_frame_failed {};
+    std::uint32_t cursor_width {}, cursor_height {}, cursor_transform_value {}, cursor_failures {};
+    std::uint32_t cursor_format_pending {UINT32_MAX}, cursor_format_current {UINT32_MAX};
+    std::int32_t cursor_hot_x {}, cursor_hot_y {};
+    Clock::time_point cursor_retry {};
+
     // --- output management (resize) ---
     struct Head {
         zwlr_output_head_v1 *head {};
@@ -184,6 +203,12 @@ struct WlrootsDisplay::Impl {
             self->shm = static_cast<wl_shm *>(wl_registry_bind(reg, name, &wl_shm_interface, 1));
         } else if (std::strcmp(iface, wl_seat_interface.name) == 0 && self->seat == nullptr) {
             self->seat = static_cast<wl_seat *>(wl_registry_bind(reg, name, &wl_seat_interface, 1));
+        } else if (std::strcmp(iface, ext_image_copy_capture_manager_v1_interface.name) == 0) {
+            self->cursor_manager = static_cast<ext_image_copy_capture_manager_v1 *>(
+                wl_registry_bind(reg, name, &ext_image_copy_capture_manager_v1_interface, 1));
+        } else if (std::strcmp(iface, ext_output_image_capture_source_manager_v1_interface.name) == 0) {
+            self->cursor_source_manager = static_cast<ext_output_image_capture_source_manager_v1 *>(
+                wl_registry_bind(reg, name, &ext_output_image_capture_source_manager_v1_interface, 1));
         } else if (std::strcmp(iface, zwlr_screencopy_manager_v1_interface.name) == 0) {
             self->screencopy_version = std::min<std::uint32_t>(version, 3U);
             self->screencopy = static_cast<zwlr_screencopy_manager_v1 *>(
@@ -342,9 +367,12 @@ struct WlrootsDisplay::Impl {
 
     void begin_capture() {
         capture = Capture {};
-        // overlay_cursor = 1: the session's own pointer image is composited in,
-        // so the true guest cursor shape reaches the browser with the video.
-        capture.frame = zwlr_screencopy_manager_v1_capture_output(screencopy, 1, output);
+        // Limit capture starts, rather than adding another whole interval
+        // after the compositor has finished the preceding copy.
+        next_capture = Clock::now() + std::chrono::microseconds(1'000'000U / std::max(1U, options.max_fps));
+        // Independent cursor metadata lets the browser move its native cursor
+        // immediately. Legacy compositors retain the cursor-in-video fallback.
+        capture.frame = zwlr_screencopy_manager_v1_capture_output(screencopy, separate_cursor ? 0 : 1, output);
         zwlr_screencopy_frame_v1_add_listener(capture.frame, &frame_listener, this);
     }
 
@@ -470,6 +498,195 @@ struct WlrootsDisplay::Impl {
         if (callbacks.on_frame) { callbacks.on_frame(std::move(token)); }
     }
 
+    // --------------------------------------- independent pointer image capture
+    void emit_cursor() {
+        if (!callbacks.on_cursor) { return; }
+        cursor_state.sequence = ++cursor_sequence;
+        callbacks.on_cursor(cursor_state);
+        last_cursor_emit = Clock::now();
+    }
+    static void cursor_enter(void *data, ext_image_copy_capture_cursor_session_v1 *) {
+        auto *self = static_cast<Impl *>(data);
+        self->cursor_state.visible = true;
+        self->emit_cursor();
+    }
+    static void cursor_leave(void *data, ext_image_copy_capture_cursor_session_v1 *) {
+        auto *self = static_cast<Impl *>(data);
+        self->cursor_state.visible = false;
+        self->emit_cursor();
+    }
+    static void cursor_position(void *data, ext_image_copy_capture_cursor_session_v1 *, std::int32_t x, std::int32_t y) {
+        auto *self = static_cast<Impl *>(data);
+        self->cursor_state.x = x; self->cursor_state.y = y;
+        self->emit_cursor();
+    }
+    static void cursor_hotspot(void *data, ext_image_copy_capture_cursor_session_v1 *, std::int32_t x, std::int32_t y) {
+        auto *self = static_cast<Impl *>(data);
+        self->cursor_hot_x = x; self->cursor_hot_y = y;
+    }
+    static constexpr ext_image_copy_capture_cursor_session_v1_listener cursor_listener {
+        cursor_enter, cursor_leave, cursor_position, cursor_hotspot,
+    };
+    static void cursor_size(void *data, ext_image_copy_capture_session_v1 *, std::uint32_t w, std::uint32_t h) {
+        auto *self = static_cast<Impl *>(data);
+        self->cursor_width = w; self->cursor_height = h;
+    }
+    static void cursor_format(void *data, ext_image_copy_capture_session_v1 *, std::uint32_t format) {
+        auto *self = static_cast<Impl *>(data);
+        // Prefer alpha-preserving formats. Cursor pixels are premultiplied.
+        if (format == WL_SHM_FORMAT_ARGB8888 ||
+            (format == shm_abgr8888 && self->cursor_format_pending != WL_SHM_FORMAT_ARGB8888)) {
+            self->cursor_format_pending = format;
+        }
+    }
+    static void cursor_device(void *, ext_image_copy_capture_session_v1 *, wl_array *) {}
+    static void cursor_dmabuf(void *, ext_image_copy_capture_session_v1 *, std::uint32_t, wl_array *) {}
+    static void cursor_constraints(void *data, ext_image_copy_capture_session_v1 *) {
+        auto *self = static_cast<Impl *>(data);
+        self->cursor_format_current = self->cursor_format_pending;
+        self->cursor_format_pending = UINT32_MAX;
+        self->cursor_constraints_ready = true;
+    }
+    static void cursor_stopped(void *data, ext_image_copy_capture_session_v1 *) {
+        static_cast<Impl *>(data)->cursor_unavailable = true;
+    }
+    static constexpr ext_image_copy_capture_session_v1_listener cursor_capture_listener {
+        cursor_size, cursor_format, cursor_device, cursor_dmabuf, cursor_constraints, cursor_stopped,
+    };
+    static void cursor_transform(void *data, ext_image_copy_capture_frame_v1 *, std::uint32_t transform) {
+        static_cast<Impl *>(data)->cursor_transform_value = transform;
+    }
+    static void cursor_damage(void *, ext_image_copy_capture_frame_v1 *, std::int32_t, std::int32_t, std::int32_t, std::int32_t) {}
+    static void cursor_time(void *, ext_image_copy_capture_frame_v1 *, std::uint32_t, std::uint32_t, std::uint32_t) {}
+    static void cursor_ready(void *data, ext_image_copy_capture_frame_v1 *) {
+        auto *self = static_cast<Impl *>(data);
+        self->cursor_frame_ready = true;
+    }
+    static void cursor_failed(void *data, ext_image_copy_capture_frame_v1 *, std::uint32_t) {
+        auto *self = static_cast<Impl *>(data);
+        self->cursor_frame_failed = true;
+    }
+    static constexpr ext_image_copy_capture_frame_v1_listener cursor_frame_listener {
+        cursor_transform, cursor_damage, cursor_time, cursor_ready, cursor_failed,
+    };
+
+    void setup_cursor() {
+        if (!cursor_manager || !cursor_source_manager || !seat) { return; }
+        cursor_source = ext_output_image_capture_source_manager_v1_create_source(cursor_source_manager, output);
+        cursor_pointer = wl_seat_get_pointer(seat);
+        cursor_session = ext_image_copy_capture_manager_v1_create_pointer_cursor_session(cursor_manager, cursor_source, cursor_pointer);
+        ext_image_copy_capture_cursor_session_v1_add_listener(cursor_session, &cursor_listener, this);
+        cursor_capture = ext_image_copy_capture_cursor_session_v1_get_capture_session(cursor_session);
+        ext_image_copy_capture_session_v1_add_listener(cursor_capture, &cursor_capture_listener, this);
+        separate_cursor = true;
+        std::lock_guard lock(stats_mutex);
+        stats.separate_cursor = true;
+    }
+    void destroy_cursor() {
+        if (cursor_frame) { ext_image_copy_capture_frame_v1_destroy(cursor_frame); cursor_frame = nullptr; }
+        cursor_buffer.reset();
+        if (cursor_capture) { ext_image_copy_capture_session_v1_destroy(cursor_capture); cursor_capture = nullptr; }
+        if (cursor_session) { ext_image_copy_capture_cursor_session_v1_destroy(cursor_session); cursor_session = nullptr; }
+        if (cursor_pointer) { wl_pointer_destroy(cursor_pointer); cursor_pointer = nullptr; }
+        if (cursor_source) { ext_image_capture_source_v1_destroy(cursor_source); cursor_source = nullptr; }
+        separate_cursor = false;
+    }
+    void publish_cursor_image() {
+        const auto &b = *cursor_buffer;
+        const auto transform = cursor_transform_value;
+        if (transform > WL_OUTPUT_TRANSFORM_FLIPPED_270) { cursor_unavailable = true; return; }
+        const bool swap = (transform & 1U) != 0;
+        const auto tw = swap ? b.height : b.width, th = swap ? b.width : b.height;
+        auto transformed = [transform, &b](std::uint32_t x, std::uint32_t y) {
+            if (transform >= WL_OUTPUT_TRANSFORM_FLIPPED) { x = b.width - 1U - x; }
+            switch (transform & 3U) {
+            case 1: return std::pair {y, b.width - 1U - x};
+            case 2: return std::pair {b.width - 1U - x, b.height - 1U - y};
+            case 3: return std::pair {b.height - 1U - y, x};
+            default: return std::pair {x, y};
+            }
+        };
+        // Keep the existing, bounded cursor wire format, including HiDPI themes.
+        const double scale = std::min(1.0, 64.0 / std::max(tw, th));
+        auto shape = std::make_shared<CursorShape>();
+        shape->width = std::max(1U, static_cast<std::uint32_t>(tw * scale));
+        shape->height = std::max(1U, static_cast<std::uint32_t>(th * scale));
+        const auto [hx, hy] = transformed(std::clamp(cursor_hot_x, 0, static_cast<int>(b.width) - 1),
+                                          std::clamp(cursor_hot_y, 0, static_cast<int>(b.height) - 1));
+        shape->hotspot_x = std::min(shape->width - 1U, static_cast<std::uint32_t>(hx * scale));
+        shape->hotspot_y = std::min(shape->height - 1U, static_cast<std::uint32_t>(hy * scale));
+        shape->argb.resize(shape->width * shape->height * 4U);
+        const auto *src = static_cast<const std::uint8_t *>(b.data);
+        for (std::uint32_t y = 0; y < b.height; ++y) {
+            for (std::uint32_t x = 0; x < b.width; ++x) {
+                const auto [tx, ty] = transformed(x, y);
+                const auto dx = std::min(shape->width - 1U, static_cast<std::uint32_t>(tx * scale));
+                const auto dy = std::min(shape->height - 1U, static_cast<std::uint32_t>(ty * scale));
+                const auto *pixel = src + y * b.stride + x * 4U;
+                auto *dst = shape->argb.data() + (dy * shape->width + dx) * 4U;
+                const auto alpha = pixel[3];
+                for (unsigned channel = 0; channel < 3; ++channel) {
+                    const auto index = b.format == shm_abgr8888 ? 2U - channel : channel;
+                    dst[channel] = static_cast<std::uint8_t>(alpha == 0 ? 0U : std::min(255U, (pixel[index] * 255U + alpha / 2U) / alpha));
+                }
+                dst[3] = alpha;
+            }
+        }
+        cursor_state.shape = std::move(shape);
+        { std::lock_guard lock(stats_mutex); ++stats.cursor_images; }
+        emit_cursor();
+    }
+    void service_cursor(Clock::time_point now) {
+        if (!separate_cursor) { return; }
+        if (cursor_frame_ready || cursor_frame_failed) {
+            if (cursor_frame_ready) { publish_cursor_image(); cursor_failures = 0; }
+            else { ++cursor_failures; cursor_retry = now + std::chrono::milliseconds(100); }
+            ext_image_copy_capture_frame_v1_destroy(cursor_frame);
+            cursor_frame = nullptr;
+            cursor_frame_ready = cursor_frame_failed = false;
+        }
+        if (cursor_unavailable || cursor_failures >= 3U) {
+            // Older/unsupported compositors retain the cursor-in-video path.
+            destroy_cursor();
+            {
+                std::lock_guard lock(stats_mutex);
+                stats.separate_cursor = false;
+                ++stats.cursor_fallbacks;
+            }
+            full_copy_next = true;
+            emit_transparent_cursor();
+            return;
+        }
+        if (now - last_cursor_emit > std::chrono::seconds(2)) { emit_cursor(); }
+        if (!cursor_constraints_ready || cursor_frame || now < cursor_retry) { return; }
+        // A hidden cursor can initially advertise 0x0 before its first image.
+        if (cursor_width == 0U || cursor_height == 0U) { return; }
+        if (cursor_width > 512U || cursor_height > 512U ||
+            cursor_format_current == UINT32_MAX) { cursor_unavailable = true; return; }
+        if (!cursor_buffer || cursor_buffer->width != cursor_width || cursor_buffer->height != cursor_height ||
+            cursor_buffer->format != cursor_format_current) {
+            auto b = std::make_unique<ShmBuffer>();
+            b->width = cursor_width; b->height = cursor_height;
+            b->format = cursor_format_current; b->stride = b->width * 4U; b->size = b->stride * b->height;
+            const int fd = memfd_create("qsm-wlroots-cursor", MFD_CLOEXEC);
+            if (fd < 0) { cursor_unavailable = true; return; }
+            if (ftruncate(fd, static_cast<off_t>(b->size)) < 0) { ::close(fd); cursor_unavailable = true; return; }
+            b->data = mmap(nullptr, b->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+            if (b->data == MAP_FAILED) { ::close(fd); cursor_unavailable = true; return; }
+            auto *p = wl_shm_create_pool(shm, fd, static_cast<std::int32_t>(b->size));
+            b->buffer = wl_shm_pool_create_buffer(p, 0, b->width, b->height, b->stride, b->format);
+            wl_shm_pool_destroy(p);
+            ::close(fd);
+            cursor_buffer = std::move(b);
+        }
+        cursor_transform_value = WL_OUTPUT_TRANSFORM_NORMAL;
+        cursor_frame = ext_image_copy_capture_session_v1_create_frame(cursor_capture);
+        ext_image_copy_capture_frame_v1_add_listener(cursor_frame, &cursor_frame_listener, this);
+        ext_image_copy_capture_frame_v1_attach_buffer(cursor_frame, cursor_buffer->buffer);
+        ext_image_copy_capture_frame_v1_damage_buffer(cursor_frame, 0, 0, cursor_buffer->width, cursor_buffer->height);
+        ext_image_copy_capture_frame_v1_capture(cursor_frame);
+    }
+
     // The compositor draws the real cursor into the video.  Give the browser a
     // fully transparent cursor so it does not paint a second (local) arrow on
     // top; re-announced periodically so a late-joining console learns it too.
@@ -516,19 +733,19 @@ struct WlrootsDisplay::Impl {
         if (capture.ready) {
             publish_frame();
             end_capture();
-            const auto interval = std::chrono::microseconds(1'000'000U / std::max(1U, options.max_fps));
-            next_capture = now + interval;
-            if (now - last_cursor_emit > std::chrono::seconds(2)) { emit_transparent_cursor(); }
+
+            if (!separate_cursor && now - last_cursor_emit > std::chrono::seconds(2)) { emit_transparent_cursor(); }
         }
     }
 
     // ------------------------------------------------------------ main loop
     void loop() noexcept {
         try {
-            emit_transparent_cursor();
+            if (!separate_cursor) { emit_transparent_cursor(); }
             while (!stopping.load()) {
                 const auto now = Clock::now();
                 apply_pending_resize();
+                service_cursor(now);
                 service_capture(now);
 
                 while (wl_display_prepare_read(display) != 0) {
@@ -697,6 +914,7 @@ void WlrootsDisplay::start(QemuDisplayCallbacks callbacks) {
             : zwlr_virtual_pointer_manager_v1_create_virtual_pointer(d.pointer_manager, d.seat);
     }
     d.setup_keyboard();
+    d.setup_cursor();
     // A second roundtrip delivers the output manager's heads and serial.
     wl_display_roundtrip(d.display);
 
@@ -705,6 +923,7 @@ void WlrootsDisplay::start(QemuDisplayCallbacks callbacks) {
     shape->height = 1U;
     shape->argb = {0U, 0U, 0U, 0U};
     d.transparent_cursor = std::move(shape);
+    d.cursor_state.shape = d.transparent_cursor;
 
     d.wake_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
     if (d.wake_fd < 0) { throw std::runtime_error("eventfd failed"); }
@@ -721,6 +940,7 @@ void WlrootsDisplay::stop() noexcept {
     d.wake();
     if (d.thread.joinable()) { d.thread.join(); }
     d.end_capture();
+    d.destroy_cursor();
     d.shm_buffer.reset();
     if (d.configuration != nullptr) { zwlr_output_configuration_v1_destroy(d.configuration); }
     for (auto &head : d.heads) { zwlr_output_head_v1_destroy(head.head); }

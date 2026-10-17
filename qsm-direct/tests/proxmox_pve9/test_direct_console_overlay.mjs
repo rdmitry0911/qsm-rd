@@ -255,10 +255,10 @@ assert.match(source, /qsm-pointer/,
     'latest-state pointer samples must not queue behind reliable keyboard input');
 assert.match(source, /maxRetransmits: 0/,
     'the pointer channel must discard stale samples rather than retransmit them');
-assert.match(source, /videoReceiver\.playoutDelayHint = settings\.playoutDelayMs \/ 1000/,
+assert.match(source, /applyReceiverPlayoutDelay\(videoReceiver, settings\.playoutDelayMs\)/,
     'the browser receiver must retain an interactive, user-configurable playout delay');
-assert.match(source, /pointerFrame = popup\.requestAnimationFrame\(\(\) => flushPointer\(false\)\)/,
-    'pointer motion must use the popup compositor clock, which remains active while accelerated video is presented');
+assert.match(source, /if \(delay === 0\) \{ flushPointer\(false\); \}/,
+    'an isolated pointer sample must be delivered immediately');
 assert.match(source, /settings\.resizeDebounceMs/,
     'window dragging must use the configurable end-of-resize debounce');
 assert.match(source, /settings\.resizeSettleMs/,
