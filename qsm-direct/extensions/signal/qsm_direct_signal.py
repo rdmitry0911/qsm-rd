@@ -376,13 +376,9 @@ def handle_request(config: SignalConfig, method: str, path: str,
         encoder = body.get("encoder")
         if not isinstance(codec, str) or not isinstance(encoder, str):
             raise SignalError(400, "invalid request")
-        bitrate = body.get("bitrate")
-        if bitrate is not None:
-            # URL-encoded legacy HTTP input; the native API passes a JSON int.
-            if not isinstance(bitrate, str) or not re.fullmatch(r"[0-9]{3,6}", bitrate):
-                raise SignalError(400, "invalid video bitrate")
-            bitrate = int(bitrate)
-        return {"data": policy.write(vmid, codec, encoder, bitrate)}
+        # The legacy viewer sends JSON, so retain the numeric type and let
+        # the policy store apply the same validation as the native API.
+        return {"data": policy.write(vmid, codec, encoder, body.get("bitrate"))}
 
     raise SignalError(405, "method not allowed")
 

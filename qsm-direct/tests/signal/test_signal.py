@@ -128,6 +128,16 @@ class SignalCoreTests(unittest.TestCase):
                     self.assertIn(b"QSM_DIRECT_LXC_UID=1000", before)
                     self.assertIn(b"QSM_DIRECT_LXC_GRACE=300", before)
 
+    def test_legacy_json_bitrate_write_matches_the_native_policy_type(self) -> None:
+        cfg, _, _ = config(self.tmp, {("u@pve", 106, "VM.Config.Options")})
+        request = {"user": "u@pve", "ticket": "good", "codec": "h264", "encoder": "auto", "bitrate": 20000}
+        result = handle_request(cfg, "PUT", "/nodes/lab/qemu/106/qsm-direct-settings", request)
+        self.assertEqual(result["data"]["bitrate"], 20000)
+        for invalid in (True, "20000", 0, 100001):
+            with self.assertRaises(SignalError):
+                handle_request(cfg, "PUT", "/nodes/lab/qemu/106/qsm-direct-settings", {**request, "bitrate": invalid})
+        self.assertEqual(VmPolicyStore(self.tmp).read(106)["bitrate"], 20000)
+
     def test_policy_put_without_config_options_is_rejected(self) -> None:
         cfg, _, _ = config(self.tmp, {("u@pve", 106, "VM.Console")})
         with self.assertRaises(SignalError) as raised:

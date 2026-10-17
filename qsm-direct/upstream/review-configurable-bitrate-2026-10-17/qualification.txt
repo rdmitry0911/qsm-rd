@@ -27,7 +27,7 @@ Behaviour:
   Bundled audio/RTCP and the separate data/control path still bypass pacing.
 
 Implementation/review:
-- QSM host/LXC helper version 0.4.0+shared18.
+- QSM host/LXC helper version 0.4.0+shared19 (shared18 staging build).
 - qemu-server 9.2.11+shared3; additive API patch 0003 in webrtc-qemu-server.
 - pve-container 6.1.13+webrtc2; additive API patch 0002 in webrtc-pve-container.
   These match the base versions already installed on the qualification node.
@@ -38,9 +38,10 @@ Validation:
 - 32 bridge tests: parameter validation, changed pacing throughput at 2 vs
   20 Mbit/s, bounded burst, RTP/RTX sharing, timestamp refresh, audio/RTCP
   bypass, reference-chain recovery and VPN packet-size coverage.
-- 10 policy/signalling tests; 34 terminal tests; shared-display settings tests
+- 11 policy/signalling tests; 34 terminal tests; shared-display settings tests
   exercise both guest kinds, all range boundaries, rejected values and old
-  client preservation. The first CTest run required expected API dictionaries
+  client preservation. Legacy HTTPS JSON writes also retain their numeric
+  bitrate type, with invalid values rejected. The first CTest run required expected API dictionaries
   to include the new field; the final full run passes all 16 CTest suites.
 - Native Perl JSON schema tests: 22 cases across the two APIs, including
   absent optional field, 500/8000/20000/100000, invalid values and retained ACL.
@@ -73,7 +74,7 @@ rate cannot sustain the source. Dynamic REMB-to-encoder adaptation remains
 future work. QSV/VA-API and live HEVC playback were not available for this run.
 
 Deployment:
-Installed host/LXC-helper shared18, qemu-server shared3 and pve-container
+Installed host/LXC-helper shared19, qemu-server shared3 and pve-container
 webrtc2 on 192.168.64.20. Reloaded PVE management daemons to load API schemas;
 no VM/container/compositor restart. CT105 was at its existing native greeter
 throughout installation. VM103/104 retain QEMU PIDs 2792970/2104260. CT108's
