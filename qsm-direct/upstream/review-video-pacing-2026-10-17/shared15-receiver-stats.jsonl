@@ -1,0 +1,3 @@
+{"framesDecoded": 260, "packetsLost": 3941, "freezeCount": 7, "totalFreezesDuration": 14.603, "pliCount": 2, "nackCount": 541}
+{"framesDecoded": 485, "packetsLost": 11756, "freezeCount": 12, "totalFreezesDuration": 23.431, "pliCount": 8, "nackCount": 1598}
+{"framesDecoded": 496, "packetsLost": 23222, "freezeCount": 16, "totalFreezesDuration": 30.868, "pliCount": 17, "nackCount": 3192}

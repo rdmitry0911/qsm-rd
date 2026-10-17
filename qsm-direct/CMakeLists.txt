@@ -200,10 +200,9 @@ if(QMDP_BUILD_TOOLS AND QMDP_BUILD_DBUS)
         else()
             message(STATUS "qsm direct worker: wayland-client/xkbcommon/wayland-scanner absent; LXC console capture disabled")
         endif()
-        # The CPU fallback uses libavcodec directly when development files are
-        # present. This avoids ffmpeg(1)'s multi-frame process pipeline in the
-        # interactive path; hardware encoders retain the portable ffmpeg(1)
-        # launcher below.
+        # libx264 and H.264 NVENC use libavcodec directly when available. Besides
+        # avoiding ffmpeg(1)'s process pipeline, this requests a recovery IDR
+        # without restarting NVENC. Other hardware codecs retain the launcher.
         if(TARGET PkgConfig::QMDP_AVCODEC AND TARGET PkgConfig::QMDP_AVUTIL AND
            TARGET PkgConfig::QMDP_SWSCALE)
             target_link_libraries(qsm-direct-media-worker PRIVATE

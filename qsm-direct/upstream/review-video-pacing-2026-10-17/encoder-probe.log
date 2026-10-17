@@ -1,0 +1,12 @@
+{"encoder":"h264_nvenc","frames":120,"decoded":120,"forced_idrs":3,"keys":7,"max_frame_bytes":16218,"mbps":6.83575,"max_encode_ms":5.28127}
+[libx264 @ 0x59820b6dd500] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x59820b6dd500] profile Constrained Baseline, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x59820b6dd500] frame I:7     Avg QP:22.38  size: 14521
+[libx264 @ 0x59820b6dd500] frame P:113   Avg QP:23.65  size: 13709
+[libx264 @ 0x59820b6dd500] mb I  I16..4: 100.0%  0.0%  0.0%
+[libx264 @ 0x59820b6dd500] mb P  I16..4: 10.0%  0.0%  0.0%  P16..4: 86.0%  0.0%  0.0%  0.0%  0.0%    skip: 4.0%
+[libx264 @ 0x59820b6dd500] coded y,uvDC,uvAC intra: 1.7% 49.5% 4.9% inter: 0.6% 94.9% 7.3%
+[libx264 @ 0x59820b6dd500] i16 v,h,dc,p:  2% 16%  0% 82%
+[libx264 @ 0x59820b6dd500] i8c dc,h,v,p:  5%  8%  3% 84%
+[libx264 @ 0x59820b6dd500] kb/s:6603.21
+{"encoder":"libx264","frames":120,"decoded":120,"forced_idrs":3,"keys":7,"max_frame_bytes":15940,"mbps":6.60321,"max_encode_ms":6.30013}

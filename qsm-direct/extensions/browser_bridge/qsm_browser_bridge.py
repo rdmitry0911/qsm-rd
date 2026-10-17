@@ -32,12 +32,13 @@ import av
 from aiortc import (MediaStreamTrack, RTCPeerConnection, RTCSessionDescription,
                     RTCRtpSender)
 from aiortc import codecs as aiortc_codecs
+from aiortc import clock as aiortc_clock
 import aiortc.rtcrtpsender as aiortc_rtcrtpsender
 from aiortc.codecs.h264 import H264Encoder
 from aiortc.mediastreams import convert_timebase
 from aiortc.mediastreams import MediaStreamError
 from aiortc.rtcrtpparameters import RTCRtcpFeedback, RTCRtpCodecParameters
-from aiortc.rtp import RTCP_PSFB_PLI, RtcpPsfbPacket
+from aiortc.rtp import RTCP_PSFB_PLI, RtcpPsfbPacket, RtpPacket
 from aiortc.sdp import SessionDescription
 
 
@@ -75,6 +76,10 @@ MAX_GUEST_CONTROL_MESSAGE_BYTES = 2 * 1024 * 1024
 # Payload budget leaves room for RTP extensions, SRTP authentication, RTX,
 # UDP and IPv6 even on a VPN path whose MTU is only 1280–1300 bytes.
 VIDEO_RTP_PAYLOAD_MAX = 1150
+# Encoders use an 8 Mbps ceiling. Allow RTP/SRTP/IP overhead and recovery,
+# but never flush a whole IDR at LAN speed into a routed VPN's small queue.
+VIDEO_PACING_BYTES_PER_SECOND = 10_000_000 / 8
+VIDEO_PACING_BURST_BYTES = 2400
 VIDEO_TIME_BASE = Fraction(1, 90_000)
 AUDIO_TIME_BASE = Fraction(1, 48_000)
 # The matching worker requests the same node-local socket capacity.  It holds
@@ -98,6 +103,50 @@ _H265_FMTP_VALUE = re.compile(r"\A[A-Za-z0-9]{1,32}\Z")
 _HEVC_CODEC_LOCK = threading.Lock()
 _HEVC_PACKETIZER_INSTALLED = False
 _H264_PACKETIZER_INSTALLED = False
+
+
+class _VideoPacer:
+    """Per-peer token bucket, with backpressure and no extra media queue.
+
+    A late event-loop wake may release at most two packets, not all the
+    accumulated idle-time credit. RTP and RTX share the budget. Audio, RTCP
+    and SCTP never acquire this lock.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._tokens = float(VIDEO_PACING_BURST_BYTES)
+        self._updated = time.monotonic()
+        self.sent_packets = 0
+        self.sent_bytes = 0
+
+    async def send(self, data: bytes, sender: object,
+                   forward: Callable[..., Any]) -> None:
+        if (len(data) < 12 or data[0] >> 6 != 2 or 192 <= data[1] <= 223 or
+                struct.unpack_from("!I", data, 8)[0] not in
+                (sender._ssrc, sender._rtx_ssrc)):
+            await forward(data)
+            return
+        # IPv6 + UDP + the maximum SRTP tag; accounting is conservative on IPv4.
+        cost = len(data) + 64
+        async with self._lock:
+            while True:
+                now = time.monotonic()
+                self._tokens = min(VIDEO_PACING_BURST_BYTES,
+                                   self._tokens + (now - self._updated) * VIDEO_PACING_BYTES_PER_SECOND)
+                self._updated = now
+                if self._tokens >= cost:
+                    self._tokens -= cost
+                    break
+                await asyncio.sleep((cost - self._tokens) / VIDEO_PACING_BYTES_PER_SECOND)
+            # abs-send-time must describe transmission, not entry into the
+            # pacer, otherwise receiver bandwidth estimates include our wait.
+            extension_map = sender._RTCRtpSender__rtp_header_extensions_map
+            packet = RtpPacket.parse(data, extension_map)
+            packet.extensions.abs_send_time = (aiortc_clock.current_ntp_time() >> 14) & 0x00FFFFFF
+            await forward(packet.serialize(extension_map))
+            self.sent_packets += 1
+            self.sent_bytes += cost
 
 
 class _H264Packetizer(H264Encoder):
@@ -1229,6 +1278,7 @@ class BrowserWebRtcBridge:
         self.input = shared_input or UnixInputEgress(
             runtime_directory, expected_uid=expected_producer_uid)
         self._last_keyframe_request = float("-inf")
+        self._video_pacer = _VideoPacer()
         self.video_track.on_keyframe_required = self._request_video_keyframe
         self._guest_dispatch = guest_dispatch
         # The terminal service owns the lifetime of the shared producer.  A
@@ -1292,7 +1342,9 @@ class BrowserWebRtcBridge:
             print(f"qsm-direct-terminal: media health video_fps={(frames - previous_frames) / max(0.001, now - previous_time):.1f} "
                   f"queue={self.video_track._queue.qsize()} drops={self.video_track.dropped_units} "
                   f"overflows={self.video_track.overflows} waiting_idr={int(self.video_track._waiting_for_keyframe)} "
-                  f"remote_lost={loss} loss_fraction={fraction} rtt_ms={rtt_ms}", file=sys.stderr, flush=True)
+                  f"remote_lost={loss} loss_fraction={fraction} rtt_ms={rtt_ms} "
+                  f"paced_packets={self._video_pacer.sent_packets} paced_bytes={self._video_pacer.sent_bytes}",
+                  file=sys.stderr, flush=True)
             previous_time, previous_frames = now, frames
 
     @property
@@ -1720,6 +1772,17 @@ class BrowserWebRtcBridge:
             ice_offer = "\r\n".join(line for line in sdp.splitlines()
                                     if line != "a=end-of-candidates") + "\r\n"
         await self._pc.setRemoteDescription(RTCSessionDescription(sdp=ice_offer, type=sdp_type))
+        # BUNDLE may replace the sender's DTLS transport during the remote
+        # description. Hook its final transport before the local answer can
+        # start RTP. The SSRC check leaves bundled audio and RTCP unpaced;
+        # SCTP uses DTLS's separate data path.
+        transport = video_sender.transport
+        send_rtp = transport._send_rtp
+
+        async def send_paced(data: bytes) -> None:
+            await self._video_pacer.send(data, video_sender, send_rtp)
+
+        transport._send_rtp = send_paced
         # Diagnose unresolved mDNS offers without exposing SDP or addresses.
         ice_transports = {transceiver.receiver.transport.transport
                           for transceiver in self._pc.getTransceivers()}

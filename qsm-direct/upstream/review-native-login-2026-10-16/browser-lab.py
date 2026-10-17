@@ -89,7 +89,7 @@ async def main():
                         const peer=window.qsmLabPeers.at(-1);
                         const receiver=peer?.getReceivers().find(r=>r.track.kind==='video');
                         const report=receiver ? Array.from((await receiver.getStats()).values()).find(s=>s.type==='inbound-rtp'&&s.kind==='video') : null;
-                        return {jitterBufferTarget:receiver?.jitterBufferTarget,playoutDelayHint:receiver?.playoutDelayHint,
+                        return {measuredAtMs:performance.now(),jitterBufferTarget:receiver?.jitterBufferTarget,playoutDelayHint:receiver?.playoutDelayHint,
                             jitterBufferDelay:report?.jitterBufferDelay,jitterBufferEmittedCount:report?.jitterBufferEmittedCount,
                             framesDecoded:report?.framesDecoded,framesDropped:report?.framesDropped,
                             framesReceived:report?.framesReceived,packetsLost:report?.packetsLost,
@@ -98,6 +98,8 @@ async def main():
                             bytesReceived:report?.bytesReceived};
                     }""")
                     print('RECEIVER_STATS',json.dumps(stats),flush=True)
+                    with (Path(os.environ.get('QSM_LAB_ARTIFACTS','/tmp/qsm-lxc-native-login'))/'receiver-stats.jsonl').open('a') as log:
+                        log.write(json.dumps(stats)+'\n')
                 elif op in ('measure_fresh_frames','measure_cursor_shapes'):
                     assert VMID==108
                     from repaint_probe import measure_fresh_frames,measure_cursor_shapes

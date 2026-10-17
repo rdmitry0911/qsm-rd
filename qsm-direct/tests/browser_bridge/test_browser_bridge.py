@@ -59,6 +59,9 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     VIDEO_RTP_PAYLOAD_MAX,
     _h265_offer_details,
     _VideoAssembler,
+    _VideoPacer,
+    VIDEO_PACING_BYTES_PER_SECOND,
+    VIDEO_PACING_BURST_BYTES,
 )
 
 
@@ -401,6 +404,70 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(requested, ["idr", "idr"])
             finally:
                 await bridge.close()
+
+    async def test_video_and_rtx_are_paced_with_a_bounded_burst(self) -> None:
+        from types import SimpleNamespace
+        from aiortc.rtp import RtpPacket, HeaderExtensionsMap
+        from aiortc.rtcrtpparameters import RTCRtpParameters, RTCRtpHeaderExtensionParameters
+        extension_map = HeaderExtensionsMap()
+        extension_map.configure(RTCRtpParameters(headerExtensions=[
+            RTCRtpHeaderExtensionParameters(id=2, uri="http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"),
+        ]))
+        sender = SimpleNamespace(_ssrc=1, _rtx_ssrc=2,
+                                 _RTCRtpSender__rtp_header_extensions_map=extension_map)
+        pacer = _VideoPacer()
+        sent: list[tuple[float, int]] = []
+
+        async def forward(data: bytes) -> None:
+            self.assertNotEqual(RtpPacket.parse(data, extension_map).extensions.abs_send_time, 1)
+            sent.append((time.monotonic(), len(data) + 64))
+
+        start = time.monotonic()
+        for i in range(60):
+            packet = RtpPacket(payload_type=102, sequence_number=i, timestamp=1,
+                               ssrc=1 if i % 2 else 2, payload=b"x" * 1150)
+            packet.extensions.abs_send_time = 1
+            await pacer.send(packet.serialize(extension_map), sender, forward)
+        total = sum(size for _, size in sent)
+        self.assertEqual(pacer.sent_packets, 60)
+        self.assertEqual(pacer.sent_bytes, total)
+        self.assertGreaterEqual(time.monotonic() - start,
+                                (total - VIDEO_PACING_BURST_BYTES) / VIDEO_PACING_BYTES_PER_SECOND - .001)
+        # Check every observed interval, including after delayed scheduler wakes.
+        for first in range(len(sent)):
+            for last in range(first, len(sent)):
+                elapsed = sent[last][0] - sent[first][0]
+                emitted = sum(size for _, size in sent[first:last + 1])
+                self.assertLessEqual(emitted, VIDEO_PACING_BURST_BYTES +
+                                     elapsed * VIDEO_PACING_BYTES_PER_SECOND + 100)
+
+    async def test_audio_and_rtcp_bypass_a_waiting_video_packet(self) -> None:
+        from types import SimpleNamespace
+        from aiortc.rtp import RtpPacket, RtcpSrPacket, RtcpSenderInfo, HeaderExtensionsMap
+        sender = SimpleNamespace(_ssrc=1, _rtx_ssrc=2,
+                                 _RTCRtpSender__rtp_header_extensions_map=HeaderExtensionsMap())
+        pacer = _VideoPacer()
+        sent: list[bytes] = []
+
+        async def forward(data: bytes) -> None:
+            sent.append(data)
+
+        video = RtpPacket(payload_type=102, ssrc=1, payload=b"v" * 1150).serialize()
+        audio = RtpPacket(payload_type=111, ssrc=3, payload=b"audio").serialize()
+        rtcp = bytes(RtcpSrPacket(ssrc=1, sender_info=RtcpSenderInfo(
+            ntp_timestamp=0, rtp_timestamp=1, packet_count=1, octet_count=1)))
+        await pacer._lock.acquire()
+        task = asyncio.create_task(pacer.send(video, sender, forward))
+        try:
+            await asyncio.sleep(0)
+            await asyncio.wait_for(pacer.send(audio, sender, forward), .1)
+            await asyncio.wait_for(pacer.send(rtcp, sender, forward), .1)
+            self.assertEqual(sent, [audio, rtcp])
+            self.assertFalse(task.done())
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            pacer._lock.release()
 
     @staticmethod
     def _send(path: str, frame: int, fragment: int, flags: int, body: bytes) -> None:

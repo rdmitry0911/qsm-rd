@@ -1,0 +1,95 @@
+Video burst / encoder recovery follow-up, 2026-10-17
+=================================================
+
+The user reports remaining short freezes in Firefox over the VPN, despite
+shared15's MTU correction. The freezes resolve before manual statistics can
+be collected. Raising the decoder playout target to 120 ms did not help.
+
+Observed on the real CT105 connection before this change:
+- The producer keeps emitting approximately 60 fps; local video send errors
+  remain zero and reference-preserving queue counters are usually stable.
+- Remote RTCP cumulative packet loss grows by hundreds/thousands per ten
+  seconds. This continues with a static desktop, without new capture damage.
+- Metadata-only outgoing sampling: 5.32 Mbps average, largest frame 323773
+  IPv4 bytes / 271 packets sent in about 5 ms; 74298 bytes in one 1 ms bin.
+  No video payloads or user desktop screenshots were saved.
+
+FFmpeg n7.1 libavcodec/nvenc.c, nvenc_setup_rate_control, explicitly clears
+averageBitRate and vbvBufferSize when CQ is enabled. Consequently the old
+'-cq 19 -b:v 8M -maxrate 20M -bufsize 333k' did not retain its average/VBV
+constraints. Also, aiortc 1.11 sends all RTP payloads of a frame in a tight
+loop; its internal REMB encoder target does not change an external encoder.
+Primary sources:
+https://github.com/FFmpeg/FFmpeg/blob/n7.1/libavcodec/nvenc.c
+https://github.com/aiortc/aiortc/blob/1.11.0/src/aiortc/rtcrtpsender.py
+
+Final implementation (shared17):
+- H.264 NVENC uses the existing in-process libavcodec path, alongside libx264.
+  A requested I-frame/forced IDR no longer restarts an ffmpeg process. Other
+  hardware codecs retain the portable launcher. Failed initialisation releases
+  allocated codec/frame/scaling resources before the existing software fallback.
+- Plain VBR, 8 Mbps maximum and a one-frame VBV budget; no CQ override. The
+  libx264 path and portable NVENC/libx264 launcher use corresponding bounds.
+- Per-peer token bucket paces video RTP and RTX at up to 10 Mbps including
+  conservative IP/UDP/SRTP accounting, with 2400 bytes of burst credit. It
+  applies backpressure to the existing bounded reference-preserving frame
+  queue, without adding another queue. Bundled audio/RTCP bypass the lock;
+  SCTP/control/cursor do not use the RTP send method. abs-send-time is updated
+  after pacing, immediately before SRTP transmission.
+- Hook is scoped to the final video sender transport after SDP BUNDLE. No
+  global aiortc bitrate, packet-size or transport monkeypatch is introduced.
+
+Qualification:
+- Real NVENC synthetic 1782x1118, 240 frames: CQ19 yielded 20.40 Mbps, max
+  frame 77837 bytes; plain 8 Mbps VBR/VBV yielded 6.14 Mbps, max 37884 bytes.
+  These are synthetic frames, not a capture of the user's desktop.
+- Standalone probe extracts the exact production LibavH264Encoder class:
+  NVENC and libx264 each emit and decode all 120 frames immediately. Forced
+  IDRs at frames 7/17/49 work within the same encoder instance; largest NVENC
+  unit 16218 bytes in that fixture, maximum encode time about 5.4 ms.
+- 31 browser bridge tests pass, including cumulative pacing bounds, shared
+  RTP/RTX budget, refreshed abs-send-time, audio/RTCP bypass and cancellation.
+  Existing real codec/reassembly/reference-chain and MTU tests pass. Local
+  aiortc 1.6/aioice STUN teardown warnings also occur on the unchanged baseline.
+- 32 terminal tests and 16 CTest tests pass. Production package built in clean
+  Debian 13/Trixie; actual deployed aiortc 1.11 / libavcodec 61 / NVENC tested.
+
+Impaired-network A/B:
+- Isolated local network namespace/veth, NAT to the lab node. Only UDP is
+  shaped: 40 ms delay each direction, server-to-client 8 Mbps, 50-packet queue.
+  Existing physical/VPN interface qdiscs and production routing are untouched.
+- Actual PVE-authenticated Firefox 155 Console, disposable CT108, NVENC and
+  the same continuously changing PyQt/Xwayland gradient/90-rectangle fixture.
+  Decoder playout target 0 ms; no legacy 8007 requests.
+- shared15 baseline cumulative result: 23222 packets lost, 3192 NACKs, 17 PLIs,
+  16 freezes totalling 30.868 s. Only 11 more frames decoded between the last
+  two samples while the moving source and encoder continued running.
+- Intermediate shared16 was rejected: pacing/VBV alone plus ffmpeg restarts
+  caused repeated queue overruns and approximately 3 fps. Not published.
+- shared17: first sustained motion interval decoded 2112 frames in 35.207 s
+  (59.99 fps), zero dropped frames, zero freezes/PLIs. At 56.987 s: 3151 frames
+  decoded, 16 losses recovered with 16 NACKs.
+- Then 0.3% random UDP loss was added on the isolated server-to-client link.
+  Final sample at 107.342 s: 6164 decoded, zero frames dropped, zero freezes,
+  zero PLIs, 100 losses / 100 NACKs. Plasma locked after approximately 70 s of
+  no user input; later samples include the lock screen, not continuous motion.
+- Final outgoing sample: 7.55 Mbps, max frame 26397 bytes over about 20 ms,
+  max 2582 bytes in any 1 ms bin (SRTP/IP accounting and timing boundaries).
+  Queue/drop/recovery counters stabilise after connection startup.
+
+Deployment and limits:
+qsm-pve-direct 0.4.0+shared17 installed on 192.168.64.20. CT105's qsm session
+101552 initially survived both transport restarts. At 15:56:09 local time,
+its persisted 300-second disconnected-console grace expired and the service
+logged it out; the final state is the native greeter (session 101620). The
+user was informed that a new login is required. No compositor/container/VM
+restart was performed. VM103/104 QEMU PIDs remain 2792970/2104260. CT108 test desktop and fixture are
+stopped and its original software-encoder policy restored after qualification.
+Sources/deb/review evidence published as a prerelease for review.
+
+The real user's VPN playback result after shared17 is still unconfirmed.
+This is bounded fixed-rate video with pacing, not full dynamic congestion
+control: REMB still does not adapt the external/shared encoder. Paths below
+its working bitrate may need future encoder feedback/resolution adaptation.
+Audio playback, microphone, tablet gestures, other hardware codecs and node
+172.16.16.17 were not requalified in this video follow-up.

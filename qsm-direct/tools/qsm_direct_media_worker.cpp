@@ -602,20 +602,22 @@ public:
         bool keyframe {};
     };
 
-    LibavH264Encoder(std::uint32_t width, std::uint32_t height, std::uint32_t fps) {
+    LibavH264Encoder(std::uint32_t width, std::uint32_t height, std::uint32_t fps,
+                     const std::string &encoder) {
         if (width == 0U || height == 0U || width > static_cast<std::uint32_t>(INT_MAX) ||
             height > static_cast<std::uint32_t>(INT_MAX) || fps == 0U ||
             fps > static_cast<std::uint32_t>(INT_MAX)) {
             throw WorkerError("invalid in-process H.264 dimensions");
         }
-        const auto *codec = avcodec_find_encoder_by_name("libx264");
+        const auto *codec = avcodec_find_encoder_by_name(encoder.c_str());
         if (codec == nullptr) {
-            throw WorkerError("libavcodec has no libx264 encoder");
+            throw WorkerError("libavcodec has no " + encoder + " encoder");
         }
         context_ = avcodec_alloc_context3(codec);
         frame_ = av_frame_alloc();
         packet_ = av_packet_alloc();
         if (context_ == nullptr || frame_ == nullptr || packet_ == nullptr) {
+            release();
             throw WorkerError("cannot allocate in-process H.264 encoder");
         }
         context_->width = static_cast<int>(width);
@@ -625,6 +627,9 @@ public:
         context_->framerate = AVRational {static_cast<int>(fps), 1};
         context_->gop_size = 30;
         context_->max_b_frames = 0;
+        context_->bit_rate = 8'000'000;
+        context_->rc_max_rate = 8'000'000;
+        context_->rc_buffer_size = static_cast<int>(8'000'000U / fps);
         context_->flags |= AV_CODEC_FLAG_LOW_DELAY;
         // Two slice threads give useful
         // parallelism without frame-thread reordering latency.
@@ -632,17 +637,28 @@ public:
         context_->thread_count = 2;
 
         AVDictionary *options = nullptr;
-        (void) av_dict_set(&options, "preset", "ultrafast", 0);
-        (void) av_dict_set(&options, "tune", "zerolatency", 0);
         (void) av_dict_set(&options, "aud", "1", 0);
-        (void) av_dict_set(&options, "x264-params",
+        if (encoder == "h264_nvenc") {
+            (void) av_dict_set(&options, "preset", "p1", 0);
+            (void) av_dict_set(&options, "tune", "ll", 0);
+            (void) av_dict_set(&options, "forced-idr", "1", 0);
+            (void) av_dict_set(&options, "zerolatency", "1", 0);
+            (void) av_dict_set(&options, "delay", "0", 0);
+            (void) av_dict_set(&options, "rc-lookahead", "0", 0);
+            (void) av_dict_set(&options, "rc", "vbr", 0);
+        } else {
+            (void) av_dict_set(&options, "preset", "ultrafast", 0);
+            (void) av_dict_set(&options, "tune", "zerolatency", 0);
+            (void) av_dict_set(&options, "x264-params",
                            "aud=1:keyint=30:min-keyint=30:scenecut=0:bframes=0:"
                            "repeat-headers=1:sliced-threads=1:sync-lookahead=0:rc-lookahead=0",
                            0);
+        }
         const int opened = avcodec_open2(context_, codec, &options);
         av_dict_free(&options);
         if (opened < 0) {
-            throw WorkerError("cannot initialise in-process libx264: " + error_string(opened));
+            release();
+            throw WorkerError("cannot initialise in-process " + encoder + ": " + error_string(opened));
         }
 
         frame_->format = context_->pix_fmt;
@@ -650,22 +666,19 @@ public:
         frame_->height = context_->height;
         const int allocated = av_frame_get_buffer(frame_, 32);
         if (allocated < 0) {
+            release();
             throw WorkerError("cannot allocate in-process H.264 frame: " + error_string(allocated));
         }
         scale_ = sws_getContext(context_->width, context_->height, AV_PIX_FMT_BGRA,
                                 context_->width, context_->height, context_->pix_fmt,
                                 SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
         if (scale_ == nullptr) {
+            release();
             throw WorkerError("cannot initialise BGRA to H.264 conversion");
         }
     }
 
-    ~LibavH264Encoder() {
-        if (packet_ != nullptr) { av_packet_free(&packet_); }
-        if (frame_ != nullptr) { av_frame_free(&frame_); }
-        if (context_ != nullptr) { avcodec_free_context(&context_); }
-        if (scale_ != nullptr) { sws_freeContext(scale_); }
-    }
+    ~LibavH264Encoder() { release(); }
 
     LibavH264Encoder(const LibavH264Encoder &) = delete;
     LibavH264Encoder &operator=(const LibavH264Encoder &) = delete;
@@ -689,7 +702,7 @@ public:
         frame_->pict_type = force_idr ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
         const int submitted = avcodec_send_frame(context_, frame_);
         if (submitted < 0) {
-            throw WorkerError("in-process libx264 rejected a frame: " + error_string(submitted));
+            throw WorkerError("in-process H.264 encoder rejected a frame: " + error_string(submitted));
         }
         std::vector<Packet> result;
         while (true) {
@@ -698,7 +711,7 @@ public:
                 break;
             }
             if (received < 0) {
-                throw WorkerError("in-process libx264 did not produce H.264: " + error_string(received));
+                throw WorkerError("in-process H.264 encoder did not produce H.264: " + error_string(received));
             }
             result.push_back({
                 .bytes = {packet_->data, packet_->data + packet_->size},
@@ -710,6 +723,13 @@ public:
     }
 
 private:
+    void release() noexcept {
+        if (packet_ != nullptr) { av_packet_free(&packet_); }
+        if (frame_ != nullptr) { av_frame_free(&frame_); }
+        if (context_ != nullptr) { avcodec_free_context(&context_); }
+        if (scale_ != nullptr) { sws_freeContext(scale_); scale_ = nullptr; }
+    }
+
     static std::string error_string(int error) {
         std::array<char, AV_ERROR_MAX_STRING_SIZE> message {};
         av_strerror(error, message.data(), message.size());
@@ -914,12 +934,12 @@ private:
             try {
                 const bool force_idr = force_idr_.exchange(false);
 #if defined(QMDP_HAS_LIBAVCODEC)
-                if (codec_ == "h264" && encoder_ == "libx264") {
-                    if (!software_encoder_ || width_ != width || height_ != height) {
+                if (codec_ == "h264" && (encoder_ == "libx264" || encoder_ == "h264_nvenc")) {
+                    if (!h264_encoder_ || width_ != width || height_ != height) {
                         close_video_process();
                         open_video_process(width, height);
                     }
-                    for (auto &packet : software_encoder_->encode(*bgra, force_idr)) {
+                    for (auto &packet : h264_encoder_->encode(*bgra, force_idr)) {
                         publish_video(packet.keyframe, packet.bytes);
                     }
                 } else {
@@ -1012,8 +1032,11 @@ private:
 
     void open_video_process(std::uint32_t width, std::uint32_t height) {
 #if defined(QMDP_HAS_LIBAVCODEC)
-        if (encoder_ == "libx264") {
-            software_encoder_ = std::make_unique<LibavH264Encoder>(width, height, fps_);
+        if (codec_ == "h264" && (encoder_ == "libx264" || encoder_ == "h264_nvenc")) {
+            // Explicit I-frame requests go straight to libavcodec/NVENC.
+            // Restarting an ffmpeg process for PLI pauses capture, emits a
+            // bootstrap burst, and can trigger another bounded-queue overrun.
+            h264_encoder_ = std::make_unique<LibavH264Encoder>(width, height, fps_, encoder_);
             width_ = width;
             height_ = height;
             return;
@@ -1061,16 +1084,14 @@ private:
             if (std::string_view(encoder_).ends_with("_nvenc")) {
                 arguments.insert(arguments.end(), {"-preset", "p1", "-tune", "ll", "-forced-idr", "1",
                                                    "-zerolatency", "1", "-delay", "0", "-rc-lookahead", "0",
-                                                   // A CBR NVENC stream pads a motionless desktop with H.264
-                                                   // filler NALs up to its configured rate.  aiortc then has to
-                                                   // pace bytes which carry no new pixels; on the real Chrome
-                                                   // route that accumulated an approximately one-second queue
-                                                   // before a password bullet could be presented.  Low-latency
-                                                   // VBR retains the same 20 Mbps ceiling for changed desktops,
-                                                   // but lets static and sparse GUI frames stay small enough for
-                                                   // WebRTC's congestion controller to send immediately.
-                                                   "-rc", "vbr", "-cq", "19", "-b:v", "8M", "-maxrate", "20M",
-                                                   "-bufsize", "333k", "-g", "30", "-bf", "0"});
+                                                   // CQ mode explicitly clears averageBitRate and vbvBufferSize
+                                                   // inside FFmpeg's NVENC wrapper. Even a static desktop then
+                                                   // produces huge periodic IDRs which overflow a VPN queue.
+                                                   // Plain VBR retains a one-frame VBV budget without padding
+                                                   // an idle desktop with CBR filler NALs.
+                                                   "-rc", "vbr", "-b:v", "8M", "-maxrate", "8M",
+                                                   "-bufsize", std::to_string(8'000'000U / fps_),
+                                                   "-g", "30", "-bf", "0"});
             } else if (encoder_ == "libx264") {
                 // Keep software H.264 on slice, rather than frame, threads.
                 // Frame threading retains several pictures before emitting the
@@ -1080,6 +1101,8 @@ private:
                 // fallback.
                 arguments.insert(arguments.end(), {"-threads", "2", "-thread_type", "slice", "-slices", "2",
                                                    "-preset", "ultrafast", "-tune", "zerolatency",
+                                                   "-b:v", "8M", "-maxrate", "8M",
+                                                   "-bufsize", std::to_string(8'000'000U / fps_),
                                                    "-x264-params", "aud=1:keyint=30:min-keyint=30:scenecut=0:bframes=0:repeat-headers=1"});
             }
             // FFmpeg's NVENC default is an effectively unbounded output
@@ -1269,7 +1292,7 @@ private:
 
     void close_video_process() noexcept {
 #if defined(QMDP_HAS_LIBAVCODEC)
-        software_encoder_.reset();
+        h264_encoder_.reset();
 #endif
         if (video_input_ >= 0) {
             ::close(video_input_);
@@ -1312,7 +1335,7 @@ private:
     std::uint32_t latest_height_ {};
     bool frame_changed_ {false};
 #if defined(QMDP_HAS_LIBAVCODEC)
-    std::unique_ptr<LibavH264Encoder> software_encoder_;
+    std::unique_ptr<LibavH264Encoder> h264_encoder_;
 #endif
     int video_input_ {-1};
     int video_output_ {-1};
