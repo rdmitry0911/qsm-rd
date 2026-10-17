@@ -38,7 +38,8 @@ from aiortc.codecs.h264 import H264Encoder
 from aiortc.mediastreams import convert_timebase
 from aiortc.mediastreams import MediaStreamError
 from aiortc.rtcrtpparameters import RTCRtcpFeedback, RTCRtpCodecParameters
-from aiortc.rtp import RTCP_PSFB_PLI, RtcpPsfbPacket, RtpPacket
+from aiortc.rtp import (RTCP_PSFB_PLI, RTCP_PSFB_APP, RtcpPsfbPacket,
+                        RtcpRrPacket, RtcpSrPacket, RtpPacket, unpack_remb_fci)
 from aiortc.sdp import SessionDescription
 
 
@@ -63,6 +64,7 @@ INPUT_KEYBOARD = 3
 INPUT_SCROLL = 4
 INPUT_RESIZE = 5
 INPUT_KEYFRAME_REQUEST = 6
+INPUT_VIDEO_BITRATE = 7
 MAX_FRAGMENT_BYTES = 256 * 1024
 MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024
 MAX_CURSOR_EDGE = 64
@@ -112,18 +114,30 @@ class _VideoPacer:
     and SCTP never acquire this lock.
     """
 
-    def __init__(self, video_bitrate_kbps: int = 8000) -> None:
+    def __init__(self, video_bitrate_kbps: int = 8000, *, nvenc: bool = False) -> None:
         if type(video_bitrate_kbps) is not int or not 500 <= video_bitrate_kbps <= 100000:
             raise ValueError("video bitrate must be 500..100000 kbit/s")
-        self._rate = video_bitrate_kbps * 1000 / 8 * 1.25
-        # Retain two-packet pacing at the default; at higher rates permit
-        # two milliseconds of credit so timer granularity does not cap LAN use.
-        self._burst = max(VIDEO_PACING_BURST_BYTES, int(self._rate * .002))
+        self._nvenc = nvenc
+        self.set_bitrate(video_bitrate_kbps)
         self._lock = asyncio.Lock()
         self._tokens = float(self._burst)
         self._updated = time.monotonic()
         self.sent_packets = 0
         self.sent_bytes = 0
+
+    def set_bitrate(self, video_bitrate_kbps: int) -> None:
+        if type(video_bitrate_kbps) is not int or not 500 <= video_bitrate_kbps <= 100000:
+            raise ValueError("video bitrate must be 500..100000 kbit/s")
+        # At low targets NVENC's minimum-size frames can exceed its target
+        # by ~0.6–0.8 Mbps on the reference GPU. Do not turn that driver
+        # limitation into continuous local FIFO loss. This is pacing credit,
+        # not an extra encoder target; receiver loss/RTT still governs rate.
+        headroom = max(0., 800 - video_bitrate_kbps / 10) if self._nvenc else 0
+        self._rate = (video_bitrate_kbps + headroom) * 1000 / 8 * 1.25
+        # Retain two-packet pacing at the default; at higher rates permit
+        # two milliseconds of credit so timer granularity does not cap LAN use.
+        self._burst = max(VIDEO_PACING_BURST_BYTES, int(self._rate * .002))
+        self._tokens = min(getattr(self, "_tokens", 0.), self._burst)
 
     async def send(self, data: bytes, sender: object,
                    forward: Callable[..., Any]) -> None:
@@ -152,6 +166,131 @@ class _VideoPacer:
             await forward(packet.serialize(extension_map))
             self.sent_packets += 1
             self.sent_bytes += cost
+
+
+@dataclass
+class _ReceiverFeedback:
+    updated: float
+    loss: float = 0.
+    loss_time: float = float("-inf")
+    rtt: float = 0.
+    base_rtt: float = float("inf")
+    remb: int = 0
+    remb_time: float = float("-inf")
+    remb_changed: float = float("-inf")
+    remb_decreased: float = float("-inf")
+    remb_reference: int = 0
+    sequence: int | None = None
+    lost: int = 0
+
+
+class AdaptiveVideoRate:
+    """Bounded AIMD for one encoded producer shared by several receivers.
+
+    RTCP REMB estimates, receiver-report loss and RTT inflation constrain the
+    encoder *and* every RTP/RTX pacer. The slowest fresh receiver wins, because
+    all viewers consume the same predictive stream. Fresh feedback is required
+    for growth; a closed or silent peer cannot leave a permanent low ceiling.
+    This is a conservative application controller, not a GCC implementation.
+    """
+
+    def __init__(self, maximum_kbps: int, apply: Callable[[int], None], *,
+                 clock: Callable[[], float] = time.monotonic, enabled: bool = True,
+                 nvenc: bool = False) -> None:
+        if type(maximum_kbps) is not int or not 500 <= maximum_kbps <= 100000:
+            raise ValueError("video bitrate must be 500..100000 kbit/s")
+        self.enabled = enabled
+        self.nvenc = nvenc
+        self.maximum_kbps = maximum_kbps
+        self.current_kbps = maximum_kbps
+        self._apply = apply
+        self._clock = clock
+        self._changed = clock()
+        self._healthy_since = clock()
+        self._receivers: dict[object, _ReceiverFeedback] = {}
+        self._listeners: dict[object, Callable[[int], None]] = {}
+
+    def add(self, peer: object, listener: Callable[[int], None]) -> None:
+        self._listeners[peer] = listener
+        listener(self.current_kbps)
+
+    def remove(self, peer: object) -> None:
+        self._listeners.pop(peer, None)
+        self._receivers.pop(peer, None)
+
+    def receiver_report(self, peer: object, report: object, rtt: float | None) -> None:
+        now = self._clock()
+        state = self._receivers.setdefault(peer, _ReceiverFeedback(now))
+        sequence = report.highest_sequence
+        # Ignore duplicate or out-of-order reports, including their old loss.
+        if state.sequence is not None and sequence <= state.sequence:
+            return
+        loss = report.fraction_lost / 256
+        if state.sequence is not None:
+            delta = sequence - state.sequence
+            loss = max(0., min(1., (report.packets_lost - state.lost) / delta))
+        state.sequence, state.lost = sequence, report.packets_lost
+        state.loss, state.loss_time, state.updated = loss, now, now
+        if rtt is not None and 0 < rtt < 30:
+            state.rtt = rtt
+            state.base_rtt = min(state.base_rtt, rtt)
+        self._update(now)
+
+    def receiver_estimate(self, peer: object, bitrate_bps: int) -> None:
+        if type(bitrate_bps) is not int or bitrate_bps <= 0:
+            return
+        now = self._clock()
+        state = self._receivers.setdefault(peer, _ReceiverFeedback(now))
+        if not state.remb_reference or abs(bitrate_bps - state.remb_reference) > state.remb_reference * .05:
+            if not state.remb_reference or bitrate_bps < state.remb_reference * .9:
+                state.remb_decreased = now
+            state.remb_changed, state.remb_reference = now, bitrate_bps
+        state.remb, state.remb_time, state.updated = bitrate_bps, now, now
+        self._update(now)
+
+    def _update(self, now: float) -> None:
+        if not self.enabled:
+            return
+        fresh = [s for s in self._receivers.values() if now - s.updated < 6]
+        # Reserve 20% for packet overhead/recovery and 128 kbit/s for audio.
+        ceiling = self.maximum_kbps
+        for state in fresh:
+            # REMB also follows the amount of video we send. An increasing
+            # app-limited estimate below the current target is *not* new
+            # congestion. Apply a first/falling estimate promptly; thereafter
+            # small encoder probes plus loss/raw RTT determine recovery.
+            if now - state.remb_time < 5 and now - state.remb_decreased < 2.5:
+                ceiling = min(ceiling, max(500, int(state.remb * .8 / 1000) - 128))
+        loss = max((s.loss for s in fresh if now - s.loss_time < 2.5), default=0.)
+        queued = any(now - s.loss_time < 2.5 and
+                     s.rtt > s.base_rtt + max(.025, s.base_rtt * .2) for s in fresh)
+        congested = loss >= .03 or queued or ceiling < self.current_kbps * .9
+        if congested:
+            self._healthy_since = now
+        probing = any(now - s.remb_time < 5 for s in fresh)
+        interval = 1 if congested or not probing else 2
+        if not fresh or now - self._changed < interval:
+            return
+        target = self.current_kbps
+        if congested:
+            factor = .5 if loss >= .12 else .75
+            target = min(ceiling, int(target * factor))
+        elif now - self._healthy_since >= 3:
+            target = min(ceiling, target + max(100, int(target * (.05 if probing else .08))))
+        target = max(500, min(self.maximum_kbps, target))
+        if target == self.current_kbps:
+            return
+        try:
+            self._apply(target)
+        except BridgeError:
+            return  # Worker is retiring; do not advance a fictitious rate.
+        self.current_kbps, self._changed = target, now
+        for listener in tuple(self._listeners.values()):
+            listener(target)
+        print(f"qsm-direct-terminal: adaptive video bitrate_kbps={target} "
+              f"maximum_kbps={self.maximum_kbps} receivers={len(fresh)} "
+              f"loss={loss:.4f} queued={int(queued)} remb_ceiling_kbps={ceiling}",
+              file=sys.stderr, flush=True)
 
 
 class _H264Packetizer(H264Encoder):
@@ -1113,6 +1252,13 @@ class UnixInputEgress:
         self._send_packet(INPUT_HEADER.pack(
             INPUT_MAGIC, INPUT_VERSION, INPUT_KEYFRAME_REQUEST, 0))
 
+    def set_video_bitrate(self, bitrate_kbps: int) -> None:
+        """Private producer control; never accepted as a browser input opcode."""
+        if type(bitrate_kbps) is not int or not 500 <= bitrate_kbps <= 100000:
+            raise BridgeError("video bitrate must be 500..100000 kbit/s")
+        self._send_packet(INPUT_HEADER.pack(
+            INPUT_MAGIC, INPUT_VERSION, INPUT_VIDEO_BITRATE, 4) + struct.pack("!I", bitrate_kbps))
+
     def _send_packet(self, packet: bytes) -> None:
         with self._lock:
             if self._error is not None:
@@ -1242,6 +1388,7 @@ class BrowserWebRtcBridge:
                  guest_dispatch: Callable[[Any], dict[str, Any]] | None = None,
                  on_terminal: Callable[[], None] | None = None,
                  video_codec: str = "h264", video_bitrate_kbps: int = 8000,
+                 video_rate: AdaptiveVideoRate | None = None,
                  on_microphone: Callable[[object, bytes], None] | None = None) -> None:
         if video_codec not in VIDEO_CODECS:
             raise BridgeError("invalid direct browser video codec")
@@ -1283,7 +1430,10 @@ class BrowserWebRtcBridge:
         self.input = shared_input or UnixInputEgress(
             runtime_directory, expected_uid=expected_producer_uid)
         self._last_keyframe_request = float("-inf")
-        self._video_pacer = _VideoPacer(video_bitrate_kbps)
+        self._video_rate = video_rate or AdaptiveVideoRate(video_bitrate_kbps, self.input.set_video_bitrate)
+        self._video_pacer = _VideoPacer(video_bitrate_kbps, nvenc=self._video_rate.nvenc)
+        self._video_rate_sequence = 0
+        self._video_rate.add(self, self._video_rate_changed)
         self.video_track.on_keyframe_required = self._request_video_keyframe
         self._guest_dispatch = guest_dispatch
         # The terminal service owns the lifetime of the shared producer.  A
@@ -1335,6 +1485,7 @@ class BrowserWebRtcBridge:
             await asyncio.sleep(10)
             if self._closed or self._pc.connectionState != "connected":
                 return
+            self._publish_video_rate()
             now = time.monotonic()
             frames = self.video_track.delivered_units
             report = await self._pc.getStats()
@@ -1348,6 +1499,7 @@ class BrowserWebRtcBridge:
                   f"queue={self.video_track._queue.qsize()} drops={self.video_track.dropped_units} "
                   f"overflows={self.video_track.overflows} waiting_idr={int(self.video_track._waiting_for_keyframe)} "
                   f"remote_lost={loss} loss_fraction={fraction} rtt_ms={rtt_ms} "
+                  f"bitrate_kbps={self._video_rate.current_kbps} maximum_kbps={self._video_rate.maximum_kbps} "
                   f"paced_packets={self._video_pacer.sent_packets} paced_bytes={self._video_pacer.sent_bytes}",
                   file=sys.stderr, flush=True)
             previous_time, previous_frames = now, frames
@@ -1533,6 +1685,9 @@ class BrowserWebRtcBridge:
             def on_control_open() -> None:
                 self._sent_cursor_shape_id = None
                 self._publish_cursor()
+                self._video_rate_changed(self._video_rate.current_kbps)
+            if getattr(channel, "readyState", None) == "open":
+                on_control_open()
         else:
             self._pointer_channel_seen = True
 
@@ -1630,6 +1785,28 @@ class BrowserWebRtcBridge:
                 return f"codec={codec.mimeType} pt={codec.payloadType} fmtp={parameters or 'none'}"
         return "codec=none"
 
+    def _video_rate_changed(self, bitrate_kbps: int) -> None:
+        self._video_pacer.set_bitrate(bitrate_kbps)
+        self._publish_video_rate()
+
+    def _publish_video_rate(self) -> None:
+        # Latest-state telemetry must not queue behind a lost reliable SCTP
+        # message. Reuse the existing unordered server->browser cursor stream.
+        # Serial numbers also reject a delayed initial reliable-channel copy.
+        self._video_rate_sequence += 1
+        payload = {"op": "qsm_video_rate", "sequence": self._video_rate_sequence,
+                   "adaptive": self._video_rate.enabled,
+                   "bitrate": self._video_rate.current_kbps,
+                   "maximum": self._video_rate.maximum_kbps}
+        channel = self._cursor_channel
+        if channel is not None and getattr(channel, "readyState", None) == "open":
+            try:
+                channel.send(json.dumps(payload, separators=(",", ":"), ensure_ascii=True))
+            except Exception:
+                pass  # The next update/health tick replaces a lost sample.
+        else:
+            self._send_control(payload)
+
     def _request_video_keyframe(self) -> None:
         # Many losses can produce a PLI burst. Restarting an external encoder
         # for every report creates another freeze instead of repairing video.
@@ -1659,6 +1836,29 @@ class BrowserWebRtcBridge:
             if isinstance(packet, RtcpPsfbPacket) and packet.fmt == RTCP_PSFB_PLI:
                 self._request_video_keyframe()
             await receive_rtcp(packet)
+            if isinstance(packet, RtcpPsfbPacket) and packet.fmt == RTCP_PSFB_APP:
+                try:
+                    bitrate, sources = unpack_remb_fci(packet.fci)
+                except ValueError:
+                    return
+                if sender._ssrc in sources:
+                    self._video_rate.receiver_estimate(self, bitrate)
+            elif isinstance(packet, (RtcpRrPacket, RtcpSrPacket)):
+                report = next((r for r in packet.reports if r.ssrc == sender._ssrc), None)
+                if report is not None:
+                    stats = await sender.getStats()
+                    remote = next((r for r in stats.values()
+                                   if r.type == "remote-inbound-rtp" and r.kind == "video"), None)
+                    rtt = getattr(remote, "roundTripTime", None)
+                    # aiortc's RTT EWMA weights its old value by 0.85. Use
+                    # the matching raw SR/RR sample for congestion decisions:
+                    # otherwise a short VPN queue can overflow before the
+                    # smoothed statistic catches up. Keep aiortc's own stats.
+                    if report.dlsr and report.lsr == getattr(sender, "_RTCRtpSender__lsr", None):
+                        sent_at = getattr(sender, "_RTCRtpSender__lsr_time", None)
+                        if sent_at is not None:
+                            rtt = time.time() - sent_at - report.dlsr / 65536
+                    self._video_rate.receiver_report(self, report, rtt)
 
         # Install before SDP application can start RTP/RTCP tasks. The hook is
         # per-video-sender, therefore it cannot pace or perturb audio/control.
@@ -1809,6 +2009,7 @@ class BrowserWebRtcBridge:
         @cursor_channel.on("open")
         def on_cursor_open() -> None:
             self._publish_cursor()
+            self._publish_video_rate()
 
         answer = await self._pc.createAnswer()
         # One fixed-format journal line per session naming the negotiated
@@ -1852,6 +2053,7 @@ class BrowserWebRtcBridge:
         if self._closed:
             return
         self._closed = True
+        self._video_rate.remove(self)
         if self._health_task is not None:
             self._health_task.cancel()
             await asyncio.gather(self._health_task, return_exceptions=True)

@@ -36,7 +36,7 @@ if str(PACKAGE_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(PACKAGE_DIRECTORY))
 
 from browser_bridge.qsm_browser_bridge import (BrowserWebRtcBridge, BridgeError,
-                                                SharedMediaIngress, UnixInputEgress)  # noqa: E402
+                                                AdaptiveVideoRate, SharedMediaIngress, UnixInputEgress)  # noqa: E402
 from direct_guest.qsm_guest_channel import GuestChannelError, QsmGuestChannel  # noqa: E402
 from direct_terminal.qsm_direct_encoder_probe import (DirectEncoderProbeError,
                                                        DirectEncoderSelection,
@@ -950,6 +950,9 @@ class DirectVmTransport:
     qemu_generation: str
     codec: str
     video_bitrate_kbps: int = 8000
+    video_rate: AdaptiveVideoRate | None = None
+    adaptive_video: bool = True
+    nvenc: bool = False
     guest: QsmGuestChannel | None = None
     kind: str = "vm"  # "vm" (QEMU Display1) or "lxc" (container wlroots display)
     # Attached by qemu-server (vga: ...,dbus=1, webrtcproxy) over a passed
@@ -1406,10 +1409,15 @@ class DirectSessionManager:
             if not self._closed:
                 self._loop.call_soon(self._schedule_browser_retirement, identifier)
 
+        if transport.video_rate is None:
+            transport.video_rate = AdaptiveVideoRate(
+                transport.video_bitrate_kbps, transport.input.set_video_bitrate,
+                enabled=transport.adaptive_video, nvenc=transport.nvenc)
         bridge = BrowserWebRtcBridge(
             directory, fps=fps, expected_producer_uid=os.geteuid(),
             shared_media=transport.media, shared_input=transport.input,
             video_codec=transport.codec, video_bitrate_kbps=transport.video_bitrate_kbps,
+            video_rate=transport.video_rate,
             guest_dispatch=transport.guest.dispatch if transport.guest is not None else None,
             on_microphone=transport.microphone,
             on_terminal=retire_browser_peer)
@@ -1644,7 +1652,9 @@ class DirectSessionManager:
             pcm = PcmLink(pcm_ours)
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
-                qemu_generation=generation, codec=codec, video_bitrate_kbps=_video_bitrate_kbps(policy), guest=guest,
+                qemu_generation=generation, codec=codec, video_bitrate_kbps=_video_bitrate_kbps(policy),
+                adaptive_video=encoder in {"libx264", "h264_nvenc", "hevc_nvenc"},
+                nvenc=encoder in {"h264_nvenc", "hevc_nvenc"}, guest=guest,
                 attached_by_pve=display_fd is not None or shared_profile is not None, pcm=pcm,
                 microphone=MicrophoneRoute(lambda data: pcm.send(PCM_MICROPHONE, data)))
             self._transports[vmid] = transport
@@ -1765,7 +1775,9 @@ class DirectSessionManager:
                      if slot is not None else None)
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
-                qemu_generation=generation, codec=codec, video_bitrate_kbps=_video_bitrate_kbps(policy), guest=guest, kind="lxc", pcm=pcm,
+                qemu_generation=generation, codec=codec, video_bitrate_kbps=_video_bitrate_kbps(policy),
+                adaptive_video=encoder in {"libx264", "h264_nvenc", "hevc_nvenc"},
+                nvenc=encoder in {"h264_nvenc", "hevc_nvenc"}, guest=guest, kind="lxc", pcm=pcm,
                 audio_relay=relay,
                 microphone=MicrophoneRoute(relay.microphone) if relay is not None else None)
             self._transports[key] = transport

@@ -31,9 +31,17 @@ async def main():
             context=await browser.new_context(ignore_https_errors=True,viewport={'width':1280,'height':800})
             await context.add_init_script("""
                 window.qsmLabPeers = [];
+                window.qsmLabChannels = [];
                 const NativePeer = window.RTCPeerConnection;
                 window.RTCPeerConnection = class extends NativePeer {
                     constructor(...args) { super(...args); window.qsmLabPeers.push(this); }
+                    createDataChannel(...args) {
+                        const channel=super.createDataChannel(...args);
+                        channel.qsmMessages=0;
+                        channel.addEventListener('message',()=>{channel.qsmMessages++;});
+                        window.qsmLabChannels.push(channel);
+                        return channel;
+                    }
                 };
             """)
             legacy_requests=[]
@@ -142,6 +150,10 @@ async def main():
                             pliCount:report?.pliCount,nackCount:report?.nackCount,
                             bytesReceived:report?.bytesReceived};
                     }""")
+                    stats['channels']=await page.evaluate('()=>window.qsmLabChannels.map(c=>({label:c.label,state:c.readyState,buffered:c.bufferedAmount,messages:c.qsmMessages}))')
+                    rate_status=popup.locator('#qsm-direct-adaptive-rate')
+                    if await rate_status.count():
+                        stats['videoRateStatus']=await rate_status.text_content()
                     print('RECEIVER_STATS',json.dumps(stats),flush=True)
                     with (Path(os.environ.get('QSM_LAB_ARTIFACTS','/tmp/qsm-lxc-native-login'))/'receiver-stats.jsonl').open('a') as log:
                         log.write(json.dumps(stats)+'\n')

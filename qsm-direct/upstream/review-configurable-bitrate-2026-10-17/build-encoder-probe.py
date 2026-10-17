@@ -1,6 +1,6 @@
 from pathlib import Path
 source=Path('qsm-direct/tools/qsm_direct_media_worker.cpp').read_text()
-encoder=source.split('class LibavH264Encoder final {',1)[1].split('\n#endif',1)[0]
+encoder=source.split('class LibavVideoEncoder final {',1)[1].split('\n#endif',1)[0]
 headers='''#include <array>
 #include <vector>
 #include <string>
@@ -21,7 +21,7 @@ main=r'''
 int main(int argc, char **argv) {
  const std::string name=argc>1 ? argv[1] : "h264_nvenc";
  const auto bitrate=argc>2 ? static_cast<std::uint32_t>(std::stoul(argv[2])) : 8000U;
- LibavH264Encoder encoder(1280,800,60,name,bitrate);
+ LibavVideoEncoder encoder(1280,800,60,name,bitrate);
  std::vector<std::uint8_t> pixels(1280*800*4);
  auto *codec=avcodec_find_decoder(AV_CODEC_ID_H264);
  auto *decoder=avcodec_alloc_context3(codec);auto *frame=av_frame_alloc();
@@ -55,4 +55,4 @@ int main(int argc, char **argv) {
 }
 '''
 Path('/tmp/qsm-bitrate').mkdir(exist_ok=True)
-Path('/tmp/qsm-bitrate/encoder-probe.cpp').write_text(headers+'class LibavH264Encoder final {'+encoder+main)
+Path('/tmp/qsm-bitrate/encoder-probe.cpp').write_text(headers+'class LibavVideoEncoder final {'+encoder+main)

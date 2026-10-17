@@ -1202,8 +1202,24 @@
         bitrateInput.step = '0.5';
         bitrateInput.value = '8';
         bitrateInput.style.cssText = 'width:100%;box-sizing:border-box;padding:4px 6px';
-        bitrateInput.title = gettext('Video encoder ceiling, 0.5–100 Mbit/s. Allow additional bandwidth for audio, packet overhead and recovery.');
+        bitrateInput.title = gettext('Adaptive video ceiling, 0.5–100 Mbit/s. The encoder follows network feedback up to this limit. Allow additional bandwidth for audio and packet overhead.');
         mediaPolicyForm.append(codecLabel, codecInput, encoderLabel, encoderInput, bitrateLabel, bitrateInput);
+        const adaptiveRateStatus = document.createElement('p');
+        adaptiveRateStatus.id = 'qsm-direct-adaptive-rate';
+        adaptiveRateStatus.style.gridColumn = '1 / -1';
+        adaptiveRateStatus.textContent = gettext('Video bitrate adapts automatically to network conditions.');
+        mediaPolicyForm.append(adaptiveRateStatus);
+        let videoRateSequence = -1;
+        const acceptVideoRate = (message) => {
+            if (!Number.isSafeInteger(message.sequence) || message.sequence <= videoRateSequence ||
+                !Number.isInteger(message.bitrate) || !Number.isInteger(message.maximum) ||
+                message.bitrate < 500 || message.maximum > 100000 || message.bitrate > message.maximum) { return; }
+            videoRateSequence = message.sequence;
+            adaptiveRateStatus.textContent = (message.adaptive === true ? gettext('Adaptive video') :
+                gettext('Fixed video — adaptive control is unavailable for this encoder')) + ': ' +
+                (message.bitrate / 1000).toFixed(2) + ' / ' +
+                (message.maximum / 1000).toFixed(2) + ' Mbit/s';
+        };
         const saveMediaPolicy = document.createElement('button');
         saveMediaPolicy.type = 'button';
         saveMediaPolicy.textContent = gettext('Save guest media policy');
@@ -2454,6 +2470,8 @@
                         const message = JSON.parse(cursorEvent.data);
                         if (message && message.op === 'qsm_guest_cursor') {
                             acceptGuestCursorPosition(message);
+                        } else if (message && message.op === 'qsm_video_rate') {
+                            acceptVideoRate(message);
                         }
                     } catch (_error) { /* An unordered cursor sample is disposable. */ }
                 });
@@ -2726,7 +2744,9 @@
                 let message;
                 try { message = JSON.parse(event.data); } catch (_error) { return; }
                 if (!message || typeof message !== 'object') { return; }
-                if (message.op === 'qsm_guest_result' && typeof message.request_id === 'string') {
+                if (message.op === 'qsm_video_rate') {
+                    acceptVideoRate(message);
+                } else if (message.op === 'qsm_guest_result' && typeof message.request_id === 'string') {
                     const request = guestRequests.get(message.request_id);
                     if (!request) { return; }
                     guestRequests.delete(message.request_id);

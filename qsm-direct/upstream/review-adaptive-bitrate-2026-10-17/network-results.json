@@ -1,0 +1,24 @@
+[
+  {
+    "minimum_target_mbps": 1.57,
+    "final_target_mbps": 12.0,
+    "freezes": 2,
+    "freeze_seconds": 1.529,
+    "encoder": "h264_nvenc",
+    "steady_fps": 60.01,
+    "new_freezes_after_initial_5s": 0,
+    "new_network_loss_after_initial_5s": 0,
+    "decoded": 6553
+  },
+  {
+    "minimum_target_mbps": 2.01,
+    "final_target_mbps": 12.0,
+    "freezes": 1,
+    "freeze_seconds": 1.488,
+    "encoder": "libx264",
+    "steady_fps": 60.01,
+    "new_freezes_after_initial_5s": 0,
+    "new_network_loss_after_initial_5s": 0,
+    "decoded": 6570
+  }
+]

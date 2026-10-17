@@ -101,6 +101,7 @@ constexpr std::uint8_t input_resize = 5U;
 // Private server-to-worker recovery request. It is emitted only after an
 // authenticated WebRTC peer sends RTCP PLI, never from browser JSON input.
 constexpr std::uint8_t input_keyframe_request = 6U;
+constexpr std::uint8_t input_video_bitrate = 7U;
 constexpr std::size_t packet_header_size = 20U;
 constexpr std::size_t input_header_size = 8U;
 constexpr std::size_t max_fragment_bytes = 256U * 1024U;
@@ -602,14 +603,14 @@ private:
 };
 
 #if defined(QMDP_HAS_LIBAVCODEC)
-class LibavH264Encoder final {
+class LibavVideoEncoder final {
 public:
     struct Packet {
         std::vector<std::uint8_t> bytes;
         bool keyframe {};
     };
 
-    LibavH264Encoder(std::uint32_t width, std::uint32_t height, std::uint32_t fps,
+    LibavVideoEncoder(std::uint32_t width, std::uint32_t height, std::uint32_t fps,
                      const std::string &encoder, std::uint32_t bitrate_kbps = 8000U) {
         if (width == 0U || height == 0U || width > static_cast<std::uint32_t>(INT_MAX) ||
             height > static_cast<std::uint32_t>(INT_MAX) || fps == 0U ||
@@ -645,7 +646,7 @@ public:
 
         AVDictionary *options = nullptr;
         (void) av_dict_set(&options, "aud", "1", 0);
-        if (encoder == "h264_nvenc") {
+        if (encoder == "h264_nvenc" || encoder == "hevc_nvenc") {
             (void) av_dict_set(&options, "preset", "p1", 0);
             (void) av_dict_set(&options, "tune", "ll", 0);
             (void) av_dict_set(&options, "forced-idr", "1", 0);
@@ -685,10 +686,22 @@ public:
         }
     }
 
-    ~LibavH264Encoder() { release(); }
+    ~LibavVideoEncoder() { release(); }
 
-    LibavH264Encoder(const LibavH264Encoder &) = delete;
-    LibavH264Encoder &operator=(const LibavH264Encoder &) = delete;
+    LibavVideoEncoder(const LibavVideoEncoder &) = delete;
+    LibavVideoEncoder &operator=(const LibavVideoEncoder &) = delete;
+
+    // Called only on the video thread. FFmpeg's libx264/NVENC wrappers
+    // reconfigure rate control on the next submitted frame without reopening
+    // the codec, resetting timestamps or breaking the prediction chain.
+    void set_bitrate(std::uint32_t bitrate_kbps) {
+        if (bitrate_kbps < 500U || bitrate_kbps > 100'000U) {
+            throw WorkerError("invalid live video bitrate");
+        }
+        context_->bit_rate = static_cast<std::int64_t>(bitrate_kbps) * 1000;
+        context_->rc_max_rate = context_->bit_rate;
+        context_->rc_buffer_size = static_cast<int>(context_->bit_rate / context_->framerate.num);
+    }
 
     [[nodiscard]] std::vector<Packet> encode(std::span<const std::uint8_t> bgra,
                                                bool force_idr) {
@@ -767,7 +780,7 @@ public:
                        std::optional<std::string> fallback_encoder,
                        std::optional<std::string> vaapi_device, std::uint32_t fps, std::uint32_t video_bitrate_kbps)
         : sink_(sink), codec_(std::move(codec)), encoder_(std::move(encoder)), fallback_encoder_(std::move(fallback_encoder)),
-          vaapi_device_(std::move(vaapi_device)), fps_(fps), video_bitrate_kbps_(video_bitrate_kbps) {}
+          vaapi_device_(std::move(vaapi_device)), fps_(fps), video_bitrate_kbps_(video_bitrate_kbps), requested_bitrate_kbps_(video_bitrate_kbps) {}
 
     ~DirectMediaAdapter() override { stop(); }
 
@@ -866,6 +879,12 @@ public:
         }
     }
 
+    void request_bitrate(std::uint32_t bitrate_kbps) noexcept {
+        if (bitrate_kbps >= 500U && bitrate_kbps <= 100'000U) {
+            requested_bitrate_kbps_.store(bitrate_kbps);
+        }
+    }
+
     void request_idr() override {
         ++keyframe_requests_;
         force_idr_ = true;
@@ -940,13 +959,20 @@ private:
             lock.unlock();
             try {
                 const bool force_idr = force_idr_.exchange(false);
+                const auto requested_bitrate = requested_bitrate_kbps_.load();
+                const bool bitrate_changed = requested_bitrate != video_bitrate_kbps_;
+                video_bitrate_kbps_ = requested_bitrate;
 #if defined(QMDP_HAS_LIBAVCODEC)
-                if (codec_ == "h264" && (encoder_ == "libx264" || encoder_ == "h264_nvenc")) {
-                    if (!h264_encoder_ || width_ != width || height_ != height) {
+                if ((codec_ == "h264" && (encoder_ == "libx264" || encoder_ == "h264_nvenc")) ||
+                    (codec_ == "hevc" && encoder_ == "hevc_nvenc")) {
+                    if (!libav_encoder_ || width_ != width || height_ != height) {
                         close_video_process();
                         open_video_process(width, height);
                     }
-                    for (auto &packet : h264_encoder_->encode(*bgra, force_idr)) {
+                    if (bitrate_changed) {
+                        libav_encoder_->set_bitrate(video_bitrate_kbps_);
+                    }
+                    for (auto &packet : libav_encoder_->encode(*bgra, force_idr)) {
                         publish_video(packet.keyframe, packet.bytes);
                     }
                 } else {
@@ -1039,11 +1065,12 @@ private:
 
     void open_video_process(std::uint32_t width, std::uint32_t height) {
 #if defined(QMDP_HAS_LIBAVCODEC)
-        if (codec_ == "h264" && (encoder_ == "libx264" || encoder_ == "h264_nvenc")) {
+        if ((codec_ == "h264" && (encoder_ == "libx264" || encoder_ == "h264_nvenc")) ||
+                    (codec_ == "hevc" && encoder_ == "hevc_nvenc")) {
             // Explicit I-frame requests go straight to libavcodec/NVENC.
             // Restarting an ffmpeg process for PLI pauses capture, emits a
             // bootstrap burst, and can trigger another bounded-queue overrun.
-            h264_encoder_ = std::make_unique<LibavH264Encoder>(width, height, fps_, encoder_, video_bitrate_kbps_);
+            libav_encoder_ = std::make_unique<LibavVideoEncoder>(width, height, fps_, encoder_, video_bitrate_kbps_);
             width_ = width;
             height_ = height;
             return;
@@ -1299,7 +1326,7 @@ private:
 
     void close_video_process() noexcept {
 #if defined(QMDP_HAS_LIBAVCODEC)
-        h264_encoder_.reset();
+        libav_encoder_.reset();
 #endif
         if (video_input_ >= 0) {
             ::close(video_input_);
@@ -1332,6 +1359,7 @@ private:
     std::optional<std::string> vaapi_device_;
     std::uint32_t fps_ {};
     std::uint32_t video_bitrate_kbps_ {};
+    std::atomic<std::uint32_t> requested_bitrate_kbps_ {};
     std::atomic<bool> running_ {false};
     std::atomic<bool> force_idr_ {false};
     std::atomic<std::uint64_t> keyframe_requests_ {};
@@ -1343,7 +1371,7 @@ private:
     std::uint32_t latest_height_ {};
     bool frame_changed_ {false};
 #if defined(QMDP_HAS_LIBAVCODEC)
-    std::unique_ptr<LibavH264Encoder> h264_encoder_;
+    std::unique_ptr<LibavVideoEncoder> libav_encoder_;
 #endif
     int video_input_ {-1};
     int video_output_ {-1};
@@ -1497,6 +1525,8 @@ private:
             // media tick publishes an independently decodable IDR instead of
             // leaving visible macroblocks until the periodic keyframe.
             media_.request_idr();
+        } else if (op == input_video_bitrate && payload.size() == 4U) {
+            media_.request_bitrate(read_u32(payload, 0U));
         }
     }
 

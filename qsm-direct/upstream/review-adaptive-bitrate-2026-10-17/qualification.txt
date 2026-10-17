@@ -1,0 +1,129 @@
+QSM Direct adaptive bitrate qualification — 2026-10-17
+
+Scope
+-----
+One adaptive controller per encoded producer (VM, or LXC display slot), shared
+by all viewers. RTCP input is authenticated by the existing DTLS/SRTP peer;
+only reports for the actual video SSRC affect its controller. REMB estimates,
+RR cumulative-loss deltas and raw matching SR/RR RTT samples drive bounded
+AIMD. Encoder target 500..100000 kbit/s; existing saved bitrate is the ceiling.
+No extra listener, port, guest agent permission or Proxmox API schema change.
+
+Decreases are limited to at most once per second; loss >=12% halves the target,
+other congestion reduces it by 25%, with a fresh falling REMB also supplying
+a ceiling. RR loss >=3% or RTT > baseline + max(25ms, 20% baseline) signals
+congestion. Growth waits three healthy seconds, then adds 8%/>=100 kbit/s per
+second without REMB, or probes by 5%/>=100 kbit/s every two seconds with REMB.
+Fresh feedback is mandatory. A constant/increasing app-limited REMB must not
+repeatedly lower the encoder during recovery; its first/significantly falling
+value is honoured for 2.5 seconds. Silent peers expire after six seconds;
+closed peers are removed immediately. No controller timer/task survives close.
+
+Live reconfiguration
+--------------------
+Private QSMI opcode 7, network-order uint32 kbit/s, updates an atomic mailbox.
+The video thread alone changes AVCodecContext bitrate/maxrate/VBV before the
+next submitted frame. Encoder object and frame timestamp sequence survive.
+Supported: libx264, h264_nvenc and hevc_nvenc. HEVC/NVENC now uses that same
+in-process path. QSV/VA-API remain fixed and Settings explicitly identifies it;
+we do not restart an external FFmpeg process on every congestion report.
+All viewers' video/RTX token buckets follow the shared target; audio, RTCP and
+input bypass those buckets. Settings receives the active target/ceiling via
+the existing unordered server cursor-state channel, with monotonic serials
+that reject stale samples and a 10-second refresh. The reliable control channel
+is used only until that latest-state channel opens.
+
+NVENC limitation
+----------------
+The reference GPU can exceed low targets significantly: the synthetic moving
+1280x800/60 probe measured 2.58 Mbps at target 2 and 1.31 Mbps at target 0.5.
+Pacing permits extra low-rate credit max(0, 800 - target_kbps/10) kbit/s before
+the existing 25% packet/recovery allowance. This disappears at >=8 Mbps and
+does not increase the encoder target. It prevents a known driver overshoot
+from continually overrunning the local four-frame queue. It is an empirical
+allowance, not a guarantee for every GPU or a network bandwidth measurement.
+Targets are not total wire-traffic caps. Audio/recovery/headers are additional.
+This release does not adapt resolution/FPS. Links below the encoder's practical
+minimum require a smaller console, lower FPS or software encoding.
+Abrupt bandwidth changes can cause short recovery interruptions.
+
+Encoder probe
+-------------
+encoder-probe.cpp embeds the exact production LibavVideoEncoder class.
+Run on the PVE node after compiling against Debian trixie FFmpeg 7 libraries:
+  g++ -std=c++20 -O2 encoder-probe.cpp -o encoder-probe \
+      $(pkg-config --cflags --libs libavcodec libavutil libswscale)
+  ./encoder-probe h264_nvenc 8000
+  ./encoder-probe libx264 8000
+  ./encoder-probe hevc_nvenc 8000
+Single object, 1200 frames: 300 each at 8, 2, 12, 0.5 Mbps, forced IDRs at
+frames 7/17/49. All 1200 decode in each run, no decoder reopen. Files include
+segment measurements and forced-IDR checks. NVENC CBR/p4 experiments did not
+remove its low-rate overshoot; production keeps the already qualified p1/VBR.
+
+Network reproduction
+--------------------
+Use only disposable CT108; never resize/log in to CT105 for this fixture.
+Browser driver: ../review-native-login-2026-10-16/browser-lab.py
+Motion fixture/launcher already documented in ../review-video-pacing-2026-10-17.
+Use ../review-video-pacing-2026-10-17/network-setup.sh and network-cleanup.sh.
+Only UDP on dedicated qsm-pacing namespace/veths is shaped; physical VPN/LAN
+interfaces, host default route and other users' traffic are untouched.
+network-run.py automates Firefox stats, Shift keepalive and 20 -> 4 -> 20 Mbps
+steps with 40 ms each way (80 ms nominal RTT), downstream queue 150/50/150
+packets, durations 15/35/60 seconds. Start the motion fixture in qsm-test-a's
+CT108 desktop first. The driver reads temporary test secrets only into memory,
+opens the real authenticated PVE Console and blocks/asserts no legacy 8007.
+All snapshots show the synthetic fixture only; logs contain numeric counters.
+
+Automated checks
+----------------
+PYTHONPATH=qsm-direct python3 -m unittest discover -s qsm-direct/tests/browser_bridge
+python3 -m unittest discover -s qsm-direct/tests/proxmox_pve9 -p 'test_direct_terminal_*.py'
+python3 qsm-direct/tests/signal/test_signal.py
+python3 qsm-direct/tests/proxmox_pve9/test_shared_display.py
+node --test qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs
+cmake --build /tmp/qsm-local-cursor/tests-build -j4
+ctest --test-dir /tmp/qsm-local-cursor/tests-build --output-on-failure
+
+Controller tests use a deterministic clock and cover loss/RTT response,
+REMB recovery, rising/constant app-limited estimates, ceiling/floor enforcement,
+shared-viewer pacing, peer removal/staleness, duplicate reports, fixed fallback,
+worker send failure, low-target NVENC pacing and video-only RTCP routing.
+Private worker opcode has an exact wire check and cannot be injected as browser
+JSON input. Existing cursor, PLI, queue, pacing and media policy tests remain.
+Tests also run against installed node aiortc 1.11. Local aiortc 1.6 may print
+its pre-existing delayed aioice STUN teardown warning after successful tests;
+installed-target tests are recorded separately.
+
+Upstream references used to verify live-rate behaviour
+----------------------------------------------------
+https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1/libavcodec/libx264.c
+https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1/libavcodec/nvenc.c
+https://raw.githubusercontent.com/aiortc/aiortc/1.11.0/src/aiortc/rtcrtpsender.py
+https://www.rfc-editor.org/rfc/rfc8836.html
+
+Final results (published shared20 code)
+--------------------------------------
+44 bridge/controller tests pass locally and against installed aiortc 1.11;
+34 terminal, 11 policy and 16 shared-display tests pass; UI overlay check and
+all 16 CTest suites pass. Normal trixie package builds complete.
+
+Firefox CT108, moving fixture, nominal 80ms RTT, ceiling 12 Mbps, physical
+20 -> 4 -> 20 Mbps steps:
+  NVENC: target minimum 1.57 -> final 12.00 Mbps, 6553 decoded frames.
+    Abrupt drop: 2 freezes totalling 1.529s; steady measured delivery 60.01 FPS.
+  libx264: target minimum 2.01 -> final 12.00 Mbps, 6570 decoded frames.
+    Abrupt drop: 1 freeze totalling 1.488s; steady measured delivery 60.01 FPS.
+For both encoders, from the first sample five seconds after the 4-Mbps step
+through the final restored-bandwidth sample: zero additional packet loss,
+zero additional freezes and zero decoder frame drops. The live Settings
+indicator reaches 12 Mbps and no legacy port-8007 requests occur.
+
+Tests use a synthetic moving picture, not YouTube. They qualify LXC end to
+end and the shared VM/LXC encoder/bridge path; a VM network-impairment run
+and actual-user VPN playback are not claimed. HEVC/NVENC is qualified by the
+1200-frame encode/reconfigure/decode probe, not by a browser HEVC run.
+No VM or CT105 desktop/compositor restart. VM103/104 PIDs stay 2792970/2104260.
+CT108 fixture/test login stopped and original H.264/software/8-Mbps policy
+restored. Dedicated impairment namespace/interfaces/NAT removed.

@@ -1,0 +1,6 @@
+{
+  "minimum_target_mbps": 1.57,
+  "final_target_mbps": 12.0,
+  "freezes": 2,
+  "freeze_seconds": 1.529
+}

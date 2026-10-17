@@ -393,6 +393,35 @@ automatically. HEVC lowers bitrate, not input latency: encoder look-ahead,
 keyframe cadence, browser decode and jitter buffering still decide the
 interaction delay.
 
+### Adaptive video bitrate
+
+In Console **Settings → This guest — media policy**, **Maximum video bitrate
+(Mbit/s)** sets the per-VM/LXC encoder target ceiling (0.5–100, default 8).
+H.264 with NVENC or libx264, and experimental HEVC with NVENC, automatically
+adjust the working target below that ceiling using the browser's RTCP REMB,
+packet-loss and RTT feedback. The encoder changes rate without reopening;
+video/RTX pacing follows it. Several viewers of one producer share the rate,
+so fresh feedback from a slower viewer can reduce quality for all of them.
+Closed viewers release that constraint. No guest restart is needed.
+
+Settings shows the current target and ceiling for the active producer. Save a
+new ceiling, close all its viewers and reopen the console to apply that policy.
+The `webrtcsettings` API still stores `bitrate` in kbit/s and requires
+`VM.Config.Options` to change it; the on-node key is
+`QSM_DIRECT_BITRATE_KBPS`. Existing clients and policy files remain compatible.
+QSV/VA-API currently retain fixed rate control; Settings identifies that mode.
+
+This ceiling describes the encoder's target, not total network traffic.
+Audio, RTP/SRTP overhead, retransmissions and hardware rate-control overshoot
+need additional bandwidth. At very low targets NVENC can exceed the requested
+video rate: the tested high-motion 1280×800/60 fixture produced about 1.31 Mbps
+at a 0.5-Mbps target. Pacing allows bounded additional low-rate NVENC headroom
+so that this does not continually break the local predictive-frame queue.
+For links below the encoder's practical minimum, lower the console resolution
+or FPS or select software encoding. This release adapts bitrate, not resolution
+or FPS. Abrupt bandwidth drops can still cause a short recovery interruption.
+See [qualification and reproducible checks](upstream/review-adaptive-bitrate-2026-10-17/qualification.txt).
+
 ### Sleeping and locked guests
 
 A desktop guest blanks its output after an idle timeout or locks its session,
