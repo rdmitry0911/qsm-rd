@@ -404,6 +404,17 @@ video/RTX pacing follows it. Several viewers of one producer share the rate,
 so fresh feedback from a slower viewer can reduce quality for all of them.
 Closed viewers release that constraint. No guest restart is needed.
 
+Adaptation ignores ordinary RTT jitter and app-limited REMB estimates. Packet
+loss can lower the target promptly; delay alone must be substantial and
+persist across new receiver reports for at least three seconds while video
+is using the allowance. A congestion report is consumed once. Recovery waits
+for ten healthy seconds and raises the target by a material step no more than
+once every ten seconds, only when actual video traffic uses at least 70% of
+the current allowance. An idle desktop does not need repeated upward probes.
+This matters especially for NVENC: FFmpeg forces an IDR/reset of rate control
+on live bitrate changes even though the codec object is kept open. Frequent
+small adjustments in shared20 could therefore make a static desktop pulse.
+
 Settings shows the current target and ceiling for the active producer. Save a
 new ceiling, close all its viewers and reopen the console to apply that policy.
 The `webrtcsettings` API still stores `bitrate` in kbit/s and requires
@@ -420,7 +431,8 @@ so that this does not continually break the local predictive-frame queue.
 For links below the encoder's practical minimum, lower the console resolution
 or FPS or select software encoding. This release adapts bitrate, not resolution
 or FPS. Abrupt bandwidth drops can still cause a short recovery interruption.
-See [qualification and reproducible checks](upstream/review-adaptive-bitrate-2026-10-17/qualification.txt).
+See [initial bitrate qualification](upstream/review-adaptive-bitrate-2026-10-17/qualification.txt) and
+[stability regression checks](upstream/review-adaptive-stability-2026-10-17/qualification.txt).
 
 ### Sleeping and locked guests
 

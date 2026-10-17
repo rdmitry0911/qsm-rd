@@ -23,7 +23,7 @@ import re
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Callable
@@ -182,10 +182,16 @@ class _ReceiverFeedback:
     remb_reference: int = 0
     sequence: int | None = None
     lost: int = 0
+    reduced_sequence: int | None = None
+    queue_since: float | None = None
+    rtt_samples: list[tuple[float, float]] = field(default_factory=list)
+    sent_bytes: int | None = None
+    sent_time: float = 0.
+    sending_kbps: float = 0.
 
 
 class AdaptiveVideoRate:
-    """Bounded AIMD for one encoded producer shared by several receivers.
+    """Hysteretic bitrate control for one shared encoded producer.
 
     RTCP REMB estimates, receiver-report loss and RTT inflation constrain the
     encoder *and* every RTP/RTX pacer. The slowest fresh receiver wins, because
@@ -218,7 +224,8 @@ class AdaptiveVideoRate:
         self._listeners.pop(peer, None)
         self._receivers.pop(peer, None)
 
-    def receiver_report(self, peer: object, report: object, rtt: float | None) -> None:
+    def receiver_report(self, peer: object, report: object, rtt: float | None,
+                        bytes_sent: int | None = None) -> None:
         now = self._clock()
         state = self._receivers.setdefault(peer, _ReceiverFeedback(now))
         sequence = report.highest_sequence
@@ -233,7 +240,22 @@ class AdaptiveVideoRate:
         state.loss, state.loss_time, state.updated = loss, now, now
         if rtt is not None and 0 < rtt < 30:
             state.rtt = rtt
-            state.base_rtt = min(state.base_rtt, rtt)
+            state.rtt_samples = [(t, value) for t, value in state.rtt_samples if now - t < 60]
+            state.rtt_samples.append((now, rtt))
+            state.base_rtt = min(value for _, value in state.rtt_samples)
+            # A single VPN RTT spike is not evidence of congestion. Require
+            # a substantial, sustained queue, observed in new receiver reports.
+            if rtt > state.base_rtt + max(.08, state.base_rtt * .75):
+                if state.queue_since is None:
+                    state.queue_since = now
+            else:
+                state.queue_since = None
+        else:
+            state.queue_since = None
+        if type(bytes_sent) is int and bytes_sent >= 0:
+            if state.sent_bytes is not None and bytes_sent >= state.sent_bytes and now > state.sent_time:
+                state.sending_kbps = (bytes_sent - state.sent_bytes) * 8 / (now - state.sent_time) / 1000
+            state.sent_bytes, state.sent_time = bytes_sent, now
         self._update(now)
 
     def receiver_estimate(self, peer: object, bitrate_bps: int) -> None:
@@ -251,39 +273,45 @@ class AdaptiveVideoRate:
     def _update(self, now: float) -> None:
         if not self.enabled:
             return
-        fresh = [s for s in self._receivers.values() if now - s.updated < 6]
-        # Reserve 20% for packet overhead/recovery and 128 kbit/s for audio.
-        ceiling = self.maximum_kbps
-        for state in fresh:
-            # REMB also follows the amount of video we send. An increasing
-            # app-limited estimate below the current target is *not* new
-            # congestion. Apply a first/falling estimate promptly; thereafter
-            # small encoder probes plus loss/raw RTT determine recovery.
-            if now - state.remb_time < 5 and now - state.remb_decreased < 2.5:
-                ceiling = min(ceiling, max(500, int(state.remb * .8 / 1000) - 128))
-        loss = max((s.loss for s in fresh if now - s.loss_time < 2.5), default=0.)
-        queued = any(now - s.loss_time < 2.5 and
-                     s.rtt > s.base_rtt + max(.025, s.base_rtt * .2) for s in fresh)
-        congested = loss >= .03 or queued or ceiling < self.current_kbps * .9
-        if congested:
+        # REMB can be app-limited on an idle desktop. Require a fresh RR and
+        # actual sender demand; otherwise neither delay noise nor a low REMB
+        # should continually reconfigure NVENC (which forces an IDR in FFmpeg).
+        fresh = [s for s in self._receivers.values() if now - s.loss_time < 6]
+        bad = [s for s in fresh if s.loss >= .03 or
+               (s.queue_since is not None and now - s.queue_since >= 3 and
+                s.sending_kbps >= self.current_kbps * .5)]
+        if bad:
             self._healthy_since = now
-        probing = any(now - s.remb_time < 5 for s in fresh)
-        interval = 1 if congested or not probing else 2
-        if not fresh or now - self._changed < interval:
+        pending = [s for s in bad if s.sequence != s.reduced_sequence]
+        if not fresh or now - self._changed < (1 if pending else 10):
             return
         target = self.current_kbps
-        if congested:
-            factor = .5 if loss >= .12 else .75
+        ceiling = self.maximum_kbps
+        loss = max((s.loss for s in bad), default=0.)
+        queued = any(s.queue_since is not None and now - s.queue_since >= 3 for s in bad)
+        if pending:
+            # Consume each congestion report once. Repeated REMB packets must
+            # not apply an old loss/RTT sample again while the path is draining.
+            factor = .5 if max(s.loss for s in pending) >= .12 else .75
+            for state in fresh:
+                if now - state.remb_time < 5:
+                    ceiling = min(ceiling, max(500, int(state.remb * .8 / 1000) - 128))
             target = min(ceiling, int(target * factor))
-        elif now - self._healthy_since >= 3:
-            target = min(ceiling, target + max(100, int(target * (.05 if probing else .08))))
+        elif not bad and now - self._healthy_since >= 10 and any(
+                s.sending_kbps >= self.current_kbps * .7 for s in fresh):
+            # Infrequent, material quality steps only when the video is using
+            # the current allowance. Static desktops do not need upward probes.
+            target = min(ceiling, target + max(250, int(target * .25)))
         target = max(500, min(self.maximum_kbps, target))
         if target == self.current_kbps:
             return
         try:
             self._apply(target)
         except BridgeError:
-            return  # Worker is retiring; do not advance a fictitious rate.
+            return
+        if target < self.current_kbps:
+            for state in pending:
+                state.reduced_sequence = state.sequence
         self.current_kbps, self._changed = target, now
         for listener in tuple(self._listeners.values()):
             listener(target)
@@ -1858,7 +1886,10 @@ class BrowserWebRtcBridge:
                         sent_at = getattr(sender, "_RTCRtpSender__lsr_time", None)
                         if sent_at is not None:
                             rtt = time.time() - sent_at - report.dlsr / 65536
-                    self._video_rate.receiver_report(self, report, rtt)
+                    outbound = next((r for r in stats.values()
+                                     if r.type == "outbound-rtp" and r.kind == "video"), None)
+                    self._video_rate.receiver_report(
+                        self, report, rtt, getattr(outbound, "bytesSent", None))
 
         # Install before SDP application can start RTP/RTCP tasks. The hook is
         # per-video-sender, therefore it cannot pace or perturb audio/control.

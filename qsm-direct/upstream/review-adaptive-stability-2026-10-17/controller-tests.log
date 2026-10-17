@@ -1,0 +1,42 @@
+./usr/lib/python3/dist-packages/aiortc/rtcdtlstransport.py:63: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  .not_valid_before(datetime.datetime.utcnow() - datetime.timedelta(days=1))
+/usr/lib/python3/dist-packages/aiortc/rtcdtlstransport.py:64: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=30))
+qsm-direct-terminal: WebRTC ICE state=closed
+qsm-direct-terminal: WebRTC connection state=closed
+.qsm-direct-terminal: adaptive video bitrate_kbps=1472 maximum_kbps=8000 receivers=1 loss=0.1992 queued=0 remb_ceiling_kbps=1472
+qsm-direct-terminal: WebRTC ICE state=closed
+qsm-direct-terminal: WebRTC connection state=closed
+..qsm-direct-terminal: adaptive video bitrate_kbps=10000 maximum_kbps=20000 receivers=1 loss=0.2000 queued=0 remb_ceiling_kbps=20000
+.qsm-direct-terminal: adaptive video bitrate_kbps=500 maximum_kbps=20000 receivers=1 loss=0.2000 queued=0 remb_ceiling_kbps=500
+..qsm-direct-terminal: adaptive video bitrate_kbps=10000 maximum_kbps=20000 receivers=1 loss=0.2000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=12500 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+..qsm-direct-terminal: adaptive video bitrate_kbps=10000 maximum_kbps=20000 receivers=1 loss=0.2000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=12500 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=15625 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=19531 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=20000 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+.qsm-direct-terminal: adaptive video bitrate_kbps=3072 maximum_kbps=20000 receivers=1 loss=0.2000 queued=0 remb_ceiling_kbps=3072
+qsm-direct-terminal: adaptive video bitrate_kbps=3840 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=4800 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=6000 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=7500 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=9375 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=11718 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=14647 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=18308 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=20000 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+.qsm-direct-terminal: adaptive video bitrate_kbps=10000 maximum_kbps=20000 receivers=2 loss=0.2000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=12500 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=15625 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+.qsm-direct-terminal: adaptive video bitrate_kbps=10000 maximum_kbps=20000 receivers=1 loss=0.2000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=12500 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=15625 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=19531 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=20000 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+.qsm-direct-terminal: adaptive video bitrate_kbps=15000 maximum_kbps=20000 receivers=1 loss=0.0000 queued=1 remb_ceiling_kbps=20000
+.
+----------------------------------------------------------------------
+Ran 14 tests in 0.021s
+
+OK

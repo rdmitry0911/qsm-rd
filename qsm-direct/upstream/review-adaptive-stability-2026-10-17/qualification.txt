@@ -1,0 +1,124 @@
+QSM Direct shared21: adaptive-rate stability regression, 2026-10-17
+
+Problem
+-------
+In the actual CT105 NVENC/Firefox session, shared20's logs showed zero remote
+packet loss, ordinary RTT variations around 111..137ms and repeated bitrate
+reductions/increases. Low targets caused additional local FIFO recovery.
+FFmpeg 7's NVENC implementation sets resetEncoder=1 and forceIDR=1 on every
+bitrate/VBV reconfiguration. Small encoder changes every two seconds could
+visibly pulse the desktop even while frame-decode/freezing counters looked good.
+The shared20 moving-picture/throughput checks missed that static-image defect.
+
+Change
+------
+Only the Python bridge/controller changes; the C++ encoder, input protocol,
+Proxmox API schemas, codec selection and guest display components are unchanged.
+- Standalone low/falling REMB cannot lower the encoder: an idle source's
+  receive estimate can be smaller than the configured encoder allowance.
+- Packet loss >=3% in a new RR still permits fast reduction (>=12% halves the
+  target, otherwise 25% reduction). One report is consumed once, including
+  when repeated REMB packets arrive before the next RR.
+- RTT-only action needs baseline + max(80ms, 75% baseline), maintained over
+  >=3 seconds in distinct new RRs. Video must use at least 50% of its allowance.
+  Baseline is the minimum valid RTT in the last 60 seconds; missing RTT clears
+  confirmation instead of reusing an old high-latency sample.
+- Upward changes wait ten healthy seconds and ten seconds from the last
+  actual encoder change. Step = max(250 kbit/s, 25% current), capped by policy.
+  Fresh outbound bytesSent from the actual aiortc sender must show >=70% use
+  of the allowance. Static sources stop probing. With no fresh RR, no growth.
+- All peers of one producer continue to share the rate and video/RTX pacing.
+  Audio/control remain independent. NVENC/HEVC and software support is unchanged.
+
+Regression and recovery methodology
+----------------------------------
+The live CT105 desktop is not opened or resized for these tests. The production
+terminal service stays on shared20 throughout pre-deployment qualification.
+Only disposable CT108 uses a root-owned temporary static/moving Qt fixture.
+Its normal PVE console is used to log into the test account, then closed.
+CT108's grace is temporarily 1800s, restored with its fixture after testing.
+
+isolated-bridge.py is run on the PVE node over root-authenticated SSH pipes,
+using a private Unix-socket directory, the exact candidate bridge module and
+the unchanged installed C++ media worker pointed at CT108 seat1. There is no
+HTTP listener or replaced PVE API. SDP/ICE secrets travel only inside the SSH
+pipes and browser memory, never saved logs. This is a media-component browser
+qualification, not a fresh Proxmox authorization/API qualification.
+
+firefox-stability.py runs real Firefox inside the dedicated qsm-pacing namespace.
+Only UDP on its veth is shaped; HTTPS/SSH and the real VPN/physical interfaces
+are unchanged. Setup/cleanup scripts are in ../review-video-pacing-2026-10-17.
+The browser resamples decoded video to 160x100 every 100ms. It records mean
+absolute RGB pixel delta from the preceding sample; a mean delta >1 in
+8-bit RGB units (1/255 of full scale) counts as a changed sample. This detects visible quality pulses on a truly static
+fixture; frame/freeze counters alone do not.
+
+Static comparison: identical NVENC source/worker, maximum 8 Mbps, loss-free
+20-Mbps link, downstream delay 40 -> 70 -> 40 -> 70 -> 40 ms in ten-second
+steps. Upstream delay stays 40ms. Queue 300 packets prevents test-induced
+loss. Fifty seconds each with original shared20 module and candidate module.
+Candidate must have zero encoder changes, no network loss and no static
+sample with mean RGB delta >1 after the initial two-second decoder warmup.
+Original shared20 must reproduce at least one inappropriate encoder change.
+
+Moving-picture regression: fresh candidate bridge with NVENC then libx264,
+8-Mbps ceiling, nominal 80ms RTT; 20 Mbps for 15s -> 4 Mbps for 25s -> 20 Mbps
+for 110s. Queue 300/50/300 packets. Modifier-only keepalive prevents idle
+locking; the final 25 seconds must remain visibly moving (>=80% changed
+samples). A first libx264 run that hit the desktop idle lock was discarded
+and repeated; no counters from that invalid run are used. Must lower target
+below 4 Mbps and restore
+8 Mbps without reconnecting, while decoding >7000 frames. Real congestion may
+still cause a recovery pause; no claim of zero transition freezes is made.
+
+Reproduction prerequisites
+--------------------------
+Use isolated CT108 only, with the private Sway/SDDM setup and temporary test
+account described in earlier qualifications. Modify its existing moving Qt
+fixture tick to leave frame number unchanged while /tmp/qsm-video-static
+exists; the same window supplies both static and moving phases.
+Copy isolated-bridge.py and current qsm_browser_bridge.py as bridge.py to
+/root/qsm-native-seat-lab/stability/. Obtain bridge20.py from commit
+57b1396:qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py.
+Run the network setup, then inside qsm-pacing as the normal browser user:
+ MOZ_GMP_PATH=/tmp/qsm-openh264/gmp-gmpopenh264/2.6.0 \
+   /tmp/takt-roi-check-venv/bin/python firefox-stability.py
+The existing production worker must be the qualified shared20 build; it is
+unchanged in shared21. Root SSH and sudo for the dedicated network namespace
+are required. Test programs have no production-service restart operation.
+
+Automated tests
+---------------
+46 browser bridge/controller tests pass locally and against isolated candidate
+code on the node's aiortc 1.11. They cover idle low-REMB/RTT-jitter stability,
+busy normal jitter/isolated spikes, sustained queue confirmation, consuming
+reports once, genuine loss response, demand-gated recovery, shared viewers,
+closed/stale peers, rate ceilings/floors, fixed fallback, worker failure,
+private opcode validation, latest-state status and existing media/input logic.
+C++/native API code is unchanged; shared20's decoder/API qualifications remain
+applicable. Build of host/LXC helper/guest debs completes normally.
+
+Primary implementation reference
+--------------------------------
+https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1/libavcodec/nvenc.c
+See reconfig_encoder: bitrate reconfiguration sets resetEncoder and forceIDR.
+
+Final results
+-------------
+Static NVENC, 50 seconds each, zero network loss:
+  shared20: 15 encoder changes, ended at 0.9 Mbps; mean-pixel delta peaks
+    above 2/255 of full scale, repeatedly crossing the 1/255 threshold.
+  shared21: 0 encoder changes, stayed at 8 Mbps; no threshold crossings.
+Both use the byte-identical production media worker; initial connection FIFO
+startup counts are recorded, not attributed to steady-state adaptation.
+
+Motion, 20 -> 4 -> 20 Mbps, 8-Mbps encoder ceiling:
+  NVENC and libx264: 8 -> 4 -> 2 Mbps, then seven measured recovery steps
+  back to 8 Mbps, with no reconnection. Encoder changes stop at the ceiling.
+  Detailed frame/loss/pause counters and final motion fraction are in results.json.
+  Real bandwidth reduction still causes a brief recovery interruption.
+
+No C++ worker changes: both staged shared21 and installed shared20 binaries
+have SHA256 3d16783dfa10e3e7053a5f0eea11a685f541138f23b6b1d5f0572b1a3ebb2ded.
+Candidate bridge matches the staged deb and the isolated module tested on-node.
+No actual-user confirmation after deployment is assumed.

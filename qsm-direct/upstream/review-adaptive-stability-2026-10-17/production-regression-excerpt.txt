@@ -1,0 +1,25 @@
+Oct 17 17:46:07 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: media health video_fps=60.0 queue=0 drops=268 overflows=34 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=112 bitrate_kbps=3830 maximum_kbps=8000 paced_packets=37734 paced_bytes=30871102
+Oct 17 17:46:08 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=4021 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:10 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=4222 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:12 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=4433 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:15 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=4654 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:17 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=3490 maximum_kbps=8000 receivers=1 loss=0.0000 queued=1 remb_ceiling_kbps=8000
+Oct 17 17:46:17 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: media health video_fps=60.0 queue=0 drops=268 overflows=34 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=133 bitrate_kbps=3490 maximum_kbps=8000 paced_packets=43060 paced_bytes=35641571
+Oct 17 17:46:18 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=2617 maximum_kbps=8000 receivers=1 loss=0.0000 queued=1 remb_ceiling_kbps=8000
+Oct 17 17:46:21 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=1962 maximum_kbps=8000 receivers=1 loss=0.0000 queued=1 remb_ceiling_kbps=8000
+Oct 17 17:46:24 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=2062 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:26 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=2165 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:27 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: media health video_fps=58.5 queue=0 drops=283 overflows=37 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=112 bitrate_kbps=2165 maximum_kbps=8000 paced_packets=47679 paced_bytes=39579296
+Oct 17 17:46:28 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=2273 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:30 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=2386 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:32 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=2505 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:35 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=2630 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:37 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=2761 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:37 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: media health video_fps=60.0 queue=0 drops=283 overflows=37 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=132 bitrate_kbps=2761 maximum_kbps=8000 paced_packets=52490 paced_bytes=43709714
+Oct 17 17:46:40 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=2899 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:42 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=3043 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:44 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=3195 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:46 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=3354 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:47 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: media health video_fps=60.0 queue=0 drops=283 overflows=37 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=111 bitrate_kbps=3354 maximum_kbps=8000 paced_packets=57427 paced_bytes=47980082
+Oct 17 17:46:48 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=3521 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+Oct 17 17:46:52 Vilnius qsm-pve-direct-terminal[3821187]: qsm-direct-terminal: adaptive video bitrate_kbps=3697 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000

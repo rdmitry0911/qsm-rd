@@ -1,0 +1,35 @@
+qsm-direct-terminal: WebRTC offer candidates=10 mdns=0 resolved=4
+qsm-direct-terminal: WebRTC video answer codec=video/H264 pt=105 fmtp=level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
+qsm-direct-terminal: WebRTC ICE state=checking
+qsm-direct-terminal: WebRTC connection state=connecting
+qsm-direct-terminal: WebRTC ICE state=completed
+qsm-direct-terminal: WebRTC connection state=connected
+QSM_DIRECT_MEDIA_CAPTURE_AFTER_3S source=wlroots encoded_frames=180 errors=0 display_failed=no captured_frames=180 idr_requests=4 encoded_units=158 separate_cursor=1 cursor_images=3 cursor_fallbacks=0 capture_failures=0 size=1280x800 shm_format=0x1 convert_mean_us=782 convert_max_us=2648 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=0 submitted_frames=180 cursor_records=6 video_records=164 video_send_failures=0 audio_submissions=0 recent_error=none
+QSM_DIRECT_MEDIA_HEALTH source=wlroots encoded_frames=599 errors=0 display_failed=no captured_frames=599 idr_requests=4 encoded_units=578 separate_cursor=1 cursor_images=3 cursor_fallbacks=0 capture_failures=0 size=1280x800 shm_format=0x1 convert_mean_us=810 convert_max_us=2648 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=0 submitted_frames=599 cursor_records=9 video_records=587 video_send_failures=0 audio_submissions=0 recent_error=none
+qsm-direct-terminal: media health video_fps=58.6 queue=0 drops=111 overflows=6 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=81 bitrate_kbps=8000 maximum_kbps=8000 paced_packets=4074 paced_bytes=3384212
+qsm-direct-terminal: adaptive video bitrate_kbps=1500 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=1500
+qsm-direct-terminal: adaptive video bitrate_kbps=1125 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=1173
+qsm-direct-terminal: adaptive video bitrate_kbps=843 maximum_kbps=8000 receivers=1 loss=0.0000 queued=1 remb_ceiling_kbps=1186
+qsm-direct-terminal: adaptive video bitrate_kbps=632 maximum_kbps=8000 receivers=1 loss=0.0000 queued=1 remb_ceiling_kbps=8000
+qsm-direct-terminal: adaptive video bitrate_kbps=500 maximum_kbps=8000 receivers=1 loss=0.0000 queued=1 remb_ceiling_kbps=8000
+QSM_DIRECT_MEDIA_HEALTH source=wlroots encoded_frames=1199 errors=0 display_failed=no captured_frames=1199 idr_requests=4 encoded_units=1179 separate_cursor=1 cursor_images=3 cursor_fallbacks=0 capture_failures=0 size=1280x800 shm_format=0x1 convert_mean_us=812 convert_max_us=2648 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=0 submitted_frames=1199 cursor_records=14 video_records=1193 video_send_failures=0 audio_submissions=0 recent_error=none
+qsm-direct-terminal: media health video_fps=60.0 queue=0 drops=111 overflows=6 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=110 bitrate_kbps=500 maximum_kbps=8000 paced_packets=7202 paced_bytes=5480722
+qsm-direct-terminal: adaptive video bitrate_kbps=600 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+QSM_DIRECT_MEDIA_HEALTH source=wlroots encoded_frames=1799 errors=0 display_failed=no captured_frames=1799 idr_requests=4 encoded_units=1779 separate_cursor=1 cursor_images=3 cursor_fallbacks=0 capture_failures=0 size=1280x800 shm_format=0x1 convert_mean_us=783 convert_max_us=2648 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=0 submitted_frames=1799 cursor_records=19 video_records=1798 video_send_failures=0 audio_submissions=0 recent_error=none
+qsm-direct-terminal: adaptive video bitrate_kbps=700 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+qsm-direct-terminal: media health video_fps=60.0 queue=0 drops=111 overflows=6 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=81 bitrate_kbps=700 maximum_kbps=8000 paced_packets=9930 paced_bytes=7056103
+qsm-direct-terminal: adaptive video bitrate_kbps=800 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+qsm-direct-terminal: adaptive video bitrate_kbps=900 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+qsm-direct-terminal: adaptive video bitrate_kbps=577 maximum_kbps=8000 receivers=1 loss=0.0000 queued=1 remb_ceiling_kbps=577
+qsm-direct-terminal: adaptive video bitrate_kbps=500 maximum_kbps=8000 receivers=1 loss=0.0000 queued=1 remb_ceiling_kbps=626
+QSM_DIRECT_MEDIA_HEALTH source=wlroots encoded_frames=2398 errors=0 display_failed=no captured_frames=2398 idr_requests=4 encoded_units=2379 separate_cursor=1 cursor_images=3 cursor_fallbacks=0 capture_failures=0 size=1280x800 shm_format=0x1 convert_mean_us=784 convert_max_us=2648 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=0 submitted_frames=2398 cursor_records=24 video_records=2403 video_send_failures=0 audio_submissions=0 recent_error=none
+qsm-direct-terminal: media health video_fps=60.0 queue=0 drops=111 overflows=6 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=110 bitrate_kbps=500 maximum_kbps=8000 paced_packets=12674 paced_bytes=8655056
+qsm-direct-terminal: adaptive video bitrate_kbps=600 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+QSM_DIRECT_MEDIA_HEALTH source=wlroots encoded_frames=2998 errors=0 display_failed=no captured_frames=2998 idr_requests=4 encoded_units=2980 separate_cursor=1 cursor_images=3 cursor_fallbacks=0 capture_failures=0 size=1280x800 shm_format=0x1 convert_mean_us=773 convert_max_us=2648 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=0 submitted_frames=2998 cursor_records=29 video_records=3009 video_send_failures=0 audio_submissions=0 recent_error=none
+qsm-direct-terminal: adaptive video bitrate_kbps=700 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+qsm-direct-terminal: media health video_fps=60.0 queue=0 drops=111 overflows=6 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=81 bitrate_kbps=700 maximum_kbps=8000 paced_packets=15391 paced_bytes=10218248
+qsm-direct-terminal: adaptive video bitrate_kbps=800 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+qsm-direct-terminal: adaptive video bitrate_kbps=900 maximum_kbps=8000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=8000
+qsm-direct-terminal: WebRTC ICE state=closed
+qsm-direct-terminal: WebRTC connection state=closed
+QSM_DIRECT_MEDIA_STOPPING source=wlroots encoded_frames=3316 errors=0 display_failed=no captured_frames=3316 idr_requests=8 encoded_units=3295 separate_cursor=1 cursor_images=3 cursor_fallbacks=0 capture_failures=0 size=1280x800 shm_format=0x1 convert_mean_us=768 convert_max_us=2648 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=0 submitted_frames=3316 cursor_records=32 video_records=3327 video_send_failures=3 audio_submissions=0 recent_error=none

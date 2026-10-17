@@ -1,0 +1,136 @@
+[
+  {
+    "target": 900,
+    "maximum": 8000,
+    "overflows": 6,
+    "drops": 111,
+    "changes": 15,
+    "targets": [
+      1500,
+      1125,
+      843,
+      632,
+      500,
+      600,
+      700,
+      800,
+      900,
+      577,
+      500,
+      600,
+      700,
+      800,
+      900
+    ],
+    "demand": [
+      0
+    ],
+    "state": "connected",
+    "case": "h264_nvenc-baseline-static",
+    "frames": 2852,
+    "lost": 0,
+    "freezes": 0,
+    "freezeSeconds": 0,
+    "dropped": 0,
+    "visual": {
+      "samples": 451,
+      "changed": 127,
+      "maxMeanDelta": 2.507041666666667
+    },
+    "fps_after_warmup": 59.96
+  },
+  {
+    "target": 8000,
+    "maximum": 8000,
+    "overflows": 6,
+    "drops": 124,
+    "changes": 0,
+    "targets": [],
+    "demand": [
+      2000
+    ],
+    "state": "connected",
+    "case": "h264_nvenc-new-static",
+    "frames": 2853,
+    "lost": 0,
+    "freezes": 0,
+    "freezeSeconds": 0,
+    "dropped": 0,
+    "visual": {
+      "samples": 452,
+      "changed": 0,
+      "maxMeanDelta": 0.39895833333333336
+    },
+    "fps_after_warmup": 59.96
+  },
+  {
+    "target": 8000,
+    "maximum": 8000,
+    "overflows": 8,
+    "drops": 134,
+    "changes": 9,
+    "targets": [
+      4000,
+      2000,
+      2500,
+      3125,
+      3906,
+      4882,
+      6102,
+      7627,
+      8000
+    ],
+    "demand": [
+      7129
+    ],
+    "state": "connected",
+    "case": "h264_nvenc-new-motion",
+    "frames": 8837,
+    "lost": 226,
+    "freezes": 3,
+    "freezeSeconds": 1.224,
+    "dropped": 0,
+    "visual": {
+      "samples": 1453,
+      "changed": 1444,
+      "maxMeanDelta": 66.776875
+    },
+    "fps_after_warmup": 59.47,
+    "final_motion_fraction": 1.0
+  },
+  {
+    "target": 8000,
+    "maximum": 8000,
+    "overflows": 8,
+    "drops": 143,
+    "changes": 9,
+    "targets": [
+      4000,
+      2000,
+      2500,
+      3125,
+      3906,
+      4882,
+      6102,
+      7627,
+      8000
+    ],
+    "demand": [
+      6651
+    ],
+    "state": "connected",
+    "case": "libx264-new-motion",
+    "frames": 8860,
+    "lost": 168,
+    "freezes": 2,
+    "freezeSeconds": 0.997,
+    "dropped": 0,
+    "visual": {
+      "samples": 1455,
+      "changed": 1447,
+      "maxMeanDelta": 69.236375
+    },
+    "fps_after_warmup": 59.61,
+    "final_motion_fraction": 1.0
+  }
+]

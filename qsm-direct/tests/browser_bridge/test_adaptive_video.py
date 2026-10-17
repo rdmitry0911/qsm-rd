@@ -21,109 +21,159 @@ class RateTests(unittest.TestCase):
     def setUp(self):
         self.now = 0.
         self.applied = []
-        self.rate = AdaptiveVideoRate(20000, self.applied.append, clock=lambda:self.now)
+        self.rate = AdaptiveVideoRate(20000, self.applied.append, clock=lambda: self.now)
 
-    def rr(self, peer='a', loss=0., rtt=.08, sequence=None):
+    def rr(self, peer='a', loss=0., rtt=.08, sequence=None, sending_kbps=20000):
         state = self.rate._receivers.get(peer)
-        seq = sequence if sequence is not None else (state.sequence or 0) + 1000 if state else 1000
+        seq = sequence if sequence is not None else ((state.sequence or 0) + 1000 if state else 1000)
         lost = (state.lost if state else 0) + int(1000 * loss)
+        sent = (state.sent_bytes or 0) if state else 0
+        elapsed = self.now - state.sent_time if state else 0
+        sent += int(sending_kbps * 1000 / 8 * elapsed)
         self.rate.receiver_report(peer, SimpleNamespace(highest_sequence=seq, packets_lost=lost,
-                                                       fraction_lost=int(loss * 256)), rtt)
+                                                       fraction_lost=int(loss * 256)), rtt, sent)
 
-    def test_remb_drops_both_encoder_and_all_pacers_and_recovers_to_ceiling(self):
+    def test_idle_desktop_with_low_remb_and_vpn_jitter_never_reconfigures(self):
+        for t in range(180):
+            self.now = t
+            self.rate.receiver_estimate('a', 200000 + (t % 4) * 10000)
+            self.rr(rtt=(.08, .111, .137, .112, .14)[t % 5], sending_kbps=64)
+        self.assertEqual(self.applied, [])
+        self.assertEqual(self.rate.current_kbps, 20000)
+
+    def test_busy_desktop_ignores_normal_rtt_jitter_and_one_large_spike(self):
+        for t in range(180):
+            self.now = t
+            rtt = .4 if t == 22 else (.08, .111, .137, .112, .14)[t % 5]
+            self.rr(rtt=rtt)
+        self.assertEqual(self.applied, [])
+
+    def test_sustained_large_queue_reduces_only_after_confirmation(self):
+        self.rr()
+        for t in (1, 2, 3):
+            self.now = t
+            self.rr(rtt=.3)
+        self.assertFalse(self.applied)
+        self.now = 4
+        self.rr(rtt=.3)
+        self.assertEqual(self.applied, [15000])
+        # A repeated REMB cannot consume that same RR again.
+        self.now = 5
+        self.rate.receiver_estimate('a', 40000000)
+        self.assertEqual(self.applied, [15000])
+
+    def test_loss_decreases_fast_and_growth_waits_ten_healthy_seconds(self):
+        self.rr()
+        self.now = 2
+        self.rr(loss=.2)
+        self.assertEqual(self.rate.current_kbps, 10000)
+        self.now = 3
+        self.rate.receiver_estimate('a', 40000000)
+        self.assertEqual(self.rate.current_kbps, 10000)
+        self.rr()
+        for t in range(4, 12):
+            self.now = t
+            self.rr()
+        self.assertEqual(self.rate.current_kbps, 10000)
+        self.now = 13
+        self.rr()
+        self.assertEqual(self.rate.current_kbps, 12500)
+
+    def test_remb_is_a_ceiling_only_when_congestion_is_confirmed(self):
         first, second = _VideoPacer(20000), _VideoPacer(20000)
         self.rate.add('a', first.set_bitrate)
         self.rate.add('b', second.set_bitrate)
-        self.now=2
-        self.rate.receiver_estimate('a', 4_000_000)
-        self.assertEqual(self.rate.current_kbps, 3072)
+        self.rr()
+        self.now = 2
+        self.rate.receiver_estimate('a', 4000000)
+        self.assertFalse(self.applied)
+        self.rr(loss=.2)
         self.assertEqual(self.applied, [3072])
         self.assertEqual(first._rate, second._rate)
-        self.assertEqual(first._rate, 3072*1000/8*1.25)
-        for t in range(3,90):
-            self.now=t
-            self.rate.receiver_estimate('a', 40_000_000)
+        self.assertEqual(first._rate, 3072 * 1000 / 8 * 1.25)
+        for t in range(3, 180):
+            self.now = t
+            self.rate.receiver_estimate('a', 40000000)
             self.rr()
         self.assertEqual(self.rate.current_kbps, 20000)
-        self.assertTrue(all(500 <= v <= 20000 for v in self.applied))
 
-    def test_loss_decreases_fast_but_healthy_growth_waits(self):
+    def test_static_source_does_not_probe_up_but_active_video_recovers(self):
         self.rr()
-        self.now=2;self.rr(loss=.2)
-        self.assertEqual(self.rate.current_kbps,10000)
-        self.now=2.1;self.rr(loss=.2)
-        self.assertEqual(self.rate.current_kbps,10000)
-        self.now=3;self.rr()
-        self.assertEqual(self.rate.current_kbps,10000)
-        self.now=6;self.rr()
-        self.assertEqual(self.rate.current_kbps,10800)
+        self.now = 2
+        self.rr(loss=.2)
+        for t in range(3, 120):
+            self.now = t
+            self.rr(sending_kbps=64)
+        self.assertEqual(self.applied, [10000])
+        for t in range(120, 180):
+            self.now = t
+            self.rr(sending_kbps=18000)
+        self.assertEqual(self.rate.current_kbps, 20000)
 
-    def test_rtt_inflation_reduces_without_loss(self):
-        self.rr(rtt=.08)
-        self.now=2;self.rr(rtt=.3)
-        self.assertEqual(self.rate.current_kbps,15000)
-
-    def test_slowest_receiver_limits_shared_stream_until_removed(self):
-        self.now=2;self.rate.receiver_estimate('slow',4_000_000)
-        self.now=4;self.rate.receiver_estimate('fast',80_000_000)
-        self.assertEqual(self.rate.current_kbps,3072)
-        self.rate.remove('slow')
-        self.now=6;self.rate.receiver_estimate('fast',80_000_000)
-        self.assertGreater(self.rate.current_kbps,3072)
-
-    def test_stale_estimate_expires_and_duplicate_report_cannot_reduce_twice(self):
+    def test_recovery_has_material_steps_at_most_once_per_ten_seconds(self):
         self.rr()
-        self.now=2;self.rr(loss=.2)
-        self.now=4;self.rr(loss=.2,sequence=2000)
-        self.assertEqual(self.rate.current_kbps,10000)
-        self.now=5;self.rate.receiver_estimate('slow',1_000_000)
-        self.assertEqual(self.rate.current_kbps,672)
-        for t in range(6,22):
-            self.now=t;self.rr()
-        self.assertGreater(self.rate.current_kbps,672)
-
-    def test_unchanged_app_limited_remb_does_not_lock_low_rate_forever(self):
-        self.now=2;self.rate.receiver_estimate('a',4_000_000)
-        initial=self.rate.current_kbps
-        for t in range(3,40):
-            self.now=t;self.rate.receiver_estimate('a',4_000_000);self.rr()
-        self.assertGreater(self.rate.current_kbps,initial*2)
-
-    def test_rising_app_limited_estimate_cannot_reverse_rate_recovery(self):
-        self.now=2;self.rate.receiver_estimate('a',4_000_000)
-        minimum=self.rate.current_kbps
-        previous=minimum
-        estimate=4_000_000
-        for t in range(6,50):
-            self.now=t
-            estimate=int(estimate*1.01)
-            self.rate.receiver_estimate('a',estimate)
+        self.now = 2
+        self.rr(loss=.2)
+        changes = []
+        self.rate._apply = lambda rate: changes.append((self.now, rate))
+        for t in range(3, 120):
+            self.now = t
             self.rr()
-            self.assertGreaterEqual(self.rate.current_kbps,previous)
-            previous=self.rate.current_kbps
-        self.assertGreater(self.rate.current_kbps,minimum*2)
+        self.assertEqual(self.rate.current_kbps, 20000)
+        self.assertLessEqual(len(changes), 4)
+        self.assertTrue(all(b[0] - a[0] >= 10 for a, b in zip(changes, changes[1:])))
+
+    def test_shared_slow_viewer_and_removal(self):
+        self.rr('fast')
+        self.rr('slow')
+        self.now = 2
+        self.rr('slow', loss=.2)
+        self.assertEqual(self.rate.current_kbps, 10000)
+        self.now = 3
+        self.rate.remove('slow')
+        for t in range(3, 30):
+            self.now = t
+            self.rr('fast')
+        self.assertGreater(self.rate.current_kbps, 10000)
+        self.assertNotIn('slow', self.rate._receivers)
+
+    def test_duplicate_reports_and_silent_peers_do_not_drive_recovery(self):
+        self.rr()
+        self.now = 2
+        self.rr(loss=.2)
+        self.now = 4
+        self.rr(loss=.2, sequence=2000)
+        self.assertEqual(self.rate.current_kbps, 10000)
+        self.now = 100
+        self.rate.receiver_estimate('a', 80000000)
+        self.assertEqual(self.rate.current_kbps, 10000)
+
+    def test_floor_fixed_mode_and_worker_failure(self):
+        self.rr()
+        self.now = 3
+        self.rate.receiver_estimate('a', 1)
+        self.rr(loss=.2)
+        self.assertEqual(self.rate.current_kbps, 500)
+        fixed = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now, enabled=False)
+        self.now = 103
+        fixed.receiver_report('a', SimpleNamespace(highest_sequence=1000, packets_lost=500,
+                                                  fraction_lost=128), .3, 1000000)
+        self.assertEqual(fixed.current_kbps, 8000)
+        def failed(rate):
+            raise BridgeError('gone')
+        self.rate._apply = failed
+        self.now = 106
+        self.rr()
+        self.assertEqual(self.rate.current_kbps, 500)
 
     def test_nvenc_low_rate_headroom_does_not_change_encoder_target(self):
-        gpu=_VideoPacer(8000,nvenc=True)
-        self.assertEqual(gpu._rate,_VideoPacer(8000)._rate)
+        gpu = _VideoPacer(8000, nvenc=True)
+        self.assertEqual(gpu._rate, _VideoPacer(8000)._rate)
         gpu.set_bitrate(2000)
-        self.assertEqual(gpu._rate,2600*1000/8*1.25)
-        self.assertGreater(gpu._rate,2.58e6/8) # measured 2-Mbps NVENC output
+        self.assertEqual(gpu._rate, 2600 * 1000 / 8 * 1.25)
+        self.assertGreater(gpu._rate, 2.58e6 / 8)
         gpu.set_bitrate(500)
-        self.assertGreater(gpu._rate,1.32e6/8)
-
-    def test_floor_missing_feedback_fixed_mode_and_failed_worker(self):
-        self.now=3;self.rate.receiver_estimate('a',1)
-        self.assertEqual(self.rate.current_kbps,500)
-        self.now=100
-        self.assertEqual(self.rate.current_kbps,500) # no timer grows blindly
-        fixed=AdaptiveVideoRate(8000,self.applied.append,clock=lambda:self.now,enabled=False)
-        self.now=103;fixed.receiver_estimate('a',1000)
-        self.assertEqual(fixed.current_kbps,8000)
-        def failed(rate):raise BridgeError('gone')
-        self.rate._apply=failed
-        self.now=106;self.rate.receiver_estimate('a',80_000_000)
-        self.assertEqual(self.rate.current_kbps,500)
+        self.assertGreater(gpu._rate, 1.32e6 / 8)
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
@@ -169,9 +219,10 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             await sender._handle_rtcp_packet(RtcpPsfbPacket(fmt=RTCP_PSFB_APP,ssrc=1,media_ssrc=0,fci=pack_remb_fci(2_000_000,[456])))
             self.assertFalse(applied)
             await sender._handle_rtcp_packet(RtcpPsfbPacket(fmt=RTCP_PSFB_APP,ssrc=1,media_ssrc=0,fci=pack_remb_fci(2_000_000,[123])))
-            self.assertEqual(applied,[1472])
-            report=RtcpReceiverInfo(ssrc=123,fraction_lost=0,packets_lost=0,highest_sequence=1000,jitter=0,lsr=0,dlsr=0)
+            self.assertFalse(applied)
+            report=RtcpReceiverInfo(ssrc=123,fraction_lost=51,packets_lost=200,highest_sequence=1000,jitter=0,lsr=0,dlsr=0)
             await sender._handle_rtcp_packet(RtcpRrPacket(ssrc=1,reports=[report]))
+            self.assertEqual(applied,[1472])
             self.assertIn(bridge,rate._receivers)
             await bridge.close()
             self.assertNotIn(bridge,rate._receivers)
