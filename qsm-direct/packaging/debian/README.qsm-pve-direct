@@ -164,6 +164,29 @@ To pin HEVC, pair a hardware encoder with `QSM_DIRECT_CODEC=hevc`, for example:
 For VA-API additionally set
 `QSM_DIRECT_VAAPI_RENDER_NODE=/dev/dri/renderD128`.
 
+The console Settings panel saves **Maximum video bitrate (Mbit/s)** per VM
+or LXC on the node. The range is 0.5–100 Mbit/s; existing installations default
+to 8 Mbit/s. This requires the updated `webrtcsettings` API packages
+(qemu-server 9.2.11+shared3 / pve-container 6.1.13+webrtc2 in this preview).
+Reads retain VM.Console authorization; changing it requires VM.Config.Options.
+Close all viewers for that guest and reconnect to replace its shared encoder.
+A VM/container restart or guest package update is not required.
+
+The equivalent root-owned policy setting is:
+
+    QSM_DIRECT_BITRATE_KBPS=20000
+
+Use instances.d/<VMID>.conf for VMs or containers.d/<VMID>.conf for LXC.
+The value is in decimal kbit/s (500–100000), and survives codec changes and
+re-running the LXC setup helper. The encoder rate/VBV budget and RTP pacing
+are derived from the same value; the pacer allows 25% overhead/recovery
+headroom and a bounded burst. Audio and packet/network overhead are additional
+to the configured video rate. This is a manually configurable ceiling, not
+automatic congestion control. Smaller rates trade image quality for bandwidth. At very low rates, reduce
+the frame rate or display size as well: hardware rate control can overshoot
+its target, especially around keyframes; the bounded pacer does not add an
+unbounded delay queue.
+
 The direct WebRTC console provides video, guest audio and microphone (with a
 QSM Console Audio Device), keyboard, pointer, scrolling, dynamic Display1
 resolution, and optional guest clipboard integration. For clipboard install the matching `qsm-desktop-agent` package

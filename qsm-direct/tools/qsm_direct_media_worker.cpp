@@ -188,6 +188,7 @@ struct Options {
     std::optional<std::string> fallback_encoder;
     std::optional<std::string> vaapi_device;
     std::uint32_t fps {60U};
+    std::uint32_t video_bitrate_kbps {8000U};
     std::optional<Size> initial_size;
     // Standard VGA exposes Display1 scanout but QEMU deliberately does not
     // implement Console.SetUIInfo for it. CPU Display1 must keep streaming
@@ -206,6 +207,7 @@ struct Options {
         << "  --encoder NAME              FFmpeg encoder matching --codec (default: libx264)\n"
         << "  --fallback-encoder libx264  recover an automatic hardware encoder at runtime\n"
         << "  --vaapi-device /dev/dri/renderD<N>  VA-API node for *_vaapi\n"
+        << "  --video-bitrate-kbps N      video ceiling, 500..100000 kbit/s (default: 8000)\n"
         << "  --fps N                     10..240 (default: 60)\n"
         << "  --initial-size WIDTHxHEIGHT request initial guest scanout\n"
         << "  --allow-unsupported-ui-info retain a fixed scanout when its adapter"
@@ -316,6 +318,8 @@ Options parse_options(int argc, char **argv) {
             options.fallback_encoder = std::string(next(index, argument));
         } else if (argument == "--vaapi-device") {
             options.vaapi_device = std::string(next(index, argument));
+        } else if (argument == "--video-bitrate-kbps") {
+            options.video_bitrate_kbps = parse_integer<std::uint32_t>(next(index, argument), "video bitrate");
         } else if (argument == "--fps") {
             options.fps = parse_integer<std::uint32_t>(next(index, argument), "frame rate");
         } else if (argument == "--initial-size") {
@@ -327,6 +331,9 @@ Options parse_options(int argc, char **argv) {
         } else {
             throw WorkerError("unknown option: " + std::string(argument));
         }
+    }
+    if (options.video_bitrate_kbps < 500U || options.video_bitrate_kbps > 100'000U) {
+        throw WorkerError("video bitrate is outside 500..100000 kbit/s");
     }
     const bool wlroots = !options.wlroots_root.empty() || !options.wlroots_dir.empty();
     if (wlroots && (options.wlroots_root.empty() || options.wlroots_dir.empty())) {
@@ -603,7 +610,7 @@ public:
     };
 
     LibavH264Encoder(std::uint32_t width, std::uint32_t height, std::uint32_t fps,
-                     const std::string &encoder) {
+                     const std::string &encoder, std::uint32_t bitrate_kbps = 8000U) {
         if (width == 0U || height == 0U || width > static_cast<std::uint32_t>(INT_MAX) ||
             height > static_cast<std::uint32_t>(INT_MAX) || fps == 0U ||
             fps > static_cast<std::uint32_t>(INT_MAX)) {
@@ -627,9 +634,9 @@ public:
         context_->framerate = AVRational {static_cast<int>(fps), 1};
         context_->gop_size = 30;
         context_->max_b_frames = 0;
-        context_->bit_rate = 8'000'000;
-        context_->rc_max_rate = 8'000'000;
-        context_->rc_buffer_size = static_cast<int>(8'000'000U / fps);
+        context_->bit_rate = static_cast<std::int64_t>(bitrate_kbps) * 1000;
+        context_->rc_max_rate = context_->bit_rate;
+        context_->rc_buffer_size = static_cast<int>(context_->bit_rate / fps);
         context_->flags |= AV_CODEC_FLAG_LOW_DELAY;
         // Two slice threads give useful
         // parallelism without frame-thread reordering latency.
@@ -758,9 +765,9 @@ public:
 
     DirectMediaAdapter(PacketSink &sink, std::string codec, std::string encoder,
                        std::optional<std::string> fallback_encoder,
-                       std::optional<std::string> vaapi_device, std::uint32_t fps)
+                       std::optional<std::string> vaapi_device, std::uint32_t fps, std::uint32_t video_bitrate_kbps)
         : sink_(sink), codec_(std::move(codec)), encoder_(std::move(encoder)), fallback_encoder_(std::move(fallback_encoder)),
-          vaapi_device_(std::move(vaapi_device)), fps_(fps) {}
+          vaapi_device_(std::move(vaapi_device)), fps_(fps), video_bitrate_kbps_(video_bitrate_kbps) {}
 
     ~DirectMediaAdapter() override { stop(); }
 
@@ -1036,7 +1043,7 @@ private:
             // Explicit I-frame requests go straight to libavcodec/NVENC.
             // Restarting an ffmpeg process for PLI pauses capture, emits a
             // bootstrap burst, and can trigger another bounded-queue overrun.
-            h264_encoder_ = std::make_unique<LibavH264Encoder>(width, height, fps_, encoder_);
+            h264_encoder_ = std::make_unique<LibavH264Encoder>(width, height, fps_, encoder_, video_bitrate_kbps_);
             width_ = width;
             height_ = height;
             return;
@@ -1075,6 +1082,9 @@ private:
                 "-filter_threads", "1", "-filter_complex_threads", "1", "-thread_queue_size", "1",
                 "-f", "rawvideo", "-pixel_format", "bgra", "-video_size", dimensions,
                 "-framerate", fps, "-i", "pipe:0", "-an", "-c:v", encoder_, "-flags", "low_delay",
+                "-b:v", std::to_string(video_bitrate_kbps_ * 1000U),
+                "-maxrate", std::to_string(video_bitrate_kbps_ * 1000U),
+                "-bufsize", std::to_string(video_bitrate_kbps_ * 1000U / fps_),
             };
             if (std::string_view(encoder_).ends_with("_vaapi")) {
                 arguments.insert(arguments.end(), {"-vaapi_device", *vaapi_device_, "-vf", "format=nv12,hwupload"});
@@ -1089,8 +1099,7 @@ private:
                                                    // produces huge periodic IDRs which overflow a VPN queue.
                                                    // Plain VBR retains a one-frame VBV budget without padding
                                                    // an idle desktop with CBR filler NALs.
-                                                   "-rc", "vbr", "-b:v", "8M", "-maxrate", "8M",
-                                                   "-bufsize", std::to_string(8'000'000U / fps_),
+                                                   "-rc", "vbr",
                                                    "-g", "30", "-bf", "0"});
             } else if (encoder_ == "libx264") {
                 // Keep software H.264 on slice, rather than frame, threads.
@@ -1101,8 +1110,6 @@ private:
                 // fallback.
                 arguments.insert(arguments.end(), {"-threads", "2", "-thread_type", "slice", "-slices", "2",
                                                    "-preset", "ultrafast", "-tune", "zerolatency",
-                                                   "-b:v", "8M", "-maxrate", "8M",
-                                                   "-bufsize", std::to_string(8'000'000U / fps_),
                                                    "-x264-params", "aud=1:keyint=30:min-keyint=30:scenecut=0:bframes=0:repeat-headers=1"});
             }
             // FFmpeg's NVENC default is an effectively unbounded output
@@ -1324,6 +1331,7 @@ private:
     std::optional<std::string> fallback_encoder_;
     std::optional<std::string> vaapi_device_;
     std::uint32_t fps_ {};
+    std::uint32_t video_bitrate_kbps_ {};
     std::atomic<bool> running_ {false};
     std::atomic<bool> force_idr_ {false};
     std::atomic<std::uint64_t> keyframe_requests_ {};
@@ -1821,7 +1829,7 @@ private:
 int run(const Options &options) {
     PacketSink sink(options.video_socket, options.audio_socket);
     DirectMediaAdapter media(sink, options.codec, options.encoder, options.fallback_encoder,
-                             options.vaapi_device, options.fps);
+                             options.vaapi_device, options.fps, options.video_bitrate_kbps);
     if (!options.wlroots_root.empty()) {
 #ifdef QMDP_HAS_WLROOTS
         qmdp::WlrootsDisplayOptions wlroots_options;

@@ -1,0 +1,55 @@
+{"encoder":"h264_nvenc","bitrate_kbps":500,"frames":120,"decoded":120,"forced_idrs":3,"keys":7,"max_frame_bytes":4393,"mbps":1.05044,"max_encode_ms":5.51524}
+[libx264 @ 0x5fca97023500] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x5fca97023500] profile Constrained Baseline, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x5fca97023500] VBV underflow (frame 0, -22304 bits)
+[libx264 @ 0x5fca97023500] VBV underflow (frame 7, -16800 bits)
+[libx264 @ 0x5fca97023500] VBV underflow (frame 17, -16792 bits)
+[libx264 @ 0x5fca97023500] VBV underflow (frame 47, -16800 bits)
+[libx264 @ 0x5fca97023500] VBV underflow (frame 49, -16792 bits)
+[libx264 @ 0x5fca97023500] VBV underflow (frame 79, -16800 bits)
+[libx264 @ 0x5fca97023500] VBV underflow (frame 109, -16792 bits)
+[libx264 @ 0x5fca97023500] frame I:7     Avg QP:51.00  size:  3198
+[libx264 @ 0x5fca97023500] frame P:113   Avg QP:51.00  size:   766
+[libx264 @ 0x5fca97023500] mb I  I16..4: 100.0%  0.0%  0.0%
+[libx264 @ 0x5fca97023500] mb P  I16..4:  2.2%  0.0%  0.0%  P16..4:  4.0%  0.0%  0.0%  0.0%  0.0%    skip:93.9%
+[libx264 @ 0x5fca97023500] coded y,uvDC,uvAC intra: 0.0% 15.3% 0.1% inter: 0.0% 3.3% 0.0%
+[libx264 @ 0x5fca97023500] i16 v,h,dc,p: 80% 14%  5%  0%
+[libx264 @ 0x5fca97023500] i8c dc,h,v,p: 89%  7%  4%  0%
+[libx264 @ 0x5fca97023500] kb/s:435.87
+{"encoder":"libx264","bitrate_kbps":500,"frames":120,"decoded":120,"forced_idrs":3,"keys":7,"max_frame_bytes":3788,"mbps":0.435872,"max_encode_ms":5.66127}
+{"encoder":"h264_nvenc","bitrate_kbps":4000,"frames":120,"decoded":120,"forced_idrs":3,"keys":7,"max_frame_bytes":10028,"mbps":3.79434,"max_encode_ms":5.80834}
+[libx264 @ 0x61f022808500] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x61f022808500] profile Constrained Baseline, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x61f022808500] frame I:7     Avg QP:43.44  size:  7161
+[libx264 @ 0x61f022808500] frame P:113   Avg QP:34.56  size:  6755
+[libx264 @ 0x61f022808500] mb I  I16..4: 100.0%  0.0%  0.0%
+[libx264 @ 0x61f022808500] mb P  I16..4: 20.4%  0.0%  0.0%  P16..4: 41.5%  0.0%  0.0%  0.0%  0.0%    skip:38.1%
+[libx264 @ 0x61f022808500] coded y,uvDC,uvAC intra: 0.5% 47.7% 2.7% inter: 0.2% 47.9% 5.3%
+[libx264 @ 0x61f022808500] i16 v,h,dc,p:  9% 41%  2% 47%
+[libx264 @ 0x61f022808500] i8c dc,h,v,p: 40% 14%  7% 39%
+[libx264 @ 0x61f022808500] kb/s:3253.90
+{"encoder":"libx264","bitrate_kbps":4000,"frames":120,"decoded":120,"forced_idrs":3,"keys":7,"max_frame_bytes":7985,"mbps":3.2539,"max_encode_ms":5.44259}
+{"encoder":"h264_nvenc","bitrate_kbps":20000,"frames":120,"decoded":120,"forced_idrs":3,"keys":7,"max_frame_bytes":38897,"mbps":17.3357,"max_encode_ms":5.11546}
+[libx264 @ 0x5b5a9cf97500] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x5b5a9cf97500] profile Constrained Baseline, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x5b5a9cf97500] frame I:7     Avg QP:12.23  size: 37272
+[libx264 @ 0x5b5a9cf97500] frame P:113   Avg QP:10.55  size: 36066
+[libx264 @ 0x5b5a9cf97500] mb I  I16..4: 100.0%  0.0%  0.0%
+[libx264 @ 0x5b5a9cf97500] mb P  I16..4:  6.7%  0.0%  0.0%  P16..4: 93.3%  0.0%  0.0%  0.0%  0.0%    skip: 0.0%
+[libx264 @ 0x5b5a9cf97500] coded y,uvDC,uvAC intra: 28.9% 64.1% 40.5% inter: 5.7% 100.0% 14.5%
+[libx264 @ 0x5b5a9cf97500] i16 v,h,dc,p:  3%  9%  0% 88%
+[libx264 @ 0x5b5a9cf97500] i8c dc,h,v,p:  1%  8%  4% 88%
+[libx264 @ 0x5b5a9cf97500] kb/s:17345.57
+{"encoder":"libx264","bitrate_kbps":20000,"frames":120,"decoded":120,"forced_idrs":3,"keys":7,"max_frame_bytes":39555,"mbps":17.3456,"max_encode_ms":5.93278}
+{"encoder":"h264_nvenc","bitrate_kbps":100000,"frames":120,"decoded":120,"forced_idrs":3,"keys":7,"max_frame_bytes":105114,"mbps":37.2814,"max_encode_ms":5.70391}
+[libx264 @ 0x62c833138500] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x62c833138500] profile Constrained Baseline, level 5.0, 4:2:0, 8-bit
+[libx264 @ 0x62c833138500] frame I:7     Avg QP: 3.36  size:187812
+[libx264 @ 0x62c833138500] frame P:113   Avg QP: 2.24  size:163260
+[libx264 @ 0x62c833138500] mb I  I16..4: 100.0%  0.0%  0.0%
+[libx264 @ 0x62c833138500] mb P  I16..4:  6.2%  0.0%  0.0%  P16..4: 93.8%  0.0%  0.0%  0.0%  0.0%    skip: 0.0%
+[libx264 @ 0x62c833138500] coded y,uvDC,uvAC intra: 90.4% 99.6% 99.6% inter: 66.9% 100.0% 98.1%
+[libx264 @ 0x62c833138500] i16 v,h,dc,p:  3%  9%  0% 87%
+[libx264 @ 0x62c833138500] i8c dc,h,v,p:  1%  8%  4% 87%
+[libx264 @ 0x62c833138500] kb/s:79052.37
+{"encoder":"libx264","bitrate_kbps":100000,"frames":120,"decoded":120,"forced_idrs":3,"keys":7,"max_frame_bytes":191459,"mbps":79.0524,"max_encode_ms":7.09018}

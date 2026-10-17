@@ -84,6 +84,22 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
         self.assertTrue(_managed_display_enabled(config, 321, runtime),
                         "a running VM keeps its console while a change waits for the next start")
 
+    def test_vm_policy_accepts_bounded_video_bitrate(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-bitrate.") as temporary:
+            root = Path(temporary)
+            path = root / "321.conf"
+            for bitrate in ("500", "12000", "100000"):
+                path.write_text("QSM_DIRECT_QEMU_DBUS_ADDRESS=unix:path=/run/qsm/321/qemu-display1.bus\n"
+                                "QSM_DIRECT_BITRATE_KBPS=" + bitrate + "\n")
+                path.chmod(0o600)
+                policy = _load_optional_instance(root, 321, Path("/run/qsm"))
+                self.assertEqual(policy["QSM_DIRECT_BITRATE_KBPS"], bitrate)
+            for bitrate in ("499", "100001", "1.5", "unlimited"):
+                path.write_text("QSM_DIRECT_QEMU_DBUS_ADDRESS=unix:path=/run/qsm/321/qemu-display1.bus\n"
+                                "QSM_DIRECT_BITRATE_KBPS=" + bitrate + "\n")
+                with self.assertRaises(DirectTerminalError):
+                    _load_optional_instance(root, 321, Path("/run/qsm"))
+
     def test_absent_encoder_policy_uses_verified_auto_selection(self) -> None:
         with tempfile.TemporaryDirectory(prefix="qsm-direct-auto-policy.") as temporary:
             root = Path(temporary)

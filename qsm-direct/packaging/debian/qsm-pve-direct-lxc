@@ -298,7 +298,7 @@ def write_policy(vmid: int, uid: int, grace: int) -> None:
     POLICY_DIR.mkdir(mode=0o750, parents=True, exist_ok=True)
     path = POLICY_DIR / f"{vmid}.conf"
     kept = [line for line in (path.read_text().splitlines() if path.exists() else [])
-            if line.startswith(("QSM_DIRECT_CODEC=", "QSM_DIRECT_ENCODER_MODE=", "QSM_DIRECT_ENCODER="))]
+            if line.startswith(("QSM_DIRECT_CODEC=", "QSM_DIRECT_ENCODER_MODE=", "QSM_DIRECT_ENCODER=", "QSM_DIRECT_BITRATE_KBPS="))]
     body = (f"# QSM Direct console for LXC {vmid} (managed by qsm-pve-direct-lxc)\n"
             f"QSM_DIRECT_LXC_UID={uid}\nQSM_DIRECT_LXC_DISPLAY=slots\nQSM_DIRECT_LXC_GRACE={grace}\n")
     body += "".join(f"{line}\n" for line in kept)

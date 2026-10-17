@@ -1149,10 +1149,10 @@
         settingsTitle.textContent = gettext('Console settings');
         settingsTitle.style.cssText = 'font-weight:600;font-size:15px;margin:0 0 8px';
         const settingsHint = document.createElement('p');
-        settingsHint.textContent = gettext('Display controls are saved only in this browser. The VM media policy is saved on this Proxmox node and is applied after this console is closed and reopened.');
+        settingsHint.textContent = gettext('Display controls are saved only in this browser. The guest media policy is saved on this Proxmox node. Changes apply after all consoles for this guest are closed and a new connection is opened.');
         settingsHint.style.cssText = 'margin:0 0 10px;color:#cbd5e1;line-height:1.35';
         const mediaPolicyTitle = document.createElement('div');
-        mediaPolicyTitle.textContent = gettext('This virtual machine — media policy');
+        mediaPolicyTitle.textContent = gettext('This guest — media policy');
         mediaPolicyTitle.style.cssText = 'font-weight:600;margin:0 0 8px';
         const mediaPolicyHint = document.createElement('p');
         mediaPolicyHint.textContent = gettext('Automatic prefers HEVC when this browser offers WebRTC H.265 and this node has a tested hardware encoder, otherwise H.264. Verified with Chrome on Apple silicon and hevc_nvenc. Hardware mode never silently falls back to CPU.');
@@ -1191,10 +1191,22 @@
             option.textContent = label;
             encoderInput.append(option);
         }
-        mediaPolicyForm.append(codecLabel, codecInput, encoderLabel, encoderInput);
+        const bitrateLabel = document.createElement('label');
+        bitrateLabel.htmlFor = 'qsm-direct-video-bitrate';
+        bitrateLabel.textContent = gettext('Maximum video bitrate (Mbit/s)');
+        const bitrateInput = document.createElement('input');
+        bitrateInput.id = 'qsm-direct-video-bitrate';
+        bitrateInput.type = 'number';
+        bitrateInput.min = '0.5';
+        bitrateInput.max = '100';
+        bitrateInput.step = '0.5';
+        bitrateInput.value = '8';
+        bitrateInput.style.cssText = 'width:100%;box-sizing:border-box;padding:4px 6px';
+        bitrateInput.title = gettext('Video encoder ceiling, 0.5–100 Mbit/s. Allow additional bandwidth for audio, packet overhead and recovery.');
+        mediaPolicyForm.append(codecLabel, codecInput, encoderLabel, encoderInput, bitrateLabel, bitrateInput);
         const saveMediaPolicy = document.createElement('button');
         saveMediaPolicy.type = 'button';
-        saveMediaPolicy.textContent = gettext('Save VM media policy');
+        saveMediaPolicy.textContent = gettext('Save guest media policy');
         saveMediaPolicy.style.cssText = 'margin:0 0 14px;padding:4px 9px;cursor:pointer';
         const keyboardPolicyTitle = document.createElement('div');
         keyboardPolicyTitle.textContent = gettext('Keyboard shortcut priority');
@@ -1927,52 +1939,65 @@
             return (await response.json()).data;
         };
         const validVmMediaPolicy = (value) => value && ['auto', 'h264', 'hevc'].includes(value.codec) &&
-            ['auto', 'hardware', 'software'].includes(value.encoder);
+            ['auto', 'hardware', 'software'].includes(value.encoder) &&
+            Number.isInteger(value.bitrate) && value.bitrate >= 500 && value.bitrate <= 100000;
         const loadVmMediaPolicy = async () => {
             if (mediaPolicyLoading || closed) { return; }
             mediaPolicyLoading = true;
             codecInput.disabled = true;
             encoderInput.disabled = true;
+            bitrateInput.disabled = true;
             saveMediaPolicy.disabled = true;
             try {
                 const value = await mediaPolicyRequest('GET', {});
                 if (!validVmMediaPolicy(value)) { throw new Error('invalid VM media policy'); }
                 codecInput.value = value.codec;
                 encoderInput.value = value.encoder;
+                bitrateInput.value = String(value.bitrate / 1000);
             } catch (_error) {
                 // A Console-only user may read an older node during a rolling
                 // upgrade. Keep the active console usable and make the policy
                 // failure explicit instead of pretending a browser-local value
                 // was saved to the VM.
-                status.textContent = gettext('VM media policy is unavailable on this node.');
+                status.textContent = gettext('Guest media policy is unavailable on this node.');
             } finally {
                 mediaPolicyLoading = false;
                 codecInput.disabled = false;
                 encoderInput.disabled = false;
+                bitrateInput.disabled = false;
                 saveMediaPolicy.disabled = false;
             }
         };
         saveMediaPolicy.addEventListener('click', async () => {
+            const bitrateMbit = Number(bitrateInput.value);
+            const bitrate = Math.round(bitrateMbit * 1000);
+            if (!Number.isFinite(bitrateMbit) || bitrateMbit < 0.5 || bitrateMbit > 100 || !Number.isInteger(bitrate) || bitrate < 500 || bitrate > 100000) {
+                status.textContent = gettext('Video bitrate must be between 0.5 and 100 Mbit/s.');
+                return;
+            }
             if (mediaPolicyLoading || !['auto', 'h264', 'hevc'].includes(codecInput.value) ||
                 !['auto', 'hardware', 'software'].includes(encoderInput.value) ||
                 (codecInput.value === 'hevc' && encoderInput.value === 'software')) { return; }
             mediaPolicyLoading = true;
             codecInput.disabled = true;
             encoderInput.disabled = true;
+            bitrateInput.disabled = true;
             saveMediaPolicy.disabled = true;
             try {
                 const value = await mediaPolicyRequest('PUT', {
-                    codec: codecInput.value, encoder: encoderInput.value,
+                    codec: codecInput.value, encoder: encoderInput.value, bitrate,
                 });
                 if (!validVmMediaPolicy(value)) { throw new Error('invalid saved VM media policy'); }
                 encoderInput.value = value.encoder;
-                status.textContent = gettext('VM media policy saved. Close and reopen this console to apply it.');
+                bitrateInput.value = String(value.bitrate / 1000);
+                status.textContent = gettext('Guest media policy saved. Close all consoles for this guest and reconnect to apply it.');
             } catch (_error) {
-                status.textContent = gettext('Could not save VM media policy. You need VM configuration permission.');
+                status.textContent = gettext('Could not save guest media policy. Guest configuration permission is required.');
             } finally {
                 mediaPolicyLoading = false;
                 codecInput.disabled = false;
                 encoderInput.disabled = false;
+                bitrateInput.disabled = false;
                 saveMediaPolicy.disabled = false;
             }
         });

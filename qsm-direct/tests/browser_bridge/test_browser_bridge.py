@@ -60,7 +60,6 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     _h265_offer_details,
     _VideoAssembler,
     _VideoPacer,
-    VIDEO_PACING_BYTES_PER_SECOND,
     VIDEO_PACING_BURST_BYTES,
 )
 
@@ -432,14 +431,37 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pacer.sent_packets, 60)
         self.assertEqual(pacer.sent_bytes, total)
         self.assertGreaterEqual(time.monotonic() - start,
-                                (total - VIDEO_PACING_BURST_BYTES) / VIDEO_PACING_BYTES_PER_SECOND - .001)
+                                (total - pacer._burst) / pacer._rate - .001)
         # Check every observed interval, including after delayed scheduler wakes.
         for first in range(len(sent)):
             for last in range(first, len(sent)):
                 elapsed = sent[last][0] - sent[first][0]
                 emitted = sum(size for _, size in sent[first:last + 1])
-                self.assertLessEqual(emitted, VIDEO_PACING_BURST_BYTES +
-                                     elapsed * VIDEO_PACING_BYTES_PER_SECOND + 100)
+                self.assertLessEqual(emitted, pacer._burst +
+                                     elapsed * pacer._rate + 100)
+
+    async def test_video_pacing_rate_follows_configured_encoder_ceiling(self) -> None:
+        from types import SimpleNamespace
+        from aiortc.rtp import RtpPacket, HeaderExtensionsMap
+        sender = SimpleNamespace(_ssrc=1, _rtx_ssrc=2,
+                                 _RTCRtpSender__rtp_header_extensions_map=HeaderExtensionsMap())
+        packet = RtpPacket(payload_type=102, ssrc=1, payload=b"v" * 1150).serialize()
+        elapsed = []
+        for bitrate in (2000, 20000):
+            pacer = _VideoPacer(bitrate)
+            start = time.monotonic()
+            async def forward(data: bytes) -> None:
+                pass
+            for _ in range(40):
+                await pacer.send(packet, sender, forward)
+            elapsed.append(time.monotonic() - start)
+            self.assertEqual(pacer.sent_packets, 40)
+            self.assertEqual(pacer._rate, bitrate * 1000 / 8 * 1.25)
+        self.assertGreater(elapsed[0], elapsed[1] * 3,
+                           "a 20 Mbps setting must not retain the old 8 Mbps pacing ceiling")
+        for invalid in (0, 499, 100001, True, "8000"):
+            with self.assertRaises(ValueError):
+                _VideoPacer(invalid)
 
     async def test_audio_and_rtcp_bypass_a_waiting_video_packet(self) -> None:
         from types import SimpleNamespace

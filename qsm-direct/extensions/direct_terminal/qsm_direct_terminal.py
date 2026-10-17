@@ -69,6 +69,7 @@ _ENCODER_MODE_PATTERN = re.compile(r"\A(?:auto|hardware|software)\Z")
 _PVE_VM_CONFIG_PATTERN = re.compile(r"\A([1-9][0-9]{1,8})\.conf\Z")
 _ENVIRONMENT_KEYS = frozenset({
     "QSM_DIRECT_QEMU_DBUS_ADDRESS",
+    "QSM_DIRECT_BITRATE_KBPS",
     "QSM_DIRECT_CODEC",
     "QSM_DIRECT_ENCODER",
     "QSM_DIRECT_ENCODER_MODE",
@@ -111,6 +112,13 @@ def _read_root_file(path: Path, *, maximum: int = MAX_REQUEST_BYTES) -> bytes:
         return bytes(content)
     finally:
         os.close(descriptor)
+
+
+def _video_bitrate_kbps(policy: dict[str, str]) -> int:
+    raw = policy.get("QSM_DIRECT_BITRATE_KBPS", "8000")
+    if not re.fullmatch(r"[0-9]{3,6}", raw) or not 500 <= int(raw) <= 100000:
+        raise DirectTerminalError("direct-terminal video bitrate must be 500..100000 kbit/s")
+    return int(raw)
 
 
 def _load_instance(instance_directory: Path, vmid: int, vm_runtime_directory: Path,
@@ -159,6 +167,7 @@ def _load_instance(instance_directory: Path, vmid: int, vm_runtime_directory: Pa
             raise DirectTerminalError("direct-terminal encoder and browser codec disagree")
     if encoder.startswith("hevc_") and codec == "h264":
         raise DirectTerminalError("direct-terminal encoder and browser codec disagree")
+    _video_bitrate_kbps(values)
     return values
 
 
@@ -439,6 +448,7 @@ _CONTAINER_KEYS = frozenset({
     "QSM_DIRECT_LXC_DISPLAY",
     "QSM_DIRECT_LXC_SLOTS",
     "QSM_DIRECT_LXC_GRACE",
+    "QSM_DIRECT_BITRATE_KBPS",
     "QSM_DIRECT_CODEC",
     "QSM_DIRECT_ENCODER_MODE",
     "QSM_DIRECT_ENCODER",
@@ -505,6 +515,7 @@ def _load_container_instance(directory: Path, vmid: int) -> dict[str, str] | Non
     encoder = values["QSM_DIRECT_ENCODER"]
     if encoder != "auto" and not _ENCODER_PATTERN.fullmatch(encoder):
         raise DirectTerminalError("direct-terminal container has an invalid encoder")
+    _video_bitrate_kbps(values)
     return values
 
 
@@ -938,6 +949,7 @@ class DirectVmTransport:
     directory: Path
     qemu_generation: str
     codec: str
+    video_bitrate_kbps: int = 8000
     guest: QsmGuestChannel | None = None
     kind: str = "vm"  # "vm" (QEMU Display1) or "lxc" (container wlroots display)
     # Attached by qemu-server (vga: ...,dbus=1, webrtcproxy) over a passed
@@ -1397,7 +1409,7 @@ class DirectSessionManager:
         bridge = BrowserWebRtcBridge(
             directory, fps=fps, expected_producer_uid=os.geteuid(),
             shared_media=transport.media, shared_input=transport.input,
-            video_codec=transport.codec,
+            video_codec=transport.codec, video_bitrate_kbps=transport.video_bitrate_kbps,
             guest_dispatch=transport.guest.dispatch if transport.guest is not None else None,
             on_microphone=transport.microphone,
             on_terminal=retire_browser_peer)
@@ -1587,6 +1599,7 @@ class DirectSessionManager:
                 "--codec", codec,
                 "--encoder", encoder,
                 "--fps", str(fps),
+                "--video-bitrate-kbps", str(_video_bitrate_kbps(policy)),
                 "--initial-size", f"{width}x{height}",
             ]
             if profile == "cpu":
@@ -1631,7 +1644,7 @@ class DirectSessionManager:
             pcm = PcmLink(pcm_ours)
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
-                qemu_generation=generation, codec=codec, guest=guest,
+                qemu_generation=generation, codec=codec, video_bitrate_kbps=_video_bitrate_kbps(policy), guest=guest,
                 attached_by_pve=display_fd is not None or shared_profile is not None, pcm=pcm,
                 microphone=MicrophoneRoute(lambda data: pcm.send(PCM_MICROPHONE, data)))
             self._transports[vmid] = transport
@@ -1712,6 +1725,7 @@ class DirectSessionManager:
                 "--codec", codec,
                 "--encoder", encoder,
                 "--fps", str(fps),
+                "--video-bitrate-kbps", str(_video_bitrate_kbps(policy)),
                 "--initial-size", f"{width}x{height}",
             ]
             if (codec == "h264" and configured_encoder == "auto" and encoder_mode == "auto" and
@@ -1751,7 +1765,7 @@ class DirectSessionManager:
                      if slot is not None else None)
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
-                qemu_generation=generation, codec=codec, guest=guest, kind="lxc", pcm=pcm,
+                qemu_generation=generation, codec=codec, video_bitrate_kbps=_video_bitrate_kbps(policy), guest=guest, kind="lxc", pcm=pcm,
                 audio_relay=relay,
                 microphone=MicrophoneRoute(relay.microphone) if relay is not None else None)
             self._transports[key] = transport
@@ -1972,7 +1986,7 @@ class DirectSessionManager:
             raise DirectTerminalError(
                 f"direct-terminal WebRTC negotiation failed: {type(error).__name__}") from error
 
-    def webrtc_settings(self, request: Any) -> dict[str, str]:
+    def webrtc_settings(self, request: Any) -> dict[str, Any]:
         """Codec policy on the root-only API service socket.
 
         The PVE API checks VM.Console for reads and VM.Config.Options for
@@ -2003,9 +2017,9 @@ class DirectSessionManager:
         try:
             if settings is None:
                 return store.read(request["vmid"])
-            if not isinstance(settings, dict) or set(settings) != {"codec", "encoder"}:
+            if not isinstance(settings, dict) or set(settings) not in ({"codec", "encoder"}, {"codec", "encoder", "bitrate"}):
                 raise DirectTerminalError("invalid WebRTC settings")
-            return store.write(request["vmid"], settings["codec"], settings["encoder"])
+            return store.write(request["vmid"], settings["codec"], settings["encoder"], settings.get("bitrate"))
         except (SignalError, TypeError) as error:
             raise DirectTerminalError("invalid or unavailable WebRTC settings") from error
 

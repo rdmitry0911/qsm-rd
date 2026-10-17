@@ -1,0 +1,8 @@
+Internal ctest changing into directory: /tmp/qsm-local-cursor/tests-build
+Test project /tmp/qsm-local-cursor/tests-build
+    Start 1: qsm_shared_display
+1/1 Test #1: qsm_shared_display ...............   Passed    0.29 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.30 sec

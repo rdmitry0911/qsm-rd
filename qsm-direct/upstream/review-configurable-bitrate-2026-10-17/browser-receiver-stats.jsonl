@@ -1,0 +1,1 @@
+{"measuredAtMs": 71899, "jitterBufferTarget": 0, "playoutDelayHint": null, "jitterBufferDelay": 86.963832, "jitterBufferEmittedCount": 4104, "framesDecoded": 4104, "framesDropped": 0, "framesReceived": 4105, "packetsLost": 0, "freezeCount": 0, "totalFreezesDuration": 0, "pliCount": 0, "nackCount": 0, "bytesReceived": 25157642}

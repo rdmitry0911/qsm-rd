@@ -46,6 +46,12 @@ class ContainerPolicyTests(unittest.TestCase):
         self.assertEqual((policy["QSM_DIRECT_LXC_DISPLAY"], policy["QSM_DIRECT_LXC_SLOTS"],
                           policy["QSM_DIRECT_LXC_GRACE"]), ("slots", "2", "300"))
 
+    def test_video_bitrate_is_bounded_and_retained(self) -> None:
+        self.assertEqual(self.load("QSM_DIRECT_BITRATE_KBPS=20000\n")["QSM_DIRECT_BITRATE_KBPS"], "20000")
+        for value in ("499", "100001", "unlimited", "1.5", "-500", "true"):
+            with self.assertRaises(DirectTerminalError):
+                self.load("QSM_DIRECT_BITRATE_KBPS=" + value + "\n")
+
     def test_display_mode_is_an_enum_not_a_path(self) -> None:
         for line in ("QSM_DIRECT_LXC_DISPLAY=../../etc", "QSM_DIRECT_LXC_DISPLAY=run/qsm-display",
                      "QSM_DIRECT_LXC_DISPLAY=system", "QSM_DIRECT_LXC_DISPLAY=",

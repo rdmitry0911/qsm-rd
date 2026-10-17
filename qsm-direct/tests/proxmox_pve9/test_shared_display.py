@@ -98,7 +98,7 @@ class SharedDisplayTests(unittest.TestCase):
         policy = self.container_policy()
         manager = self.manager()
         request = {"version": 2, "kind": "lxc", "vmid": 105, "user": "u@pve", "settings": None}
-        self.assertEqual(manager.webrtc_settings(request), {"codec": "auto", "encoder": "auto"})
+        self.assertEqual(manager.webrtc_settings(request), {"codec": "auto", "encoder": "auto", "bitrate": 8000})
         value = manager.webrtc_settings({**request, "settings": {"codec": "h264", "encoder": "hardware"}})
         self.assertEqual(manager.webrtc_settings(request), value)
         self.assertIn("QSM_DIRECT_LXC_DISPLAY=slots\n", policy.read_text())
@@ -175,11 +175,30 @@ class SharedDisplayTests(unittest.TestCase):
     def test_settings_round_trip_and_invalid_combinations(self):
         manager = self.manager()
         request = {"version": 2, "vmid": 321, "user": "u@pve", "settings": None}
-        self.assertEqual(manager.webrtc_settings(request), {"codec": "auto", "encoder": "auto"})
+        self.assertEqual(manager.webrtc_settings(request), {"codec": "auto", "encoder": "auto", "bitrate": 8000})
         result = manager.webrtc_settings({**request, "settings": {"codec": "h264", "encoder": "software"}})
         self.assertEqual(manager.webrtc_settings(request), result)
         with self.assertRaises(DirectTerminalError):
             manager.webrtc_settings({**request, "settings": {"codec": "hevc", "encoder": "software"}})
+
+    def test_bitrate_round_trip_for_both_guest_kinds(self):
+        self.container_policy()
+        manager = self.manager()
+        for kind, vmid in (("qemu", 321), ("lxc", 105)):
+            request = {"version": 2, "kind": kind, "vmid": vmid, "user": "u@pve", "settings": None}
+            for bitrate in (500, 12500, 20000, 100000):
+                value = manager.webrtc_settings({**request, "settings": {
+                    "codec": "h264", "encoder": "auto", "bitrate": bitrate}})
+                self.assertEqual(value["bitrate"], bitrate)
+                self.assertEqual(manager.webrtc_settings(request), value)
+                # An older client's codec change keeps the administrator's limit.
+                self.assertEqual(manager.webrtc_settings({**request, "settings": {
+                    "codec": "auto", "encoder": "auto"}})["bitrate"], bitrate)
+            for invalid in (499, 100001, True, "20000", 1.5):
+                with self.assertRaises(DirectTerminalError):
+                    manager.webrtc_settings({**request, "settings": {
+                        "codec": "h264", "encoder": "auto", "bitrate": invalid}})
+                self.assertEqual(manager.webrtc_settings(request)["bitrate"], 100000)
 
     def test_settings_preserve_node_local_encoder_choices(self):
         f = self.policy / "321.conf"

@@ -1,0 +1,24 @@
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+ok 1 - PVE::API2::Qemu keeps write ACL
+ok 2 - PVE::API2::Qemu accepts old clients without bitrate
+ok 3 - PVE::API2::Qemu accepts bitrate 500
+ok 4 - PVE::API2::Qemu accepts bitrate 8000
+ok 5 - PVE::API2::Qemu accepts bitrate 20000
+ok 6 - PVE::API2::Qemu accepts bitrate 100000
+ok 7 - PVE::API2::Qemu rejects bitrate 0
+ok 8 - PVE::API2::Qemu rejects bitrate 499
+ok 9 - PVE::API2::Qemu rejects bitrate 100001
+ok 10 - PVE::API2::Qemu rejects bitrate 1.5
+ok 11 - PVE::API2::Qemu rejects bitrate unlimited
+ok 12 - PVE::API2::LXC keeps write ACL
+ok 13 - PVE::API2::LXC accepts old clients without bitrate
+ok 14 - PVE::API2::LXC accepts bitrate 500
+ok 15 - PVE::API2::LXC accepts bitrate 8000
+ok 16 - PVE::API2::LXC accepts bitrate 20000
+ok 17 - PVE::API2::LXC accepts bitrate 100000
+ok 18 - PVE::API2::LXC rejects bitrate 0
+ok 19 - PVE::API2::LXC rejects bitrate 499
+ok 20 - PVE::API2::LXC rejects bitrate 100001
+ok 21 - PVE::API2::LXC rejects bitrate 1.5
+ok 22 - PVE::API2::LXC rejects bitrate unlimited
+1..22

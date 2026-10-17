@@ -1,0 +1,81 @@
+Configurable VM / LXC video bitrate, 2026-10-17
+===========================================
+
+The user requested a configurable or adaptive replacement for shared17's
+fixed 8 Mbit/s encoder ceiling. This change implements a persistent manual
+setting; it does not claim automatic congestion control.
+
+Behaviour:
+- Settings -> This guest - media policy -> Maximum video bitrate (Mbit/s).
+  Range 0.5..100, decimal Mbit/s; default 8 for existing/unconfigured policies.
+- Native GET/PUT webrtcsettings exposes optional integer 'bitrate', 500..100000
+  decimal kbit/s. GET retains VM.Console, PUT retains VM.Config.Options.
+- Policy files store QSM_DIRECT_BITRATE_KBPS in instances.d for VMs or
+  containers.d for LXC. Codec/encoder edits by older clients preserve the
+  existing bitrate when the new field is omitted. The LXC setup helper also
+  preserves it. Invalid types/ranges do not overwrite a valid policy.
+- All viewers for a guest share an encoder. Closing the last viewer retires
+  it; the next connection applies the saved policy without restarting the
+  VM/container or compositor. A viewer joining an existing producer uses
+  that producer's actual rate for pacing, even if a new policy is pending.
+- Both capture paths pass --video-bitrate-kbps to the common media worker.
+  It drives bit_rate, rc_max_rate and one-frame VBV in in-process NVENC/libx264
+  and the FFmpeg hardware/software launcher. The per-peer video/RTX pacer
+  derives its rate from the same producer setting with 25% overhead/recovery
+  headroom. Burst credit is bounded to two milliseconds or at least 2400
+  bytes, allowing rates above 8 Mbit/s despite event-loop timer granularity.
+  Bundled audio/RTCP and the separate data/control path still bypass pacing.
+
+Implementation/review:
+- QSM host/LXC helper version 0.4.0+shared18.
+- qemu-server 9.2.11+shared3; additive API patch 0003 in webrtc-qemu-server.
+- pve-container 6.1.13+webrtc2; additive API patch 0002 in webrtc-pve-container.
+  These match the base versions already installed on the qualification node.
+- Complete corresponding API-package sources and patches accompany the release.
+  Existing native guest/Sway/SDDM packages are compatible and need no update.
+
+Validation:
+- 32 bridge tests: parameter validation, changed pacing throughput at 2 vs
+  20 Mbit/s, bounded burst, RTP/RTX sharing, timestamp refresh, audio/RTCP
+  bypass, reference-chain recovery and VPN packet-size coverage.
+- 10 policy/signalling tests; 34 terminal tests; shared-display settings tests
+  exercise both guest kinds, all range boundaries, rejected values and old
+  client preservation. The first CTest run required expected API dictionaries
+  to include the new field; the final full run passes all 16 CTest suites.
+- Native Perl JSON schema tests: 22 cases across the two APIs, including
+  absent optional field, 500/8000/20000/100000, invalid values and retained ACL.
+- Both Proxmox packages build with their normal test suites. The restricted
+  build environment uses upstream's /run/lock/sbuild guard to skip container
+  user-namespace tests. QEMU's RNG fixture needed a temporary single-device
+  urandom bind in the private chroot; it was unmounted afterwards. No host
+  /dev tree was mounted or modified. Remaining lintian output is existing
+  manpage formatting warnings.
+- Exact production LibavH264Encoder extracted and compiled for the actual PVE
+  host: NVENC and libx264 each encode/decode all 120 synthetic frames at
+  500/4000/20000/100000 kbit/s, with three nonperiodic IDRs in one instance.
+  At 20000, measured encoded output is approximately 17.34 Mbit/s for both:
+  the previous 8 Mbit/s ceiling is gone. Full numeric results are included.
+- Actual PVE-authenticated Firefox, CT108: Settings reads 8, saves 20 via PUT;
+  the next Console reads 20 and starts the worker with --video-bitrate-kbps
+  20000. Settings then saves 4. VM103 native API independently saves/reads
+  20000 and rejects 100001 with HTTP 400; its original policy is restored.
+  No legacy 8007 requests. See browser-results.txt for the final round trip.
+
+Limits:
+This is a rate-control target/maximum plus a paced transport budget, not an
+exact bound on every encoded frame or total wire traffic. Audio, overhead and
+retransmissions are additional. At very low rates hardware rate control may
+overshoot: this synthetic 500 kbit/s NVENC run averaged about 1.05 Mbit/s over
+its first 120 frames (libx264 about 0.44). Reduce FPS/display size at low rates;
+low-bitrate high-motion playback is not qualified by successful decoding of
+the probe. The existing bounded queue may request recovery when the chosen
+rate cannot sustain the source. Dynamic REMB-to-encoder adaptation remains
+future work. QSV/VA-API and live HEVC playback were not available for this run.
+
+Deployment:
+Installed host/LXC-helper shared18, qemu-server shared3 and pve-container
+webrtc2 on 192.168.64.20. Reloaded PVE management daemons to load API schemas;
+no VM/container/compositor restart. CT105 was at its existing native greeter
+throughout installation. VM103/104 retain QEMU PIDs 2792970/2104260. CT108's
+media policy is restored to its original 8 Mbit/s/software configuration after
+qualification. Node 172.16.16.17 was not changed in this follow-up.

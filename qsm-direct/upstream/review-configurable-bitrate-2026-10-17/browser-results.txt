@@ -1,0 +1,14 @@
+Authenticated PVE GUI / Firefox / CT108, native API on 8006:
+- New Settings field reads the default 8 Mbit/s.
+- Actual UI PUT saves 20 Mbit/s, API returns bitrate=20000.
+- Next new Console shows 20 Mbit/s and worker command line contains
+  --video-bitrate-kbps 20000 (libx264); no guest/compositor restart.
+- Actual UI PUT also saves 4 Mbit/s, API returns bitrate=4000.
+- Native VM103 API saves/reads 20000 and rejects 100001 with HTTP 400.
+  The original VM media policy was restored in the test's finally block.
+- No requests to legacy port 8007.
+- After another reconnect, Settings reads 4 and the new worker has
+  --video-bitrate-kbps 4000. Firefox reports 4104 decoded frames, zero
+  packet loss, frame drops, freezes or PLIs on the greeter stream.
+- The actual Settings UI restores CT108 to 8 Mbit/s/software; all lab
+  viewers are closed. VM103/104 QEMU PIDs remain unchanged.

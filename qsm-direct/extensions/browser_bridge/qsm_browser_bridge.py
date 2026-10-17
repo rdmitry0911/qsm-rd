@@ -76,9 +76,8 @@ MAX_GUEST_CONTROL_MESSAGE_BYTES = 2 * 1024 * 1024
 # Payload budget leaves room for RTP extensions, SRTP authentication, RTX,
 # UDP and IPv6 even on a VPN path whose MTU is only 1280–1300 bytes.
 VIDEO_RTP_PAYLOAD_MAX = 1150
-# Encoders use an 8 Mbps ceiling. Allow RTP/SRTP/IP overhead and recovery,
+# Default encoder ceiling is 8 Mbps. Allow RTP/SRTP/IP overhead and recovery,
 # but never flush a whole IDR at LAN speed into a routed VPN's small queue.
-VIDEO_PACING_BYTES_PER_SECOND = 10_000_000 / 8
 VIDEO_PACING_BURST_BYTES = 2400
 VIDEO_TIME_BASE = Fraction(1, 90_000)
 AUDIO_TIME_BASE = Fraction(1, 48_000)
@@ -108,14 +107,20 @@ _H264_PACKETIZER_INSTALLED = False
 class _VideoPacer:
     """Per-peer token bucket, with backpressure and no extra media queue.
 
-    A late event-loop wake may release at most two packets, not all the
+    A late event-loop wake releases only a bounded burst, never all the
     accumulated idle-time credit. RTP and RTX share the budget. Audio, RTCP
     and SCTP never acquire this lock.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, video_bitrate_kbps: int = 8000) -> None:
+        if type(video_bitrate_kbps) is not int or not 500 <= video_bitrate_kbps <= 100000:
+            raise ValueError("video bitrate must be 500..100000 kbit/s")
+        self._rate = video_bitrate_kbps * 1000 / 8 * 1.25
+        # Retain two-packet pacing at the default; at higher rates permit
+        # two milliseconds of credit so timer granularity does not cap LAN use.
+        self._burst = max(VIDEO_PACING_BURST_BYTES, int(self._rate * .002))
         self._lock = asyncio.Lock()
-        self._tokens = float(VIDEO_PACING_BURST_BYTES)
+        self._tokens = float(self._burst)
         self._updated = time.monotonic()
         self.sent_packets = 0
         self.sent_bytes = 0
@@ -132,13 +137,13 @@ class _VideoPacer:
         async with self._lock:
             while True:
                 now = time.monotonic()
-                self._tokens = min(VIDEO_PACING_BURST_BYTES,
-                                   self._tokens + (now - self._updated) * VIDEO_PACING_BYTES_PER_SECOND)
+                self._tokens = min(self._burst,
+                                   self._tokens + (now - self._updated) * self._rate)
                 self._updated = now
                 if self._tokens >= cost:
                     self._tokens -= cost
                     break
-                await asyncio.sleep((cost - self._tokens) / VIDEO_PACING_BYTES_PER_SECOND)
+                await asyncio.sleep((cost - self._tokens) / self._rate)
             # abs-send-time must describe transmission, not entry into the
             # pacer, otherwise receiver bandwidth estimates include our wait.
             extension_map = sender._RTCRtpSender__rtp_header_extensions_map
@@ -1236,7 +1241,7 @@ class BrowserWebRtcBridge:
                  shared_input: UnixInputEgress | None = None,
                  guest_dispatch: Callable[[Any], dict[str, Any]] | None = None,
                  on_terminal: Callable[[], None] | None = None,
-                 video_codec: str = "h264",
+                 video_codec: str = "h264", video_bitrate_kbps: int = 8000,
                  on_microphone: Callable[[object, bytes], None] | None = None) -> None:
         if video_codec not in VIDEO_CODECS:
             raise BridgeError("invalid direct browser video codec")
@@ -1278,7 +1283,7 @@ class BrowserWebRtcBridge:
         self.input = shared_input or UnixInputEgress(
             runtime_directory, expected_uid=expected_producer_uid)
         self._last_keyframe_request = float("-inf")
-        self._video_pacer = _VideoPacer()
+        self._video_pacer = _VideoPacer(video_bitrate_kbps)
         self.video_track.on_keyframe_required = self._request_video_keyframe
         self._guest_dispatch = guest_dispatch
         # The terminal service owns the lifetime of the shared producer.  A

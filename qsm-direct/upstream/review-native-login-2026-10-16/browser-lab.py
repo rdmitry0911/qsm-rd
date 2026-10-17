@@ -84,6 +84,51 @@ async def main():
                     from dispatch_probe import measure_dispatch
                     name=command['name'];assert re.fullmatch('[a-z0-9-]+',name)
                     await measure_dispatch(popup,Path(os.environ.get('QSM_LAB_ARTIFACTS','/tmp/qsm-lxc-native-login'))/(name+'.json'))
+                elif op=='vm_policy_api':
+                    result=await page.evaluate("""async () => {
+                        const api=async(method,params)=>{
+                            const response=await fetch('/api2/json/nodes/Vilnius/qemu/103/webrtcsettings',{
+                                method,credentials:'same-origin',headers:{CSRFPreventionToken:Proxmox.CSRFPreventionToken},
+                                ...(method==='GET'?{}:{body:new URLSearchParams(params)})});
+                            const result=await response.json();
+                            return {status:response.status,data:result.data};
+                        };
+                        const before=await api('GET');
+                        if(before.status!==200) throw Error('VM policy read failed');
+                        try {
+                            const saved=await api('PUT',{...before.data,bitrate:20000});
+                            const read=await api('GET');
+                            const rejected=await api('PUT',{...before.data,bitrate:100001});
+                            if(saved.status!==200||read.data.bitrate!==20000||rejected.status!==400)
+                                throw Error('VM policy API qualification failed');
+                            return {read:read.data,rejected:rejected.status};
+                        } finally {
+                            const restored=await api('PUT',before.data);
+                            if(restored.status!==200) throw Error('VM policy restore failed');
+                        }
+                    }""")
+                    print('VM_POLICY_API',json.dumps(result),flush=True)
+                elif op=='media_policy':
+                    # Exercise the real Settings UI and its authenticated PVE API.
+                    assert VMID==108
+                    await popup.mouse.move(1,100)
+                    await popup.wait_for_timeout(900)
+                    await popup.get_by_role('button',name='Console settings',exact=True).click()
+                    field=popup.locator('#qsm-direct-video-bitrate')
+                    await field.wait_for(state='visible')
+                    await popup.wait_for_function("!document.querySelector('#qsm-direct-video-bitrate').disabled")
+                    before=await field.input_value()
+                    if 'mbps' in command:
+                        await field.fill(str(command['mbps']))
+                        async with page.expect_response(lambda r:r.request.method=='PUT' and '/lxc/108/webrtcsettings' in r.url) as response:
+                            await popup.get_by_role('button',name='Save guest media policy',exact=True).click()
+                        reply=await response.value
+                        assert reply.status==200, 'media policy write failed'
+                        value=(await reply.json())['data']
+                        assert value['bitrate']==round(float(command['mbps'])*1000)
+                        print('MEDIA_POLICY_SAVED',json.dumps(value),flush=True)
+                    else:print('MEDIA_POLICY_READ',before,flush=True)
+                    await popup.get_by_role('button',name='Close',exact=True).click()
                 elif op=='receiver_stats':
                     stats=await page.evaluate("""async () => {
                         const peer=window.qsmLabPeers.at(-1);

@@ -1,0 +1,87 @@
+Internal ctest changing into directory: /tmp/qsm-local-cursor/tests-build
+Test project /tmp/qsm-local-cursor/tests-build
+      Start  1: qsm_shared_display
+ 1/16 Test  #1: qsm_shared_display ...................***Failed    0.29 sec
+test_cpu_preserves_adapter_and_guest_channel (__main__.MigrationTests.test_cpu_preserves_adapter_and_guest_channel) ... ok
+test_gl_replaces_owned_devices_and_keeps_other_arguments (__main__.MigrationTests.test_gl_replaces_owned_devices_and_keeps_other_arguments) ... ok
+test_rejects_foreign_display_or_conflicting_audio (__main__.MigrationTests.test_rejects_foreign_display_or_conflicting_audio) ... ok
+test_a_native_vm_never_provisions_a_package_owned_bus (__main__.SharedDisplayTests.test_a_native_vm_never_provisions_a_package_owned_bus) ... ok
+test_bus_must_be_private_and_cannot_be_a_symlink (__main__.SharedDisplayTests.test_bus_must_be_private_and_cannot_be_a_symlink) ... ok
+test_container_settings_stay_in_the_container_namespace (__main__.SharedDisplayTests.test_container_settings_stay_in_the_container_namespace) ... FAIL
+test_guest_kind_never_falls_back_to_another_guest_type (__main__.SharedDisplayTests.test_guest_kind_never_falls_back_to_another_guest_type) ... ok
+test_native_companion_prepares_only_its_serial_directory (__main__.SharedDisplayTests.test_native_companion_prepares_only_its_serial_directory) ... ok
+test_native_policy_does_not_need_an_address_in_the_file (__main__.SharedDisplayTests.test_native_policy_does_not_need_an_address_in_the_file) ... ok
+test_policy_cannot_redirect_the_shared_vm_to_another_bus (__main__.SharedDisplayTests.test_policy_cannot_redirect_the_shared_vm_to_another_bus) ... ok
+test_profile_uses_only_the_running_opt_in (__main__.SharedDisplayTests.test_profile_uses_only_the_running_opt_in) ... ok
+test_protocol_v2_never_accepts_a_descriptor_or_arbitrary_address (__main__.SharedDisplayTests.test_protocol_v2_never_accepts_a_descriptor_or_arbitrary_address) ... ok
+test_protocol_v2_rejects_a_legacy_only_config (__main__.SharedDisplayTests.test_protocol_v2_rejects_a_legacy_only_config) ... ok
+test_settings_preserve_node_local_encoder_choices (__main__.SharedDisplayTests.test_settings_preserve_node_local_encoder_choices) ... ok
+test_settings_round_trip_and_invalid_combinations (__main__.SharedDisplayTests.test_settings_round_trip_and_invalid_combinations) ... FAIL
+
+======================================================================
+FAIL: test_container_settings_stay_in_the_container_namespace (__main__.SharedDisplayTests.test_container_settings_stay_in_the_container_namespace)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/dima/Projects/q-sunshine/qsm-direct/tests/proxmox_pve9/test_shared_display.py", line 101, in test_container_settings_stay_in_the_container_namespace
+    self.assertEqual(manager.webrtc_settings(request), {"codec": "auto", "encoder": "auto"})
+AssertionError: {'codec': 'auto', 'encoder': 'auto', 'bitrate': 8000} != {'codec': 'auto', 'encoder': 'auto'}
+- {'bitrate': 8000, 'codec': 'auto', 'encoder': 'auto'}
+?  -----------------
+
++ {'codec': 'auto', 'encoder': 'auto'}
+
+======================================================================
+FAIL: test_settings_round_trip_and_invalid_combinations (__main__.SharedDisplayTests.test_settings_round_trip_and_invalid_combinations)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/dima/Projects/q-sunshine/qsm-direct/tests/proxmox_pve9/test_shared_display.py", line 178, in test_settings_round_trip_and_invalid_combinations
+    self.assertEqual(manager.webrtc_settings(request), {"codec": "auto", "encoder": "auto"})
+AssertionError: {'codec': 'auto', 'encoder': 'auto', 'bitrate': 8000} != {'codec': 'auto', 'encoder': 'auto'}
+- {'bitrate': 8000, 'codec': 'auto', 'encoder': 'auto'}
+?  -----------------
+
++ {'codec': 'auto', 'encoder': 'auto'}
+
+----------------------------------------------------------------------
+Ran 15 tests in 0.023s
+
+FAILED (failures=2)
+
+      Start  2: qsm_direct_guest_channel
+ 2/16 Test  #2: qsm_direct_guest_channel .............   Passed    4.06 sec
+      Start  3: qsm_direct_guest_package
+ 3/16 Test  #3: qsm_direct_guest_package .............   Passed    0.04 sec
+      Start  4: qsm_direct_encoder_probe
+ 4/16 Test  #4: qsm_direct_encoder_probe .............   Passed    0.04 sec
+      Start  5: qsm_direct_terminal_autoprovision
+ 5/16 Test  #5: qsm_direct_terminal_autoprovision ....   Passed    1.53 sec
+      Start  6: qsm_direct_api_service_integration
+ 6/16 Test  #6: qsm_direct_api_service_integration ...   Passed    0.04 sec
+      Start  7: qsm_direct_pve_console_overlay
+ 7/16 Test  #7: qsm_direct_pve_console_overlay .......   Passed    0.12 sec
+      Start  8: qsm_local_cursor
+ 8/16 Test  #8: qsm_local_cursor .....................   Passed    0.09 sec
+      Start  9: qsm_receiver_playout
+ 9/16 Test  #9: qsm_receiver_playout .................   Passed    0.10 sec
+      Start 10: qsm_pointer_pacing
+10/16 Test #10: qsm_pointer_pacing ...................   Passed    0.10 sec
+      Start 11: qsm_touch_gestures
+11/16 Test #11: qsm_touch_gestures ...................   Passed    0.09 sec
+      Start 12: qmdp_core_tests
+12/16 Test #12: qmdp_core_tests ......................   Passed    0.14 sec
+      Start 13: qmdp_dbus_integration_tests
+13/16 Test #13: qmdp_dbus_integration_tests ..........   Passed    0.74 sec
+      Start 14: qmdp_no_gpu_ffmpeg_selftest
+14/16 Test #14: qmdp_no_gpu_ffmpeg_selftest ..........   Passed    0.91 sec
+      Start 15: qmdp_message_bus_map_e2e
+15/16 Test #15: qmdp_message_bus_map_e2e .............   Passed    1.24 sec
+      Start 16: qmdp_message_bus_inline_e2e
+16/16 Test #16: qmdp_message_bus_inline_e2e ..........   Passed    1.24 sec
+
+94% tests passed, 1 tests failed out of 16
+
+Total Test time (real) =  10.79 sec
+
+The following tests FAILED:
+	  1 - qsm_shared_display (Failed)
+Errors while running CTest

@@ -1,0 +1,2 @@
+{"encoder":"h264_nvenc","bitrate_kbps":1000,"frames":120,"decoded":120,"forced_idrs":3,"keys":7,"max_frame_bytes":4571,"mbps":1.39932,"max_encode_ms":5.32831}
+{"encoder":"h264_nvenc","bitrate_kbps":2000,"frames":120,"decoded":120,"forced_idrs":3,"keys":7,"max_frame_bytes":8037,"mbps":2.56314,"max_encode_ms":5.34239}

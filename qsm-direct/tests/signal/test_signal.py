@@ -11,7 +11,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 from extensions.signal.qsm_direct_signal import (  # noqa: E402
-    SignalConfig, SignalError, TerminalClient, VmPolicyStore, handle_request)
+    SignalConfig, SignalError, TerminalClient, VmPolicyStore, ContainerPolicyStore, handle_request)
 
 
 class FakeAuthority:
@@ -100,15 +100,33 @@ class SignalCoreTests(unittest.TestCase):
             ("u@pve", 106, "VM.Console"), ("u@pve", 106, "VM.Config.Options")})
         got = handle_request(cfg, "GET", "/nodes/lab/qemu/106/qsm-direct-settings",
                              {"user": "u@pve", "ticket": "good"})
-        self.assertEqual(got, {"data": {"codec": "auto", "encoder": "auto"}})
+        self.assertEqual(got, {"data": {"codec": "auto", "encoder": "auto", "bitrate": 8000}})
         put = handle_request(cfg, "PUT", "/nodes/lab/qemu/106/qsm-direct-settings",
                              {"user": "u@pve", "ticket": "good", "codec": "hevc", "encoder": "hardware"})
-        self.assertEqual(put, {"data": {"codec": "hevc", "encoder": "hardware"}})
+        self.assertEqual(put, {"data": {"codec": "hevc", "encoder": "hardware", "bitrate": 8000}})
         conf = (self.tmp / "106.conf").read_text(encoding="utf-8")
         self.assertIn("QSM_DIRECT_CODEC=hevc\n", conf)
         self.assertIn("QSM_DIRECT_ENCODER_MODE=hardware\n", conf)
         self.assertEqual(oct(os.stat(self.tmp / "106.conf").st_mode & 0o777), "0o600")
         self.assertIn(("u@pve", 106, "VM.Config.Options"), authority.calls)
+
+    def test_bitrate_round_trip_legacy_clients_and_invalid_values(self) -> None:
+        for cls in (VmPolicyStore, ContainerPolicyStore):
+            with self.subTest(store=cls.__name__):
+                (self.tmp / "106.conf").write_text("QSM_DIRECT_LXC_UID=1000\nQSM_DIRECT_LXC_GRACE=300\n")
+                store = cls(self.tmp)
+                self.assertEqual(store.read(106)["bitrate"], 8000)
+                self.assertEqual(store.write(106, "h264", "auto", 20000)["bitrate"], 20000)
+                self.assertEqual(store.read(106)["bitrate"], 20000)
+                self.assertEqual(store.write(106, "h264", "software")["bitrate"], 20000)
+                before = (self.tmp / "106.conf").read_bytes()
+                for invalid in (0, 499, 100001, True, "20000", 1.5):
+                    with self.assertRaises(SignalError):
+                        store.write(106, "h264", "auto", invalid)
+                    self.assertEqual((self.tmp / "106.conf").read_bytes(), before)
+                if cls is ContainerPolicyStore:
+                    self.assertIn(b"QSM_DIRECT_LXC_UID=1000", before)
+                    self.assertIn(b"QSM_DIRECT_LXC_GRACE=300", before)
 
     def test_policy_put_without_config_options_is_rejected(self) -> None:
         cfg, _, _ = config(self.tmp, {("u@pve", 106, "VM.Console")})

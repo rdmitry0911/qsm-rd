@@ -159,7 +159,7 @@ class TerminalClient:
 class VmPolicyStore:
     """Reads and writes the per-VM codec policy the terminal already consumes."""
 
-    _DEFAULTS = {"codec": "auto", "encoder": "auto"}
+    _DEFAULTS = {"codec": "auto", "encoder": "auto", "bitrate": 8000}
 
     def __init__(self, instance_directory: Path) -> None:
         self._directory = instance_directory
@@ -167,7 +167,7 @@ class VmPolicyStore:
     def _path(self, vmid: int) -> Path:
         return self._directory / f"{vmid}.conf"
 
-    def read(self, vmid: int) -> dict[str, str]:
+    def read(self, vmid: int) -> dict[str, Any]:
         path = self._path(vmid)
         try:
             stat = path.lstat()
@@ -194,19 +194,24 @@ class VmPolicyStore:
         if not _CODEC.fullmatch(codec) or not _ENCODER.fullmatch(encoder) or \
                 (codec == "hevc" and encoder == "software"):
             raise SignalError(503, "policy unavailable")
-        return {"codec": codec, "encoder": encoder}
+        raw_bitrate = values.get("QSM_DIRECT_BITRATE_KBPS", "8000")
+        if not re.fullmatch(r"[0-9]{3,6}", raw_bitrate) or not 500 <= int(raw_bitrate) <= 100000:
+            raise SignalError(503, "policy unavailable")
+        bitrate = int(raw_bitrate)
+        return {"codec": codec, "encoder": encoder, "bitrate": bitrate}
 
-    def write(self, vmid: int, codec: str, encoder: str) -> dict[str, str]:
+    def write(self, vmid: int, codec: str, encoder: str, bitrate: int | None = None) -> dict[str, Any]:
         if not _CODEC.fullmatch(codec) or not _ENCODER.fullmatch(encoder) or \
                 (codec == "hevc" and encoder == "software"):
             raise SignalError(400, "invalid policy")
         if not self._directory.is_dir() or self._directory.stat().st_uid not in (0, os.geteuid()):
             raise SignalError(503, "policy unavailable")
-        self.read(vmid)  # Validate the existing root-owned policy before updating it.
+        current = self.read(vmid)  # Validate before updating; old clients preserve bitrate.
+        bitrate = self._bitrate(bitrate, current["bitrate"])
         address = self._read_dbus_address(vmid)
         temporary = self._directory / f".{vmid}.conf.tmp"
         lines = [f"QSM_DIRECT_QEMU_DBUS_ADDRESS={address}\n"] if address else []
-        lines += [f"QSM_DIRECT_CODEC={codec}\n", f"QSM_DIRECT_ENCODER_MODE={encoder}\n"]
+        lines += [f"QSM_DIRECT_CODEC={codec}\n", f"QSM_DIRECT_ENCODER_MODE={encoder}\n", f"QSM_DIRECT_BITRATE_KBPS={bitrate}\n"]
         # Keep administrator-pinned encoders and render nodes across a UI
         # policy update. These are node-local choices, not browser fields.
         try:
@@ -227,7 +232,15 @@ class VmPolicyStore:
             except OSError:
                 pass
             raise SignalError(503, "policy unavailable") from error
-        return {"codec": codec, "encoder": encoder}
+        return {"codec": codec, "encoder": encoder, "bitrate": bitrate}
+
+    @staticmethod
+    def _bitrate(value: int | None, current: int) -> int:
+        if value is None:
+            return current
+        if type(value) is not int or not 500 <= value <= 100000:
+            raise SignalError(400, "invalid video bitrate")
+        return value
 
     def _read_dbus_address(self, vmid: int) -> str | None:
         try:
@@ -250,15 +263,16 @@ class ContainerPolicyStore(VmPolicyStore):
     _PRESERVED = ("QSM_DIRECT_LXC_UID", "QSM_DIRECT_LXC_DISPLAY", "QSM_DIRECT_LXC_SLOTS",
                   "QSM_DIRECT_LXC_GRACE", "QSM_DIRECT_ENCODER")
 
-    def read(self, vmid: int) -> dict[str, str]:
+    def read(self, vmid: int) -> dict[str, Any]:
         if not self._path(vmid).exists():
             raise SignalError(404, "container console not enabled")
         return super().read(vmid)
 
-    def write(self, vmid: int, codec: str, encoder: str) -> dict[str, str]:
+    def write(self, vmid: int, codec: str, encoder: str, bitrate: int | None = None) -> dict[str, Any]:
         if not _CODEC.fullmatch(codec) or not _ENCODER.fullmatch(encoder) or \
                 (codec == "hevc" and encoder == "software"):
             raise SignalError(400, "invalid policy")
+        bitrate = self._bitrate(bitrate, self.read(vmid)["bitrate"])
         path = self._path(vmid)
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
@@ -269,7 +283,7 @@ class ContainerPolicyStore(VmPolicyStore):
         kept = [line for line in lines
                 if line.split("=", 1)[0].strip() in self._PRESERVED]
         body = "".join(f"{line}\n" for line in kept)
-        body += f"QSM_DIRECT_CODEC={codec}\nQSM_DIRECT_ENCODER_MODE={encoder}\n"
+        body += f"QSM_DIRECT_CODEC={codec}\nQSM_DIRECT_ENCODER_MODE={encoder}\nQSM_DIRECT_BITRATE_KBPS={bitrate}\n"
         temporary = self._directory / f".{vmid}.conf.tmp"
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
@@ -282,7 +296,7 @@ class ContainerPolicyStore(VmPolicyStore):
             except OSError:
                 pass
             raise SignalError(503, "policy unavailable") from error
-        return {"codec": codec, "encoder": encoder}
+        return {"codec": codec, "encoder": encoder, "bitrate": bitrate}
 
 
 class SignalConfig:
@@ -362,7 +376,13 @@ def handle_request(config: SignalConfig, method: str, path: str,
         encoder = body.get("encoder")
         if not isinstance(codec, str) or not isinstance(encoder, str):
             raise SignalError(400, "invalid request")
-        return {"data": policy.write(vmid, codec, encoder)}
+        bitrate = body.get("bitrate")
+        if bitrate is not None:
+            # URL-encoded legacy HTTP input; the native API passes a JSON int.
+            if not isinstance(bitrate, str) or not re.fullmatch(r"[0-9]{3,6}", bitrate):
+                raise SignalError(400, "invalid video bitrate")
+            bitrate = int(bitrate)
+        return {"data": policy.write(vmid, codec, encoder, bitrate)}
 
     raise SignalError(405, "method not allowed")
 
