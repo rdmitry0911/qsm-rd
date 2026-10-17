@@ -71,8 +71,9 @@ Impaired-network A/B:
   decoded, 16 losses recovered with 16 NACKs.
 - Then 0.3% random UDP loss was added on the isolated server-to-client link.
   Final sample at 107.342 s: 6164 decoded, zero frames dropped, zero freezes,
-  zero PLIs, 100 losses / 100 NACKs. Plasma locked after approximately 70 s of
-  no user input; later samples include the lock screen, not continuous motion.
+  zero PLIs, 100 losses / 100 NACKs. Capture damage became almost static after
+  approximately 70 s without user input; later samples do not establish
+  continuous motion. An idle desktop lock is a likely explanation, unverified.
 - Final outgoing sample: 7.55 Mbps, max frame 26397 bytes over about 20 ms,
   max 2582 bytes in any 1 ms bin (SRTP/IP accounting and timing boundaries).
   Queue/drop/recovery counters stabilise after connection startup.
