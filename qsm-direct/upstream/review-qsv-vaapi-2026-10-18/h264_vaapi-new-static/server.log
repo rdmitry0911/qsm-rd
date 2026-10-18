@@ -1,0 +1,16 @@
+Plugin "PVE::Storage::Custom::TrueNAS" is implementing an older storage API, an upgrade is recommended
+qsm-direct-terminal: WebRTC offer candidates=10 mdns=0 resolved=4
+qsm-direct-terminal: WebRTC video answer codec=video/H264 pt=105 fmtp=level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
+qsm-direct-terminal: WebRTC ICE state=checking
+qsm-direct-terminal: WebRTC connection state=connecting
+qsm-direct-terminal: WebRTC ICE state=completed
+qsm-direct-terminal: WebRTC connection state=connected
+QSM_DIRECT_MEDIA_CAPTURE_AFTER_3S source=wlroots encoded_frames=179 errors=0 display_failed=no captured_frames=179 idr_requests=3 encoded_units=179 separate_cursor=0 cursor_images=0 cursor_fallbacks=0 capture_failures=0 size=1280x800 shm_format=0x1 convert_mean_us=639 convert_max_us=2099 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=0 submitted_frames=179 cursor_records=2 video_records=181 video_send_failures=0 audio_submissions=0 recent_error=none
+QSM_DIRECT_MEDIA_HEALTH source=wlroots encoded_frames=599 errors=0 display_failed=no captured_frames=599 idr_requests=3 encoded_units=599 separate_cursor=0 cursor_images=0 cursor_fallbacks=0 capture_failures=0 size=1280x800 shm_format=0x1 convert_mean_us=647 convert_max_us=2099 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=2 submitted_frames=599 cursor_records=5 video_records=604 video_send_failures=0 audio_submissions=0 recent_error=none
+qsm-direct-terminal: media health video_fps=58.4 queue=0 drops=154 overflows=3 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=169 bitrate_kbps=8000 maximum_kbps=8000 paced_packets=10244 paced_bytes=10648769
+QSM_DIRECT_MEDIA_HEALTH source=wlroots encoded_frames=1197 errors=0 display_failed=no captured_frames=1197 idr_requests=3 encoded_units=1200 separate_cursor=0 cursor_images=0 cursor_fallbacks=0 capture_failures=0 size=1280x800 shm_format=0x1 convert_mean_us=639 convert_max_us=2099 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=6 submitted_frames=1197 cursor_records=10 video_records=1210 video_send_failures=0 audio_submissions=0 recent_error=none
+qsm-direct-terminal: media health video_fps=60.0 queue=0 drops=154 overflows=3 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=173 bitrate_kbps=8000 maximum_kbps=8000 paced_packets=20745 paced_bytes=21592282
+QSM_DIRECT_MEDIA_HEALTH source=wlroots encoded_frames=1795 errors=0 display_failed=no captured_frames=1795 idr_requests=4 encoded_units=1800 separate_cursor=0 cursor_images=0 cursor_fallbacks=0 capture_failures=0 size=1280x800 shm_format=0x1 convert_mean_us=636 convert_max_us=2099 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=8 submitted_frames=1795 cursor_records=15 video_records=1815 video_send_failures=0 audio_submissions=0 recent_error=none
+qsm-direct-terminal: WebRTC ICE state=closed
+qsm-direct-terminal: WebRTC connection state=closed
+QSM_DIRECT_MEDIA_STOPPING source=wlroots encoded_frames=1873 errors=0 display_failed=no captured_frames=1873 idr_requests=22 encoded_units=1861 separate_cursor=0 cursor_images=0 cursor_fallbacks=0 capture_failures=0 size=1280x800 shm_format=0x1 convert_mean_us=634 convert_max_us=2099 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=8 submitted_frames=1873 cursor_records=16 video_records=1877 video_send_failures=17 audio_submissions=0 recent_error=none

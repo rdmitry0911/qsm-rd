@@ -1,0 +1,71 @@
+{
+  "h264_vaapi-new-motion": {
+    "final": {
+      "target": 8000,
+      "maximum": 8000,
+      "overflows": 8,
+      "drops": 178,
+      "changes": 11,
+      "targets": [
+        4000,
+        3000,
+        3750,
+        1875,
+        2343,
+        2928,
+        3660,
+        4575,
+        5718,
+        7147,
+        8000
+      ],
+      "demand": [
+        8131
+      ],
+      "state": "connected"
+    },
+    "browser": {
+      "frames": 9136,
+      "lost": 263,
+      "pli": 0,
+      "freezes": 2,
+      "freezeSeconds": 1.698,
+      "dropped": 0,
+      "visual": {
+        "samples": 1482,
+        "changed": 1467,
+        "maxMeanDelta": 77.79358333333333
+      }
+    },
+    "final25s_motion_fraction": 1.0
+  },
+  "h264_vaapi-new-static": {
+    "final": {
+      "target": 8000,
+      "maximum": 8000,
+      "overflows": 3,
+      "drops": 154,
+      "changes": 0,
+      "targets": [],
+      "demand": [
+        8000
+      ],
+      "state": "connected"
+    },
+    "browser": {
+      "frames": 1235,
+      "lost": 0,
+      "pli": 0,
+      "freezes": 0,
+      "freezeSeconds": 0,
+      "dropped": 0,
+      "visual": {
+        "samples": 154,
+        "changed": 0,
+        "maxMeanDelta": 0.03963611111111111
+      }
+    }
+  },
+  "qsv_hardware": "Unavailable: node has AMD GPUs; QSV device initialization rejected. No hardware QSV pass claimed.",
+  "worker_sha256": "42d9c91c76c574b1d69d229fd1eda331dfb75337ccd1b03740beda20b8e2087e"
+}

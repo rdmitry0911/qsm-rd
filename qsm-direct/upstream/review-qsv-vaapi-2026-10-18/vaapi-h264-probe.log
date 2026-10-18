@@ -1,0 +1,5 @@
+segment=0 mbps=8.00172 decoded=300
+segment=1 mbps=2.00066 decoded=600
+segment=2 mbps=11.7184 decoded=900
+segment=3 mbps=1.73031 decoded=1200
+{"encoder":"h264_vaapi","bitrate_kbps":8000,"frames":1200,"decoded":1200,"forced_idrs":3,"keys":7,"max_frame_bytes":25600,"mbps":6.01145,"max_encode_ms":30.3057}

@@ -181,17 +181,26 @@ The value is in decimal kbit/s (500–100000), and survives codec changes and
 re-running the LXC setup helper. The encoder rate/VBV budget and RTP pacing
 are derived from the same value; the pacer allows 25% overhead/recovery
 headroom and a bounded burst. Audio and packet/network overhead are additional
-to the configured video rate. With NVENC or software H.264 this is the ceiling for automatic congestion
-control; QSV/VA-API retain fixed targets. Smaller rates trade image quality for bandwidth. At very low rates, reduce
+to the configured video rate. With NVENC, software H.264, QSV or VA-API this is the ceiling for automatic
+congestion control. Smaller rates trade image quality for bandwidth. At very low rates, reduce
 the frame rate or display size as well: hardware rate control can overshoot
 its target, especially around keyframes; the bounded pacer does not add an
 unbounded delay queue.
 
-NVENC and software H.264 request keyframes for joining/recovering viewers,
+The supported in-process encoders request keyframes for joining/recovering viewers,
 rather than forcing a full refresh every half second. This avoids periodic
 blurring of static text under the low-latency VBV budget. Local recovery
 requests retry at most once a second until an IDR arrives. Genuine NVENC
 bitrate changes can still cause a brief quality transition.
+
+QSV uses FFmpeg live bitrate reconfiguration. VA-API reopens only the codec
+at a material rate change, keeping the DRM device, upload pool, source clock
+and WebRTC connection. Devices are opened before an LXC worker drops root;
+encoding/resets continue as nobody without changing render-node permissions.
+AMD VA-API H.264/HEVC are hardware-qualified; Intel QSV hardware testing is
+still pending. Existing API shared3/webrtc2 packages remain compatible.
+For pve-container 6.1.14 use its matching 6.1.14+webrtc2 package, rather than
+installing the 6.1.13 variant.
 
 The direct WebRTC console provides video, guest audio and microphone (with a
 QSM Console Audio Device), keyboard, pointer, scrolling, dynamic Display1

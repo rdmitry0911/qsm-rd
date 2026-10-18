@@ -1,0 +1,197 @@
+QSM Direct shared23: adaptive QSV / VA-API, 2026-10-18
+
+Implementation
+--------------
+The existing shared VM/LXC controller now enables all seven supported
+encoders: libx264, H.264/HEVC NVENC, H.264/HEVC QSV and H.264/HEVC VA-API.
+The common configurable ceiling, multi-viewer rate, RTCP feedback, pacing,
+hysteresis and on-demand recovery from shared21/shared22 remain in place.
+There is no periodic half-second IDR refresh and no guest-side bitrate API.
+
+QSV uses libavcodec with NV12 input, async_depth=1, no lookahead/B-frames,
+forced recovery IDRs and a 65535-frame GOP (the SDK's 16-bit infinite value).
+The existing AVCodecContext rate fields trigger FFmpeg's documented QSV
+rate reset. FFmpeg/QSV may reject settings which the actual hardware cannot
+support; automatic H.264 policy retains the explicit software fallback,
+while hardware-only policy still reports failure. No software result is
+presented here as a successful Intel hardware test.
+
+FFmpeg 7 VA-API caches its rate-control parameters at codec initialization.
+Merely changing AVCodecContext.bit_rate would update the label but leave
+the actual stream unchanged. VA-API therefore uses in-process hardware
+frames and reopens only its codec at a material target change. It retains
+the DRM device, upload pool, BGRA conversion, source PTS counter, Unix taps
+and WebRTC peer. Pending output is drained across that boundary. The new
+codec begins with an IDR; a PLI alone forces an IDR without a codec reopen.
+The rate controller's stability gates limit unnecessary quality changes.
+Real network-driven changes can still briefly change image quality.
+
+VA-API/QSV devices are opened before an LXC worker drops root. Subsequent
+codec setup, resize, encoding and reset reuse that AVBufferRef as nobody;
+there is no host render-group or render-node permission change. An automatic
+hardware initialization failure can fall back to libx264. The executable
+launcher remains available when libavcodec is not built, including applying
+changed rate settings on its process replacement; official debs use the
+in-process implementation. Hardware capability probes now use the matching
+bounded rate/low-delay options instead of unbounded QSV/VA-API defaults.
+
+Hardware and test container
+---------------------------
+Target: 172.16.16.17 (pve-asrock), AMD Raphael host renderD128 using amdgpu /
+Mesa VA-API. The other GPU is AMD RX 6600-family; neither device is Intel.
+The other authorized lab node exposes only NVIDIA RTX 3080. QSV hardware
+initialization on the AMD node fails as expected. Intel QSV H.264/HEVC code
+is built and enabled, but hardware rate-change/latency validation is pending.
+It must not be described as hardware-qualified from this work.
+
+At the user's choice, a dedicated unprivileged Ubuntu 24.04 CT147 was created
+on the existing lxc storage, 4 CPUs / 4 GiB RAM / 16 GiB disk, DHCP, onboot=0.
+No pre-existing guest was started/stopped/rebooted. Existing VM103/138/144
+and CT146 process IDs are checked against their pre-upgrade values.
+The test desktop has no GPU passed through; encoding happens on the host.
+It has the common console package, Plasma and the optional private Sway 1.11.
+A root-owned Qt fixture runs as qsm-display, either drawing the deterministic
+static text image or its continuous moving pattern. This tests actual LXC
+capture; it is not a new SDDM/PAM or real YouTube qualification.
+
+Hardware encoder probes
+-----------------------
+build-probe.py extracts the exact production LibavVideoEncoder class. It is
+compiled against Trixie libavcodec/libavutil/libswscale and run on the AMD
+node. The DRM device is opened as root, then all supplementary groups are
+cleared and uid/gid become 65534 before codec construction, resize-equivalent
+setup, encoding, IDR requests and bitrate resets. This exercises the LXC
+privilege boundary rather than accidentally testing only a root encoder.
+
+Dynamic 1280x800/60: 1200 frames, 8 -> 2 -> 12 -> 0.5 Mbit/s changes at
+frames 301/607/913, explicit IDRs at 7/17/49. H.264 and HEVC VA-API each decode
+all 1200 frames with seven keys (initial + three requests + three rate
+boundaries). Maximum observed combined reconfiguration/encode time in the
+H.264 run was 30.31ms; HEVC 11.90ms. The legacy 300-frame throughput print
+boundaries do not exactly match the new unaligned changes, so those segment
+numbers are diagnostics rather than exact per-target averages. Low target
+overshoot remains a hardware limitation, especially for complex H.264.
+Explicit max-QP=51 was separately tried and did not improve it; it is not
+part of the production change. Reduce display size/FPS on links below the
+hardware's practical minimum; this release does not add resolution/FPS
+adaptation or promise an exact wire-rate cap.
+
+Static 1970x1220/60, 8Mbit/s: 600 frames, explicit IDR at347. Both AMD codecs
+decode every frame and emit exactly two keys. As in the shared22 text check,
+steady-state luma metrics exclude initial frames0..90 and the explicitly
+requested recovery window347..437. H.264 peak mean text-region luma delta
+0.03933/255; HEVC0.002043/255. Neither crosses the0.15 threshold. The recovery
+window is not excluded from decoding or keyframe counts.
+
+Regression: the same new class is separately run on the NVIDIA node with
+H.264 NVENC, HEVC NVENC and libx264. All decode1200 frames across the same
+unaligned rate changes and forced IDRs. NVENC has7 keys, software4 as expected.
+No package/service or live CT105 desktop was changed on that node.
+
+Firefox media qualification
+----------------------------
+An isolated bridge runs via root-authenticated SSH stdio on the AMD host,
+using the candidate worker unpacked into worker23 and CT147 seat1. No API
+or service replacement is needed for these tests. SDP/ICE credentials stay
+inside authenticated pipes and browser memory; only counters are saved.
+Only UDP on a dedicated local qsm-pacing veth/namespace is shaped. Physical
+interfaces, VPN and production guest networking are unchanged. The setup
+script targets172.16.16.17; the existing cleanup removes this namespace,
+veth and its private NAT table after the browser exits.
+
+Actual Firefox/OpenH264 decodes the stream at1280x800. Static samples crop a
+600x800 text region without rescaling; mean RGB differences are measured
+every100ms after a5s warmup. At constant8Mbps on the20Mbps test path:
+1235 decoded frames in the last report, no losses/freezes/dropped frames,
+zero rate changes, maximum mean RGB delta0.03964/255, no >0.15 threshold
+crossing. Initial pre-connect FIFO counters are recorded, not misreported
+as steady-state losses.
+
+Motion profile:20Mbps15s ->4Mbps25s ->20Mbps110s, queue300/50/300 packets.
+Netem adds40ms each way; actual RTT including the real path is about170ms.
+The controller reduces8Mbps to1.875Mbps and restores8Mbps without reconnect.
+The last report has9136 decoded frames,263 lost network packets, no decoder
+frame drops and2 recovery freezes totalling1.698s. The last25s remain100%
+visibly moving. All synthetic PLI handoff checks continue decoding. Full
+queue counts and the measured target sequence are in results.json/samples.
+The abrupt real bandwidth drop is allowed to cause a brief pause; zero
+transition freezes is not a pass condition. HEVC is decoder-probed only,
+since this Firefox setup does not negotiate WebRTC HEVC.
+
+Packaging and native API
+-------------------------
+The host was upgraded from shared10 with qemu-server9.2.11+shared2 and
+pve-container6.1.14+webrtc1. Settings' bitrate field needs the already-reviewed
+qemu-server9.2.11+shared3 plus a matching container API. A new6.1.14+webrtc2
+variant applies only the same schema/ACL changes to the existing6.1.14 base;
+it does not downgrade to6.1.13 or remove the volume-protection change in6.1.14.
+The signed-off source patch and complete source archive are supplied.
+Build/API/schema/snapshot/idmap tests pass; nested userns setup/bindmount
+checks are skipped by the normal sbuild marker because the local builder
+cannot create those namespaces. CT147 actually runs unprivileged on the node.
+
+A package/source audit found a stale guest launcher in the earlier staging
+tree. The final host/helper/guest packages are rebuilt from a fresh staging
+directory populated from the complete tracked working tree, with current
+edits, rather than copying just the four media/UI files. The shipped Sway
+launcher, helper and encoder probe match their source bytes; the helper's
+embedded guest deb matches the standalone guest deb. The source-matched
+launcher now selects installed /opt/qsm-native-sway/bin/sway in CT147.
+The final worker hash is byte-identical to the impaired-network candidate:
+42d9c91c76c574b1d69d229fd1eda331dfb75337ccd1b03740beda20b8e2087e.
+
+Native PVE HTTPS8006 / Firefox checks on the installed build:
+- Select CT147 and open its normal QSM Direct menu item, with8007 blocked.
+- Decode the moving fixture at1280x726; verify19/19 visibly changed samples.
+- Settings displays the live adaptive target and8Mbps ceiling.
+- Read8Mbps, save3Mbps through the UI/API, read it back, restore8Mbps and
+  read it back. All native settings operations return200.
+- The worker is h264_vaapi running uid/gid65534. Its actual Sway1.11 capture
+  reports separate_cursor=1 and no hardware fallback. Real path loss also
+  triggered an in-place target reduction/recovery while keeping the same PID.
+The test browser's initial popup-only stats query had no peer counters:
+that native integration owns its peer in the opener. Numeric native media
+health is read from the server; decoded-pixel checks are independent.
+The authenticated UI driver initializes full login capabilities via the PVE
+login API, rather than relying on a cookie-only partial GUI state. No GUI
+capabilities/ACLs are fabricated or relaxed on the node.
+
+47 bridge/controller,44 direct-terminal/encoder/API-adapter and16 C++ suites
+pass. Local old aiortc STUN teardown and mock socket diagnostics appear after
+successful test results; the hardware/browser checks use the node runtime.
+No forum or mailing-list message is sent. Native GUI/sample fixtures are
+controlled test data; private full PVE inventory screenshots are not included.
+
+Primary implementation references
+---------------------------------
+https://www.ffmpeg.org/ffmpeg-codecs.html (QSV runtime bit_rate/rc_max_rate reset)
+https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1/libavcodec/qsvenc.c
+https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1/libavcodec/vaapi_encode.c
+https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1/libavutil/hwcontext_qsv.c
+See VA-API init_rate_control/global parameter cache and QSV update_bitrate / reset.
+
+Final deployment and cleanup
+----------------------------
+See the release DEPLOYMENT.txt for final versions, preserved process IDs,
+container/fixture state, hashes and the native reconnect result.
+
+Native reconnect follow-up
+---------------------------
+A first reconnect reports6642 decoded frames with0 lost/dropped packets and
+0 freezes, but its later motion assertion finds a static surface. That run
+is not counted as a moving-fixture pass (discarded-native-fixture-readiness).
+The final repeat explicitly focuses the controlled Qt fixture through Sway
+IPC after the console opens and asserts actual decoded movement. It passes
+19/19 changed samples, reports402 decoded frames,0 loss/drops/freezes, and
+shows adaptive8/8Mbps. Settings reads8Mbps; no8007 requests occur.
+
+The final native driver authenticates through the real PVE login API and
+passes its returned capabilities to the normal workspace login method.
+Cookie-only partial GUI initialization caused earlier fixture startup races;
+no production GUI permissions or authentication code is changed.
+
+The fixture is stopped afterwards. CT147 stays running on its normal QSM
+login screen with private Sway1.11, no GPU passthrough and an8Mbps maximum.
+A password is created only for the new qsm-test-a account and stored inside
+CT147 at /root/qsm-test-a.password, mode0600; its value is never logged.
+Existing VM103/138/144 and CT146 retain their original process IDs.

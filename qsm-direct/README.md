@@ -397,10 +397,13 @@ interaction delay.
 
 In Console **Settings → This guest — media policy**, **Maximum video bitrate
 (Mbit/s)** sets the per-VM/LXC encoder target ceiling (0.5–100, default 8).
-H.264 with NVENC or libx264, and experimental HEVC with NVENC, automatically
-adjust the working target below that ceiling using the browser's RTCP REMB,
-packet-loss and RTT feedback. The encoder changes rate without reopening;
-video/RTX pacing follows it. Several viewers of one producer share the rate,
+H.264 with NVENC, libx264, QSV or VA-API, and experimental hardware HEVC,
+automatically adjust the working target below that ceiling using the browser's
+RTCP REMB, packet-loss and RTT feedback. Video/RTX pacing follows the target.
+NVENC/libx264/QSV use live rate reconfiguration. FFmpeg 7 caches VA-API rate
+control at codec initialization, so that backend reopens only the encoder on
+a material rate change, retaining its DRM device, upload pool and timestamps.
+The WebRTC connection and guest session remain open. Several viewers of one producer share the rate,
 so fresh feedback from a slower viewer can reduce quality for all of them.
 Closed viewers release that constraint. No guest restart is needed.
 
@@ -415,7 +418,7 @@ This matters especially for NVENC: FFmpeg forces an IDR/reset of rate control
 on live bitrate changes even though the codec object is kept open. Frequent
 small adjustments in shared20 could therefore make a static desktop pulse.
 
-NVENC and software H.264 use on-demand recovery keyframes, rather than a
+All supported in-process encoders use on-demand recovery keyframes, rather than a
 full IDR every half second. Under a one-frame VBV, those periodic refreshes
 made static text blur and sharpen even with an unchanged bitrate. New
 viewers, PLI feedback and a broken local reference chain still request IDRs;
@@ -427,7 +430,9 @@ new ceiling, close all its viewers and reopen the console to apply that policy.
 The `webrtcsettings` API still stores `bitrate` in kbit/s and requires
 `VM.Config.Options` to change it; the on-node key is
 `QSM_DIRECT_BITRATE_KBPS`. Existing clients and policy files remain compatible.
-QSV/VA-API currently retain fixed rate control; Settings identifies that mode.
+QSV and VA-API use the same shared VM/LXC controller and adaptive status.
+VA-API H.264/HEVC were tested on the AMD node; Intel QSV hardware qualification
+is still pending. The implementation uses FFmpeg's documented QSV rate reset.
 
 This ceiling describes the encoder's target, not total network traffic.
 Audio, RTP/SRTP overhead, retransmissions and hardware rate-control overshoot
@@ -435,12 +440,14 @@ need additional bandwidth. At very low targets NVENC can exceed the requested
 video rate: the tested high-motion 1280×800/60 fixture produced about 1.31 Mbps
 at a 0.5-Mbps target. Pacing allows bounded additional low-rate NVENC headroom
 so that this does not continually break the local predictive-frame queue.
+VA-API hardware can also overshoot low targets on difficult content.
 For links below the encoder's practical minimum, lower the console resolution
 or FPS or select software encoding. This release adapts bitrate, not resolution
 or FPS. Abrupt bandwidth drops can still cause a short recovery interruption.
 See [initial bitrate qualification](upstream/review-adaptive-bitrate-2026-10-17/qualification.txt) and
 [controller stability checks](upstream/review-adaptive-stability-2026-10-17/qualification.txt) and
-[full-resolution keyframe checks](upstream/review-keyframe-stability-2026-10-17/qualification.txt).
+[full-resolution keyframe checks](upstream/review-keyframe-stability-2026-10-17/qualification.txt) and
+[QSV/VA-API qualification](upstream/review-qsv-vaapi-2026-10-18/qualification.txt).
 
 ### Sleeping and locked guests
 

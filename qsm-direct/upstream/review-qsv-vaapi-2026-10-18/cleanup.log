@@ -1,0 +1,21 @@
+
+VM103: pid 3092734 unchanged
+VM138: pid 7600 unchanged
+VM144: pid 440753 unchanged
+CT146 init PID unchanged
+pve-container	6.1.14+webrtc2
+qemu-server	9.2.11+shared3
+qsm-pve-direct	0.4.0+shared23
+qsm-pve-direct-lxc	0.4.0+shared23
+qsm-console-guest	0.4.0+shared23
+qsm-console-sway	1.11+qsm1
+active
+active
+active
+active
+active
+Legacy signal service remains inactive
+42d9c91c76c574b1d69d229fd1eda331dfb75337ccd1b03740beda20b8e2087e /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker
+f772201102716f56fe060e227845e8dd33558c0e981252cff3b32061c3e386ef /usr/lib/qsm-pve-direct/direct_terminal/qsm_direct_encoder_probe.py
+CT147 remains running with its normal login screen; maximum bitrate restored to 8000 kbit/s.
+Test account: qsm-test-a; password saved inside CT147 at /root/qsm-test-a.password (0600), never logged.

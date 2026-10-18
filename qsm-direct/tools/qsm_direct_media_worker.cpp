@@ -32,6 +32,7 @@
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/error.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 }
@@ -610,46 +611,207 @@ public:
         bool keyframe {};
     };
 
+    static bool supports(std::string_view encoder) {
+        return encoder == "libx264" || encoder == "h264_nvenc" || encoder == "hevc_nvenc" ||
+               encoder == "h264_qsv" || encoder == "hevc_qsv" ||
+               encoder == "h264_vaapi" || encoder == "hevc_vaapi";
+    }
+
+    // Open trusted host hardware before an LXC worker drops its privileges.
+    // Codec resets and resizes retain this device; no render-group grant or
+    // root privilege is needed while reading the container's compositor.
+    static AVBufferRef *create_device(const std::string &encoder, const std::string &device) {
+        const bool vaapi = std::string_view(encoder).ends_with("_vaapi");
+        if (!vaapi && !std::string_view(encoder).ends_with("_qsv")) {
+            return nullptr;
+        }
+        AVBufferRef *result = nullptr;
+        const int created = av_hwdevice_ctx_create(&result,
+            vaapi ? AV_HWDEVICE_TYPE_VAAPI : AV_HWDEVICE_TYPE_QSV,
+            device.empty() ? nullptr : device.c_str(), nullptr, 0);
+        if (created < 0) {
+            av_buffer_unref(&result);
+            throw WorkerError("cannot initialise " + encoder + " device: " + error_string(created));
+        }
+        return result;
+    }
+
     LibavVideoEncoder(std::uint32_t width, std::uint32_t height, std::uint32_t fps,
-                     const std::string &encoder, std::uint32_t bitrate_kbps = 8000U) {
+                     const std::string &encoder, std::uint32_t bitrate_kbps = 8000U,
+                     const std::string &device = {}, AVBufferRef *shared_device = nullptr)
+        : width_(width), height_(height), fps_(fps), encoder_(encoder),
+          vaapi_(std::string_view(encoder).ends_with("_vaapi")),
+          qsv_(std::string_view(encoder).ends_with("_qsv")) {
         if (width == 0U || height == 0U || width > static_cast<std::uint32_t>(INT_MAX) ||
             height > static_cast<std::uint32_t>(INT_MAX) || fps == 0U ||
-            fps > static_cast<std::uint32_t>(INT_MAX)) {
-            throw WorkerError("invalid in-process H.264 dimensions");
+            fps > static_cast<std::uint32_t>(INT_MAX) || !supports(encoder)) {
+            throw WorkerError("invalid in-process video encoder configuration");
         }
-        const auto *codec = avcodec_find_encoder_by_name(encoder.c_str());
-        if (codec == nullptr) {
+        codec_ = avcodec_find_encoder_by_name(encoder.c_str());
+        if (codec_ == nullptr) {
             throw WorkerError("libavcodec has no " + encoder + " encoder");
         }
-        context_ = avcodec_alloc_context3(codec);
-        frame_ = av_frame_alloc();
-        packet_ = av_packet_alloc();
-        if (context_ == nullptr || frame_ == nullptr || packet_ == nullptr) {
+        try {
+            if (vaapi_ || qsv_) {
+                device_ = shared_device != nullptr ? av_buffer_ref(shared_device) : create_device(encoder, device);
+                if (device_ == nullptr) {
+                    throw WorkerError("cannot reference video encoder device");
+                }
+            }
+            if (vaapi_) {
+                frames_ = av_hwframe_ctx_alloc(device_);
+                if (frames_ == nullptr) {
+                    throw WorkerError("cannot allocate VA-API frame pool");
+                }
+                auto *pool = reinterpret_cast<AVHWFramesContext *>(frames_->data);
+                pool->format = AV_PIX_FMT_VAAPI;
+                pool->sw_format = AV_PIX_FMT_NV12;
+                pool->width = static_cast<int>(width);
+                pool->height = static_cast<int>(height);
+                pool->initial_pool_size = 20;
+                const int initialized = av_hwframe_ctx_init(frames_);
+                if (initialized < 0) {
+                    throw WorkerError("cannot initialise VA-API frame pool: " + error_string(initialized));
+                }
+                upload_ = av_frame_alloc();
+                if (upload_ == nullptr) {
+                    throw WorkerError("cannot allocate VA-API upload frame");
+                }
+            }
+            open_codec(bitrate_kbps);
+            frame_ = av_frame_alloc();
+            packet_ = av_packet_alloc();
+            if (frame_ == nullptr || packet_ == nullptr) {
+                throw WorkerError("cannot allocate in-process video frame/packet");
+            }
+            const auto software_format = vaapi_ || qsv_ ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
+            frame_->format = software_format;
+            frame_->width = static_cast<int>(width);
+            frame_->height = static_cast<int>(height);
+            const int allocated = av_frame_get_buffer(frame_, 32);
+            if (allocated < 0) {
+                throw WorkerError("cannot allocate video pixels: " + error_string(allocated));
+            }
+            scale_ = sws_getContext(static_cast<int>(width), static_cast<int>(height), AV_PIX_FMT_BGRA,
+                                   static_cast<int>(width), static_cast<int>(height), software_format,
+                                   SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+            if (scale_ == nullptr) {
+                throw WorkerError("cannot initialise BGRA to video conversion");
+            }
+        } catch (...) {
             release();
-            throw WorkerError("cannot allocate in-process H.264 encoder");
+            throw;
         }
-        context_->width = static_cast<int>(width);
-        context_->height = static_cast<int>(height);
-        context_->pix_fmt = AV_PIX_FMT_YUV420P;
-        context_->time_base = AVRational {1, static_cast<int>(fps)};
-        context_->framerate = AVRational {static_cast<int>(fps), 1};
-        // WebRTC asks for an IDR at join/recovery. Periodic full refreshes
-        // under a one-frame VBV visibly blur then refine an unchanged desktop.
-        // INT_MAX is an effectively unbounded GOP accepted by both encoders.
-        context_->gop_size = INT_MAX;
+    }
+
+    ~LibavVideoEncoder() { release(); }
+    LibavVideoEncoder(const LibavVideoEncoder &) = delete;
+    LibavVideoEncoder &operator=(const LibavVideoEncoder &) = delete;
+
+    // All codec access stays on the video thread. QSV/libx264/NVENC read live
+    // AVCodecContext rate settings; FFmpeg 7 VA-API caches them at open instead.
+    // Reopen just that codec on a material rate change, retaining the DRM
+    // device, upload pool and monotonically increasing source timestamps.
+    void set_bitrate(std::uint32_t bitrate_kbps) {
+        if (bitrate_kbps < 500U || bitrate_kbps > 100'000U) {
+            throw WorkerError("invalid live video bitrate");
+        }
+        const auto bits = static_cast<std::int64_t>(bitrate_kbps) * 1000;
+        if (context_->bit_rate == bits) {
+            return;
+        }
+        if (vaapi_) {
+            const int flushed = avcodec_send_frame(context_, nullptr);
+            if (flushed < 0 && flushed != AVERROR_EOF) {
+                throw WorkerError("cannot flush VA-API rate boundary: " + error_string(flushed));
+            }
+            receive_packets(pending_packets_);
+            av_frame_unref(upload_);
+            avcodec_free_context(&context_);
+            open_codec(bitrate_kbps);
+        } else {
+            context_->bit_rate = bits;
+            context_->rc_max_rate = bits;
+            context_->rc_buffer_size = static_cast<int>(bits / fps_);
+        }
+    }
+
+    [[nodiscard]] std::vector<Packet> encode(std::span<const std::uint8_t> bgra,
+                                            bool force_idr) {
+        if (bgra.size() != static_cast<std::size_t>(width_) * height_ * 4U) {
+            throw WorkerError("in-process video input frame has an invalid size");
+        }
+        const int writable = av_frame_make_writable(frame_);
+        if (writable < 0) {
+            throw WorkerError("cannot reuse video frame: " + error_string(writable));
+        }
+        const std::array<const std::uint8_t *, 4U> source {bgra.data(), nullptr, nullptr, nullptr};
+        const std::array<int, 4U> stride {static_cast<int>(width_) * 4, 0, 0, 0};
+        (void) sws_scale(scale_, source.data(), stride.data(), 0, static_cast<int>(height_),
+                         frame_->data, frame_->linesize);
+        frame_->pts = next_pts_++;
+        frame_->pict_type = force_idr ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
+        AVFrame *input = frame_;
+        if (vaapi_) {
+            av_frame_unref(upload_);
+            const int allocated = av_hwframe_get_buffer(frames_, upload_, 0);
+            if (allocated < 0) {
+                throw WorkerError("cannot obtain VA-API input surface: " + error_string(allocated));
+            }
+            const int uploaded = av_hwframe_transfer_data(upload_, frame_, 0);
+            if (uploaded < 0) {
+                throw WorkerError("cannot upload VA-API input surface: " + error_string(uploaded));
+            }
+            upload_->pts = frame_->pts;
+            upload_->pict_type = frame_->pict_type;
+            input = upload_;
+        }
+        const int submitted = avcodec_send_frame(context_, input);
+        if (submitted < 0) {
+            throw WorkerError("video encoder rejected a frame: " + error_string(submitted));
+        }
+        std::vector<Packet> result;
+        result.swap(pending_packets_);
+        receive_packets(result);
+        return result;
+    }
+
+private:
+    void open_codec(std::uint32_t bitrate_kbps) {
+        context_ = avcodec_alloc_context3(codec_);
+        if (context_ == nullptr) {
+            throw WorkerError("cannot allocate in-process video encoder");
+        }
+        context_->width = static_cast<int>(width_);
+        context_->height = static_cast<int>(height_);
+        context_->pix_fmt = vaapi_ ? AV_PIX_FMT_VAAPI : qsv_ ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
+        context_->time_base = AVRational {1, static_cast<int>(fps_)};
+        context_->framerate = AVRational {static_cast<int>(fps_), 1};
+        // QSV's GopPicSize is a 16-bit field; 65535 is its infinite-GOP value.
+        // Recovery uses explicit IDRs rather than full refreshes every 0.5s.
+        context_->gop_size = qsv_ ? 65535 : INT_MAX;
         context_->max_b_frames = 0;
         context_->bit_rate = static_cast<std::int64_t>(bitrate_kbps) * 1000;
         context_->rc_max_rate = context_->bit_rate;
-        context_->rc_buffer_size = static_cast<int>(context_->bit_rate / fps);
+        context_->rc_buffer_size = static_cast<int>(context_->bit_rate / fps_);
         context_->flags |= AV_CODEC_FLAG_LOW_DELAY;
-        // Two slice threads give useful
-        // parallelism without frame-thread reordering latency.
         context_->thread_type = FF_THREAD_SLICE;
         context_->thread_count = 2;
-
+        if (device_ != nullptr) {
+            context_->hw_device_ctx = av_buffer_ref(device_);
+            if (context_->hw_device_ctx == nullptr) {
+                throw WorkerError("cannot reference video device");
+            }
+        }
+        if (frames_ != nullptr) {
+            context_->hw_frames_ctx = av_buffer_ref(frames_);
+            if (context_->hw_frames_ctx == nullptr) {
+                throw WorkerError("cannot reference VA-API frames");
+            }
+        }
         AVDictionary *options = nullptr;
         (void) av_dict_set(&options, "aud", "1", 0);
-        if (encoder == "h264_nvenc" || encoder == "hevc_nvenc") {
+        if (encoder_ == "h264_nvenc" || encoder_ == "hevc_nvenc") {
             (void) av_dict_set(&options, "preset", "p1", 0);
             (void) av_dict_set(&options, "tune", "ll", 0);
             (void) av_dict_set(&options, "forced-idr", "1", 0);
@@ -657,100 +819,50 @@ public:
             (void) av_dict_set(&options, "delay", "0", 0);
             (void) av_dict_set(&options, "rc-lookahead", "0", 0);
             (void) av_dict_set(&options, "rc", "vbr", 0);
+        } else if (qsv_) {
+            (void) av_dict_set(&options, "preset", "veryfast", 0);
+            (void) av_dict_set(&options, "async_depth", "1", 0);
+            (void) av_dict_set(&options, "look_ahead", "0", 0);
+            (void) av_dict_set(&options, "forced_idr", "1", 0);
+        } else if (vaapi_) {
+            (void) av_dict_set(&options, "async_depth", "1", 0);
+            (void) av_dict_set(&options, "rc_mode", "CBR", 0);
         } else {
             (void) av_dict_set(&options, "preset", "ultrafast", 0);
             (void) av_dict_set(&options, "tune", "zerolatency", 0);
             (void) av_dict_set(&options, "x264-params",
                            "aud=1:keyint=infinite:scenecut=0:bframes=0:"
-                           "repeat-headers=1:sliced-threads=1:sync-lookahead=0:rc-lookahead=0",
-                           0);
+                           "repeat-headers=1:sliced-threads=1:sync-lookahead=0:rc-lookahead=0", 0);
         }
-        const int opened = avcodec_open2(context_, codec, &options);
+        const int opened = avcodec_open2(context_, codec_, &options);
         av_dict_free(&options);
         if (opened < 0) {
-            release();
-            throw WorkerError("cannot initialise in-process " + encoder + ": " + error_string(opened));
-        }
-
-        frame_->format = context_->pix_fmt;
-        frame_->width = context_->width;
-        frame_->height = context_->height;
-        const int allocated = av_frame_get_buffer(frame_, 32);
-        if (allocated < 0) {
-            release();
-            throw WorkerError("cannot allocate in-process H.264 frame: " + error_string(allocated));
-        }
-        scale_ = sws_getContext(context_->width, context_->height, AV_PIX_FMT_BGRA,
-                                context_->width, context_->height, context_->pix_fmt,
-                                SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
-        if (scale_ == nullptr) {
-            release();
-            throw WorkerError("cannot initialise BGRA to H.264 conversion");
+            throw WorkerError("cannot initialise in-process " + encoder_ + ": " + error_string(opened));
         }
     }
 
-    ~LibavVideoEncoder() { release(); }
-
-    LibavVideoEncoder(const LibavVideoEncoder &) = delete;
-    LibavVideoEncoder &operator=(const LibavVideoEncoder &) = delete;
-
-    // Called only on the video thread. FFmpeg's libx264/NVENC wrappers
-    // reconfigure rate control on the next submitted frame without reopening
-    // the codec or resetting timestamps. NVENC also resets rate control and
-    // forces an IDR, so the controller must avoid unnecessary changes.
-    void set_bitrate(std::uint32_t bitrate_kbps) {
-        if (bitrate_kbps < 500U || bitrate_kbps > 100'000U) {
-            throw WorkerError("invalid live video bitrate");
-        }
-        context_->bit_rate = static_cast<std::int64_t>(bitrate_kbps) * 1000;
-        context_->rc_max_rate = context_->bit_rate;
-        context_->rc_buffer_size = static_cast<int>(context_->bit_rate / context_->framerate.num);
-    }
-
-    [[nodiscard]] std::vector<Packet> encode(std::span<const std::uint8_t> bgra,
-                                               bool force_idr) {
-        const auto required = static_cast<std::size_t>(context_->width) *
-                              static_cast<std::size_t>(context_->height) * 4U;
-        if (bgra.size() != required) {
-            throw WorkerError("in-process H.264 input frame has an invalid size");
-        }
-        const int writable = av_frame_make_writable(frame_);
-        if (writable < 0) {
-            throw WorkerError("cannot reuse in-process H.264 frame: " + error_string(writable));
-        }
-        const std::array<const std::uint8_t *, 4U> source {bgra.data(), nullptr, nullptr, nullptr};
-        const std::array<int, 4U> stride {context_->width * 4, 0, 0, 0};
-        (void) sws_scale(scale_, source.data(), stride.data(), 0, context_->height,
-                         frame_->data, frame_->linesize);
-        frame_->pts = next_pts_++;
-        frame_->pict_type = force_idr ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
-        const int submitted = avcodec_send_frame(context_, frame_);
-        if (submitted < 0) {
-            throw WorkerError("in-process H.264 encoder rejected a frame: " + error_string(submitted));
-        }
-        std::vector<Packet> result;
+    void receive_packets(std::vector<Packet> &result) {
         while (true) {
             const int received = avcodec_receive_packet(context_, packet_);
             if (received == AVERROR(EAGAIN) || received == AVERROR_EOF) {
                 break;
             }
             if (received < 0) {
-                throw WorkerError("in-process H.264 encoder did not produce H.264: " + error_string(received));
+                throw WorkerError("video encoder did not produce a packet: " + error_string(received));
             }
-            result.push_back({
-                .bytes = {packet_->data, packet_->data + packet_->size},
-                .keyframe = (packet_->flags & AV_PKT_FLAG_KEY) != 0,
-            });
+            result.push_back({.bytes = {packet_->data, packet_->data + packet_->size},
+                              .keyframe = (packet_->flags & AV_PKT_FLAG_KEY) != 0});
             av_packet_unref(packet_);
         }
-        return result;
     }
 
-private:
     void release() noexcept {
         if (packet_ != nullptr) { av_packet_free(&packet_); }
         if (frame_ != nullptr) { av_frame_free(&frame_); }
+        if (upload_ != nullptr) { av_frame_free(&upload_); }
         if (context_ != nullptr) { avcodec_free_context(&context_); }
+        av_buffer_unref(&frames_);
+        av_buffer_unref(&device_);
         if (scale_ != nullptr) { sws_freeContext(scale_); scale_ = nullptr; }
     }
 
@@ -760,11 +872,17 @@ private:
         return message.data();
     }
 
+    std::uint32_t width_, height_, fps_;
+    std::string encoder_;
+    bool vaapi_, qsv_;
+    const AVCodec *codec_ {};
     AVCodecContext *context_ {};
-    AVFrame *frame_ {};
+    AVFrame *frame_ {}, *upload_ {};
     AVPacket *packet_ {};
+    AVBufferRef *device_ {}, *frames_ {};
     SwsContext *scale_ {};
     std::int64_t next_pts_ {};
+    std::vector<Packet> pending_packets_;
 };
 #endif
 
@@ -803,6 +921,16 @@ public:
         (void) opus_encoder_ctl(opus_.get(), OPUS_SET_BITRATE(128000));
         (void) opus_encoder_ctl(opus_.get(), OPUS_SET_COMPLEXITY(5));
         sink_.send_audio_config();
+#if defined(QMDP_HAS_LIBAVCODEC)
+        try {
+            encoder_device_ = LibavVideoEncoder::create_device(encoder_, vaapi_device_.value_or(""));
+        } catch (...) {
+            if (!activate_fallback_encoder()) {
+                running_ = false;
+                throw;
+            }
+        }
+#endif
         video_thread_ = std::thread(&DirectMediaAdapter::video_loop, this);
     }
 
@@ -814,6 +942,9 @@ public:
         }
         std::lock_guard lock(video_mutex_);
         close_video_process();
+#if defined(QMDP_HAS_LIBAVCODEC)
+        av_buffer_unref(&encoder_device_);
+#endif
         opus_.reset();
         audio_pending_.clear();
     }
@@ -967,8 +1098,7 @@ private:
                 const bool bitrate_changed = requested_bitrate != video_bitrate_kbps_;
                 video_bitrate_kbps_ = requested_bitrate;
 #if defined(QMDP_HAS_LIBAVCODEC)
-                if ((codec_ == "h264" && (encoder_ == "libx264" || encoder_ == "h264_nvenc")) ||
-                    (codec_ == "hevc" && encoder_ == "hevc_nvenc")) {
+                if (LibavVideoEncoder::supports(encoder_)) {
                     if (!libav_encoder_ || width_ != width || height_ != height) {
                         close_video_process();
                         open_video_process(width, height);
@@ -981,7 +1111,7 @@ private:
                     }
                 } else {
 #endif
-                const bool fresh_encoder = video_input_ < 0 || width_ != width || height_ != height || force_idr;
+                const bool fresh_encoder = video_input_ < 0 || width_ != width || height_ != height || force_idr || bitrate_changed;
                 if (fresh_encoder) {
                     close_video_process();
                     open_video_process(width, height);
@@ -1069,12 +1199,11 @@ private:
 
     void open_video_process(std::uint32_t width, std::uint32_t height) {
 #if defined(QMDP_HAS_LIBAVCODEC)
-        if ((codec_ == "h264" && (encoder_ == "libx264" || encoder_ == "h264_nvenc")) ||
-                    (codec_ == "hevc" && encoder_ == "hevc_nvenc")) {
+        if (LibavVideoEncoder::supports(encoder_)) {
             // Explicit I-frame requests go straight to libavcodec/NVENC.
             // Restarting an ffmpeg process for PLI pauses capture, emits a
             // bootstrap burst, and can trigger another bounded-queue overrun.
-            libav_encoder_ = std::make_unique<LibavVideoEncoder>(width, height, fps_, encoder_, video_bitrate_kbps_);
+            libav_encoder_ = std::make_unique<LibavVideoEncoder>(width, height, fps_, encoder_, video_bitrate_kbps_, vaapi_device_.value_or(""), encoder_device_);
             width_ = width;
             height_ = height;
             return;
@@ -1318,6 +1447,7 @@ private:
         const std::string previous = encoder_;
         close_video_process();
         encoder_ = *fallback_encoder_;
+        av_buffer_unref(&encoder_device_);
         vaapi_device_.reset();
         // The next software access unit must be independently decodable by
         // every browser already subscribed to this shared worker.
@@ -1376,6 +1506,7 @@ private:
     bool frame_changed_ {false};
 #if defined(QMDP_HAS_LIBAVCODEC)
     std::unique_ptr<LibavVideoEncoder> libav_encoder_;
+    AVBufferRef *encoder_device_ {};
 #endif
     int video_input_ {-1};
     int video_output_ {-1};
@@ -1727,7 +1858,7 @@ int connect_container_compositor(const std::string &root, const std::string &dir
 
 // Leave root once all sockets are connected.  An LXC console worker talks to a
 // compositor the container controls; it keeps only what it already holds
-// (connected sockets) plus world-accessible encoder devices.
+// (connected sockets and a pre-opened encoder device).
 void drop_privileges(const std::string &user) {
     errno = 0;
     const passwd *account = ::getpwnam(user.c_str());

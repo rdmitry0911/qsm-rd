@@ -78,13 +78,16 @@ def _command(selection: DirectEncoderSelection, *, ffmpeg: str) -> list[str]:
         return _base(ffmpeg) + [
             "-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ll",
             "-forced-idr", "1", "-zerolatency", "1", "-delay", "0",
-            "-rc-lookahead", "0", "-rc", "cbr_ld_hq", "-b:v", "20M",
-            "-maxrate", "20M", "-bufsize", "333k", "-g", "30", "-bf", "0",
+            "-rc-lookahead", "0", "-rc", "vbr", "-b:v", "8M",
+            "-maxrate", "8M", "-bufsize", "266666", "-g", "2147483647", "-bf", "0",
             "-f", "h264", "pipe:1",
         ]
     if selection.encoder == "h264_qsv":
         return _base(ffmpeg) + [
-            "-vf", "format=nv12", "-c:v", "h264_qsv", "-f", "h264", "pipe:1",
+            "-vf", "format=nv12", "-c:v", "h264_qsv",
+            "-preset", "veryfast", "-async_depth", "1", "-look_ahead", "0", "-forced_idr", "1",
+            "-b:v", "8M", "-maxrate", "8M", "-bufsize", "266666",
+            "-g", "65535", "-bf", "0", "-aud", "1", "-f", "h264", "pipe:1",
         ]
     if selection.encoder == "h264_vaapi" and selection.vaapi_device is not None:
         return [
@@ -93,26 +96,31 @@ def _command(selection: DirectEncoderSelection, *, ffmpeg: str) -> list[str]:
             "-f", "lavfi", "-i",
             f"color=c=black:s={_PROBE_WIDTH}x{_PROBE_HEIGHT}:r=30",
             "-frames:v", "2", "-an", "-vf", "format=nv12,hwupload",
-            "-c:v", "h264_vaapi", "-f", "h264", "pipe:1",
+            "-c:v", "h264_vaapi", "-async_depth", "1", "-rc_mode", "CBR",
+            "-b:v", "8M", "-maxrate", "8M", "-bufsize", "266666",
+            "-g", "2147483647", "-bf", "0", "-aud", "1", "-f", "h264", "pipe:1",
         ]
     if selection.encoder == "libx264":
         return _base(ffmpeg) + [
             "-c:v", "libx264", "-threads", "2", "-thread_type", "slice",
             "-slices", "2", "-preset", "ultrafast", "-tune", "zerolatency",
-            "-x264-params", "aud=1:keyint=30:min-keyint=30:scenecut=0:bframes=0:repeat-headers=1",
+            "-x264-params", "aud=1:keyint=infinite:scenecut=0:bframes=0:repeat-headers=1",
             "-f", "h264", "pipe:1",
         ]
     if selection.encoder == "hevc_nvenc":
         return _base(ffmpeg) + [
             "-c:v", "hevc_nvenc", "-preset", "p1", "-tune", "ll",
             "-forced-idr", "1", "-zerolatency", "1", "-delay", "0",
-            "-rc-lookahead", "0", "-rc", "vbr", "-cq", "19",
-            "-b:v", "8M", "-maxrate", "20M", "-bufsize", "333k",
-            "-g", "30", "-bf", "0", "-aud", "1", "-f", "hevc", "pipe:1",
+            "-rc-lookahead", "0", "-rc", "vbr",
+            "-b:v", "8M", "-maxrate", "8M", "-bufsize", "266666",
+            "-g", "2147483647", "-bf", "0", "-aud", "1", "-f", "hevc", "pipe:1",
         ]
     if selection.encoder == "hevc_qsv":
         return _base(ffmpeg) + [
-            "-vf", "format=nv12", "-c:v", "hevc_qsv", "-g", "30", "-bf", "0",
+            "-vf", "format=nv12", "-c:v", "hevc_qsv",
+            "-preset", "veryfast", "-async_depth", "1", "-look_ahead", "0", "-forced_idr", "1",
+            "-b:v", "8M", "-maxrate", "8M", "-bufsize", "266666",
+            "-g", "65535", "-bf", "0",
             "-aud", "1", "-f", "hevc", "pipe:1",
         ]
     if selection.encoder == "hevc_vaapi" and selection.vaapi_device is not None:
@@ -122,7 +130,9 @@ def _command(selection: DirectEncoderSelection, *, ffmpeg: str) -> list[str]:
             "-f", "lavfi", "-i",
             f"color=c=black:s={_PROBE_WIDTH}x{_PROBE_HEIGHT}:r=30",
             "-frames:v", "2", "-an", "-vf", "format=nv12,hwupload",
-            "-c:v", "hevc_vaapi", "-g", "30", "-bf", "0", "-aud", "1",
+            "-c:v", "hevc_vaapi", "-async_depth", "1", "-rc_mode", "CBR",
+            "-b:v", "8M", "-maxrate", "8M", "-bufsize", "266666",
+            "-g", "2147483647", "-bf", "0", "-aud", "1",
             "-f", "hevc", "pipe:1",
         ]
     raise AssertionError("invalid direct encoder selection")

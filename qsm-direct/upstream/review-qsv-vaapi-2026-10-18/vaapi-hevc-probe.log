@@ -1,0 +1,5 @@
+segment=0 mbps=7.99914 decoded=300
+segment=1 mbps=2.05172 decoded=600
+segment=2 mbps=11.7182 decoded=900
+segment=3 mbps=0.766299 decoded=1200
+{"encoder":"hevc_vaapi","bitrate_kbps":8000,"frames":1200,"decoded":1200,"forced_idrs":3,"keys":7,"max_frame_bytes":34046,"mbps":5.78314,"max_encode_ms":11.8953}

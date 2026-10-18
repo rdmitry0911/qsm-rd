@@ -1,0 +1,18 @@
+STAGE_PVE_LOGIN
+STAGE_PVE_TREE
+STAGE_PVE_GUEST_SELECTED
+BUTTONS [{"vmid": 147, "type": "lxc", "rendered": true, "qsm": true, "webrtc": false, "disabled": false}]
+STATUS_API {"status": 200, "data": {"status": "running"}}
+STAGE_NATIVE_VIDEO
+NATIVE_VIDEO {'width': 1280, 'height': 726}
+POLICY_GET {"status": 200, "data": {"codec": "auto", "bitrate": 8000, "encoder": "auto"}}
+RECEIVER_STATS {"measuredAtMs": 81570, "jitterBufferTarget": null, "playoutDelayHint": null, "jitterBufferDelay": null, "jitterBufferEmittedCount": null, "framesDecoded": null, "framesDropped": null, "framesReceived": null, "packetsLost": null, "freezeCount": null, "totalFreezesDuration": null, "pliCount": null, "nackCount": null, "bytesReceived": null, "channels": [], "videoRateStatus": "Adaptive video: 7.81 / 8.00 Mbit/s"}
+NATIVE_MOTION_PASS {"changed": 19, "total": 19}
+MEDIA_POLICY_READ 8
+SNAPSHOT vaapi-motion
+MEDIA_POLICY_SAVED {"encoder": "auto", "codec": "auto", "bitrate": 3000}
+POLICY_GET {"status": 200, "data": {"bitrate": 3000, "codec": "auto", "encoder": "auto"}}
+MEDIA_POLICY_SAVED {"codec": "auto", "bitrate": 8000, "encoder": "auto"}
+POLICY_GET {"status": 200, "data": {"codec": "auto", "bitrate": 8000, "encoder": "auto"}}
+NO_PORT_8007_REQUESTS
+POPUP_CLOSED

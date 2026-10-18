@@ -1,0 +1,1 @@
+encoder=h264_vaapi decoded=600 keys=2 text_max_delta=0.0393309 text_mean_delta=0.00975372 flashes=0 mbps=8.00484 max_encode_ms=34.2695

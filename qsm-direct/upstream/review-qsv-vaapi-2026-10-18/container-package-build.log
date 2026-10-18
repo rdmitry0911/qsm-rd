@@ -1,0 +1,479 @@
+dpkg-buildpackage: info: source package pve-container
+dpkg-buildpackage: info: source version 6.1.14+webrtc2
+dpkg-buildpackage: info: source distribution trixie
+dpkg-buildpackage: info: source changed by Dmitry R <rdmitry0911@gmail.com>
+ dpkg-source --before-build .
+dpkg-buildpackage: info: host architecture amd64
+ debian/rules clean
+dh clean
+   dh_auto_clean
+	make -j64 distclean
+make[1]: Entering directory '/work/vaapi-container'
+make -C test clean
+make[2]: Entering directory '/work/vaapi-container/test'
+rm -rf tmprootfs
+make[2]: Leaving directory '/work/vaapi-container/test'
+make cleanup-docgen
+make[2]: Entering directory '/work/vaapi-container'
+rm -f *.xml.tmp *.1 *.5 *.8 *.adoc docinfo.xml
+rm -rf generated
+make[2]: Leaving directory '/work/vaapi-container'
+rm -f *.1 *.5 *.tmp *.bash-completion *.bash-completion
+make[1]: Leaving directory '/work/vaapi-container'
+   dh_clean
+ debian/rules binary
+dh binary
+   dh_update_autotools_config
+   dh_autoreconf
+   dh_auto_configure
+   dh_auto_build
+	make -j64 "INSTALL=install --strip-program=true"
+make[1]: Entering directory '/work/vaapi-container'
+make[1]: Nothing to be done for 'all'.
+make[1]: Leaving directory '/work/vaapi-container'
+   dh_auto_test
+	make -j64 test
+make[1]: Entering directory '/work/vaapi-container'
+make -C test test
+make[2]: Entering directory '/work/vaapi-container/test'
+if test -e /run/lock/sbuild; then \
+	echo skipping userns tests in sbuild environment ; \
+else \
+	lxc-usernsexec -m "u:0:`id -u`:1" -m "g:0:`id -g`:1" -- ./run_setup_tests.pl ; \
+fi
+./run_snapshot_tests.pl
+skipping userns tests in sbuild environment
+if test -e /run/lock/sbuild; then \
+	echo skipping userns tests in sbuild environment ; \
+else \
+	lxc-usernsexec -m "u:0:`id -u`:1" -m "g:0:`id -g`:1" -- ./bindmount_test.pl ; \
+fi
+./run_idmap_tests.pl
+skipping userns tests in sbuild environment
+perl ./webrtc_test.pl
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+    # validation took 0.001669 seconds
+All tests successful.
+Files=1, Tests=5,  0 wallclock secs ( 0.02 usr  0.00 sys +  0.35 cusr  0.06 csys =  0.43 CPU)
+Result: PASS
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+file /etc/pve/storage.cfg line 3 (section 'local') - unable to parse value of 'maxfiles': unknown property type
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+file /etc/pve/storage.cfg line 3 (section 'local') - unable to parse value of 'maxfiles': unknown property type
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+file /etc/pve/storage.cfg line 3 (section 'local') - unable to parse value of 'maxfiles': unknown property type
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+file /etc/pve/storage.cfg line 3 (section 'local') - unable to parse value of 'maxfiles': unknown property type
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ok 1 - webrtcproxy is handled by the privileged daemon
+ok 2 - webrtcproxy is routed to the owning node
+ok 3 - webrtcproxy retains its specific ACL boundary
+ok 4 - webrtcproxy rejects additional parameters
+ok 5 - webrtcstatus is handled by the privileged daemon
+ok 6 - webrtcstatus is routed to the owning node
+ok 7 - webrtcstatus retains its specific ACL boundary
+ok 8 - webrtcstatus rejects additional parameters
+ok 9 - webrtcsettings-get is handled by the privileged daemon
+ok 10 - webrtcsettings-get is routed to the owning node
+ok 11 - webrtcsettings-get retains its specific ACL boundary
+ok 12 - webrtcsettings-get rejects additional parameters
+ok 13 - webrtcsettings-put is handled by the privileged daemon
+ok 14 - webrtcsettings-put is routed to the owning node
+ok 15 - webrtcsettings-put retains its specific ACL boundary
+ok 16 - webrtcsettings-put rejects additional parameters
+ok 17 - offers are CSRF-protected writes
+ok 18 - offers are bounded
+ok 19 - settings writes use PUT
+1..19
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+perl ./webrtc-bitrate-test.pl
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+snapshot create failed: starting cleanup
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+freeze disabled
+snapshot create failed: starting cleanup
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+snapshot create failed: starting cleanup
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+snapshot create failed: starting cleanup
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+volume snapshot delete disabled
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+volume snapshot delete disabled
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+vm 205 - unable to parse value of 'vmstate' - unknown setting 'vmstate'
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+vm 205 - unable to parse value of 'vmstate' - unknown setting 'vmstate'
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+ipcc_send_rec[1] failed: Connection refused
+ipcc_send_rec[2] failed: Connection refused
+ipcc_send_rec[3] failed: Connection refused
+All tests successful.
+Files=1, Tests=42,  1 wallclock secs ( 0.02 usr  0.01 sys +  0.49 cusr  0.41 csys =  0.93 CPU)
+Result: PASS
+ok 1 - PVE::API2::LXC keeps write ACL
+ok 2 - PVE::API2::LXC accepts old clients without bitrate
+ok 3 - PVE::API2::LXC accepts bitrate 500
+ok 4 - PVE::API2::LXC accepts bitrate 8000
+ok 5 - PVE::API2::LXC accepts bitrate 20000
+ok 6 - PVE::API2::LXC accepts bitrate 100000
+ok 7 - PVE::API2::LXC rejects bitrate 0
+ok 8 - PVE::API2::LXC rejects bitrate 499
+ok 9 - PVE::API2::LXC rejects bitrate 100001
+ok 10 - PVE::API2::LXC rejects bitrate 1.5
+ok 11 - PVE::API2::LXC rejects bitrate unlimited
+1..11
+make[2]: Leaving directory '/work/vaapi-container/test'
+make[1]: Leaving directory '/work/vaapi-container'
+   create-stamp debian/debhelper-build-stamp
+   dh_prep
+   dh_auto_install --destdir=debian/pve-container/
+	make -j64 install DESTDIR=/work/vaapi-container/debian/pve-container AM_UPDATE_INFO_DIR=no "INSTALL=install --strip-program=true"
+make[1]: Entering directory '/work/vaapi-container'
+cp /usr/share/pve-doc-generator/pct.adoc pct.adoc.tmp
+cp /usr/share/pve-doc-generator/pve-copyright.adoc pve-copyright.adoc.tmp
+cp /usr/share/pve-doc-generator/docinfo.xml docinfo.xml.tmp
+mv pct.adoc.tmp pct.adoc
+mv pve-copyright.adoc.tmp pve-copyright.adoc
+PVE_GENERATING_DOCS=1 perl -I. -e "use PVE::CLI::pct;print PVE::CLI::pct->generate_asciidoc_synopsis();" > generated/pct.1-synopsis.adoc.tmp
+mv docinfo.xml.tmp docinfo.xml
+PVE_GENERATING_DOCS=1 perl -I. /usr/share/pve-doc-generator/gen-pct-mountpoint-opts.pl >generated/pct-mountpoint-opts.adoc.tmp
+PVE_GENERATING_DOCS=1 perl -I. /usr/share/pve-doc-generator/gen-pct-network-opts.pl >generated/pct-network-opts.adoc.tmp
+PVE_GENERATING_DOCS=1 perl -I. /usr/share/pve-doc-generator/gen-pct.conf.5-opts.pl >generated/pct.conf.5-opts.adoc.tmp
+cp /usr/share/pve-doc-generator/pct.conf.adoc pct.conf.adoc.tmp
+PVE_GENERATING_DOCS=1 perl -I. -T -e "use PVE::CLI::pct; PVE::CLI::pct->generate_bash_completions();" >pct.bash-completion.tmp
+PVE_GENERATING_DOCS=1 perl -I. -T -e "use PVE::CLI::pct; PVE::CLI::pct->generate_zsh_completions();" >pct.zsh-completion.tmp
+cp /usr/share/lxc/config/common.seccomp pve-userns.seccomp
+mv pct.conf.adoc.tmp pct.conf.adoc
+echo 'keyctl errno 38' >> pve-userns.seccomp
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+Unable to open syslog: Unable to open syslog: OsOs {  { codecode: : 22, , kindkind: : NotFoundNotFound, , messagemessage: : ""No such file or directoryNo such file or directory"" } }
+
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+mv generated/pct.conf.5-opts.adoc.tmp generated/pct.conf.5-opts.adoc
+mv generated/pct-network-opts.adoc.tmp generated/pct-network-opts.adoc
+mv generated/pct-mountpoint-opts.adoc.tmp generated/pct-mountpoint-opts.adoc
+/usr/bin/asciidoc-pve compile-man -o pct.conf.5 pct.conf.adoc
+mv pct.bash-completion.tmp pct.bash-completion
+mv pct.zsh-completion.tmp pct.zsh-completion
+mv generated/pct.1-synopsis.adoc.tmp generated/pct.1-synopsis.adoc
+/usr/bin/asciidoc-pve compile-man -o pct.1 pct.adoc
+link 'first_guest_boot_delay' target 'sysadmin.adoc' is not a manual page, ignoring
+link 'sysboot_edit_kernel_cmdline' target 'sysadmin.adoc' is not a manual page, ignoring
+Note: Writing pct.conf.5
+test -z "${PVE_DOC_INSTANTVIEW}" || man -l pct.conf.5
+Note: Writing pct.1
+test -z "${PVE_DOC_INSTANTVIEW}" || man -l pct.1
+PVE_GENERATING_DOCS=1 perl -I. -T -e "use PVE::CLI::pct; PVE::CLI::pct->verify_api();"
+Unable to open syslog: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+install -d /work/vaapi-container/debian/pve-container/usr/sbin
+install -m 0755 pct /work/vaapi-container/debian/pve-container/usr/sbin
+install -d /work/vaapi-container/debian/pve-container/usr/share/lxc
+install -m 0755 lxcnetaddbr /work/vaapi-container/debian/pve-container/usr/share/lxc
+install -m 0755 pve-container-stop-wrapper /work/vaapi-container/debian/pve-container/usr/share/lxc
+install -d -m0755 /work/vaapi-container/debian/pve-container/usr/lib/systemd/system
+install -m0644 pve-container@.service /work/vaapi-container/debian/pve-container/usr/lib/systemd/system/
+install -m0644 pve-container-debug@.service /work/vaapi-container/debian/pve-container/usr/lib/systemd/system/
+install -m0644 'system-pve\x2dcontainer.slice' /work/vaapi-container/debian/pve-container/usr/lib/systemd/system/
+install -d /work/vaapi-container/debian/pve-container/usr/share/lxc/hooks
+install -m 0755 lxc-pve-prestart-hook /work/vaapi-container/debian/pve-container/usr/share/lxc/hooks
+install -m 0755 lxc-pve-autodev-hook /work/vaapi-container/debian/pve-container/usr/share/lxc/hooks
+install -m 0755 lxc-pve-poststop-hook /work/vaapi-container/debian/pve-container/usr/share/lxc/hooks
+install -d /work/vaapi-container/debian/pve-container/usr/share/lxc/config
+install -m 0644 pve-userns.seccomp /work/vaapi-container/debian/pve-container/usr/share/lxc/config/pve-userns.seccomp
+install -d /work/vaapi-container/debian/pve-container/usr/share/lxc/config/common.conf.d
+install -m 0644 lxc-pve.conf /work/vaapi-container/debian/pve-container/usr/share/lxc/config/common.conf.d/01-pve.conf
+install -d /work/vaapi-container/debian/pve-container/usr/share/lxc/config/userns.conf.d
+install -m 0644 lxc-pve-userns.conf /work/vaapi-container/debian/pve-container/usr/share/lxc/config/userns.conf.d/01-pve.conf
+install -m 0644 -D pct.bash-completion /work/vaapi-container/debian/pve-container/usr/share/bash-completion/completions//pct
+install -m 0644 -D pct.zsh-completion /work/vaapi-container/debian/pve-container/usr/share/zsh/vendor-completions//_pct
+make -C PVE install
+make[2]: Entering directory '/work/vaapi-container/PVE'
+install -d -m 0755 /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE
+for i in LXC.pm; do install -D -m 0644 $i /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE/$i; done
+make -C API2 install
+make[3]: Entering directory '/work/vaapi-container/PVE/API2'
+install -d -m 0755 /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE/API2
+for i in LXC.pm; do install -D -m 0644 $i /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE/API2/$i; done
+make -C LXC install
+make[4]: Entering directory '/work/vaapi-container/PVE/API2/LXC'
+install -d -m 0755 /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE/API2/LXC
+for i in Config.pm Status.pm Snapshot.pm; do install -D -m 0644 $i /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE/API2/LXC/$i; done
+make[4]: Leaving directory '/work/vaapi-container/PVE/API2/LXC'
+make[3]: Leaving directory '/work/vaapi-container/PVE/API2'
+make -C LXC install
+make[3]: Entering directory '/work/vaapi-container/PVE/LXC'
+install -d -m 0755 /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE/LXC
+for i in CGroup.pm Command.pm Config.pm Create.pm Migrate.pm Monitor.pm Namespaces.pm Setup.pm Tools.pm; do install -D -m 0644 $i /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE/LXC/$i; done
+make -C Setup install
+make[4]: Entering directory '/work/vaapi-container/PVE/LXC/Setup'
+install -d -m 0755 /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE/LXC/Setup
+for i in Plugin.pm Base.pm Alpine.pm ArchLinux.pm CentOS.pm Debian.pm Devuan.pm Fedora.pm Gentoo.pm SUSE.pm Ubuntu.pm NixOS.pm OpenEuler.pm Unmanaged.pm ; do install -D -m 0644 $i /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE/LXC/Setup/$i; done
+make[4]: Leaving directory '/work/vaapi-container/PVE/LXC/Setup'
+make[3]: Leaving directory '/work/vaapi-container/PVE/LXC'
+make -C VZDump install
+make[3]: Entering directory '/work/vaapi-container/PVE/VZDump'
+install -D -m 0644 LXC.pm /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE/VZDump/LXC.pm
+install -D -m 0644 ConvertOVZ.pm /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE/VZDump/ConvertOVZ.pm
+make[3]: Leaving directory '/work/vaapi-container/PVE/VZDump'
+make -C CLI install
+make[3]: Entering directory '/work/vaapi-container/PVE/CLI'
+install -d -m 0755 /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE/CLI
+for i in pct.pm; do install -D -m 0644 $i /work/vaapi-container/debian/pve-container/usr/share/perl5/PVE/CLI/$i; done
+make[3]: Leaving directory '/work/vaapi-container/PVE/CLI'
+make[2]: Leaving directory '/work/vaapi-container/PVE'
+install -d /work/vaapi-container/debian/pve-container/usr/share/man/man1/
+install -d /work/vaapi-container/debian/pve-container/usr/share/man/man5/
+install -m 0644 pct.1 /work/vaapi-container/debian/pve-container/usr/share/man/man1/
+gzip -9 /work/vaapi-container/debian/pve-container/usr/share/man/man1//pct.1
+install -m 0644 pct.conf.5 /work/vaapi-container/debian/pve-container/usr/share/man/man5/
+gzip -9 /work/vaapi-container/debian/pve-container/usr/share/man/man5//pct.conf.5
+cd /work/vaapi-container/debian/pve-container/usr/share/man/man5/; ln -s pct.conf.5.gz ct.conf.5.gz
+install -D -m 0644 10-pve-ct-inotify-limits.conf /work/vaapi-container/debian/pve-container/usr/lib/sysctl.d/10-pve-ct-inotify-limits.conf
+install -D -m 0644 pve-container-mounthotplug /work/vaapi-container/debian/pve-container/etc/apparmor.d/pve-container-mounthotplug
+make[1]: Leaving directory '/work/vaapi-container'
+   debian/rules override_dh_install
+make[1]: Entering directory '/work/vaapi-container'
+dh_apparmor -p pve-container --profile-name=pve-container-mounthotplug
+make[1]: Leaving directory '/work/vaapi-container'
+   dh_installdocs
+   dh_installchangelogs
+   dh_installman
+   debian/rules override_dh_installsystemd
+make[1]: Entering directory '/work/vaapi-container'
+dh_installsystemd -ppve-container --no-start --no-enable --no-restart-after-upgrade -r 'system-pve\x2dcontainer.slice'
+make[1]: Leaving directory '/work/vaapi-container'
+   dh_perl
+   dh_link
+   dh_strip_nondeterminism
+   dh_compress
+   dh_fixperms
+   dh_missing
+   dh_installdeb
+   dh_gencontrol
+   dh_md5sums
+   dh_builddeb
+dpkg-deb: building package 'pve-container' in '../pve-container_6.1.14+webrtc2_all.deb'.
+ dpkg-genbuildinfo --build=binary -O../pve-container_6.1.14+webrtc2_amd64.buildinfo
+ dpkg-genchanges --build=binary -O../pve-container_6.1.14+webrtc2_amd64.changes
+dpkg-genchanges: info: binary-only upload (no source code included)
+ dpkg-source --after-build .
+dpkg-buildpackage: info: binary-only upload (no source included)

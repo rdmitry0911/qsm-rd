@@ -1,0 +1,2 @@
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  cannot initialise h264_qsv device: Generic error in an external library

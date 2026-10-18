@@ -1,0 +1,26 @@
+STAGE_PVE_LOGIN
+AUTHENTICATED_PVE {"status": 200, "capGroups": ["sdn", "access", "mapping", "dc", "vms", "nodes", "storage"]}
+STAGE_PVE_TREE
+STAGE_PVE_GUEST_SELECTED
+BUTTONS [{"vmid": 147, "type": "lxc", "rendered": true, "qsm": true, "webrtc": false, "disabled": false}]
+STATUS_API {"status": 200, "data": {"status": "running"}}
+STAGE_NATIVE_VIDEO
+NATIVE_VIDEO {'width': 1280, 'height': 726}
+RECEIVER_STATS {"measuredAtMs": 118933, "jitterBufferTarget": 0, "playoutDelayHint": null, "jitterBufferDelay": 170.542444, "jitterBufferEmittedCount": 6642, "framesDecoded": 6642, "framesDropped": 0, "framesReceived": 6643, "packetsLost": 0, "freezeCount": 0, "totalFreezesDuration": 0, "pliCount": 0, "nackCount": 0, "bytesReceived": 110929381, "channels": [{"label": "qsm-control", "state": "open", "buffered": 0, "messages": 2}, {"label": "qsm-pointer", "state": "open", "buffered": 0, "messages": 0}], "videoRateStatus": "Adaptive video: 8.00 / 8.00 Mbit/s"}
+BROWSER_ERROR {'changed': 0, 'total': 19}
+POPUP_CLOSED
+Traceback (most recent call last):
+  File "/tmp/qsm-intel-amd/native-ui.py", line 251, in <module>
+    asyncio.run(main())
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/tmp/qsm-intel-amd/native-ui.py", line 249, in main
+    raise RuntimeError('browser native-login qualification failed') from None
+RuntimeError: browser native-login qualification failed

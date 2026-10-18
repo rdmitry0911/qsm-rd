@@ -1,0 +1,29 @@
+segment=0 mbps=6.85684 decoded=300
+segment=1 mbps=2.67413 decoded=600
+segment=2 mbps=9.68224 decoded=900
+segment=3 mbps=1.3889 decoded=1200
+{"encoder":"h264_nvenc","bitrate_kbps":8000,"frames":1200,"decoded":1200,"forced_idrs":3,"keys":7,"max_frame_bytes":23281,"mbps":5.28028,"max_encode_ms":5.55469}
+segment=0 mbps=7.28757 decoded=300
+segment=1 mbps=2.55919 decoded=600
+segment=2 mbps=10.7231 decoded=900
+segment=3 mbps=0.705262 decoded=1200
+{"encoder":"hevc_nvenc","bitrate_kbps":8000,"frames":1200,"decoded":1200,"forced_idrs":3,"keys":7,"max_frame_bytes":25636,"mbps":5.45686,"max_encode_ms":12.5825}
+[libx264 @ 0x63dffe9a0540] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0x63dffe9a0540] profile Constrained Baseline, level 4.0, 4:2:0, 8-bit
+[libx264 @ 0x63dffe9a0540] max bitrate less than average bitrate, assuming CBR
+[libx264 @ 0x63dffe9a0540] max bitrate less than average bitrate, assuming CBR
+[libx264 @ 0x63dffe9a0540] VBV underflow (frame 930, -8 bits)
+[libx264 @ 0x63dffe9a0540] VBV underflow (frame 1131, -24 bits)
+[libx264 @ 0x63dffe9a0540] frame I:4     Avg QP:21.71  size: 14660
+[libx264 @ 0x63dffe9a0540] frame P:1196  Avg QP:35.52  size:  9931
+[libx264 @ 0x63dffe9a0540] mb I  I16..4: 100.0%  0.0%  0.0%
+[libx264 @ 0x63dffe9a0540] mb P  I16..4:  8.8%  0.0%  0.0%  P16..4: 50.7%  0.0%  0.0%  0.0%  0.0%    skip:40.6%
+[libx264 @ 0x63dffe9a0540] coded y,uvDC,uvAC intra: 1.4% 61.9% 6.0% inter: 0.6% 54.4% 4.6%
+[libx264 @ 0x63dffe9a0540] i16 v,h,dc,p: 18% 40%  6% 36%
+[libx264 @ 0x63dffe9a0540] i8c dc,h,v,p: 39% 18% 10% 32%
+[libx264 @ 0x63dffe9a0540] kb/s:4774.29
+segment=0 mbps=6.60676 decoded=300
+segment=1 mbps=1.6305 decoded=600
+segment=2 mbps=9.99786 decoded=900
+segment=3 mbps=0.356274 decoded=1200
+{"encoder":"libx264","bitrate_kbps":8000,"frames":1200,"decoded":1200,"forced_idrs":3,"keys":4,"max_frame_bytes":23989,"mbps":4.77429,"max_encode_ms":5.55276}

@@ -1,0 +1,1 @@
+encoder=hevc_vaapi decoded=600 keys=2 text_max_delta=0.00204303 text_mean_delta=8.04965e-06 flashes=0 mbps=7.99994 max_encode_ms=16.3591

@@ -1,3 +1,5 @@
 # A generated mail-format patch retains Git's required "-- " separator.
 # Unified patches require a single space on empty context lines.
 packaging/lxc/sddm/*.patch whitespace=-blank-at-eol
+# This review artifact is a generated git-format-patch, including context tabs.
+upstream/review-qsv-vaapi-2026-10-18/*.patch -whitespace

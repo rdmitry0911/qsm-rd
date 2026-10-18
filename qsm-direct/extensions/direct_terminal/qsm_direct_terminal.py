@@ -1653,7 +1653,8 @@ class DirectSessionManager:
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
                 qemu_generation=generation, codec=codec, video_bitrate_kbps=_video_bitrate_kbps(policy),
-                adaptive_video=encoder in {"libx264", "h264_nvenc", "hevc_nvenc"},
+                adaptive_video=encoder in {"libx264", "h264_nvenc", "hevc_nvenc",
+                                           "h264_qsv", "hevc_qsv", "h264_vaapi", "hevc_vaapi"},
                 nvenc=encoder in {"h264_nvenc", "hevc_nvenc"}, guest=guest,
                 attached_by_pve=display_fd is not None or shared_profile is not None, pcm=pcm,
                 microphone=MicrophoneRoute(lambda data: pcm.send(PCM_MICROPHONE, data)))
@@ -1776,7 +1777,8 @@ class DirectSessionManager:
             transport = DirectVmTransport(
                 vmid=vmid, worker=worker, media=media, input=input_egress, directory=directory,
                 qemu_generation=generation, codec=codec, video_bitrate_kbps=_video_bitrate_kbps(policy),
-                adaptive_video=encoder in {"libx264", "h264_nvenc", "hevc_nvenc"},
+                adaptive_video=encoder in {"libx264", "h264_nvenc", "hevc_nvenc",
+                                           "h264_qsv", "hevc_qsv", "h264_vaapi", "hevc_vaapi"},
                 nvenc=encoder in {"h264_nvenc", "hevc_nvenc"}, guest=guest, kind="lxc", pcm=pcm,
                 audio_relay=relay,
                 microphone=MicrophoneRoute(relay.microphone) if relay is not None else None)
