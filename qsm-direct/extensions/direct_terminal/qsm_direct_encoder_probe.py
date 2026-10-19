@@ -132,7 +132,7 @@ def _command(selection: DirectEncoderSelection, *, ffmpeg: str) -> list[str]:
             "-frames:v", "2", "-an", "-vf", "format=nv12,hwupload",
             "-c:v", "hevc_vaapi", "-async_depth", "1", "-rc_mode", "CBR",
             "-b:v", "8M", "-maxrate", "8M", "-bufsize", "266666",
-            "-g", "2147483647", "-bf", "0", "-aud", "1",
+            "-g", "2147483647", "-bf", "0", "-aud", "0",
             "-f", "hevc", "pipe:1",
         ]
     raise AssertionError("invalid direct encoder selection")

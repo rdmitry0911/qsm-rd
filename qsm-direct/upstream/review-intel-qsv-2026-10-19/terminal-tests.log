@@ -1,0 +1,24 @@
+........./usr/lib/python3.12/unittest/case.py:589: ResourceWarning: unclosed <socket.socket fd=3, family=1, type=5, proto=0>
+  if method() is not None:
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+..........qsm-direct-terminal: VM media transport ended vmid=321 exit_code=0
+......qsm-direct-terminal: WebRTC negotiation timed out vmid=321
+..qsm-direct-terminal: retiring VM media transport vmid=321: QEMU generation changed
+.........qsm-direct-terminal: alice@pve opens console 1 of container 105
+qsm-direct-terminal: bob@pve opens console 2 of container 105
+qsm-direct-terminal: alice@pve resumes console 1 of container 105
+.qsm-direct-terminal: console 1 of container 105 has a desktop of alice without a known owner; it is not handed out and is logged out after the grace period
+qsm-direct-terminal: bob@pve opens console 2 of container 105
+.qsm-direct-terminal: alice@pve opens console 1 of container 105
+qsm-direct-terminal: bob@pve opens console 2 of container 105
+qsm-direct-terminal: carol@pve opens console 1 of container 105
+.qsm-direct-terminal: alice@pve opens console 1 of container 105
+qsm-direct-terminal: alice@pve opens console 2 of container 105
+.qsm-direct-terminal: alice@pve opens console 1 of container 105
+qsm-direct-terminal: bob@pve opens console 2 of container 105
+.qsm-direct-terminal: alice@pve opens console 1 of container 105
+...
+----------------------------------------------------------------------
+Ran 44 tests in 1.299s
+
+OK

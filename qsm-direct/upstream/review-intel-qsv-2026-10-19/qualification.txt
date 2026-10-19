@@ -1,0 +1,138 @@
+Intel Iris Xe qualification, 2026-10-19
+======================================
+
+Target: dima@172.16.16.200, Ubuntu 24.04.4, kernel 6.8.0-146-generic,
+Core i7-13800H / Raptor Lake-P Iris Xe 8086:a7a0, i915 renderD129.
+The other render node is NVIDIA. The Intel GPU is used by SDDM/Xorg.
+No physical GPU was detached, graphical session stopped or existing VM
+restarted. Intel hardware results below run on the Ubuntu host, not in
+nested Proxmox. GPU passthrough into Proxmox awaits the operator's answer
+about temporarily stopping the Intel login screen. SR-IOV reports 7 possible
+VFs, but this stock i915 module has no max_vfs facility and creates no VFs.
+No replacement kernel/driver is installed on the Ubuntu host.
+
+Two fixes
+---------
+1. QSV opens and encodes correctly, but FFmpeg's live reset rejects the
+   first 8 -> 2 Mbps transition: MFX_ERR_INCOMPATIBLE_VIDEO_PARAM (-14).
+   Its requested HRD/VBV size changes with bitrate. Updating initial buffer
+   occupancy as well did not fix the reset. QSV now drains/reopens just its
+   codec, as VA-API already does, retaining the prepared device, conversion,
+   source timestamps and WebRTC peer. No root privileges are restored.
+2. Intel HEVC VA-API with AUD enabled emits an escaped Annex B prefix in
+   later packets, e.g. 00 00 03 00 01 46 ... . The software decoder reports
+   'No start code is found'. Omitting redundant AUDs fixes all tested frames.
+   In-process packets already delimit access units. Only hevc_vaapi changes;
+   H.264, QSV, NVENC and the external-process fallback retain their options.
+   The HEVC VA-API capability probe uses the matching AUD=0 setting.
+
+Exact production class
+----------------------
+build-probes.py extracts LibavVideoEncoder from the current media worker.
+The generated C++ sources are included. Build in Debian Trixie with:
+  g++ -std=c++20 -O2 encoder-probe.cpp -o encoder-probe \
+      $(pkg-config --cflags --libs libavcodec libavutil libswscale)
+  g++ -std=c++20 -O2 static-probe.cpp -o static-probe \
+      $(pkg-config --cflags --libs libavcodec libavutil libswscale)
+Set QSM_PROBE_VAAPI_DEVICE to the intended render node. QSV deliberately
+uses its default Intel device selection, not a DRM path interpreted as a
+QSV implementation name. Dynamic probes take CODEC 8000 nobody. Static
+probes always drop privileges and read fixture.bgra in their working directory.
+The fixture is the existing review-keyframe-stability-2026-10-17 image.
+
+The Ubuntu host runs these Trixie libraries in an isolated chroot under
+/var/tmp/qsm-intel-lab/runtime, with host /dev and read-only /sys bind mounts:
+libavcodec61 7:7.1.5-0+deb13u1, libvpl2 1:2.14.0-1+b1,
+libmfx-gen1.2 25.1.4-1, intel-media-va-driver-non-free 25.2.3+ds1-1.
+Dependencies are copied from the existing media builder, not installed over
+the Ubuntu host libraries. Device creation runs as root, then supplementary
+groups are cleared and uid/gid become 65534 before codec construction,
+encoding, requested keyframes and rate changes. No render permissions or
+host group membership are changed. There is no software encoder fallback
+in these explicit hardware probes.
+
+Results
+-------
+Dynamic 1280x800/60, 1200 synthetic frames, target changes at301/607/913:
+8 -> 2 -> 12 -> 0.5 Mbps, explicit IDRs at7/17/49. Intel H.264 QSV,
+H.264 VA-API, HEVC VA-API and HEVC QSV each decode all1200 frames and have
+7 keys: initial, three explicit recovery requests, three codec boundaries.
+The probes check each requested keyframe and one packet per source frame.
+Combined maximum setter/encode times were respectively14.25/12.76/29.60/
+28.48ms in this run; they are observations, not latency guarantees.
+Per-phase averages now align exactly with target changes. At the0.5-Mbps
+target H.264 QSV/VA-API actually produce about1.06/1.00Mbps. Hardware can
+overshoot a small target; bitrate adaptation is not a strict wire-rate cap.
+
+Static1970x1220/60, 600 frames, recovery IDR at347, ceiling8Mbps:
+H.264 QSV, H.264 VA-API and HEVC VA-API all decode600 frames, have exactly
+2 keys, and show no periodic static-text pulses. Peak mean text luma deltas
+are0.014787/0.038298/0.0000123 out of255; threshold0.15. Initial0..90 and
+requested-IDR347..437 refinement windows are excluded only from the steady
+text metric, not decoding or keyframe checks.
+
+HEVC QSV is NOT fully qualified: the same high-resolution static probe
+fails at source frame51 with 'Invalid FrameType:0' / invalid encoded data.
+It also fails as root, so this is not explained by the LXC privilege drop.
+Disabling AUD, enabling LowDelayBRC or doubling VBV alone did not fix it.
+LowPower=1 progresses further but fails at the requested IDR347, including
+with a doubled VBV. None of those experimental options is shipped. A real
+GPU test in the new Proxmox kernel remains outstanding; no claim is made
+that a kernel update will fix this failure.
+
+AMD regression on172.16.16.17, only standalone probes, no service changes:
+HEVC VA-API with AUD=0 decodes1200 dynamic and600 static frames, with7/2 keys,
+respectively. Static peak text luma delta0.002043/255. An initial static
+fixture attempt could not read an absolute symlink through /root as nobody;
+the public fixture was copied locally and the full test repeated successfully.
+
+Nested platform and automated checks
+-----------------------------------
+A dedicated KVM/q35/UEFI Proxmox VE VM is deployed on the Ubuntu host:
+/var/tmp/qsm-intel-lab, 4 vCPUs,4GiB,64GiB qcow2 overlay; no autostart.
+Its SSH/PVE ports are bound only to host loopback12222/18006. The guest
+runs pve-manager9.2.21 and Proxmox kernel7.0.14-24-pve. Native preview pieces
+are pve-manager source72bc4d88, libpve-guest-common-perl6.0.5+webrtc1,
+qemu-server9.2.11+shared3 and pve-container6.1.14+webrtc2. The manager preview
+and common transport are required for a FRESH native install; stock manager
+of the same version does not have the WebRTC UI/API series. Shared9 supplies
+that foundation; shared23 supplies the current VM/container API packages.
+
+CT147 is a new unprivileged Ubuntu24.04 test container with2CPUs,1536MiB,
+16GiB, onboot0, software Plasma, optional private Sway1.11 and no physical
+GPU passthrough to the container. Guest/container networking uses a private
+vmbr147 /10.77.147.0/24 NAT inside the test Proxmox VM. Other host network
+interfaces/routes are unchanged. No existing guest is used for these tests.
+The qsm-test-a password exists only inside CT147 /root/qsm-test-a.password,
+mode0600, and is not part of the review. SSH bootstrap uses a separate
+root-owned authorized key file because pmxcfs replaces authorized_keys.
+
+47 bridge/controller tests,44 direct-terminal/encoder/API tests and16 C++
+test suites pass. See the included logs and decoder summaries. Earlier
+shared23 AMD/NVENC/software qualifications remain in the previous review;
+those are not represented as new Intel Proxmox hardware passes here.
+
+Real native Proxmox browser check
+--------------------------------
+The Firefox fixture runs headless on the Ubuntu host, with H.264/OpenH264,
+and opens the actual PVE preview UI through the VM's loopback port18006.
+A native PVE ticket is passed over SSH stdin and stays in browser memory;
+no ticket/password is saved in traces or review files. The real server uses
+libx264 because the physical Intel device is not assigned to the VM yet.
+CT147's controlled Qt moving window is focused through Sway IPC. At1280x726,
+all19/19 sampled picture transitions change. The receiver reports913 decoded
+frames,0 decoder drops,0 packet loss and0 freezes, adaptive status8/8Mbps.
+The current native media settings read returns HTTP200. Port8007 is blocked
+in the browser fixture and receives no request. Capture reports separate
+cursor support, no capture errors, and the actual wlroots source.
+
+The initial browser attempt used mDNS host candidates. A slirp NAT guest
+cannot resolve the host's LAN multicast names, so ICE did not connect. The
+fixture disables Firefox host-address obfuscation for this isolated test;
+real UDP then connects through the user-mode NAT. This is a documented
+fixture setting, not a production preference change or simulated video.
+The discarded attempt and final counters are included. Only the synthetic
+video image is eligible for publication; the full inventory screenshot
+stays private on the test host. The fixture is stopped after the check and
+CT147 returns to its normal login screen. This is a software platform check,
+not Intel QSV/VA-API inside-Proxmox qualification or a VPN impairment test.

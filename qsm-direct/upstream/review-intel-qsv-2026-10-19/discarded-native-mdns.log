@@ -1,0 +1,24 @@
+STAGE_PVE_LOGIN
+AUTHENTICATED_PVE {"status": 200, "capGroups": ["mapping", "access", "sdn", "dc", "vms", "storage", "nodes"]}
+STAGE_PVE_TREE
+STAGE_PVE_GUEST_SELECTED
+BUTTONS [{"vmid": 147, "type": "lxc", "rendered": true, "qsm": true, "webrtc": false, "disabled": false}]
+STATUS_API {"status": 200, "data": {"status": "running"}}
+STAGE_NATIVE_VIDEO
+BROWSER_ERROR Page.wait_for_function: Timeout 40000ms exceeded.
+POPUP_CLOSED
+Traceback (most recent call last):
+  File "/var/tmp/qsm-intel-lab/native-ui.py", line 256, in <module>
+    asyncio.run(main())
+  File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/var/tmp/qsm-intel-lab/native-ui.py", line 254, in main
+    raise RuntimeError('browser native-login qualification failed') from None
+RuntimeError: browser native-login qualification failed

@@ -708,10 +708,10 @@ public:
     LibavVideoEncoder(const LibavVideoEncoder &) = delete;
     LibavVideoEncoder &operator=(const LibavVideoEncoder &) = delete;
 
-    // All codec access stays on the video thread. QSV/libx264/NVENC read live
-    // AVCodecContext rate settings; FFmpeg 7 VA-API caches them at open instead.
-    // Reopen just that codec on a material rate change, retaining the DRM
-    // device, upload pool and monotonically increasing source timestamps.
+    // All codec access stays on the video thread. libx264/NVENC read live
+    // rate settings. VA-API caches them at open; QSV cannot reset its HRD
+    // buffer size on all drivers. Reopen those codecs on a rate change,
+    // retaining the device, upload pool and increasing source timestamps.
     void set_bitrate(std::uint32_t bitrate_kbps) {
         if (bitrate_kbps < 500U || bitrate_kbps > 100'000U) {
             throw WorkerError("invalid live video bitrate");
@@ -720,13 +720,15 @@ public:
         if (context_->bit_rate == bits) {
             return;
         }
-        if (vaapi_) {
+        if (vaapi_ || qsv_) {
             const int flushed = avcodec_send_frame(context_, nullptr);
             if (flushed < 0 && flushed != AVERROR_EOF) {
-                throw WorkerError("cannot flush VA-API rate boundary: " + error_string(flushed));
+                throw WorkerError("cannot flush " + encoder_ + " rate boundary: " + error_string(flushed));
             }
             receive_packets(pending_packets_);
-            av_frame_unref(upload_);
+            if (upload_ != nullptr) {
+                av_frame_unref(upload_);
+            }
             avcodec_free_context(&context_);
             open_codec(bitrate_kbps);
         } else {
@@ -810,7 +812,9 @@ private:
             }
         }
         AVDictionary *options = nullptr;
-        (void) av_dict_set(&options, "aud", "1", 0);
+        // Packets already delimit access units. Intel's HEVC VA-API path
+        // escapes an inserted AUD's Annex B start code a second time.
+        (void) av_dict_set(&options, "aud", encoder_ == "hevc_vaapi" ? "0" : "1", 0);
         if (encoder_ == "h264_nvenc" || encoder_ == "hevc_nvenc") {
             (void) av_dict_set(&options, "preset", "p1", 0);
             (void) av_dict_set(&options, "tune", "ll", 0);

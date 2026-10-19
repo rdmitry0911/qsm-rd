@@ -1,0 +1,15 @@
+libva info: VA-API version 1.22.0
+libva info: User environment variable requested driver 'iHD'
+libva info: Trying to open /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so
+libva info: Found init function __vaDriverInit_1_22
+libva info: va_openDriver() returns 0
+libva info: VA-API version 1.22.0
+libva info: User environment variable requested driver 'iHD'
+libva info: Trying to open /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so
+libva info: Found init function __vaDriverInit_1_22
+libva info: va_openDriver() returns 0
+phase_target_kbps=8000 frames=301 actual_mbps=7.99883 decoded=301
+phase_target_kbps=2000 frames=306 actual_mbps=1.99923 decoded=607
+phase_target_kbps=12000 frames=306 actual_mbps=11.9981 decoded=913
+phase_target_kbps=500 frames=287 actual_mbps=1.05613 decoded=1200
+{"encoder":"h264_qsv","bitrate_kbps":8000,"frames":1200,"decoded":1200,"forced_idrs":3,"keys":7,"max_frame_bytes":25000,"mbps":5.82827,"max_encode_ms":14.2484}

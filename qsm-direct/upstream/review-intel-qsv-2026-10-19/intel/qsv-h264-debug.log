@@ -1,0 +1,58 @@
+[AVHWDeviceContext @ 0x588fd258e740] Ignoring device 0 with non-matching vendor id (0x8086).
+[AVHWDeviceContext @ 0x588fd258e740] Trying to use DRM render node for device 1, with matching vendor id (0x8086).
+[AVHWDeviceContext @ 0x588fd258e740] libva: VA-API version 1.22.0
+[AVHWDeviceContext @ 0x588fd258e740] libva: User requested driver 'iHD'
+[AVHWDeviceContext @ 0x588fd258e740] libva: Trying to open /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so
+[AVHWDeviceContext @ 0x588fd258e740] libva: Found init function __vaDriverInit_1_22
+[AVHWDeviceContext @ 0x588fd258e740] libva: va_openDriver() returns 0
+[AVHWDeviceContext @ 0x588fd258e740] Initialised VAAPI connection: version 1.22
+[AVHWDeviceContext @ 0x588fd258e740] VAAPI driver: Intel iHD driver for Intel(R) Gen Graphics - 25.2.3 ().
+[AVHWDeviceContext @ 0x588fd258e740] Driver not found in known nonstandard list, using standard behaviour.
+[AVHWDeviceContext @ 0x588fd258e500] Use Intel(R) oneVPL to create MFX session, API version is 2.14, the required implementation version is 1.3
+libva info: VA-API version 1.22.0
+libva info: User environment variable requested driver 'iHD'
+libva info: Trying to open /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so
+libva info: Found init function __vaDriverInit_1_22
+libva info: va_openDriver() returns 0
+libva info: VA-API version 1.22.0
+libva info: User environment variable requested driver 'iHD'
+libva info: Trying to open /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so
+libva info: Found init function __vaDriverInit_1_22
+libva info: va_openDriver() returns 0
+[AVHWDeviceContext @ 0x588fd258e500] Initialize MFX session: implementation version is 2.14
+[h264_qsv @ 0x588fd2734640] Encoder: input is system memory surface
+[h264_qsv @ 0x588fd2734640] Use Intel(R) oneVPL to create MFX session with the specified MFX loader
+[h264_qsv @ 0x588fd2734640] Using the constant bitrate (CBR) ratecontrol method
+[h264_qsv @ 0x588fd2734640] profile: avc high; level: 40
+[h264_qsv @ 0x588fd2734640] GopPicSize: 65535; GopRefDist: 1; GopOptFlag: closed; IdrInterval: 0
+[h264_qsv @ 0x588fd2734640] TargetUsage: 7; RateControlMethod: CBR
+[h264_qsv @ 0x588fd2734640] BufferSizeInKB: 34; InitialDelayInKB: 16; TargetKbps: 8000; MaxKbps: 8000; BRCParamMultiplier: 1
+[h264_qsv @ 0x588fd2734640] NumSlice: 1; NumRefFrame: 1
+[h264_qsv @ 0x588fd2734640] RateDistortionOpt: OFF
+[h264_qsv @ 0x588fd2734640] RecoveryPointSEI: OFF
+[h264_qsv @ 0x588fd2734640] VDENC: OFF
+[h264_qsv @ 0x588fd2734640] Entropy coding: CABAC; MaxDecFrameBuffering: 1
+[h264_qsv @ 0x588fd2734640] NalHrdConformance: ON; SingleSeiNalUnit: ON; VuiVclHrdParameters: OFF VuiNalHrdParameters: ON
+[h264_qsv @ 0x588fd2734640] FrameRateExtD: 1; FrameRateExtN: 60 
+[h264_qsv @ 0x588fd2734640] IntRefType: 0; IntRefCycleSize: 0; IntRefQPDelta: 0
+[h264_qsv @ 0x588fd2734640] MaxFrameSize: 0; MaxSliceSize: 0
+[h264_qsv @ 0x588fd2734640] BitrateLimit: ON; MBBRC: OFF; ExtBRC: OFF
+[h264_qsv @ 0x588fd2734640] Trellis: auto
+[h264_qsv @ 0x588fd2734640] RepeatPPS: OFF; NumMbPerSlice: 0; LookAheadDS: 2x
+[h264_qsv @ 0x588fd2734640] AdaptiveI: OFF; AdaptiveB: OFF; BRefType:off
+[h264_qsv @ 0x588fd2734640] MinQPI: 0; MaxQPI: 0; MinQPP: 0; MaxQPP: 0; MinQPB: 0; MaxQPB: 0
+[h264_qsv @ 0x588fd2734640] DisableDeblockingIdc: 0 
+[h264_qsv @ 0x588fd2734640] SkipFrame: no_skip
+[h264_qsv @ 0x588fd2734640] PRefType: simple
+[h264_qsv @ 0x588fd2734640] TransformSkip: unknown 
+[h264_qsv @ 0x588fd2734640] IntRefCycleDist: 0
+[h264_qsv @ 0x588fd2734640] LowDelayBRC: OFF
+[h264_qsv @ 0x588fd2734640] MaxFrameSizeI: 0; MaxFrameSizeP: 0
+[h264_qsv @ 0x588fd2734640] ScenarioInfo: 0
+[h264 @ 0x588fd2baad00] Reinit context to 1280x800, pix_fmt: yuv420p
+segment=0 mbps=7.99883 decoded=300
+SET_RATE 2000 at 301
+[h264_qsv @ 0x588fd2734640] Reset BufferSizeInKB: 4; InitialDelayInKB: 12; TargetKbps: 2000; MaxKbps: 2000; BRCParamMultiplier: 1
+[h264_qsv @ 0x588fd2734640] Error during resetting: incompatible video parameters (-14)
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  video encoder rejected a frame: Invalid argument

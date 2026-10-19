@@ -1,0 +1,15 @@
+7.0.14-24-pve
+pve-manager/9.2.21/72bc4d88ee469598 (running kernel: 7.0.14-24-pve)
+libpve-guest-common-perl	6.0.5+webrtc1
+pve-container	6.1.14+webrtc2
+pve-manager	9.2.21
+qemu-server	9.2.11+shared3
+qsm-pve-direct	0.4.0+shared24
+qsm-pve-direct-lxc	0.4.0+shared24
+status: running
+active
+inactive
+2ea71a612f52f5b21d73e2b23a17f9ccd91fa05bc002afddab02b95fef0660e9  /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker
+active
+active
+inactive

@@ -1,0 +1,141 @@
+{
+  "intel": {
+    "h264_vaapi": {
+      "encoder": "h264_vaapi",
+      "bitrate_kbps": 8000,
+      "frames": 1200,
+      "decoded": 1200,
+      "forced_idrs": 3,
+      "keys": 7,
+      "max_frame_bytes": 25256,
+      "mbps": 5.81634,
+      "max_encode_ms": 12.7569,
+      "static": {
+        "decoded": 600,
+        "keys": 2,
+        "text_max_delta": 0.0382982,
+        "text_mean_delta": 0.0117614,
+        "flashes": 0,
+        "mbps": 8.0002,
+        "max_encode_ms": 28.1117
+      }
+    },
+    "hevc_vaapi": {
+      "encoder": "hevc_vaapi",
+      "bitrate_kbps": 8000,
+      "frames": 1200,
+      "decoded": 1200,
+      "forced_idrs": 3,
+      "keys": 7,
+      "max_frame_bytes": 40891,
+      "mbps": 5.68558,
+      "max_encode_ms": 29.5991,
+      "static": {
+        "decoded": 600,
+        "keys": 2,
+        "text_max_delta": 1.22951e-05,
+        "text_mean_delta": 4.76508e-06,
+        "flashes": 0,
+        "mbps": 8.0081,
+        "max_encode_ms": 36.2765
+      }
+    },
+    "hevc_qsv": {
+      "encoder": "hevc_qsv",
+      "bitrate_kbps": 8000,
+      "frames": 1200,
+      "decoded": 1200,
+      "forced_idrs": 3,
+      "keys": 7,
+      "max_frame_bytes": 42061,
+      "mbps": 5.6818,
+      "max_encode_ms": 28.4833,
+      "static": {
+        "status": "failed",
+        "source_frame": 51,
+        "error": "Invalid FrameType:0"
+      }
+    },
+    "h264_qsv": {
+      "encoder": "h264_qsv",
+      "bitrate_kbps": 8000,
+      "frames": 1200,
+      "decoded": 1200,
+      "forced_idrs": 3,
+      "keys": 7,
+      "max_frame_bytes": 25000,
+      "mbps": 5.82827,
+      "max_encode_ms": 14.2484,
+      "static": {
+        "decoded": 600,
+        "keys": 2,
+        "text_max_delta": 0.0147869,
+        "text_mean_delta": 0.0071615,
+        "flashes": 0,
+        "mbps": 7.99916,
+        "max_encode_ms": 24.8014
+      }
+    }
+  },
+  "amd": {
+    "hevc_vaapi": {
+      "encoder": "hevc_vaapi",
+      "bitrate_kbps": 8000,
+      "frames": 1200,
+      "decoded": 1200,
+      "forced_idrs": 3,
+      "keys": 7,
+      "max_frame_bytes": 34039,
+      "mbps": 5.77978,
+      "max_encode_ms": 31.5256,
+      "static": {
+        "decoded": 600,
+        "keys": 2,
+        "text_max_delta": 0.00204303,
+        "text_mean_delta": 8.04965e-06,
+        "flashes": 0,
+        "mbps": 7.99658,
+        "max_encode_ms": 16.4854
+      }
+    }
+  },
+  "nested_proxmox": {
+    "physical_gpu_assigned": false,
+    "hardware_qualification": "pending operator answer about SDDM",
+    "software_browser": {
+      "measuredAtMs": 19750,
+      "jitterBufferTarget": 0,
+      "playoutDelayHint": null,
+      "jitterBufferDelay": 15.762901,
+      "jitterBufferEmittedCount": 913,
+      "framesDecoded": 913,
+      "framesDropped": 0,
+      "framesReceived": 913,
+      "packetsLost": 0,
+      "freezeCount": 0,
+      "totalFreezesDuration": 0,
+      "pliCount": 0,
+      "nackCount": 0,
+      "bytesReceived": 7164666,
+      "channels": [
+        {
+          "label": "qsm-control",
+          "state": "open",
+          "buffered": 0,
+          "messages": 2
+        },
+        {
+          "label": "qsm-pointer",
+          "state": "open",
+          "buffered": 0,
+          "messages": 0
+        }
+      ],
+      "videoRateStatus": "Adaptive video: 8.00 / 8.00 Mbit/s"
+    },
+    "moving_picture_transitions": {
+      "changed": 19,
+      "total": 19
+    }
+  }
+}

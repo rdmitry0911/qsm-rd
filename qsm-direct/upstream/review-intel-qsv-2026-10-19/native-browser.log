@@ -1,0 +1,15 @@
+STAGE_PVE_LOGIN
+AUTHENTICATED_PVE {"status": 200, "capGroups": ["vms", "storage", "nodes", "mapping", "access", "sdn", "dc"]}
+STAGE_PVE_TREE
+STAGE_PVE_GUEST_SELECTED
+BUTTONS [{"vmid": 147, "type": "lxc", "rendered": true, "qsm": true, "webrtc": false, "disabled": false}]
+STATUS_API {"status": 200, "data": {"status": "running"}}
+STAGE_NATIVE_VIDEO
+NATIVE_VIDEO {'width': 1280, 'height': 726}
+WAIT_OK
+NATIVE_MOTION_PASS {"changed": 19, "total": 19}
+RECEIVER_STATS {"measuredAtMs": 19750, "jitterBufferTarget": 0, "playoutDelayHint": null, "jitterBufferDelay": 15.762901, "jitterBufferEmittedCount": 913, "framesDecoded": 913, "framesDropped": 0, "framesReceived": 913, "packetsLost": 0, "freezeCount": 0, "totalFreezesDuration": 0, "pliCount": 0, "nackCount": 0, "bytesReceived": 7164666, "channels": [{"label": "qsm-control", "state": "open", "buffered": 0, "messages": 2}, {"label": "qsm-pointer", "state": "open", "buffered": 0, "messages": 0}], "videoRateStatus": "Adaptive video: 8.00 / 8.00 Mbit/s"}
+POLICY_GET {"status": 200, "data": {"encoder": "auto", "codec": "auto", "bitrate": 8000}}
+SNAPSHOT software-native
+NO_PORT_8007_REQUESTS
+POPUP_CLOSED

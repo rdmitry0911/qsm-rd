@@ -1,0 +1,13 @@
+frame=347 key=1 bytes=57119 text_delta=6.91316 changed8=240777
+frame=348 key=0 bytes=660 text_delta=1.2935 changed8=34650
+frame=349 key=0 bytes=1532 text_delta=1.1759 changed8=14675
+frame=350 key=0 bytes=14824 text_delta=1.72855 changed8=55964
+frame=351 key=0 bytes=9196 text_delta=0.786013 changed8=8773
+frame=352 key=0 bytes=36323 text_delta=3.12867 changed8=87258
+frame=353 key=0 bytes=359 text_delta=0.434124 changed8=31
+frame=354 key=0 bytes=13320 text_delta=0.322615 changed8=453
+frame=355 key=0 bytes=16664 text_delta=0.201953 changed8=1006
+frame=357 key=0 bytes=16668 text_delta=0.287197 changed8=176
+frame=358 key=0 bytes=16664 text_delta=0.249402 changed8=119
+frame=359 key=0 bytes=16668 text_delta=0.219769 changed8=24
+encoder=hevc_vaapi decoded=600 keys=2 text_max_delta=1.22951e-05 text_mean_delta=4.76508e-06 flashes=0 mbps=8.0081 max_encode_ms=36.2765
