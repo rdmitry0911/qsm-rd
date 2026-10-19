@@ -1,0 +1,109 @@
+HEVC NVENC browser qualification, 2026-10-19
+===========================================
+
+Findings
+--------
+Shared24 HEVC NVENC on RTX 3080 passes real Chrome decoding, motion,
+congestion recovery and a requested recovery keyframe. At a fixed 8 Mbps,
+static text stays stable. Adaptive static text has a remaining limitation:
+rare packet loss can lower the target and create visible quality pulses.
+That observation is preserved as a failed static-stability check, not
+silently described as a fully passing adaptive-static result.
+
+Live CT 108 capture is 1280x800/60fps. Chrome 147.0.7727.137 on the Intel
+receiver negotiates H265 Main/profile1, payload49, RTX50, level186/SRST.
+The receiver uses Intel Iris Xe RPL-P / Vulkan 1.4.318 / Mesa 25.2.8 on
+Ubuntu 24.04.4 at 172.16.16.200. NVENC runs on 192.168.64.20, NVIDIA RTX 3080,
+driver 595.91.07. nvidia-smi pmon identifies the private worker's encode
+engine activity (3/3/4 percent), running as nobody. The receiver's separate
+iHD mapping, renderD129 descriptors and video-engine time prove hardware
+decoding; no software encoder fallback is configured.
+
+For the moving-picture test, downstream UDP is shaped 20 -> 3 -> 20 Mbps.
+The limited phase lasts 25s, recovery 120s; TBF burst 12kB, queue 100ms.
+The target falls 8 -> 1.721 Mbps and recovers 8 Mbps without reconnecting.
+Initial/end motion checks are 19/19; one unchanged inbound stream decodes
+10044 frames by the post-PLI sample, with 0 decoder drops. RTCP counters
+show 306 lost RTP packets; three transition freezes total 2.672s. These
+pauses are not concealed or claimed to be a zero-freeze result.
+
+After recovery, a synthetic RTCP PLI is passed through the production RTP
+sender's actual RTCP handler. Browser decoded keyframes increase 12 -> 13,
+frames 9853 -> 10044, the connection remains live. This is a sender recovery
+path test, not a claim that the browser itself originated that synthetic PLI.
+The first combined harness run subsequently fails its adaptive-static
+assertion, so its process exit is 1 despite passing the motion/recovery/PLI
+stages. Raw browser/server logs preserve that distinction.
+
+Adaptive-static observation
+----------------------------
+The combined run sees a text mean RGB delta peak 13.6289/255 during static
+sampling. Near the end, two additional lost RTP packets and an 8 -> 4 Mbps
+adaptive reduction appear in its server log. A separate adaptive-static
+run at a 100 Mbps test-interface allowance reproduces a 14.7022/255 peak:
+0 -> 1 lost RTP packet, target 8 -> 6 Mbps, decoded keys 1 -> 3. Its decoder
+still advances 241 -> 2110 frames with 0 drops and 0 freezes. This fails the
+static-text threshold 0.15/255, and it is not a constant-bitrate control.
+
+For a separate control, only the private fixture's adaptive controller is
+disabled; encoder profile and production code remain unchanged. At 8 Mbps,
+199 static pixel comparisons over 20s have peak mean RGB delta 0.002319/255
+and average 0.001323/255. Decode advances 242 -> 2115 frames, with 0 drops,
+0 freezes, one unchanged keyframe and no target changes. Four isolated
+RTP losses are NACK-recovered without an additional keyframe. This control
+passes the static criterion and is consistent with loss-triggered rate/
+keyframe transitions, rather than an autonomous periodic encoder pulse.
+It does not establish that adaptive text will remain equally stable under
+all small-loss patterns. The adaptive-controller sensitivity is an open
+limitation; this check does not change the release's controller or binaries.
+
+Isolation and reproducibility
+-------------------------------
+The released shared24 deb is extracted under /root/qsm-nvenc-browser24 on
+the NVIDIA node. The private Python bridge imports that package's modules
+and launches that package's media worker against disposable CT 108 seat1.
+It receives its SDP over root-authenticated SSH stdio and uses private Unix
+media/input sockets. The script never logs SDP/ICE credentials. This is a
+component browser qualification, not another PVE API/UI authorization test.
+The installed production host package remains shared22, LXC helper shared19;
+no service/package restart or production policy change is needed for it.
+Worker/bridge hashes in results.json match the published shared24 package.
+
+Only the new qsm-nvenc24 namespace/veth pair on the receiver is shaped.
+Its private 172.31.252.0/30 network uses a dedicated NAT table restricted to
+the NVIDIA node and two tagged forwarding rules for that test veth. The
+existing forwarding setting is already 1 and stays 1. Physical interfaces,
+VPN routes and existing firewall policy are not reconfigured. Veth MTU 1280
+and conntrack-related return traffic fix a discarded setup/SSH handshake
+attempt on this routed path. TCP SSH bypasses UDP shaping. Static control
+uses 100 Mbps with no artificial rate reduction. These are separate machines
+on a real routed path, so unshaped periods can still have occasional loss.
+This is not a controlled latency comparison with the earlier co-located
+Intel QSV/VAAPI test, nor a reproduction of the user's Firefox/VPN client.
+
+Chrome runs in a fresh profile on the existing headless display. Its Intel
+Vulkan ICD is selected explicitly; no physical GPU is detached and no host
+GPU library/driver is replaced. A constant HTML/video page is served only
+on namespace loopback. Three obfuscated mDNS host addresses in the test
+offer are resolved to the namespace's known address before passing the SDP
+to the bridge; codec/ICE credentials are retained. This is fixture address
+resolution, not qualification of cross-subnet production mDNS discovery.
+No signalling HTTP listener on port 8007 is added. Only synthetic video-only
+screenshots are public; no private desktop/account credentials are included.
+
+browser-check.py drives motion/adaptation/PLI followed by static sampling.
+--static-only isolates the static branch with --fixed on the private bridge.
+To reproduce the adaptive-static finding, omit --fixed from that private
+bridge command; its failed assertion is expected under the observed loss
+pattern. Network/fixture scripts are specific to this owned test topology,
+not general-purpose deployment instructions.
+
+Restoration
+-------------
+The private workers are stopped. The transient CT 108 fixture and marker are
+removed; its original HEADLESS-1 mode 1970x1220@60Hz is restored. Its media
+policy hash is unchanged and the same SDDM greeter sessions remain. The
+production terminal PID 268508 and VM 103/104 PIDs 2792970/2104260 are retained.
+On the receiver, the namespace/veth, NAT table, tagged forwarding rules and
+automatic cleanup timer are removed/stopped. Its SDDM/headless services stay
+active. Before/after records and exact numeric results are included.

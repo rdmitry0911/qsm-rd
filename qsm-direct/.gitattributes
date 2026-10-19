@@ -7,3 +7,4 @@ upstream/review-qsv-vaapi-2026-10-18/*.patch -whitespace
 upstream/review-intel-qsv-2026-10-19/**/*.log -whitespace
 upstream/review-hevc-browser-2026-10-19/**/*.log -whitespace
 upstream/review-hevc-browser-2026-10-19/**/*qdisc.txt -whitespace
+upstream/review-nvenc-hevc-browser-2026-10-19/**/*.log -whitespace

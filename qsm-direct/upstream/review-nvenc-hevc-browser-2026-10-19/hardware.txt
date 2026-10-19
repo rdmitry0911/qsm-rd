@@ -1,0 +1,4 @@
+NVIDIA GeForce RTX 3080, 595.91.07, 643 MiB, 10240 MiB
+7.0.14-14-pve
+b2d5fcbc6de577daa906571cc76233b3608b84af69ad658a51e62d414a0b9a58  /root/qsm-nvenc-browser24/worker24/usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker
+64af6b0343ada477915bf74c371ed0ae2ed1c5d3811b983d08429696e50b9ea5  /root/qsm-nvenc-browser24/worker24/usr/lib/qsm-pve-direct/browser_bridge/qsm_browser_bridge.py

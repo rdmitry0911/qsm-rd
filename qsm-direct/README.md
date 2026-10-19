@@ -444,6 +444,10 @@ also verifies HEVC QSV and VA-API in Chrome 147 on Linux with Intel Vulkan,
 including congestion recovery without reconnecting. Firefox 155 in that
 test offers H.264 rather than HEVC over WebRTC; automatic policy chooses
 H.264 for it. Browser support and a working hardware decoder are required.
+An [HEVC NVENC browser check](upstream/review-nvenc-hevc-browser-2026-10-19/qualification.txt)
+also passes decoding, congestion recovery and requested-keyframe checks on
+RTX 3080. Fixed-rate static text is stable; rare loss-triggered adaptive
+reductions can still produce visible text-quality transitions in that test.
 
 This ceiling describes the encoder's target, not total network traffic.
 Audio, RTP/SRTP overhead, retransmissions and hardware rate-control overshoot

@@ -1,0 +1,13 @@
+output HEADLESS-1 mode 1970x1220@60.000Hz : restored
+4baffb994727a76b287e24dbd1612d940d8fe911a0efa0d9697d4185288257e7  /etc/qsm-pve-direct/containers.d/108.conf
+MainPID=268508
+qsm-pve-direct	0.4.0+shared22
+qsm-pve-direct-lxc	0.4.0+shared19
+    PID COMMAND
+2104260 kvm
+2792970 kvm
+active
+active
+101105 107 sddm seatqsm2 - active no -
+102487 107 sddm seatqsm1 - active no -
+    PID COMMAND

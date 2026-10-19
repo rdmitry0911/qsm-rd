@@ -1,0 +1,10 @@
+active
+active
+active
+-P FORWARD DROP
+-A FORWARD -j DOCKER-USER
+-A FORWARD -j DOCKER-FORWARD
+172.31.252.2 via 172.16.16.1 dev enx1cbfce6c92ea src 172.16.16.200 uid 1001
+    cache
+inactive
+1

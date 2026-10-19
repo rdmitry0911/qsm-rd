@@ -1,0 +1,8 @@
+# gpu         pid   type     sm    mem    enc    dec    jpg    ofa    command
+# Idx           #    C/G      %      %      %      %      %      %    name
+    0      58828     C      0      0      3      -      -      -    qsm-direct-medi
+    0      58828     C      0      0      3      -      -      -    qsm-direct-medi
+    0      58828     C      0      0      4      -      -      -    qsm-direct-medi
+64af6b0343ada477915bf74c371ed0ae2ed1c5d3811b983d08429696e50b9ea5  /root/qsm-nvenc-browser24/worker24/usr/lib/qsm-pve-direct/browser_bridge/qsm_browser_bridge.py
+    PID USER     COMMAND
+  58828 nobody   qsm-direct-medi

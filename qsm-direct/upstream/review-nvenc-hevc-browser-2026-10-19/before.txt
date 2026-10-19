@@ -1,0 +1,8 @@
+101105 107 sddm seatqsm2 - active no -
+102487 107 sddm seatqsm1 - active no -
+4baffb994727a76b287e24dbd1612d940d8fe911a0efa0d9697d4185288257e7  /etc/qsm-pve-direct/containers.d/108.conf
+MainPID=268508
+    PID COMMAND
+2104260 kvm
+2792970 kvm
+inactive
