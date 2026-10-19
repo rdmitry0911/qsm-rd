@@ -681,7 +681,14 @@
     // Authorization header (never the URL) and the endpoints take no ambient
     // cookie, so they are CSRF-safe.  waitMsgTarget spinners are handled by
     // the callers; these helpers only perform the cross-origin request.
-    const SIGNAL_PORT = 8007;
+    const signalEndpoint = (typeof window !== 'undefined' && window.QSM_DIRECT_ENDPOINT) ||
+        { port: 8007, public_url: '' };
+    const signalOrigin = () => {
+        if (signalEndpoint.public_url) { return new URL(signalEndpoint.public_url).origin; }
+        const address = new URL(location.origin || `https://${location.hostname}`);
+        address.port = String(signalEndpoint.port);
+        return address.origin;
+    };
     const pveConsoleRequest = async (method, path, params) => {
         const options = { method, credentials: 'same-origin', cache: 'no-store' };
         if (method === 'GET') {
@@ -718,7 +725,7 @@
             headers['Content-Type'] = 'application/json';
             options.body = JSON.stringify(params || {});
         }
-        const response = await fetch(`https://${location.hostname}:${SIGNAL_PORT}${path}`, options);
+        const response = await fetch(`${signalOrigin()}${path}`, options);
         if (!response.ok) {
             const error = new Error(`signal ${response.status}`);
             error.status = response.status;
@@ -3491,7 +3498,7 @@
                         iconCls: 'fa fa-exclamation-triangle',
                         handler: () => {
                             if (NATIVE_QEMU) { if (me.qsmDirectRefresh) { me.qsmDirectRefresh(); } }
-                            else { window.open(`https://${location.hostname}:${SIGNAL_PORT}/`, '_blank', 'noopener'); }
+                            else { window.open(`${signalOrigin()}/`, '_blank', 'noopener'); }
                         } });
                 }
             }

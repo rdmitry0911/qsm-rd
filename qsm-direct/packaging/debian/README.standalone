@@ -1,0 +1,86 @@
+QSM Direct standalone profile for stock Proxmox VE 9
+===================================================
+
+This profile uses the official Proxmox packages. It adds a guarded PVE web
+UI overlay and a separate HTTPS signalling service. It shares the native
+preview's media worker, encoders and adaptive bitrate controller. Do not
+install the patched qemu-server/pve-manager/pve-container/guest-common debs
+from the native preview to use this release.
+
+Install on the PVE node (Debian 13 / amd64):
+
+    apt install ./qsm-pve-direct_0.4.0+stock1_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock1_all.deb
+    qsm-pve-direct-endpoint --show
+
+First installation chooses an available IPv4 port in 18007..18106, starting
+at 18007, and saves it in /etc/qsm-pve-direct/signal.json. Port 8007 is never
+selected. Existing saved configuration is preserved across upgrades.
+The service and UI use the same configuration; reload the PVE page after
+changing it. The port preflight does not displace another listener.
+
+Set a local address and port explicitly:
+
+    qsm-pve-direct-endpoint --listen 192.0.2.10 --port 18009
+
+Use 0.0.0.0 for all IPv4 interfaces, or :: for a dual-stack IPv6 listener.
+By default the browser connects to the PVE page's hostname on that port.
+When the browser needs a different address, including a NAT mapping:
+
+    qsm-pve-direct-endpoint --listen 0.0.0.0 --port 18009 \
+        --public-url https://pve.example.org:28009
+
+The advertised address must route to this service and be covered by the
+node's TLS certificate. --public-url auto returns to the PVE page hostname.
+Changing an occupied bind address/port fails before modifying configuration.
+The command reconciles the UI and restarts signalling; a failure restores
+the previous configuration. Existing consoles may need reconnecting.
+
+Allow the selected TCP port from operator networks. The service mirrors
+pveproxy's node/custom certificate; a self-signed certificate may need a
+browser exception at the signalling address too. WebRTC media still needs
+UDP connectivity between the browser and node. NAT/TURN configuration is
+separate. This profile does not transparently proxy other cluster nodes:
+open the PVE UI of the node that runs the guest.
+
+VM setup
+--------
+Reload PVE, stop the selected VM, then open Hardware -> Display -> Advanced
+and enable QSM Display1. Choose a CPU display or the optional VirGL profile.
+Start the VM and open Console. Add the QSM Console audio device for sound
+and microphone. The CPU display retains noVNC; the GL display cannot offer
+VNC/SPICE alongside QEMU's GL D-Bus display. Changing display configuration
+requires a stop/start, not just an in-guest reboot.
+
+QSM owns its private per-VM D-Bus in this profile; stock qemu-server does not
+provide dbus-display or native webrtcproxy/webrtcsettings routes. Do not run
+qsm-pve-direct-migrate: that command targets the patched native platform.
+Existing native-preview VMs need a separately planned display conversion;
+this package does not downgrade Proxmox or rewrite running VM configs.
+
+LXC
+---
+Install the matching optional helper on the node:
+
+    apt install ./qsm-pve-direct-lxc_0.4.0+stock1_all.deb
+    qsm-pve-direct-lxc enable VMID --session wayland
+
+The helper bundles qsm-console-guest and expects a Debian/Ubuntu container
+with a Plasma desktop. See the main package README for GPU/session options.
+The LXC Console menu offers QSM Direct; the terminal console remains.
+Native SDDM and a local cursor require the same optional SDDM/Sway packages
+and kernel capabilities as the native preview; they are not installed by
+this profile. The host helper supports the stock pve-container dependency.
+
+Updates/removal
+---------------
+The JavaScript include uses a reversible, version/hash-guarded dpkg-divert
+of index.html.tpl. An unreviewed PVE UI update restores the stock template
+instead of attempting a speculative patch. qsm-pve-direct-ui status reports
+whether the overlay is active. Removing qsm-pve-direct restores the original
+template. Configuration is retained; removing only the standalone profile
+stops/disables its signalling service. Disable Display1 on stopped VMs
+before removing the core package, so future starts have their normal display.
+
+This remains a preview. The HEVC NVENC adaptive static-text sensitivity to
+rare packet loss remains open; the media controller is unchanged here.

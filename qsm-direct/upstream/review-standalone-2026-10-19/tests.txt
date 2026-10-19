@@ -1,0 +1,83 @@
+test_busy_endpoint_does_not_change_config_or_call_services (test_endpoint.EndpointTests.test_busy_endpoint_does_not_change_config_or_call_services) ... ok
+test_default_and_configured_ipv6_and_public_origin (test_endpoint.EndpointTests.test_default_and_configured_ipv6_and_public_origin) ... ok
+test_failed_ui_update_restores_previous_config (test_endpoint.EndpointTests.test_failed_ui_update_restores_previous_config) ... ok
+test_free_port_search_keeps_occupied_listener_alive (test_endpoint.EndpointTests.test_free_port_search_keeps_occupied_listener_alive) ... ok
+test_invalid_and_untrusted_configuration_is_rejected (test_endpoint.EndpointTests.test_invalid_and_untrusted_configuration_is_rejected) ... ok
+test_template_publishes_only_browser_metadata_before_client (test_endpoint.EndpointTests.test_template_publishes_only_browser_metadata_before_client) ... ok
+test_bitrate_round_trip_legacy_clients_and_invalid_values (test_signal.SignalCoreTests.test_bitrate_round_trip_legacy_clients_and_invalid_values) ... ok
+test_hevc_software_policy_is_rejected (test_signal.SignalCoreTests.test_hevc_software_policy_is_rejected) ... ok
+test_legacy_json_bitrate_write_matches_the_native_policy_type (test_signal.SignalCoreTests.test_legacy_json_bitrate_write_matches_the_native_policy_type) ... ok
+test_odd_dimensions_are_refused_before_the_terminal (test_signal.SignalCoreTests.test_odd_dimensions_are_refused_before_the_terminal) ... ok
+test_offer_rejected_for_a_different_vm_even_with_a_valid_ticket (test_signal.SignalCoreTests.test_offer_rejected_for_a_different_vm_even_with_a_valid_ticket) ... ok
+test_offer_rejected_when_ticket_invalid (test_signal.SignalCoreTests.test_offer_rejected_when_ticket_invalid) ... ok
+test_offer_requires_vm_console_and_forwards_confirmed_subject (test_signal.SignalCoreTests.test_offer_requires_vm_console_and_forwards_confirmed_subject) ... ok
+test_policy_get_defaults_and_put_requires_config_options (test_signal.SignalCoreTests.test_policy_get_defaults_and_put_requires_config_options) ... ok
+test_policy_put_without_config_options_is_rejected (test_signal.SignalCoreTests.test_policy_put_without_config_options_is_rejected) ... ok
+test_unknown_route_is_not_found (test_signal.SignalCoreTests.test_unknown_route_is_not_found) ... ok
+test_wrong_node_is_not_found (test_signal.SignalCoreTests.test_wrong_node_is_not_found) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 0.025s
+
+OK
+test_build_stages_the_signal_service_and_no_pve_daemon_hooks (__main__.DirectSignalServiceIntegrationTests.test_build_stages_the_signal_service_and_no_pve_daemon_hooks) ... ok
+test_postinst_migrates_off_the_retired_daemon_dropins (__main__.DirectSignalServiceIntegrationTests.test_postinst_migrates_off_the_retired_daemon_dropins) ... ok
+test_signal_service_and_unit_are_packaged (__main__.DirectSignalServiceIntegrationTests.test_signal_service_and_unit_are_packaged) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.000s
+
+OK
+test_a_pending_change_does_not_hide_the_running_display (__main__.DirectTerminalAutoprovisionTests.test_a_pending_change_does_not_hide_the_running_display) ... ok
+test_absent_encoder_policy_uses_verified_auto_selection (__main__.DirectTerminalAutoprovisionTests.test_absent_encoder_policy_uses_verified_auto_selection) ... ok
+test_automatic_codec_policy_prefers_hevc_when_offered_and_probed (__main__.DirectTerminalAutoprovisionTests.test_automatic_codec_policy_prefers_hevc_when_offered_and_probed)
+``auto`` picks HEVC when the offer has H.265 and a probe cached one; else H.264. ... ok
+test_closed_browser_peer_retires_its_own_session_immediately (__main__.DirectTerminalAutoprovisionTests.test_closed_browser_peer_retires_its_own_session_immediately) ... ok
+test_connected_browser_session_is_not_closed_by_the_idle_lease (__main__.DirectTerminalAutoprovisionTests.test_connected_browser_session_is_not_closed_by_the_idle_lease)
+A live WebRTC peer refreshes its lease; a vanished one still expires. ... ok
+test_cpu_display1_accepts_only_stock_non_gl_vga_profiles (__main__.DirectTerminalAutoprovisionTests.test_cpu_display1_accepts_only_stock_non_gl_vga_profiles) ... ok
+test_display1_with_managed_audio_is_recognised (__main__.DirectTerminalAutoprovisionTests.test_display1_with_managed_audio_is_recognised) ... ok
+test_exited_media_worker_closes_its_webrtc_session_without_a_new_request (__main__.DirectTerminalAutoprovisionTests.test_exited_media_worker_closes_its_webrtc_session_without_a_new_request) ... qsm-direct-terminal: VM media transport ended vmid=321 exit_code=0
+ok
+test_qemu_generation_uses_pid_and_nonreusable_start_time (__main__.DirectTerminalAutoprovisionTests.test_qemu_generation_uses_pid_and_nonreusable_start_time) ... ok
+test_replacing_a_browser_console_closes_only_that_vms_old_session (__main__.DirectTerminalAutoprovisionTests.test_replacing_a_browser_console_closes_only_that_vms_old_session) ... ok
+test_saved_display1_argument_starts_a_private_bus_without_policy_file (__main__.DirectTerminalAutoprovisionTests.test_saved_display1_argument_starts_a_private_bus_without_policy_file) ... ok
+test_saved_qsm_guest_channel_requires_the_exact_three_arguments (__main__.DirectTerminalAutoprovisionTests.test_saved_qsm_guest_channel_requires_the_exact_three_arguments) ... ok
+test_terminal_service_allows_ice_interface_enumeration (__main__.DirectTerminalAutoprovisionTests.test_terminal_service_allows_ice_interface_enumeration) ... ok
+test_unconnected_browser_peer_does_not_hold_a_vm_worker_for_ten_minutes (__main__.DirectTerminalAutoprovisionTests.test_unconnected_browser_peer_does_not_hold_a_vm_worker_for_ten_minutes)
+An ICE path which can never connect must release its shared transport. ... qsm-direct-terminal: WebRTC negotiation timed out vmid=321
+ok
+test_vm_policy_accepts_bounded_video_bitrate (__main__.DirectTerminalAutoprovisionTests.test_vm_policy_accepts_bounded_video_bitrate) ... ok
+test_vm_restart_retires_stale_video_and_input_transport (__main__.DirectTerminalAutoprovisionTests.test_vm_restart_retires_stale_video_and_input_transport)
+A QEMU restart must never retain its old final frame/input socket. ... qsm-direct-terminal: retiring VM media transport vmid=321: QEMU generation changed
+ok
+
+----------------------------------------------------------------------
+Ran 16 tests in 1.270s
+
+OK
+..........qsm-direct-terminal: alice@pve opens console 1 of container 105
+qsm-direct-terminal: bob@pve opens console 2 of container 105
+qsm-direct-terminal: alice@pve resumes console 1 of container 105
+.qsm-direct-terminal: console 1 of container 105 has a desktop of alice without a known owner; it is not handed out and is logged out after the grace period
+qsm-direct-terminal: bob@pve opens console 2 of container 105
+.qsm-direct-terminal: alice@pve opens console 1 of container 105
+qsm-direct-terminal: bob@pve opens console 2 of container 105
+qsm-direct-terminal: carol@pve opens console 1 of container 105
+.qsm-direct-terminal: alice@pve opens console 1 of container 105
+qsm-direct-terminal: alice@pve opens console 2 of container 105
+.qsm-direct-terminal: alice@pve opens console 1 of container 105
+qsm-direct-terminal: bob@pve opens console 2 of container 105
+.qsm-direct-terminal: alice@pve opens console 1 of container 105
+.
+----------------------------------------------------------------------
+Ran 16 tests in 0.021s
+
+OK
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.002s
+
+OK
+QSM_DIRECT_PVE_UI_OVERLAY_OK
+QSM_SIGNAL_ENDPOINT_BROWSER_OK

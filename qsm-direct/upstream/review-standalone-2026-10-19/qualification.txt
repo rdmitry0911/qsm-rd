@@ -1,0 +1,145 @@
+Standalone stock-PVE release qualification, 2026-10-19
+====================================================
+
+Result
+------
+stock1 adds qsm-pve-direct-standalone, an installation profile depending on
+the matching common qsm-pve-direct media/service package. No rebuilt Proxmox
+deb is distributed or required for this profile. The optional LXC helper
+now accepts stock pve-container >= 6.1.13, instead of a webrtc-suffixed floor.
+The supported release platform is PVE 9 / Debian 13 / amd64.
+
+The profile initializes /etc/qsm-pve-direct/signal.json only if absent,
+selecting a free IPv4 port in 18007..18106, and enables the QSM terminal and
+HTTPS signalling service. A saved configuration survives profile upgrades.
+qsm-pve-direct-endpoint changes the bind IP, port and advertised HTTPS origin
+together, reconciles the guarded UI overlay and restarts signalling. Port
+8007 remains only the compatibility default when no config file exists.
+
+The PVE index template includes validated public endpoint metadata before
+the common client script. Authentication still uses PVE tickets and actual
+VM.Console / VM.Config.Options ACL checks through the local /access/ticket
+API. There is no private PVE Perl route loader, replacement pveproxy binary,
+or new Proxmox package dependency. The reversible index.html.tpl diversion
+is still an integration change to the PVE UI, guarded by version and hash.
+
+Configuration validation rejects non-IP bind strings, invalid ports,
+credential-bearing/non-HTTPS/path/query/fragment public URLs, duplicate or
+unknown JSON keys, symlinks and files writable by other users. Production
+config reads require root ownership. Failed UI application rolls back the
+previous configuration. An occupied requested socket is rejected before
+config/UI changes; no process is displaced to obtain a port.
+
+Exact lab scope
+---------------
+Only the owned nested Proxmox VM qsm-intel-pve on 172.16.16.200 was changed.
+It was temporarily returned to these hash-checked official packages:
+  pve-manager 9.2.21
+  qemu-server 9.2.11
+  pve-container 6.1.14
+  libpve-guest-common-perl 6.0.5
+The matching stock package hashes are recorded in results.json and the
+preceding review-stock-pve-2026-10-19. Official pveproxy was actually running:
+the browser verified that PVE.Utils.openWebRTCViewer was absent. The stock
+PVE::WebRTC module was absent too. dpkg verification showed no changed PVE
+program files; it reported only the lab's pre-existing renamed enterprise
+APT source conffile. It is not a fresh ISO installation qualification.
+
+CT 147 is the existing unprivileged Ubuntu 24.04 lab desktop, without GPU
+passthrough. A temporary Qt animation was opened alongside its test login
+screen; no real user logged in. VM 148 was created solely for this check:
+128 MiB, CPU/TCG, standard VGA, no network, a self-contained 512-byte BIOS
+boot program in a 1.44-MiB raw disk. It repaints mode 13h continually. This
+qualifies the VM display/stream route; it is not a full guest OS benchmark.
+
+Chrome 147.0.7727.137 ran inside the disposable PVE VM, in a fresh Playwright
+profile, headless with --disable-gpu. Traffic stays on the lab node; these
+are not VPN, WAN or new hardware codec performance tests. Browser certificate
+errors were ignored for the lab's self-signed certificate. Root Chrome uses
+Playwright's unsandboxed launch in this isolated VM, not a deployment recipe.
+The public localhost origin tests routing/dual-stack, not certificate name
+coverage. Deployments must use a trusted/accepted certificate covering their
+advertised hostname, as documented in README.standalone.
+
+The compiled media worker is byte-for-byte identical to released shared24:
+  b2d5fcbc6de577daa906571cc76233b3608b84af69ad658a51e62d414a0b9a58
+No encoder, adaptive controller, RTP or input implementation changes are made
+by this release. Prior NVENC/QSV/VA-API evidence remains applicable to that
+binary. No new hardware performance result is claimed here.
+
+Port, address, update and removal checks
+---------------------------------------
+1. Owned dummy TCP listeners occupied both 8007 and 18007 before installing
+   the profile. The installed service and browser used 18008. Both dummy
+   listeners stayed active. Requesting busy port 18007 returned EADDRINUSE;
+   the endpoint config hash was unchanged.
+2. Changing to listen=::, port=18009, public_url=https://localhost:18009
+   updated both service and UI. HTTPS answered on IPv4 127.0.0.1 and IPv6
+   ::1; the real VM console used the configured public origin.
+3. Reinstalling the final profile while active preserved that exact custom
+   config hash. The service was restarted to load its saved endpoint.
+4. Removing the profile stopped/disabled signalling and retained its config.
+   In a separate compatibility transition, a service already running with
+   the old no-config default 8007 was moved to the newly selected 18007 when
+   the profile was installed. This checks the required restart of an
+   already-active service after initial configuration.
+5. The real qsm-pve-direct-ui remove path restored the official template
+   byte-for-byte, SHA-256:
+   2738e8cdc133015d7a155621853f6d7cf150954f5b91832d682ca98238c842ce
+   Reconciliation then reinstalled the guarded overlay successfully. This
+   tests the tool used by the core package's removal hook, rather than a
+   complete core-package purge while guests are configured to use it.
+
+See address-and-upgrade.txt and legacy-upgrade-removal.txt. The latter keeps
+an initial immediate HTTP 000 probe after asynchronous service start; a
+subsequent readiness/retry probe receives the expected HTTP 404 on '/' (the
+service's authenticated API uses guest-specific routes). This was not a
+failed console test or an assertion of zero service startup time.
+
+Browser and authorization results
+---------------------------------
+LXC / host:18008:
+  H.264 decoded 101 -> 236 frames, 0 decoder drops; motion 19/19 comparisons.
+VM / https://localhost:18009:
+  H.264 decoded 1 -> 131 frames, 0 decoder drops; motion 19/19 comparisons.
+Both closed and reopened the actual PVE Console popup and received fresh
+video on a connected peer. In both cases root changed the bitrate to 10000
+kbit/s through HTTPS settings and restored the prior policy. A temporary
+PVE user with VM.Audit + VM.Console could read settings (200) but could not
+write them (401); an invalid ticket was also denied (401). Actual PVE ACL
+validation was used, not a fake authority. No browser request used port 8007.
+Per-run results, limited counters and synthetic-only screenshots are included.
+
+The initial service test discovered that ProtectSystem=full made legacy
+settings writes fail with HTTP 500. The final service adds narrow
+ReadWritePaths exceptions only for the root-owned instances.d/containers.d
+stores. Both real browser settings tests pass with that final unit. An early
+fixture run also lost animation focus to the login window after reconnect;
+the final driver explicitly focuses the owned Qt test window before sampling.
+The passing result is for that corrected fixture, not the static login frame.
+
+Current source validation:
+  signal + endpoint: 17 Python tests
+  service integration: 3 Python tests
+  VM bus provisioning/lifecycle: 16 Python tests
+  container policy/ownership: 16 Python tests
+  UI package state: 2 Python tests
+  existing console overlay and configured-endpoint browser JS checks: 2 pass
+Total: 54 Python tests and 2 JavaScript checks passed. See tests.txt.
+The four debs were built with matching 0.4.0+stock1 versions; the native media
+worker was built against Debian 13's FFmpeg ABI. See build-final.txt.
+
+Limits
+------
+This release remains a preview. It retains the shared controller's known
+HEVC NVENC static-text sensitivity to rare packet loss. It does not remove
+WebRTC UDP/ICE requirements, add TURN, or transparently route the standalone
+service across a PVE cluster: open the UI of the node hosting the guest.
+Optional native SDDM/local-cursor setup retains its separate package/kernel
+requirements. New audio, clipboard, VM OS login and hardware encoder tests
+were not part of this packaging qualification.
+
+stock-browser.py is an owned-lab fixture, with fixed VMIDs and paths, not a
+general deployment or node-modification tool. Tickets arrive over SSH stdin
+and are never written to logs or public evidence. No production node package
+or guest was changed. Restoration is recorded separately in restoration.txt.

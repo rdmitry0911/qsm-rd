@@ -1,0 +1,26 @@
+[
+  {
+    "Package": "pve-manager",
+    "Version": "9.2.21",
+    "Filename": "dists/trixie/pve-no-subscription/binary-amd64/pve-manager_9.2.21_all.deb",
+    "SHA256": "2ff9d0b7d1183371489c6c987c956422c1ac556548e84d6b15053dc16b348016"
+  },
+  {
+    "Package": "qemu-server",
+    "Version": "9.2.11",
+    "Filename": "dists/trixie/pve-no-subscription/binary-amd64/qemu-server_9.2.11_amd64.deb",
+    "SHA256": "8cb4e2c6cf0a651d480efda49040461f805068b39e0f901d9136b7898b46de13"
+  },
+  {
+    "Package": "pve-container",
+    "Version": "6.1.14",
+    "Filename": "dists/trixie/pve-no-subscription/binary-amd64/pve-container_6.1.14_all.deb",
+    "SHA256": "951ba10bbdc79fd8a183826b07acc32c1bb5e38bf2da4ed5fa1ffdad53c93c0e"
+  },
+  {
+    "Package": "libpve-guest-common-perl",
+    "Version": "6.0.5",
+    "Filename": "dists/trixie/pve-no-subscription/binary-amd64/libpve-guest-common-perl_6.0.5_all.deb",
+    "SHA256": "6dc4dc905d3f794b910035754dd45e5760d0e3b22f8fa91bd837480802c1582c"
+  }
+]

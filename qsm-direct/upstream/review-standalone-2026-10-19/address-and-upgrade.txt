@@ -1,0 +1,27 @@
+qsm-pve-direct PVE UI: refreshed
+{
+  "listen": "::",
+  "port": 18009,
+  "public_url": "https://localhost:18009"
+}
+991765dac460a905d57dcb0f10d932860eb36b8fd47846d2208eb09fc023c31a  /etc/qsm-pve-direct/signal.json
+(Reading database ... 53681 files and directories currently installed.)
+Preparing to unpack .../qsm-pve-direct-standalone_0.4.0+stock1_all.deb ...
+Unpacking qsm-pve-direct-standalone (0.4.0+stock1) over (0.4.0+stock1) ...
+Setting up qsm-pve-direct-standalone (0.4.0+stock1) ...
+qsm-pve-direct PVE UI: refreshed
+{
+  "listen": "::",
+  "port": 18009,
+  "public_url": "https://localhost:18009"
+}
+QSM standalone is configured. Run qsm-pve-direct-endpoint --show for its address; reload the PVE web page.
+991765dac460a905d57dcb0f10d932860eb36b8fd47846d2208eb09fc023c31a  /etc/qsm-pve-direct/signal.json
+{
+  "listen": "::",
+  "port": 18009,
+  "public_url": "https://localhost:18009"
+}
+IPv6 listener HTTP 404
+IPv4 listener HTTP 404
+status: running

@@ -1,0 +1,31 @@
+{
+  "official_template_sha256": "2738e8cdc133015d7a155621853f6d7cf150954f5b91832d682ca98238c842ce",
+  "steps": [
+    {
+      "command": "install",
+      "output": "qsm-pve-direct PVE UI: installed"
+    },
+    {
+      "command": "status",
+      "output": "qsm-pve-direct PVE UI: active"
+    },
+    {
+      "command": "reconcile",
+      "output": "qsm-pve-direct PVE UI: refreshed"
+    },
+    {
+      "command": "remove",
+      "output": "qsm-pve-direct PVE UI: removed"
+    },
+    {
+      "command": "status",
+      "output": "qsm-pve-direct PVE UI: inactive"
+    }
+  ],
+  "overlay_added": true,
+  "original_template_restored": true,
+  "stock_vm_api_contains_webrtc": false,
+  "stock_lxc_api_contains_webrtc": false,
+  "stock_qemu_server_contains_dbus_display": false,
+  "stock_common_has_webrtc_module": false
+}

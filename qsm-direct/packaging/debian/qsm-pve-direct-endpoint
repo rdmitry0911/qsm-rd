@@ -1,0 +1,9 @@
+#!/usr/bin/python3
+"""Set the QSM standalone HTTPS listener and advertised browser origin."""
+import sys
+
+sys.path.insert(0, '/usr/lib/qsm-pve-direct')
+from signal_service.qsm_direct_endpoint_cli import main
+
+if __name__ == '__main__':
+    sys.exit(main())

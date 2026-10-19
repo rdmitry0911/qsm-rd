@@ -23,6 +23,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Protocol
 
+try:
+    from qsm_direct_endpoint import read_endpoint
+except ModuleNotFoundError:
+    # Source-tree tests; the installed package puts the same module beside us.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+    from extensions.signal.qsm_direct_endpoint import read_endpoint
+
 PACKAGE_NAME = "qsm-pve-direct"
 PVE_MANAGER_PACKAGE = "pve-manager"
 TEMPLATE_RELATIVE = Path("usr/share/pve-manager/index.html.tpl")
@@ -263,15 +270,22 @@ def load_supported_templates(path: Path, *, require_root_owner: bool) -> dict[st
     return supported
 
 
-def render_patched_template(original: bytes, overlay_digest: str) -> bytes:
+def render_patched_template(original: bytes, overlay_digest: str, endpoint: dict | None = None) -> bytes:
     """Inject the Console asset with a content-addressed browser cache key."""
     if MARKER in original or original.count(ANCHOR) != 1:
         raise UnsupportedPve("PVE Web UI layout is unsupported")
     if _HASH_PATTERN.fullmatch(overlay_digest) is None:
         raise UnsafeUiState("qsm-pve-direct Console overlay digest is invalid")
+    configuration = b''
+    if endpoint is not None:
+        encoded = json.dumps(endpoint, separators=(',', ':'), ensure_ascii=True)
+        encoded = encoded.replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
+        configuration = (b'    <script type="text/javascript">window.QSM_DIRECT_ENDPOINT='
+                         + encoded.encode('ascii') + b';</script>\n')
     injected = (
         ANCHOR
         + MARKER
+        + configuration
         + b'    <script type="text/javascript" src="/pve2/js/qsm-pve-direct-console.js?ver=[% version %]-qsm-overlay-'
         + overlay_digest[:16].encode("ascii")
         + b'"></script>\n'
@@ -385,6 +399,15 @@ class UiIntegration:
         self.package_version = package_version
         self.require_root_owner = require_root_owner
 
+    def _endpoint(self) -> dict | None:
+        path = self.paths.root / 'etc/qsm-pve-direct/signal.json'
+        if not path.exists() and not path.is_symlink():
+            return None
+        try:
+            return read_endpoint(path, require_root_owner=self.require_root_owner).browser_config()
+        except (OSError, ValueError) as error:
+            raise UnsafeUiState('QSM signalling endpoint configuration is invalid') from error
+
     def _supported_original(self) -> tuple[SupportedTemplate, Path, bytes]:
         version = self.package_version()
         supported = load_supported_templates(
@@ -482,7 +505,7 @@ class UiIntegration:
         self._remove_legacy_config_asset()
         _atomic_write(
             self.paths.template,
-            render_patched_template(original, overlay_digest),
+            render_patched_template(original, overlay_digest, self._endpoint()),
             mode=0o644,
             require_root_owner=self.require_root_owner,
         )
@@ -510,7 +533,7 @@ class UiIntegration:
                 raise UnsafeUiState("PVE Web UI diversion changed its source unexpectedly")
             _atomic_write(
                 self.paths.template,
-                render_patched_template(diverted, overlay_digest),
+                render_patched_template(diverted, overlay_digest, self._endpoint()),
                 mode=0o644,
                 require_root_owner=self.require_root_owner,
             )

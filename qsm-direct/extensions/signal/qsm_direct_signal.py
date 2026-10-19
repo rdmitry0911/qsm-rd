@@ -44,6 +44,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .qsm_direct_endpoint import CONFIG_PATH, SignalEndpoint, read_endpoint
+
 PROTOCOL_VERSION = 1
 PVE_OPERATION = "pve_acl_webrtc"
 MAX_BODY_BYTES = 128 * 1024
@@ -482,9 +484,15 @@ class SignalServer(http.server.ThreadingHTTPServer):
 
     def __init__(self, address: tuple[str, int], config: SignalConfig,
                  ssl_context: ssl.SSLContext) -> None:
+        self.address_family = socket.AF_INET6 if ':' in address[0] else socket.AF_INET
         super().__init__(address, SignalHandler)
         self.signal_config = config
         self.socket = ssl_context.wrap_socket(self.socket, server_side=True)
+
+    def server_bind(self) -> None:
+        if self.address_family == socket.AF_INET6:
+            self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        super().server_bind()
 
 
 def _build_ssl_context(cert: Path, key: Path) -> ssl.SSLContext:
@@ -496,8 +504,9 @@ def _build_ssl_context(cert: Path, key: Path) -> ssl.SSLContext:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--listen", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8007)
+    parser.add_argument("--config", type=Path, default=CONFIG_PATH)
+    parser.add_argument("--listen", default=None)
+    parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--cert", type=Path, default=None)
     parser.add_argument("--key", type=Path, default=None)
     parser.add_argument("--ca", type=Path, default=Path("/etc/pve/pve-root-ca.pem"))
@@ -510,6 +519,13 @@ def main(argv: list[str] | None = None) -> int:
                         default=Path("/etc/qsm-pve-direct/containers.d"))
     parser.add_argument("--local-node", default=None)
     arguments = parser.parse_args(argv)
+    try:
+        saved = read_endpoint(arguments.config)
+        endpoint = SignalEndpoint(arguments.listen if arguments.listen is not None else saved.listen,
+                                  arguments.port if arguments.port is not None else saved.port,
+                                  saved.public_url)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
 
     # Serve the SAME TLS certificate pveproxy serves so the :8007 signalling
     # origin is valid by whatever name reaches :8006.  pveproxy prefers the
@@ -536,8 +552,8 @@ def main(argv: list[str] | None = None) -> int:
         container_policy=ContainerPolicyStore(arguments.container_instance_directory),
     )
     context = _build_ssl_context(cert, key)
-    server = SignalServer((arguments.listen, arguments.port), config, context)
-    print(f"QSM_DIRECT_SIGNAL_READY listen={arguments.listen}:{arguments.port}",
+    server = SignalServer((endpoint.listen, endpoint.port), config, context)
+    print(f"QSM_DIRECT_SIGNAL_READY listen={endpoint.listen}:{endpoint.port}",
           file=sys.stderr, flush=True)
     threading.current_thread().name = "qsm-direct-signal"
     try:

@@ -34,6 +34,9 @@ for required in \
     "$ROOT_DIR/extensions/direct_terminal/qsm_shared_migration.py" \
     "$PACKAGE_DIR/qsm-pve-direct-migrate" \
     "$ROOT_DIR/extensions/signal/qsm_direct_signal.py" \
+    "$ROOT_DIR/extensions/signal/qsm_direct_endpoint.py" \
+    "$ROOT_DIR/extensions/signal/qsm_direct_endpoint_cli.py" \
+    "$PACKAGE_DIR/qsm-pve-direct-endpoint" \
     "$PACKAGE_DIR/qsm-pve-direct-signal" \
     "$PACKAGE_DIR/qsm-pve-direct-signal.service" \
     "$ROOT_DIR/integration/proxmox/pve9/direct_ui/qsm-direct-console.js" \
@@ -102,6 +105,14 @@ install -m 0644 "$PACKAGE_DIR/README.qsm-pve-direct" "$stage_root/usr/share/doc/
 install -m 0644 "$ROOT_DIR/extensions/signal/__init__.py" "$package_root/signal_service/__init__.py"
 install -m 0644 "$ROOT_DIR/extensions/signal/qsm_direct_signal.py" \
     "$package_root/signal_service/qsm_direct_signal.py"
+install -m 0644 "$ROOT_DIR/extensions/signal/qsm_direct_endpoint.py" \
+    "$package_root/signal_service/qsm_direct_endpoint.py"
+install -m 0644 "$ROOT_DIR/extensions/signal/qsm_direct_endpoint_cli.py" \
+    "$package_root/signal_service/qsm_direct_endpoint_cli.py"
+install -m 0644 "$ROOT_DIR/extensions/signal/qsm_direct_endpoint.py" \
+    "$package_root/pve9-ui/qsm_direct_endpoint.py"
+install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-endpoint" \
+    "$stage_root/usr/sbin/qsm-pve-direct-endpoint"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-signal" "$stage_root/usr/bin/qsm-pve-direct-signal"
 install -m 0644 "$PACKAGE_DIR/qsm-pve-direct-signal.service" \
     "$stage_root/usr/lib/systemd/system/qsm-pve-direct-signal.service"

@@ -1,0 +1,42 @@
+{
+  "kind": "qemu",
+  "vmid": 148,
+  "browser": "147.0.7727.137",
+  "config": {
+    "native": false,
+    "endpoint": {
+      "port": 18009,
+      "public_url": "https://localhost:18009"
+    }
+  },
+  "initial": {
+    "state": "connected",
+    "codec": "video/H264",
+    "decoded": 1,
+    "dropped": 0,
+    "keys": 1
+  },
+  "final": {
+    "state": "connected",
+    "codec": "video/H264",
+    "decoded": 131,
+    "dropped": 0,
+    "keys": 1
+  },
+  "motion": {
+    "changed": 19,
+    "total": 19
+  },
+  "reconnect": {
+    "state": "connected",
+    "codec": "video/H264",
+    "decoded": 1,
+    "dropped": 0,
+    "keys": 1
+  },
+  "root_settings_write": 200,
+  "viewer_read": 200,
+  "viewer_write_denied": 401,
+  "invalid_ticket_denied": 401,
+  "port_8007_requests": 0
+}

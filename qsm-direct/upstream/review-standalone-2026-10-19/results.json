@@ -1,0 +1,134 @@
+{
+  "worker_sha256": "b2d5fcbc6de577daa906571cc76233b3608b84af69ad658a51e62d414a0b9a58",
+  "matches_shared24_worker": true,
+  "port_8007_occupied": true,
+  "port_18007_occupied_initially": true,
+  "initial_selected_port": 18008,
+  "custom_listener": "[::]:18009",
+  "custom_public_url": "https://localhost:18009",
+  "address_preserved_across_profile_reinstall": true,
+  "python_tests_passed": 54,
+  "javascript_checks_passed": 2,
+  "stock_packages": [
+    {
+      "Package": "pve-manager",
+      "Version": "9.2.21",
+      "Filename": "dists/trixie/pve-no-subscription/binary-amd64/pve-manager_9.2.21_all.deb",
+      "SHA256": "2ff9d0b7d1183371489c6c987c956422c1ac556548e84d6b15053dc16b348016"
+    },
+    {
+      "Package": "qemu-server",
+      "Version": "9.2.11",
+      "Filename": "dists/trixie/pve-no-subscription/binary-amd64/qemu-server_9.2.11_amd64.deb",
+      "SHA256": "8cb4e2c6cf0a651d480efda49040461f805068b39e0f901d9136b7898b46de13"
+    },
+    {
+      "Package": "pve-container",
+      "Version": "6.1.14",
+      "Filename": "dists/trixie/pve-no-subscription/binary-amd64/pve-container_6.1.14_all.deb",
+      "SHA256": "951ba10bbdc79fd8a183826b07acc32c1bb5e38bf2da4ed5fa1ffdad53c93c0e"
+    },
+    {
+      "Package": "libpve-guest-common-perl",
+      "Version": "6.0.5",
+      "Filename": "dists/trixie/pve-no-subscription/binary-amd64/libpve-guest-common-perl_6.0.5_all.deb",
+      "SHA256": "6dc4dc905d3f794b910035754dd45e5760d0e3b22f8fa91bd837480802c1582c"
+    }
+  ],
+  "browser_checks": {
+    "lxc": {
+      "kind": "lxc",
+      "vmid": 147,
+      "browser": "147.0.7727.137",
+      "config": {
+        "native": false,
+        "endpoint": {
+          "port": 18008,
+          "public_url": ""
+        }
+      },
+      "initial": {
+        "state": "connected",
+        "codec": "video/H264",
+        "decoded": 101,
+        "dropped": 0,
+        "keys": 1
+      },
+      "final": {
+        "state": "connected",
+        "codec": "video/H264",
+        "decoded": 236,
+        "dropped": 0,
+        "keys": 1
+      },
+      "motion": {
+        "changed": 19,
+        "total": 19
+      },
+      "reconnect": {
+        "state": "connected",
+        "codec": "video/H264",
+        "decoded": 1,
+        "dropped": 0,
+        "keys": 1
+      },
+      "root_settings_write": 200,
+      "viewer_read": 200,
+      "viewer_write_denied": 401,
+      "invalid_ticket_denied": 401,
+      "port_8007_requests": 0
+    },
+    "qemu": {
+      "kind": "qemu",
+      "vmid": 148,
+      "browser": "147.0.7727.137",
+      "config": {
+        "native": false,
+        "endpoint": {
+          "port": 18009,
+          "public_url": "https://localhost:18009"
+        }
+      },
+      "initial": {
+        "state": "connected",
+        "codec": "video/H264",
+        "decoded": 1,
+        "dropped": 0,
+        "keys": 1
+      },
+      "final": {
+        "state": "connected",
+        "codec": "video/H264",
+        "decoded": 131,
+        "dropped": 0,
+        "keys": 1
+      },
+      "motion": {
+        "changed": 19,
+        "total": 19
+      },
+      "reconnect": {
+        "state": "connected",
+        "codec": "video/H264",
+        "decoded": 1,
+        "dropped": 0,
+        "keys": 1
+      },
+      "root_settings_write": 200,
+      "viewer_read": 200,
+      "viewer_write_denied": 401,
+      "invalid_ticket_denied": 401,
+      "port_8007_requests": 0
+    }
+  },
+  "restored": {
+    "lab_platform": "shared24",
+    "test_vm_148_removed": true,
+    "test_pve_account_removed": true,
+    "test_pve_role_removed": true,
+    "test_animation_stopped": true,
+    "occupied_port_fixture_stopped": true,
+    "lxc_147_original_output_and_policy_restored": true,
+    "standalone_config_removed": true
+  }
+}

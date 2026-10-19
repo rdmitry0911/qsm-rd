@@ -1,0 +1,31 @@
+(Reading database ... 53681 files and directories currently installed.)
+Removing qsm-pve-direct-standalone (0.4.0+stock1) ...
+Removed '/etc/systemd/system/multi-user.target.wants/qsm-pve-direct-signal.service'.
+inactive
+991765dac460a905d57dcb0f10d932860eb36b8fd47846d2208eb09fc023c31a  /etc/qsm-pve-direct/signal.json
+qsm-pve-direct PVE UI: refreshed
+Legacy active listener HTTP 000
+Legacy active listener HTTP 404
+Selecting previously unselected package qsm-pve-direct-standalone.
+(Reading database ... 53679 files and directories currently installed.)
+Preparing to unpack .../qsm-pve-direct-standalone_0.4.0+stock1_all.deb ...
+Unpacking qsm-pve-direct-standalone (0.4.0+stock1) ...
+Setting up qsm-pve-direct-standalone (0.4.0+stock1) ...
+qsm-pve-direct PVE UI: refreshed
+{
+  "listen": "0.0.0.0",
+  "port": 18007,
+  "public_url": ""
+}
+Created symlink '/etc/systemd/system/multi-user.target.wants/qsm-pve-direct-signal.service' → '/usr/lib/systemd/system/qsm-pve-direct-signal.service'.
+QSM standalone is configured. Run qsm-pve-direct-endpoint --show for its address; reload the PVE web page.
+{
+  "listen": "0.0.0.0",
+  "port": 18007,
+  "public_url": ""
+}
+Selected listener HTTP 404
+qsm-pve-direct PVE UI: removed
+2738e8cdc133015d7a155621853f6d7cf150954f5b91832d682ca98238c842ce  /usr/share/pve-manager/index.html.tpl
+qsm-pve-direct PVE UI: installed
+missing   c /etc/apt/sources.list.d/pve-enterprise.sources

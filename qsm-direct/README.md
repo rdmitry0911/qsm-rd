@@ -44,6 +44,13 @@ below. LXC guest desktop/session setup remains in its separate package.
 
 ## Legacy add-on architecture
 
+For stock PVE 9, the optional `qsm-pve-direct-standalone` installation profile
+enables the independent signalling service without replacing Proxmox packages.
+It chooses a free port starting at 18007 and supports a configured bind IP,
+port and advertised HTTPS origin. See [standalone installation and address
+settings](packaging/debian/README.standalone). Existing installations without
+an endpoint configuration retain their previous port 8007.
+
 ```mermaid
 flowchart LR
     browser["Browser tab<br/>(PVE web UI)"]

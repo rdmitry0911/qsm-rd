@@ -55,7 +55,7 @@ Section: admin
 Priority: optional
 Architecture: all
 Maintainer: Dmitry R <rdmitry0911@gmail.com>
-Depends: qsm-pve-direct (= $package_version), pve-container (>= 6.1.13+webrtc1), python3
+Depends: qsm-pve-direct (= $package_version), pve-container (>= 6.1.13), python3
 Breaks: qsm-pve-direct (<< $package_version)
 Replaces: qsm-pve-direct (<< $package_version)
 Description: QSM Direct graphical console for LXC containers on Proxmox VE

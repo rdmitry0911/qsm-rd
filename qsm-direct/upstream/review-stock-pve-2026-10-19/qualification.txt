@@ -1,0 +1,156 @@
+Stock Proxmox packaging feasibility, 2026-10-19
+=============================================
+
+Historical scope: this assessment examined QSM source at 193bec8, before the
+standalone implementation. The subsequent implementation and live stock-PVE
+checks are recorded in ../review-standalone-2026-10-19/qualification.txt.
+Statements about the then-hard-coded UI port and remaining implementation
+work below describe that earlier snapshot.
+
+Conclusion
+----------
+QSM can be packaged for stock PVE 9 without rebuilding/replacing the
+Proxmox packages. The current tree retains an add-on integration for this
+purpose: package-owned JavaScript overlay, QEMU args, private Display1 bus,
+independent ticket/ACL-authorized HTTPS signalling service and the same
+media worker/browser bridge used by the native shared-platform build.
+
+This is a feasibility/source and package-template check, not a fresh full
+VM/LXC browser qualification on an entirely stock node. No production
+packages, services, guest configuration or network settings were changed.
+
+Exact official packages examined
+-------------------------------
+pve-manager 9.2.21
+qemu-server 9.2.11
+pve-container 6.1.14
+libpve-guest-common-perl 6.0.5
+
+Downloaded into a local temporary directory and extracted, not installed.
+SHA-256 values match the repository package records obtained read-only
+from the existing node's APT cache. Downloads used the repository's HTTP
+URL; HTTPS on download.proxmox.com failed hostname validation. Package
+versions and hashes are recorded in stock-packages.json. This examines
+these exact versions, not every PVE release or a newly refreshed APT index.
+
+The stock PVE QEMU binary on the node (pve-qemu-kvm 11.0.3-3) lists dbus
+among its available display backends. This is a capability query, not a new
+QEMU guest launch. Stock qemu-server exposes arbitrary QEMU args already.
+
+Where the current native build needs Proxmox changes
+---------------------------------------------------
+qemu-server:
+  dbus-display configuration, per-VM shared bus lifecycle, native display/
+  audio handling, status and authorized webrtcproxy/webrtcsettings routes.
+pve-manager:
+  native WebRTC viewer page, console dispatch and display configuration UI.
+pve-container:
+  authorized LXC webrtcproxy/webrtcsettings routes.
+libpve-guest-common-perl:
+  the new PVE::WebRTC Unix-socket client used by those native API routes.
+
+The exact official packages lack our WebRTC routes, dbus-display key and
+PVE::WebRTC module. The native patched pve-manager uses the same package
+version as stock 9.2.21, so comparing version strings alone is insufficient.
+
+Existing stock route
+--------------------
+integration/proxmox/pve9/direct_ui/qsm-direct-console.js chooses its add-on
+overrides when PVE.Utils.openWebRTCViewer is absent. It saves the private
+D-Bus display/audio/input arguments through the existing VM config API.
+The terminal provisions/adopts the private VM bus; qemu-server does not own
+it in this mode. The same capture, encoding, WebRTC, adaptive bitrate and
+LXC session code remains usable. This does not reproduce the native shared
+platform's qemu-server-owned bus lifecycle or its first-class config keys.
+
+extensions/signal/qsm_direct_signal.py already handles VM and LXC offers
+and codec/bitrate policies. It delegates PVE ticket and VM.Console /
+VM.Config.Options authorization to the local stock /access/ticket API.
+The add-on UI currently hard-codes the separate HTTPS signalling port 8007.
+The optional LXC desktop/Sway/SDDM packages remain necessary for their
+respective features; native SDDM also requires host VKMS configfs support.
+Removing Proxmox userspace patches does not remove those requirements.
+
+An integration UI change still exists: dpkg-divert of index.html.tpl adds
+one JavaScript include for reviewed version/hash pairs. Thus 'no patched
+Proxmox packages' does not mean 'no integration changes to package files'.
+No Perl API monkey-patching or replacement daemon launchers are needed for
+the existing separate-port route.
+
+Using one HTTPS origin
+----------------------
+The examined stock pveproxy binds port 8006 directly and builds its API and
+static-page routing from its compiled-in Perl classes/configuration. No
+supported external API-route/provider loading hook was found in the examined
+code/documentation. Adding a Perl module alone does not register our routes.
+Preloading/overriding PVE classes could avoid rebuilt debs, but still changes
+PVE behavior through unsupported internals and is not the recommended route.
+
+A separate reverse proxy can expose PVE and QSM signalling at one origin,
+with QSM under a dedicated path and private backends. This is an architectural
+option, not implemented or validated by this check. An external proxy on
+HTTPS 443 can leave pveproxy's 8006 listener alone. Keeping the public entry
+point specifically on node-address:8006 requires listener/address planning:
+the stock daemon already owns that socket and its port is hard-coded.
+Binding PVE to loopback is not a generic cluster-safe recipe; cluster API
+forwarding must still reach each node. The official pveproxy documentation
+explicitly cautions about LISTEN_IP changes on clustered systems.
+
+The front end needs a configurable same-origin signalling URL instead of
+the hard-coded host:8007. Routing, TLS renewal, PVE WebSockets, permissions,
+multi-node forwarding and clean removal must be qualified before shipping.
+WebRTC media still requires its negotiated network path; an HTTPS proxy
+alone does not tunnel RTP or eliminate the need for UDP/TURN connectivity.
+
+Packaging and validation still needed before a new stock release
+---------------------------------------------------------------
+1. Make stock/native integration explicit or capability-detected, using the
+   same worker and bridge. Do not infer native routes from package versions.
+2. Define stock package dependencies. The current LXC control has
+   pve-container >= 6.1.13+webrtc1, which rejects stock 6.1.13 but accepts
+   stock 6.1.14 by Debian version ordering. This is not a reliable native
+   API capability check or proof that every stock release is unsupported.
+3. Ensure appropriate QSM signalling service activation and transport/UI
+   settings for the selected mode; adding a proxy needs separate packaging.
+4. Requalify VM start/reboot, D-Bus readiness, audio/input/clipboard, LXC
+   login/logout/reconnect, read-only ACLs and settings writes on stock PVE.
+   Test PVE upgrades and removal, and cluster behavior if a proxy is offered.
+
+Checks actually completed
+-------------------------
+Official PVE 9.2.21 index template SHA-256:
+2738e8cdc133015d7a155621853f6d7cf150954f5b91832d682ca98238c842ce
+
+Released shared24 UI integration was run against extracted official package
+files in a disposable sysroot, using its file-only sandbox diversion backend:
+install -> active -> reconcile/refreshed -> remove -> inactive.
+The script include was added and the original template restored byte-for-byte.
+This does not exercise the real node's dpkg-divert database or PVE/browser
+runtime. See ui-stock-check.json.
+
+Current source tests:
+  tests/signal/test_signal.py: 11 passed
+  tests/proxmox_pve9/test_direct_terminal_autoprovision.py: 16 passed
+  tests/proxmox_pve9/test_direct_terminal_container_policy.py: 16 passed
+  tests/proxmox_pve9/test_direct_ui_package_state.py: 2 passed
+  node tests/proxmox_pve9/test_direct_console_overlay.mjs:
+    QSM_DIRECT_PVE_UI_OVERLAY_OK
+
+Relevant local source
+---------------------
+packaging/debian/build-qsm-pve-direct-deb.sh
+packaging/debian/build-qsm-pve-direct-lxc-deb.sh
+integration/proxmox/pve9/direct_ui/qsm_pve_direct_ui.py
+integration/proxmox/pve9/direct_ui/qsm-direct-console.js
+extensions/signal/qsm_direct_signal.py
+extensions/direct_terminal/qsm_direct_terminal.py
+
+Official source/documentation consulted
+--------------------------------------
+https://github.com/proxmox/pve-manager/blob/master/PVE/Service/pveproxy.pm
+https://github.com/proxmox/pve-manager/blob/master/PVE/API2.pm
+https://github.com/proxmox/qemu-server/blob/master/src/PVE/QemuServer.pm
+https://github.com/proxmox/pve-docs/blob/master/pveproxy.adoc
+
+Master links are context; the extracted, hash-recorded official debs above
+are the exact versioned evidence for this assessment.

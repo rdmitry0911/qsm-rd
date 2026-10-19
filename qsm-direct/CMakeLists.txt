@@ -238,6 +238,10 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter)
 
     if(Python3_Interpreter_FOUND)
+        add_test(NAME qsm_signal_endpoint
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/signal/test_endpoint.py)
+        set_tests_properties(qsm_signal_endpoint PROPERTIES TIMEOUT 20)
         add_test(NAME qsm_shared_display
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_shared_display.py -v)
@@ -284,6 +288,9 @@ if(BUILD_TESTING)
 
         find_program(QSM_DIRECT_NODE_EXECUTABLE node)
         if(QSM_DIRECT_NODE_EXECUTABLE)
+            add_test(NAME qsm_signal_endpoint_browser
+                COMMAND ${QSM_DIRECT_NODE_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_signal_endpoint.mjs)
             add_test(
                 NAME qsm_direct_pve_console_overlay
                 COMMAND ${QSM_DIRECT_NODE_EXECUTABLE}
