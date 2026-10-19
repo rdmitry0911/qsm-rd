@@ -1,0 +1,8 @@
+7.0.14-24-pve
+00:02.0 VGA compatible controller [0300]: Intel Corporation Raptor Lake-P [Iris Xe Graphics] [8086:a7a0] (rev 04)
+	Subsystem: Lenovo Device [17aa:2317]
+	Kernel driver in use: i915
+	Kernel modules: i915, xe
+active
+qsm-pve-direct	0.4.0+shared24
+b2d5fcbc6de577daa906571cc76233b3608b84af69ad658a51e62d414a0b9a58  /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker

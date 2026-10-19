@@ -119,7 +119,8 @@ def _command(selection: DirectEncoderSelection, *, ffmpeg: str) -> list[str]:
         return _base(ffmpeg) + [
             "-vf", "format=nv12", "-c:v", "hevc_qsv",
             "-preset", "veryfast", "-async_depth", "1", "-look_ahead", "0", "-forced_idr", "1",
-            "-b:v", "8M", "-maxrate", "8M", "-bufsize", "266666",
+            "-b:v", "8M", "-maxrate", "8001000", "-bufsize", "533333",
+            "-low_delay_brc", "1", "-max_frame_size", "33333",
             "-g", "65535", "-bf", "0",
             "-aud", "1", "-f", "hevc", "pipe:1",
         ]

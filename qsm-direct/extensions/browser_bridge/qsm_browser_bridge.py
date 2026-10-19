@@ -114,10 +114,10 @@ class _VideoPacer:
     and SCTP never acquire this lock.
     """
 
-    def __init__(self, video_bitrate_kbps: int = 8000, *, nvenc: bool = False) -> None:
+    def __init__(self, video_bitrate_kbps: int = 8000, *, hardware: bool = False) -> None:
         if type(video_bitrate_kbps) is not int or not 500 <= video_bitrate_kbps <= 100000:
             raise ValueError("video bitrate must be 500..100000 kbit/s")
-        self._nvenc = nvenc
+        self._hardware = hardware
         self.set_bitrate(video_bitrate_kbps)
         self._lock = asyncio.Lock()
         self._tokens = float(self._burst)
@@ -128,11 +128,11 @@ class _VideoPacer:
     def set_bitrate(self, video_bitrate_kbps: int) -> None:
         if type(video_bitrate_kbps) is not int or not 500 <= video_bitrate_kbps <= 100000:
             raise ValueError("video bitrate must be 500..100000 kbit/s")
-        # At low targets NVENC's minimum-size frames can exceed its target
-        # by ~0.6–0.8 Mbps on the reference GPU. Do not turn that driver
+        # At low targets hardware frames can exceed their target, including
+        # NVENC and Intel H.264 QSV/VA-API. Do not turn that driver
         # limitation into continuous local FIFO loss. This is pacing credit,
         # not an extra encoder target; receiver loss/RTT still governs rate.
-        headroom = max(0., 800 - video_bitrate_kbps / 10) if self._nvenc else 0
+        headroom = max(0., 800 - video_bitrate_kbps / 10) if self._hardware else 0
         self._rate = (video_bitrate_kbps + headroom) * 1000 / 8 * 1.25
         # Retain two-packet pacing at the default; at higher rates permit
         # two milliseconds of credit so timer granularity does not cap LAN use.
@@ -202,11 +202,11 @@ class AdaptiveVideoRate:
 
     def __init__(self, maximum_kbps: int, apply: Callable[[int], None], *,
                  clock: Callable[[], float] = time.monotonic, enabled: bool = True,
-                 nvenc: bool = False) -> None:
+                 hardware: bool = False) -> None:
         if type(maximum_kbps) is not int or not 500 <= maximum_kbps <= 100000:
             raise ValueError("video bitrate must be 500..100000 kbit/s")
         self.enabled = enabled
-        self.nvenc = nvenc
+        self.hardware = hardware
         self.maximum_kbps = maximum_kbps
         self.current_kbps = maximum_kbps
         self._apply = apply
@@ -1463,7 +1463,7 @@ class BrowserWebRtcBridge:
             runtime_directory, expected_uid=expected_producer_uid)
         self._last_keyframe_request = float("-inf")
         self._video_rate = video_rate or AdaptiveVideoRate(video_bitrate_kbps, self.input.set_video_bitrate)
-        self._video_pacer = _VideoPacer(video_bitrate_kbps, nvenc=self._video_rate.nvenc)
+        self._video_pacer = _VideoPacer(video_bitrate_kbps, hardware=self._video_rate.hardware)
         self._video_rate_sequence = 0
         self._video_rate.add(self, self._video_rate_changed)
         self.video_track.on_keyframe_required = self._request_video_keyframe

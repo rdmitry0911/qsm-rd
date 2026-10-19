@@ -1,0 +1,5 @@
+frame=347 key=1 bytes=21952 text_delta=3.74458 changed8=191195
+frame=348 key=0 bytes=11380 text_delta=1.04503 changed8=39956
+frame=349 key=0 bytes=16668 text_delta=0.607469 changed8=20143
+frame=350 key=0 bytes=16666 text_delta=0.31076 changed8=11298
+encoder=h264_vaapi decoded=600 keys=2 text_max_delta=0.0382982 text_mean_delta=0.0117614 flashes=0 mbps=8.0002 max_encode_ms=23.0627

@@ -52,6 +52,20 @@ class ContainerPolicyTests(unittest.TestCase):
             with self.assertRaises(DirectTerminalError):
                 self.load("QSM_DIRECT_BITRATE_KBPS=" + value + "\n")
 
+    def test_explicit_vaapi_selection_retains_its_render_node(self) -> None:
+        policy = self.load("QSM_DIRECT_ENCODER=h264_vaapi\n"
+                           "QSM_DIRECT_VAAPI_RENDER_NODE=/dev/dri/renderD129\n")
+        manager = DirectSessionManager.__new__(DirectSessionManager)
+        selection = manager._select_encoder("h264", policy)
+        self.assertEqual((selection.encoder, selection.vaapi_device),
+                         ("h264_vaapi", "/dev/dri/renderD129"))
+
+    def test_render_node_rejects_other_paths_and_traversal(self) -> None:
+        for value in ("", "/dev/dri/card0", "/etc/shadow", "/dev/dri/renderD128/../card0",
+                      "renderD128", "/dev/dri/renderD128 extra"):
+            with self.assertRaises(DirectTerminalError, msg=value):
+                self.load("QSM_DIRECT_VAAPI_RENDER_NODE=" + value + "\n")
+
     def test_display_mode_is_an_enum_not_a_path(self) -> None:
         for line in ("QSM_DIRECT_LXC_DISPLAY=../../etc", "QSM_DIRECT_LXC_DISPLAY=run/qsm-display",
                      "QSM_DIRECT_LXC_DISPLAY=system", "QSM_DIRECT_LXC_DISPLAY=",

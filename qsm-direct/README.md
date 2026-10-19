@@ -424,7 +424,7 @@ full IDR every half second. Under a one-frame VBV, those periodic refreshes
 made static text blur and sharpen even with an unchanged bitrate. New
 viewers, PLI feedback and a broken local reference chain still request IDRs;
 an unanswered local request is retried at most once a second until recovery.
-Real NVENC rate changes can still produce a brief quality transition.
+Material hardware rate changes can still produce a brief quality transition.
 
 Settings shows the current target and ceiling for the active producer. Save a
 new ceiling, close all its viewers and reopen the console to apply that policy.
@@ -432,19 +432,20 @@ The `webrtcsettings` API still stores `bitrate` in kbit/s and requires
 `VM.Config.Options` to change it; the on-node key is
 `QSM_DIRECT_BITRATE_KBPS`. Existing clients and policy files remain compatible.
 QSV and VA-API use the same shared VM/LXC controller and adaptive status.
-Intel Iris Xe H.264 QSV and H.264/HEVC VA-API pass rate-change, recovery-IDR
-and static-text decoder checks. AMD H.264/HEVC VA-API were also tested.
+Intel Iris Xe H.264/HEVC QSV and VA-API pass rate-change, recovery-IDR
+and static-text decoder checks inside a Proxmox VE test VM with the GPU
+passed through. AMD H.264/HEVC VA-API were also tested.
 HEVC VA-API omits redundant AUD NALs: Intel's driver otherwise escapes their
-Annex B start codes incorrectly. HEVC QSV passes the dynamic rate-change
-test, but fails the high-resolution static-image check on the tested Ubuntu
-6.8 kernel; it is not fully qualified. Testing inside the new Proxmox VM
-still requires handing the Intel GPU over from the host's login screen.
+Annex B start codes incorrectly. HEVC QSV uses bounded low-delay VBR, a
+two-frame VBV and a frame-size limit to avoid an Intel CBR output-buffer
+failure on static pictures. Hardware HEVC remains an experimental browser
+option; the new native Firefox transport tests use H.264.
 
 This ceiling describes the encoder's target, not total network traffic.
 Audio, RTP/SRTP overhead, retransmissions and hardware rate-control overshoot
 need additional bandwidth. At very low targets NVENC can exceed the requested
 video rate: the tested high-motion 1280×800/60 fixture produced about 1.31 Mbps
-at a 0.5-Mbps target. Pacing allows bounded additional low-rate NVENC headroom
+at a 0.5-Mbps target. Pacing allows bounded additional low-rate hardware headroom
 so that this does not continually break the local predictive-frame queue.
 QSV and VA-API hardware can also overshoot low targets on difficult content.
 For links below the encoder's practical minimum, lower the console resolution

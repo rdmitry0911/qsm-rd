@@ -3,3 +3,5 @@
 packaging/lxc/sddm/*.patch whitespace=-blank-at-eol
 # This review artifact is a generated git-format-patch, including context tabs.
 upstream/review-qsv-vaapi-2026-10-18/*.patch -whitespace
+# Preserve diagnostic output verbatim, including FFmpeg's trailing spaces.
+upstream/review-intel-qsv-2026-10-19/**/*.log -whitespace

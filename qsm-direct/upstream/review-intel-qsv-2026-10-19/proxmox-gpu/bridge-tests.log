@@ -1,0 +1,337 @@
+./usr/lib/python3/dist-packages/aiortc/rtcdtlstransport.py:63: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  .not_valid_before(datetime.datetime.utcnow() - datetime.timedelta(days=1))
+/usr/lib/python3/dist-packages/aiortc/rtcdtlstransport.py:64: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=30))
+qsm-direct-terminal: WebRTC ICE state=closed
+qsm-direct-terminal: WebRTC connection state=closed
+.qsm-direct-terminal: adaptive video bitrate_kbps=1472 maximum_kbps=8000 receivers=1 loss=0.1992 queued=0 remb_ceiling_kbps=1472
+qsm-direct-terminal: WebRTC ICE state=closed
+qsm-direct-terminal: WebRTC connection state=closed
+..qsm-direct-terminal: adaptive video bitrate_kbps=10000 maximum_kbps=20000 receivers=1 loss=0.2000 queued=0 remb_ceiling_kbps=20000
+.qsm-direct-terminal: adaptive video bitrate_kbps=500 maximum_kbps=20000 receivers=1 loss=0.2000 queued=0 remb_ceiling_kbps=500
+...qsm-direct-terminal: adaptive video bitrate_kbps=10000 maximum_kbps=20000 receivers=1 loss=0.2000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=12500 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+.qsm-direct-terminal: adaptive video bitrate_kbps=10000 maximum_kbps=20000 receivers=1 loss=0.2000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=12500 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=15625 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=19531 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=20000 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+.qsm-direct-terminal: adaptive video bitrate_kbps=3072 maximum_kbps=20000 receivers=1 loss=0.2000 queued=0 remb_ceiling_kbps=3072
+qsm-direct-terminal: adaptive video bitrate_kbps=3840 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=4800 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=6000 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=7500 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=9375 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=11718 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=14647 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=18308 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=20000 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+.qsm-direct-terminal: adaptive video bitrate_kbps=10000 maximum_kbps=20000 receivers=2 loss=0.2000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=12500 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=15625 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+.qsm-direct-terminal: adaptive video bitrate_kbps=10000 maximum_kbps=20000 receivers=1 loss=0.2000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=12500 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=15625 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=19531 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+qsm-direct-terminal: adaptive video bitrate_kbps=20000 maximum_kbps=20000 receivers=1 loss=0.0000 queued=0 remb_ceiling_kbps=20000
+.qsm-direct-terminal: adaptive video bitrate_kbps=15000 maximum_kbps=20000 receivers=1 loss=0.0000 queued=1 remb_ceiling_kbps=20000
+..........qsm-direct-terminal: WebRTC ICE state=closed
+qsm-direct-terminal: WebRTC connection state=closed
+...qsm-direct-terminal: WebRTC ICE state=closed
+Executing <Task finished name='Task-29' coro=<BrowserBridgeAsyncTests.test_cached_shared_cursor_is_safe_during_bridge_construction() done, defined at /home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py:603> result=None created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.252 seconds
+qsm-direct-terminal: WebRTC connection state=closed
+.qsm-direct-terminal: WebRTC offer candidates=4 mdns=0 resolved=2
+qsm-direct-terminal: WebRTC video answer codec=video/H264 pt=99 fmtp=level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
+qsm-direct-terminal: WebRTC ICE state=checking
+qsm-direct-terminal: WebRTC connection state=connecting
+qsm-direct-terminal: WebRTC ICE state=closed
+Executing <Task pending name='Task-35' coro=<BrowserBridgeAsyncTests.test_h264_capability_is_checked_before_a_session_is_consumed() running at /home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py:749> wait_for=<Future pending cb=[Task.task_wakeup()] created at /usr/lib/python3/dist-packages/aioice/ice.py:187> cb=[_run_until_complete_cb() at /usr/lib/python3.12/asyncio/base_events.py:182] created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.478 seconds
+qsm-direct-terminal: WebRTC connection state=closed
+.qsm-direct-terminal: WebRTC offer candidates=6 mdns=0 resolved=2
+qsm-direct-terminal: WebRTC video answer codec=video/H265 pt=49 fmtp=level-id=180;profile-id=1;tier-flag=0;tx-mode=SRST
+qsm-direct-terminal: WebRTC ICE state=checking
+qsm-direct-terminal: WebRTC connection state=connecting
+qsm-direct-terminal: WebRTC ICE state=closed
+Executing <Task pending name='Task-72' coro=<BrowserBridgeAsyncTests.test_hevc_answer_repeats_the_browsers_profile_tier_level() running at /home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py:341> wait_for=<Future pending cb=[Task.task_wakeup()] created at /usr/lib/python3/dist-packages/aioice/ice.py:187> cb=[_run_until_complete_cb() at /usr/lib/python3.12/asyncio/base_events.py:182] created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.494 seconds
+qsm-direct-terminal: WebRTC connection state=closed
+.Task exception was never retrieved
+future: <Task finished name='Task-94' coro=<Connection.check_start() done, defined at /usr/lib/python3/dist-packages/aioice/ice.py:788> exception=AttributeError("'NoneType' object has no attribute 'call_exception_handler'") created at /usr/lib/python3.12/asyncio/tasks.py:420>
+source_traceback: Object created at (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/usr/lib/python3.12/unittest/__main__.py", line 18, in <module>
+    main(module=None)
+  File "/usr/lib/python3.12/unittest/main.py", line 105, in __init__
+    self.runTests()
+  File "/usr/lib/python3.12/unittest/main.py", line 281, in runTests
+    self.result = testRunner.run(self.test)
+  File "/usr/lib/python3.12/unittest/runner.py", line 240, in run
+    test(result)
+  File "/usr/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/usr/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/usr/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/usr/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/usr/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/usr/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/usr/lib/python3.12/unittest/case.py", line 690, in __call__
+    return self.run(*args, **kwds)
+  File "/usr/lib/python3.12/unittest/async_case.py", line 131, in run
+    return super().run(result)
+  File "/usr/lib/python3.12/unittest/case.py", line 634, in run
+    self._callTestMethod(testMethod)
+  File "/usr/lib/python3.12/unittest/async_case.py", line 90, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+  File "/usr/lib/python3.12/unittest/async_case.py", line 112, in _callMaybeAsync
+    return self._asyncioRunner.run(
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 674, in run_until_complete
+    self.run_forever()
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 641, in run_forever
+    self._run_once()
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 1979, in _run_once
+    handle._run()
+  File "/usr/lib/python3.12/asyncio/events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "/usr/lib/python3/dist-packages/aiortc/rtcpeerconnection.py", line 1010, in __connect
+    await iceTransport.start(self.__remoteIce[transceiver])
+  File "/usr/lib/python3/dist-packages/aiortc/rtcicetransport.py", line 326, in start
+    await self._connection.connect()
+  File "/usr/lib/python3/dist-packages/aioice/ice.py", line 502, in connect
+    if not self.check_periodic():
+  File "/usr/lib/python3/dist-packages/aioice/ice.py", line 773, in check_periodic
+    self.check_start_task(pair)
+  File "/usr/lib/python3/dist-packages/aioice/ice.py", line 854, in check_start_task
+    pair.task = asyncio.create_task(self.check_start(pair))
+  File "/usr/lib/python3.12/asyncio/tasks.py", line 420, in create_task
+    task = loop.create_task(coro)
+Traceback (most recent call last):
+  File "/usr/lib/python3.12/asyncio/selector_events.py", line 1276, in sendto
+    self._sock.sendto(data, addr)
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'sendto'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/aioice/ice.py", line 797, in check_start
+    response, addr = await pair.protocol.request(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3/dist-packages/aioice/ice.py", line 254, in request
+    return await transaction.run()
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3/dist-packages/aioice/stun.py", line 301, in run
+    self.__retry()
+  File "/usr/lib/python3/dist-packages/aioice/stun.py", line 312, in __retry
+    self.__protocol.send_stun(self.__request, self.__addr)
+  File "/usr/lib/python3/dist-packages/aioice/ice.py", line 266, in send_stun
+    self.transport.sendto(bytes(message), addr)
+  File "/usr/lib/python3.12/asyncio/selector_events.py", line 1286, in sendto
+    self._fatal_error(
+  File "/usr/lib/python3.12/asyncio/selector_events.py", line 888, in _fatal_error
+    self._loop.call_exception_handler({
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'call_exception_handler'
+qsm-direct-terminal: WebRTC offer candidates=6 mdns=0 resolved=2
+qsm-direct-terminal: WebRTC video answer codec=video/H265 pt=49 fmtp=level-id=180;profile-id=1;tier-flag=0;tx-mode=SRST
+qsm-direct-terminal: WebRTC ICE state=closed
+Executing <Task pending name='Task-99' coro=<BrowserBridgeAsyncTests.test_hevc_offer_answer_uses_h265_only_when_offered() running at /home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py:371> wait_for=<Future pending cb=[Task.task_wakeup()] created at /usr/lib/python3/dist-packages/aioice/ice.py:187> cb=[_run_until_complete_cb() at /usr/lib/python3.12/asyncio/base_events.py:182] created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.496 seconds
+Task exception was never retrieved
+future: <Task finished name='Task-116' coro=<RTCPeerConnection.__connect() done, defined at /usr/lib/python3/dist-packages/aiortc/rtcpeerconnection.py:1002> exception=InvalidStateError('RTCIceTransport is closed') created at /usr/lib/python3.12/asyncio/tasks.py:695>
+source_traceback: Object created at (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/usr/lib/python3.12/unittest/__main__.py", line 18, in <module>
+    main(module=None)
+  File "/usr/lib/python3.12/unittest/main.py", line 105, in __init__
+    self.runTests()
+  File "/usr/lib/python3.12/unittest/main.py", line 281, in runTests
+    self.result = testRunner.run(self.test)
+  File "/usr/lib/python3.12/unittest/runner.py", line 240, in run
+    test(result)
+  File "/usr/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/usr/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/usr/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/usr/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/usr/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/usr/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/usr/lib/python3.12/unittest/case.py", line 690, in __call__
+    return self.run(*args, **kwds)
+  File "/usr/lib/python3.12/unittest/async_case.py", line 131, in run
+    return super().run(result)
+  File "/usr/lib/python3.12/unittest/case.py", line 634, in run
+    self._callTestMethod(testMethod)
+  File "/usr/lib/python3.12/unittest/async_case.py", line 90, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+  File "/usr/lib/python3.12/unittest/async_case.py", line 112, in _callMaybeAsync
+    return self._asyncioRunner.run(
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 674, in run_until_complete
+    self.run_forever()
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 641, in run_forever
+    self._run_once()
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 1979, in _run_once
+    handle._run()
+  File "/usr/lib/python3.12/asyncio/events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "/home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py", line 367, in test_hevc_offer_answer_uses_h265_only_when_offered
+    answer = await bridge.answer_offer(browser.localDescription.sdp)
+  File "/home/dima/Projects/q-sunshine/qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py", line 2055, in answer_offer
+    await self._pc.setLocalDescription(answer)
+  File "/usr/lib/python3/dist-packages/aiortc/rtcpeerconnection.py", line 800, in setLocalDescription
+    asyncio.ensure_future(self.__connect())
+  File "/usr/lib/python3.12/asyncio/tasks.py", line 695, in ensure_future
+    return loop.create_task(coro_or_future)
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/aiortc/rtcpeerconnection.py", line 1010, in __connect
+    await iceTransport.start(self.__remoteIce[transceiver])
+  File "/usr/lib/python3/dist-packages/aiortc/rtcicetransport.py", line 312, in start
+    raise InvalidStateError("RTCIceTransport is closed")
+aiortc.exceptions.InvalidStateError: RTCIceTransport is closed
+qsm-direct-terminal: WebRTC connection state=closed
+.qsm-direct-terminal: WebRTC offer candidates=6 mdns=0 resolved=2
+qsm-direct-terminal: WebRTC video answer codec=video/H264 pt=99 fmtp=level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
+qsm-direct-terminal: WebRTC ICE state=checking
+qsm-direct-terminal: WebRTC connection state=connecting
+qsm-direct-terminal: WebRTC ICE state=completed
+qsm-direct-terminal: WebRTC connection state=connected
+Executing <Task pending name='Task-122' coro=<BrowserBridgeAsyncTests.test_offer_answer_is_h264_opus_only() running at /home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py:703> wait_for=<_GatheringFuture pending cb=[Task.task_wakeup()] created at /usr/lib/python3.12/asyncio/tasks.py:712> cb=[_run_until_complete_cb() at /usr/lib/python3.12/asyncio/base_events.py:182] created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.458 seconds
+qsm-direct-terminal: WebRTC ICE state=closed
+qsm-direct-terminal: WebRTC connection state=closed
+.qsm-direct-terminal: WebRTC ICE state=closed
+Executing <Task finished name='Task-180' coro=<BrowserBridgeAsyncTests.test_offer_is_bounded_and_not_a_browser_authority_channel() done, defined at /home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py:707> result=None created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.503 seconds
+qsm-direct-terminal: WebRTC connection state=closed
+.Executing <Task finished name='Task-186' coro=<BrowserBridgeAsyncTests.test_one_worker_media_ingress_fans_out_to_two_browser_tracks() done, defined at /home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py:578> result=None created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.251 seconds
+.Executing <Task pending name='Task-191' coro=<BrowserBridgeAsyncTests.test_private_input_socket_accepts_one_same_uid_receiver() running at /home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py:648> wait_for=<Future pending cb=[Task.task_wakeup()] created at /usr/lib/python3.12/asyncio/base_events.py:449> cb=[_run_until_complete_cb() at /usr/lib/python3.12/asyncio/base_events.py:182] created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.102 seconds
+qsm-direct-terminal: WebRTC ICE state=closed
+Executing <Task finished name='Task-191' coro=<BrowserBridgeAsyncTests.test_private_input_socket_accepts_one_same_uid_receiver() done, defined at /home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py:631> result=None created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.140 seconds
+qsm-direct-terminal: WebRTC connection state=closed
+.qsm-direct-terminal: WebRTC ICE state=closed
+Executing <Task finished name='Task-197' coro=<BrowserBridgeAsyncTests.test_private_socket_reassembles_encoded_units_without_transcoding() done, defined at /home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py:504> result=None created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.501 seconds
+qsm-direct-terminal: WebRTC connection state=closed
+.qsm-direct-terminal: WebRTC ICE state=closed
+Executing <Task finished name='Task-203' coro=<BrowserBridgeAsyncTests.test_private_video_tap_publishes_display1_cursor_without_video_frame() done, defined at /home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py:537> result=None created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.481 seconds
+qsm-direct-terminal: WebRTC connection state=closed
+.qsm-direct-terminal: WebRTC ICE state=closed
+qsm-direct-terminal: WebRTC connection state=closed
+.qsm-direct-terminal: WebRTC offer candidates=6 mdns=6 resolved=0
+qsm-direct-terminal: WebRTC video answer codec=video/H264 pt=99 fmtp=level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
+qsm-direct-terminal: WebRTC ICE state=checking
+qsm-direct-terminal: WebRTC connection state=connecting
+qsm-direct-terminal: WebRTC ICE state=completed
+qsm-direct-terminal: WebRTC connection state=connected
+Executing <Task pending name='Task-215' coro=<BrowserBridgeAsyncTests.test_unresolved_mdns_offer_can_connect_by_authenticated_incoming_checks() running at /home/dima/Projects/q-sunshine/qsm-direct/tests/browser_bridge/test_browser_bridge.py:292> wait_for=<_GatheringFuture pending cb=[Task.task_wakeup()] created at /usr/lib/python3.12/asyncio/tasks.py:712> cb=[_run_until_complete_cb() at /usr/lib/python3.12/asyncio/base_events.py:182] created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.455 seconds
+qsm-direct-terminal: WebRTC ICE state=closed
+qsm-direct-terminal: WebRTC connection state=closed
+......[libx264 @ 0xe80b080] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2
+[libx264 @ 0xe80b080] profile Constrained Baseline, level 1.2, 4:2:0, 8-bit
+[libx264 @ 0xe80b080] frame I:2     Avg QP:15.50  size:   632
+[libx264 @ 0xe80b080] frame P:38    Avg QP:16.66  size:   130
+[libx264 @ 0xe80b080] mb I  I16..4: 100.0%  0.0%  0.0%
+[libx264 @ 0xe80b080] mb P  I16..4: 15.7%  0.0%  0.0%  P16..4:  8.7%  0.0%  0.0%  0.0%  0.0%    skip:75.6%
+[libx264 @ 0xe80b080] coded y,uvDC,uvAC intra: 1.5% 33.2% 28.4% inter: 0.4% 8.1% 7.4%
+[libx264 @ 0xe80b080] i16 v,h,dc,p: 90%  6%  4%  0%
+[libx264 @ 0xe80b080] i8c dc,h,v,p: 45% 10% 45%  0%
+[libx264 @ 0xe80b080] kb/s:74.50
+....
+----------------------------------------------------------------------
+Ran 47 tests in 5.130s
+
+OK
+Task exception was never retrieved
+future: <Task finished name='Task-67' coro=<Connection.check_start() done, defined at /usr/lib/python3/dist-packages/aioice/ice.py:788> exception=AttributeError("'NoneType' object has no attribute 'call_exception_handler'") created at /usr/lib/python3.12/asyncio/tasks.py:420>
+source_traceback: Object created at (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/usr/lib/python3.12/unittest/__main__.py", line 18, in <module>
+    main(module=None)
+  File "/usr/lib/python3.12/unittest/main.py", line 105, in __init__
+    self.runTests()
+  File "/usr/lib/python3.12/unittest/main.py", line 281, in runTests
+    self.result = testRunner.run(self.test)
+  File "/usr/lib/python3.12/unittest/runner.py", line 240, in run
+    test(result)
+  File "/usr/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/usr/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/usr/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/usr/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/usr/lib/python3.12/unittest/suite.py", line 84, in __call__
+    return self.run(*args, **kwds)
+  File "/usr/lib/python3.12/unittest/suite.py", line 122, in run
+    test(result)
+  File "/usr/lib/python3.12/unittest/case.py", line 690, in __call__
+    return self.run(*args, **kwds)
+  File "/usr/lib/python3.12/unittest/async_case.py", line 131, in run
+    return super().run(result)
+  File "/usr/lib/python3.12/unittest/case.py", line 634, in run
+    self._callTestMethod(testMethod)
+  File "/usr/lib/python3.12/unittest/async_case.py", line 90, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+  File "/usr/lib/python3.12/unittest/async_case.py", line 112, in _callMaybeAsync
+    return self._asyncioRunner.run(
+  File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 674, in run_until_complete
+    self.run_forever()
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 641, in run_forever
+    self._run_once()
+  File "/usr/lib/python3.12/asyncio/base_events.py", line 1979, in _run_once
+    handle._run()
+  File "/usr/lib/python3.12/asyncio/events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "/usr/lib/python3/dist-packages/aiortc/rtcpeerconnection.py", line 1010, in __connect
+    await iceTransport.start(self.__remoteIce[transceiver])
+  File "/usr/lib/python3/dist-packages/aiortc/rtcicetransport.py", line 326, in start
+    await self._connection.connect()
+  File "/usr/lib/python3/dist-packages/aioice/ice.py", line 502, in connect
+    if not self.check_periodic():
+  File "/usr/lib/python3/dist-packages/aioice/ice.py", line 773, in check_periodic
+    self.check_start_task(pair)
+  File "/usr/lib/python3/dist-packages/aioice/ice.py", line 854, in check_start_task
+    pair.task = asyncio.create_task(self.check_start(pair))
+  File "/usr/lib/python3.12/asyncio/tasks.py", line 420, in create_task
+    task = loop.create_task(coro)
+Traceback (most recent call last):
+  File "/usr/lib/python3.12/asyncio/selector_events.py", line 1276, in sendto
+    self._sock.sendto(data, addr)
+    ^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'sendto'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3/dist-packages/aioice/ice.py", line 797, in check_start
+    response, addr = await pair.protocol.request(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3/dist-packages/aioice/ice.py", line 254, in request
+    return await transaction.run()
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3/dist-packages/aioice/stun.py", line 301, in run
+    self.__retry()
+  File "/usr/lib/python3/dist-packages/aioice/stun.py", line 312, in __retry
+    self.__protocol.send_stun(self.__request, self.__addr)
+  File "/usr/lib/python3/dist-packages/aioice/ice.py", line 266, in send_stun
+    self.transport.sendto(bytes(message), addr)
+  File "/usr/lib/python3.12/asyncio/selector_events.py", line 1286, in sendto
+    self._fatal_error(
+  File "/usr/lib/python3.12/asyncio/selector_events.py", line 888, in _fatal_error
+    self._loop.call_exception_handler({
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'call_exception_handler'

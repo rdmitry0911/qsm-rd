@@ -6,10 +6,14 @@ pve-manager	9.2.21
 qemu-server	9.2.11+shared3
 qsm-pve-direct	0.4.0+shared24
 qsm-pve-direct-lxc	0.4.0+shared24
+b2d5fcbc6de577daa906571cc76233b3608b84af69ad658a51e62d414a0b9a58  /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker
 status: running
 active
-inactive
-2ea71a612f52f5b21d73e2b23a17f9ccd91fa05bc002afddab02b95fef0660e9  /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker
 active
 active
-inactive
+qdisc fq_codel 0: root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64
+
+Host restoration is recorded in proxmox-gpu/host-restored.txt.
+The first restore attempt logged a transient missing vtcon1 path; after
+i915 recreated it, framebuffer binding was restored and the panel enabled.
+The test VM is now running without GPU; CT147 uses its original auto policy.

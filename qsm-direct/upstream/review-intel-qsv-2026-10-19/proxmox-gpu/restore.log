@@ -1,0 +1,9 @@
+VT restore: [Errno 2] No such file or directory: '/sys/class/vtconsole/vtcon1/bind'
+Intel GPU returned to i915; login screen restored
+../../../bus/pci/drivers/i915
+active
+active
+active
+    PID USER     COMMAND
+   1769 root     Xorg
+  35176 root     qemu-system-x86

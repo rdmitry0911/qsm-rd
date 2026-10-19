@@ -166,8 +166,8 @@ class RateTests(unittest.TestCase):
         self.rr()
         self.assertEqual(self.rate.current_kbps, 500)
 
-    def test_nvenc_low_rate_headroom_does_not_change_encoder_target(self):
-        gpu = _VideoPacer(8000, nvenc=True)
+    def test_hardware_low_rate_headroom_does_not_change_encoder_target(self):
+        gpu = _VideoPacer(8000, hardware=True)
         self.assertEqual(gpu._rate, _VideoPacer(8000)._rate)
         gpu.set_bitrate(2000)
         self.assertEqual(gpu._rate, 2600 * 1000 / 8 * 1.25)

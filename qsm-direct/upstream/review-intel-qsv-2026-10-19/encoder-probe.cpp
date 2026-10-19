@@ -210,6 +210,14 @@ private:
         context_->bit_rate = static_cast<std::int64_t>(bitrate_kbps) * 1000;
         context_->rc_max_rate = context_->bit_rate;
         context_->rc_buffer_size = static_cast<int>(context_->bit_rate / fps_);
+        if (encoder_ == "hevc_qsv") {
+            // Intel HEVC CBR can exhaust FFmpeg's output buffer on static
+            // pictures. VBR enables LowDelayBRC/MaxFrameSize; one extra kbit/s
+            // selects it without materially raising the target. A two-frame
+            // VBV leaves room for headers and small frame-size overshoots.
+            context_->rc_max_rate += 1000;
+            context_->rc_buffer_size *= 2;
+        }
         context_->flags |= AV_CODEC_FLAG_LOW_DELAY;
         context_->thread_type = FF_THREAD_SLICE;
         context_->thread_count = 2;
@@ -242,6 +250,10 @@ private:
             (void) av_dict_set(&options, "async_depth", "1", 0);
             (void) av_dict_set(&options, "look_ahead", "0", 0);
             (void) av_dict_set(&options, "forced_idr", "1", 0);
+            if (encoder_ == "hevc_qsv") {
+                (void) av_dict_set(&options, "low_delay_brc", "1", 0);
+                (void) av_dict_set_int(&options, "max_frame_size", context_->bit_rate / fps_ / 8, 0);
+            }
         } else if (vaapi_) {
             (void) av_dict_set(&options, "async_depth", "1", 0);
             (void) av_dict_set(&options, "rc_mode", "CBR", 0);

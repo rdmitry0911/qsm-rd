@@ -1,0 +1,5 @@
+phase_target_kbps=8000 frames=301 actual_mbps=8.00041 decoded=301
+phase_target_kbps=2000 frames=306 actual_mbps=2.0004 decoded=607
+phase_target_kbps=12000 frames=306 actual_mbps=12.0004 decoded=913
+phase_target_kbps=500 frames=287 actual_mbps=1.00082 decoded=1200
+{"encoder":"h264_vaapi","bitrate_kbps":8000,"frames":1200,"decoded":1200,"forced_idrs":3,"keys":7,"max_frame_bytes":25256,"mbps":5.81634,"max_encode_ms":10.2583}

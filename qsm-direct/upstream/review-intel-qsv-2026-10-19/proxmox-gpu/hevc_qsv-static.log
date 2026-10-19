@@ -1,0 +1,11 @@
+libva info: VA-API version 1.22.0
+libva info: Trying to open /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so
+libva info: Found init function __vaDriverInit_1_22
+libva info: va_openDriver() returns 0
+libva info: VA-API version 1.22.0
+libva info: Trying to open /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so
+libva info: Found init function __vaDriverInit_1_22
+libva info: va_openDriver() returns 0
+[hevc_qsv @ 0x652a37c588c0] Invalid FrameType:0.
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  video encoder rejected a frame: Invalid data found when processing input

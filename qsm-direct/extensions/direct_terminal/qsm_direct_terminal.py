@@ -452,6 +452,7 @@ _CONTAINER_KEYS = frozenset({
     "QSM_DIRECT_CODEC",
     "QSM_DIRECT_ENCODER_MODE",
     "QSM_DIRECT_ENCODER",
+    "QSM_DIRECT_VAAPI_RENDER_NODE",
 })
 _LXC_UID_PATTERN = re.compile(r"\A[1-9][0-9]{0,4}\Z")
 LXC_INFO = "/usr/bin/lxc-info"
@@ -515,6 +516,9 @@ def _load_container_instance(directory: Path, vmid: int) -> dict[str, str] | Non
     encoder = values["QSM_DIRECT_ENCODER"]
     if encoder != "auto" and not _ENCODER_PATTERN.fullmatch(encoder):
         raise DirectTerminalError("direct-terminal container has an invalid encoder")
+    render_node = values.get("QSM_DIRECT_VAAPI_RENDER_NODE")
+    if render_node is not None and not _RENDER_NODE_PATTERN.fullmatch(render_node):
+        raise DirectTerminalError("direct-terminal container has an invalid render node")
     _video_bitrate_kbps(values)
     return values
 
@@ -952,7 +956,7 @@ class DirectVmTransport:
     video_bitrate_kbps: int = 8000
     video_rate: AdaptiveVideoRate | None = None
     adaptive_video: bool = True
-    nvenc: bool = False
+    hardware: bool = False
     guest: QsmGuestChannel | None = None
     kind: str = "vm"  # "vm" (QEMU Display1) or "lxc" (container wlroots display)
     # Attached by qemu-server (vga: ...,dbus=1, webrtcproxy) over a passed
@@ -1412,7 +1416,7 @@ class DirectSessionManager:
         if transport.video_rate is None:
             transport.video_rate = AdaptiveVideoRate(
                 transport.video_bitrate_kbps, transport.input.set_video_bitrate,
-                enabled=transport.adaptive_video, nvenc=transport.nvenc)
+                enabled=transport.adaptive_video, hardware=transport.hardware)
         bridge = BrowserWebRtcBridge(
             directory, fps=fps, expected_producer_uid=os.geteuid(),
             shared_media=transport.media, shared_input=transport.input,
@@ -1655,7 +1659,7 @@ class DirectSessionManager:
                 qemu_generation=generation, codec=codec, video_bitrate_kbps=_video_bitrate_kbps(policy),
                 adaptive_video=encoder in {"libx264", "h264_nvenc", "hevc_nvenc",
                                            "h264_qsv", "hevc_qsv", "h264_vaapi", "hevc_vaapi"},
-                nvenc=encoder in {"h264_nvenc", "hevc_nvenc"}, guest=guest,
+                hardware=encoder != "libx264", guest=guest,
                 attached_by_pve=display_fd is not None or shared_profile is not None, pcm=pcm,
                 microphone=MicrophoneRoute(lambda data: pcm.send(PCM_MICROPHONE, data)))
             self._transports[vmid] = transport
@@ -1779,7 +1783,7 @@ class DirectSessionManager:
                 qemu_generation=generation, codec=codec, video_bitrate_kbps=_video_bitrate_kbps(policy),
                 adaptive_video=encoder in {"libx264", "h264_nvenc", "hevc_nvenc",
                                            "h264_qsv", "hevc_qsv", "h264_vaapi", "hevc_vaapi"},
-                nvenc=encoder in {"h264_nvenc", "hevc_nvenc"}, guest=guest, kind="lxc", pcm=pcm,
+                hardware=encoder != "libx264", guest=guest, kind="lxc", pcm=pcm,
                 audio_relay=relay,
                 microphone=MicrophoneRoute(relay.microphone) if relay is not None else None)
             self._transports[key] = transport

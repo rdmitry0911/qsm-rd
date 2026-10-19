@@ -1,0 +1,64 @@
+libva info: VA-API version 1.22.0
+libva info: Trying to open /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so
+libva info: Found init function __vaDriverInit_1_22
+libva info: va_openDriver() returns 0
+libva info: VA-API version 1.22.0
+libva info: Trying to open /usr/lib/x86_64-linux-gnu/dri/iHD_drv_video.so
+libva info: Found init function __vaDriverInit_1_22
+libva info: va_openDriver() returns 0
+encoding_frame=0
+encoding_frame=1
+encoding_frame=2
+encoding_frame=3
+encoding_frame=4
+encoding_frame=5
+encoding_frame=6
+encoding_frame=7
+encoding_frame=8
+encoding_frame=9
+encoding_frame=10
+encoding_frame=11
+encoding_frame=12
+encoding_frame=13
+encoding_frame=14
+encoding_frame=15
+encoding_frame=16
+encoding_frame=17
+encoding_frame=18
+encoding_frame=19
+encoding_frame=20
+encoding_frame=21
+encoding_frame=22
+encoding_frame=23
+encoding_frame=24
+encoding_frame=25
+encoding_frame=26
+encoding_frame=27
+encoding_frame=28
+encoding_frame=29
+encoding_frame=30
+encoding_frame=31
+encoding_frame=32
+encoding_frame=33
+encoding_frame=34
+encoding_frame=35
+encoding_frame=36
+encoding_frame=37
+encoding_frame=38
+encoding_frame=39
+encoding_frame=40
+encoding_frame=41
+encoding_frame=42
+encoding_frame=43
+encoding_frame=44
+encoding_frame=45
+encoding_frame=46
+encoding_frame=47
+encoding_frame=48
+encoding_frame=49
+encoding_frame=50
+encoding_frame=51
+QSM_PROBE_MFX_SYNC_STATUS=-5
+[hevc_qsv @ 0x5f36a40d9ac0] Invalid FrameType:0.
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  video encoder rejected a frame: Invalid data found when processing input
