@@ -439,7 +439,11 @@ HEVC VA-API omits redundant AUD NALs: Intel's driver otherwise escapes their
 Annex B start codes incorrectly. HEVC QSV uses bounded low-delay VBR, a
 two-frame VBV and a frame-size limit to avoid an Intel CBR output-buffer
 failure on static pictures. Hardware HEVC remains an experimental browser
-option; the new native Firefox transport tests use H.264.
+option. A [native browser follow-up](upstream/review-hevc-browser-2026-10-19/qualification.txt)
+also verifies HEVC QSV and VA-API in Chrome 147 on Linux with Intel Vulkan,
+including congestion recovery without reconnecting. Firefox 155 in that
+test offers H.264 rather than HEVC over WebRTC; automatic policy chooses
+H.264 for it. Browser support and a working hardware decoder are required.
 
 This ceiling describes the encoder's target, not total network traffic.
 Audio, RTP/SRTP overhead, retransmissions and hardware rate-control overshoot

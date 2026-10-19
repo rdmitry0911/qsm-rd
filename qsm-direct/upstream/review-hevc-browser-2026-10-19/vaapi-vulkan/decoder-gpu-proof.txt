@@ -1,0 +1,139 @@
+CHROME_IHD_PROCESS 9488 gpu
+/dev/dri/renderD128 pos:	0
+flags:	02100002
+mnt_id:	30
+ino:	634
+drm-driver:	i915
+drm-client-id:	40
+drm-pdev:	0000:00:02.0
+drm-total-system0:	0
+drm-shared-system0:	0
+drm-active-system0:	0
+drm-resident-system0:	0
+drm-purgeable-system0:	0
+drm-total-stolen-system0:	0
+drm-shared-stolen-system0:	0
+drm-active-stolen-system0:	0
+drm-resident-stolen-system0:	0
+drm-purgeable-stolen-system0:	0
+drm-engine-render:	0 ns
+drm-engine-copy:	0 ns
+drm-engine-video:	0 ns
+drm-engine-capacity-video:	2
+drm-engine-video-enhance:	0 ns
+
+/dev/dri/renderD128 pos:	0
+flags:	02100002
+mnt_id:	30
+ino:	634
+drm-driver:	i915
+drm-client-id:	42
+drm-pdev:	0000:00:02.0
+drm-total-system0:	101632 KiB
+drm-shared-system0:	8960 KiB
+drm-active-system0:	0
+drm-resident-system0:	101616 KiB
+drm-purgeable-system0:	392 KiB
+drm-total-stolen-system0:	0
+drm-shared-stolen-system0:	0
+drm-active-stolen-system0:	0
+drm-resident-stolen-system0:	0
+drm-purgeable-stolen-system0:	0
+drm-engine-render:	225316624 ns
+drm-engine-copy:	0 ns
+drm-engine-video:	0 ns
+drm-engine-capacity-video:	2
+drm-engine-video-enhance:	0 ns
+
+/dev/dri/renderD128 pos:	0
+flags:	0100002
+mnt_id:	30
+ino:	634
+drm-driver:	i915
+drm-client-id:	43
+drm-pdev:	0000:00:02.0
+drm-total-system0:	22808 KiB
+drm-shared-system0:	10752 KiB
+drm-active-system0:	0
+drm-resident-system0:	13444 KiB
+drm-purgeable-system0:	64 KiB
+drm-total-stolen-system0:	0
+drm-shared-stolen-system0:	0
+drm-active-stolen-system0:	0
+drm-resident-stolen-system0:	0
+drm-purgeable-stolen-system0:	0
+drm-engine-render:	0 ns
+drm-engine-copy:	0 ns
+drm-engine-video:	102058268 ns
+drm-engine-capacity-video:	2
+drm-engine-video-enhance:	0 ns
+
+CHROME_IHD_PROCESS 9488 gpu
+/dev/dri/renderD128 pos:	0
+flags:	02100002
+mnt_id:	30
+ino:	634
+drm-driver:	i915
+drm-client-id:	40
+drm-pdev:	0000:00:02.0
+drm-total-system0:	0
+drm-shared-system0:	0
+drm-active-system0:	0
+drm-resident-system0:	0
+drm-purgeable-system0:	0
+drm-total-stolen-system0:	0
+drm-shared-stolen-system0:	0
+drm-active-stolen-system0:	0
+drm-resident-stolen-system0:	0
+drm-purgeable-stolen-system0:	0
+drm-engine-render:	0 ns
+drm-engine-copy:	0 ns
+drm-engine-video:	0 ns
+drm-engine-capacity-video:	2
+drm-engine-video-enhance:	0 ns
+
+/dev/dri/renderD128 pos:	0
+flags:	02100002
+mnt_id:	30
+ino:	634
+drm-driver:	i915
+drm-client-id:	42
+drm-pdev:	0000:00:02.0
+drm-total-system0:	101752 KiB
+drm-shared-system0:	8960 KiB
+drm-active-system0:	100924 KiB
+drm-resident-system0:	101736 KiB
+drm-purgeable-system0:	392 KiB
+drm-total-stolen-system0:	0
+drm-shared-stolen-system0:	0
+drm-active-stolen-system0:	0
+drm-resident-stolen-system0:	0
+drm-purgeable-stolen-system0:	0
+drm-engine-render:	270724428 ns
+drm-engine-copy:	0 ns
+drm-engine-video:	0 ns
+drm-engine-capacity-video:	2
+drm-engine-video-enhance:	0 ns
+
+/dev/dri/renderD128 pos:	0
+flags:	0100002
+mnt_id:	30
+ino:	634
+drm-driver:	i915
+drm-client-id:	43
+drm-pdev:	0000:00:02.0
+drm-total-system0:	22808 KiB
+drm-shared-system0:	10752 KiB
+drm-active-system0:	8960 KiB
+drm-resident-system0:	13444 KiB
+drm-purgeable-system0:	64 KiB
+drm-total-stolen-system0:	0
+drm-shared-stolen-system0:	0
+drm-active-stolen-system0:	0
+drm-resident-stolen-system0:	0
+drm-purgeable-stolen-system0:	0
+drm-engine-render:	0 ns
+drm-engine-copy:	0 ns
+drm-engine-video:	131568736 ns
+drm-engine-capacity-video:	2
+drm-engine-video-enhance:	0 ns

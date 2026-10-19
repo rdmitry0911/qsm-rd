@@ -1,0 +1,2 @@
+Intel GPU returned to i915; login screen restored
+Started isolated Proxmox VM

@@ -1,0 +1,6 @@
+b2d5fcbc6de577daa906571cc76233b3608b84af69ad658a51e62d414a0b9a58  /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker
+64af6b0343ada477915bf74c371ed0ae2ed1c5d3811b983d08429696e50b9ea5  /usr/lib/qsm-pve-direct/browser_bridge/qsm_browser_bridge.py
+qsm-pve-direct	0.4.0+shared24
+qsm-pve-direct-lxc	0.4.0+shared24
+Oct 19 08:19:21 qsm-intel-pve qsm-pve-direct-terminal[6314]: qsm-direct-terminal: webrtc request rejected: browser does not offer WebRTC HEVC
+Oct 19 08:20:13 qsm-intel-pve qsm-pve-direct-terminal[6314]: qsm-direct-terminal: webrtc request rejected: browser does not offer WebRTC HEVC

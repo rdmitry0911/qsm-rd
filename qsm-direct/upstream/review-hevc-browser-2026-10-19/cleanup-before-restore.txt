@@ -1,0 +1,6 @@
+qdisc noqueue 0: root refcnt 2
+# QSM Direct console for LXC 147 (managed by qsm-pve-direct-lxc)
+QSM_DIRECT_LXC_UID=1000
+QSM_DIRECT_LXC_DISPLAY=slots
+QSM_DIRECT_LXC_GRACE=300
+64af6b0343ada477915bf74c371ed0ae2ed1c5d3811b983d08429696e50b9ea5  /usr/lib/qsm-pve-direct/browser_bridge/qsm_browser_bridge.py

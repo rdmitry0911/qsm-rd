@@ -1,0 +1,141 @@
+Native HEVC browser qualification, 2026-10-19
+===========================================
+
+Scope
+-----
+Follow-up to review-intel-qsv-2026-10-19 and the published shared24 package.
+Exercise the actual PVE preview UI, authenticated webrtcproxy API, LXC147
+wlroots capture at 1280x800/60fps, production hardware encoder, RFC7798
+RTP/RTCP, Chrome
+hardware decoder and moving pixels. No product code is changed by this
+follow-up. The worker and bridge match the shared24 release binaries/source.
+Earlier exact-class rate-change/static-text tests remain in the Intel review.
+
+The dedicated KVM Proxmox test VM on 172.16.16.200 temporarily receives the
+Intel Raptor Lake-P Iris Xe (8086:a7a0), under the operator's existing
+permission to stop SDDM. Proxmox kernel 7.0.14-24-pve; FFmpeg 7.1.5,
+Intel media driver 25.2.3/libvpl 2.14. CT 147 is the isolated unprivileged
+Ubuntu 24.04 test guest. No production guest is used. SDDM/GPU restoration
+and cleanup are recorded separately after the test runs.
+
+Chrome receiver profile
+-----------------------
+Google Chrome 147.0.7727.137 runs inside the disposable Proxmox VM, with
+Xvfb and Mesa 25.0.7. The receiver and node encoder share the assigned Intel
+GPU, whereas CT 147 has no physical GPU and supplies a controlled Qt window.
+The working renderer reported by CDP is:
+  ANGLE (Intel, Vulkan 1.4.305, Intel Iris Xe RPL-P, Mesa 25.0.7).
+Chrome's iHD mapping/renderD128 descriptors and increasing per-client
+'drm-engine-video' time demonstrate hardware decoding, separately from the
+encoder worker's own process. Native SDP and inbound stats confirm H265
+Main (profile-id1), payload49, RTX50, level-id186 and tx-modeSRST.
+
+Explicit fixture flags include:
+ --use-gl=angle --use-angle=vulkan --ignore-gpu-blocklist
+ --enable-features=Vulkan,DefaultANGLEVulkan,VulkanFromANGLE,AcceleratedVideoDecodeLinuxGL,PlatformHEVCDecoderSupport,WebRtcAllowH265Receive
+Playwright uses a new temporary browser profile. The fixture is root inside
+an isolated VM and disables its browser sandbox for that test only; this is
+not a user browser setup recipe. No browser profile or host GPU libraries
+are changed on the physical Ubuntu host. Only the disposable VM receives
+browser/Xvfb/Mesa packages. The HEVC encoder and codec are explicit, so CPU
+or H264 fallback cannot disguise a failed HEVC test.
+
+Both encoders first use the native login picture, then a focused fullscreen
+Qt motion fixture in the actual console allocated by the service (1..8).
+run-native.py discovers that console instead of assuming console 1. One
+VAAPI fixture attempt was discarded because a prior unsupported Firefox
+attempt had reserved console 2 while animation was still on console 1;
+video decoded, but the motion assertion correctly failed. This was a test
+fixture mismatch, not a HEVC pass. Final runs require motion at both ends.
+No credentials, complete node-inventory screenshots or private desktops
+are included. Ticket authentication goes through SSH stdin and memory only.
+Port 8007 is blocked and receives no request.
+
+Congestion/recovery qualification
+---------------------------------
+Since browser and service are co-located, their RTP route is loopback. Only
+UDP on the disposable VM's lo interface is shaped, using prio/u32 filters
+for IPv4/IPv6 and TBF: 20 Mbps -> 3 Mbps -> 20 Mbps. TCP SSH/PVE is unshaped.
+The limited phase lasts 25s; recovery lasts 120s. Queue budget 100ms,
+burst 12kB. Included qdisc counters show actual UDP drops; a successful
+counter assertion alone is insufficient, so decoded frames, negotiated
+codec, rate status and canvas motion must also pass. The shaping qdisc is
+removed in finally. No physical host interface or production network is
+modified. This does not reproduce a specific VPN, WAN RTT or loss pattern.
+
+QSV: 10413 decoded, 0 decoder drops, 189 lost RTP packets, 2 freezes/1.312s.
+VAAPI: 10478 decoded, 0 decoder drops, 334 lost RTP packets, 2 freezes/2.171s.
+Both start/end motion checks are 19/19. Targets fall to 2.34/1.66 Mbps, then
+return to 8/8 Mbps without reconnect; later recovery adds no freezes.
+
+Detailed final counters and observed target sequences are in results.json
+and each encoder's receiver-stats.jsonl. The VAAPI raw stats file retains
+two leading rows from the discarded wrong-console fixture run; verify-run.py
+requires the exact suffix matching the final browser.log before asserting
+one unchanged inbound stream. Those rows are not a reconnect in the final
+run. Both final runs use H265, retain their original connected peer, decode
+moving pictures before/after congestion and restore the 8/8 Mbps target. Browser decoder drops and brief
+freeze events are reported separately. Sudden network loss can still cause
+recovery pauses; no zero-freeze or latency guarantee is implied. These
+individual runs are not a comparative codec performance benchmark.
+
+Firefox / automatic codec choice
+---------------------------------
+The available Playwright Firefox 155 with the installed OpenH264 GMP lists
+H264, VP8, VP9 and AV1 in its WebRTC receive capabilities, but not H265.
+Forced HEVC therefore cannot work in that browser. The negative native UI
+check sends its real offer and observes a rejected webrtcproxy request.
+The PVE API deliberately returns a generic 500, while the root-only service
+journal records 'browser does not offer WebRTC HEVC'. This tests explicit
+unsupported-codec rejection rather than silently accepting H264.
+Automatic-policy smoke tests pass separately: Chrome negotiates HEVC/QSV,
+Firefox negotiates H264/QSV, both with moving pictures. These results are
+recorded separately for Chrome/Firefox;
+the browser's negotiated inbound mimeType and actual motion are asserted.
+HTML5-file/WebCodecs capability is not substituted for WebRTC support.
+The Firefox conclusion is restricted to this tested build/platform.
+
+Diagnostic failure before the working profile
+----------------------------------------------
+The initial Xvfb/OpenGL renderer was Mesa llvmpipe, while Chrome advertised
+VAAPI HEVC support. It decoded only initial frames, then its GPU process
+crashed. Native receiver decoded counters stopped with zero network loss;
+both QSV and VAAPI failed motion. The H26xPacketBuffer field trial did not
+fix this. Debug output records VaapiVideoDecoder initialization, a GPU
+process restart and later WebRTC decode return -13 (software fallback).
+A captured QSV AnnexB stream decodes with FFmpeg without error; requested
+IDRs already include VPS/SPS/PPS, so no unproven parameter-set workaround
+is added to QSM. With actual Intel Vulkan rendering the same production
+worker/packetizer decodes continuously. Only the working profile is a pass;
+these earlier failures are kept as diagnostic evidence, not reclassified.
+The profile-specific observation is not a claim about every Linux OpenGL
+configuration or every version of Chrome.
+
+Reproducibility / primary references
+------------------------------------
+Included native-hevc.py drives only CT 147 in the actual UI and saves codec
+stats/motion. run-native.py orchestrates the two hardware encoders and UDP
+shaping; start-fixture.py supports the allocated console; run-auto.py and
+run-firefox.py cover automatic selection and explicit rejection. Paths,
+loopback forwarding and root test-only assumptions are intentionally
+explicit. The original lab setup is documented in the preceding Intel
+review; these scripts are not general-purpose deployment tools.
+
+Browser codec implementation/support references:
+https://www.chromium.org/audio-video/
+https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Formats/WebRTC_codecs
+https://webrtc.googlesource.com/src/+/a49e33414106101e00443c86e930deab3ab76bf8/modules/video_coding/h26x_packet_buffer.cc
+
+The WebRTC decode error constant is defined by upstream video_error_codes.h:
+https://webrtc.googlesource.com/src/+/c2d8f1e6bc775718a24cdf2f91b3c852f2a1a86b/modules/video_coding/include/video_error_codes.h
+
+Restoration verified
+----------------------
+The Ubuntu host again binds i915; SDDM, headless-xvfb and headless-plasma
+are active. The panel is connected/enabled, framebuffer VT binding is 1,
+the temporary automatic-restore timer is inactive. Original Xorg 1769 and
+VM 35176 retain their processes. The Proxmox lab VM is restarted without
+GPU; CT 147 uses its original auto policy and normal login screen, with
+qsm-consoles, qsm-display@1 and qsm-login@1 active. The transient Xvfb and
+motion fixture are stopped and lo is back to noqueue. See the captured
+host/lab restoration and cleanup records. Production nodes are unchanged.

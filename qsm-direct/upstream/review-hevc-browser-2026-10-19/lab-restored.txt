@@ -1,0 +1,15 @@
+active
+active
+active
+active
+active
+active
+active
+total 0
+drwxr-xr-x 2 root root      60 Oct 19 08:28 by-path
+crw-rw---- 1 root video 226, 0 Oct 19 08:28 card0
+qdisc noqueue 0: root refcnt 2
+# QSM Direct console for LXC 147 (managed by qsm-pve-direct-lxc)
+QSM_DIRECT_LXC_UID=1000
+QSM_DIRECT_LXC_DISPLAY=slots
+QSM_DIRECT_LXC_GRACE=300

@@ -1,0 +1,164 @@
+{
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64; rv:155.0) Gecko/20100101 Firefox/155.0",
+  "receiver": {
+    "codecs": [
+      {
+        "clockRate": 90000,
+        "mimeType": "video/VP8",
+        "sdpFmtpLine": "max-fs=12288;max-fr=60"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/rtx"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/VP9",
+        "sdpFmtpLine": "max-fs=12288;max-fr=60"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/H264",
+        "sdpFmtpLine": "profile-level-id=42e01f;level-asymmetry-allowed=1;packetization-mode=1"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/H264",
+        "sdpFmtpLine": "profile-level-id=42e01f;level-asymmetry-allowed=1"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/H264",
+        "sdpFmtpLine": "profile-level-id=42001f;level-asymmetry-allowed=1;packetization-mode=1"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/H264",
+        "sdpFmtpLine": "profile-level-id=42001f;level-asymmetry-allowed=1"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/AV1"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/ulpfec"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/red"
+      }
+    ],
+    "headerExtensions": [
+      {
+        "uri": "urn:ietf:params:rtp-hdrext:sdes:mid"
+      },
+      {
+        "uri": "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"
+      },
+      {
+        "uri": "urn:ietf:params:rtp-hdrext:toffset"
+      },
+      {
+        "uri": "http://www.webrtc.org/experiments/rtp-hdrext/playout-delay"
+      },
+      {
+        "uri": "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
+      }
+    ]
+  },
+  "sender": {
+    "codecs": [
+      {
+        "clockRate": 90000,
+        "mimeType": "video/VP8",
+        "sdpFmtpLine": "max-fs=12288;max-fr=60"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/rtx"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/VP9",
+        "sdpFmtpLine": "max-fs=12288;max-fr=60"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/H264",
+        "sdpFmtpLine": "profile-level-id=42e01f;level-asymmetry-allowed=1;packetization-mode=1"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/H264",
+        "sdpFmtpLine": "profile-level-id=42e01f;level-asymmetry-allowed=1"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/H264",
+        "sdpFmtpLine": "profile-level-id=42001f;level-asymmetry-allowed=1;packetization-mode=1"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/H264",
+        "sdpFmtpLine": "profile-level-id=42001f;level-asymmetry-allowed=1"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/AV1"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/ulpfec"
+      },
+      {
+        "clockRate": 90000,
+        "mimeType": "video/red"
+      }
+    ],
+    "headerExtensions": [
+      {
+        "uri": "urn:ietf:params:rtp-hdrext:sdes:mid"
+      },
+      {
+        "uri": "http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time"
+      },
+      {
+        "uri": "urn:ietf:params:rtp-hdrext:toffset"
+      },
+      {
+        "uri": "http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01"
+      }
+    ]
+  },
+  "webcodecs": {
+    "hvc1.1.6.L120.B0": {
+      "config": {
+        "codec": "hvc1.1.6.L120.B0",
+        "codedHeight": 800,
+        "codedWidth": 1280,
+        "hardwareAcceleration": "no-preference"
+      },
+      "supported": false
+    },
+    "hev1.1.6.L120.B0": {
+      "config": {
+        "codec": "hev1.1.6.L120.B0",
+        "codedHeight": 800,
+        "codedWidth": 1280,
+        "hardwareAcceleration": "no-preference"
+      },
+      "supported": false
+    },
+    "avc1.42001f": {
+      "config": {
+        "codec": "avc1.42001f",
+        "codedHeight": 800,
+        "codedWidth": 1280,
+        "hardwareAcceleration": "no-preference"
+      },
+      "supported": true
+    }
+  },
+  "mediaHevc": "probably"
+}

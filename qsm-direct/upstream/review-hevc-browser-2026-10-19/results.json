@@ -1,0 +1,296 @@
+{
+  "date": "2026-10-19",
+  "package": "0.4.0+shared24",
+  "package_source_commit": "104bacefd635d092ca4e4cf7bf9fae6bee3a19ed",
+  "worker_sha256": "b2d5fcbc6de577daa906571cc76233b3608b84af69ad658a51e62d414a0b9a58",
+  "bridge_sha256": "64af6b0343ada477915bf74c371ed0ae2ed1c5d3811b983d08429696e50b9ea5",
+  "receiver": {
+    "browser": "Google Chrome 147.0.7727.137",
+    "os": "Debian 13 / nested Proxmox",
+    "renderer": "Intel Iris Xe RPL-P / ANGLE Vulkan 1.4.305 / Mesa 25.0.7",
+    "resolution": [
+      1280,
+      800
+    ],
+    "fps": 60
+  },
+  "network": {
+    "interface": "disposable VM loopback",
+    "protocol": "UDP IPv4/IPv6",
+    "rates_mbps": [
+      20,
+      3,
+      20
+    ],
+    "congestion_seconds": 25,
+    "recovery_seconds": 120,
+    "queue_ms": 100,
+    "burst_kb": 12,
+    "physical_host_network_changed": false
+  },
+  "hevc_qsv": {
+    "pass": true,
+    "prior_attempt_rows_in_raw_log": 0,
+    "final": {
+      "mimeType": "video/H265",
+      "framesDecoded": 10413,
+      "framesReceived": 10413,
+      "framesDropped": 0,
+      "packetsLost": 189,
+      "freezeCount": 2,
+      "totalFreezesDuration": 1.312,
+      "keyFramesDecoded": 9,
+      "pliCount": 0,
+      "nackCount": 165,
+      "videoRateStatus": "Adaptive video: 8.00 / 8.00 Mbit/s"
+    },
+    "minimum_target_mbps": 2.34,
+    "target_sequence": [
+      8.0,
+      2.34,
+      2.93,
+      3.66,
+      4.57,
+      5.71,
+      7.14
+    ],
+    "motion": [
+      {
+        "changed": 19,
+        "total": 19
+      },
+      {
+        "changed": 19,
+        "total": 19
+      }
+    ],
+    "same_inbound_stream": true,
+    "chrome_gpu_crashes": 0,
+    "hardware_decode_video_engine_ns_samples": [
+      0,
+      0,
+      924415856,
+      0,
+      0,
+      954080088
+    ]
+  },
+  "hevc_vaapi": {
+    "pass": true,
+    "prior_attempt_rows_in_raw_log": 2,
+    "final": {
+      "mimeType": "video/H265",
+      "framesDecoded": 10478,
+      "framesReceived": 10479,
+      "framesDropped": 0,
+      "packetsLost": 334,
+      "freezeCount": 2,
+      "totalFreezesDuration": 2.171,
+      "keyFramesDecoded": 12,
+      "pliCount": 0,
+      "nackCount": 266,
+      "videoRateStatus": "Adaptive video: 8.00 / 8.00 Mbit/s"
+    },
+    "minimum_target_mbps": 1.66,
+    "target_sequence": [
+      8.0,
+      1.66,
+      2.07,
+      2.59,
+      3.24,
+      4.05,
+      5.06,
+      6.32,
+      7.9
+    ],
+    "motion": [
+      {
+        "changed": 19,
+        "total": 19
+      },
+      {
+        "changed": 19,
+        "total": 19
+      }
+    ],
+    "same_inbound_stream": true,
+    "chrome_gpu_crashes": 0,
+    "hardware_decode_video_engine_ns_samples": [
+      0,
+      0,
+      102058268,
+      0,
+      0,
+      131568736
+    ]
+  },
+  "automatic": {
+    "chrome": {
+      "pass": true,
+      "negotiated_codec": "video/H265",
+      "encoder": "hevc_qsv",
+      "initial_decoded": 1,
+      "final_receiver": {
+        "connection": "connected",
+        "codec": {
+          "id": "CIT01_49_level-id=186;profile-id=1;tier-flag=0;tx-mode=SRST",
+          "timestamp": 1792398425518.475,
+          "type": "codec",
+          "clockRate": 90000,
+          "mimeType": "video/H265",
+          "payloadType": 49,
+          "sdpFmtpLine": "level-id=186;profile-id=1;tier-flag=0;tx-mode=SRST",
+          "transportId": "T01"
+        },
+        "mimeType": "video/H265",
+        "id": "IT01V3634399592",
+        "timestamp": 1792398425518.475,
+        "type": "inbound-rtp",
+        "codecId": "CIT01_49_level-id=186;profile-id=1;tier-flag=0;tx-mode=SRST",
+        "kind": "video",
+        "mediaType": "video",
+        "ssrc": 3634399592,
+        "transportId": "T01",
+        "jitter": 0.01,
+        "packetsLost": 0,
+        "packetsReceived": 18574,
+        "packetsReceivedWithCe": 0,
+        "packetsReceivedWithEct1": 0,
+        "bytesReceived": 17422161,
+        "firCount": 0,
+        "frameHeight": 800,
+        "frameWidth": 1280,
+        "framesAssembledFromMultiplePackets": 1387,
+        "framesDecoded": 1387,
+        "framesDropped": 0,
+        "framesPerSecond": 60,
+        "framesReceived": 1388,
+        "freezeCount": 0,
+        "headerBytesReceived": 445776,
+        "jitterBufferDelay": 23.717475,
+        "jitterBufferEmittedCount": 1387,
+        "jitterBufferMinimumDelay": 19.472144999999998,
+        "jitterBufferTargetDelay": 19.472144999999998,
+        "keyFramesDecoded": 1,
+        "lastPacketReceivedTimestamp": 1792398425514.247,
+        "mid": "0",
+        "nackCount": 0,
+        "pauseCount": 0,
+        "pliCount": 0,
+        "remoteId": "ROV3634399592",
+        "rtxSsrc": 2264558305,
+        "totalAssemblyTime": 13.727198,
+        "totalDecodeTime": 1.000807,
+        "totalFreezesDuration": 0,
+        "totalInterFrameDelay": 23.118,
+        "totalPausesDuration": 0,
+        "totalProcessingDelay": 24.868575,
+        "totalSquaredInterFrameDelay": 0.4058839999999919,
+        "trackIdentifier": "84046840-f5a5-4b46-8d19-316f5fde8289",
+        "videoRateStatus": "Adaptive video: 8.00 / 8.00 Mbit/s"
+      },
+      "motion": [
+        {
+          "changed": 19,
+          "total": 19
+        }
+      ]
+    },
+    "firefox": {
+      "pass": true,
+      "negotiated_codec": "video/H264",
+      "encoder": "h264_qsv",
+      "initial_decoded": 1,
+      "final_receiver": {
+        "connection": "connected",
+        "codec": {
+          "id": "5541ee50",
+          "timestamp": 1792398464513,
+          "type": "codec",
+          "clockRate": 90000,
+          "codecType": "decode",
+          "mimeType": "video/H264",
+          "payloadType": 105,
+          "sdpFmtpLine": "profile-level-id=42001f;level-asymmetry-allowed=1;packetization-mode=1",
+          "transportId": "5fe7cc24"
+        },
+        "mimeType": "video/H264",
+        "id": "41f56910",
+        "timestamp": 1792398464513,
+        "type": "inbound-rtp",
+        "codecId": "5541ee50",
+        "kind": "video",
+        "mediaType": "video",
+        "ssrc": 2560827979,
+        "transportId": "5fe7cc24",
+        "discardedPackets": 0,
+        "jitter": 0.013566666666666666,
+        "packetsDiscarded": 0,
+        "packetsLost": 0,
+        "packetsReceived": 24123,
+        "bytesReceived": 23672302,
+        "firCount": 0,
+        "frameHeight": 726,
+        "frameWidth": 1280,
+        "framesAssembledFromMultiplePackets": 1418,
+        "framesDecoded": 1418,
+        "framesDropped": 0,
+        "framesPerSecond": 60,
+        "framesReceived": 1418,
+        "freezeCount": 0,
+        "headerBytesReceived": 578952,
+        "jitterBufferDelay": 42.358968,
+        "jitterBufferEmittedCount": 1418,
+        "jitterBufferMinimumDelay": 15.599262999999999,
+        "jitterBufferTargetDelay": 15.599262999999999,
+        "keyFramesDecoded": 1,
+        "lastPacketReceivedTimestamp": 1792398464513,
+        "mid": "0",
+        "nackCount": 0,
+        "pauseCount": 0,
+        "pliCount": 0,
+        "remoteId": "e74ea440",
+        "retransmittedBytesReceived": 0,
+        "retransmittedPacketsReceived": 0,
+        "rtxSsrc": 2429055472,
+        "totalAssemblyTime": 19.973142,
+        "totalDecodeTime": 5.522,
+        "totalFreezesDuration": 0,
+        "totalInterFrameDelay": 23.815,
+        "totalPausesDuration": 0,
+        "totalProcessingDelay": 47.976592,
+        "totalSquaredInterFrameDelay": 0.4023489999999939,
+        "trackIdentifier": "{182de781-aa7b-4c6b-9918-85e20f312afe}",
+        "videoRateStatus": "Adaptive video: 8.00 / 8.00 Mbit/s"
+      },
+      "motion": [
+        {
+          "changed": 19,
+          "total": 19
+        }
+      ]
+    }
+  },
+  "firefox_forced_hevc": {
+    "browser": "Mozilla/5.0 (X11; Linux x86_64; rv:155.0) Gecko/20100101 Firefox/155.0",
+    "advertised_webrtc_hevc": false,
+    "native_ui_rejected": true,
+    "status": 500,
+    "server_reason": "browser does not offer WebRTC HEVC"
+  },
+  "restoration": {
+    "host_i915": true,
+    "sddm": "active",
+    "headless_xvfb": "active",
+    "headless_plasma": "active",
+    "restore_timer": "inactive",
+    "panel": "connected/enabled",
+    "framebuffer_bind": 1,
+    "original_xorg_pid": 1769,
+    "original_vm_pid": 35176,
+    "lab_restarted_without_gpu": true,
+    "ct147_consoles_display_login": "active",
+    "ct147_original_policy_restored": true,
+    "loopback_qdisc": "noqueue"
+  }
+}
