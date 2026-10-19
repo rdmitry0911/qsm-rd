@@ -9,7 +9,7 @@ set -eu
 if [ "$(cat /etc/qsm-direct/login-manager 2>/dev/null || true)" = sddm ]; then
     exec /usr/lib/qsm-console/qsm-native-seat start
 fi
-count=$(ls /dev | grep -cE '^tty[0-9]+$')
+count=$(ls /dev | grep -cE '^tty[0-9]+$' || true)
 [ "$count" -ge 1 ] || count=1   # tty 0: the console only -- still one
 [ "$count" -le 8 ] || count=8
 number=1
@@ -18,8 +18,10 @@ while [ "$number" -le 8 ]; do
         # The login manager pulls in its display (BindsTo) and seat keeper.
         systemctl start --no-block "qsm-login@$number.service"
     else
+        # Session units are transient and can be absent before the first
+        # login. Stopping an unused slot must not abort console startup.
         systemctl stop --no-block "qsm-session-$number.service" "qsm-login@$number.service" \
-            "qsm-seat-keeper@$number.service" "qsm-display@$number.service" 2>/dev/null
+            "qsm-seat-keeper@$number.service" "qsm-display@$number.service" 2>/dev/null || true
     fi
     number=$((number + 1))
 done

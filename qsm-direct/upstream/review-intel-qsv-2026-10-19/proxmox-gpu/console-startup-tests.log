@@ -1,0 +1,4 @@
+PASS tty_count=0: started=1, absent inactive-slot stop status=5 tolerated; exit=0
+PASS tty_count=1: started=1, absent inactive-slot stop status=5 tolerated; exit=0
+PASS tty_count=4: started=4, absent inactive-slot stop status=5 tolerated; exit=0
+PASS tty_count=12: started=8, absent inactive-slot stop status=5 tolerated; exit=0

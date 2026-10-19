@@ -39,6 +39,13 @@ at the browser level; no new Firefox HEVC playback claim is made.
    the explicit encoder required a node, but the container parser rejected
    that key. Tests cover retaining the selection and rejecting other paths.
 
+6. Final guest-package installation exposed an existing set -e failure:
+   stopping absent transient session units aborted qsm-consoles. Unused
+   slots now tolerate absent units; zero numbered ttys use the documented
+   one-console fallback. Shell checks with 0/1/4/12 ttys pass, including
+   failed inactive-slot stops; reinstallation on CT147 leaves qsm-consoles,
+   qsm-display@1 and qsm-login@1 active. See console-startup logs.
+
 Hardware and isolation
 ----------------------
 Host:dima@172.16.16.200, Ubuntu24.04.4, kernel6.8.0-146-generic,

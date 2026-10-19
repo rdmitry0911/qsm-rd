@@ -344,5 +344,20 @@
       "mbps": 2.37724,
       "max_encode_ms": 28.8166
     }
+  },
+  "guest_console_startup": {
+    "tty_counts_checked": [
+      0,
+      1,
+      4,
+      12
+    ],
+    "absent_transient_unit_stop_status": 5,
+    "all_passed": true,
+    "ct147_reinstall": {
+      "qsm-consoles": "active",
+      "qsm-display@1": "active",
+      "qsm-login@1": "active"
+    }
   }
 }
