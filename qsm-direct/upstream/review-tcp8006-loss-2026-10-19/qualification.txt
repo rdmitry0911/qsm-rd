@@ -1,0 +1,164 @@
+QSM Direct stock2: TCP 8006 gateway and isolated-loss stability
+2026-10-19
+============================================================
+
+Changes and scope
+-----------------
+The common Python adaptive controller no longer treats one or two missing RTP
+packets in a short receiver report as sufficient evidence for a bitrate step.
+Within a rolling three-second window it needs at least 128 expected packets
+and either 32 net missing packets (immediate bulk response), or eight missing
+packets in at least two positive reports spanning at least one second. The
+existing 3% loss threshold still applies. Late cumulative-loss corrections are
+retained. A clean new report cannot consume an old loss sample again. RTT
+queue confirmation, REMB ceilings, recovery hysteresis and sender-demand checks
+remain in effect. NACK/RTX and genuine recovery IDRs remain enabled.
+
+This controller is shared by VM/LXC, H.264/HEVC, software, NVENC, QSV and VA-API.
+The new hardware loss qualification covers NVENC, not a repeat of the Intel
+hardware qualification. The C++ media worker is unchanged and byte-identical
+to shared24:
+  b2d5fcbc6de577daa906571cc76233b3608b84af69ad658a51e62d414a0b9a58
+
+The separate qsm-pve-direct-gateway package is an opt-in profile for single-node
+stock PVE. It is NOT an automatic transport change for patched-native viewers.
+No rebuilt Proxmox debs are installed by this profile. Its guarded UI diversion
+and QSM services remain separate from the official packages. Enabling changes
+/etc/default/pveproxy and restarts pveproxy; disable restores its prior bytes.
+Automatic setup rejects non-comment custom proxy configuration and clustered
+nodes. LISTEN_IP also affects spiceproxy after its restart. See README.gateway.
+
+Transport
+---------
+The public TCP 8006 multiplexer distinguishes TLS ClientHello from STUN/TURN.
+HTTPS is terminated using the PVE/custom node certificate, with verified TLS
+connections to pveproxy on 127.0.0.1:8006 and signalling on 127.0.0.1:18007.
+/qsm-direct/ routes share the PVE browser origin. Normal PVE HTTP/upgrade
+requests use the pveproxy backend. HAProxy passes real client addresses to both
+internal HTTPS and coturn using PROXY protocol v2. Keeping a loopback mapped
+address in TURN caused Firefox to gather no relay candidates; preserving the
+client address fixes that case. There is no second public TLS identity or port.
+
+The browser fetches ten-minute opaque TURN REST credentials after an actual
+PVE VM.Console check and uses iceTransportPolicy=relay, TURN/TCP on the same
+browser-facing host/port. NAT port mapping is supported: the browser tests used
+18006 externally, forwarded to guest TCP 8006. TURN control is plain TCP, while
+WebRTC DTLS/SRTP/SCTP still protects media and input. This is for packet-based
+firewalls permitting TCP 8006, not an HTTPS-only application proxy. TURN/TLS
+requires a separately configured TLS relay. TCP loss can add head-of-line delay;
+direct UDP remains the normal non-gateway profile. This profile requires a node
+IPv4 relay address; IPv6-only media deployments are not qualified here.
+
+The TURN service has its own UID and configuration; QSM does not alter generic
+HAProxy/coturn services. Backend listeners are loopback-only. Its peer ACL permits
+only the configured node IPv4. A dedicated nftables OUTPUT table permits that
+UID's UDP only to exact bound QSM ICE socket tuples. Root-created 15-second
+leases refresh every five seconds, are removed at normal close and expire on
+crash. A refresh failure closes the bridge. No ingress ACCEPT rule or global
+firewall flush is part of the product setup. At boot the table is recreated
+empty before serving new allocations. Secrets, PVE tickets and SDP are absent
+from this evidence bundle.
+
+Firewall/browser qualification
+------------------------------
+Dedicated nested Debian 13/PVE VM, official pve-manager 9.2.21, qemu-server 9.2.11,
+pve-container 6.1.14, libpve-guest-common-perl 6.0.5; matching QSM stock2 packages.
+This is an existing disposable lab switched back to official PVE packages, not
+a fresh-ISO install. dpkg -V reports no changed Proxmox program files. Its
+pre-existing renamed enterprise APT conffile is the sole verification finding.
+
+An additional inet INPUT chain has policy DROP and accepts only loopback,
+ESTABLISHED/RELATED and new TCP destination 8006. No new SSH exception exists.
+The receiver is outside this VM, in a dedicated namespace on its physical host,
+through QEMU user-mode NAT. Five UDP probes plus a new SSH connection are blocked;
+firewall-rules.json records actual DROP counters. An existing SSH control channel
+is maintained independently for lab administration, with a timed firewall rollback.
+This is controlled firewall/NAT qualification, not the user's own VPN/browser test.
+
+Real PVE UI, separate browser profiles, H.264 software receive:
+  Chrome 147.0.7727.137: VM 148 and LXC 147 PASS.
+  Playwright Firefox 155.0: VM 148 and LXC 147 PASS.
+All four selected relay candidates report relayProtocol=tcp. Every run measured
+19/19 changed pictures, increasing decoded frames, zero decoder drops during
+that run and successful close/reopen. Media settings and ICE bootstrap requests
+use only the same HTTPS origin. Normal PVE UI/API traffic also passes the gateway.
+A browser certificate exception is used only for the lab's self-signed certificate.
+Firefox's isolated test profile uses the normal Cisco OpenH264 GMP 2.6.0 binary,
+verified against Mozilla's published SHA-512 manifest. The test uses no special
+loopback ICE preferences. The relevant source manifest is:
+https://raw.githubusercontent.com/mozilla-firefox/firefox/main/toolkit/content/gmp-sources/openh264.json
+
+CT 147 is the existing unprivileged Ubuntu 24.04 lab desktop. Temporary Qt
+animations were opened on its two test login seats; no real user logged in.
+VM 148 is a disposable 128-MiB, CPU/TCG, Standard VGA BIOS animation with no
+network and a 1.44-MiB raw boot fixture. It validates the VM console path, not
+a full guest OS workload. browser-firewall.py accepts a ticket over stdin and
+never saves/logs it. Early diagnostic runs instrumented only the failure catch;
+the final post-reboot browser run uses the unmodified packaged client script.
+
+Actual ACL checks: a temporary VM.Console-only PVE user receives bootstrap 200;
+a VM.Audit-only user receives 401. Both users/roles are removed afterwards.
+A TURN send to an outside peer is rejected with 403. A bound unrelated local UDP
+sink receives nothing through TURN; the dedicated UID's OUTPUT DROP counter
+increments. Removing only the active peer allowlist while retaining the DROP
+rule closes an already connected browser peer, proving fail-closed refresh.
+Normal peer teardown leaves the set empty. Endpoint CLI refuses to alter its
+backend binding while gateway mode is enabled.
+
+The final packages were installed, the nested node rebooted gracefully, all
+QSM gateway/relay/terminal services returned active and the OUTPUT set started
+empty. With the strict INPUT policy applied again, the actual Chrome VM console
+passed video/motion/reopen again. See reboot-check.txt and reboot-browser-chrome.txt.
+Standalone signalling and prior pveproxy configuration are restored on disable.
+
+NVENC stability and real congestion
+----------------------------------
+An independent private bridge and existing released media worker on disposable
+CT 108 / RTX 3080 send to Chrome 147 with Intel Iris Xe hardware decoding. The
+production terminal package and live guests are not changed for these tests.
+The synthetic text/colour fixture is 1280x800, 60 fps. A dedicated receiver veth
+(MTU 1280) has netem random loss 0.02%, then a separate TBF bandwidth experiment.
+Network shaping is confined to the test namespace, never a physical interface.
+
+Adaptive mode remains ENABLED for both static tests:
+  H.264 NVENC: 23,460 received packets, 1 reported lost, 2 NACKs;
+    target always 8000, no target changes, decoded keyframes 1 -> 1,
+    decoded frames 243 -> 2129, decoder drops 0, freezes 0.
+    Static ROI max/average per-frame mean RGB delta on 0..255 scale:
+      0.002062 / 0.001168 (199 comparisons).
+  HEVC NVENC: 31,891 received packets, 7 reported lost, 8 NACKs;
+    target always 8000, no target changes, decoded keyframes 1 -> 1,
+    decoded frames 243 -> 2133, decoder drops 0, freezes 0.
+    Static ROI max/average delta: 0.002311 / 0.001255.
+The original failing HEVC run's static ROI delta reached about 14.7/255 with an
+8 -> 6-Mbit/s cut. New deterministic tests cover the exact 1/20 and 2/8 short
+report cases, late corrections, isolated losses expiring, and sustained moderate
+loss still reducing rate. Controller evidence covers a busy source too, since
+NVENC static output itself can use most of its allowance.
+
+A separate moving-picture HEVC 20 -> 3 -> 20-Mbit/s test still adapts:
+  8000 -> 3910 -> 1723 ... -> 8000; minimum sampled target 1684.
+  It subsequently reacts to another burst and recovers to 8000 again.
+  Same SSRC, 11,889 final decoded frames, 0 decoder drops, PLI recovery PASS.
+  515 final reported lost packets, five freezes totalling 3.442 seconds.
+  Final static ROI max delta 0.001913/255, target 8000.
+This does not eliminate freezes under a large sudden bandwidth reduction and
+is not a promise of constant quality during actual congestion. The fixed-rate
+control is historical; the new passing runs do not disable adaptation.
+
+Validation/reproduction
+-----------------------
+Workstation: 51 bridge/controller, 24 signal/endpoint/gateway and 75 PVE Python
+tests, plus six JavaScript checks. The root-owned config test is also exercised
+as root. Workstation aiortc emits close-during-ICE/async teardown diagnostics in
+existing negotiation tests; all assertions pass. Target-runtime test logs are
+included separately: all 51 bridge tests and all 24 signal tests pass on the
+actual Debian 13 runtime too. Its immediate-close negotiation test also emits
+an aiortc RTCIceTransport-is-closed teardown diagnostic; the raw log is retained.
+The real-browser runs validate connected media and normal close/reopen separately.
+
+The scripts are qualification fixtures for these disposable lab IDs and paths,
+not general deployment or production traffic-capture tools. See README.gateway
+for installation/rollback and the static/congestion result JSON for raw counters.
+Synthetic screenshots contain only generated test content. Final restoration
+state is recorded in restoration.txt.

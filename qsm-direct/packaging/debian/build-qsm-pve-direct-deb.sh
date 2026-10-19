@@ -35,6 +35,7 @@ for required in \
     "$PACKAGE_DIR/qsm-pve-direct-migrate" \
     "$ROOT_DIR/extensions/signal/qsm_direct_signal.py" \
     "$ROOT_DIR/extensions/signal/qsm_direct_endpoint.py" \
+    "$ROOT_DIR/extensions/signal/qsm_gateway.py" \
     "$ROOT_DIR/extensions/signal/qsm_direct_endpoint_cli.py" \
     "$PACKAGE_DIR/qsm-pve-direct-endpoint" \
     "$PACKAGE_DIR/qsm-pve-direct-signal" \
@@ -87,6 +88,8 @@ install -d "$package_root/bin" "$package_root/browser_bridge" "$package_root/dir
 install -m 0755 "$worker" "$package_root/bin/qsm-direct-media-worker"
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/__init__.py" "$package_root/browser_bridge/__init__.py"
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/qsm_browser_bridge.py" "$package_root/browser_bridge/qsm_browser_bridge.py"
+install -m 0644 "$ROOT_DIR/extensions/signal/qsm_gateway.py" "$package_root/browser_bridge/qsm_gateway.py"
+install -m 0644 "$ROOT_DIR/extensions/signal/qsm_gateway.py" "$package_root/signal_service/qsm_gateway.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/__init__.py" "$package_root/direct_guest/__init__.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_guest_channel.py" "$package_root/direct_guest/qsm_guest_channel.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_terminal/qsm_direct_encoder_probe.py" "$package_root/direct_terminal/qsm_direct_encoder_probe.py"

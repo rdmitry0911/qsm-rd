@@ -38,8 +38,11 @@ the previous configuration. Existing consoles may need reconnecting.
 
 Allow the selected TCP port from operator networks. The service mirrors
 pveproxy's node/custom certificate; a self-signed certificate may need a
-browser exception at the signalling address too. WebRTC media still needs
-UDP connectivity between the browser and node. NAT/TURN configuration is
+browser exception at the signalling address too. The ordinary direct-media profile needs
+UDP connectivity between the browser and node. For a firewall allowing only
+TCP 8006 plus established traffic, the optional qsm-pve-direct-gateway profile
+shares HTTPS/signalling and TURN/TCP on 8006. See README.gateway (installed with
+the separate gateway package) for its explicit single-node setup and rollback. NAT/TURN configuration is
 separate. This profile does not transparently proxy other cluster nodes:
 open the PVE UI of the node that runs the guest.
 

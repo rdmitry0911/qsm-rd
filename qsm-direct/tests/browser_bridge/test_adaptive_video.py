@@ -33,6 +33,51 @@ class RateTests(unittest.TestCase):
         self.rate.receiver_report(peer, SimpleNamespace(highest_sequence=seq, packets_lost=lost,
                                                        fraction_lost=int(loss * 256)), rtt, sent)
 
+    def raw_rr(self, sequence, lost, fraction=0):
+        self.rate.receiver_report('a', SimpleNamespace(highest_sequence=sequence,
+            packets_lost=lost, fraction_lost=fraction), .08, int(self.now * 2500000))
+
+    def test_isolated_short_report_loss_never_changes_static_quality(self):
+        self.raw_rr(20000, 0)
+        sequence, lost = 20000, 0
+        for t in range(1, 181):
+            self.now = t
+            # The observed NVENC HEVC regression: 1/20 = 5%; also 2/8 = 25%.
+            count, missing = ((20, 1) if t % 30 == 1 else
+                              (8, 2) if t % 30 == 2 else (1000, 0))
+            sequence += count
+            lost += missing
+            self.raw_rr(sequence, lost, int(missing / count * 256))
+        self.assertEqual(self.applied, [])
+
+    def test_first_report_small_loss_and_late_corrections_do_not_reduce(self):
+        self.now = 2
+        self.raw_rr(53000, 2, 64)
+        self.now = 3
+        self.raw_rr(53008, 0)
+        self.now = 4
+        self.raw_rr(53028, 1, 12)
+        self.assertEqual(self.applied, [])
+
+    def test_repeated_moderate_loss_needs_time_and_volume(self):
+        self.raw_rr(20000, 0)
+        self.now = 1
+        self.raw_rr(20100, 5, 12)
+        self.assertFalse(self.applied)
+        self.now = 2
+        self.raw_rr(20200, 10, 12)
+        self.assertEqual(self.applied, [15000])
+        self.now = 3
+        self.raw_rr(20300, 10)
+        self.assertEqual(self.applied, [15000])
+
+    def test_old_isolated_loss_expires_instead_of_accumulating_forever(self):
+        self.raw_rr(20000, 0)
+        for n in range(1, 30):
+            self.now = n * 4
+            self.raw_rr(20000 + n * 128, n * 4, 8)
+        self.assertEqual(self.applied, [])
+
     def test_idle_desktop_with_low_remb_and_vpn_jitter_never_reconfigures(self):
         for t in range(180):
             self.now = t

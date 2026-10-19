@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch PVE certificate changes for the QSM gateway
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=qsm-pve-direct-gateway-certs.service
+
+[Install]
+WantedBy=timers.target

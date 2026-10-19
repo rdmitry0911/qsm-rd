@@ -1,0 +1,2 @@
+active
+../../../bus/pci/drivers/i915

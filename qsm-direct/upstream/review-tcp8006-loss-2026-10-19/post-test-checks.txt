@@ -1,0 +1,8 @@
+	chain output {
+		type filter hook output priority filter - 5; policy accept;
+		meta skuid 109 ip daddr . udp dport @peers counter packets 528 bytes 61090 accept
+		meta skuid 109 meta l4proto udp counter packets 2 bytes 198 drop
+	}
+}
+qsm-pve-direct-endpoint: disable qsm-pve-direct-gateway before changing the standalone endpoint
+missing   c /etc/apt/sources.list.d/pve-enterprise.sources

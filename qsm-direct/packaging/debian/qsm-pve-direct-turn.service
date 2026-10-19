@@ -1,0 +1,27 @@
+[Unit]
+Description=QSM private authenticated TURN/TCP relay
+After=network.target
+ConditionPathExists=/etc/qsm-pve-direct/gateway.json
+
+[Service]
+Type=notify
+StateDirectory=qsm-pve-direct-turn
+StateDirectoryMode=0700
+User=qsm-turn
+Group=qsm-turn
+ExecStartPre=+/usr/sbin/qsm-pve-direct-gateway prepare
+ExecStart=/usr/bin/turnserver -c /var/lib/qsm-pve-direct-gateway/turn.conf --pidfile=
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/run
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

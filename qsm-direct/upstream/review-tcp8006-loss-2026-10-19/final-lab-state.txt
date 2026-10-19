@@ -1,0 +1,8 @@
+inactive
+inactive
+inactive
+OWNED_VM_REMOVED
+# QSM Direct console for LXC 147 (managed by qsm-pve-direct-lxc)
+QSM_DIRECT_LXC_UID=1000
+QSM_DIRECT_LXC_DISPLAY=slots
+QSM_DIRECT_LXC_GRACE=300

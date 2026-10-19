@@ -1,0 +1,59 @@
+{
+  "pass": true,
+  "browser": "155.0",
+  "configuration": {
+    "native": false,
+    "endpoint": {
+      "port": 18007,
+      "public_url": "",
+      "gateway": true
+    }
+  },
+  "before": {
+    "state": "connected",
+    "codec": "video/H264",
+    "decoded": 1,
+    "dropped": 0,
+    "received": 839,
+    "local": {
+      "type": "relay",
+      "protocol": "udp",
+      "relayProtocol": "tcp"
+    },
+    "relayOnly": true
+  },
+  "after": {
+    "state": "connected",
+    "codec": "video/H264",
+    "decoded": 591,
+    "dropped": 0,
+    "received": 439401,
+    "local": {
+      "type": "relay",
+      "protocol": "udp",
+      "relayProtocol": "tcp"
+    },
+    "relayOnly": true
+  },
+  "motion": {
+    "changed": 19,
+    "total": 19
+  },
+  "reconnect": {
+    "state": "connected",
+    "codec": "video/H264",
+    "decoded": 1,
+    "dropped": 0,
+    "received": 839,
+    "local": {
+      "type": "relay",
+      "protocol": "udp",
+      "relayProtocol": "tcp"
+    },
+    "relayOnly": true
+  },
+  "request_count": 4,
+  "errors": [],
+  "kind": "qemu",
+  "vmid": 148
+}

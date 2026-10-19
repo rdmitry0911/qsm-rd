@@ -684,6 +684,7 @@
     const signalEndpoint = (typeof window !== 'undefined' && window.QSM_DIRECT_ENDPOINT) ||
         { port: 8007, public_url: '' };
     const signalOrigin = () => {
+        if (signalEndpoint.gateway) { return location.origin; }
         if (signalEndpoint.public_url) { return new URL(signalEndpoint.public_url).origin; }
         const address = new URL(location.origin || `https://${location.hostname}`);
         address.port = String(signalEndpoint.port);
@@ -725,7 +726,7 @@
             headers['Content-Type'] = 'application/json';
             options.body = JSON.stringify(params || {});
         }
-        const response = await fetch(`${signalOrigin()}${path}`, options);
+        const response = await fetch(`${signalOrigin()}${signalEndpoint.gateway ? '/qsm-direct' : ''}${path}`, options);
         if (!response.ok) {
             const error = new Error(`signal ${response.status}`);
             error.status = response.status;
@@ -2460,7 +2461,17 @@
         const connect = async () => {
             try {
             if (!await waitForVmStart()) { return; }
-            peer = new RTCPeerConnection();
+            let iceConfig = {};
+            if (signalEndpoint.gateway) {
+                const credentials = await signalRequest('GET',
+                    vmMediaPolicyUrl().replace(/qsm-direct-settings$/, 'qsm-direct-ice'));
+                const endpoint = new URL(signalOrigin());
+                iceConfig = { iceTransportPolicy: 'relay', iceServers: [{
+                    urls: `turn:${endpoint.hostname}:${endpoint.port || '443'}?transport=tcp`,
+                    username: credentials.username, credential: credentials.credential,
+                }] };
+            }
+            peer = new RTCPeerConnection(iceConfig);
             control = peer.createDataChannel('qsm-control', { ordered: true });
             // Cursor positions are latest-state samples. Sending them as a
             // reliable ordered stream lets one congested packet make every

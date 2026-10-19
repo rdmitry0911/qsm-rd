@@ -43,6 +43,8 @@ def write_config(path: Path, content: bytes) -> None:
 def apply_endpoint(endpoint: SignalEndpoint, *, path: Path = CONFIG_PATH,
                    restart: bool = True) -> None:
     previous = read_endpoint(path)
+    if previous.gateway:
+        raise ValueError('disable qsm-pve-direct-gateway before changing the standalone endpoint')
     old = path.read_bytes() if path.exists() else None
     systemd = Path('/run/systemd/system').is_dir()
     active = systemd and subprocess.run(

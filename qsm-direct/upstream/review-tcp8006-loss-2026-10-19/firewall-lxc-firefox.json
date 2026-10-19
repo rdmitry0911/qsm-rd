@@ -1,0 +1,59 @@
+{
+  "pass": true,
+  "browser": "155.0",
+  "configuration": {
+    "native": false,
+    "endpoint": {
+      "port": 18007,
+      "public_url": "",
+      "gateway": true
+    }
+  },
+  "before": {
+    "state": "connected",
+    "codec": "video/H264",
+    "decoded": 3,
+    "dropped": 0,
+    "received": 53295,
+    "local": {
+      "type": "relay",
+      "protocol": "udp",
+      "relayProtocol": "tcp"
+    },
+    "relayOnly": true
+  },
+  "after": {
+    "state": "connected",
+    "codec": "video/H264",
+    "decoded": 617,
+    "dropped": 0,
+    "received": 8401719,
+    "local": {
+      "type": "relay",
+      "protocol": "udp",
+      "relayProtocol": "tcp"
+    },
+    "relayOnly": true
+  },
+  "motion": {
+    "changed": 19,
+    "total": 19
+  },
+  "reconnect": {
+    "state": "connected",
+    "codec": "video/H264",
+    "decoded": 3,
+    "dropped": 0,
+    "received": 52453,
+    "local": {
+      "type": "relay",
+      "protocol": "udp",
+      "relayProtocol": "tcp"
+    },
+    "relayOnly": true
+  },
+  "request_count": 5,
+  "errors": [],
+  "kind": "lxc",
+  "vmid": 147
+}

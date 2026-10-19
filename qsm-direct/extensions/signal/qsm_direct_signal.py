@@ -44,6 +44,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from .qsm_gateway import read_gateway, ice_credentials
 from .qsm_direct_endpoint import CONFIG_PATH, SignalEndpoint, read_endpoint
 
 PROTOCOL_VERSION = 1
@@ -57,7 +58,7 @@ _USER = re.compile(r"\A[^\s@/:\\\x00-\x1f]{1,64}@[A-Za-z0-9][A-Za-z0-9._-]{0,63}
 _CODEC = re.compile(r"\A(?:auto|h264|hevc)\Z")
 _ENCODER = re.compile(r"\A(?:auto|hardware|software)\Z")
 _ROUTE = re.compile(
-    r"\A/nodes/(?P<node>[^/]+)/(?P<kind>qemu|lxc)/(?P<vmid>[0-9]+)/(?P<action>qsm-direct|qsm-direct-settings)\Z")
+    r"\A/nodes/(?P<node>[^/]+)/(?P<kind>qemu|lxc)/(?P<vmid>[0-9]+)/(?P<action>qsm-direct|qsm-direct-settings|qsm-direct-ice)\Z")
 
 
 class SignalError(Exception):
@@ -354,6 +355,13 @@ def handle_request(config: SignalConfig, method: str, path: str,
     ticket = body.get("ticket")
     if not isinstance(username, str) or not isinstance(ticket, str):
         raise SignalError(401, "authentication failure")
+
+    if action == "qsm-direct-ice" and method == "GET":
+        config.authority.authorize(username, ticket, vmid, "VM.Console")
+        gateway = read_gateway()
+        if gateway is None:
+            raise SignalError(503, "gateway not enabled")
+        return {"data": ice_credentials(gateway)}
 
     if action == "qsm-direct" and method == "POST":
         subject = config.authority.authorize(username, ticket, vmid, "VM.Console")

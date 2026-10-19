@@ -1,0 +1,7 @@
+[Unit]
+Description=Refresh QSM gateway certificate after PVE certificate updates
+ConditionPathExists=/etc/qsm-pve-direct/gateway.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/qsm-pve-direct-gateway certificates

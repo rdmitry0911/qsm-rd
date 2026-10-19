@@ -1,0 +1,24 @@
+ORIGINAL_LXC_OUTPUT_MODE_RESTORED
+active
+active
+status: running
+libpve-guest-common-perl	6.0.5+webrtc1
+pve-container	6.1.14+webrtc2
+pve-manager	9.2.21
+qemu-server	9.2.11+shared3
+qsm-pve-direct	0.4.0+shared24
+qsm-pve-direct-lxc	0.4.0+shared24
+
+Gateway/standalone profiles removed; gateway JSON and signal endpoint JSON absent.
+Original /etc/default/pveproxy was absent and is absent again.
+Both owned nftables tables are gone. Temporary VM 148 and its display bus were
+removed. CT 147 is running again with original policy and exact output mode.
+The restore command initially also selected qsm-console-guest from an old bundle;
+its dependencies prevented configuration. That unintended host package was purged,
+no desktop dependencies were installed and dpkg --audit is empty afterwards.
+
+The physical Intel receiver's dedicated namespace, veth, shaping, NAT/FORWARD
+rules, timer and extra private QEMU host forward were removed. Its normal GPU,
+SDDM/headless sessions and unrelated VMs were not restarted for these checks.
+CT 108 on the NVIDIA node returned to HEADLESS-1 1970x1220@60; temporary animation
+and marker were stopped/removed. Production QSM terminal packages were not updated.

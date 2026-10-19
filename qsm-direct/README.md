@@ -47,8 +47,11 @@ below. LXC guest desktop/session setup remains in its separate package.
 For stock PVE 9, the optional `qsm-pve-direct-standalone` installation profile
 enables the independent signalling service without replacing Proxmox packages.
 It chooses a free port starting at 18007 and supports a configured bind IP,
-port and advertised HTTPS origin. See [standalone installation and address
-settings](packaging/debian/README.standalone). Existing installations without
+port and advertised HTTPS origin. The optional
+[`qsm-pve-direct-gateway` profile](packaging/debian/README.gateway) shares TCP
+8006 between HTTPS signalling and authenticated TURN/TCP media for firewalls
+that admit only 8006 plus established traffic. It is explicitly enabled on
+single-node stock PVE and changes the proxy listener, with a reversible setup. See [standalone installation and address settings](packaging/debian/README.standalone). Existing installations without
 an endpoint configuration retain their previous port 8007.
 
 ```mermaid

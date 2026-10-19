@@ -1,0 +1,85 @@
+QSM Direct: optional TCP 8006 gateway (experimental, single-node PVE 9)
+===================================================================
+
+This explicit profile shares TCP 8006 between normal PVE HTTPS and authenticated
+TURN over TCP. Signalling goes through /qsm-direct/ on the same HTTPS origin;
+video, audio and input use WebRTC DTLS/SRTP/SCTP inside TURN/TCP. The browser must
+be able to open arbitrary TCP to 8006, not just HTTP requests through a web proxy.
+TURN itself is plain TCP; media remains encrypted by WebRTC. For networks that
+require TLS for every connection, use a separately configured TURN/TLS service.
+TCP retransmission can add latency under packet loss; direct UDP remains the
+normal profile for networks that allow it.
+
+Requirements and activation
+---------------------------
+Install matching core, standalone and gateway debs from the release. LXC setup
+still needs the separate LXC helper and container guest package.
+
+HAProxy, coturn and nftables binaries are needed. They are Suggested rather than
+hard dependencies: installing their generic services blindly can create extra
+listeners or disturb an existing operator-managed service. If NONE of these
+services is already installed/configured, install without starting their generic
+units:
+
+  systemctl mask --runtime haproxy.service coturn.service
+  apt-get install haproxy coturn nftables
+  systemctl disable haproxy.service coturn.service
+  systemctl unmask --runtime haproxy.service coturn.service
+
+For existing installations keep their services/configuration intact and install
+only missing binaries using your normal service-management procedure. QSM uses
+its own units, private configuration and dedicated qsm-turn user.
+
+During a maintenance window (pveproxy and signalling restart):
+
+  qsm-pve-direct-gateway enable --relay-ip <this-node-non-loopback-IPv4>
+
+Reload the PVE page. The endpoint uses the browser's actual HTTPS origin/port,
+including a forwarded/NAT port. On a directly exposed node it is TCP 8006.
+HTTPS, normal PVE API/WebSocket traffic and TURN/TCP share that listener on
+the specified node IPv4 address and on IPv6. Other node IPv4 addresses are not
+automatically exposed by this profile.
+Backend listeners 18006, 18007, 13479 and 13480 bind ONLY to loopback. No firewall
+INPUT/FORWARD rule is added and no global firewall table is flushed.
+
+Scope and security
+------------------
+Automatic setup accepts only single-node stock PVE and an absent/comment-only
+/etc/default/pveproxy. Custom pveproxy settings require manual review, including
+LISTEN_IP, ALLOW_FROM, DENY_FROM, POLICY and real-IP proxy settings. It does not
+silently bypass an existing source-address ACL. Cluster forwarding, source-IP
+access policies and use with an existing reverse proxy require manual review;
+they are not covered by automatic setup. The native patched viewer is not covered by this gateway
+profile; the bitrate fix is shared by both installation profiles. It changes /etc/default/pveproxy so the
+original HTTPS daemon binds to loopback, and sets its trusted real-IP header.
+PVE also uses LISTEN_IP for spiceproxy: external SPICE is affected in this mode.
+Stock Proxmox binaries/packages are not replaced.
+
+The TCP multiplexer passes client addresses to both HTTPS and coturn using
+PROXY protocol v2. This also avoids reporting a loopback mapped address to
+Firefox. Coturn's PROXY listener is private, never directly exposed.
+
+The gateway issues ten-minute TURN REST credentials only after PVE verifies
+VM.Console on the requested guest. Credentials contain no PVE ticket or username.
+Coturn permits only this node's configured IPv4 address. A separate nftables
+OUTPUT table further permits its dedicated UID to send UDP only to the exact
+currently bound QSM ICE socket tuples. Leases refresh every five seconds and
+expire after fifteen seconds if a terminal crashes; a failed refresh closes the
+peer. Arbitrary node/network UDP services cannot be used as relay destinations.
+Normal sessions remove their leases before closing sockets. The table is
+recreated empty at boot; generic coturn users are unaffected.
+
+The gateway keeps the node's PVE/custom certificate, verifies both local HTTPS
+backends, and reloads the frontend within a minute after a certificate update.
+No PVE passwords, tickets, SDP or TURN secrets are logged by these tools.
+
+Disable and rollback
+--------------------
+  qsm-pve-direct-gateway disable
+
+This stops/disables QSM gateway units, deletes only its OUTPUT table, restores
+prior pveproxy and signal configuration byte-for-byte and restarts pveproxy.
+It restores the prior signalling active/enabled state. Removing an active gateway
+package performs the same rollback. Keep /var/lib/qsm-pve-direct-gateway/before.json
+until disable succeeds; it is the rollback record. Enabling is explicit after
+installation; upgrading the gateway tools does not enable a disabled profile.

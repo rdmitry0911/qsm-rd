@@ -242,6 +242,10 @@ if(BUILD_TESTING)
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/signal/test_endpoint.py)
         set_tests_properties(qsm_signal_endpoint PROPERTIES TIMEOUT 20)
+        add_test(NAME qsm_gateway
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/signal/test_gateway.py)
+        set_tests_properties(qsm_gateway PROPERTIES TIMEOUT 20)
         add_test(NAME qsm_shared_display
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_shared_display.py -v)

@@ -12,6 +12,15 @@ signing key appears in this module's wire protocol or browser response.
 
 from __future__ import annotations
 
+# The installed module lives next to this file; source tests use its package.
+try:
+    from .qsm_gateway import read_gateway, IcePeerLease
+except ImportError:
+    try:
+        from qsm_gateway import read_gateway, IcePeerLease
+    except ImportError:
+        from extensions.signal.qsm_gateway import read_gateway, IcePeerLease
+
 import asyncio
 import base64
 import json
@@ -173,6 +182,7 @@ class _ReceiverFeedback:
     updated: float
     loss: float = 0.
     loss_time: float = float("-inf")
+    loss_samples: list[tuple[float, int, int]] = field(default_factory=list)
     rtt: float = 0.
     base_rtt: float = float("inf")
     remb: int = 0
@@ -232,10 +242,33 @@ class AdaptiveVideoRate:
         # Ignore duplicate or out-of-order reports, including their old loss.
         if state.sequence is not None and sequence <= state.sequence:
             return
-        loss = report.fraction_lost / 256
+        fraction = report.fraction_lost / 256
         if state.sequence is not None:
-            delta = sequence - state.sequence
-            loss = max(0., min(1., (report.packets_lost - state.lost) / delta))
+            expected = sequence - state.sequence
+            # Keep negative corrections: late/retransmitted packets can lower
+            # the receiver's cumulative loss after an earlier report.
+            lost = report.packets_lost - state.lost
+        else:
+            # Before our first baseline only a substantial initial loss has
+            # enough evidence to act on. The RTP sequence starts at a random
+            # offset, so highest_sequence is NOT an initial packet count.
+            lost = max(0, report.packets_lost)
+            expected = max(lost, round(lost / fraction)) if fraction > 0 else 0
+        state.loss_samples = [(t, count, missing) for t, count, missing in state.loss_samples
+                              if now - t <= 3]
+        if expected > 0:
+            state.loss_samples.append((now, expected, lost))
+        total = sum(count for _, count, _ in state.loss_samples)
+        missing = max(0, sum(value for _, _, value in state.loss_samples))
+        positive = [t for t, _, value in state.loss_samples if value > 0]
+        # One missing packet in a short RR can look like 5-25% loss. Such
+        # noise must not reconfigure a hardware encoder (and force an IDR).
+        # Bulk congestion remains immediate; smaller losses need repeated
+        # evidence over at least a second. A clean new RR cannot consume old
+        # loss again. NACK/RTX handles isolated loss without a quality step.
+        confirmed = total >= 128 and (missing >= 32 or
+                    (missing >= 8 and len(positive) >= 2 and positive[-1] - positive[0] >= 1))
+        loss = min(1., missing / total) if confirmed and lost > 0 else 0.
         state.sequence, state.lost = sequence, report.packets_lost
         state.loss, state.loss_time, state.updated = loss, now, now
         if rtt is not None and 0 < rtt < 30:
@@ -1431,6 +1464,7 @@ class BrowserWebRtcBridge:
             self._loop = asyncio.get_running_loop()
         except RuntimeError as error:
             raise BridgeError("BrowserWebRtcBridge must be created in an event loop") from error
+        self._ice_lease = None
         self._pc = RTCPeerConnection()
         self.video_codec = video_codec
         self._shared_media = shared_media
@@ -2055,6 +2089,16 @@ class BrowserWebRtcBridge:
         await self._pc.setLocalDescription(answer)
         if self._pc.localDescription is None:
             raise BridgeError("cannot create browser WebRTC answer")
+        try:
+            gateway = read_gateway()
+            if gateway is not None:
+                ports = [candidate.port for transport in ice_transports
+                         for candidate in transport.iceGatherer.getLocalCandidates()
+                         if candidate.ip == gateway['relay_ipv4'] and candidate.protocol == 'udp']
+                self._ice_lease = IcePeerLease(gateway['relay_ipv4'], ports)
+                await self._ice_lease.start(self.close)
+        except (OSError, ValueError, RuntimeError, asyncio.TimeoutError) as error:
+            raise BridgeError("gateway relay firewall unavailable") from error
         return {"type": self._pc.localDescription.type, "sdp": self._pc.localDescription.sdp}
 
     def _on_track(self, track: MediaStreamTrack) -> None:
@@ -2088,6 +2132,8 @@ class BrowserWebRtcBridge:
         if self._closed:
             return
         self._closed = True
+        if self._ice_lease is not None:
+            await self._ice_lease.stop()
         self._video_rate.remove(self)
         if self._health_task is not None:
             self._health_task.cancel()

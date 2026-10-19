@@ -1,0 +1,23 @@
+[Unit]
+Description=QSM HTTPS and TURN/TCP single-port gateway
+After=network.target pve-cluster.service pveproxy.service qsm-pve-direct-turn.service
+Wants=qsm-pve-direct-turn.service
+ConditionPathExists=/etc/qsm-pve-direct/gateway.json
+
+[Service]
+Type=notify
+ExecStartPre=/usr/sbin/qsm-pve-direct-gateway prepare
+ExecStart=/usr/sbin/haproxy -Ws -f /var/lib/qsm-pve-direct-gateway/haproxy.cfg -p /run/qsm-pve-direct-gateway/haproxy.pid
+ExecReload=/usr/sbin/haproxy -c -f /var/lib/qsm-pve-direct-gateway/haproxy.cfg
+ExecReload=/bin/kill -USR2 $MAINPID
+KillMode=mixed
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

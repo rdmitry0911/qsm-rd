@@ -1,0 +1,18 @@
+Hi guys, another update on the remaining text-sharpness issue and firewall access.
+
+I've fixed the case described in my previous post where one lost packet could lower the bitrate from 8 to 6 Mbit/s. A very short receiver report made that single packet look like substantial loss. The controller now requires enough packet and time evidence before reducing quality. Isolated loss is handled by retransmission without changing the encoder target.
+
+I've checked static text with adaptive bitrate enabled using both H.264 NVENC and HEVC NVENC. With occasional packet loss injected, the target stayed at 8 Mbit/s and the text remained stable, with no additional decoded keyframes or decoder drops. A separate 20 → 3 → 20 Mbit/s test still reduced the bitrate and recovered to the configured limit without reconnecting. Large bandwidth drops can still cause brief freezes.
+
+There is now also a standalone installation option using official PVE 9 packages, without rebuilding Proxmox packages. For networks allowing only TCP 8006 and established connections, I've added an optional gateway that shares 8006 between PVE HTTPS, QSM signalling and authenticated TURN over TCP. WebRTC media stays encrypted; no incoming UDP ports are needed in this mode.
+
+I've checked video, moving pictures and reopening the console for both a VM and an LXC container in Chrome and Firefox, with that firewall policy actually applied. The gateway is an experimental, explicitly enabled single-node profile. It moves pveproxy behind the gateway, so please read the setup and rollback instructions; existing custom proxy settings need manual review. This gateway profile currently covers the standalone UI, not the patched native viewer. Direct UDP remains the normal option where available, since TCP can add latency under packet loss.
+
+The bitrate fix uses the shared VM/LXC controller, including the Intel encoder paths; the new hardware loss tests were on NVIDIA.
+
+Source, matching deb packages, setup instructions and test reports:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261019-stock2
+
+Feedback from restricted networks would be very welcome. Please mention your browser, VM or LXC, codec/encoder and whether you use the gateway or direct UDP.
+
+Thank you, Dmitry

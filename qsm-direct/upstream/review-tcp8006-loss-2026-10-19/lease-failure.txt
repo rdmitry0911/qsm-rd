@@ -1,0 +1,2 @@
+PEER_READY
+{"pass": true, "peer_closed_after_allowlist_removal": true, "before": {"state": "connected", "codec": "video/H264", "decoded": 1, "dropped": 0, "received": 839, "local": {"type": "relay", "protocol": "udp", "relayProtocol": "tcp"}, "relayOnly": true}}

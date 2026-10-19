@@ -19,8 +19,11 @@ class SignalEndpoint:
     listen: str = '0.0.0.0'
     port: int = 8007  # Preserve existing add-on installations without a config.
     public_url: str = ''
+    gateway: bool = False
 
     def __post_init__(self):
+        if type(self.gateway) is not bool:
+            raise ValueError('gateway must be a boolean')
         if not isinstance(self.listen, str):
             raise ValueError('listen must be an IPv4 or IPv6 address')
         ipaddress.ip_address(self.listen)
@@ -39,7 +42,10 @@ class SignalEndpoint:
                 raise ValueError('public_url port must be between 1 and 65535')
 
     def browser_config(self) -> dict:
-        return {'port': self.port, 'public_url': self.public_url.rstrip('/')}
+        value = {'port': self.port, 'public_url': self.public_url.rstrip('/')}
+        if self.gateway:
+            value['gateway'] = True
+        return value
 
     def as_dict(self) -> dict:
         return {'listen': self.listen, **self.browser_config()}
@@ -65,7 +71,7 @@ def read_endpoint(path: Path = CONFIG_PATH, *, require_root_owner: bool = True) 
                 metadata.st_mode & 0o022 or (require_root_owner and metadata.st_uid != 0)):
             raise ValueError('endpoint configuration must be a root-owned regular file, not writable by others')
         value = json.loads(source.read(4097), object_pairs_hook=_unique_object)
-    if not isinstance(value, dict) or set(value) - {'listen', 'port', 'public_url'}:
+    if not isinstance(value, dict) or set(value) - {'listen', 'port', 'public_url', 'gateway'}:
         raise ValueError('unknown endpoint configuration keys')
     return SignalEndpoint(**value)
 

@@ -1,0 +1,16 @@
+ 20:43:22 up 0 min,  1 user,  load average: 0.26, 0.08, 0.02
+active
+active
+active
+table inet qsm_direct_gateway {
+	set peers {
+		type ipv4_addr . inet_service
+		timeout 15s
+	}
+
+	chain output {
+		type filter hook output priority filter - 5; policy accept;
+		meta skuid 109 ip daddr . udp dport @peers counter packets 0 bytes 0 accept
+		meta skuid 109 meta l4proto udp counter packets 0 bytes 0 drop
+	}
+}
