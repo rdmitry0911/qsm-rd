@@ -1,0 +1,21 @@
+Empty dpkg status; Debian trixie + official PVE + QSM
+Command: apt-get -s --no-install-recommends install qsm-archive-keyring qsm-pve-direct-standalone qsm-pve-direct-lxc qsm-pve-direct-gateway
+0 upgraded, 669 newly installed, 0 to remove and 0 not upgraded.
+Inst pve-manager (9.2.21 Proxmox Debian Repository:stable [all])
+Inst qsm-archive-keyring (2026.10.20 QSM Direct preview:trixie [all])
+Inst qsm-pve-direct (0.4.0+stock3 QSM Direct preview:trixie [amd64])
+Inst qsm-pve-direct-standalone (0.4.0+stock3 QSM Direct preview:trixie [all])
+Inst qsm-pve-direct-gateway (0.4.0+stock3 QSM Direct preview:trixie [all])
+Inst qsm-pve-direct-lxc (0.4.0+stock3 QSM Direct preview:trixie [all])
+No removals; qsm-console-guest is not installed on the host.
+
+Read-only copy of existing node dpkg status
+Command: apt-get -s --no-install-recommends install qsm-archive-keyring qsm-pve-direct-standalone qsm-pve-direct-lxc qsm-pve-direct-gateway
+4 upgraded, 1 newly installed, 0 to remove and 116 not upgraded.
+Inst qsm-archive-keyring (2026.10.20 QSM Direct preview:trixie [all])
+Inst qsm-pve-direct-gateway [0.4.0+stock2.compat1] (0.4.0+stock3 QSM Direct preview:trixie [all]) []
+Inst qsm-pve-direct-standalone [0.4.0+stock2.compat1] (0.4.0+stock3 QSM Direct preview:trixie [all]) []
+Inst qsm-pve-direct [0.4.0+stock2.compat1] (0.4.0+stock3 QSM Direct preview:trixie [amd64]) [qsm-pve-direct-lxc:amd64 ]
+Inst qsm-pve-direct-lxc [0.4.0+stock2.compat1] (0.4.0+stock3 QSM Direct preview:trixie [all])
+No removals; qsm-console-guest is not installed on the host.
+

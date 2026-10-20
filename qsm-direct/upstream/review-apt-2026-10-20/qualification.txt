@@ -1,0 +1,42 @@
+QSM APT distribution qualification — 2026-10-20
+
+Public feed: https://rdmitry0911.github.io/qsm-rd/
+Suite/component: trixie main; amd64 and architecture-independent QSM packages.
+Code: main commit 680c2edda5020848bad3c7d79cbf4e9ddc7246ee.
+GitHub Actions run 39440867422: build SUCCESS, deploy SUCCESS.
+
+PASS: explicit signed Valid-Until with 30-day metadata lifetime.
+PASS: signed APT update, no authentication warnings.
+PASS: real APT download and SHA256 verification of all six packages, including
+      the live HTTPS feed after deployment.
+PASS: only the five allowlisted QSM release packages + qsm-archive-keyring.
+PASS: APT rejects a modified InRelease signature.
+PASS: APT rejects a changed deb with signed indexes unchanged.
+PASS: keyring deb reproduced byte-for-byte; SHA256
+      36e3d6ea803cfde39b0388c05cfec98d4a765fe25cbf02ad5c1ca751854e4375.
+PASS: online signing-key export has no primary certification secret; the
+      exported signing subkey can sign Release metadata.
+PASS: empty-status dependency resolution using the official signed Debian/PVE
+      repositories; all host profiles resolvable without the guest package.
+PASS: existing-node upgrade simulation: four QSM upgrades, one keyring install,
+      no removals and no non-QSM package change.
+PASS: actual Debian 13 APT 3.0.3 update from the public feed with the documented
+      package pinning; actual archive-keyring installation in the build chroot,
+      installed key bytes equal the published/tracked key, dpkg --audit clean.
+PASS: deployed public key equals the tracked public certificate; live signed
+      metadata expires November 19, 2026, 14:38:09 UTC.
+
+The dependency tests are simulations, not an actual new PVE host installation.
+Only qsm-archive-keyring was installed through APT inside an isolated Debian 13
+build chroot. No production node repository configuration, QSM runtime, VM or
+container was changed. These are the same stock3 console debs already qualified
+in review-stock3-2026-10-20; media/browser/GPU tests were not repeated for an
+archive-only change. The original five release debs and hashes are unchanged.
+
+Reproduce the archive/signature tests:
+  python3 qsm-direct/packaging/apt/verify.py --site SITE_DIRECTORY
+  python3 qsm-direct/packaging/apt/verify.py --site SITE_DIRECTORY --url https://rdmitry0911.github.io/qsm-rd/
+
+Signing material is outside Git. The certificate primary fingerprint is
+BA99528182B7EADD0199B6986A09741B1DBEAEF2.
+No email, forum reply or Bugzilla comment was sent by this task.

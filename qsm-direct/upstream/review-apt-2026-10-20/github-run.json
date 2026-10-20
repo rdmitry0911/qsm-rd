@@ -1,0 +1,110 @@
+{
+  "conclusion": "success",
+  "createdAt": "2026-10-20T14:37:06Z",
+  "headSha": "680c2edda5020848bad3c7d79cbf4e9ddc7246ee",
+  "jobs": [
+    {
+      "completedAt": "2026-10-20T14:38:14Z",
+      "conclusion": "success",
+      "databaseId": 118690435556,
+      "name": "build",
+      "startedAt": "2026-10-20T14:37:55Z",
+      "status": "completed",
+      "steps": [
+        {
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Check out approved manifest and publisher",
+          "number": 2,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Install archive tools",
+          "number": 3,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Import only the online signing subkey",
+          "number": 4,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Verify approved assets and sign archive",
+          "number": 5,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Test real APT downloads and rejection of tampered metadata",
+          "number": 6,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Remove the private signing key",
+          "number": 7,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Upload public Pages files only",
+          "number": 8,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Post Check out approved manifest and publisher",
+          "number": 16,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 17,
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/rdmitry0911/qsm-rd/actions/runs/39440867422/job/118690435556"
+    },
+    {
+      "completedAt": "2026-10-20T14:38:27Z",
+      "conclusion": "success",
+      "databaseId": 118690621266,
+      "name": "deploy",
+      "startedAt": "2026-10-20T14:38:18Z",
+      "status": "completed",
+      "steps": [
+        {
+          "conclusion": "success",
+          "name": "Set up job",
+          "number": 1,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Deploy signed archive to GitHub Pages",
+          "number": 2,
+          "status": "completed"
+        },
+        {
+          "conclusion": "success",
+          "name": "Complete job",
+          "number": 3,
+          "status": "completed"
+        }
+      ],
+      "url": "https://github.com/rdmitry0911/qsm-rd/actions/runs/39440867422/job/118690621266"
+    }
+  ],
+  "status": "completed",
+  "updatedAt": "2026-10-20T14:38:28Z",
+  "url": "https://github.com/rdmitry0911/qsm-rd/actions/runs/39440867422"
+}

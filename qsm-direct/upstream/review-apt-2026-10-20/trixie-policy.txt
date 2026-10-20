@@ -1,0 +1,14 @@
+qsm-archive-keyring:
+  Installed: (none)
+  Candidate: 2026.10.20
+  Version table:
+     2026.10.20 100
+         -1 https://rdmitry0911.github.io/qsm-rd trixie/main amd64 Packages
+         -1 https://rdmitry0911.github.io/qsm-rd trixie/main all Packages
+qsm-pve-direct-standalone:
+  Installed: (none)
+  Candidate: 0.4.0+stock3
+  Version table:
+     0.4.0+stock3 100
+         -1 https://rdmitry0911.github.io/qsm-rd trixie/main amd64 Packages
+         -1 https://rdmitry0911.github.io/qsm-rd trixie/main all Packages

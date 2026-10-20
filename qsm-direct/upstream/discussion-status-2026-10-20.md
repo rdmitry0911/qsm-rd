@@ -41,3 +41,7 @@ standalone release using official PVE packages. It does not remove runtime PVE
 dependencies and does not constitute admission to Debian. The separate
 [Debian distribution assessment](debian-distribution-2026-10-20.md) covers
 main/contrib options, source packaging, ITP and sponsorship.
+
+[APT validation evidence](review-apt-2026-10-20/qualification.txt) records the
+successful public deployment, actual signed downloads, tamper rejection,
+Debian 13 keyring installation and dependency/upgrade simulations.

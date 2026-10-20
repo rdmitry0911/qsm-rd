@@ -1,0 +1,32 @@
+Valid-Until: Thu, 19 Nov 2026 14:38:09 GMT
+Acquire-By-Hash: yes
+Architectures: amd64 all
+ButAutomaticUpgrades: yes
+Codename: trixie
+Components: main
+Date: Tue, 20 Oct 2026 14:38:09 GMT
+Description: Standalone QSM Direct for Proxmox VE 9
+Label: QSM Direct preview
+NotAutomatic: yes
+Origin: QSM Direct
+Suite: trixie
+MD5Sum:
+ 74bfe295862d26fe960b2a09859eaeec             4304 main/binary-all/Packages
+ 80f71e6356e8b888f4d77b4661a79e69             1901 main/binary-all/Packages.gz
+ 8cf612b453ace5d0acf97e1cf9852fac             5467 main/binary-amd64/Packages
+ 8757ce1d9965366b451f019326bc7a76             2357 main/binary-amd64/Packages.gz
+SHA1:
+ e167ad5a4069ff1e921d827f388e9c2b0d86c281             4304 main/binary-all/Packages
+ 618a4c5779fb3b7857d8ad1f4a38e9370bf189bd             1901 main/binary-all/Packages.gz
+ 58428075841701b49b863e1717cc8591d3d10003             5467 main/binary-amd64/Packages
+ 83c7eb0f52e5c0d0f9bab87ea04e72416067d6ec             2357 main/binary-amd64/Packages.gz
+SHA256:
+ d3759a8dae32ac95654966112b0430cc7aa6e3da49756551d25c6ef5e25ab5fd             4304 main/binary-all/Packages
+ af998b46cb2f93c3ce6eaaa721290d04113a883c67db5a3bb686253355189f47             1901 main/binary-all/Packages.gz
+ 74d5d7645a5ba9463e5136280a098c192c25ed6a69fd5d5f480554e76f2d3db7             5467 main/binary-amd64/Packages
+ b0b553243a4fd7818f6422a792966898bf0404e7d1782a227d7bfbca76d5ebcf             2357 main/binary-amd64/Packages.gz
+SHA512:
+ 172c7ca0a21fc9e08324cb8834b88396387d03ee6aca6138c156b22b3e54f844fc80ed6348a32c6b170ba0b45197b51380699ab2cfa6755cdade3b3e43d1fff5             4304 main/binary-all/Packages
+ 7043720134651570fed846e0e2cea1e04aa1c3876a7860cc0b306f19865fcb38619cafb27632efa1fce977552d72a3b242e4cf3df8bed497e24e90dbd66ce047             1901 main/binary-all/Packages.gz
+ ac7c6d5496195bad4006078cbb73490ba76b0c05ef7f3b250a6f5ae932a1bdebc7558e1a42dfa450c99320fcaa057d537571d72ad441c1089462b4788761e99f             5467 main/binary-amd64/Packages
+ 845b1221118f9c3f346aaa4e3fe20000e43a57c4a972f7b58908f37214f06f53039c112f77620c84dc3931f651c6113408219157adc5b14b3756fa21a4111f34             2357 main/binary-amd64/Packages.gz
