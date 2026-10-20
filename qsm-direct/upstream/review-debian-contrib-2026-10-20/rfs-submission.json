@@ -6,5 +6,10 @@
   "to": "submit@bugs.debian.org",
   "smtp_code": 250,
   "smtp_response": "2.0.0 Ok: queued as 08F0011123",
-  "bts_bug_id": null
+  "bts_bug_id": 1151425,
+  "delivery_status": "delivered_to_debian_mx",
+  "debian_smtp_response": "250 OK id=1xJC9Q-003tNW-1q",
+  "bts_registration": "registered",
+  "bts_url": "https://bugs.debian.org/1151425",
+  "bts_registered_at": "2026-10-20T15:55:01Z"
 }

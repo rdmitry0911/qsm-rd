@@ -23,7 +23,8 @@ The project lives in [`qsm-direct/`](qsm-direct/) -- see its
 [`qsm-direct/upstream/`](qsm-direct/upstream/).
 
 Debian contrib packaging has started with
-[ITP #1151422](https://bugs.debian.org/1151422). A signed
+[ITP #1151422](https://bugs.debian.org/1151422) and
+[RFS #1151425](https://bugs.debian.org/1151425). A signed
 [source package for review](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-debian-contrib-20261020-review2)
 is available; Debian Developer review and upload sponsorship are pending.
 

@@ -49,10 +49,14 @@ dscverify validates the project signature and both tarballs before extraction.
 The initial review1 release is marked superseded because GitHub normalized
 tilde characters in asset filenames; revision 0exp1 avoids that problem.
 
-The [RFS message](debian-rfs-2026-10-20.eml) was sent on October 20 from
-rdmitry@taktcycles.com, with Reply-To and owner rdmitry0911@gmail.com. The Takt
-mail server accepted it; the Debian MX initially greylisted it for retry.
-The queued message is retained for normal delivery; do not submit a duplicate.
+[RFS #1151425](https://bugs.debian.org/1151425) is registered against
+sponsorship-requests, seeking independent review and an initial
+experimental/contrib upload sponsor. The exact
+[RFS message](debian-rfs-2026-10-20.eml) was sent on October 20 from
+rdmitry@taktcycles.com, with Reply-To and owner rdmitry0911@gmail.com.
+The Debian MX initially greylisted the message; a retry of the same queued
+message was accepted at 15:53 UTC with SMTP 250 (1xJC9Q-003tNW-1q).
+BTS registered and acknowledged it at 15:55 UTC. No duplicate request was sent.
 
 ## Review still required
 

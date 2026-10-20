@@ -3,7 +3,8 @@ This is the **source-package review preview for Debian contrib**, version
 
 Project sponsor: [Takt](https://taktcycles.com/).
 Maintainer: Dmitry R. [Debian ITP #1151422](https://bugs.debian.org/1151422)
-is registered; a Debian Developer upload sponsor is still needed.
+and [RFS #1151425](https://bugs.debian.org/1151425) are registered;
+a Debian Developer upload sponsor is still needed.
 
 The release contains the upstream `.orig.tar.xz`, Debian packaging tarball,
 signed `.dsc`, source `.changes`/`.buildinfo`, export provenance and review

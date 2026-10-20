@@ -24,7 +24,8 @@ its dated validation scope; their shared9 links are historical.
 
 ## Debian contrib procedure (2026-10-20)
 
-[ITP #1151422](https://bugs.debian.org/1151422) is registered. Project sponsor:
+[ITP #1151422](https://bugs.debian.org/1151422) and
+[RFS #1151425](https://bugs.debian.org/1151425) are registered. Project sponsor:
 [Takt](https://taktcycles.com/). The conventional Debian source package and
 [source review release](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-debian-contrib-20261020-review2)
 are available, with clean Debian 13/unstable builds, Lintian and autopkgtest.
