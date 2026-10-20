@@ -43,7 +43,7 @@ assert.match(source, /const console = me\.savedItems && me\.savedItems\.console;
     'the provider switch must preserve PVE\'s existing Console navigation item');
 assert.match(source, /console\.xtype = 'pveQsmDirectConsole';/,
     'the existing Console card must always use the selector before an asynchronous config read');
-assert.match(source, /if \(displayState\(data && data\.args, Number\(me\.vmid\)\)\.managed\) \{\s*startEmbeddedConsole\(\);\s*\} else \{\s*startNoVnc\(\);/,
+assert.match(source, /if \(consoleConfigured\(data, Number\(me\.vmid\)\)\) \{\s*startEmbeddedConsole\(\);\s*\} else \{\s*startNoVnc\(\);/,
     'the selector must render QSM only for managed Display1 and otherwise retain stock noVNC');
 assert.match(source, /if \(attempt < 4 && !me\.destroyed && !me\.qsmConsoleMode\) \{\s*setTimeout\(\(\) => readConfig\(attempt \+ 1\), 750\);/,
     'a transient config read failure on refresh must retry rather than fall straight to noVNC');
@@ -667,6 +667,52 @@ delayedRefresh();
 assert.equal(delayedEnabled, true, 'the first VM view must enable QSM Direct without a page reload');
 assert.equal(delayedConsole.xtype, 'pveQsmDirectConsole',
     'the existing Console card must switch even while the toolbar is rendered late');
+
+// Switching only the PVE web UI must retain consoles for running native VMs
+// and must not add a second -display when their VGA dialog is saved.
+{
+    const savedRequest = Proxmox.Utils.API2Request;
+    for (const [config, expected] of [
+        [{ 'dbus-display': 1, vga: 'virtio-gl,rendernode=/dev/dri/renderD128' }, true],
+        [{ 'dbus-display': '1', vga: 'std' }, true],
+        [{ 'dbus-display': 0, vga: 'virtio-gl' }, false],
+        [{ 'dbus-display': 1, vga: 'none' }, false],
+    ]) {
+        Proxmox.Utils.API2Request = request => request.success({ result: { data: config } });
+        let available;
+        qemuConfigOverlay.initComponent.call({
+            pveSelNode: { data: { node: 'pve-a', vmid: 321 } },
+            callParent: () => undefined,
+            down: () => ({ setEnableQsmDirect: value => { available = value; } }),
+        });
+        assert.equal(available, expected);
+    }
+    Proxmox.Utils.API2Request = savedRequest;
+    const config = { 'dbus-display': 1, vga: 'virtio-gl', args: '-cpu host' };
+    const stock = { vga: 'virtio-gl,rendernode=/dev/dri/renderD130' };
+    const result = displayOverlay.onGetValues.call({
+        up: () => ({ vmconfig: config }),
+        callParent: () => stock,
+    }, { type: 'virtio-gl', qsm_direct_display1: 1 });
+    assert.equal(result, stock, 'shared displays retain stock VGA serialization without private args');
+    let loaded = 0;
+    const hidden = [];
+    displayEditOverlay.initComponent.call({
+        load: options => options.success({ result: { data: config } }),
+        callParent() { this.load({ success: () => { loaded++; } }); },
+        down: query => ({ setDisabled: value => assert.equal(value, true), hide: () => hidden.push(query) }),
+    });
+    assert.equal(loaded, 1);
+    assert.equal(hidden.length, 4, 'private-display controls are hidden for shared displays');
+    let choice;
+    audioEditOverlay.initComponent.call({
+        load: options => options.success({ result: { data: { ...config, audio0: 'device=ich9-intel-hda,driver=dbus' } } }),
+        callParent() { this.load({ success: () => { loaded++; } }); },
+        down: () => ({ getStore: () => ({ getById: () => null, add: value => { choice = value; } }) }),
+    });
+    assert.equal(choice.key, 'dbus', 'the existing native audio backend remains selectable');
+    assert.equal(loaded, 2);
+}
 
 // Cross-VM console selection. PVE remembers the active sub-tab globally
 // (kvmtab), so switching from another VM whose Console tab is open activates

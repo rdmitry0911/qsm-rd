@@ -338,6 +338,16 @@
         const typed = /(?:^|,)type=([a-z0-9-]+)/.exec(value);
         return typed ? typed[1] : value.split(',', 1)[0];
     };
+    // A node can switch its web UI to standalone while retaining the native
+    // qemu-server backend for already running shared-display VMs. The terminal
+    // service supports both buses. Never convert such a VM to private args as
+    // a side effect of opening/saving its ordinary Display or Audio dialog.
+    const sharedDisplayConfigured = (config) => Boolean(config &&
+        [1, '1', true].includes(config['dbus-display']) &&
+        ['virtio-gl', 'std', 'virtio', 'vmware', 'cirrus', 'qxl', 'qxl2', 'qxl3', 'qxl4']
+            .includes(stockVgaType(config.vga || 'std')));
+    const consoleConfigured = (config, vmid) => sharedDisplayConfigured(config) ||
+        displayState(config && config.args, vmid).managed;
     const effectiveDisplayAdapter = (active, profile, vga) => {
         if (!active) { return gettext('PVE Graphic card: ') + stockVgaType(vga || 'none'); }
         if (profile === DISPLAY_PROFILE.virgl) {
@@ -406,6 +416,9 @@
         },
         onGetValues: function (values) {
             const edit = this.up('proxmoxWindowEdit');
+            if (sharedDisplayConfigured(edit && edit.vmconfig)) {
+                return this.callParent([values]);
+            }
             const vmid = windowVmid(edit);
             const active = enabled(values.qsm_direct_display1);
             const profile = displayProfile(values.qsm_direct_profile);
@@ -496,6 +509,15 @@
                 const chained = Ext.apply({}, options);
                 const stockSuccess = chained.success;
                 chained.success = function (response) {
+                    const loaded = (response && response.result && response.result.data) || {};
+                    if (sharedDisplayConfigured(loaded)) {
+                        const driver = me.down('[name=driver]');
+                        if (driver && driver.getStore && !driver.getStore().getById('dbus')) {
+                            driver.getStore().add({ key: 'dbus', value: 'D-Bus (shared display)' });
+                        }
+                        if (stockSuccess) { stockSuccess.apply(this, arguments); }
+                        return;
+                    }
                     if (stockSuccess) { stockSuccess.apply(this, arguments); }
                     const data = (response && response.result && response.result.data) || {};
                     const vmid = windowVmid(me);
@@ -593,6 +615,14 @@
                 chained.success = function (response) {
                     if (stockSuccess) { stockSuccess.apply(this, arguments); }
                     const data = response && response.result && response.result.data;
+                    if (sharedDisplayConfigured(data)) {
+                        for (const name of ['qsm_direct_display1', 'qsm_direct_profile',
+                            'qsm_direct_rendernode', 'qsm_direct_effective_adapter']) {
+                            const field = me.down(`[name=${name}]`);
+                            if (field) { field.setDisabled(true); field.hide(); }
+                        }
+                        return;
+                    }
                     const state = displayState(data && data.args, windowVmid(me));
                     me.setValues({
                         qsm_direct_display1: state.managed || state.legacy ? 1 : 0,
@@ -3442,7 +3472,7 @@
                         success: ({ result }) => {
                             me.qsmConsoleLoading = false;
                             const data = result && result.data;
-                            if (displayState(data && data.args, Number(me.vmid)).managed) {
+                            if (consoleConfigured(data, Number(me.vmid))) {
                                 startEmbeddedConsole();
                             } else {
                                 startNoVnc();
@@ -3585,7 +3615,7 @@
                     method: 'GET',
                     success: ({ result }) => {
                         const data = result && result.data;
-                        setQsmDirectAvailable(displayState(data && data.args, vmid).managed);
+                        setQsmDirectAvailable(consoleConfigured(data, vmid));
                     },
                     failure: () => setQsmDirectAvailable(false),
                 });
