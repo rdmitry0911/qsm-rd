@@ -1,0 +1,37 @@
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+100   827  100   827    0     0   1682      0 --:--:-- --:--:-- --:--:--  1682100   827  100   827    0     0   1680      0 --:--:-- --:--:-- --:--:--     0
+pub   ed25519 2026-10-20 [C] [expires: 2029-10-19]
+      BA99 5281 82B7 EADD 0199  B698 6A09 741B 1DBE AEF2
+uid                      QSM Direct Archive <rdmitry0911@gmail.com>
+sub   ed25519 2026-10-20 [S] [expires: 2028-10-19]
+
+gpg: key 6A09741B1DBEAEF2: "QSM Direct Archive <rdmitry0911@gmail.com>" not changed
+gpg: Total number processed: 1
+gpg:              unchanged: 1
+dget: retrieving https://github.com/rdmitry0911/qsm-rd/releases/download/v0.4.0-debian-contrib-20261020-review2/qsm-pve-direct_0.4.0+20261020-0exp1.dsc
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+100  2098  100  2098    0     0   5972      0 --:--:-- --:--:-- --:--:--  5972
+dget: retrieving https://github.com/rdmitry0911/qsm-rd/releases/download/v0.4.0-debian-contrib-20261020-review2/qsm-pve-direct_0.4.0+20261020.orig.tar.xz
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+100  347k  100  347k    0     0   793k      0 --:--:-- --:--:-- --:--:--  793k
+dget: retrieving https://github.com/rdmitry0911/qsm-rd/releases/download/v0.4.0-debian-contrib-20261020-review2/qsm-pve-direct_0.4.0+20261020-0exp1.debian.tar.xz
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+100 20284  100 20284    0     0  58648      0 --:--:-- --:--:-- --:--:-- 58648
+qsm-pve-direct_0.4.0+20261020-0exp1.dsc:
+      Good signature found
+   validating qsm-pve-direct_0.4.0+20261020.orig.tar.xz
+   validating qsm-pve-direct_0.4.0+20261020-0exp1.debian.tar.xz
+All files validated successfully.
+dpkg-source: warning: cannot verify inline signature for ./qsm-pve-direct_0.4.0+20261020-0exp1.dsc: no acceptable signature found
+dpkg-source: info: extracting qsm-pve-direct in qsm-pve-direct-0.4.0+20261020
+dpkg-source: info: unpacking qsm-pve-direct_0.4.0+20261020.orig.tar.xz
+dpkg-source: info: unpacking qsm-pve-direct_0.4.0+20261020-0exp1.debian.tar.xz
+PASS: documented public dget verifies signatures and hashes and extracts the source package

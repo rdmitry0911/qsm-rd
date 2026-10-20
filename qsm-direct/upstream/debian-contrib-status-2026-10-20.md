@@ -42,6 +42,18 @@ The preview version is 0.4.0+20261020-0exp1, aimed at initial experimental
 review. It is separate from the existing stock3 APT feed. It is not an upload
 to Debian experimental and is not installed on production nodes.
 
+[Signed source review release](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-debian-contrib-20261020-review2)
+contains the canonical `.dsc` and matching source archives, source signatures,
+checksums and validation bundle. The documented `dget -x` download was tested:
+dscverify validates the project signature and both tarballs before extraction.
+The initial review1 release is marked superseded because GitHub normalized
+tilde characters in asset filenames; revision 0exp1 avoids that problem.
+
+The [RFS message](debian-rfs-2026-10-20.eml) was sent on October 20 from
+rdmitry@taktcycles.com, with Reply-To and owner rdmitry0911@gmail.com. The Takt
+mail server accepted it; the Debian MX initially greylisted it for retry.
+The queued message is retained for normal delivery; do not submit a duplicate.
+
 ## Review still required
 
 The source package needs an independent human review and a Debian Developer

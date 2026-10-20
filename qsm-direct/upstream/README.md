@@ -22,6 +22,16 @@ independent of Proxmox at runtime; see the
 The sections below preserve the earlier shared-base submission material and
 its dated validation scope; their shared9 links are historical.
 
+## Debian contrib procedure (2026-10-20)
+
+[ITP #1151422](https://bugs.debian.org/1151422) is registered. Project sponsor:
+[Takt](https://taktcycles.com/). The conventional Debian source package and
+[source review release](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-debian-contrib-20261020-review2)
+are available, with clean Debian 13/unstable builds, Lintian and autopkgtest.
+See [procedure status](debian-contrib-status-2026-10-20.md) and
+[validation](review-debian-contrib-2026-10-20/qualification.txt).
+Takt's project sponsorship is distinct from Debian Developer upload sponsorship.
+
 ## Shared-base status (2026-10-15)
 
 QSM now consumes Alexandre Derumier's shared per-VM D-Bus foundation.

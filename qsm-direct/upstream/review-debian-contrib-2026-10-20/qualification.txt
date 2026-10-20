@@ -39,3 +39,13 @@ packaging scaffold. No package was uploaded to the Debian archive.
 Project release signing certificate primary fingerprint:
 BA99528182B7EADD0199B6986A09741B1DBEAEF2
 Only public certificates and test evidence are in the review archive.
+
+PUBLIC DOWNLOAD CHECK
+PASS: all 12 release2 assets downloaded with their original canonical names;
+      detached SHA256SUMS signature and every referenced asset hash verified.
+PASS: documented dget -x download: dscverify reports Good signature and validates
+      both source tarballs before dpkg-source extracts the source successfully.
+      dpkg-source's separate keyring still warns about the project certificate;
+      dget's preceding dscverify check validates the project signature explicitly.
+Current review release:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-debian-contrib-20261020-review2
