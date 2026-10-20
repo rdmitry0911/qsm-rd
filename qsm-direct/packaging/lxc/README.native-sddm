@@ -4,8 +4,11 @@ Native SDDM profile for QSM Direct LXC consoles
 This opt-in profile runs the complete SDDM daemon and its original greeter
 with the container's selected system theme. SDDM/PAM authenticates users,
 opens real logind sessions and handles desktop logout. qsm-login and the
-custom QSM greeter are not used. The existing Proxmox WebRTC API on HTTPS
-8006 carries the console; no extra signalling port is introduced.
+custom QSM greeter are not used. With the patched shared platform, the
+Proxmox WebRTC API on HTTPS 8006 carries signalling. On official PVE, use
+the standalone signalling service, optionally through its TCP 8006 gateway;
+see packaging/debian/README.standalone. The SDDM profile itself needs no
+additional signalling service or port and does not require patched PVE packages.
 
 Qualification target: unprivileged Ubuntu 24.04, systemd 255, Qt 5 / Plasma
 5.27, PVE kernel 7.0.14-14-pve. Other distributions, Qt 6 themes and display

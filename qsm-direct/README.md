@@ -13,6 +13,26 @@ Bindings can be changed under Console settings / Touch gestures.
 The [shared10 touch update](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261015-shared10)
 also updates the old saved one-finger selection default.
 
+## Installation profiles
+
+[Stock3 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261020-stock3)
+include the isolated-packet-loss fix and standalone UI compatibility with
+existing shared-display VMs. The maximum bitrate remains configurable per
+guest; isolated packet loss no longer triggers the reproduced 8-to-6-Mbit/s
+quality change. Sustained congestion still reduces bitrate.
+
+| Profile | Proxmox packages | Browser-to-node connectivity |
+| --- | --- | --- |
+| [Standalone, direct UDP](packaging/debian/README.standalone) | Official PVE 9 | HTTPS 8006, configurable QSM HTTPS port (initially 18007 or next free), WebRTC UDP |
+| [Standalone with gateway](packaging/debian/README.gateway) | Official PVE 9 | One TCP port: 8006 on the node, including a router/NAT forward |
+| Native shared platform | Matching patched preview packages | HTTPS 8006 and direct WebRTC UDP |
+
+In gateway mode HTTPS protects the UI, authentication and signalling; SRTP
+protects audio/video and DTLS protects input/clipboard. TURN control messages
+use plain TCP, without an outer TLS layer. It is not an HTTPS-only or
+TURN/TLS transport. The gateway is explicitly enabled for single-node
+deployments; read its proxy/SPICE impact and rollback instructions first.
+
 ## Native shared platform
 
 The current upstream proposal uses Alexandre Derumier's per-VM D-Bus
@@ -42,7 +62,7 @@ For a new VM, enable `dbus-display: 1`, select `vga: std` or
 The upstream patches are proposals; stock PVE still uses the add-on mode
 below. LXC guest desktop/session setup remains in its separate package.
 
-## Legacy add-on architecture
+## Standalone architecture (stock PVE)
 
 For stock PVE 9, the optional `qsm-pve-direct-standalone` installation profile
 enables the independent signalling service without replacing Proxmox packages.
@@ -51,7 +71,11 @@ port and advertised HTTPS origin. The optional
 [`qsm-pve-direct-gateway` profile](packaging/debian/README.gateway) shares TCP
 8006 between HTTPS signalling and authenticated TURN/TCP media for firewalls
 that admit only 8006 plus established traffic. It is explicitly enabled on
-single-node stock PVE and changes the proxy listener, with a reversible setup. See [standalone installation and address settings](packaging/debian/README.standalone). Existing installations without
+single-node stock PVE and changes the proxy listener, with a reversible setup.
+For a router/NAT setup, forward public TCP 8006 to the node's TCP 8006 and
+use the node's LAN IPv4 as `--relay-ip`; no public UDP mapping is needed.
+The browser uses the actual public hostname and port of its PVE page.
+See [standalone installation and address settings](packaging/debian/README.standalone). Existing installations without
 an endpoint configuration retain their previous port 8007.
 
 ```mermaid
@@ -59,7 +83,7 @@ flowchart LR
     browser["Browser tab<br/>(PVE web UI)"]
     subgraph node["Proxmox VE node"]
         pveproxy["pveproxy :8006<br/>(stock)"]
-        signal["qsm-pve-direct-signal :8007<br/>TLS, node certificate"]
+        signal["qsm-pve-direct-signal<br/>configurable HTTPS port"]
         terminal["qsm-pve-direct-terminal<br/>(per-VM sessions)"]
         worker["qsm-direct-media-worker<br/>H.264 / HEVC / Opus"]
         qemu["QEMU + guest desktop"]
@@ -76,8 +100,10 @@ flowchart LR
     agent -.->|"desktop selection<br/>wl-clipboard / KDE Klipper"| qemu
 ```
 
-The browser reaches the node on two TLS ports: stock pveproxy on 8006 for
-login, VM state and the UI, and the QSM signalling service on 8007 for the
+The diagram shows the direct-UDP profile. The browser reaches the node on
+two TLS ports: stock pveproxy on 8006 for login, VM state and the UI, and
+the configured QSM signalling port (initially 18007 for standalone; 8007
+for legacy installations without endpoint configuration) for the
 one SDP exchange and the codec policy. The signalling service authorises
 every call by asking pveproxy's own `/access/ticket` to confirm the browser's
 ticket and `VM.Console`; the audio, video and input then flow directly as
@@ -103,9 +129,10 @@ Open the **Console** of a VM and:
 - **It uses the hardware you have.** NVENC, QSV, VA-API or `libx264`; H.264
   by default, HEVC as an explicit experimental per-VM choice; VirGL/GL guests
   or plain VGA guests.
-- **Same login, same ACL.** Same origin, same PVE session, same
-  `VM.Console` permission. No pairing PIN, no persistent public service port,
-  no native client, no host X11 session.
+- **Same login, same ACL.** Existing PVE credentials and `VM.Console`
+  permission. Native and gateway profiles use the PVE HTTPS origin;
+  standalone direct UDP uses its configured signalling endpoint. No pairing
+  PIN, native client or host X11 session.
 - **A sleeping guest is explained, not hidden.** When the guest blanks its
   screen or locks, the console says so and any mouse or key press wakes it.
 - **Sound, microphone and clipboard.** Guest audio plays in the console
@@ -195,17 +222,18 @@ feel.
 - **Browser:** any browser whose WebRTC offers H.264 and Opus — Chrome, Edge,
   Chromium with proprietary codecs, Safari; Firefox with its OpenH264 plugin
   enabled. A browser without H.264 is refused (the reason is logged in the
-  node journal). Because the console fetches the signalling port
-  cross-origin, reach PVE by a host name the node certificate is valid for
+  node journal). In direct-UDP standalone mode the console fetches the
+  signalling port cross-origin; reach PVE by a host name the node certificate is valid for
   (or install a trusted certificate); a certificate the browser only accepts
   after a click-through works for the main page but blocks the signalling
-  fetch.
-- **Network:** the browser reaches the node on TCP 8006 (stock pveproxy) and
-  TCP 8007 (the QSM signalling service, TLS with the node certificate). The
-  picture is WebRTC: for each open console the node binds a UDP socket on a
-  random high port and advertises its own addresses as ICE host candidates
-  (no STUN or TURN, no TCP fallback, DTLS-authenticated). A host firewall
-  must allow inbound TCP 8007 and inbound UDP from operator networks.
+  fetch. The gateway serves signalling on the PVE origin and uses the same
+  node certificate, so no separate signalling-port exception is needed.
+- **Network:** standalone direct UDP requires TCP 8006, the configured QSM
+  HTTPS port and negotiated WebRTC UDP ports. The optional single-node
+  gateway carries HTTPS/signalling and TURN/TCP on the node's TCP 8006;
+  relay-to-bridge UDP remains local. It also works behind a router with
+  only TCP 8006 forwarded. A proxy permitting only HTTPS cannot carry the
+  gateway's plain TURN/TCP connection. Native-preview media still needs UDP.
 - **Encoder:** NVENC, QSV or VA-API with the vendor driver, or the CPU
   (`libx264`, about half a core per open 1280×800 console). HEVC needs a
   hardware encoder.
@@ -217,26 +245,36 @@ feel.
   service and all its encoder workers run under a 1 GiB `MemoryMax`, which a
   systemd drop-in can raise.
 
-## Legacy add-on installation (stock PVE)
+## Standalone installation (stock PVE)
+
+Use the matching release debs and follow
+[README.standalone](packaging/debian/README.standalone). For a single
+forwarded TCP port, also follow [README.gateway](packaging/debian/README.gateway).
+Never install the container-only `qsm-console-guest` deb on the PVE host.
 
 Build the PVE 9 package on Debian 13 with
 `packaging/debian/build-qsm-pve-direct-deb.sh` (or in a throwaway chroot with
 `scripts/build-qsm-pve-direct-in-trixie.sh`; needs cmake, ninja, the FFmpeg
-development libraries and libopus), then install it on the PVE node:
+development libraries and libopus). Build the matching standalone profile
+with `packaging/debian/build-qsm-pve-direct-standalone-deb.sh`, setting the
+same `QSM_DIRECT_DEB_VERSION` for both builders. Install on the PVE node:
 
 ```bash
-apt install ./qsm-pve-direct_*.deb
-systemctl enable --now qsm-pve-direct-terminal.service qsm-pve-direct-signal.service
+apt install ./qsm-pve-direct_0.4.0+stock3_amd64.deb \
+            ./qsm-pve-direct-standalone_0.4.0+stock3_all.deb
+qsm-pve-direct-endpoint --show
+qsm-pve-direct-ui status
 ```
 
 What it changes on the node: two new systemd services —
 `qsm-pve-direct-terminal` (Unix sockets only, no listening port) and
-`qsm-pve-direct-signal` (one TLS port, 8007, using the node certificate); a
+`qsm-pve-direct-signal` (one configured HTTPS port, using the node certificate); a
 patched `index.html.tpl` that adds one script tag (the stock template is
 restored on removal and on an unknown `pve-manager` version); and a per-VM
 policy directory `/etc/qsm-pve-direct/instances.d`. It does **not** modify
 `pveproxy`, `pvedaemon` or any PVE Perl file. Removing the package restores
-the template and stops both services.
+the template and stops both services. The optional gateway additionally
+changes the proxy listener; its `disable` command restores the prior config.
 
 Log in as `root@pam` (enabling QSM Display1 edits the VM's `args:` line,
 which Proxmox reserves for root), open **Hardware → Display → Advanced** of a
@@ -282,7 +320,8 @@ Details: [installation](docs/INSTALLATION.md), [testing](docs/TESTING.md),
 ## How it works
 
 The browser sends its WebRTC offer to the node-local signalling service
-(`qsm-pve-direct-signal`, TLS 8007). PVE has no supported way to add an API
+(`qsm-pve-direct-signal`, configurable HTTPS endpoint, or `/qsm-direct/`
+on the PVE origin with the gateway). PVE has no supported way to add an API
 route, so the service does not touch pveproxy or pvedaemon: it authorises the
 request by relaying the browser's ticket to the node's own `/access/ticket`
 with `path=/vms/<vmid>` and the required privilege, and only the username PVE

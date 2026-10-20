@@ -1,89 +1,161 @@
 QSM Direct standalone profile for stock Proxmox VE 9
 ===================================================
 
-This profile uses the official Proxmox packages. It adds a guarded PVE web
-UI overlay and a separate HTTPS signalling service. It shares the native
-preview's media worker, encoders and adaptive bitrate controller. Do not
-install the patched qemu-server/pve-manager/pve-container/guest-common debs
-from the native preview to use this release.
+Release: 0.4.0+stock3, Debian 13 / amd64. The standalone profile uses official
+Proxmox packages: a guarded web UI overlay and independent PVE-authorized HTTPS
+signalling service. It shares the native preview's media worker, encoders and
+adaptive bitrate controller. No rebuilt Proxmox debs are needed on stock PVE.
+Reviewed/tested stock platform: pve-manager 9.2.21, qemu-server 9.2.11,
+pve-container 6.1.14. UI activation is guarded by version/template checksums;
+other reviewed versions are listed in pve-manager-index-template.sha256.
 
-Install on the PVE node (Debian 13 / amd64):
+Download the matching assets from:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261020-stock3
+Verify SHA256SUMS-stock3 before installation (sha256sum -c SHA256SUMS-stock3
+when all listed assets have been downloaded). Do not mix QSM package versions.
+Do not install patched Proxmox debs from the older native preview for this setup.
+The separate qsm-console-guest asset belongs INSIDE an LXC, never on the PVE host.
 
-    apt install ./qsm-pve-direct_0.4.0+stock1_amd64.deb \
-                ./qsm-pve-direct-standalone_0.4.0+stock1_all.deb
+Choose the network profile
+--------------------------
+A. Direct UDP: PVE HTTPS 8006, a configurable QSM HTTPS port and negotiated UDP
+   from browser to node. This is the normal low-latency profile.
+B. Optional single-port gateway: PVE HTTPS, QSM signalling and authenticated
+   TURN/TCP share TCP 8006. Use this for a firewall or router/NAT forwarding only
+   that TCP port. Follow INSTALL-GATEWAY.txt / README.gateway after installing
+   standalone. No public UDP or extra signalling port is needed in this mode.
+   The gateway is experimental, single-node and enabled explicitly.
+
+Install base packages as root on the PVE node:
+
+    apt install ./qsm-pve-direct_0.4.0+stock3_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock3_all.deb
     qsm-pve-direct-endpoint --show
+    qsm-pve-direct-ui status
+    systemctl is-active qsm-pve-direct-terminal qsm-pve-direct-signal
 
+The UI status should be active. Hard-reload the PVE page (Ctrl+F5). Installation
+starts the QSM services; it does not enable the gateway or rewrite guest configs.
+
+Direct-UDP endpoint settings
+---------------------------
 First installation chooses an available IPv4 port in 18007..18106, starting
-at 18007, and saves it in /etc/qsm-pve-direct/signal.json. Port 8007 is never
-selected. Existing saved configuration is preserved across upgrades.
-The service and UI use the same configuration; reload the PVE page after
-changing it. The port preflight does not displace another listener.
-
-Set a local address and port explicitly:
+at 18007, and saves /etc/qsm-pve-direct/signal.json. Port 8007 is never selected
+by standalone initialization. Existing saved config is preserved on upgrade;
+older core-only installations without config retain their legacy port 8007.
+The service and UI read the same config. Reload PVE after changing it.
 
     qsm-pve-direct-endpoint --listen 192.0.2.10 --port 18009
 
 Use 0.0.0.0 for all IPv4 interfaces, or :: for a dual-stack IPv6 listener.
-By default the browser connects to the PVE page's hostname on that port.
-When the browser needs a different address, including a NAT mapping:
+By default the browser uses the PVE page's hostname with the configured port.
+For a different externally reachable signalling origin:
 
     qsm-pve-direct-endpoint --listen 0.0.0.0 --port 18009 \
         --public-url https://pve.example.org:28009
 
-The advertised address must route to this service and be covered by the
-node's TLS certificate. --public-url auto returns to the PVE page hostname.
-Changing an occupied bind address/port fails before modifying configuration.
-The command reconciles the UI and restarts signalling; a failure restores
-the previous configuration. Existing consoles may need reconnecting.
+This setting changes signalling only; it does not relay WebRTC media or solve
+media NAT traversal. For only one forwarded TCP port use the gateway instead.
+The advertised HTTPS address must route to this service and match the node's
+certificate. --public-url auto restores the PVE page hostname. A self-signed
+certificate can require a separate exception at the signalling origin.
 
-Allow the selected TCP port from operator networks. The service mirrors
-pveproxy's node/custom certificate; a self-signed certificate may need a
-browser exception at the signalling address too. The ordinary direct-media profile needs
-UDP connectivity between the browser and node. For a firewall allowing only
-TCP 8006 plus established traffic, the optional qsm-pve-direct-gateway profile
-shares HTTPS/signalling and TURN/TCP on 8006. See README.gateway (installed with
-the separate gateway package) for its explicit single-node setup and rollback. NAT/TURN configuration is
-separate. This profile does not transparently proxy other cluster nodes:
-open the PVE UI of the node that runs the guest.
+Allow the selected HTTPS port and negotiated WebRTC UDP from operator networks.
+Changing an occupied bind address/port fails before modifying config. The CLI
+reconciles the UI and restarts signalling, restoring config on failure. Existing
+consoles may need reconnecting. While the gateway is enabled, this endpoint CLI
+refuses binding changes: disable the gateway first.
 
-VM setup
---------
-Reload PVE, stop the selected VM, then open Hardware -> Display -> Advanced
-and enable QSM Display1. Choose a CPU display or the optional VirGL profile.
-Start the VM and open Console. Add the QSM Console audio device for sound
-and microphone. The CPU display retains noVNC; the GL display cannot offer
-VNC/SPICE alongside QEMU's GL D-Bus display. Changing display configuration
-requires a stop/start, not just an in-guest reboot.
+VM setup on stock PVE
+---------------------
+Use root@pam to configure a VM's QSM Display1 (PVE reserves the args field for
+root). Stop the selected VM, open Hardware -> Display -> Advanced and enable
+QSM Display1. Choose CPU or optional VirGL, save, start the VM and open Console.
+A changed display needs a full stop/start, not just an in-guest reboot.
 
-QSM owns its private per-VM D-Bus in this profile; stock qemu-server does not
-provide dbus-display or native webrtcproxy/webrtcsettings routes. Do not run
-qsm-pve-direct-migrate: that command targets the patched native platform.
-Existing native-preview VMs need a separately planned display conversion;
-this package does not downgrade Proxmox or rewrite running VM configs.
+CPU Display1 keeps the selected Standard VGA, non-GL VirtIO or VMware adapter
+and noVNC. VirGL uses a private VirtIO-GPU with PVE Graphic card None; QEMU
+cannot offer VNC/SPICE alongside this GL D-Bus display. For sound/microphone,
+add Hardware -> Audio Device -> backend QSM Console. The optional desktop agent
+provides clipboard integration. Viewing uses VM.Console; media settings writes
+require VM.Config.Options. The container helper is not installed inside VMs.
 
-LXC
----
-Install the matching optional helper on the node:
+Standalone owns the private per-VM D-Bus. Stock qemu-server has no dbus-display
+key or native webrtcproxy/webrtcsettings API. Do not run qsm-pve-direct-migrate:
+that tool converts private displays TO the patched native platform.
 
-    apt install ./qsm-pve-direct-lxc_0.4.0+stock1_all.deb
+LXC setup
+---------
+Install the matching helper on the HOST:
+
+    apt install ./qsm-pve-direct-lxc_0.4.0+stock3_all.deb
     qsm-pve-direct-lxc enable VMID --session wayland
 
-The helper bundles qsm-console-guest and expects a Debian/Ubuntu container
-with a Plasma desktop. See the main package README for GPU/session options.
-The LXC Console menu offers QSM Direct; the terminal console remains.
-Native SDDM and a local cursor require the same optional SDDM/Sway packages
-and kernel capabilities as the native preview; they are not installed by
-this profile. The host helper supports the stock pve-container dependency.
+Replace VMID with the chosen Debian/Ubuntu container with a Plasma desktop.
+The helper embeds the matching guest deb and installs it INSIDE that container;
+no separate manual guest-package installation is needed for this path. Inspect:
 
-Updates/removal
----------------
-The JavaScript include uses a reversible, version/hash-guarded dpkg-divert
-of index.html.tpl. An unreviewed PVE UI update restores the stock template
-instead of attempting a speculative patch. qsm-pve-direct-ui status reports
-whether the overlay is active. Removing qsm-pve-direct restores the original
-template. Configuration is retained; removing only the standalone profile
-stops/disables its signalling service. Disable Display1 on stopped VMs
-before removing the core package, so future starts have their normal display.
+    qsm-pve-direct-lxc status VMID
 
-This remains a preview. The HEVC NVENC adaptive static-text sensitivity to
-rare packet loss remains open; the media controller is unchanged here.
+Open the container's Console split menu -> QSM Direct. Its ordinary terminal
+console remains available. Read the helper/guest docs for GPU/session setup.
+The default QSM greeter is distinct from the optional original SDDM greeter.
+Native SDDM and a local cursor retain their optional SDDM/Sway/kernel requirements;
+see README.native-sddm and the existing Sway 1.11/wlroots instructions. Native
+SDDM setup can restart container sessions; it is not performed by this release
+upgrade. The SDDM term 'native' does not require patched Proxmox packages.
+
+Upgrading an existing installation
+---------------------------------
+Update the core AND each installed version-matched QSM profile/helper in the
+same apt transaction. For a standalone node with gateway and LXC helper:
+
+    apt install ./qsm-pve-direct_0.4.0+stock3_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock3_all.deb \
+                ./qsm-pve-direct-gateway_0.4.0+stock3_all.deb \
+                ./qsm-pve-direct-lxc_0.4.0+stock3_all.deb
+
+Omit gateway/helper if those profiles are not installed or wanted. QSM service
+restarts can interrupt open consoles; reconnect/hard-reload after upgrading.
+Running VM buses/configs are preserved and VMs need no reboot for this update.
+An enabled gateway stays enabled; an inactive gateway is not enabled by upgrade.
+
+Existing patched shared-platform nodes
+-------------------------------------
+For the controller fix alone, keep the matched native Proxmox packages and
+update just core + matching LXC helper (if installed). Do not add standalone or
+gateway expecting an automatic native-viewer conversion: the gateway CLI
+rejects the patched pve-manager UI.
+
+A separately planned staged migration may restore a reviewed official
+pve-manager UI while retaining the native qemu-server backend for running
+shared-display VMs. Stock3 recognizes their dbus-display config and opens QSM
+through standalone signalling. It preserves stock VGA serialization and the
+existing dbus audio backend instead of adding another private -display.
+The core recognizes both shared and private display buses. This transition
+was checked without stopping existing VMs.
+
+That is NOT a full removal of native dependencies. Keep the native backend
+until each shared-display VM has a planned stopped-VM conversion to the private
+standalone display. Removing native qemu-server while a config still contains
+dbus-display or driver=dbus can break later starts. The packages do not restore
+Proxmox packages, stop VMs or perform this reverse conversion automatically.
+
+Removal
+-------
+Disable an active gateway first with qsm-pve-direct-gateway disable. Removing
+the gateway package also performs its listener rollback. Removing standalone
+stops/disables its signalling service; this does not convert VM displays.
+The UI uses a reversible version/hash-guarded dpkg-divert of index.html.tpl.
+An unreviewed PVE UI update restores stock HTML rather than attempting a patch.
+qsm-pve-direct-ui status reports its state. Removing core restores the original
+template. Before removing core, disable private Display1 on stopped VMs so later
+starts use an ordinary display. Configuration is retained for manual recovery.
+
+Known limits
+------------
+Still a preview. Adaptive bitrate remains enabled and respects the configured
+0.5..100-Mbit/s maximum (default 8). Stock2/stock3 fix the reproduced unnecessary
+8-to-6-Mbit/s step caused by isolated packet loss; the shared controller still
+adapts under sustained congestion. Large sudden bandwidth drops can still
+cause freezes. HEVC depends on browser/hardware support; H.264 is the fallback.

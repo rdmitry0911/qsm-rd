@@ -3,6 +3,29 @@ qsm-pve-direct for Proxmox VE 9
 
 `qsm-pve-direct` is a browser-native PVE console transport.
 
+Standalone release 0.4.0+stock3
+-----------------------------
+For official PVE 9 install matching qsm-pve-direct and
+qsm-pve-direct-standalone debs. Follow README.standalone, installed with the
+standalone profile, or INSTALL-STOCK.txt in the release. It uses a configurable
+HTTPS signalling port (initially a free port starting at 18007) and direct
+WebRTC UDP. Existing core-only configurations can retain port 8007.
+
+The optional qsm-pve-direct-gateway profile shares node TCP 8006 between PVE
+HTTPS, QSM signalling and authenticated TURN/TCP. A router/NAT can forward only
+that TCP port; no public UDP mapping is needed. Read its README.gateway /
+INSTALL-GATEWAY.txt before activation: it changes the proxy listener and has
+single-node, custom-proxy and SPICE limitations. HTTPS and WebRTC protect user
+session contents, but TURN control is plain TCP WITHOUT TLS. This package does
+not supply a TURN/TLS transport. Neither profile needs rebuilt PVE packages.
+
+The LXC helper is installed on the PVE host and embeds the container package.
+NEVER install qsm-console-guest directly on the PVE host. Existing patched
+native installations can update the core/helper while retaining their matched
+Proxmox backend packages; standalone/gateway is a separate planned transition.
+Stock3 also preserves shared-display VM console detection under a stock UI
+when the native qemu-server backend is retained. See README.standalone.
+
 Native shared platform (patched Proxmox packages)
 ------------------------------------------------
 Install the shared-base and WebRTC patches from upstream/README.md, then
@@ -37,23 +60,25 @@ spice-vdagent in X11 guests, or the retained QSM companion for configured
 desktop guests. Concurrent clipboard ownership across protocols is not
 provided by QEMU's single clipboard proxy.
 
-Legacy add-on mode (unpatched PVE)
---------------------------------
+Standalone add-on mode (unpatched PVE)
+------------------------------------
 
 It uses PVE's existing authenticated Web UI session and `VM.Console` ACL.
 The browser sends its WebRTC SDP offer to the node-local signalling service
-(`qsm-pve-direct-signal`, TLS on TCP 8007 with the node certificate), which
+(`qsm-pve-direct-signal`, configured HTTPS port with the node certificate), which
 confirms the browser's PVE ticket and `VM.Console` with pveproxy's own
 `/access/ticket`; the node-local terminal service answers it and starts one
 QEMU Display1 worker.  Negotiated H.264 or HEVC video and Opus remain
 encoded until the browser's WebRTC implementation. There is no pairing PIN,
-native client installer or host desktop server; the only listening port is
-8007 (plus one UDP port per open console for WebRTC).
+native client installer or host desktop server. Direct UDP needs that HTTPS
+port and negotiated UDP; the optional gateway instead shares node TCP 8006.
 
 Install:
 
-    sudo apt install ./qsm-pve-direct_*.deb
-    sudo systemctl enable --now qsm-pve-direct-terminal.service qsm-pve-direct-signal.service
+    apt install ./qsm-pve-direct_0.4.0+stock3_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock3_all.deb
+    qsm-pve-direct-endpoint --show
+    qsm-pve-direct-ui status
 
 The PVE web page gets one script tag (a diverted `index.html.tpl`) only for
 the `pve-manager` versions and template checksums the package knows; on any

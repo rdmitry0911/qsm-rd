@@ -1,0 +1,39 @@
+{
+  "pass": true,
+  "browser": "155.0",
+  "guest": "lxc/108",
+  "configuration": {
+    "native": false,
+    "endpoint": {
+      "port": 18007,
+      "public_url": "",
+      "gateway": true
+    }
+  },
+  "after": {
+    "state": "connected",
+    "decoded": 302,
+    "dropped": 0,
+    "bytes": 1510285,
+    "codec": "video/H264",
+    "relayOnly": true,
+    "local": {
+      "type": "relay",
+      "relayProtocol": "tcp"
+    }
+  },
+  "reconnect": {
+    "state": "connected",
+    "decoded": 3,
+    "dropped": 0,
+    "bytes": 51101,
+    "codec": "video/H264",
+    "relayOnly": true,
+    "local": {
+      "type": "relay",
+      "relayProtocol": "tcp"
+    }
+  },
+  "requests": 6,
+  "errors": []
+}

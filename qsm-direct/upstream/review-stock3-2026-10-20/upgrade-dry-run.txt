@@ -1,0 +1,15 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following packages will be upgraded:
+  qsm-pve-direct qsm-pve-direct-gateway qsm-pve-direct-lxc
+  qsm-pve-direct-standalone
+4 upgraded, 0 newly installed, 0 to remove and 150 not upgraded.
+Inst qsm-pve-direct-gateway [0.4.0+stock2.compat1] (0.4.0+stock3 local-deb [all]) []
+Inst qsm-pve-direct-standalone [0.4.0+stock2.compat1] (0.4.0+stock3 local-deb [all]) []
+Inst qsm-pve-direct [0.4.0+stock2.compat1] (0.4.0+stock3 local-deb [amd64]) [qsm-pve-direct-lxc:amd64 ]
+Inst qsm-pve-direct-lxc [0.4.0+stock2.compat1] (0.4.0+stock3 local-deb [all])
+Conf qsm-pve-direct-gateway (0.4.0+stock3 local-deb [all])
+Conf qsm-pve-direct-standalone (0.4.0+stock3 local-deb [all])
+Conf qsm-pve-direct (0.4.0+stock3 local-deb [amd64])
+Conf qsm-pve-direct-lxc (0.4.0+stock3 local-deb [all])

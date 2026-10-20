@@ -3,6 +3,15 @@
 QSM Direct: a WebRTC graphical console for Proxmox VE (virtual machines and
 LXC containers), hardware-encoded where the node has an encoder.
 
+[Latest standalone preview: stock3](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261020-stock3)
+runs on official PVE 9 packages. Start with the
+[installation instructions](qsm-direct/packaging/debian/README.standalone).
+The optional [TCP 8006 gateway](qsm-direct/packaging/debian/README.gateway)
+also supports a node behind NAT with only one forwarded TCP port. Video,
+audio and input remain encrypted by WebRTC; the gateway's TURN control
+traffic uses plain TCP, without TLS. The patched native integration remains
+a separate upstream preview.
+
 The project lives in [`qsm-direct/`](qsm-direct/) -- see its
 [README](qsm-direct/README.md).  Upstream submission material for Proxmox
 (bugzilla feature request, pve-devel RFC, patch series) is kept in

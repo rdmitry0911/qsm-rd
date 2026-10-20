@@ -1,0 +1,107 @@
+QSM Direct stock3: standalone transition, deployment checks and installation docs
+2026-10-20
+===============================================================================
+
+Changes relative to stock2
+-------------------------
+The standalone UI now recognizes a VM's existing native dbus-display=1 when
+its VGA type is supported by the terminal's shared display path. Both the
+Console selector and top Console menu retain QSM access. Saving Display uses
+stock VGA serialization instead of adding a private -display; private controls
+are hidden for shared-display VMs. The Audio dialog retains the existing dbus
+backend. These are compatibility changes for a staged UI transition only.
+Existing native qemu-server is still required for those configs/VMs. This is
+not an automatic reverse display conversion or removal of native dependencies.
+
+Documentation now provides matching stock3 host-only installation commands,
+direct UDP versus single-TCP-port choices, explicit router/NAT examples,
+external versus node-local port distinctions, encryption boundaries, guest-only
+package placement, upgrades, native transition limits, SPICE impact and rollback.
+The older README's claim that the isolated-loss bug remains open is removed.
+No TURN/TLS implementation is added or claimed. No new bitrate algorithm is
+added beyond stock2's confirmed-loss change.
+
+Build and package checks
+------------------------
+All five debs rebuilt in the Debian 13/Trixie clean build chroot as 0.4.0+stock3:
+core amd64, standalone all, gateway all, LXC helper all, container-only guest all.
+Standalone/helper require the exact matching core version; gateway requires
+exact matching standalone. The helper's embedded guest deb is byte-identical
+to the separate guest asset. That asset is never installed on the PVE host.
+Packaged core/standalone/gateway READMEs match the checked-in instructions;
+all packaged md5sums are checked. Packaged browser JS matches source.
+An actual apt-get -s upgrade on the existing standalone/gateway node selects
+only four QSM upgrades, with zero new packages and zero removals. No live
+services or guests were restarted by this release publication task. See
+upgrade-dry-run.txt. Runtime directories and browser JS are byte-identical
+to the deployed stock2.compat1 core package.
+
+The C++ media worker is byte-identical to stock2/shared24:
+  b2d5fcbc6de577daa906571cc76233b3608b84af69ad658a51e62d414a0b9a58
+Stock3's runtime sources are the same as the deployed stock2.compat1 build;
+stock3 adds packaging version and documentation updates. It does not silently
+upgrade a running node as part of publishing these assets.
+
+Checks rerun for this release:
+- Six JS suites PASS, including functional shared-VM availability, VGA save,
+  private-control hiding and dbus audio-backend preservation.
+- Signal/endpoint/gateway: 24 tests, 23 PASS and one root-only fixture skipped
+  in the ordinary-user run. All seven gateway tests then PASS as root,
+  including that ownership/permission fixture.
+- Two PVE package-state checks PASS.
+Full stock2 firewall/NAT, ACL, boot and NVENC adaptive-loss qualification is
+retained at ../review-tcp8006-loss-2026-10-19/qualification.txt. The controller,
+gateway and media worker code have not changed since that qualification.
+
+Real node deployment (prior installation task, 2026-10-20)
+---------------------------------------------------------
+A single-node PVE 9.2.21 previously running native preview packages was switched
+to official pve-manager UI plus standalone/gateway stock2.compat1. Native
+qemu-server 9.2.11+shared3 and existing native container/common backends were
+retained. Both native shared-display VM and older private-display VM remained
+running, with unchanged QEMU process IDs/configurations; their QSM availability
+was checked. No new end-to-end VM stream result is claimed for this node.
+The complete stock-PVE VM/LXC streaming path was qualified in the separate
+stock2 lab above.
+
+Actual node browser media checks use only an existing disposable LXC's SDDM
+greeter. No real user desktop screenshot was saved and no input was sent.
+A different existing user's LXC was probed for menu availability and authorized
+settings/ICE endpoints only; it was not streamed or restarted by the harness.
+
+Chromium 156.0.8078.4 and Playwright Firefox 155.0:
+- Actual PVE UI, standalone native=false, endpoint gateway=true.
+- H.264 video decoded ~300 additional frames over 5 seconds, framesDropped=0.
+- Selected local ICE candidate relay, relayProtocol=tcp, policy relay-only.
+- QSM HTTP requests remained on the PVE HTTPS origin, node TCP 8006.
+- Normal close/reopen PASS; no page JavaScript errors.
+- Raw final result records: chromium-result.json, firefox-result.json.
+Firefox's isolated profile uses the existing Cisco OpenH264 2.6.0 fixture.
+
+The node exposes HTTPS/TURN on TCP 8006; pveproxy, signal and TURN PROXY backends
+are loopback-only. The old public 8007 listener is gone. Generic haproxy/coturn
+services remain disabled; dedicated QSM gateway/relay/certificate timer units
+are enabled. Normal close leaves the QSM peer lease set empty. dpkg --audit and
+systemctl --failed are clean. Host INPUT/FORWARD and router rules were untouched.
+
+These regular-node tests used its LAN address. They do NOT establish the result
+of the user's own Internet/router test; that is pending user verification.
+Controlled external NAT/8006-only firewall evidence is the prior stock2 lab
+qualification, not a claimed Internet test on the regular node.
+
+Encryption boundary and remaining limits
+----------------------------------------
+PVE UI/login/signalling: TLS, terminated at the gateway and re-encrypted with
+certificate verification to local HTTPS backends. Media: DTLS-SRTP/SRTP.
+Data channels: SCTP over DTLS between browser and QSM. The outer TURN control
+connection is plain TCP. TURN service messages, temporary identifiers and relay
+addresses are observable; encrypted session payloads remain protected. This is
+not an all-TLS or HTTPS-only transport and does not add TURN/TLS on shared 8006.
+
+Automatic gateway setup remains single-node stock UI, with absent/comment-only
+pveproxy defaults. Native patched viewer, custom ACL/proxy configurations,
+clusters and IPv6-only relay deployments are outside automatic qualification.
+LISTEN_IP also affects external SPICE when spiceproxy restarts. Direct UDP is
+still preferable when available; TCP retransmission and severe congestion can
+add latency/freezes. The shared bitrate fix applies to all encoder paths; new
+hardware loss tests from stock2 were on NVIDIA, not a repeated Intel test.
