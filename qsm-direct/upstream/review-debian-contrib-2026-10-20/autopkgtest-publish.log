@@ -1,0 +1,143 @@
+autopkgtest [15:45:08]: starting date and time: 2026-10-20 15:45:08+0000
+autopkgtest [15:45:08]: version 6.0
+autopkgtest [15:45:08]: host trade-bot; command line: /usr/bin/autopkgtest --user=qsm-build --no-built-binaries --test-name=source-units /work/debian-contrib-publish/qsm-pve-direct_0.4.0+20261020-0exp1.dsc -- null
+autopkgtest [15:45:08]: testbed dpkg architecture: amd64
+autopkgtest [15:45:08]: testbed apt version: 3.3.4
+autopkgtest [15:45:08]: @@@@@@@@@@@@@@@@@@@@ test bed setup
+autopkgtest [15:45:08]: testbed release detected to be: sid
+autopkgtest [15:45:08]: testbed running kernel: Linux 7.0.14-14-pve #1 SMP PREEMPT_DYNAMIC PMX 7.0.14-14 (2026-08-22T15:01Z)
+autopkgtest [15:45:08]: @@@@@@@@@@@@@@@@@@@@ source /work/debian-contrib-publish/qsm-pve-direct_0.4.0+20261020-0exp1.dsc
+dpkg-source: warning: extracting unsigned source package (/tmp/autopkgtest.Htr96c/qsm-pve-direct_0.4.0+20261020-0exp1.dsc)
+dpkg-source: info: extracting qsm-pve-direct in src
+dpkg-source: info: unpacking qsm-pve-direct_0.4.0+20261020.orig.tar.xz
+dpkg-source: info: unpacking qsm-pve-direct_0.4.0+20261020-0exp1.debian.tar.xz
+autopkgtest [15:45:08]: testing package qsm-pve-direct version 0.4.0+20261020-0exp1
+autopkgtest [15:45:08]: build not needed
+autopkgtest [15:45:08]: test source-units: preparing testbed
+autopkgtest: WARNING: no revert capability, testbed may be dirty!
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.
+autopkgtest [15:45:09]: test source-units: [-----------------------
+-- The CXX compiler identification is GNU 16.2.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- The C compiler identification is GNU 16.2.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Found Python3: /usr/bin/python3 (found version "3.14.8") found components: Interpreter
+-- Configuring done (0.6s)
+-- Generating done (0.0s)
+-- Build files have been written to: /tmp/autopkgtest.Htr96c/autopkgtest_tmp/build
+[1/53] Building CXX object CMakeFiles/qmdp_core.dir/src/core/pixel_format.cpp.o
+[2/53] Building CXX object CMakeFiles/qmdp_core.dir/src/capture/mapped_region.cpp.o
+[3/53] Building CXX object CMakeFiles/qmdp_core.dir/src/core/session.cpp.o
+[4/53] Building CXX object CMakeFiles/qmdp_core.dir/src/core/audio_fifo.cpp.o
+[5/53] Building CXX object CMakeFiles/qmdp_core.dir/src/core/resize_coalescer.cpp.o
+[6/53] Building CXX object CMakeFiles/qmdp_core.dir/src/capture/cpu_framebuffer.cpp.o
+[7/53] Linking CXX static library libqmdp_core.a
+[8/53] wayland-scanner ext-foreign-toplevel-list-v1
+[9/53] wayland-scanner ext-image-capture-source-v1
+[10/53] wayland-scanner ext-image-copy-capture-v1
+[11/53] wayland-scanner wlr-screencopy-unstable-v1
+[12/53] wayland-scanner wlr-virtual-pointer-unstable-v1
+[13/53] wayland-scanner wlr-output-management-unstable-v1
+[14/53] wayland-scanner virtual-keyboard-unstable-v1
+[15/53] Building CXX object CMakeFiles/qmdp_dbus.dir/src/dbus/sd_bus.cpp.o
+[16/53] Building CXX object CMakeFiles/qmdp_dbus.dir/src/capture/dmabuf_readback.cpp.o
+[17/53] Building CXX object CMakeFiles/qmdp_software.dir/src/software/cpu_frame_sink.cpp.o
+[18/53] Building CXX object CMakeFiles/qmdp_dbus.dir/src/qemu/qemu_dbus_display.cpp.o
+[19/53] Building CXX object CMakeFiles/qmdp_pipeline.dir/src/pipeline/desktop_session.cpp.o
+[20/53] Linking CXX static library libqmdp_dbus.a
+[21/53] Building CXX object CMakeFiles/qmdp_mock.dir/src/mock/mock_media_adapter.cpp.o
+[22/53] Building C object CMakeFiles/qmdp_wlroots.dir/generated/wlroots/ext-foreign-toplevel-list-v1-protocol.c.o
+[23/53] Building C object CMakeFiles/qmdp_wlroots.dir/generated/wlroots/ext-image-capture-source-v1-protocol.c.o
+[24/53] Building C object CMakeFiles/qmdp_wlroots.dir/generated/wlroots/ext-image-copy-capture-v1-protocol.c.o
+[25/53] Building C object CMakeFiles/qmdp_wlroots.dir/generated/wlroots/wlr-screencopy-unstable-v1-protocol.c.o
+[26/53] Building C object CMakeFiles/qmdp_wlroots.dir/generated/wlroots/wlr-virtual-pointer-unstable-v1-protocol.c.o
+[27/53] Building C object CMakeFiles/qmdp_wlroots.dir/generated/wlroots/wlr-output-management-unstable-v1-protocol.c.o
+[28/53] Building CXX object CMakeFiles/qmdp_software.dir/src/software/ffmpeg_software_adapter.cpp.o
+[29/53] Building C object CMakeFiles/qmdp_wlroots.dir/generated/wlroots/virtual-keyboard-unstable-v1-protocol.c.o
+[30/53] Building CXX object CMakeFiles/qmdp_mock.dir/src/mock/mock_qemu_display.cpp.o
+[31/53] Linking CXX static library libqmdp_pipeline.a
+[32/53] Linking CXX static library libqmdp_software.a
+[33/53] Linking CXX static library libqmdp_mock.a
+[34/53] Building CXX object CMakeFiles/qmdp_wlroots.dir/src/wlroots/wlroots_display.cpp.o
+[35/53] Building CXX object CMakeFiles/qmdp_testing.dir/src/testing/fake_qemu_service.cpp.o
+[36/53] Building CXX object CMakeFiles/qmdp_test_support.dir/tests/support/mock_qemu_dbus_server.cpp.o
+[37/53] Linking CXX static library libqmdp_wlroots.a
+[38/53] Linking CXX static library libqmdp_testing.a
+[39/53] Building CXX object CMakeFiles/qmdp_demo.dir/src/demo/main.cpp.o
+[40/53] Building CXX object CMakeFiles/qmdp-fake-qemu.dir/tools/fake_qemu_dbus.cpp.o
+[41/53] Linking CXX static library libqmdp_test_support.a
+[42/53] Building CXX object CMakeFiles/qemu-display-probe.dir/tools/qemu_display_probe.cpp.o
+[43/53] Building CXX object CMakeFiles/qmdp_core_tests.dir/tests/core_tests.cpp.o
+[44/53] Linking CXX executable qmdp_demo
+[45/53] Linking CXX executable qemu-display-probe
+[46/53] Linking CXX executable qmdp-fake-qemu
+[47/53] Building CXX object CMakeFiles/qmdp_dbus_integration_tests.dir/tests/dbus_integration_tests.cpp.o
+[48/53] Building CXX object CMakeFiles/qmdp_dbus_selftest.dir/tools/qmdp_dbus_selftest.cpp.o
+[49/53] Linking CXX executable qmdp_core_tests
+[50/53] Building CXX object CMakeFiles/qsm-direct-media-worker.dir/tools/qsm_direct_media_worker.cpp.o
+[51/53] Linking CXX executable qmdp_dbus_integration_tests
+[52/53] Linking CXX executable qmdp_dbus_selftest
+[53/53] Linking CXX executable qsm-direct-media-worker
+Test project /tmp/autopkgtest.Htr96c/autopkgtest_tmp/build
+      Start  1: qsm_signal_endpoint
+ 1/19 Test  #1: qsm_signal_endpoint ..................   Passed    0.10 sec
+      Start  2: qsm_gateway
+ 2/19 Test  #2: qsm_gateway ..........................   Passed    0.11 sec
+      Start  3: qsm_shared_display
+ 3/19 Test  #3: qsm_shared_display ...................   Passed    0.38 sec
+      Start  4: qsm_direct_guest_channel
+ 4/19 Test  #4: qsm_direct_guest_channel .............   Passed    4.06 sec
+      Start  5: qsm_direct_guest_package
+ 5/19 Test  #5: qsm_direct_guest_package .............   Passed    0.04 sec
+      Start  6: qsm_direct_encoder_probe
+ 6/19 Test  #6: qsm_direct_encoder_probe .............   Passed    0.05 sec
+      Start  7: qsm_direct_terminal_autoprovision
+ 7/19 Test  #7: qsm_direct_terminal_autoprovision ....   Passed    1.55 sec
+      Start  8: qsm_direct_api_service_integration
+ 8/19 Test  #8: qsm_direct_api_service_integration ...   Passed    0.04 sec
+      Start  9: qsm_signal_endpoint_browser
+ 9/19 Test  #9: qsm_signal_endpoint_browser ..........   Passed    0.05 sec
+      Start 10: qsm_direct_pve_console_overlay
+10/19 Test #10: qsm_direct_pve_console_overlay .......   Passed    0.06 sec
+      Start 11: qsm_local_cursor
+11/19 Test #11: qsm_local_cursor .....................   Passed    0.03 sec
+      Start 12: qsm_receiver_playout
+12/19 Test #12: qsm_receiver_playout .................   Passed    0.04 sec
+      Start 13: qsm_pointer_pacing
+13/19 Test #13: qsm_pointer_pacing ...................   Passed    0.04 sec
+      Start 14: qsm_touch_gestures
+14/19 Test #14: qsm_touch_gestures ...................   Passed    0.04 sec
+      Start 15: qmdp_core_tests
+15/19 Test #15: qmdp_core_tests ......................   Passed    0.14 sec
+      Start 16: qmdp_dbus_integration_tests
+16/19 Test #16: qmdp_dbus_integration_tests ..........   Passed    0.73 sec
+      Start 17: qmdp_no_gpu_ffmpeg_selftest
+17/19 Test #17: qmdp_no_gpu_ffmpeg_selftest ..........   Passed    0.91 sec
+      Start 18: qmdp_message_bus_map_e2e
+18/19 Test #18: qmdp_message_bus_map_e2e .............   Passed    1.24 sec
+      Start 19: qmdp_message_bus_inline_e2e
+19/19 Test #19: qmdp_message_bus_inline_e2e ..........   Passed    1.24 sec
+
+100% tests passed, 0 tests failed out of 19
+
+Total Test time (real) =  10.85 sec
+autopkgtest [15:45:26]: test source-units: -----------------------]
+autopkgtest [15:45:26]: test source-units:  - - - - - - - - - - results - - - - - - - - - -
+source-units         PASS
+autopkgtest [15:45:26]: @@@@@@@@@@@@@@@@@@@@ summary
+source-units         PASS

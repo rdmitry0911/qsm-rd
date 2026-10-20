@@ -1,7 +1,7 @@
 Debian contrib source review qualification — 2026-10-20
 
-Source commit: 8343e2e (see export-provenance.json for its full hash).
-Source version: 0.4.0+20261020-1~exp1; proposed experimental/contrib.
+Source commit: 65dfccb (see export-provenance.json for its full hash).
+Source version: 0.4.0+20261020-0exp1; proposed experimental/contrib.
 ITP registered: https://bugs.debian.org/1151422
 Project sponsor: Takt, https://taktcycles.com/
 Maintainer: Dmitry R <rdmitry0911@gmail.com>
@@ -25,10 +25,10 @@ standard /dev nodes inside their private mount namespace. No production PVE
 node, VM or LXC was modified. The public stock3 APT feed was not switched to
 these packages. This review release contains source assets, not binary debs.
 
-The final upstream delta after the first successful builds is a two-line test
-fixture permission correction found by autopkgtest's group-writable umask.
-The server code is unchanged. Both final full builds and autopkgtest were
-re-run from the final exported source and passed.
+The server code is unchanged. A two-line fixture permission correction makes
+the source tests independent of autopkgtest's group-writable umask. Revision
+0exp1 avoids GitHub's normalization of tilde characters in release asset names.
+Both final full builds and autopkgtest used the final exported source and passed.
 
 Limits: these checks do not establish Debian acceptance or a human licensing
 review. The debhelper maintainer-script activation/lifecycle is new packaging

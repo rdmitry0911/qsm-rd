@@ -1,0 +1,20 @@
+dpkg-buildpackage: info: source package qsm-pve-direct
+dpkg-buildpackage: info: source version 0.4.0+20261020-0exp1
+dpkg-buildpackage: info: source distribution experimental
+dpkg-buildpackage: info: source changed by Dmitry R <rdmitry0911@gmail.com>
+ dpkg-source --before-build .
+ debian/rules clean
+dh clean --buildsystem=cmake+ninja --with python3
+   dh_auto_clean -O--buildsystem=cmake\+ninja
+   dh_autoreconf_clean -O--buildsystem=cmake\+ninja
+   dh_clean -O--buildsystem=cmake\+ninja
+ dpkg-source -b .
+dpkg-source: info: using source format '3.0 (quilt)'
+dpkg-source: info: building qsm-pve-direct using existing ./qsm-pve-direct_0.4.0+20261020.orig.tar.xz
+dpkg-source: info: building qsm-pve-direct in qsm-pve-direct_0.4.0+20261020-0exp1.debian.tar.xz
+dpkg-source: info: building qsm-pve-direct in qsm-pve-direct_0.4.0+20261020-0exp1.dsc
+ dpkg-genbuildinfo --build=source -O../qsm-pve-direct_0.4.0+20261020-0exp1_source.buildinfo
+ dpkg-genchanges --build=source -O../qsm-pve-direct_0.4.0+20261020-0exp1_source.changes
+dpkg-genchanges: info: including full source code in upload
+ dpkg-source --after-build .
+dpkg-buildpackage: info: source-only upload (original source is included)
