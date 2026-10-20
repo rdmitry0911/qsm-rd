@@ -1,0 +1,51 @@
+From: Dmitry R <rdmitry0911@gmail.com>
+To: submit@bugs.debian.org
+Subject: ITP: qsm-pve-direct -- WebRTC graphical console for Proxmox VE
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Package: wnpp
+Severity: wishlist
+Owner: Dmitry R <rdmitry0911@gmail.com>
+X-Debbugs-CC: debian-devel@lists.debian.org
+
+* Package name    : qsm-pve-direct
+  Version         : 0.4.0
+  Upstream Author : Dmitry R <rdmitry0911@gmail.com>
+* URL             : https://github.com/rdmitry0911/qsm-rd
+* License         : GPL-3.0-or-later, AGPL-3.0-or-later, MIT/X11
+  Programming Lang: C++, Python, JavaScript
+  Description     : WebRTC graphical console for Proxmox VE
+
+QSM Direct streams a QEMU D-Bus display to a browser over WebRTC, using
+software encoding or optional NVENC, QSV and VA-API hardware encoding.
+It provides audio, keyboard/mouse input and optional clipboard support,
+authorized by the existing Proxmox VE login and VM.Console permissions.
+An optional LXC add-on provides graphical container consoles.
+
+I intend to package the standalone profile for Debian contrib. It runs
+with official Proxmox VE packages and does not require patched PVE debs,
+but still requires pve-manager and qemu-server, which are outside Debian.
+I am not proposing those external dependencies for Debian main or claiming
+that this is a generic Debian remote-desktop service.
+
+The implementation is available now, with source, binary preview packages,
+installation instructions and validation reports:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261020-stock3
+https://rdmitry0911.github.io/qsm-rd/
+
+Development is sponsored by Takt: https://taktcycles.com/
+This is project sponsorship; a Debian Developer upload sponsor is still
+needed. I plan to maintain the package and am preparing conventional
+debhelper source packaging, a file-level copyright/license inventory and
+clean-build tests before requesting upload sponsorship. I would welcome
+feedback on the contrib scope and the Proxmox runtime dependencies.
+
+The upstream implementation and this packaging work use AI assistance.
+The source, build process and test evidence are public for review; this
+ITP is an intent to package, not an assertion that Debian review or
+acceptance has already happened.
+
+Thanks,
+Dmitry

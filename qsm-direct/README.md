@@ -6,6 +6,8 @@ hardware where the node has NVENC, QSV or VA-API, on the CPU otherwise — in
 the same browser tab, with the same PVE login and the same `VM.Console`
 permission. Nothing to install on the client.
 
+Project sponsor: [Takt](https://taktcycles.com/).
+
 On a tablet, slide one finger to move the cursor and tap to click. Hold
 for half a second before moving to select or drag; hold and lift without
 moving for a right click. Two fingers scroll and a pinch zooms the view.
