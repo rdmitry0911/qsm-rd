@@ -1,4 +1,4 @@
-qsm-pve-direct (0.4.0+20261020-1~exp1) experimental; urgency=medium
+qsm-pve-direct (0.4.0+20261020-0exp1) experimental; urgency=medium
 
   * Initial contrib packaging preview for review. (Closes: #1151422)
   * Build the media worker and all host/guest profiles from source using

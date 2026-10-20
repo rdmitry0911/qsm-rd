@@ -1,5 +1,5 @@
 This is the **source-package review preview for Debian contrib**, version
-`0.4.0+20261020-1~exp1`. It is separate from the stock3 APT installation feed.
+`0.4.0+20261020-0exp1`. It is separate from the stock3 APT installation feed.
 
 Project sponsor: [Takt](https://taktcycles.com/).
 Maintainer: Dmitry R. [Debian ITP #1151422](https://bugs.debian.org/1151422)
@@ -32,10 +32,13 @@ Verify/import the included project public certificate before `dget -x`:
 ```sh
 gpg --show-keys --with-fingerprint qsm-archive-keyring.asc
 # Primary fingerprint: BA99528182B7EADD0199B6986A09741B1DBEAEF2
-gpg --import qsm-archive-keyring.asc
-dget -x https://github.com/rdmitry0911/qsm-rd/releases/download/v0.4.0-debian-contrib-20261020-review1/qsm-pve-direct_0.4.0+20261020-1~exp1.dsc
+install -d -m 0700 "$HOME/.gnupg"
+gpg --no-default-keyring --keyring "$HOME/.gnupg/trustedkeys.gpg" --import qsm-archive-keyring.asc
+dget -x https://github.com/rdmitry0911/qsm-rd/releases/download/v0.4.0-debian-contrib-20261020-review2/qsm-pve-direct_0.4.0+20261020-0exp1.dsc
 ```
 
 The signatures identify the QSM project release key, not a Debian Developer.
+The `trustedkeys.gpg` import is for developer source verification with
+`dget`/`dscverify`, separate from APT's scoped repository key.
 `export-provenance.json` records the source commit, file inventory and orig
 tarball hash. `SHA256SUMS` and its detached signature cover the release assets.

@@ -38,7 +38,7 @@ External Proxmox packages are runtime dependencies, not build dependencies.
 Architecture-independent profiles permit a same-source binary NMU of the
 architecture-dependent core, while excluding a different source release.
 
-The preview version is 0.4.0+20261020-1~exp1, aimed at initial experimental
+The preview version is 0.4.0+20261020-0exp1, aimed at initial experimental
 review. It is separate from the existing stock3 APT feed. It is not an upload
 to Debian experimental and is not installed on production nodes.
 

@@ -1,6 +1,7 @@
-From: Dmitry R <rdmitry0911@gmail.com>
+From: Dmitry R <rdmitry@taktcycles.com>
+Reply-To: Dmitry R <rdmitry0911@gmail.com>
 To: submit@bugs.debian.org
-Subject: RFS: qsm-pve-direct/0.4.0+20261020-1~exp1 [ITP] -- WebRTC graphical console for Proxmox VE
+Subject: RFS: qsm-pve-direct/0.4.0+20261020-0exp1 [ITP] -- WebRTC graphical console for Proxmox VE
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -15,7 +16,7 @@ I am looking for review and an upload sponsor for my package
 qsm-pve-direct, initially targeting experimental/contrib:
 
 * Package name    : qsm-pve-direct
-  Version         : 0.4.0+20261020-1~exp1
+  Version         : 0.4.0+20261020-0exp1
   Upstream author : Dmitry R <rdmitry0911@gmail.com>
 * URL             : https://github.com/rdmitry0911/qsm-rd
 * License         : GPL-3.0-or-later, AGPL-3.0-or-later, MIT/X11
@@ -30,14 +31,16 @@ packages; pve-manager and qemu-server remain external runtime dependencies,
 which is why I propose contrib. Build dependencies are in Debian main.
 
 The source review release, signatures and validation are available at:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-debian-contrib-20261020-review1
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-debian-contrib-20261020-review2
 
 Download the source with:
-dget -x https://github.com/rdmitry0911/qsm-rd/releases/download/v0.4.0-debian-contrib-20261020-review1/qsm-pve-direct_0.4.0+20261020-1~exp1.dsc
+dget -x https://github.com/rdmitry0911/qsm-rd/releases/download/v0.4.0-debian-contrib-20261020-review2/qsm-pve-direct_0.4.0+20261020-0exp1.dsc
 
 The release includes the project signing certificate. Primary fingerprint:
 BA99528182B7EADD0199B6986A09741B1DBEAEF2
 These are project release signatures, not Debian Developer signatures.
+The release notes explain importing the checked public certificate into
+the source-verification keyring used by dget/dscverify.
 
 The package uses debhelper, generated shared-library dependencies, normal
 source packaging and hardening flags. It builds the LXC guest deb from
