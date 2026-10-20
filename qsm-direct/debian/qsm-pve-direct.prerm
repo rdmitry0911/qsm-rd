@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
 if [ "${1:-}" = remove ]; then
-    /usr/sbin/qsm-pve-direct-ui remove
+    qsm-pve-direct-ui remove
 fi
 #DEBHELPER#

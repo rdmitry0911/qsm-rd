@@ -1,3 +1,2 @@
-Tests: installed-worker
-Depends: qsm-pve-direct
-Restrictions: superficial
+Tests: source-units
+Depends: @builddeps@

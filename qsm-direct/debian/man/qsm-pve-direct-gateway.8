@@ -1,0 +1,14 @@
+.TH QSM-PVE-DIRECT-GATEWAY 8 "2026-10-20" "QSM Direct" "System Administration"
+.SH NAME
+qsm-pve-direct-gateway \- Manage the optional TCP 8006 gateway
+.SH SYNOPSIS
+.B qsm-pve-direct-gateway {status|enable|disable} [OPTIONS]
+.SH DESCRIPTION
+The gateway is an experimental single-node profile. Activation requires HAProxy, coturn and nftables, restarts pveproxy and changes listener configuration. Installation alone does not activate it. Read README.Debian for the relay address, SPICE impact, encryption and rollback.
+.SH DOCUMENTATION
+See /usr/share/doc/qsm-pve-direct-gateway/README.Debian and
+.UR https://github.com/rdmitry0911/qsm-rd
+the project repository
+.UE .
+.SH SPONSOR
+The project is sponsored by Takt, https://taktcycles.com/.

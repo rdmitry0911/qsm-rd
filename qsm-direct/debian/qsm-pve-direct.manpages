@@ -1,0 +1,5 @@
+debian/man/qsm-pve-direct-terminal.8
+debian/man/qsm-pve-direct-signal.8
+debian/man/qsm-pve-direct-endpoint.8
+debian/man/qsm-pve-direct-ui.8
+debian/man/qsm-pve-direct-migrate.8

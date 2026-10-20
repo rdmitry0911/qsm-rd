@@ -1,6 +1,6 @@
 qsm-pve-direct (0.4.0+20261020-1~exp1) experimental; urgency=medium
 
-  * Initial contrib packaging preview for review; ITP submission in progress.
+  * Initial contrib packaging preview for review. (Closes: #1151422)
   * Build the media worker and all host/guest profiles from source using
     debhelper; retain external Proxmox runtime dependencies explicitly.
   * Credit Takt (https://taktcycles.com/) as the project sponsor.

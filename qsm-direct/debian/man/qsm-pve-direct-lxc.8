@@ -1,0 +1,14 @@
+.TH QSM-PVE-DIRECT-LXC 8 "2026-10-20" "QSM Direct" "System Administration"
+.SH NAME
+qsm-pve-direct-lxc \- Provision a selected LXC graphical console
+.SH SYNOPSIS
+.B qsm-pve-direct-lxc {enable|disable|status} VMID [OPTIONS]
+.SH DESCRIPTION
+Run this helper on the Proxmox host. It installs the embedded matching guest package inside the selected container. The guest package must not be installed on the host. Review GPU and session provisioning in the installed documentation.
+.SH DOCUMENTATION
+See /usr/share/doc/qsm-pve-direct-lxc/README.Debian and
+.UR https://github.com/rdmitry0911/qsm-rd
+the project repository
+.UE .
+.SH SPONSOR
+The project is sponsored by Takt, https://taktcycles.com/.

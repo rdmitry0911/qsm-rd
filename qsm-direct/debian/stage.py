@@ -1,13 +1,11 @@
 #!/usr/bin/python3
 """Install source-built payloads into debhelper's per-package staging roots."""
-import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-PACKAGING = ROOT / "packaging/debian"
 ACTIVE = set(subprocess.check_output(["dh_listpackages"], text=True).split())
 
 

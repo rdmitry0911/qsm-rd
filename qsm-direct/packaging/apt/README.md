@@ -5,6 +5,8 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
+Project sponsor: Takt — https://taktcycles.com/
+
 Repository: https://rdmitry0911.github.io/qsm-rd/
 
 Public key fingerprint:

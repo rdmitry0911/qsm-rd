@@ -29,7 +29,6 @@ Rules-Requires-Root: no
 Homepage: https://github.com/rdmitry0911/qsm-rd
 Vcs-Git: https://github.com/rdmitry0911/qsm-rd.git
 Vcs-Browser: https://github.com/rdmitry0911/qsm-rd/tree/main/qsm-direct/debian
-Testsuite: autopkgtest
 
 Package: qsm-pve-direct
 Architecture: amd64
@@ -48,7 +47,10 @@ Description: WebRTC graphical console for Proxmox VE
 
 Package: qsm-pve-direct-standalone
 Architecture: all
-Depends: ${misc:Depends}, qsm-pve-direct (= ${binary:Version})
+Section: contrib/metapackages
+Depends: ${misc:Depends}, qsm-pve-direct (>= ${source:Version}),
+ qsm-pve-direct (<< ${source:Version}.1~),
+ init-system-helpers (>= 1.54~)
 Description: standalone signalling profile for QSM Direct on stock Proxmox VE
  Enables the PVE-authorized HTTPS signalling service and guarded web-console
  integration. The initial free port starts at 18007 and is configurable.
@@ -68,7 +70,8 @@ Package: qsm-pve-direct-lxc
 Architecture: all
 Section: contrib/admin
 Depends: ${python3:Depends}, ${misc:Depends},
- qsm-pve-direct (= ${binary:Version}), pve-container (>= 6.1.13)
+ qsm-pve-direct (>= ${source:Version}), qsm-pve-direct (<< ${source:Version}.1~),
+ pve-container (>= 6.1.13)
 Description: host provisioning helper for QSM Direct LXC graphical consoles
  Configures a selected Debian or Ubuntu container for graphical console
  access from the Proxmox web interface. The matching guest package is built

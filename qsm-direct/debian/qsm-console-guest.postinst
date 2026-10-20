@@ -31,15 +31,16 @@ configure)
             systemd-detect-virt --container --quiet && [ -L /etc/systemd/system/display-manager.service ]; then
             manager=$(basename "$(readlink -f /etc/systemd/system/display-manager.service)")
             echo "qsm-console-guest: disabling $manager (QSM per-console login profile)"
-            systemctl disable --now "$manager" || true
+            deb-systemd-helper disable "$manager" || true
+            deb-systemd-invoke stop "$manager" || true
         fi
-        systemctl enable qsm-consoles.service || true
+        deb-systemd-helper enable qsm-consoles.service || true
         if [ -n "${2:-}" ]; then
             # Upgrade: new login manager code, but keep displays -- and with
             # them every logged-in desktop -- running.
-            systemctl try-restart 'qsm-login@*.service' || true
+            deb-systemd-invoke try-restart 'qsm-login@*.service' || true
         fi
-        systemctl start qsm-consoles.service || true
+        deb-systemd-invoke start qsm-consoles.service || true
         # Already "active" (a oneshot) from an earlier install whose consoles
         # were stopped meanwhile: start the missing ones -- running consoles
         # are left alone, so no desktop is logged out.

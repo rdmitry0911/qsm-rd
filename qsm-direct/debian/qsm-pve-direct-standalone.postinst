@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 if [ "${1:-}" = configure ]; then
-    /usr/sbin/qsm-pve-direct-endpoint --initialize
+    qsm-pve-direct-endpoint --initialize
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload
         deb-systemd-helper enable qsm-pve-direct-terminal.service qsm-pve-direct-signal.service

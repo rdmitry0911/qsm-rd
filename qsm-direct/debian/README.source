@@ -6,11 +6,15 @@ Maintainer: Dmitry R <rdmitry0911@gmail.com>
 
 Takt sponsors the project. A Debian Developer able to review and sponsor an
 archive upload has not yet been selected. These are different roles.
+ITP: https://bugs.debian.org/1151422
 
 This is the standalone PVE add-on, not a generic Debian desktop service.
 pve-manager, qemu-server and optional pve-container are external runtime
 dependencies; all compilation dependencies come from Debian main. No
 proprietary GPU driver is required to compile or use software encoding.
+The default autopkgtest runs the source unit/D-Bus suites using Build-Depends
+alone, so Debian CI need not install unavailable external PVE packages.
+The installed-worker check is a separate manual test for a PVE testbed.
 
 The monorepository also contains historic experiments, patch submissions,
 lab captures and release evidence. The upstream source export intentionally

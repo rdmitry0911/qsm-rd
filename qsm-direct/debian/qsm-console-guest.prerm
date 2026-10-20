@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 set -e
 if [ "${1:-}" = remove ] && [ -d /run/systemd/system ]; then
-    systemctl disable --now qsm-native-sddm.service qsm-native-seat-udev.service qsm-consoles.service || true
-    systemctl stop 'qsm-session-*.service' 'qsm-login@*.service' 'qsm-seat-keeper@*.service' \
+    deb-systemd-helper disable qsm-native-sddm.service qsm-native-seat-udev.service qsm-consoles.service || true
+    deb-systemd-invoke stop qsm-native-sddm.service qsm-native-seat-udev.service qsm-consoles.service || true
+    deb-systemd-invoke stop 'qsm-session-*.service' 'qsm-login@*.service' 'qsm-seat-keeper@*.service' \
         'qsm-display@*.service' 'qsm-native-seat-control@*.service' || true
 fi
 #DEBHELPER#

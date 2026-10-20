@@ -1,0 +1,14 @@
+.TH QSM-PVE-DIRECT-UI 8 "2026-10-20" "QSM Direct" "System Administration"
+.SH NAME
+qsm-pve-direct-ui \- Inspect or reconcile the guarded PVE web overlay
+.SH SYNOPSIS
+.B qsm-pve-direct-ui {status|reconcile|remove}
+.SH DESCRIPTION
+The overlay is guarded by reviewed Proxmox template versions and hashes. Unknown templates retain the stock UI. Reconcile and remove change the dpkg diversion and require root.
+.SH DOCUMENTATION
+See /usr/share/doc/qsm-pve-direct/README.Debian and
+.UR https://github.com/rdmitry0911/qsm-rd
+the project repository
+.UE .
+.SH SPONSOR
+The project is sponsored by Takt, https://taktcycles.com/.

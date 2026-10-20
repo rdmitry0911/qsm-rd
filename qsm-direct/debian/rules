@@ -2,6 +2,7 @@
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export PYBUILD_DISABLE = 1
+export CTEST_OUTPUT_ON_FAILURE = 1
 VERSION := $(shell dpkg-parsechangelog -SVersion)
 BUILD_DIR := obj-$(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
 
@@ -18,7 +19,7 @@ override_dh_auto_install:
 
 override_dh_auto_test:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
-	dh_auto_test -- ARGS="--output-on-failure"
+	dh_auto_test
 endif
 
 # Core/profile activation is handled explicitly by the profile maintainer
@@ -27,7 +28,10 @@ override_dh_installsystemd:
 	dh_installsystemd --no-enable --no-start --no-stop-on-upgrade
 
 override_dh_python3:
-	dh_python3 /usr/lib/qsm-pve-direct /usr/lib/qsm-console
+	dh_python3 -Nqsm-console-guest
+	if dh_listpackages | grep -qx qsm-console-guest; then \
+		dh_python3 -pqsm-console-guest /usr/lib/qsm-console; \
+	fi
 
 # Build the guest first, then embed its exact deb in the HOST helper package.
 # dh_md5sums runs again after embedding, so the helper's inventory stays valid.
