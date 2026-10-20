@@ -1,0 +1,67 @@
+From: Dmitry R <rdmitry0911@gmail.com>
+To: submit@bugs.debian.org
+Subject: RFS: qsm-pve-direct/0.4.0+20261020-1~exp1 [ITP] -- WebRTC graphical console for Proxmox VE
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Package: sponsorship-requests
+Severity: wishlist
+Owner: Dmitry R <rdmitry0911@gmail.com>
+
+Dear mentors,
+
+I am looking for review and an upload sponsor for my package
+qsm-pve-direct, initially targeting experimental/contrib:
+
+* Package name    : qsm-pve-direct
+  Version         : 0.4.0+20261020-1~exp1
+  Upstream author : Dmitry R <rdmitry0911@gmail.com>
+* URL             : https://github.com/rdmitry0911/qsm-rd
+* License         : GPL-3.0-or-later, AGPL-3.0-or-later, MIT/X11
+* Section         : contrib/net
+* ITP             : https://bugs.debian.org/1151422
+
+QSM streams QEMU D-Bus displays and optional LXC desktops to a browser
+using WebRTC, with software or optional hardware video encoding, audio
+and interactive input. Existing PVE authentication and permissions gate
+console access. The standalone implementation uses official Proxmox
+packages; pve-manager and qemu-server remain external runtime dependencies,
+which is why I propose contrib. Build dependencies are in Debian main.
+
+The source review release, signatures and validation are available at:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-debian-contrib-20261020-review1
+
+Download the source with:
+dget -x https://github.com/rdmitry0911/qsm-rd/releases/download/v0.4.0-debian-contrib-20261020-review1/qsm-pve-direct_0.4.0+20261020-1~exp1.dsc
+
+The release includes the project signing certificate. Primary fingerprint:
+BA99528182B7EADD0199B6986A09741B1DBEAEF2
+These are project release signatures, not Debian Developer signatures.
+
+The package uses debhelper, generated shared-library dependencies, normal
+source packaging and hardening flags. It builds the LXC guest deb from
+the same source before embedding it in the optional host helper; no
+prebuilt release deb or network download is used during the build.
+
+Validation includes unprivileged builds with networking disabled on
+Debian 13 and current unstable, 19 passing CTest tests, clean Lintian
+source/binary checks, and a passing source-units autopkgtest on unstable.
+The upstream standalone release has separate browser/PVE runtime tests.
+The new debhelper maintainer-script integration still needs PVE lifecycle
+review; these clean-build checks are not a claim that a new Debian upload
+has been qualified on production PVE hosts. I would appreciate that review
+before an experimental upload.
+
+Project development is sponsored by Takt: https://taktcycles.com/
+Takt is the project sponsor; I am seeking a Debian Developer upload sponsor.
+The implementation and packaging use AI assistance, disclosed in the source
+and ITP. I intend to maintain the package and respond to review and bug reports.
+
+Changelog:
+  * Initial contrib packaging preview for review. (Closes: #1151422)
+  * Build the media worker and host/guest profiles from source with debhelper.
+  * Retain the external Proxmox runtime dependencies explicitly.
+
+Thanks,
+Dmitry

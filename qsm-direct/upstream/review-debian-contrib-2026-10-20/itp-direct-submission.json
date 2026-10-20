@@ -1,0 +1,13 @@
+{
+  "message_id": "<179250930471.27151.8600307222447068955.qsm-contrib-itp@taktcycles.com>",
+  "from": "rdmitry0911@gmail.com",
+  "to": "submit@bugs.debian.org",
+  "submitted_at": "2026-10-20T15:25:32.964122+00:00",
+  "server": "reportbug.debian.org:587",
+  "verified_starttls": true,
+  "smtp_code": 250,
+  "smtp_response": "OK id=1xJBiW-003oXR-0N",
+  "bts_bug_id": 1151422,
+  "bts_url": "https://bugs.debian.org/1151422",
+  "status": "registered"
+}

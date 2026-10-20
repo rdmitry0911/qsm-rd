@@ -1,0 +1,41 @@
+Debian contrib source review qualification — 2026-10-20
+
+Source commit: 8343e2e (see export-provenance.json for its full hash).
+Source version: 0.4.0+20261020-1~exp1; proposed experimental/contrib.
+ITP registered: https://bugs.debian.org/1151422
+Project sponsor: Takt, https://taktcycles.com/
+Maintainer: Dmitry R <rdmitry0911@gmail.com>
+No Debian Developer upload sponsor has yet agreed to an upload.
+
+PASS: source-only export with original source and Debian packaging separated.
+PASS: conventional dpkg-buildpackage -S source build, 3.0 (quilt), Closes ITP.
+PASS: full unprivileged binary builds on Debian 13 and current unstable.
+PASS: 19/19 CTest tests in each build, including D-Bus and software-video tests.
+PASS: actual autopkgtest 6.0 source-units on unstable, as qsm-build: all 19 tests.
+PASS: Lintian on source and both sets of binary packages: no E/W output, exit 0.
+PASS: a separate architecture-only build also completed with clean Lintian.
+PASS: .dsc, source .buildinfo and .changes signatures and every SHA256/size
+      reference verified using the published project key.
+PASS: compilation/test dependencies use Debian main; no installed PVE packages
+      or proprietary GPU drivers were used to compile the worker.
+
+Build and autopkgtest processes ran in disposable Debian chroots, with private
+mount/PID/network namespaces and only loopback enabled. Build scripts bind the
+standard /dev nodes inside their private mount namespace. No production PVE
+node, VM or LXC was modified. The public stock3 APT feed was not switched to
+these packages. This review release contains source assets, not binary debs.
+
+The final upstream delta after the first successful builds is a two-line test
+fixture permission correction found by autopkgtest's group-writable umask.
+The server code is unchanged. Both final full builds and autopkgtest were
+re-run from the final exported source and passed.
+
+Limits: these checks do not establish Debian acceptance or a human licensing
+review. The debhelper maintainer-script activation/lifecycle is new packaging
+and needs install/upgrade/removal/purge review on an actual PVE testbed. Prior
+stock3 browser/runtime tests qualify the existing release, not this new
+packaging scaffold. No package was uploaded to the Debian archive.
+
+Project release signing certificate primary fingerprint:
+BA99528182B7EADD0199B6986A09741B1DBEAEF2
+Only public certificates and test evidence are in the review archive.
