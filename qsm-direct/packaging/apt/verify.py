@@ -2,6 +2,9 @@
 """Use an isolated real APT client; never change the host's APT configuration."""
 
 import argparse
+import datetime as dt
+import email.parser
+import email.utils
 import hashlib
 import json
 import os
@@ -47,6 +50,12 @@ def command(env, *args, cwd=None, must_pass=True):
 def main(site, url):
     manifest = json.loads((site / "approved-releases.json").read_text())
     key = (site / "qsm-archive-keyring.gpg").resolve()
+    release = email.parser.Parser().parsestr((site / "dists/trixie/Release").read_text())
+    expires = email.utils.parsedate_to_datetime(release["Valid-Until"])
+    lifetime = expires - dt.datetime.now(dt.timezone.utc)
+    if not dt.timedelta(days=29) < lifetime <= dt.timedelta(days=30):
+        raise RuntimeError("Release must have a signed 30-day expiration")
+    print("PASS: explicit signed Valid-Until with 30-day metadata lifetime")
     with tempfile.TemporaryDirectory(prefix="qsm-apt-verify-") as tmp:
         root = Path(tmp)
         env = apt_environment(root / "valid", url or site.resolve().as_uri(), key)

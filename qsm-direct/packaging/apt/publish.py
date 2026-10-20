@@ -166,7 +166,6 @@ def build(manifest_path, output, cache):
         "Suite": "trixie", "Codename": "trixie", "Components": "main",
         "Architectures": "amd64 all", "Description": "Standalone QSM Direct for Proxmox VE 9",
         "Date": email.utils.format_datetime(now, usegmt=True),
-        "Valid-Until": email.utils.format_datetime(now + dt.timedelta(days=30), usegmt=True),
         "NotAutomatic": "yes", "ButAutomaticUpgrades": "yes", "Acquire-By-Hash": "yes",
     }
     args = ["apt-ftparchive"]
@@ -174,7 +173,11 @@ def build(manifest_path, output, cache):
         args.extend(["-o", f"APT::FTPArchive::Release::{key}={value}"])
     # apt-ftparchive excludes by-hash when calculating Release checksums.
     release_file = dist / "Release"
-    release_file.write_bytes(run(*args, "release", "dists/trixie", cwd=output))
+    # Several apt-ftparchive versions silently ignore a Valid-Until option.
+    # Write this authenticated header explicitly before signing the result.
+    expires = email.utils.format_datetime(now + dt.timedelta(days=30), usegmt=True)
+    release_file.write_bytes(f"Valid-Until: {expires}\n".encode()
+                             + run(*args, "release", "dists/trixie", cwd=output))
     for mode, name in (("--clearsign", "InRelease"), ("--detach-sign", "Release.gpg")):
         run("gpg", "--batch", "--yes", "--local-user", fingerprint,
             "--digest-algo", "SHA512", "--armor", "--output", str(dist / name),
