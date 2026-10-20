@@ -1,0 +1,19 @@
+Hi guys, a small installation update.
+
+I've added a signed APT repository for the standalone packages, so there's no need to download matching deb files manually for every update. It targets PVE 9 on Debian 13 (trixie), amd64, and contains only QSM packages. The official Proxmox packages stay in place.
+
+Key fingerprint and repository setup:
+https://rdmitry0911.github.io/qsm-rd/
+
+After adding the repository as described there:
+
+apt update
+apt install qsm-archive-keyring qsm-pve-direct-standalone
+
+The core is pulled in automatically. qsm-pve-direct-lxc is the optional host helper for LXC desktops; qsm-pve-direct-gateway provides the optional single-TCP-8006 gateway tools. Installing the gateway package does not enable it: please follow its activation and rollback instructions first. The qsm-console-guest package belongs inside a container, not on the PVE host.
+
+This is still a preview and an add-on for Proxmox, not a package accepted into Debian. It no longer needs rebuilt Proxmox packages, but it still uses PVE authentication, permissions and VM/container management. Existing patched/shared-preview installations should follow the migration notes before switching profiles.
+
+The debs are the same stock3 build described in my previous post; this update adds signed APT distribution and upgrade instructions. Please mention your PVE version and any installation/update problems here or in the GitHub issues.
+
+Thank you, Dmitry

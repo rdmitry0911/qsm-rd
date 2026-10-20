@@ -1,0 +1,62 @@
+name: Publish signed QSM APT repository
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-apt.yml'
+      - 'qsm-direct/packaging/apt/**'
+  workflow_dispatch:
+  schedule:
+    - cron: '23 5 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsm-apt-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out approved manifest and publisher
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install archive tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg
+      - name: Import only the online signing subkey
+        env:
+          QSM_APT_SIGNING_SUBKEY: ${{ secrets.QSM_APT_SIGNING_SUBKEY }}
+        run: |
+          install -d -m 0700 "$RUNNER_TEMP/qsm-gnupg"
+          printf '%s\n' "$QSM_APT_SIGNING_SUBKEY" | gpg --homedir "$RUNNER_TEMP/qsm-gnupg" --batch --import
+      - name: Verify approved assets and sign archive
+        env:
+          GNUPGHOME: ${{ runner.temp }}/qsm-gnupg
+        run: python3 qsm-direct/packaging/apt/publish.py --output "$RUNNER_TEMP/site" --cache "$RUNNER_TEMP/debs"
+      - name: Test real APT downloads and rejection of tampered metadata
+        run: python3 qsm-direct/packaging/apt/verify.py --site "$RUNNER_TEMP/site"
+      - name: Remove the private signing key
+        if: always()
+        run: rm -rf -- "$RUNNER_TEMP/qsm-gnupg"
+      - name: Upload public Pages files only
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy signed archive to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

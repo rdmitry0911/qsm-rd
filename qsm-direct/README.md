@@ -21,6 +21,14 @@ existing shared-display VMs. The maximum bitrate remains configurable per
 guest; isolated packet loss no longer triggers the reproduced 8-to-6-Mbit/s
 quality change. Sustained congestion still reduces bitrate.
 
+Install and update the standalone packages through the signed
+[APT repository](https://rdmitry0911.github.io/qsm-rd/): follow the
+[scoped key and repository setup](packaging/apt/README.md), then install
+`qsm-pve-direct-standalone`. The repository targets PVE 9 / Debian 13 amd64;
+it contains no patched PVE packages. Direct release-deb installation remains
+available. See the [Debian archive assessment](upstream/debian-distribution-2026-10-20.md)
+for the separate path to official Debian packaging.
+
 | Profile | Proxmox packages | Browser-to-node connectivity |
 | --- | --- | --- |
 | [Standalone, direct UDP](packaging/debian/README.standalone) | Official PVE 9 | HTTPS 8006, configurable QSM HTTPS port (initially 18007 or next free), WebRTC UDP |

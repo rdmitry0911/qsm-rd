@@ -16,6 +16,13 @@ when all listed assets have been downloaded). Do not mix QSM package versions.
 Do not install patched Proxmox debs from the older native preview for this setup.
 The separate qsm-console-guest asset belongs INSIDE an LXC, never on the PVE host.
 
+For signed APT installation and subsequent updates, follow:
+https://rdmitry0911.github.io/qsm-rd/
+The repository setup uses a scoped signing key; then install
+qsm-archive-keyring and qsm-pve-direct-standalone. It distributes the same
+stock3 debs, without patched Proxmox packages. The local-deb commands below
+remain available for an offline/manual installation.
+
 Choose the network profile
 --------------------------
 A. Direct UDP: PVE HTTPS 8006, a configurable QSM HTTPS port and negotiated UDP

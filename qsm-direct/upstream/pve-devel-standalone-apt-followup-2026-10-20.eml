@@ -1,0 +1,53 @@
+From: Dmitry R <rdmitry0911@gmail.com>
+To: pve-devel@lists.proxmox.com
+Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+Subject: Re: [RFC] WebRTC console for VMs via QEMU's D-Bus display
+In-Reply-To: <!~!UENERkVCMDkAAQACAAAAAAAAAAAAAAAAABgAAAAAAAAA0OHNyS9hYUaLr/vP3jA+aSKGAAAQAAAA6TKsgTPfy0O3A6GqP9PSEQEAAAAA@gmail.com>
+References: <CAANzA5H4-dLnboSPPpA6yuw=R2wxQ8S1ewZMJwk+Fy4S9LGYEQ@mail.gmail.com>
+ <c9709a230ad1e2cb07a321ae49581254fceff28a.camel@groupe-cyllene.com>
+ <!~!UENERkVCMDkAAQACAAAAAAAAAAAAAAAAABgAAAAAAAAA0OHNyS9hYUaLr/vP3jA+aSKGAAAQAAAA6TKsgTPfy0O3A6GqP9PSEQEAAAAA@gmail.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Hi Alexandre, hi all,
+
+A short progress update since my reply about pveproxy and latency.
+
+The native proposal still uses Alexandre's shared per-VM D-Bus foundation,
+with QSM as a separate consumer. The foundation, WebRTC API and PVE UI are
+kept as separate series. I have not treated the configuration or service
+split as an agreed upstream interface.
+
+To make testing possible without installing rebuilt Proxmox packages, I
+have also packaged the standalone profile for official PVE 9, with a
+guarded UI overlay and a PVE-authorized HTTPS signalling service. Its
+default configurable port starts at 18007, leaving PBS's 8007 alone.
+There is now a signed APT repository for these packages:
+
+https://rdmitry0911.github.io/qsm-rd/
+
+An optional, explicitly enabled single-node gateway shares TCP 8006 between
+PVE HTTPS, signalling and authenticated TURN/TCP, for a router forwarding
+only that port. I checked VM/LXC connections and reconnects in Chrome and
+Firefox in a controlled NAT/firewall lab. This is separate from the native
+pveproxy/API proposal. TURN control uses plain TCP; HTTPS signalling, SRTP
+media and DTLS-protected data remain encrypted. Its listener/SPICE impact
+and rollback are documented, and direct UDP remains available.
+
+The media worker is shared by the two profiles. Recent work adds an
+optional local cursor with the newer LXC compositor and confirms packet
+loss over a rolling window before reducing bitrate, avoiding the reproduced
+static-text quality change on isolated loss. Sustained congestion still
+adapts. These are functional checks, not a new interaction-latency benchmark.
+
+Source, debs, current installation notes and test evidence:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261020-stock3
+
+For the native work, I would still appreciate feedback on the VM-wide
+display option, ownership/lifetime of the bus and the API/service boundary
+before submitting an updated numbered series. The LXC desktop provisioning
+and standalone gateway remain separate add-ons.
+
+Thanks,
+Dmitry

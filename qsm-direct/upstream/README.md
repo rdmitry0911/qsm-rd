@@ -4,6 +4,24 @@ Proxmox takes no pull requests: patches go to `pve-devel@lists.proxmox.com`
 with `git send-email`, and every contributor signs a CLA first
 ([developer documentation](https://pve.proxmox.com/wiki/Developer_Documentation)).
 
+## Current status (2026-10-20)
+
+The public RFC thread has seven messages, most recently Dmitry's reply on
+October 16. Alexandre's October 15 questions about pveproxy/8007 and the latency
+method were answered there. No newer reply or formal maintainer acceptance was
+found in the public archive. The linked shared-base series remain proposals.
+
+The [discussion audit](discussion-status-2026-10-20.md) records forum #7,
+Bugzilla #8106, related #4771 and GitHub issue/PR status, with update drafts.
+The standalone stock3 release runs on official PVE packages, separately from
+the native shared-base proposal. A [signed APT repository](../packaging/apt/README.md)
+now distributes the standalone debs. This does not make the PVE integration
+independent of Proxmox at runtime; see the
+[official Debian packaging assessment](debian-distribution-2026-10-20.md).
+
+The sections below preserve the earlier shared-base submission material and
+its dated validation scope; their shared9 links are historical.
+
 ## Shared-base status (2026-10-15)
 
 QSM now consumes Alexandre Derumier's shared per-VM D-Bus foundation.
@@ -33,8 +51,9 @@ include the installation order, hashes and source/review archives.
 records source revisions, dependencies, migration commands and verified
 limitations. [Review evidence](review-shared-platform-2026-10-14/) contains
 build/test logs and the known laboratory display fixture.
-[Follow-up draft](pve-devel-shared-platform-followup.eml) is ready for review.
-Nothing in this update was sent to the mailing list or forum.
+[Follow-up draft](pve-devel-shared-platform-followup.eml) is kept locally.
+The shared9 announcement was sent to pve-devel on October 15; the local draft
+has since been edited and is not an exact copy of that archived message.
 
 The current consumer package is `0.4.0+shared9`. It includes the Firefox
 mDNS/ICE fix and clickable Reconnect after the initial shared3 lab build.

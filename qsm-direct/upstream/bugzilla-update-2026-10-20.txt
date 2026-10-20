@@ -1,0 +1,38 @@
+Implementation/proposal update, 2026-10-20
+
+The original description above predates the discussion with Alexandre
+Derumier on pve-devel. The native proposal now uses his shared per-VM D-Bus
+foundation, not the initial p2p=yes/getfd/add_client attachment:
+
+* qemu-server owns the private per-VM bus and its lifetime.
+* The proposed VM option is dbus-display: 1; rendering options stay in vga,
+  and audio0 can use driver=dbus.
+* QSM attaches as a display consumer, with capture/encoding/WebRTC kept in a
+  separate package. The foundation, console API and UI are separate series.
+* Native VM/LXC signalling and settings use PVE HTTPS on 8006, with VM.Console
+  for console/read access and VM.Config.Options for settings changes.
+
+Discussion and review material:
+https://lore.proxmox.com/pve-devel/30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com/T/
+https://github.com/rdmitry0911/qsm-rd/tree/main/qsm-direct/upstream
+
+For people wanting to try it without rebuilt Proxmox packages, a separate
+standalone implementation now runs on official PVE 9 packages, using a
+guarded UI overlay and PVE-authorized signalling service. It has an optional,
+explicitly enabled single-node gateway for a router forwarding only TCP 8006.
+The direct-UDP profile remains available. This distribution path does not
+replace the native proposal or claim an agreed upstream configuration/API.
+
+Current source/debs, installation, limitations and validation reports:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261020-stock3
+Signed standalone APT repository:
+https://rdmitry0911.github.io/qsm-rd/
+
+VM and LXC share the same adaptive video controller; stock3 includes the
+confirmed-loss fix for unnecessary bitrate changes after isolated packet
+loss. Browser/hardware support still determines HEVC availability, with
+H.264 as the fallback. The original benchmark figures are historical and
+should not be read as new shared-platform or hardware-latency measurements.
+
+The enhancement remains open for native Proxmox review; the standalone
+add-on is not an upstream resolution of this ticket or of rendernode #4771.
