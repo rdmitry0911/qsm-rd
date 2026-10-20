@@ -25,6 +25,7 @@ class EndpointTests(unittest.TestCase):
             self.assertEqual(read_endpoint(path).port, 8007)
             path.write_text(json.dumps({'listen': '::', 'port': 18019,
                                         'public_url': 'https://[2001:db8::1]:28019/'}))
+            path.chmod(0o600)
             endpoint = read_endpoint(path, require_root_owner=False)
             self.assertEqual(endpoint.listen, '::')
             self.assertEqual(endpoint.browser_config(),
@@ -44,6 +45,7 @@ class EndpointTests(unittest.TestCase):
             path = Path(directory) / 'signal.json'
             for value in ('{"port":18007,"port":18009}', '{"unknown":true}', '[]'):
                 path.write_text(value)
+                path.chmod(0o600)
                 with self.assertRaises(ValueError):
                     read_endpoint(path, require_root_owner=False)
             path.write_text('{}')
