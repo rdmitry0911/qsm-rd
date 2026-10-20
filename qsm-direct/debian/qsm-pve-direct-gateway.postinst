@@ -1,0 +1,6 @@
+#!/bin/sh
+set -e
+if [ "${1:-}" = configure ] && ! getent passwd qsm-turn >/dev/null; then
+    adduser --system --group --no-create-home --home /nonexistent qsm-turn
+fi
+#DEBHELPER#

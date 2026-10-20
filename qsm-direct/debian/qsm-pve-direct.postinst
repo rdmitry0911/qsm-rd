@@ -1,0 +1,20 @@
+#!/bin/sh
+set -e
+case "${1:-}" in
+    configure)
+        install -d -o root -g root -m 0700 /etc/qsm-pve-direct
+        install -d -o root -g root -m 0750 /etc/qsm-pve-direct/instances.d /etc/qsm-pve-direct/containers.d
+        install -d -o root -g root -m 0700 /run/qsm-pve-direct
+        /usr/sbin/qsm-pve-direct-ui reconcile || echo 'QSM: UI overlay inactive; inspect qsm-pve-direct-ui status' >&2
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload
+            deb-systemd-invoke try-restart qsm-pve-direct-terminal.service qsm-pve-direct-signal.service
+            deb-systemd-helper enable qsm-pve-direct-cert-reload.timer
+            deb-systemd-invoke start qsm-pve-direct-cert-reload.timer
+        fi
+        ;;
+    triggered)
+        /usr/sbin/qsm-pve-direct-ui reconcile || true
+        ;;
+esac
+#DEBHELPER#

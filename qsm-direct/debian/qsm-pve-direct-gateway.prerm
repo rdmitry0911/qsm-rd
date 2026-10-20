@@ -1,0 +1,6 @@
+#!/bin/sh
+set -e
+if [ "${1:-}" = remove ] && [ -e /etc/qsm-pve-direct/gateway.json ]; then
+    /usr/sbin/qsm-pve-direct-gateway disable
+fi
+#DEBHELPER#

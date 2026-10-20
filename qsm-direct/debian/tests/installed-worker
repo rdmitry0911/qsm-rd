@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+test -x /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker
+ldd /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker > "$AUTOPKGTEST_TMP/worker-libraries"
+if grep -q 'not found' "$AUTOPKGTEST_TMP/worker-libraries"; then
+    cat "$AUTOPKGTEST_TMP/worker-libraries"
+    exit 1
+fi
+python3 -c 'import aiortc, av'
+qsm-pve-direct-endpoint --help >/dev/null
+echo 'Installed worker libraries, WebRTC Python modules and endpoint CLI are available.'

@@ -1,0 +1,11 @@
+*.debhelper
+*.debhelper.log
+*.substvars
+debhelper-build-stamp
+files
+.debhelper/
+qsm-pve-direct/
+qsm-pve-direct-standalone/
+qsm-pve-direct-gateway/
+qsm-pve-direct-lxc/
+qsm-console-guest/

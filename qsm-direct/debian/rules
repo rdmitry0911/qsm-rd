@@ -1,0 +1,41 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export PYBUILD_DISABLE = 1
+VERSION := $(shell dpkg-parsechangelog -SVersion)
+BUILD_DIR := obj-$(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)
+
+%:
+	dh $@ --buildsystem=cmake+ninja --with python3
+
+override_dh_auto_configure:
+	dh_auto_configure -- -DQMDP_BUILD_DBUS=ON -DQMDP_BUILD_TOOLS=ON \
+		-DQMDP_BUILD_QT_CLIENT=OFF -DQMDP_ENABLE_REAL_QEMU_E2E=OFF \
+		-DBUILD_TESTING=ON
+
+override_dh_auto_install:
+	python3 debian/stage.py $(BUILD_DIR) $(VERSION)
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	dh_auto_test -- ARGS="--output-on-failure"
+endif
+
+# Core/profile activation is handled explicitly by the profile maintainer
+# scripts; do not start the gateway, VKMS or desktop units just by installing.
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start --no-stop-on-upgrade
+
+override_dh_python3:
+	dh_python3 /usr/lib/qsm-pve-direct /usr/lib/qsm-console
+
+# Build the guest first, then embed its exact deb in the HOST helper package.
+# dh_md5sums runs again after embedding, so the helper's inventory stays valid.
+override_dh_builddeb:
+	if dh_listpackages | grep -qx qsm-console-guest; then \
+		dh_builddeb -pqsm-console-guest; \
+		install -m 0644 ../qsm-console-guest_$(VERSION)_all.deb \
+			debian/qsm-pve-direct-lxc/usr/share/qsm-pve-direct-lxc/qsm-console-guest.deb; \
+		dh_md5sums -pqsm-pve-direct-lxc; \
+	fi
+	dh_builddeb --remaining-packages

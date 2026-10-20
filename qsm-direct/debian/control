@@ -1,0 +1,89 @@
+Source: qsm-pve-direct
+Section: contrib/net
+Priority: optional
+Maintainer: Dmitry R <rdmitry0911@gmail.com>
+Build-Depends: debhelper-compat (= 13),
+ dh-python,
+ cmake,
+ ninja-build,
+ pkgconf,
+ libsystemd-dev,
+ libopus-dev,
+ libavcodec-dev,
+ libavutil-dev,
+ libswscale-dev,
+ libgbm-dev,
+ libdrm-dev,
+ libepoxy-dev,
+ libwayland-dev,
+ libwayland-bin,
+ libxkbcommon-dev,
+ python3,
+ python3-aiortc <!nocheck>,
+ python3-av <!nocheck>,
+ nodejs <!nocheck>,
+ ffmpeg <!nocheck>,
+ dbus-daemon <!nocheck>
+Standards-Version: 4.7.3
+Rules-Requires-Root: no
+Homepage: https://github.com/rdmitry0911/qsm-rd
+Vcs-Git: https://github.com/rdmitry0911/qsm-rd.git
+Vcs-Browser: https://github.com/rdmitry0911/qsm-rd/tree/main/qsm-direct/debian
+Testsuite: autopkgtest
+
+Package: qsm-pve-direct
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${python3:Depends}, ${misc:Depends},
+ dbus, ffmpeg, python3-aiortc, python3-av,
+ pve-manager (>= 9), pve-manager (<< 10),
+ qemu-server (>= 9), qemu-server (<< 10)
+Description: WebRTC graphical console for Proxmox VE
+ Streams QEMU D-Bus displays and optional LXC desktops to a browser using
+ software or optional hardware video encoding, audio and interactive input.
+ Existing Proxmox authentication and permissions authorize console access.
+ .
+ This package requires Proxmox VE, which is not part of Debian. It does not
+ replace Proxmox packages. Install qsm-pve-direct-standalone for the stock-PVE
+ signalling profile. LXC and the TCP gateway are separate optional packages.
+
+Package: qsm-pve-direct-standalone
+Architecture: all
+Depends: ${misc:Depends}, qsm-pve-direct (= ${binary:Version})
+Description: standalone signalling profile for QSM Direct on stock Proxmox VE
+ Enables the PVE-authorized HTTPS signalling service and guarded web-console
+ integration. The initial free port starts at 18007 and is configurable.
+ This profile requires official Proxmox VE packages; it does not supply them.
+
+Package: qsm-pve-direct-gateway
+Architecture: all
+Depends: ${python3:Depends}, ${misc:Depends},
+ qsm-pve-direct-standalone (= ${binary:Version}), adduser, systemd
+Suggests: haproxy, coturn, nftables
+Description: optional TCP 8006 relay gateway tools for QSM Direct
+ Provides explicitly activated HTTPS and TURN/TCP multiplexing for a single
+ Proxmox node behind a firewall or NAT forwarding only TCP 8006.
+ Installation does not activate the gateway or its listeners.
+
+Package: qsm-pve-direct-lxc
+Architecture: all
+Section: contrib/admin
+Depends: ${python3:Depends}, ${misc:Depends},
+ qsm-pve-direct (= ${binary:Version}), pve-container (>= 6.1.13)
+Description: host provisioning helper for QSM Direct LXC graphical consoles
+ Configures a selected Debian or Ubuntu container for graphical console
+ access from the Proxmox web interface. The matching guest package is built
+ from the same source and embedded for installation inside the container.
+ This helper belongs on the Proxmox host, not inside the container.
+
+Package: qsm-console-guest
+Architecture: all
+Section: contrib/x11
+Depends: ${python3:Depends}, ${misc:Depends},
+ sway, xwayland, python3-pyqt5, qtwayland5, acl, x11-xserver-utils,
+ systemd, libpam-systemd, plasma-workspace, pulseaudio-utils, passwd
+Recommends: kwin-wayland, plasma-workspace-wayland, kwin-x11,
+ pipewire-pulse, wireplumber
+Description: graphical console session inside an LXC container for QSM Direct
+ Runs headless desktop sessions whose display and input are served through
+ the host QSM media service. This package belongs inside a selected LXC
+ container. It must not be installed on the Proxmox host.

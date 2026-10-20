@@ -1,0 +1,3 @@
+Tests: installed-worker
+Depends: qsm-pve-direct
+Restrictions: superficial

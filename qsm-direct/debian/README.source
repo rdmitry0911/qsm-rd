@@ -1,0 +1,36 @@
+QSM Direct source-package preview for Debian contrib
+==================================================
+
+Project sponsor: Takt, https://taktcycles.com/
+Maintainer: Dmitry R <rdmitry0911@gmail.com>
+
+Takt sponsors the project. A Debian Developer able to review and sponsor an
+archive upload has not yet been selected. These are different roles.
+
+This is the standalone PVE add-on, not a generic Debian desktop service.
+pve-manager, qemu-server and optional pve-container are external runtime
+dependencies; all compilation dependencies come from Debian main. No
+proprietary GPU driver is required to compile or use software encoding.
+
+The monorepository also contains historic experiments, patch submissions,
+lab captures and release evidence. The upstream source export intentionally
+contains the standalone source, build/test inputs and packaging only. The
+export helper records its git revision and hashes. It excludes downloaded
+packages, prebuilt binaries, benchmark captures, native Proxmox patch series
+and optional patched Sway/SDDM source builds. Those optional compositor
+experiments are not bundled into this Debian source package.
+
+Build with dpkg-buildpackage or sbuild after installing Build-Depends. The
+source root is qsm-direct, not the QEMU monorepository root. The worker is
+compiled by CMake with dpkg hardening flags; no network access is used by
+the build. LXC's embedded guest deb is built from this same source during
+the binary-indep sequence, never downloaded or taken from a release asset.
+
+The source and packaging use AI assistance. Before any Debian upload they
+need human review for correctness, maintenance and licensing. Public test
+evidence does not assert that a Debian Developer has performed that review.
+
+The .dsc/.changes signatures on an external review release, if present,
+identify the project release key; they do not imply a Debian upload or an
+individual Debian Developer identity. The current signed stock3 APT feed
+is separate and is not switched to this packaging preview automatically.
