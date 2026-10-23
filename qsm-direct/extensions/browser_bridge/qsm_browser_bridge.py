@@ -60,6 +60,7 @@ PACKET_IDR = 0x00000004
 PACKET_AUDIO = 0x00000008
 PACKET_CONFIG = 0x00000010
 PACKET_CURSOR = 0x00000020
+PACKET_VIDEO_TIME = 0x00000040
 CURSOR_HEADER = struct.Struct("!BBQQiiHHHH")
 CURSOR_VERSION = 1
 CURSOR_VISIBLE = 0x01
@@ -123,10 +124,9 @@ class _VideoPacer:
     and SCTP never acquire this lock.
     """
 
-    def __init__(self, video_bitrate_kbps: int = 8000, *, hardware: bool = False) -> None:
+    def __init__(self, video_bitrate_kbps: int = 8000) -> None:
         if type(video_bitrate_kbps) is not int or not 500 <= video_bitrate_kbps <= 100000:
             raise ValueError("video bitrate must be 500..100000 kbit/s")
-        self._hardware = hardware
         self.set_bitrate(video_bitrate_kbps)
         self._lock = asyncio.Lock()
         self._tokens = float(self._burst)
@@ -137,12 +137,10 @@ class _VideoPacer:
     def set_bitrate(self, video_bitrate_kbps: int) -> None:
         if type(video_bitrate_kbps) is not int or not 500 <= video_bitrate_kbps <= 100000:
             raise ValueError("video bitrate must be 500..100000 kbit/s")
-        # At low targets hardware frames can exceed their target, including
-        # NVENC and Intel H.264 QSV/VA-API. Do not turn that driver
-        # limitation into continuous local FIFO loss. This is pacing credit,
-        # not an extra encoder target; receiver loss/RTT still governs rate.
-        headroom = max(0., 800 - video_bitrate_kbps / 10) if self._hardware else 0
-        self._rate = (video_bitrate_kbps + headroom) * 1000 / 8 * 1.25
+        # The worker pays encoder overshoot by skipping raw pictures. Adding
+        # extra hardware credit here can send a large IDR faster than a narrow
+        # path can carry it, repeatedly losing that same recovery picture.
+        self._rate = video_bitrate_kbps * 1000 / 8 * 1.25
         # Retain two-packet pacing at the default; at higher rates permit
         # two milliseconds of credit so timer granularity does not cap LAN use.
         self._burst = max(VIDEO_PACING_BURST_BYTES, int(self._rate * .002))
@@ -332,9 +330,14 @@ class AdaptiveVideoRate:
             target = min(ceiling, int(target * factor))
         elif not bad and now - self._healthy_since >= 10 and any(
                 s.sending_kbps >= self.current_kbps * .7 for s in fresh):
-            # Infrequent, material quality steps only when the video is using
-            # the current allowance. Static desktops do not need upward probes.
-            target = min(ceiling, target + max(250, int(target * .25)))
+            # A drained queue does not mean that the old path capacity has
+            # returned. Blindly growing back to maximum repeatedly overloads
+            # a link that has settled at a lower rate. Fresh receiver estimates
+            # bound upward probes; an app-limited estimate never cuts quality.
+            for state in fresh:
+                if now - state.remb_time < 5:
+                    ceiling = min(ceiling, max(500, int(state.remb * .9 / 1000)))
+            target = max(target, min(ceiling, target + max(250, int(target * .25))))
         target = max(500, min(self.maximum_kbps, target))
         if target == self.current_kbps:
             return
@@ -599,6 +602,7 @@ class EncodedUnit:
     data: bytes
     keyframe: bool
     duration: int
+    timestamp: int | None = None
 
 
 @dataclass(frozen=True)
@@ -628,18 +632,16 @@ class _VideoAssembler:
         if not 10 <= fps <= 240:
             raise BridgeError("invalid video frame rate")
         self._nominal_duration = 90_000 // fps
-        # Do not put the producer's update cadence on the RTP clock.  A D-Bus
-        # Display1 surface is damage-driven: after an input event its
-        # next frame can arrive after an arbitrary quiet period.  Giving that
-        # gap to the receiver as an RTP timestamp makes Chromium schedule the
-        # new frame behind the preceding picture.  The encoded stream is
-        # configured for ``fps``, so each access unit belongs to that steady
-        # media clock even when the desktop is idle between updates.
+        # Older workers produce a fixed cadence. New workers explicitly stamp
+        # encoded pictures on their monotonic media clock: raw pictures may be
+        # skipped under congestion, so assigning each AU 1/fps would accumulate
+        # presentation delay. Display1 damage timing is not used as that clock.
         self._frame: int | None = None
         self._fragment = 0
         self._keyframe = False
         self._parts: list[bytes] = []
         self._size = 0
+        self._timed = False
 
     def _reset(self) -> None:
         self._frame = None
@@ -647,6 +649,7 @@ class _VideoAssembler:
         self._keyframe = False
         self._parts = []
         self._size = 0
+        self._timed = False
 
     def add(self, frame: int, fragment: int, flags: int, data: bytes) -> EncodedUnit | None:
         if flags & (PACKET_AUDIO | PACKET_CONFIG):
@@ -656,9 +659,11 @@ class _VideoAssembler:
                 raise BridgeError("video access unit starts at a nonzero fragment")
             self._reset()
             self._frame = frame
+            self._timed = bool(flags & PACKET_VIDEO_TIME)
         if self._frame is None:
             return None
-        if frame != self._frame or fragment != self._fragment:
+        if (frame != self._frame or fragment != self._fragment or
+                bool(flags & PACKET_VIDEO_TIME) != self._timed):
             # The Unix sender intentionally drops rather than blocks a
             # local encoder. Do not emit a corrupt partial frame; wait
             # for the next FIRST boundary instead.
@@ -673,8 +678,16 @@ class _VideoAssembler:
         self._keyframe = self._keyframe or bool(flags & PACKET_IDR)
         if not flags & PACKET_END:
             return None
-        result = EncodedUnit(data=b"".join(self._parts), keyframe=self._keyframe,
-                             duration=self._nominal_duration)
+        payload = b"".join(self._parts)
+        timestamp = None
+        if self._timed:
+            if len(payload) <= 8:
+                self._reset()
+                raise BridgeError("timed video access unit has no picture")
+            timestamp = struct.unpack_from("!Q", payload)[0]
+            payload = payload[8:]
+        result = EncodedUnit(data=payload, keyframe=self._keyframe,
+                             duration=self._nominal_duration, timestamp=timestamp)
         self._reset()
         return result
 
@@ -717,6 +730,7 @@ class _PacketTrack(MediaStreamTrack):
         self.kind = kind
         self._queue: asyncio.Queue[tuple[EncodedUnit, int] | None] = asyncio.Queue(maxsize=maximum_queue)
         self._pts = 0
+        self._timestamp_origin: int | None = None
         self._closed = False
         self._waiting_for_keyframe = kind == "video"
         self._last_recovery_request = float("-inf")
@@ -750,7 +764,15 @@ class _PacketTrack(MediaStreamTrack):
         # Account for every produced sample, including ones discarded under
         # pressure. Compressing the RTP clock on a drop causes A/V drift.
         pts = self._pts
-        self._pts += unit.duration
+        if unit.timestamp is not None:
+            if self._timestamp_origin is None:
+                self._timestamp_origin = unit.timestamp
+            pts = max(self._pts, unit.timestamp - self._timestamp_origin)
+            # Explicit capture time preserves gaps when the raw-frame budget
+            # reduces cadence. A fixed 60-fps clock would accumulate delay.
+            self._pts = pts + 1
+        else:
+            self._pts += unit.duration
         if self._queue.full():
             self.overflows += 1
             if self.kind == "video":
@@ -1497,7 +1519,7 @@ class BrowserWebRtcBridge:
             runtime_directory, expected_uid=expected_producer_uid)
         self._last_keyframe_request = float("-inf")
         self._video_rate = video_rate or AdaptiveVideoRate(video_bitrate_kbps, self.input.set_video_bitrate)
-        self._video_pacer = _VideoPacer(video_bitrate_kbps, hardware=self._video_rate.hardware)
+        self._video_pacer = _VideoPacer(video_bitrate_kbps)
         self._video_rate_sequence = 0
         self._video_rate.add(self, self._video_rate_changed)
         self.video_track.on_keyframe_required = self._request_video_keyframe

@@ -1,0 +1,21 @@
+Implementation/proposal update, 2026-10-23
+
+The original description predates the discussion with Alexandre Derumier on pve-devel. The proposed native integration now uses a private per-VM D-Bus bus owned by qemu-server, based on his shared foundation. QSM attaches as a consumer, with capture, encoding and WebRTC in a separate package. This replaces my original p2p=yes/getfd/add_client proposal. The foundation, console API and UI changes remain separate series for review.
+
+The proposed opt-in is dbus-display: 1, with rendering options in vga and a dbus driver for audio0. The configuration and service/API boundary are still proposals.
+
+Discussion and native review material:
+https://lore.proxmox.com/pve-devel/30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com/T/
+https://github.com/rdmitry0911/qsm-rd/tree/main/qsm-direct/upstream
+
+A separate standalone preview runs on official PVE 9 without rebuilt Proxmox packages. Installation and signed APT repository:
+https://rdmitry0911.github.io/qsm-rd/
+
+Current source, all five matching QSM packages, guides and validation:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261023-stock4.1
+
+Stock4.1 also changes congestion handling in the common VM/LXC worker. It retains encoder settings and static reference detail when the network target changes, admitting fewer raw pictures when necessary instead of repeatedly resetting rate control. Monotonic media timestamps preserve timing. New NVENC H.264/HEVC and H.264 browser checks are included; a large sudden bandwidth drop can still cause recovery pauses.
+
+The original benchmark figures remain historical. This add-on release does not resolve the request for native Proxmox integration or the separate rendernode enhancement #4771. Feedback on configuration, bus ownership/lifetime and the API/service boundary would be welcome.
+
+The common viewer also corrects stuck keyboard state on in-page focus changes and rejects autorepeat from a press begun outside the guest surface. VM/LXC share the fix; existing consoles must reload/reopen to load it.

@@ -1,0 +1,12 @@
+{
+  "base_commit": "550907d422553c338ba2c71df264c06ce8963177",
+  "source_state": "working tree; these fingerprints identify the tested files",
+  "sha256": {
+    "qsm-direct/tools/qsm_direct_media_worker.cpp": "aa4ffbe4ef4aae92509c6f7e5d5e744352dd5b8433936831872475bbe631c50c",
+    "qsm-direct/src/core/video_budget.hpp": "7bae54cff0f9da86a1f8dfdd08c34b22f6c77f3b81e5db9b901f6484a895b7e4",
+    "qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py": "303cf680a9c8728fff5c49da55582fdfc13738f414bb326374598418f6f13879",
+    "qsm-direct/tests/core_tests.cpp": "a4600b4641546cc467d31581bcb31d1fce504e1116d93141e1138b768a26fadd",
+    "qsm-direct/tests/browser_bridge/test_adaptive_video.py": "060778639658c9d6f5d0733307d2996c0df78fa9554430268ec23609f0db510b",
+    "qsm-direct/tests/browser_bridge/test_browser_bridge.py": "9202cff5fc505200cb05e156acfe000982c9afadee19b95e8635c4360e4c116b"
+  }
+}

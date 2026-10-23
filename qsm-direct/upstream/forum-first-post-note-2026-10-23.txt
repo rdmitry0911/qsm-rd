@@ -1,0 +1,11 @@
+Update, 23 October 2026: the current preview is stock4.1, with a standalone package for official PVE 9 and a signed APT repository. It also fixes repeated changes in static-text sharpness during network-rate adaptation; limited bandwidth now reduces motion cadence while retaining static reference detail.
+
+Installation and signed repository setup:
+https://rdmitry0911.github.io/qsm-rd/
+
+Current source, matching packages, limitations and test reports:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261023-stock4.1
+
+The direct-UDP standalone profile uses a configurable signalling port starting at 18007. An optional, explicitly enabled single-node gateway supports a router forwarding only TCP 8006. Its HTTPS/WebRTC payloads are encrypted, while outer TURN control uses plain TCP. Please read the gateway guide before enabling it.
+
+The original post below describes the first prototype. The native Proxmox integration remains a separate upstream proposal.

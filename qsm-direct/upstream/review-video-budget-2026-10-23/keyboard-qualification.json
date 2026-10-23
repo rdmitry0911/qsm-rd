@@ -1,0 +1,10 @@
+{
+  "file": "qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js",
+  "sha256": "4daf9ec0903fac30e4ba2d286b33dae9836728ce45643d70d46bd7e2ee845d02",
+  "browser_scope": "production input JS, real DOM focus, recorded transport edges; no PVE login",
+  "baseline_result": "pre-fix source fails first real Firefox blur assertion: expected press/release, actual press only",
+  "references": [
+    "https://w3c.github.io/uievents/#events-keyboard-event-order",
+    "https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/repeat"
+  ]
+}

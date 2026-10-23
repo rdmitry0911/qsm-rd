@@ -1,0 +1,19 @@
+{
+  "message_id": "<179267850534.2866960.8156901383925310987.qsm-itp-progress@taktcycles.com>",
+  "date": "Thu, 22 Oct 2026 14:15:05 +0000",
+  "from": "rdmitry@taktcycles.com",
+  "reply_to": "rdmitry0911@gmail.com",
+  "to": "1151422@bugs.debian.org",
+  "draft_sha256": "339a2c7eb0a9f864118ba4dd122390d5b6577f4560713aaf480be0a7d2e543d6",
+  "delivery_status": "delivered_to_debian_mx",
+  "smtp_code": 250,
+  "smtp_response": "2.0.0 Ok: queued as 58B0E18E0BBE",
+  "relay_queue_id": "64406120D4",
+  "origin_queue_id": "C8FAE925E",
+  "debian_smtp_response": "250 OK id=1xJtf1-00AeyF-0d",
+  "debian_delivered_at": "2026-10-22T14:20:51Z",
+  "bts_registration": "published_and_verified",
+  "bts_bug_id": 1151422,
+  "bts_url": "https://bugs.debian.org/1151422",
+  "bts_verified_at": "2026-10-22T14:23:13Z"
+}

@@ -4,6 +4,7 @@
 #include "core/resize_coalescer.hpp"
 #include "core/session.hpp"
 #include "core/unix_fd.hpp"
+#include "core/video_budget.hpp"
 #include "capture/cpu_framebuffer.hpp"
 #include "interfaces/media_adapter.hpp"
 #include "interfaces/qemu_display.hpp"
@@ -319,6 +320,43 @@ void test_audio_is_converted_to_the_session_format() {
     CHECK(crossings >= 1995U && crossings <= 2005U);  // still 1 kHz
 }
 
+void test_video_budget_limits_encoded_bytes_before_admitting_raw_frames() {
+    using namespace std::chrono_literals;
+    qmdp::VideoBudget budget;
+    const qmdp::VideoBudget::Clock::time_point start {};
+    std::size_t admitted = 0U;
+    for (int tick = 0; tick < 600; ++tick) {
+        if (budget.ready(start + tick * 16667us, 1500U)) {
+            budget.account(20000U);
+            ++admitted;
+        }
+    }
+    // Ten seconds at 1.5 Mbit/s with 12% transport reserve: around 84
+    // complete pictures, rather than 600 coded pictures and broken refs.
+    CHECK(admitted >= 80U && admitted <= 86U);
+
+    qmdp::VideoBudget idle;
+    std::size_t idle_frames = 0U;
+    for (int tick = 0; tick < 600; ++tick) {
+        if (idle.ready(start + tick * 16667us, 500U)) {
+            idle.account(100U);
+            ++idle_frames;
+        }
+    }
+    CHECK(idle_frames == 600U);
+}
+
+void test_video_budget_keeps_keyframe_debt_across_rate_changes() {
+    using namespace std::chrono_literals;
+    qmdp::VideoBudget budget;
+    const qmdp::VideoBudget::Clock::time_point start {};
+    CHECK(budget.ready(start, 8000U));
+    budget.account(200000U);
+    CHECK(!budget.ready(start + 100ms, 2000U));
+    CHECK(!budget.ready(start + 800ms, 2000U));
+    CHECK(budget.ready(start + 900ms, 2000U));
+}
+
 }  // namespace
 
 int main() {
@@ -331,6 +369,8 @@ int main() {
     test_session_state_machine();
     test_same_geometry_remap_does_not_request_an_idr();
     test_audio_is_converted_to_the_session_format();
+    test_video_budget_limits_encoded_bytes_before_admitting_raw_frames();
+    test_video_budget_keeps_keyframe_debt_across_rate_changes();
 
     if (failures == 0) {
         std::cout << "all qmdp core tests passed\n";

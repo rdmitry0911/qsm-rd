@@ -4,18 +4,24 @@ Proxmox takes no pull requests: patches go to `pve-devel@lists.proxmox.com`
 with `git send-email`, and every contributor signs a CLA first
 ([developer documentation](https://pve.proxmox.com/wiki/Developer_Documentation)).
 
-## Current status (2026-10-20)
+## Current status (2026-10-23)
 
-The public RFC thread has seven messages, most recently Dmitry's reply on
-October 16. Alexandre's October 15 questions about pveproxy/8007 and the latency
-method were answered there. No newer reply or formal maintainer acceptance was
-found in the public archive. The linked shared-base series remain proposals.
+The public RFC thread has eight messages, most recently Dmitry's standalone/APT
+update on October 20. The forum's APT installation update is also published
+(post #8). No later reply was found in either discussion. Alexandre's October 15
+questions about pveproxy/8007 and the latency method were answered on October 16.
+The linked shared-base series remain proposals awaiting upstream review.
 
-The [discussion audit](discussion-status-2026-10-20.md) records forum #7,
-Bugzilla #8106, related #4771 and GitHub issue/PR status, with update drafts.
-The standalone stock3 release runs on official PVE packages, separately from
+The [latest discussion audit](discussion-status-2026-10-23.md) records the
+forum, pve-devel, Bugzilla #8106, related #4771, Debian ITP/RFS and GitHub
+issue/PR status. Bugzilla still needs an architecture/progress update;
+an updated comment is prepared, awaiting Bugzilla authentication. The Debian
+ITP progress message was sent on October 22 and verified in the public BTS.
+The standalone stock4.1 release runs on official PVE packages, separately from
 the native shared-base proposal. A [signed APT repository](../packaging/apt/README.md)
-now distributes the standalone debs. This does not make the PVE integration
+distributes the standalone debs. The stock4.1 media update and
+[validation](review-video-budget-2026-10-23/qualification.txt) preserve static
+reference detail when the network target changes. This does not make the PVE integration
 independent of Proxmox at runtime; see the
 [official Debian packaging assessment](debian-distribution-2026-10-20.md).
 

@@ -1,7 +1,7 @@
 QSM Direct standalone profile for stock Proxmox VE 9
 ===================================================
 
-Release: 0.4.0+stock3, Debian 13 / amd64. The standalone profile uses official
+Release: 0.4.0+stock4.1, Debian 13 / amd64. The standalone profile uses official
 Proxmox packages: a guarded web UI overlay and independent PVE-authorized HTTPS
 signalling service. It shares the native preview's media worker, encoders and
 adaptive bitrate controller. No rebuilt Proxmox debs are needed on stock PVE.
@@ -10,8 +10,8 @@ pve-container 6.1.14. UI activation is guarded by version/template checksums;
 other reviewed versions are listed in pve-manager-index-template.sha256.
 
 Download the matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261020-stock3
-Verify SHA256SUMS-stock3 before installation (sha256sum -c SHA256SUMS-stock3
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261023-stock4.1
+Verify SHA256SUMS-stock4.1 before installation (sha256sum -c SHA256SUMS-stock4.1
 when all listed assets have been downloaded). Do not mix QSM package versions.
 Do not install patched Proxmox debs from the older native preview for this setup.
 The separate qsm-console-guest asset belongs INSIDE an LXC, never on the PVE host.
@@ -20,7 +20,7 @@ For signed APT installation and subsequent updates, follow:
 https://rdmitry0911.github.io/qsm-rd/
 The repository setup uses a scoped signing key; then install
 qsm-archive-keyring and qsm-pve-direct-standalone. It distributes the same
-stock3 debs, without patched Proxmox packages. The local-deb commands below
+stock4.1 debs, without patched Proxmox packages. The local-deb commands below
 remain available for an offline/manual installation.
 
 Choose the network profile
@@ -35,8 +35,8 @@ B. Optional single-port gateway: PVE HTTPS, QSM signalling and authenticated
 
 Install base packages as root on the PVE node:
 
-    apt install ./qsm-pve-direct_0.4.0+stock3_amd64.deb \
-                ./qsm-pve-direct-standalone_0.4.0+stock3_all.deb
+    apt install ./qsm-pve-direct_0.4.0+stock4.1_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock4.1_all.deb
     qsm-pve-direct-endpoint --show
     qsm-pve-direct-ui status
     systemctl is-active qsm-pve-direct-terminal qsm-pve-direct-signal
@@ -95,7 +95,7 @@ LXC setup
 ---------
 Install the matching helper on the HOST:
 
-    apt install ./qsm-pve-direct-lxc_0.4.0+stock3_all.deb
+    apt install ./qsm-pve-direct-lxc_0.4.0+stock4.1_all.deb
     qsm-pve-direct-lxc enable VMID --session wayland
 
 Replace VMID with the chosen Debian/Ubuntu container with a Plasma desktop.
@@ -117,10 +117,10 @@ Upgrading an existing installation
 Update the core AND each installed version-matched QSM profile/helper in the
 same apt transaction. For a standalone node with gateway and LXC helper:
 
-    apt install ./qsm-pve-direct_0.4.0+stock3_amd64.deb \
-                ./qsm-pve-direct-standalone_0.4.0+stock3_all.deb \
-                ./qsm-pve-direct-gateway_0.4.0+stock3_all.deb \
-                ./qsm-pve-direct-lxc_0.4.0+stock3_all.deb
+    apt install ./qsm-pve-direct_0.4.0+stock4.1_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock4.1_all.deb \
+                ./qsm-pve-direct-gateway_0.4.0+stock4.1_all.deb \
+                ./qsm-pve-direct-lxc_0.4.0+stock4.1_all.deb
 
 Omit gateway/helper if those profiles are not installed or wanted. QSM service
 restarts can interrupt open consoles; reconnect/hard-reload after upgrading.
@@ -136,7 +136,7 @@ rejects the patched pve-manager UI.
 
 A separately planned staged migration may restore a reviewed official
 pve-manager UI while retaining the native qemu-server backend for running
-shared-display VMs. Stock3 recognizes their dbus-display config and opens QSM
+shared-display VMs. The standalone compatibility recognizes their dbus-display config and opens QSM
 through standalone signalling. It preserves stock VGA serialization and the
 existing dbus audio backend instead of adding another private -display.
 The core recognizes both shared and private display buses. This transition
@@ -161,8 +161,12 @@ starts use an ordinary display. Configuration is retained for manual recovery.
 
 Known limits
 ------------
-Still a preview. Adaptive bitrate remains enabled and respects the configured
-0.5..100-Mbit/s maximum (default 8). Stock2/stock3 fix the reproduced unnecessary
-8-to-6-Mbit/s step caused by isolated packet loss; the shared controller still
-adapts under sustained congestion. Large sudden bandwidth drops can still
-cause freezes. HEVC depends on browser/hardware support; H.264 is the fallback.
+Still a preview. The configurable maximum remains 0.5..100 Mbit/s (default 8).
+Stock4.1 preserves encoder settings and static reference detail when network
+feedback changes the working target. It budgets raw pictures before encoding;
+insufficient bandwidth lowers motion cadence instead of resetting rate control
+and repeatedly refreshing the whole picture. Cheap static pictures can still
+retain the configured cadence. Explicit media timestamps preserve playback time.
+Fresh receiver estimates bound upward recovery. Large sudden bandwidth drops
+can still cause freezes and recovery keyframes. HEVC depends on browser/hardware
+support; H.264 is the fallback. See the stock4.1 release for test scope/results.

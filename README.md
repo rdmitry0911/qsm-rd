@@ -5,7 +5,7 @@ LXC containers), hardware-encoded where the node has an encoder.
 
 Project sponsor: [Takt](https://taktcycles.com/).
 
-[Latest standalone preview: stock3](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261020-stock3)
+[Latest standalone preview: stock4.1](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261023-stock4.1)
 runs on official PVE 9 packages. Start with the
 [installation instructions](qsm-direct/packaging/debian/README.standalone).
 The signed [APT repository](https://rdmitry0911.github.io/qsm-rd/)

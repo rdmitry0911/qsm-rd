@@ -1673,7 +1673,9 @@
             hideToolbarSoon();
         });
         const send = (value) => {
-            if (control && control.readyState === 'open') { control.send(JSON.stringify(value)); }
+            if (!control || control.readyState !== 'open') { return false; }
+            try { control.send(JSON.stringify(value)); return true; }
+            catch (_error) { return false; }
         };
         const updateGuestKeyboardLock = () => {
             // Native full screen normally lets the browser reserve Escape.
@@ -2205,19 +2207,36 @@
             send({ op: 'mouse_button', button, down });
             diagButtonSent += 1; diagLastInput = 'button' + button + (down ? '↓' : '↑');
         };
-        const sendKeyboard = (key, down) => {
+        const sendKeyboard = (key, down, repeat = false) => {
             if (!Number.isInteger(key) || key < 0 || key > 0xffff) { return; }
+            // The guest owns autorepeat. In particular, a repeat whose first
+            // keydown belonged to another field must never start a new guest
+            // press when pointer-enter gives the video keyboard focus.
+            if (down && repeat) { return; }
             noteGuestInput();
             if (down) {
                 if (heldKeys.has(key)) { return; }
+                if (!send({ op: 'keyboard', key, down, modifiers: 0 })) { return; }
                 heldKeys.add(key);
             } else {
                 if (!heldKeys.has(key)) { return; }
+                send({ op: 'keyboard', key, down, modifiers: 0 });
                 heldKeys.delete(key);
             }
-            send({ op: 'keyboard', key, down, modifiers: 0 });
             diagKeySent += 1; diagLastInput = 'key' + key + (down ? '↓' : '↑');
         };
+        // Element focus can move to the toolbar/settings without window blur.
+        // Release there, and catch keyups even if their new target is another
+        // element or stops propagation. Never capture new presses globally.
+        const releaseGuestKeys = () => {
+            for (const key of [...heldKeys]) { sendKeyboard(key, false); }
+        };
+        video.addEventListener('blur', releaseGuestKeys);
+        kbInput.addEventListener('blur', releaseGuestKeys);
+        document.addEventListener('keyup', (event) => {
+            const key = qemuKey(event);
+            if (key !== null) { sendKeyboard(key, false); }
+        }, true);
         // Map a printable character to a US-layout scancode + shift flag, so
         // the on-screen keyboard (which reports typed text, not key codes) can
         // drive the guest.  Built once from the shared scanCodes table.
@@ -2265,7 +2284,7 @@
             kbInput.addEventListener(name, (event) => {
                 const code = scanCodes[event.code] !== undefined ? scanCodes[event.code]
                     : (extendedScanCodes[event.code] !== undefined ? extendedScanCodes[event.code] : null);
-                if (code !== null) { sendKeyboard(code, name === 'keydown'); event.preventDefault(); }
+                if (code !== null) { sendKeyboard(code, name === 'keydown', event.repeat); event.preventDefault(); }
                 // Keep the field empty so the OS keyboard never shows a caret
                 // position that fights composition on the next character.
                 kbInput.value = '';
@@ -3262,7 +3281,7 @@
                     const copyShortcut = event.code === 'KeyC' && (event.ctrlKey || event.metaKey) && !event.altKey;
                     if (!rawInput && pasteShortcut) {
                         event.preventDefault();
-                        if (name === 'keydown') {
+                        if (name === 'keydown' && !event.repeat) {
                             // Release a forwarded Cmd/Ctrl before emitting
                             // the Linux Paste sequence. Otherwise macOS Cmd
                             // can remain held in the guest and turn a paste
@@ -3274,7 +3293,7 @@
                         }
                     } else if (!rawInput && copyShortcut) {
                         event.preventDefault();
-                        if (name === 'keydown') {
+                        if (name === 'keydown' && !event.repeat) {
                             releaseHeldInput();
                             guestSelectionToBrowser(event.shiftKey).catch(() => {
                                 status.textContent = gettext('Guest clipboard is unavailable.');
@@ -3285,7 +3304,7 @@
                         // native shortcut and the guest sees no partial key.
                         return;
                     } else if (key !== null) {
-                        sendKeyboard(key, name === 'keydown'); event.preventDefault();
+                        sendKeyboard(key, name === 'keydown', event.repeat); event.preventDefault();
                     }
                 });
             }

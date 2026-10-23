@@ -1,0 +1,35 @@
+From: Dmitry R <rdmitry@taktcycles.com>
+Reply-To: Dmitry R <rdmitry0911@gmail.com>
+To: 1151422@bugs.debian.org
+Subject: Re: Bug#1151422: ITP: qsm-pve-direct -- WebRTC graphical console for Proxmox VE
+In-Reply-To: <179250930471.27151.8600307222447068955.qsm-contrib-itp@taktcycles.com>
+References: <179250930471.27151.8600307222447068955.qsm-contrib-itp@taktcycles.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Hi,
+
+A packaging progress update for this ITP: the conventional Debian source
+package is now available, version 0.4.0+20261020-0exp1, proposed initially
+for experimental/contrib. The existing RFS is #1151425:
+
+https://bugs.debian.org/1151425
+
+Signed source files, build provenance and review evidence:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-debian-contrib-20261020-review2
+
+The October 20 validation includes unprivileged builds with networking
+disabled on Debian 13 and unstable, 19 passing CTest tests in each build,
+clean Lintian source/binary checks and a passing source-units autopkgtest
+on unstable. Build dependencies are in Debian main; external Proxmox
+packages remain runtime dependencies, which is why I propose contrib.
+
+Independent human review and a Debian Developer upload sponsor are still
+needed. The new debhelper maintainer-script integration also needs PVE
+install/upgrade/removal review before an upload. No upload to the Debian
+archive has taken place. AI assistance is disclosed in the original ITP,
+RFS and source review material.
+
+Thanks,
+Dmitry

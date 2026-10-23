@@ -17,11 +17,13 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock3 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261020-stock3)
-include the isolated-packet-loss fix and standalone UI compatibility with
-existing shared-display VMs. The maximum bitrate remains configurable per
-guest; isolated packet loss no longer triggers the reproduced 8-to-6-Mbit/s
-quality change. Sustained congestion still reduces bitrate.
+[Stock4.1 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261023-stock4.1)
+preserve static reference detail when the working network target changes.
+The worker budgets raw pictures before encoding, retaining encoder settings;
+a narrow link reduces motion cadence. This extends the earlier isolated-loss
+fix to genuine rate changes, for the common VM/LXC path. The per-guest maximum
+remains configurable. Sudden large bandwidth drops can still cause freezes.
+Standalone UI compatibility with existing shared-display VMs is retained.
 
 Install and update the standalone packages through the signed
 [APT repository](https://rdmitry0911.github.io/qsm-rd/): follow the
@@ -454,17 +456,23 @@ interaction delay.
 
 ### Adaptive video bitrate
 
+The behavior below is included in stock4.1, using the tested stock4 video code. See its
+[validation](upstream/review-video-budget-2026-10-23/qualification.txt).
+
 In Console **Settings → This guest — media policy**, **Maximum video bitrate
 (Mbit/s)** sets the per-VM/LXC encoder target ceiling (0.5–100, default 8).
 H.264 with NVENC, libx264, QSV or VA-API, and experimental hardware HEVC,
 automatically adjust the working target below that ceiling using the browser's
 RTCP REMB, packet-loss and RTT feedback. Video/RTX pacing follows the target.
-NVENC/libx264 use live rate reconfiguration. FFmpeg 7 caches VA-API rate
-control at initialization, and some QSV drivers reject a live HRD buffer
-resize. Those backends reopen only the encoder on a material rate change,
-retaining the DRM device, upload pool and source timestamps.
+The worker keeps the encoder's configured quality budget and admits fewer
+raw pictures when the current network allowance is insufficient. Every
+encoded picture, including an IDR, is charged before another is admitted.
+This preserves static reference detail and avoids rate-control resets on
+NVENC or codec reopenings on Intel. Motion becomes less smooth on a narrow
+link; an inexpensive idle picture can still retain the negotiated cadence.
+Explicit media timestamps preserve timing when frames are skipped.
 The WebRTC connection and guest session remain open. Several viewers of one producer share the rate,
-so fresh feedback from a slower viewer can reduce quality for all of them.
+so fresh feedback from a slower viewer can reduce motion cadence for all of them.
 Closed viewers release that constraint. No guest restart is needed.
 
 Adaptation ignores ordinary RTT jitter and app-limited REMB estimates. Packet
@@ -473,17 +481,17 @@ persist across new receiver reports for at least three seconds while video
 is using the allowance. A congestion report is consumed once. Recovery waits
 for ten healthy seconds and raises the target by a material step no more than
 once every ten seconds, only when actual video traffic uses at least 70% of
-the current allowance. An idle desktop does not need repeated upward probes.
-This matters especially for NVENC: FFmpeg forces an IDR/reset of rate control
-on live bitrate changes even though the codec object is kept open. Frequent
-small adjustments in shared20 could therefore make a static desktop pulse.
+the current allowance. Fresh REMB also bounds recovery, so a cleared queue
+does not cause repeated ramps above a link that has settled at a lower rate.
+An idle desktop does not need repeated upward probes.
 
 All supported in-process encoders use on-demand recovery keyframes, rather than a
 full IDR every half second. Under a one-frame VBV, those periodic refreshes
 made static text blur and sharpen even with an unchanged bitrate. New
 viewers, PLI feedback and a broken local reference chain still request IDRs;
 an unanswered local request is retried at most once a second until recovery.
-Material hardware rate changes can still produce a brief quality transition.
+Network target changes do not request a full refresh. New viewers, real
+packet loss and display resizes can still require a recovery picture.
 
 Settings shows the current target and ceiling for the active producer. Save a
 new ceiling, close all its viewers and reopen the console to apply that policy.
@@ -545,3 +553,5 @@ says AGPL-3.0-or-later: the PVE console script
 (`integration/proxmox/pve9/direct_ui/qsm-direct-console.js`), the signalling
 service, the LXC console (`packaging/lxc`, `qsm-pve-direct-lxc`) and the
 viewer page.
+
+The shared viewer also releases held keys on in-page focus changes and ignores browser autorepeat from a press begun outside the guest. Reload/reopen consoles after upgrading to clear old input state and load the new viewer.

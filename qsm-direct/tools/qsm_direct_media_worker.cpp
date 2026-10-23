@@ -19,6 +19,7 @@
 
 #include "core/pixel_format.hpp"
 #include "core/resize_coalescer.hpp"
+#include "core/video_budget.hpp"
 #include "interfaces/media_adapter.hpp"
 #include "pipeline/desktop_session.hpp"
 #include "qemu/qemu_dbus_display.hpp"
@@ -92,6 +93,8 @@ constexpr std::uint32_t packet_config = 0x00000010U;
 // A Display1 cursor is state, not video. It travels on the existing private
 // video socket but bypasses H.264 and video presentation latency.
 constexpr std::uint32_t packet_cursor = 0x00000020U;
+// A network-order u64 media timestamp precedes a timed video access unit.
+constexpr std::uint32_t packet_video_time = 0x00000040U;
 constexpr std::uint32_t input_magic = 0x51534d49U; // QSMI
 constexpr std::uint8_t input_version = 1U;
 constexpr std::uint8_t input_mouse_position = 1U;
@@ -423,10 +426,22 @@ public:
     PacketSink &operator=(const PacketSink &) = delete;
 
     [[nodiscard]] bool send_video(bool keyframe, std::span<const std::uint8_t> data) noexcept {
-        if (send(video_, ++video_number_, keyframe ? packet_idr : 0U, data)) {
+        try {
+            const auto now = std::chrono::steady_clock::now();
+            if (!video_origin_) { video_origin_ = now; }
+            const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(now - *video_origin_).count();
+            std::vector<std::uint8_t> timed;
+            timed.reserve(data.size() + 8U);
+            append_u64(timed, static_cast<std::uint64_t>(elapsed) * 90U / 1000U);
+            timed.insert(timed.end(), data.begin(), data.end());
+            if (send(video_, ++video_number_, packet_video_time | (keyframe ? packet_idr : 0U), timed)) {
+                std::lock_guard lock(mutex_);
+                ++video_access_units_;
+                return true;
+            }
+        } catch (...) {
             std::lock_guard lock(mutex_);
-            ++video_access_units_;
-            return true;
+            ++video_send_failures_;
         }
         return false;
     }
@@ -594,6 +609,7 @@ private:
     int audio_ {-1};
     mutable std::mutex mutex_;
     std::uint32_t video_number_ {};
+    std::optional<std::chrono::steady_clock::time_point> video_origin_;
     std::uint32_t audio_number_ {};
     std::atomic<std::uint32_t> cursor_number_ {};
     std::uint64_t video_access_units_ {};
@@ -1070,16 +1086,10 @@ private:
     }
 
     void video_loop() noexcept {
-        // Keep the encoder active even for a static
-        // desktop.  A browser WebRTC receiver also needs that regularity, but
-        // it cannot use a client presentation queue to
-        // hide a half-rate source. Repeat at the negotiated cadence. Damage
-        // replaces the pending frame, but it must not bypass the next tick:
-        // Display1 is damage-driven and can report more than the negotiated
-        // FPS while KWin repaints a hover or an active-window decoration.
-        // Emitting those extra access units while assigning each a 1/fps RTP
-        // duration makes Chromium present alternating stale/current frames
-        // as a visibly shaking desktop.
+        // Repeat at most at the negotiated cadence. Damage may replace the
+        // latest raw picture arbitrarily often, but cannot bypass a media
+        // tick. The byte budget may skip ticks before encoding; explicit
+        // monotonic timestamps preserve presentation time across those gaps.
         const auto repeat_interval = std::chrono::microseconds(1'000'000U / fps_);
         auto next_frame = std::chrono::steady_clock::now();
         std::unique_lock lock(video_mutex_);
@@ -1103,6 +1113,17 @@ private:
                 continue;
             }
 
+            // Adapt the number of fresh pictures, not the quality of every
+            // static block. FFmpeg resets NVENC and emits an IDR on a bitrate
+            // change; Intel codecs need reopening. At low rates those large
+            // refreshes also overrun the predictive-stream FIFO repeatedly.
+            // The latest raw scanout remains replaceable while budget drains.
+            const auto tick = std::chrono::steady_clock::now();
+            if (!video_budget_.ready(tick, requested_bitrate_kbps_.load())) {
+                next_frame = tick + repeat_interval;
+                continue;
+            }
+
             const auto bgra = latest_bgra_;
             const auto width = latest_width_;
             const auto height = latest_height_;
@@ -1110,24 +1131,18 @@ private:
             lock.unlock();
             try {
                 const bool force_idr = force_idr_.exchange(false);
-                const auto requested_bitrate = requested_bitrate_kbps_.load();
-                const bool bitrate_changed = requested_bitrate != video_bitrate_kbps_;
-                video_bitrate_kbps_ = requested_bitrate;
 #if defined(QMDP_HAS_LIBAVCODEC)
                 if (LibavVideoEncoder::supports(encoder_)) {
                     if (!libav_encoder_ || width_ != width || height_ != height) {
                         close_video_process();
                         open_video_process(width, height);
                     }
-                    if (bitrate_changed) {
-                        libav_encoder_->set_bitrate(video_bitrate_kbps_);
-                    }
                     for (auto &packet : libav_encoder_->encode(*bgra, force_idr)) {
                         publish_video(packet.keyframe, packet.bytes);
                     }
                 } else {
 #endif
-                const bool fresh_encoder = video_input_ < 0 || width_ != width || height_ != height || force_idr || bitrate_changed;
+                const bool fresh_encoder = video_input_ < 0 || width_ != width || height_ != height || force_idr;
                 if (fresh_encoder) {
                     close_video_process();
                     open_video_process(width, height);
@@ -1443,6 +1458,7 @@ private:
     }
 
     void publish_video(bool keyframe, std::span<const std::uint8_t> access_unit) noexcept {
+        video_budget_.account(access_unit.size());
         if (!sink_.send_video(keyframe, access_unit)) {
             // A local Unix socket loss invalidates the same H.264 reference
             // chain as a network loss.  The larger private buffer normally
@@ -1510,6 +1526,7 @@ private:
     std::uint32_t fps_ {};
     std::uint32_t video_bitrate_kbps_ {};
     std::atomic<std::uint32_t> requested_bitrate_kbps_ {};
+    qmdp::VideoBudget video_budget_;
     std::atomic<bool> running_ {false};
     std::atomic<bool> force_idr_ {false};
     std::atomic<std::uint64_t> keyframe_requests_ {};

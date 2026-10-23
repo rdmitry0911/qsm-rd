@@ -1,7 +1,7 @@
 QSM Direct: optional TCP 8006 gateway (experimental, single-node PVE 9)
 ===================================================================
 
-Release: 0.4.0+stock3. This explicit standalone profile shares TCP 8006 between
+Release: 0.4.0+stock4.1. This explicit standalone profile shares TCP 8006 between
 normal PVE HTTPS and authenticated TURN/TCP. Signalling uses /qsm-direct/ on the
 PVE browser origin. Video/audio and input/clipboard are encrypted by WebRTC.
 TURN control messages use plain TCP, WITHOUT TLS. See Encryption below.
@@ -13,14 +13,14 @@ Requirements and package installation
 ------------------------------------
 Read INSTALL-STOCK.txt / README.standalone first for platform, VM and LXC setup.
 No patched Proxmox debs are needed on stock PVE. Download matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261020-stock3
-Verify SHA256SUMS-stock3. Install as root on the PVE HOST:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261023-stock4.1
+Verify SHA256SUMS-stock4.1. Install as root on the PVE HOST:
 
-  apt install ./qsm-pve-direct_0.4.0+stock3_amd64.deb \
-              ./qsm-pve-direct-standalone_0.4.0+stock3_all.deb \
-              ./qsm-pve-direct-gateway_0.4.0+stock3_all.deb
+  apt install ./qsm-pve-direct_0.4.0+stock4.1_amd64.deb \
+              ./qsm-pve-direct-standalone_0.4.0+stock4.1_all.deb \
+              ./qsm-pve-direct-gateway_0.4.0+stock4.1_all.deb
 
-If the LXC helper is already installed, include its matching stock3 deb in that
+If the LXC helper is already installed, include its matching stock4.1 deb in that
 same transaction. For new LXC setup install the separate helper as described in
 README.standalone; it embeds the guest payload. NEVER install qsm-console-guest
 on the PVE host. Package installation does not activate a new gateway.

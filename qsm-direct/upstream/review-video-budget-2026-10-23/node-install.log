@@ -1,0 +1,58 @@
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following packages will be upgraded:
+  qsm-pve-direct qsm-pve-direct-gateway qsm-pve-direct-lxc
+  qsm-pve-direct-standalone
+4 upgraded, 0 newly installed, 0 to remove and 151 not upgraded.
+Need to get 0 B/346 kB of archives.
+After this operation, 0 B of additional disk space will be used.
+Get:1 /root/qsm-rate-bands-20261023/install/qsm-pve-direct-gateway_0.4.0+stock4_all.deb qsm-pve-direct-gateway all 0.4.0+stock4 [9392 B]
+Get:2 /root/qsm-rate-bands-20261023/install/qsm-pve-direct-standalone_0.4.0+stock4_all.deb qsm-pve-direct-standalone all 0.4.0+stock4 [5228 B]
+Get:3 /root/qsm-rate-bands-20261023/install/qsm-pve-direct_0.4.0+stock4_amd64.deb qsm-pve-direct amd64 0.4.0+stock4 [280 kB]
+Get:4 /root/qsm-rate-bands-20261023/install/qsm-pve-direct-lxc_0.4.0+stock4_all.deb qsm-pve-direct-lxc all 0.4.0+stock4 [52.3 kB]
+(Reading database ...
+(Reading database ... 5%
+(Reading database ... 10%
+(Reading database ... 15%
+(Reading database ... 20%
+(Reading database ... 25%
+(Reading database ... 30%
+(Reading database ... 35%
+(Reading database ... 40%
+(Reading database ... 45%
+(Reading database ... 50%
+(Reading database ... 55%
+(Reading database ... 60%
+(Reading database ... 65%
+(Reading database ... 70%
+(Reading database ... 75%
+(Reading database ... 80%
+(Reading database ... 85%
+(Reading database ... 90%
+(Reading database ... 95%
+(Reading database ... 100%
+(Reading database ... 157056 files and directories currently installed.)
+Preparing to unpack .../qsm-pve-direct-gateway_0.4.0+stock4_all.deb ...
+Unpacking qsm-pve-direct-gateway (0.4.0+stock4) over (0.4.0+stock2.compat1) ...
+Preparing to unpack .../qsm-pve-direct-standalone_0.4.0+stock4_all.deb ...
+Unpacking qsm-pve-direct-standalone (0.4.0+stock4) over (0.4.0+stock2.compat1) ...
+Preparing to unpack .../qsm-pve-direct_0.4.0+stock4_amd64.deb ...
+Unpacking qsm-pve-direct (0.4.0+stock4) over (0.4.0+stock2.compat1) ...
+Preparing to unpack .../qsm-pve-direct-lxc_0.4.0+stock4_all.deb ...
+Unpacking qsm-pve-direct-lxc (0.4.0+stock4) over (0.4.0+stock2.compat1) ...
+Setting up qsm-pve-direct (0.4.0+stock4) ...
+qsm-pve-direct PVE UI: refreshed
+qsm-pve-direct installed; enable qsm-pve-direct-terminal.service for the native Proxmox WebRTC API. qsm-pve-direct-signal.service is needed only for legacy installations.
+Setting up qsm-pve-direct-lxc (0.4.0+stock4) ...
+Setting up qsm-pve-direct-standalone (0.4.0+stock4) ...
+qsm-pve-direct PVE UI: refreshed
+{
+  "listen": "127.0.0.1",
+  "port": 18007,
+  "public_url": "",
+  "gateway": true
+}
+QSM standalone is configured. Run qsm-pve-direct-endpoint --show for its address; reload the PVE web page.
+Setting up qsm-pve-direct-gateway (0.4.0+stock4) ...
+Gateway tools installed. Activation is explicit; read /usr/share/doc/qsm-pve-direct-gateway/README.Debian.

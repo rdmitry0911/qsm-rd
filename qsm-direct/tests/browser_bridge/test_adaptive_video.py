@@ -155,6 +155,25 @@ class RateTests(unittest.TestCase):
             self.rr(sending_kbps=18000)
         self.assertEqual(self.rate.current_kbps, 20000)
 
+    def test_clean_reports_do_not_probe_above_fresh_reduced_path_estimate(self):
+        self.rr()
+        self.now = 2
+        self.rate.receiver_estimate('a', 4000000)
+        self.rr(loss=.2)
+        self.assertEqual(self.rate.current_kbps, 3072)
+        for t in range(3, 120):
+            self.now = t
+            self.rate.receiver_estimate('a', 4000000)
+            self.rr(sending_kbps=3500)
+        self.assertEqual(self.rate.current_kbps, 3600)
+        # Real capacity returning permits recovery; the lower estimate is
+        # not a permanent cap after the link improves.
+        for t in range(120, 240):
+            self.now = t
+            self.rate.receiver_estimate('a', 40000000)
+            self.rr()
+        self.assertEqual(self.rate.current_kbps, 20000)
+
     def test_recovery_has_material_steps_at_most_once_per_ten_seconds(self):
         self.rr()
         self.now = 2
@@ -211,14 +230,13 @@ class RateTests(unittest.TestCase):
         self.rr()
         self.assertEqual(self.rate.current_kbps, 500)
 
-    def test_hardware_low_rate_headroom_does_not_change_encoder_target(self):
-        gpu = _VideoPacer(8000, hardware=True)
+    def test_low_rate_pacing_does_not_add_hardware_overshoot_credit(self):
+        gpu = _VideoPacer(8000)
         self.assertEqual(gpu._rate, _VideoPacer(8000)._rate)
         gpu.set_bitrate(2000)
-        self.assertEqual(gpu._rate, 2600 * 1000 / 8 * 1.25)
-        self.assertGreater(gpu._rate, 2.58e6 / 8)
+        self.assertEqual(gpu._rate, 2000 * 1000 / 8 * 1.25)
         gpu.set_bitrate(500)
-        self.assertGreater(gpu._rate, 1.32e6 / 8)
+        self.assertEqual(gpu._rate, 500 * 1000 / 8 * 1.25)
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):

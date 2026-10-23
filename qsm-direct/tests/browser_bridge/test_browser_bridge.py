@@ -50,6 +50,7 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     PACKET_HEADER,
     PACKET_IDR,
     PACKET_MAGIC,
+    PACKET_VIDEO_TIME,
     SharedMediaIngress,
     VIDEO_TIME_BASE,
     _AudioAssembler,
@@ -65,6 +66,34 @@ from extensions.browser_bridge.qsm_browser_bridge import (
 
 
 class BrowserBridgeAssemblerTests(unittest.TestCase):
+    def test_timed_video_keeps_picture_bytes_and_variable_capture_intervals(self) -> None:
+        import struct
+        assembler = _VideoAssembler(60)
+        flags = PACKET_FIRST | PACKET_END | PACKET_IDR | PACKET_VIDEO_TIME
+        first = assembler.add(1, 0, flags, struct.pack('!Q', 900000) + b'key')
+        second = assembler.add(2, 0, flags, struct.pack('!Q', 945000) + b'next')
+        self.assertEqual(first, EncodedUnit(b'key', True, 1500, 900000))
+        self.assertEqual(second, EncodedUnit(b'next', True, 1500, 945000))
+
+        async def receive():
+            track = _PacketTrack('video', maximum_queue=4)
+            track.put_nowait(first)
+            track.put_nowait(second)
+            self.assertEqual((await track.recv()).pts, 0)
+            self.assertEqual((await track.recv()).pts, 45000)
+            track.end_nowait()
+        asyncio.run(receive())
+
+    def test_timed_video_reassembles_split_timestamp_and_rejects_empty_picture(self) -> None:
+        import struct
+        assembler = _VideoAssembler(60)
+        payload = struct.pack('!Q', 123456) + b'picture'
+        self.assertIsNone(assembler.add(1, 0, PACKET_FIRST | PACKET_VIDEO_TIME, payload[:3]))
+        self.assertEqual(assembler.add(1, 1, PACKET_END | PACKET_VIDEO_TIME, payload[3:]),
+                         EncodedUnit(b'picture', False, 1500, 123456))
+        with self.assertRaises(BridgeError):
+            assembler.add(2, 0, PACKET_FIRST | PACKET_END | PACKET_VIDEO_TIME, b'12345678')
+
     def test_h264_vpn_payload_budget_preserves_nals_at_fragment_boundaries(self) -> None:
         packetizer = _H264Packetizer()
         for length in (2, 100, VIDEO_RTP_PAYLOAD_MAX, VIDEO_RTP_PAYLOAD_MAX + 1,

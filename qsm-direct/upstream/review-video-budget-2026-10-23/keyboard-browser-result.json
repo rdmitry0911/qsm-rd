@@ -1,0 +1,55 @@
+{
+  "scope": "production JS handlers; real DOM; recorded transport edges",
+  "results": [
+    {
+      "browser": "firefox",
+      "version": "157.0",
+      "focus_release": "pass",
+      "foreign_repeat": "pass",
+      "fresh_typing": "pass",
+      "edges": [
+        [
+          30,
+          true
+        ],
+        [
+          30,
+          false
+        ],
+        [
+          30,
+          true
+        ],
+        [
+          30,
+          false
+        ]
+      ]
+    },
+    {
+      "browser": "chromium",
+      "version": "145.0.7632.6",
+      "focus_release": "pass",
+      "foreign_repeat": "pass",
+      "fresh_typing": "pass",
+      "edges": [
+        [
+          30,
+          true
+        ],
+        [
+          30,
+          false
+        ],
+        [
+          30,
+          true
+        ],
+        [
+          30,
+          false
+        ]
+      ]
+    }
+  ]
+}

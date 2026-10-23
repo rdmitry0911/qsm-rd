@@ -1,0 +1,22 @@
+Implementation/proposal update, 2026-10-22
+
+The original description predates the discussion with Alexandre Derumier on pve-devel. The proposed native integration now uses a private per-VM D-Bus bus owned by qemu-server, based on his shared foundation. QSM attaches as a display consumer; capture, encoding and WebRTC remain in a separate package. This replaces my original p2p=yes/getfd/add_client proposal. The foundation, console API and UI changes are kept as separate series for review.
+
+The proposed opt-in is dbus-display: 1, with rendering options remaining in vga and a dbus driver for audio0. The configuration and service/API boundary are still proposals, not agreed upstream interfaces.
+
+Current discussion and native review material:
+https://lore.proxmox.com/pve-devel/30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com/T/
+https://github.com/rdmitry0911/qsm-rd/tree/main/qsm-direct/upstream
+
+There is also a separately installable standalone preview for official PVE 9 packages, so testing no longer requires rebuilt Proxmox packages. It uses PVE authentication and permissions, with an optional explicitly enabled gateway for access through a router forwarding only TCP 8006. Installation, limitations and rollback instructions:
+https://rdmitry0911.github.io/qsm-rd/
+
+Current source, matching stock3 debs and runtime test evidence:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261020-stock3
+
+For independent packaging review, a conventional Debian source package is also available and an RFS is open:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-debian-contrib-20261020-review2
+https://bugs.debian.org/1151425
+This is a request for experimental/contrib review, not an accepted Debian upload.
+
+The original benchmark figures are historical; this update does not claim a new latency comparison. The standalone add-on does not resolve this request for native Proxmox integration or the separate rendernode enhancement #4771. Feedback on configuration, bus ownership/lifetime and the API/service boundary would be welcome.

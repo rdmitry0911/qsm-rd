@@ -1,0 +1,51 @@
+From: Dmitry R <rdmitry@taktcycles.com>
+Reply-To: Dmitry R <rdmitry0911@gmail.com>
+To: pve-devel@lists.proxmox.com
+Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+Subject: Re: [RFC] WebRTC console for VMs via QEMU's D-Bus display
+In-Reply-To: <!~!UENERkVCMDkAAQACAAAAAAAAAAAAAAAAABgAAAAAAAAA0OHNyS9hYUaLr/vP3jA+aSKGAAAQAAAA9a/1ZV4340WxEaO3VIuQWQEAAAAA@gmail.com>
+References: <CAANzA5H4-dLnboSPPpA6yuw=R2wxQ8S1ewZMJwk+Fy4S9LGYEQ@mail.gmail.com>
+ <!~!UENERkVCMDkAAQACAAAAAAAAAAAAAAAAABgAAAAAAAAA0OHNyS9hYUaLr/vP3jA+aSKGAAAQAAAA9a/1ZV4340WxEaO3VIuQWQEAAAAA@gmail.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Hi Alexandre, hi all,
+
+A media-worker follow-up to my standalone/APT update. The isolated-loss
+fix did not cover genuine target changes: FFmpeg resets NVENC rate control
+and forces an IDR, while our Intel paths reopen the codec. At low targets,
+this could change static reference detail and cause repeated FIFO recovery.
+
+Stock4.1 keeps the configured encoder settings and applies the network
+budget before encoding. It pays for each complete encoded picture before
+admitting another raw scanout, keeping the latest raw picture replaceable.
+Under constraint this trades motion cadence for stable reference detail.
+Explicit 90-kHz media timestamps preserve timing across skipped raw ticks.
+The RTP/RTX pacer no longer needs the old hardware-overshoot allowance,
+and fresh REMB bounds healthy upward recovery.
+
+This is common VM/LXC worker code; the native bus/API proposal is unchanged.
+New qualification includes NVENC H.264/HEVC decoded-pixel tests, Firefox
+H.264 target changes and a shaped Chromium 20 -> 1 -> 20-Mbit/s connection.
+The stream recovers to 60 fps. Abrupt capacity loss still causes pauses;
+Intel/AMD hardware and interaction latency were not remeasured here.
+
+The shared viewer also fixes stuck keys on in-page focus changes: it
+releases held keys when video/keyboard input loses focus, captures keyup at
+other elements and ignores DOM autorepeat from presses begun elsewhere.
+Node and real Firefox/Chromium DOM tests verify the transmitted key edges.
+
+The standalone preview is available as version 0.4.0+stock4.1. Full source,
+matching debs, installation instructions and test evidence are linked at:
+https://github.com/rdmitry0911/qsm-rd/releases
+
+Signed APT repository:
+https://rdmitry0911.github.io/qsm-rd/
+
+The new source still needs native upstream review independently of this
+distribution route. I would welcome feedback on the shared bus lifetime,
+configuration and service/API boundary when you have time.
+
+Thanks,
+Dmitry

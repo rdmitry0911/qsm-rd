@@ -1,0 +1,154 @@
+QSM Direct stock4 — stable reference detail during network-rate changes
+2026-10-23
+
+Problem and reproduction
+------------------------
+The earlier isolated-loss fix prevents noisy RR samples from changing the
+encoder target, but genuine target changes still reset NVENC rate control
+and force an IDR through FFmpeg. VA-API/QSV rate changes reopen their codec.
+With a one-frame VBV, repeated refreshes also change static reference detail.
+Hardware frame-size overshoot and a four-frame transport FIFO can then cause
+additional local drops/recovery requests. This is more than a network-loss
+threshold problem.
+
+The exact production LibavVideoEncoder class encoded a generated, unchanging
+2560x1440 text/colour fixture at 60 fps. Target phases were 8000, 2000, 8000,
+1500 and 8000 kbit/s, with no network transport:
+  Old H.264 NVENC: 600 decoded pictures, five IDRs, maximum whole-picture
+    frame-to-frame mean luma change 11.5245/255. Several subsequent P-frames
+    changed horizontal regions too. Actual low-target output exceeded its
+    target: about 3.217 Mbit/s at 2000 kbit/s, 2.390 at 1500 kbit/s.
+  New H.264 NVENC: 392 decoded pictures, one IDR, maximum change 0.0169393/255.
+  New HEVC NVENC: 384 decoded pictures, one IDR, maximum change 0.00957086/255.
+
+The new probe changes the admission budget, retaining the configured encoder
+settings. Its synthetic clock covers the same ten-second source interval;
+it is a codec/decoded-pixel check, not a real-time browser benchmark.
+
+Implementation
+--------------
+VideoBudget charges each complete encoded access unit, including keyframes,
+with a transport reserve before admitting another raw picture. Under load,
+newer raw scanouts replace older ones before encoding. No predictive encoded
+picture is discarded merely to meet the target. Cheap static pictures can
+still run at the negotiated cadence. Motion cadence falls when the budget
+cannot carry the current pictures, preserving static reference detail.
+
+Network changes no longer call set_bitrate/reopen the codec. Configured
+maximum bitrate and resolution are still chosen when starting the producer.
+Real recovery requests, a new viewer or a resize may still require an IDR.
+The common worker path covers VM/LXC, H.264/HEVC and the supported encoders.
+Intel/AMD hardware was not requalified in this change.
+
+Timed private video records carry a monotonic 90-kHz timestamp. The bridge
+retains a fixed-cadence fallback for old records and rebases explicit times
+per viewer. Skipped raw ticks therefore do not compress the RTP clock or
+accumulate presentation delay. The audio/input/cursor protocols are unchanged.
+
+RTP/RTX pacing no longer adds the old hardware overshoot allowance at low
+targets; producer admission now pays that debt. The normal 25% pacing margin
+remains. Fresh REMB bounds healthy upward probes without reducing a healthy
+target on an app-limited estimate. This prevents automatic recovery from
+continually overrunning a path which has settled at a lower capacity.
+
+Validation
+----------
+PASS: core tests, including admission byte balance, cheap idle cadence and
+      retaining IDR debt when the network target changes.
+PASS: all 54 bridge/controller tests; explicit variable timestamps, split
+      timestamp reassembly, receiver-estimate recovery ceiling and low-rate
+      pacing are covered. Existing negotiation teardown diagnostics are
+      retained in the raw log; all test assertions pass.
+PASS: production worker with the fake QEMU Display1 service, 480 source
+      pictures at 120 Hz and a 60-fps cap; resize, cursor, keyboard/button
+      release and recovery requests reach the display.
+PASS: Debian 13/FFmpeg 7 package build, without changing Proxmox packages.
+
+Real WebRTC qualification uses disposable private bridges over SSH, the
+packaged worker, a generated Qt text/motion fixture on test CT 108 and fresh
+browser profiles. It tests the actual worker/encoded socket/RTP/decoder path;
+it does not replace the earlier PVE API/ACL qualification.
+
+Chromium 145, H.264 NVENC, 1970x1220:
+  A dedicated receiver namespace/veth is shaped 20 -> 1 -> 20 Mbit/s.
+  No physical interface or unrelated connection is shaped.
+  Adaptive target reaches 500 kbit/s, then recovers with the offered load.
+  Same SSRC throughout; 7,937 final decoded pictures; zero decoder drops;
+  recovered motion returns to 60 fps; explicit PLI recovery passes.
+  Final target 4235 kbit/s is below the 8000 ceiling because the scene is
+  app-limited. Full cadence, rather than an unused maximum target, is the
+  recovery gate.
+  Final static 600x760 region: 199 comparisons, mean/max RGB change 0/255.
+  The abrupt reduction still causes three freezes totalling 5.573 seconds
+  and initial loss/recovery events. This does not claim seamless playback
+  through a sudden twentyfold capacity reduction.
+
+Firefox 157 with the official Mozilla/Cisco OpenH264 2.6.0 plugin:
+  The downloaded plugin archive passes Mozilla's published SHA-512 check.
+  Manual network-target transitions 8000 -> 2000 -> 8000 kbit/s exercise the
+  actual worker budget and peer pacer on LAN; this is separate from physical
+  network shaping in the Chromium experiment.
+  Static 150x100 text region across the transitions: 2111 frame comparisons,
+  maximum mean RGB change 0/255. Final static 600x760 region: 199 comparisons,
+  mean/max change 0/255. 4570 final decoded pictures; zero decoder drops;
+  motion and explicit PLI recovery pass.
+
+The installed Google Chrome 152 binary rejected the harness's localhost
+access before media setup; it is not counted as a passing receiver. The
+successful shaped test uses the cached Chromium 145 binary. Test-only local
+network permission and namespace mDNS address handling are in the scripts.
+No claim is made for every browser, GPU or codec combination.
+
+Installed state
+---------------
+On 192.168.64.20, four matching packages were upgraded from stock2.compat1
+to 0.4.0+stock4: core, standalone, LXC helper and gateway. The guest package
+was built/embedded, but was not installed on the PVE host or on LXC 105.
+APT changed only those four QSM packages. Matching old packages were retained
+under /root/qsm-rate-bands-20261023/rollback.
+
+Terminal/signalling/gateway/TURN services are active; the terminal has a new
+process after package installation. UI status is active, HTTPS returns 200,
+dpkg audit is empty, and VM 103 / LXC 105 remain running. A new VM 103 media
+transport is observed with the installed worker and no capture/encode errors.
+
+The installed worker is byte-identical to the private test worker:
+  e93a686cd2d3b21eb7cae3fdf7dbbef10d8c2e18a5bbc1825245a939e9412b9d
+Installed/tested bridge source SHA-256:
+  303cf680a9c8728fff5c49da55582fdfc13738f414bb326374598418f6f13879
+
+The temporary Qt fixture, markers, test namespace/veth, owned firewall table
+and cleanup timer were removed/stopped. CT 108 remains running. Test package
+extracts and synthetic fixture/probe outputs are retained outside production
+paths for reproduction. The test display's resulting mode is 1970x1220.
+
+This is an installed test build. It has not been published to the signed
+APT feed or the Debian review release. Source fingerprints identify this
+working-tree snapshot; the base Git commit alone does not include the edits.
+
+Distribution follow-up
+----------------------
+The stock4.1 distribution refresh retains this video code and updates the
+version-matched packages and installation texts. Its release build verifies
+the worker and bridge fingerprints above before publication. The signed
+release manifest/build provenance identify the final packages and source
+commit. This dated stock4 runtime report remains the underlying qualification.
+
+Keyboard follow-up (stock4.1 viewer)
+----------------------------------
+The video worker/bridge fingerprints above remain unchanged. The viewer
+now releases keys on video/keyboard-field blur inside the page, captures
+keyup at other document targets and ignores browser autorepeat as a new
+guest press. Copy/Paste repeats also no longer issue repeated requests.
+Normal held keys retain guest autorepeat. Node regression and real Firefox
+157/Chromium 145 DOM tests pass (see keyboard-browser-result.json and
+keyboard-qualification.json). The pre-fix code reproduces missing Release
+on element blur in the same real Firefox fixture. This checks transmitted
+edges without a production PVE login. Reload/reopen consoles after upgrade.
+
+Final stock4.1 source checks: all 20 CTest gates pass, including the new
+keyboard-state regression. All 54 bridge/controller tests pass. The first
+CTest invocation used an old cached Python without av and had not built
+all integration executables; building all targets and selecting system
+Python resolved those setup failures. Python teardown warnings in the
+existing negotiation tests are unchanged.

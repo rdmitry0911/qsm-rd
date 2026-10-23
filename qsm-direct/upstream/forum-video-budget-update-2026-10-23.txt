@@ -1,0 +1,25 @@
+Hi guys, an update on the flashing horizontal bands and changing text sharpness when the connection speed changes.
+
+The previous fix covered isolated packet loss. I found another case: a genuine change of the working bitrate could still reset the hardware encoder and replace the whole reference picture, including its unchanged areas. With a small frame budget, text could become blurry and then sharpen again in horizontal regions. Queue overruns could trigger more recovery pictures.
+
+The worker now keeps its encoder settings and budgets raw pictures before encoding them. When the connection cannot carry the current pictures, it sends fewer new pictures rather than repeatedly changing the quality of the static background. Cheap static pictures can still keep the configured cadence. The maximum remains configurable, with 8 Mbit/s as the default. Recovery also respects the receiver's current bandwidth estimate.
+
+In Firefox, controlled 8 -> 2 -> 8 Mbit/s target changes left the checked text region unchanged across 2111 frames. In a separate Chromium test, I reduced the actual connection from 20 to 1 Mbit/s and restored it. The stream adapted and returned to 60 fps without reconnecting. The abrupt drop still caused recovery pauses, so this is not a claim of seamless playback through any bandwidth change.
+
+The changes are in the common VM/LXC worker. The new tests cover NVENC H.264/HEVC encoding and H.264 browser reception; I have not repeated Intel/AMD hardware qualification for this update.
+
+I also corrected a keyboard focus bug: switching from the guest picture to another field could leave a key held in the guest, so a later click in a text field could produce a row of repeated characters. The viewer now releases keys on that focus change and ignores autorepeat carried over from a press started outside the console. Normal held-key repeat is preserved. This is shared by VM and LXC; reload or reopen the console after updating.
+
+Source, all five matching deb packages, installation guides and test reports:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261023-stock4.1
+
+The signed APT repository also provides stock4.1. For an existing installation, update all installed QSM profiles/helpers together:
+
+apt update
+apt install --only-upgrade qsm-pve-direct qsm-pve-direct-standalone qsm-pve-direct-lxc qsm-pve-direct-gateway
+
+The --only-upgrade option skips profiles that are not installed. Reconnect open consoles afterwards. The media fix does not need a VM reboot or LXC desktop reprovisioning.
+
+If you still see changing sharpness or flashing bands, please mention VM or LXC, the browser, codec/encoder, and whether you use direct UDP or the TCP 8006 gateway.
+
+Thank you, Dmitry
