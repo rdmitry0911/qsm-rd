@@ -1,0 +1,11 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261023-stock4.1",
+  "source_commit": "9b3320a44df9b804a1a2bdd7c34f85868519717b",
+  "apt_manifest_commit": "7f8ffa21956512de64213e164e820a002fb0e1ab",
+  "apt_workflow": "https://github.com/rdmitry0911/qsm-rd/actions/runs/40023203954",
+  "apt_workflow_result": "success",
+  "public_apt": "https://rdmitry0911.github.io/qsm-rd/",
+  "public_verification": "all 11 versioned packages incl keyring downloaded using real APT, signatures/hashes verified; tamper rejection passes",
+  "release_verification": "all downloaded release assets match signed SHA256SUMS-stock4.1; gpgv verifies signature with repository public key",
+  "discussion_messages": "prepared only; none sent or posted"
+}
