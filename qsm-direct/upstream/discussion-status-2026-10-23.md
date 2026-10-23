@@ -20,3 +20,22 @@ The [video qualification](review-video-budget-2026-10-23/qualification.txt)
 records the actual regression and new worker checks. In particular, it
 distinguishes Firefox target changes on LAN from Chromium physical shaping,
 and documents remaining freezes after a sudden capacity collapse.
+
+Stock4.1 publication
+-------------------
+The signed tag/release points at source commit
+`9b3320a44df9b804a1a2bdd7c34f85868519717b`. All five debs were built from
+that tracked source archive in the isolated Debian 13 build root. The
+worker/bridge fingerprints match the tested stock4 video code; the viewer
+also includes the new keyboard focus correction. The release includes full
+sources, signed checksums, package provenance and discussion drafts.
+
+All four host packages were upgraded to stock4.1 on 192.168.64.20. Final
+[versions/service/guest state](review-video-budget-2026-10-23/node-stock4.1-result.json)
+and [build provenance](review-video-budget-2026-10-23/build-stock4.1-provenance.json)
+are recorded separately from the earlier stock4 qualification. A globbed
+manual dpkg install initially reached the LXC helper before the core and
+its versioned Breaks rejected it; installing the helper after the core
+completed the matching upgrade. The APT transaction handles ordering.
+VM 103 and CT 105 remained running. Users must reload the Proxmox page with
+cache bypass and reopen consoles to replace pre-upgrade JavaScript.
