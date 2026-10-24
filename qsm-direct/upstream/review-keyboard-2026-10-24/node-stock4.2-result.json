@@ -1,0 +1,19 @@
+{
+  "versions": {
+    "qsm-pve-direct": "0.4.0+stock4.2",
+    "qsm-pve-direct-standalone": "0.4.0+stock4.2",
+    "qsm-pve-direct-lxc": "0.4.0+stock4.2",
+    "qsm-pve-direct-gateway": "0.4.0+stock4.2"
+  },
+  "services": {
+    "qsm-pve-direct-terminal": "active",
+    "qsm-pve-direct-signal": "active",
+    "qsm-pve-direct-gateway": "active",
+    "qsm-pve-direct-turn": "active"
+  },
+  "vm103": "status: running",
+  "ct105": "status: running",
+  "ui": "qsm-pve-direct PVE UI: active",
+  "viewer_sha256": "1b796d5a977f8fd8beefed41a484baa634360f7054587ae49aeb0fd022370ec3",
+  "worker_sha256": "c2af4da206fcd3f9ef5e2b90ef723d53b5230bf7bee7cd8c4cdbcb3fbdc27861"
+}

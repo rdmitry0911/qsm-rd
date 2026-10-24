@@ -1,0 +1,15 @@
+All four installed host packages on 192.168.64.20 are stock4.2. Terminal,
+signal, gateway and TURN are active; VM103 and CT105 remain running. The
+installed worker matches the real CT108 qualification worker byte-for-byte.
+Both viewer assets match the committed source, also verified over HTTPS.
+The first local APT attempt used --no-download, which prevents the required
+local-deb archive copy. It failed before changing packages. The same four
+local packages were then installed with APT without that flag; no other
+packages were upgraded, installed or removed.
+
+The CT108-only fixture and its predecessor owned processes were terminated;
+its aggregate/runtime files and /opt script were removed. The lab output
+was restored from 1280x720 to its preceding 1970x1220 mode. Read-only VM103
+monitor runtime files and host observer scripts were removed. Production
+guests were not stopped. Old cached viewers need reload before they can
+negotiate the new input path. Discussion text is prepared only, not posted.
