@@ -1,0 +1,10 @@
+192.168.64.20 updated to matching 0.4.0+stock4.3 core/standalone/LXC/gateway.
+APT simulation selected only those four packages, with no removals.
+Worker payload exactly matches the real Firefox/CT108 qualification build.
+Installed worker/bridge/viewer SHA256 matches final release; HTTPS viewer is
+identical. All four QSM services active, dpkg audit empty, VM103 and CT105
+running, PVE UI active. No guest reboot or desktop reprovisioning performed.
+The matching guest deb is embedded in the helper, not installed on PVE host.
+Release downloaded from GitHub: all SHA256 checks and public-key signature
+verified. Signed tag points to the exact source commit in BUILD-PROVENANCE.
+Forum text is a draft; no forum/mail messages posted.
