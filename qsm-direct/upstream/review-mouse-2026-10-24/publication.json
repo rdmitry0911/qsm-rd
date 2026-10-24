@@ -1,0 +1,13 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.3",
+  "source_commit": "b2795f73cd8f5b1788f4c6e206add291334b237f",
+  "apt_manifest_commit": "bf0c88934e87959a8dcfe0b04b0fabf555028c68",
+  "apt_workflow": "https://github.com/rdmitry0911/qsm-rd/actions/runs/40078198686",
+  "apt_workflow_result": "success",
+  "public_apt": "https://rdmitry0911.github.io/qsm-rd/",
+  "verified_downloads": 21,
+  "signature_and_sha256": "Downloaded release assets verified with public key; real APT verifies all pinned versions; metadata and deb tamper rejection pass.",
+  "deployment": "192.168.64.20 matching four host packages at stock4.3; VM103/CT105 running, all QSM services active, installed and HTTPS-served viewer hashes match.",
+  "trackpad_test_scope": "Browser-compatible MouseEvents and fractional WheelEvents, not a physical trackpad qualification.",
+  "discussion_messages": "forum draft prepared only; no mail or forum posts sent"
+}
