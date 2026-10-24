@@ -1,0 +1,12 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.2",
+  "source_commit": "8bd3750c41f39748fcbae114d34a13133fa2aa07",
+  "apt_manifest_commit": "65e52a4e133c1d1dcce209ac5fb58b841118eb9a",
+  "apt_workflow": "https://github.com/rdmitry0911/qsm-rd/actions/runs/40074093802",
+  "apt_workflow_result": "success",
+  "public_apt": "https://rdmitry0911.github.io/qsm-rd/",
+  "verified_downloads": 16,
+  "signature_and_sha256": "downloaded release assets verified with public key; real APT verifies all pinned versions; metadata/deb tamper rejection passes",
+  "live_node_observation": "New live session reports input_leased=1, snapshots increasing, input_atomic_taps=31, input_expired_keys=0, input_hold_max_ms=0, event_delay_max_ms=47. Counts only; no key identities/text logged.",
+  "discussion_messages": "forum draft prepared only; no messages sent or posted"
+}
