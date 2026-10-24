@@ -1,0 +1,25 @@
+Hi guys, an update on text sharpness and input reliability. The signed APT repository now has stock4.3.
+
+The earlier packet-loss fix did not cover genuine bandwidth changes: resetting the encoder could still change the quality of unchanged parts of the desktop, sometimes in horizontal bands. The worker now keeps its encoder settings and budgets pictures before encoding. A narrow connection reduces motion cadence rather than repeatedly changing the static background. Sudden large bandwidth drops can still cause recovery pauses.
+
+In Firefox, controlled 8 -> 2 -> 8 Mbit/s target changes left the checked text region unchanged across 2111 frames. A separate Chromium test with an actual 20 -> 1 -> 20 Mbit/s connection recovered to 60 fps without reconnecting, with pauses during the abrupt drop. New checks cover NVENC H.264/HEVC and H.264 browser reception; I have not repeated Intel/AMD hardware qualification for this update.
+
+There is also a more complete fix for repeated characters. Releasing keys on focus loss helped, but a delayed release could still let the guest start its own autorepeat. Exact typing is now the default: each press or real client repeat crosses as one complete action with its modifiers. The first character is immediate. In Firefox with a real LXC desktop and a 900 ms control-delivery gap, one short press gave 8 characters in the old mode and 1 in Exact typing. Six confirmed client events gave six characters.
+
+Exact clicks extends this to mouse, trackpad taps/clicks and touchscreen taps. A short click is sent on release with its coordinates and modifiers. Moving 4 pixels with a button down or holding for 250 ms starts a drag/hold; drag movement and release stay ordered. Fractional trackpad scroll deltas are retained, including horizontal scrolling. The existing touchscreen hold-to-drag gesture stays the same.
+
+Double click, right click, intentional holds, dragging and both scroll axes passed the browser/desktop tests. I have not qualified a physical trackpad yet. Physical holds and Raw input remain available when an application needs immediate held input. A connection stall can end a drag early, and native double-click timing can still be affected by delivery jitter.
+
+The common VM/LXC paths are updated. The standalone profile still works with official PVE 9 packages, with no new guest agent requirement. Source, all five matching debs, guides and checks:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.3
+
+For an existing APT installation, update all installed QSM profiles together:
+
+apt update
+apt install --only-upgrade qsm-pve-direct qsm-pve-direct-standalone qsm-pve-direct-lxc qsm-pve-direct-gateway
+
+The --only-upgrade option skips uninstalled profiles. Reload the PVE page with cache bypass and reopen consoles. No VM/LXC reboot or desktop reprovisioning is needed. If you previously selected Raw, choose Guest first with Exact typing and Exact clicks to try these defaults.
+
+Feedback would be welcome, especially from Firefox/VPN and trackpad users. Please mention VM or LXC, browser, encoder/codec, and direct UDP or the TCP 8006 gateway.
+
+Thank you, Dmitry

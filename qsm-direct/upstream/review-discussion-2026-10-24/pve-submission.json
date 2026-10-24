@@ -1,0 +1,47 @@
+{
+  "message_id": "<179283663410.2345286.10377571210474311317.qsm-stock4.3-update@taktcycles.com>",
+  "date": "Sat, 24 Oct 2026 10:10:34 +0000",
+  "from": "rdmitry@taktcycles.com",
+  "reply_to": "rdmitry0911@gmail.com",
+  "recipients": [
+    "pve-devel@lists.proxmox.com",
+    "alexandre.derumier@groupe-cyllene.com"
+  ],
+  "in_reply_to": "<!~!UENERkVCMDkAAQACAAAAAAAAAAAAAAAAABgAAAAAAAAA0OHNyS9hYUaLr/vP3jA+aSKGAAAQAAAA9a/1ZV4340WxEaO3VIuQWQEAAAAA@gmail.com>",
+  "source_eml": "pve-devel-input-video-update-2026-10-24.eml",
+  "eml_sha256": "d577395b53b095ff70057303750d6362f133602234f6bd493ad458ef1a771bc7",
+  "submission_status": "published_and_verified",
+  "started_at": "2026-10-24T10:10:56.964273+00:00",
+  "smtp_code": 250,
+  "smtp_response": "2.0.0 Ok: queued as F18001C9A8E5",
+  "submitted_at": "2026-10-24T10:10:56.993922+00:00",
+  "origin_queue_id": "F18001C9A8E5",
+  "relay_queue_id": "04CC31303B",
+  "outbound_queue_id": "687DC987F",
+  "alexandre_delivery": {
+    "status": "accepted_by_recipient_mx",
+    "mx": "vade-mx-fr02.hornetsecurity.com",
+    "smtp_code": 250,
+    "remote_queue_id": "4jBbJ15vTpzMqc8"
+  },
+  "list_delivery": {
+    "status": "accepted_by_recipient_mx_and_publicly_archived",
+    "mx": "gate001.proxmox.com",
+    "smtp_code": 250,
+    "enhanced_status": "2.5.0",
+    "response": "OK (203566ADC8568CC3FD)",
+    "retry": "same queued message, same Message-ID, only deferred list recipient retried"
+  },
+  "public_archive": "https://lore.proxmox.com/pve-devel/179283663410.2345286.10377571210474311317.qsm-stock4.3-update@taktcycles.com/",
+  "public_thread": "https://lore.proxmox.com/pve-devel/30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com/T/",
+  "public_rfc_message_count": 9,
+  "body_verified": true,
+  "verified_at": "2026-10-24T10:17:10.226848+00:00",
+  "list_initial_delivery": {
+    "status": "deferred_at_recipient_mx",
+    "mx": "gate001.proxmox.com",
+    "smtp_code": 450,
+    "enhanced_status": "4.7.1",
+    "response": "Recipient address rejected: Service is unavailable (try later)"
+  }
+}

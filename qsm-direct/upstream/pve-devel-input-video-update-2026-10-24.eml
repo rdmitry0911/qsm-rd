@@ -1,0 +1,70 @@
+From: Dmitry R <rdmitry@taktcycles.com>
+Reply-To: Dmitry R <rdmitry0911@gmail.com>
+To: pve-devel@lists.proxmox.com
+Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+Subject: Re: [RFC] WebRTC console for VMs via QEMU's D-Bus display
+In-Reply-To: <!~!UENERkVCMDkAAQACAAAAAAAAAAAAAAAAABgAAAAAAAAA0OHNyS9hYUaLr/vP3jA+aSKGAAAQAAAA9a/1ZV4340WxEaO3VIuQWQEAAAAA@gmail.com>
+References: <CAANzA5H4-dLnboSPPpA6yuw=R2wxQ8S1ewZMJwk+Fy4S9LGYEQ@mail.gmail.com> <!~!UENERkVCMDkAAQACAAAAAAAAAAAAAAAAABgAAAAAAAAA0OHNyS9hYUaLr/vP3jA+aSKGAAAQAAAA9a/1ZV4340WxEaO3VIuQWQEAAAAA@gmail.com>
+Date: Sat, 24 Oct 2026 10:10:34 +0000
+Message-ID: <179283663410.2345286.10377571210474311317.qsm-stock4.3-update@taktcycles.com>
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+MIME-Version: 1.0
+
+Hi Alexandre, hi all,
+
+A follow-up to the standalone/APT update: stock4.3 now includes the
+reference-detail fix and a completed-action input mode for both VM and LXC.
+
+Genuine bitrate changes could still reset hardware rate control and replace
+unchanged reference detail, producing changing sharpness or horizontal
+bands. The worker now keeps the encoder settings and budgets raw pictures
+before encoding. Under constraint it reduces motion cadence; media timestamps
+preserve playback time. An abrupt capacity drop can still cause recovery
+pauses. NVENC H.264/HEVC and browser H.264 checks are included; Intel/AMD
+hardware and interaction latency were not remeasured for this change.
+
+For input, reliable delivery alone was insufficient: a delayed key release
+could cross the guest's native repeat threshold. Read-only QEMU/guest
+observations found complete press/release pairs but stretched holds. Exact
+typing is now the default. Each press or actual client repeat is one complete
+key action with its modifiers, executed locally by the worker. The first
+character is immediate. Physical holds/Raw remain available for applications
+which require a key to stay down.
+
+In Firefox with a real Sway/Qt LXC desktop, a 900-ms control-delivery gap gave
+8 characters from one short source press in the old mode and 1 with exact
+typing. A heartbeat-only guard still gave 5 after a recent confirmation;
+exact typing gave 1. Six confirmed source events produced six characters.
+
+Stock4.3 applies the same approach to short mouse/trackpad/touch clicks,
+including their coordinates. A short click is sent on release; movement of
+4 CSS pixels or a 250-ms hold starts a drag/hold. Drag motion and release
+stay ordered through acknowledgement, with a per-viewer coordinate filter
+shared by both channels. Normal idle motion retains the fast pointer path.
+Fractional trackpad deltas and horizontal scrolling are supported.
+
+The same injected gap gave two activations of a Qt auto-repeat button with
+physical edges plus watchdog, versus one with the complete click. Double
+click, right click, holds, dragging and two-axis scroll passed. These are
+browser-event tests, not physical trackpad or end-to-end latency benchmarks.
+Native double-click timing can still change with delivery jitter. A 200-ms
+confirmation timeout can end a drag early; stale snapshots never re-press it.
+
+Source, five matching debs, guides and detailed qualification:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.3
+
+Signed APT repository:
+https://rdmitry0911.github.io/qsm-rd/
+
+Update installed QSM profiles together, then reload PVE with cache bypass
+and reopen consoles. No guest reboot or agent update is needed. This release
+has 73 bridge tests, 22 CTest gates and worker/fake-QEMU E2E coverage.
+
+The standalone release remains separate from the native shared-bus/API/UI
+proposal. It does not change the proposed upstream interface or establish
+maintainer agreement. Feedback on bus ownership/lifetime, configuration and
+the service/API boundary would still be welcome.
+
+Thanks,
+Dmitry

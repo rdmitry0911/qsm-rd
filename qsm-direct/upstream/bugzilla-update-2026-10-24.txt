@@ -1,0 +1,21 @@
+Implementation/proposal update, 2026-10-24
+
+The initial description predates the discussion with Alexandre Derumier on pve-devel. The proposed native integration now uses his shared per-VM D-Bus foundation, with qemu-server owning the bus and its lifetime and QSM attaching as a separate consumer. This replaces my initial p2p=yes/getfd/add_client proposal. Foundation, console API and UI changes remain separate review series; the configuration and service/API boundary are still proposals, not agreed upstream interfaces.
+
+Native discussion and review material:
+https://lore.proxmox.com/pve-devel/30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com/T/
+https://github.com/rdmitry0911/qsm-rd/tree/main/qsm-direct/upstream
+
+A separate standalone preview is available for official PVE 9 / Debian 13 amd64, without rebuilt Proxmox packages. It still requires PVE and uses its authentication/permissions. Source, five matching QSM packages, installation guides and qualification:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.3
+
+Signed APT repository:
+https://rdmitry0911.github.io/qsm-rd/
+
+Since the earlier standalone release, the common VM/LXC worker retains encoder settings and budgets raw pictures before encoding when the network target changes. Constrained bandwidth reduces motion cadence instead of repeatedly changing static reference detail. NVENC H.264/HEVC and browser H.264 checks are included; abrupt capacity drops can still cause pauses. The original latency/throughput numbers remain historical and were not remeasured by this work.
+
+Exact typing is now the default: each source press/repeat is a complete local key action, preventing delayed release delivery from generating guest-native repeats. Stock4.3 adds complete short mouse/trackpad/touch clicks with coordinates and modifiers, ordered drag movement/release, per-viewer input ownership and stale-hold cleanup. Physical holds/Raw remain available. Fractional two-axis trackpad scrolling is supported. Real Firefox/LXC and worker/fake-QEMU evidence is in the release; physical trackpad and arbitrary-jitter double-click timing are not qualified.
+
+The optional single-TCP-8006 standalone gateway remains separate from native pveproxy/API integration. It is explicitly enabled, with documented listener/SPICE effects and rollback. HTTPS protects UI/signalling, SRTP protects media, and DTLS protects input/clipboard; outer TURN control is plain TCP, not TURN/TLS.
+
+The add-on release does not resolve this request for native PVE integration or the separate rendernode enhancement #4771. Feedback on configuration, bus ownership/lifetime and the service/API boundary would be welcome.
