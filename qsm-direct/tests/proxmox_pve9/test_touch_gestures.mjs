@@ -21,7 +21,8 @@ const end = source.indexOf("video.addEventListener('paste'", start);
 assert.ok(start > 0 && end > start);
 const recognizer = new Function('env', `
     const {video, document, popup, gestureToAction, queuePointer, flushPointer,
-        pointerForMouseEvent, sendMouseButton, send, releaseHeldInput} = env;
+        pointerForMouseEvent, sendMouseButton, sendMouseClick, send, releaseHeldInput} = env;
+    const endMouse=()=>{};
     let usingTouchInput = false, toolbarVisible = false, toolbarPinned = false;
     let zoomScale = 1, zoomTx = 0, zoomTy = 0;
     const MIN_ZOOM = 1, MAX_ZOOM = 4;
@@ -59,7 +60,7 @@ function harness(map = defaults) {
     const instance = recognizer({ video, document, popup, gestureToAction: map,
         queuePointer: point => points.push(point), flushPointer() {},
         pointerForMouseEvent: event => ({ x: event.clientX, y: event.clientY }),
-        sendMouseButton: button, send: message => messages.push(message),
+        sendMouseButton: button, sendMouseClick:n=>messages.push({button:n,action:'click'}), send: message => messages.push(message),
         releaseHeldInput: () => { for (const n of [...held]) { button(n, false); } },
     });
     return { video, document, popup, points, messages, held, ...instance,
@@ -92,7 +93,7 @@ function harness(map = defaults) {
 }
 {
     const h = harness(); h.touch('pointerdown', 20, 30); h.touch('pointerup', 20, 30);
-    assert.deepEqual(h.messages, [{ button: 1, down: true }, { button: 1, down: false }]);
+    assert.deepEqual(h.messages, [{ button: 1, action: 'click' }]);
 }
 {
     const h = harness(); h.touch('pointerdown', 20, 30); h.tick(500);
@@ -103,7 +104,7 @@ function harness(map = defaults) {
 }
 {
     const h = harness(); h.touch('pointerdown', 20, 30); h.tick(500); h.touch('pointerup', 20, 30);
-    assert.deepEqual(h.messages, [{ button: 3, down: true }, { button: 3, down: false }]);
+    assert.deepEqual(h.messages, [{ button: 3, action: 'click' }]);
 }
 for (const cancel of ['pointercancel', 'lostpointercapture', 'blur', 'hidden']) {
     const h = harness(); h.touch('pointerdown', 20, 30); h.tick(500); h.touch('pointermove', 80, 90);

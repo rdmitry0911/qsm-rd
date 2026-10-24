@@ -1,5 +1,6 @@
 """Input ownership and expiry across delayed reliable delivery, not video loss."""
 import json
+import struct
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,7 +8,7 @@ from pathlib import Path
 from extensions.browser_bridge.qsm_browser_bridge import (
     BrowserInputState, UnixInputEgress, BridgeError, INPUT_HEADER, INPUT_KEYBOARD,
     BrowserWebRtcBridge,
-    INPUT_KEY_TAP,
+    INPUT_KEY_TAP, INPUT_MOUSE_ACTION, INPUT_MOUSE_POSITION,
 )
 
 
@@ -151,6 +152,68 @@ class InputStateTests(unittest.TestCase):
         for modifiers in ([True], [29, 29], [30], [31], list(range(10))):
             with self.assertRaises(BridgeError):
                 self.peer.handle(json.dumps(dict(op='key_tap',key=30,modifiers=modifiers)))
+
+    def mouse(self, action=2, sequence=1, **extra):
+        return self.peer.handle(json.dumps(dict(op='mouse_action', button=1,
+            action=action, sequence=sequence, x=10, y=20, width=640, height=480,
+            modifiers=[], **extra)))
+
+    def test_complete_mouse_click_has_no_held_button_and_is_deduplicated(self):
+        self.snapshot(self.peer)
+        self.clock += .9  # No separate release packet can be delayed/lost.
+        self.assertEqual(self.mouse(), dict(op='qsm_mouse_ack', sequence=1))
+        self.assertEqual(self.sent[-1][1][5], INPUT_MOUSE_ACTION)
+        self.assertEqual(self.sent[-1][1][8:], struct.pack('!BBHHHH', 1,2,10,20,640,480))
+        self.clock += 2
+        self.peer.expire()
+        self.mouse()
+        self.assertEqual(len(self.sent), 1)
+        self.assertEqual(self.peer.clicks, 1)
+        self.assertFalse(self.peer._buttons)
+
+    def test_both_pointer_channels_share_the_action_fence_and_peer_local_serial(self):
+        def point(seq, reliable=False):
+            raw=json.dumps(dict(op='mouse_position', x=1,y=1,width=64,height=64,sequence=seq))
+            (self.peer.handle if reliable else self.peer.handle_pointer)(raw)
+        point(9)
+        self.mouse(sequence=10)
+        point(9, True); point(9)
+        self.assertEqual([p[5] for _, p in self.sent], [INPUT_MOUSE_POSITION, INPUT_MOUSE_ACTION])
+        point(11,True); point(10)
+        self.assertEqual(len(self.sent), 3)
+        self.assertEqual(len(self.sent[-1][1]), INPUT_HEADER.size+8, 'worker never compares different peers counters')
+        other=BrowserInputState(self.egress, now=lambda:self.clock)
+        other.handle(json.dumps(dict(op='mouse_position',x=2,y=2,width=64,height=64,sequence=0)))
+        self.assertEqual(len(self.sent),4,'a reopened console may restart at zero')
+
+    def test_drag_expiry_never_represses_and_final_coordinate_is_applied(self):
+        self.snapshot(self.peer)
+        self.mouse(action=1)
+        self.clock += .21
+        self.snapshot(self.peer,buttons=[1])
+        self.assertEqual(self.peer.expired_buttons,1)
+        self.assertFalse(self.peer._buttons)
+        self.mouse(action=0,sequence=2)
+        self.assertEqual([p[5] for _,p in self.sent],[INPUT_MOUSE_ACTION,2,INPUT_MOUSE_ACTION])
+        self.assertEqual(self.sent[-1][1][9],0)
+
+    def test_mouse_click_does_not_release_another_viewers_drag(self):
+        other=BrowserInputState(self.egress,now=lambda:self.clock)
+        other.handle('{"op":"mouse_button","button":1,"down":true}')
+        self.assertEqual(self.mouse(),dict(op='qsm_mouse_ack',sequence=1))
+        self.assertEqual(len(self.sent),1)
+        self.assertEqual(self.peer.clicks,0)
+        self.peer.release()
+        self.assertEqual(len(self.sent),1)
+        other.release()
+        self.assertEqual(len(self.sent),2)
+
+    def test_mouse_packet_validation(self):
+        good=dict(op='mouse_action',button=1,action=2,sequence=0,x=1,y=1,width=64,height=64,modifiers=[])
+        for fields in (dict(button=6),dict(action=True),dict(action=3),dict(sequence=-1),
+                       dict(sequence=2**32),dict(x=64),dict(modifiers=[30]),dict(modifiers=[29,29])):
+            with self.subTest(fields=fields),self.assertRaises(BridgeError):
+                self.peer.handle(json.dumps(good|fields))
 
 
 class SharedBridgeInputTests(unittest.IsolatedAsyncioTestCase):

@@ -1,0 +1,12 @@
+Hi guys, stock4.3 extends the input fix to mouse and trackpad buttons.
+
+Short clicks, including trackpad taps and touchscreen taps, now cross as one complete action with position and modifiers. A delayed release cannot turn a click into a long press. Dragging starts when the pointer moves 4 pixels with a button down, or after a 250 ms hold; drag movement and release stay ordered. The existing touchscreen hold-to-drag gesture stays the same.
+
+I checked this in Firefox with a real LXC desktop and a 900 ms control-delivery gap. A Qt auto-repeat button activated twice with physical edges and the watchdog, versus once with the complete click. Double click, right click, intentional holds and dragging passed too. Trackpad scroll now retains fractional deltas and supports both axes. These were browser-event tests; I have not qualified a physical trackpad yet.
+
+Physical button holds and Raw input remain available when an application needs an immediate button-down. Drags still use the stale-hold watchdog: a connection stall can end a drag early, and queued confirmations will not press the button again. Native double-click timing can still be affected by delivery jitter.
+
+This uses the common VM/LXC input path and needs no guest update or new Proxmox package patch. Source, matching debs and checks:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.3
+
+Update all installed QSM profiles together, reload PVE with cache bypass and reopen consoles. Thank you, Dmitry

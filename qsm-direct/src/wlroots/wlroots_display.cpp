@@ -1044,11 +1044,12 @@ void WlrootsDisplay::button(std::uint8_t qemu_button, bool pressed) {
                                        pressed ? WL_POINTER_BUTTON_STATE_PRESSED : WL_POINTER_BUTTON_STATE_RELEASED);
         break;
     }
-    case 3U: case 4U: {  // QEMU wheel up / down: one notch per press
+    case 3U: case 4U: case 7U: case 8U: {  // QEMU vertical/horizontal wheel
         if (!pressed) { return; }
-        const int direction = qemu_button == 3U ? -1 : 1;
+        const int direction = qemu_button == 3U || qemu_button == 7U ? -1 : 1;
         zwlr_virtual_pointer_v1_axis_source(d.pointer, WL_POINTER_AXIS_SOURCE_WHEEL);
-        zwlr_virtual_pointer_v1_axis_discrete(d.pointer, time, WL_POINTER_AXIS_VERTICAL_SCROLL,
+        zwlr_virtual_pointer_v1_axis_discrete(d.pointer, time,
+                                              qemu_button < 7U ? WL_POINTER_AXIS_VERTICAL_SCROLL : WL_POINTER_AXIS_HORIZONTAL_SCROLL,
                                               wl_fixed_from_int(15 * direction), direction);
         break;
     }

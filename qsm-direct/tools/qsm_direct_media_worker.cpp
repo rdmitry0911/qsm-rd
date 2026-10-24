@@ -107,6 +107,7 @@ constexpr std::uint8_t input_resize = 5U;
 constexpr std::uint8_t input_keyframe_request = 6U;
 constexpr std::uint8_t input_video_bitrate = 7U;
 constexpr std::uint8_t input_key_tap = 8U;
+constexpr std::uint8_t input_mouse_action = 9U;
 constexpr std::size_t packet_header_size = 20U;
 constexpr std::size_t input_header_size = 8U;
 constexpr std::size_t max_fragment_bytes = 256U * 1024U;
@@ -1600,6 +1601,20 @@ public:
     }
 
 private:
+    static std::uint8_t qemu_button(std::uint8_t index) noexcept {
+        // QEMU reserves 3/4 for wheel up/down; side/extra are 5/6.
+        return index < 3U ? index : static_cast<std::uint8_t>(index + 2U);
+    }
+
+    void set_pointer(std::uint16_t x, std::uint16_t y) {
+        if (absolute_pointer_) { session_.absolute_pointer(x, y); }
+        else if (last_x_ && last_y_) {
+            session_.relative_pointer(static_cast<std::int32_t>(x) - *last_x_,
+                                      static_cast<std::int32_t>(y) - *last_y_);
+        }
+        last_x_ = x; last_y_ = y;
+    }
+
     void set_size(std::uint32_t width, std::uint32_t height, std::uint32_t fps) {
         if (width < 64U || height < 64U || width > 16'384U || height > 16'384U || fps < 10U || fps > 240U) {
             return;
@@ -1625,7 +1640,7 @@ private:
         // turn a normal console close into a process failure.
         for (std::uint8_t button = 0U; button < pressed_buttons_.size(); ++button) {
             if (!pressed_buttons_[button]) { continue; }
-            try { session_.button(button, false); } catch (...) {}
+            try { session_.button(qemu_button(button), false); } catch (...) {}
             pressed_buttons_[button] = false;
         }
         for (const auto key : pressed_keys_) {
@@ -1654,19 +1669,48 @@ private:
                 }
                 last_pointer_sequence_ = sequence;
             }
-            if (absolute_pointer_) {
-                session_.absolute_pointer(x, y);
-            } else if (last_x_ && last_y_) {
-                session_.relative_pointer(static_cast<std::int32_t>(x) - *last_x_,
-                                          static_cast<std::int32_t>(y) - *last_y_);
-            }
-            last_x_ = x; last_y_ = y;
+            set_pointer(x, y);
         } else if (op == input_mouse_button && payload.size() == 2U && payload[0] >= 1U && payload[0] <= 5U &&
                    (payload[1] == 0U || payload[1] == 1U)) {
             const auto button = static_cast<std::uint8_t>(payload[0] - 1U);
             const auto down = payload[1] == 1U;
-            session_.button(button, down);
+            session_.button(qemu_button(button), down);
             pressed_buttons_[button] = down;
+        } else if (op == input_mouse_action && payload.size() >= 10U && payload.size() <= 26U && payload.size() % 2U == 0U) {
+            if (payload[0] < 1U || payload[0] > 5U || payload[1] > 2U) { return; }
+            const auto button = static_cast<std::uint8_t>(payload[0] - 1U);
+            const auto action = payload[1];
+            const auto x = read_u16(payload, 2U), y = read_u16(payload, 4U);
+            const auto width = read_u16(payload, 6U), height = read_u16(payload, 8U);
+            if (width == 0U || height == 0U || x >= width || y >= height ||
+                (action != 0U && pressed_buttons_[button])) { return; }
+            std::vector<std::uint16_t> modifiers;
+            for (std::size_t index = 10U; index < payload.size(); index += 2U) {
+                const auto modifier = read_u16(payload, index);
+                if (modifier != 29U && modifier != 42U && modifier != 54U && modifier != 56U &&
+                    modifier != 0x9dU && modifier != 0xb8U && modifier != 0xdbU && modifier != 0xdcU) { return; }
+                modifiers.push_back(modifier);
+            }
+            std::vector<std::uint16_t> added;
+            for (const auto modifier : modifiers) {
+                if (pressed_keys_.contains(modifier)) { continue; }
+                pressed_keys_.insert(modifier); added.push_back(modifier);
+                session_.key(modifier, true);
+            }
+            set_pointer(x, y);
+            if (action == 0U) {
+                if (pressed_buttons_[button]) { session_.button(qemu_button(button), false); }
+                pressed_buttons_[button] = false;
+            } else {
+                pressed_buttons_[button] = true;
+                session_.button(qemu_button(button), true);
+                if (action == 2U) {
+                    session_.button(qemu_button(button), false); pressed_buttons_[button] = false;
+                }
+            }
+            for (auto it = added.rbegin(); it != added.rend(); ++it) {
+                session_.key(*it, false); pressed_keys_.erase(*it);
+            }
         } else if (op == input_keyboard && payload.size() == 4U && (payload[2] == 0U || payload[2] == 1U)) {
             const auto key = read_u16(payload, 0U);
             const auto down = payload[2] == 1U;
@@ -1713,6 +1757,11 @@ private:
             // from becoming an unbounded QEMU call loop.
             if (vertical != 0) {
                 const auto button = static_cast<std::uint8_t>(vertical > 0 ? 4U : 3U);
+                session_.button(button, true); session_.button(button, false);
+            }
+            const auto horizontal = read_i16(payload, 2U);
+            if (horizontal != 0) {
+                const auto button = static_cast<std::uint8_t>(horizontal > 0 ? 8U : 7U);
                 session_.button(button, true); session_.button(button, false);
             }
         } else if (op == input_resize && payload.size() == 10U) {

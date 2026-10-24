@@ -12,7 +12,8 @@ const listeners = section("for (const name of ['keydown', 'keyup']) {\n         
 const make = new Function('env', `
     const {video, kbInput, document, send, settings, actions, popup} = env;
     const heldKeys = new Set(), heldMouseButtons = new Set(), physicalHeldKeys = new Set();
-    let inputStateEnabled = false, inputStateTimer = null, inputTapsEnabled = false;
+    let inputStateEnabled = false, inputStateTimer = null, inputTapsEnabled = false, inputMouseActionsEnabled = false;
+    const mouseInputModeHint={};
     const KEY_INPUT_MODE={typing:'client-repeat',physical:'guest-repeat'},keyInputModeHint={};
     let diagKeySent = 0, diagLastInput = '', fullscreenEscapePending = false;
     const noteGuestInput = () => {}, qemuKey = event => ({KeyA:30, ControlLeft:29, KeyV:47})[event.code] ?? null;
@@ -138,7 +139,7 @@ for (const element of ['video', 'kbInput']) {
     const messages=[];makeChord(true,message=>messages.push(message))([29,42],46);
     assert.deepEqual(messages,[{op:'key_tap',key:46,modifiers:[29,42]}],'clipboard/special chords cross as one action');
     const defaults=source.slice(source.indexOf('const defaultConsoleSettings ='),source.indexOf('// Standard receiver target'));
-    const getDefaults=new Function('CONSOLE_SETTING_SCHEMA','KEYBOARD_PRIORITY','KEY_INPUT_MODE',defaults+'return defaultConsoleSettings();');
-    assert.equal(getDefaults({}, {guest:'guest'}, {typing:'typing',physical:'physical'}).keyInputMode,'typing','exact typing must be default');
+    const getDefaults=new Function('CONSOLE_SETTING_SCHEMA','KEYBOARD_PRIORITY','KEY_INPUT_MODE','MOUSE_INPUT_MODE',defaults+'return defaultConsoleSettings();');
+    assert.equal(getDefaults({}, {guest:'guest'}, {typing:'typing',physical:'physical'},{exact:'exact'}).keyInputMode,'typing','exact typing must be default');
 }
 console.log('PASS: guest keyboard edges, focus changes, exact typing, raw holds, chords and clipboard repeat');

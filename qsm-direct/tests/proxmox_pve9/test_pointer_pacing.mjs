@@ -7,6 +7,7 @@ const end=source.indexOf('            const pointerForMouseEvent =',begin);
 let now=0, timer=null, sequence=0, blocked=false;
 const motion=[],ordered=[];
 const context=vm.createContext({
+    mouseFenceSequence:null,exactMouseClicks:()=>true,heldMouseButtons:new Set(),
     closed:false,pointerTimer:null,pendingPointer:null,latestPointer:null,nextPointerSendAt:0,pointerSequence:sequence,
     pointer:{readyState:'open'}, noteGuestInput(){},
     send:value=>ordered.push(value), sendPointer:value=>{if(blocked)return false;motion.push(value);return true;},
@@ -27,5 +28,9 @@ now=29;context.queue({x:7});assert.ok(timer);
 now=100;context.queue({x:8});
 assert.equal(motion.at(-1).x,8,'fresh foreground input must bypass a throttled background timer');
 assert.equal(timer,null);
-context.closed=true;now=110;context.queue({x:9});assert.equal(motion.length,4);
+context.mouseFenceSequence=9;now=110;context.queue({x:9});
+assert.equal(ordered.at(-1).x,9,'motion cannot overtake an unacknowledged click');
+context.mouseFenceSequence=null;context.heldMouseButtons.add(1);now=120;context.queue({x:10});
+assert.equal(ordered.at(-1).x,10,'drag motion stays ordered even after press acknowledgement');
+context.closed=true;now=130;context.queue({x:9});assert.equal(motion.length,4);
 console.log('QSM_POINTER_PACING_OK');

@@ -1,7 +1,7 @@
 QSM Direct: optional TCP 8006 gateway (experimental, single-node PVE 9)
 ===================================================================
 
-Release: 0.4.0+stock4.2. This explicit standalone profile shares TCP 8006 between
+Release: 0.4.0+stock4.3. This explicit standalone profile shares TCP 8006 between
 normal PVE HTTPS and authenticated TURN/TCP. Signalling uses /qsm-direct/ on the
 PVE browser origin. Video/audio and input/clipboard are encrypted by WebRTC.
 TURN control messages use plain TCP, WITHOUT TLS. See Encryption below.
@@ -13,14 +13,14 @@ Requirements and package installation
 ------------------------------------
 Read INSTALL-STOCK.txt / README.standalone first for platform, VM and LXC setup.
 No patched Proxmox debs are needed on stock PVE. Download matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.2
-Verify SHA256SUMS-stock4.2. Install as root on the PVE HOST:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.3
+Verify SHA256SUMS-stock4.3. Install as root on the PVE HOST:
 
-  apt install ./qsm-pve-direct_0.4.0+stock4.2_amd64.deb \
-              ./qsm-pve-direct-standalone_0.4.0+stock4.2_all.deb \
-              ./qsm-pve-direct-gateway_0.4.0+stock4.2_all.deb
+  apt install ./qsm-pve-direct_0.4.0+stock4.3_amd64.deb \
+              ./qsm-pve-direct-standalone_0.4.0+stock4.3_all.deb \
+              ./qsm-pve-direct-gateway_0.4.0+stock4.3_all.deb
 
-If the LXC helper is already installed, include its matching stock4.2 deb in that
+If the LXC helper is already installed, include its matching stock4.3 deb in that
 same transaction. For new LXC setup install the separate helper as described in
 README.standalone; it embeds the guest payload. NEVER install qsm-console-guest
 on the PVE host. Package installation does not activate a new gateway.
@@ -162,3 +162,17 @@ Console Settings also provides Esc/Alt+Tab/Ctrl+Alt+Del/Super buttons. Supported
 full-screen browsers request all available keys through Keyboard Lock; Firefox
 reserves Esc for page fullscreen, so use its browser fullscreen mode or the
 explicit Send to guest buttons.
+
+Mouse / trackpad input (stock4.3)
+--------------------------------
+Exact clicks is the default for ordinary mouse clicks, trackpad taps/clicks
+and touchscreen taps. A short click is one complete action sent on release,
+including position and modifiers. Moving 4 CSS pixels or holding for 250 ms
+starts a physical hold/drag; its motion/release stay ordered until the bridge
+acknowledges the release. A 50 ms snapshot renews held state, and 200 ms without
+confirmation releases it without re-pressing from stale queued snapshots.
+Physical button holds or Raw sends down immediately. Touch hold-to-drag stays
+at 500 ms. Both scroll axes work and fractional trackpad deltas accumulate.
+Normal double clicks pass; native double-click timing can still be affected
+by delivery jitter. Generic virtual input cannot carry original click times.
+Reload PVE with cache bypass and reopen consoles. No guest update is needed.

@@ -182,6 +182,14 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
                                             struct.pack("!hhhhI", 30, 16, width, height, 0)))
             input_connection.sendall(packet(INPUT_MOUSE_BUTTON, b"\x01\x01"))
             input_connection.sendall(packet(INPUT_MOUSE_BUTTON, b"\x01\x00"))
+            # Complete mouse clicks include coordinates. Side buttons must
+            # reach QEMU as side/extra, never its wheel-up/down slots 3/4.
+            for button in (1, 4, 5):
+                input_connection.sendall(packet(9, struct.pack("!BBHHHH", button,2,25,14,width,height)))
+            for action in (1, 0):
+                input_connection.sendall(packet(9, struct.pack("!BBHHHH", 1,action,25,14,width,height)))
+            input_connection.sendall(packet(INPUT_MOUSE_POSITION,
+                                            struct.pack("!hhhhI",30,16,width,height,1)))
             input_connection.sendall(packet(INPUT_KEYBOARD, b"\x00\x1e\x01\x00"))
             input_connection.sendall(packet(INPUT_KEYBOARD, b"\x00\x1e\x00\x00"))
             # A complete character action must stay atomic even when the
@@ -307,7 +315,7 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
             if not all(marker in trace for marker in (
                     "FAKE_QEMU_RESULT", f"frames={frames}", f"requested={width}x{height}",
                     "keyboard=10", "keyboard_press=5", "keyboard_release=5",
-                    "mouse=6", "button_press=2", "button_release=2",
+                    "mouse=20", "button_press=6", "button_release=6", "wheel_up=0", "wheel_down=0",
                     # The mock deliberately exposes relative mode. The
                     # retained +5,+2 delta proves the stale FFFE packet was
                     # discarded and that the FFFF -> 0 serial wrap advanced.

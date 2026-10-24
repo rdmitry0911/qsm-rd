@@ -3,7 +3,7 @@ qsm-pve-direct for Proxmox VE 9
 
 `qsm-pve-direct` is a browser-native PVE console transport.
 
-Standalone release 0.4.0+stock4.2
+Standalone release 0.4.0+stock4.3
 -----------------------------
 For official PVE 9 install matching qsm-pve-direct and
 qsm-pve-direct-standalone debs. Follow README.standalone, installed with the
@@ -367,3 +367,17 @@ Guest-first/Raw native fullscreen requests all keys through Keyboard Lock
 where supported. The browser may require permission. Firefox does not provide
 that API and reserves Esc for exiting page fullscreen. Console Settings has
 Send to guest buttons for Esc, Alt+Tab, Ctrl+Alt+Del and Super/Windows.
+
+Mouse / trackpad input (stock4.3)
+--------------------------------
+Exact clicks is the default for ordinary mouse clicks, trackpad taps/clicks
+and touchscreen taps. A short click is one complete action sent on release,
+including position and modifiers. Moving 4 CSS pixels or holding for 250 ms
+starts a physical hold/drag; its motion/release stay ordered until the bridge
+acknowledges the release. A 50 ms snapshot renews held state, and 200 ms without
+confirmation releases it without re-pressing from stale queued snapshots.
+Physical button holds or Raw sends down immediately. Touch hold-to-drag stays
+at 500 ms. Both scroll axes work and fractional trackpad deltas accumulate.
+Normal double clicks pass; native double-click timing can still be affected
+by delivery jitter. Generic virtual input cannot carry original click times.
+Reload PVE with cache bypass and reopen consoles. No guest update is needed.

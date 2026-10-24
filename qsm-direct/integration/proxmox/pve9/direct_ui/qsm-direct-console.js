@@ -56,6 +56,7 @@
         client: 'client-first',
     });
     const KEY_INPUT_MODE = Object.freeze({ typing: 'client-repeat', physical: 'guest-repeat' });
+    const MOUSE_INPUT_MODE = Object.freeze({ exact: 'exact-clicks', physical: 'physical-buttons' });
     const CONSOLE_SETTING_SCHEMA = Object.freeze({
         toolbarHotZonePx: { defaultValue: 32, minimum: 4, maximum: 160 },
         toolbarNearbyPx: { defaultValue: 36, minimum: 0, maximum: 240 },
@@ -85,6 +86,7 @@
         // available for users who want browser/OS shortcuts to win.
         keyboardPriority: KEYBOARD_PRIORITY.guest,
         keyInputMode: KEY_INPUT_MODE.typing,
+        mouseInputMode: MOUSE_INPUT_MODE.exact,
     });
     // Standard receiver target is in milliseconds; the older Chromium hint
     // uses seconds. This is a target: the browser can enforce a larger floor.
@@ -116,6 +118,9 @@
             }
             if (Object.values(KEY_INPUT_MODE).includes(stored.keyInputMode)) {
                 settings.keyInputMode = stored.keyInputMode;
+            }
+            if (Object.values(MOUSE_INPUT_MODE).includes(stored.mouseInputMode)) {
+                settings.mouseInputMode = stored.mouseInputMode;
             }
         } catch (_error) { /* A disabled/private localStorage uses defaults. */ }
         return settings;
@@ -1311,6 +1316,24 @@
         const keyInputModeHint = document.createElement('p');
         keyInputModeHint.style.cssText = 'margin:8px 0;color:#cbd5e1;line-height:1.35';
         keyInputModeHint.textContent = gettext('Exact typing sends each character/repeat as one complete action, so a delayed release cannot generate extra characters. Modifier chords still work. Use Physical holds or Raw input for games and shortcuts that require holding an ordinary key. Physical mode uses guest autorepeat, which can repeat during input delays. Raw input always uses physical holds.');
+        const mouseInputModeInput = document.createElement('select');
+        mouseInputModeInput.id = 'qsm-direct-mouse-input-mode';
+        mouseInputModeInput.style.cssText = 'width:100%;box-sizing:border-box;padding:4px 6px';
+        const mouseInputModeLabel = document.createElement('label');
+        mouseInputModeLabel.htmlFor = mouseInputModeInput.id;
+        mouseInputModeLabel.textContent = gettext('Mouse and trackpad buttons');
+        for (const [value, label] of [
+            [MOUSE_INPUT_MODE.exact, gettext('Exact clicks — mouse and trackpad')],
+            [MOUSE_INPUT_MODE.physical, gettext('Physical button holds')],
+        ]) {
+            const option = document.createElement('option'); option.value = value; option.textContent = label;
+            mouseInputModeInput.append(option);
+        }
+        mouseInputModeInput.value = settings.mouseInputMode;
+        keyboardPolicyForm.append(mouseInputModeLabel, mouseInputModeInput);
+        const mouseInputModeHint = document.createElement('p');
+        mouseInputModeHint.style.cssText = 'margin:8px 0;color:#cbd5e1;line-height:1.35';
+        mouseInputModeHint.textContent = gettext('Exact clicks send a complete click with its position on release, including trackpad taps. Moving 4 pixels or holding for 250 ms starts a drag/hold. Drag movement and release stay ordered. Raw input uses immediate physical button edges.');
         const keyboardPolicyHint = document.createElement('p');
         keyboardPolicyHint.textContent = gettext('Guest first forwards received keys, including Ctrl/Alt/Meta, with clipboard integration. To leave guest keyboard capture, press Ctrl+Alt+Shift+Esc; focus moves to Settings. Raw input sends literal key edges and reserves no QSM chord. In native full screen, supported browsers request all available keys through Keyboard Lock. In client-first mode, browser shortcuts stay local.');
         keyboardPolicyHint.style.cssText = 'margin:8px 0;color:#cbd5e1;line-height:1.35';
@@ -1457,7 +1480,7 @@
         settingsActions.append(resetSettings, closeSettings);
         settingsPanel.append(settingsTitle, settingsHint, mediaPolicyTitle, mediaPolicyHint,
             mediaPolicyForm, saveMediaPolicy, keyboardPolicyTitle, keyboardPolicyForm,
-            keyboardPolicyHint, keyInputModeHint, keyboardCaptureStatus, specialKeys, keyboardUnavailableHint, gesturesTitle, gesturesHint,
+            keyboardPolicyHint, keyInputModeHint, mouseInputModeHint, keyboardCaptureStatus, specialKeys, keyboardUnavailableHint, gesturesTitle, gesturesHint,
             gesturesForm, resetGestures, settingsForm, settingsActions);
         toolbar.append(status, copy, paste, audio, mic, kbButton, fullscreen, diagButton, settingsButton);
         // On-screen diagnostics for the case a client shows no picture (mostly
@@ -1493,6 +1516,13 @@
         let inputStateTimer = null;
         let inputStateEnabled = false;
         let inputTapsEnabled = false;
+        let inputMouseActionsEnabled = false;
+        let mouseFenceSequence = null;
+        const pendingMousePresses = new Map();
+        const cancelPendingMouse = () => {
+            for (const press of pendingMousePresses.values()) { popup.clearTimeout(press.timer); }
+            pendingMousePresses.clear();
+        };
         const physicalHeldKeys = new Set();
         let fullscreenEscapePending = false;
         // `qsm-pointer` is deliberately unordered and non-retransmitted.
@@ -2025,6 +2055,8 @@
             writeConsoleSettings(browserStorage, settings);
             keyInputModeInput.disabled = settings.keyboardPriority === KEYBOARD_PRIORITY.raw;
             keyInputModeInput.value = keyInputModeInput.disabled ? KEY_INPUT_MODE.physical : settings.keyInputMode;
+            mouseInputModeInput.disabled = settings.keyboardPriority === KEYBOARD_PRIORITY.raw;
+            mouseInputModeInput.value = mouseInputModeInput.disabled ? MOUSE_INPUT_MODE.physical : settings.mouseInputMode;
             updateGuestKeyboardLock();
             applyReceiverPlayoutDelay(videoReceiver, settings.playoutDelayMs);
             if (toolbarTimer !== null) {
@@ -2064,6 +2096,7 @@
                 keyboardPriorityInput.value = settings.keyboardPriority;
                 return;
             }
+            releaseHeldInput();
             settings.keyboardPriority = value;
             applyConsoleSettings();
         });
@@ -2075,7 +2108,14 @@
             settings.keyInputMode = keyInputModeInput.value;
             applyConsoleSettings();
         });
+        mouseInputModeInput.addEventListener('change', () => {
+            if (!Object.values(MOUSE_INPUT_MODE).includes(mouseInputModeInput.value)) { return; }
+            releaseHeldInput();
+            settings.mouseInputMode = mouseInputModeInput.value;
+            applyConsoleSettings();
+        });
         resetSettings.addEventListener('click', () => {
+            releaseHeldInput();
             Object.assign(settings, defaultConsoleSettings());
             for (const [name, input] of settingInputs) { input.value = String(settings[name]); }
             keyboardPriorityInput.value = settings.keyboardPriority;
@@ -2301,9 +2341,50 @@
             diagLastInput = value.op || 'pointer';
             return true;
         };
-        const sendMouseButton = (button, down) => {
+        const exactMouseClicks = () => inputMouseActionsEnabled &&
+            settings.mouseInputMode === MOUSE_INPUT_MODE.exact && settings.keyboardPriority !== KEYBOARD_PRIORITY.raw;
+        const mouseModifiers = (event) => {
+            const result = [...physicalHeldKeys].filter(key => [29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc].includes(key));
+            if (event) {
+                for (const [flag, group] of [['ctrlKey', [29, 0x9d]], ['shiftKey', [42, 54]],
+                    ['altKey', [56, 0xb8]], ['metaKey', [0xdb, 0xdc]]]) {
+                    if (event[flag] === false) {
+                        for (let i = result.length - 1; i >= 0; --i) {
+                            if (group.includes(result[i])) { result.splice(i, 1); }
+                        }
+                    } else if (event[flag] === true && !result.some(key => group.includes(key))) { result.push(group[0]); }
+                }
+            }
+            return result;
+        };
+        const sendMouseAction = (button, action, point = latestPointer, event = null) => {
+            if (!point || !Number.isInteger(button) || button < 1 || button > 5) { return false; }
+            const { x, y, width, height } = point;
+            const sequence = pointerSequence;
+            pointerSequence = (pointerSequence + 1) >>> 0;
+            if (!send({ op: 'mouse_action', button, action, sequence, x, y, width, height,
+                modifiers: mouseModifiers(event) })) { return false; }
+            // Until the bridge has queued this action, subsequent coordinates
+            // must not overtake it through the unordered pointer channel.
+            mouseFenceSequence = sequence;
+            if (pointerTimer !== null) { popup.clearTimeout(pointerTimer); pointerTimer = null; }
+            pendingPointer = null;
+            latestPointer = { op: 'mouse_position', x, y, width, height, sequence };
+            diagButtonSent += 1; diagLastInput = 'mouse' + button + ':' + action;
+            return true;
+        };
+        const sendMouseClick = (button, point = latestPointer, event = null) => {
+            if (exactMouseClicks()) { return sendMouseAction(button, 2, point, event); }
+            sendMouseButton(button, true); sendMouseButton(button, false);
+            return true;
+        };
+        const sendMouseButton = (button, down, point = latestPointer, event = null) => {
             if (!Number.isInteger(button) || button < 1 || button > 5) { return; }
             noteGuestInput();
+            if (down === heldMouseButtons.has(button)) { return; }
+            if (exactMouseClicks()) {
+                if (!sendMouseAction(button, down ? 1 : 0, point, event)) { return; }
+            } else if (!send({ op: 'mouse_button', button, down })) { return; }
             if (down) {
                 if (heldMouseButtons.has(button)) { return; }
                 heldMouseButtons.add(button);
@@ -2311,7 +2392,6 @@
                 if (!heldMouseButtons.has(button)) { return; }
                 heldMouseButtons.delete(button);
             }
-            send({ op: 'mouse_button', button, down });
             diagButtonSent += 1; diagLastInput = 'button' + button + (down ? '↓' : '↑');
         };
         const sendKeyboard = (key, down, repeat = false, sourceTime = null, sourceEvent = null) => {
@@ -2372,6 +2452,8 @@
             if (inputStateTimer !== null) { popup.clearInterval(inputStateTimer); }
             inputStateEnabled = true;
             inputTapsEnabled = message.key_taps === true;
+            inputMouseActionsEnabled = message.mouse_actions === true;
+            if (!inputMouseActionsEnabled) { mouseInputModeHint.textContent = gettext('Exact mouse clicks require an updated QSM host package; physical buttons are active.'); }
             if (!inputTapsEnabled && settings.keyInputMode === KEY_INPUT_MODE.typing) {
                 keyInputModeHint.textContent = gettext('Exact typing is unavailable on this server; physical input is active. Update the QSM host package and reopen this console.');
             }
@@ -2471,6 +2553,7 @@
             // native full-screen, focus, or close transition interrupts the
             // DOM sequence.  The ordered control channel preserves these
             // release edges ahead of a transport close.
+            cancelPendingMouse();
             for (const button of [...heldMouseButtons]) { sendMouseButton(button, false); }
             for (const key of [...heldKeys]) { sendKeyboard(key, false); }
             publishInputState();
@@ -2905,7 +2988,9 @@
                 if (!value || closed) { return; }
                 // Fence the position and button on the same ordered channel:
                 // SCTP does not order messages across different data channels.
-                if (reliable) { send(value); }
+                if (reliable || mouseFenceSequence !== null || (exactMouseClicks() && heldMouseButtons.size)) {
+                    send(value); nextPointerSendAt = popup.performance.now() + 8;
+                }
                 else if (sendPointer(value)) { nextPointerSendAt = popup.performance.now() + 8; }
                 else if (pointer && pointer.readyState === 'open') {
                     // Backpressure retains only the latest coordinate; reliable
@@ -2970,6 +3055,8 @@
                 if (!message || typeof message !== 'object') { return; }
                 if (message.op === 'qsm_input_policy') {
                     acceptInputPolicy(message);
+                } else if (message.op === 'qsm_mouse_ack') {
+                    if (message.sequence === mouseFenceSequence) { mouseFenceSequence = null; }
                 } else if (message.op === 'qsm_video_rate') {
                     acceptVideoRate(message);
                 } else if (message.op === 'qsm_guest_result' && typeof message.request_id === 'string') {
@@ -3062,6 +3149,38 @@
                 if (settingsPanelOpen) { return; }
                 video.focus({ preventScroll: true });
             });
+            // Desktop trackpad taps/clicks are MouseEvents too. Keep a short
+            // click wholly local until release; only a confirmed hold/drag
+            // creates guest held state, renewed by the existing snapshots.
+            const buttonMask = button => [0, 1, 4, 2, 8, 16][button];
+            const beginMouseHold = (button, press) => {
+                popup.clearTimeout(press.timer); pendingMousePresses.delete(button);
+                sendMouseButton(button, true, press.point, press.event);
+            };
+            const moveMouse = (event) => {
+                for (const [button, press] of pendingMousePresses) {
+                    if (typeof event.buttons === 'number' && !(event.buttons & buttonMask(button))) {
+                        popup.clearTimeout(press.timer); pendingMousePresses.delete(button);
+                    } else if (Math.hypot(event.clientX - press.x, event.clientY - press.y) >= 4) {
+                        beginMouseHold(button, press);
+                    }
+                }
+                for (const button of [...heldMouseButtons]) {
+                    if (typeof event.buttons === 'number' && !(event.buttons & buttonMask(button))) { sendMouseButton(button, false); }
+                }
+                queuePointer(pointerForMouseEvent(event));
+            };
+            const endMouse = (event) => {
+                const button = event.button + 1;
+                const press = pendingMousePresses.get(button);
+                if (press) {
+                    popup.clearTimeout(press.timer); pendingMousePresses.delete(button);
+                    sendMouseClick(button, pointerForMouseEvent(event), event);
+                } else if (heldMouseButtons.has(button)) {
+                    queuePointer(pointerForMouseEvent(event)); flushPointer(true);
+                    sendMouseButton(button, false, latestPointer, event);
+                }
+            };
             video.addEventListener('mousemove', (event) => {
                 observeToolbarZone(event);
                 // A real mouse is present: hand the cursor back to the OS/CSS
@@ -3070,8 +3189,7 @@
                 // A missed button-up from a previous native full-screen
                 // transition becomes observable on the next ordinary move.
                 // Clear it before it can make every later click a drag.
-                if (event.buttons === 0 && heldMouseButtons.size) { releaseHeldInput(); }
-                queuePointer(pointerForMouseEvent(event));
+                moveMouse(event);
             });
             video.addEventListener('mouseleave', () => {
                 pointerInToolbarZone = false;
@@ -3080,18 +3198,23 @@
                 hideToolbarSoon();
             });
             video.addEventListener('mousedown', (event) => {
-                ensurePlaying();
-                queuePointer(pointerForMouseEvent(event));
-                flushPointer(true);
-                video.focus();
-                sendMouseButton(event.button + 1, true);
+                ensurePlaying(); video.focus();
+                const button = event.button + 1;
+                if (button < 1 || button > 5 || pendingMousePresses.has(button) || heldMouseButtons.has(button)) { return; }
+                const point = pointerForMouseEvent(event);
+                queuePointer(point);
+                if (exactMouseClicks()) {
+                    const press = { x: event.clientX, y: event.clientY, point, event, timer: null };
+                    pendingMousePresses.set(button, press);
+                    press.timer = popup.setTimeout(() => beginMouseHold(button, press), 250);
+                } else {
+                    flushPointer(true); sendMouseButton(button, true, point, event);
+                }
                 event.preventDefault();
             });
-            video.addEventListener('mouseup', (event) => {
-                queuePointer(pointerForMouseEvent(event));
-                flushPointer(true);
-                sendMouseButton(event.button + 1, false);
-                event.preventDefault();
+            video.addEventListener('mouseup', (event) => { endMouse(event); event.preventDefault(); });
+            document.addEventListener('mousemove', (event) => {
+                if (event.target !== video && (pendingMousePresses.size || heldMouseButtons.size)) { moveMouse(event); }
             });
             video.addEventListener('contextmenu', (event) => {
                 // Button 3 was already sent on mousedown/mouseup above.
@@ -3155,8 +3278,7 @@
                 flushPointer(true);
                 if (action === 'move') { return; }
                 const button = action === 'rightClick' ? 3 : action === 'middleClick' ? 2 : 1;
-                sendMouseButton(button, true);
-                sendMouseButton(button, false);
+                sendMouseClick(button);
             };
             const scrollByDelta = (dy) => {
                 // Worker emits one wheel click per op (sign only): accumulate
@@ -3356,7 +3478,7 @@
             // a stale contact blocks every later tap.
             document.addEventListener('pointerup', endTouchPointer);
             document.addEventListener('pointercancel', (event) => {
-                if (!event || event.pointerType === 'mouse') { return; }
+                if (!event || event.pointerType === 'mouse') { releaseHeldInput(); return; }
                 if (!touchPoints.has(event.pointerId)) { return; }
                 touchPoints.delete(event.pointerId);
                 if (touchPoints.size === 0) {
@@ -3369,13 +3491,7 @@
             // Mouseup often targets the document instead of the video after
             // Escape leaves native full screen.  Preserve a captured guest
             // button only until that document-level release arrives.
-            document.addEventListener('mouseup', (event) => {
-                const button = event.button + 1;
-                if (!heldMouseButtons.has(button)) { return; }
-                queuePointer(pointerForMouseEvent(event));
-                flushPointer(true);
-                sendMouseButton(button, false);
-            });
+            document.addEventListener('mouseup', endMouse);
             video.addEventListener('pointercancel', (event) => {
                 if (!event || event.pointerType === 'mouse') { return; }
                 if (!touchPoints.has(event.pointerId)) { return; }
@@ -3391,7 +3507,18 @@
             document.addEventListener('visibilitychange', () => {
                 if (document.hidden) { releaseHeldInput(); }
             });
-            video.addEventListener('wheel', (event) => { send({ op: 'scroll', vertical: Math.max(-32768, Math.min(32767, Math.trunc(event.deltaY))), horizontal: Math.max(-32768, Math.min(32767, Math.trunc(event.deltaX))) }); event.preventDefault(); }, { passive: false });
+            let wheelX = 0, wheelY = 0;
+            video.addEventListener('wheel', (event) => {
+                // Trackpads can emit fractional deltas. Retain their remainder
+                // instead of losing a slow two-finger scroll to truncation.
+                const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? popup.innerHeight : 1;
+                wheelX += event.deltaX * scale; wheelY += event.deltaY * scale;
+                const horizontal = Math.max(-32768, Math.min(32767, Math.trunc(wheelX)));
+                const vertical = Math.max(-32768, Math.min(32767, Math.trunc(wheelY)));
+                wheelX -= horizontal; wheelY -= vertical;
+                if (vertical || horizontal) { send({ op: 'scroll', vertical, horizontal }); }
+                event.preventDefault();
+            }, { passive: false });
             video.addEventListener('paste', (event) => {
                 // Raw input is intentionally a literal key/mouse edge mode
                 // for configuring guest shortcuts. Its clipboard controls

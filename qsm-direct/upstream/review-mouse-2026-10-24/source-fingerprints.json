@@ -1,0 +1,6 @@
+{
+  "qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py": "e5165acf7c4a1178c5c47f3acb2da7ff8066fa8df4cf5f3df4253b4bc378e3f9",
+  "qsm-direct/tools/qsm_direct_media_worker.cpp": "4f4b5aac10863445c099615c498bc999df3754b74b4ec65b51d859916ea48b56",
+  "qsm-direct/src/wlroots/wlroots_display.cpp": "6d0c004ece8088ceee4d40f7562a5df91c0bf2711218fa0bf615c884224ab60b",
+  "qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js": "38b2ac6887dc4fd8d7ae5808aaaff2e52c70a3038796d756f46bba76cd179a1b"
+}

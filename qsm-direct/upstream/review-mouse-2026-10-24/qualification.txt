@@ -1,0 +1,32 @@
+Stock4.3 mouse/trackpad qualification, 2026-10-24
+
+Production JS fragments -> Firefox 157 -> ordered SCTP control / unordered
+pointer -> production bridge -> Debian 13 worker -> CT108 Sway -> Qt5 GUI.
+Private authenticated-by-SSH lab authority; no production guest input injected.
+No SDP/ICE credentials or user input recorded. CT108 fixture stopped and
+HEADLESS-1 restored to 1970x1220 after tests. VM103 and CT105 left running.
+
+The 900-ms delay was injected in the browser test's control send wrapper,
+including snapshots and button release, after a recent hold confirmation.
+This is a delivery-gap test, not a physical VPN or packet-loss qualification.
+A 200-ms source press (<300-ms fixture repeat delay) produced 2 auto-repeat
+button activations with physical edges plus watchdog (333-ms guest hold),
+versus 1 with the complete click (0.59-ms guest hold). A subsequent pointer
+move did not change the click coordinate. The fixture enables Qt auto-repeat
+to make a stretched press observable; ordinary buttons need not auto-repeat.
+Normal double click, secondary click, intentional long hold, drag with delayed
+release, later unheld movement and fractional horizontal/vertical wheel pass.
+The delayed drag expired safely; queued snapshots did not press it again.
+
+No physical trackpad was available. Trackpad-compatible browser MouseEvents
+and fractional WheelEvents were qualified. Touch recognizer regression covers
+atomic taps, hold-drag, two-finger scroll, cancel/blur and gesture transitions.
+Native double-click timing is not guaranteed under arbitrary delivery jitter.
+Exact clicks intentionally defer short button-down until source release.
+Physical button holds/Raw remains available for immediate held input. Drags
+can end early if confirmations stop; no synthetic re-press is made on recovery.
+
+Python bridge: 73 tests. CTest: see attached log (22 gates).
+Worker/fake-QEMU E2E: complete click/drag, side buttons not wheel, pointer serial
+wrap/stale rejection, keyboard chords, EOF release, video/cursor/resize pass.
+Input policy negotiation retains old-client/old-server physical fallback.

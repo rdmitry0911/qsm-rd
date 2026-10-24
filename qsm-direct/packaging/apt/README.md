@@ -5,7 +5,10 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
-Current preview: **0.4.0+stock4.2**. Exact typing is the default: one complete
+Current preview: **0.4.0+stock4.3**. Exact mouse/trackpad clicks are now the
+default too: complete clicks include their position and modifiers. Confirmed
+drags remain ordered and guarded; fractional two-axis scrolling is retained.
+Exact typing is the default: one complete
 key action per client press/repeat prevents delayed releases from creating
 extra guest repeats. Physical holds/Raw remain available. The stock4.1 video
 reference-detail fix is retained. Update all installed QSM profiles together,

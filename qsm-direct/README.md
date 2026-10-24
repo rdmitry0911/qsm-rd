@@ -17,7 +17,7 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.2 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.2)
+[Stock4.3 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.3)
 preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
@@ -33,6 +33,15 @@ and shortcuts which need a held ordinary key; Raw always forces physical
 input. Physical holds use 50 ms state confirmations and a 200 ms release
 watchdog, which bounds stale holds but cannot guarantee zero false native
 repeats. Reload PVE with cache bypass and reopen consoles after upgrading.
+
+Stock4.3 adds **Exact clicks** by default for mouse and trackpad taps/clicks.
+A short click is sent on release as one action with position and modifiers.
+Moving 4 pixels or holding for 250 ms starts a physical drag/hold; its motion
+and release stay ordered, with the existing stale-hold watchdog. Touch taps
+use the same atomic action; the existing hold-to-drag gesture is retained.
+Fractional trackpad scroll deltas are accumulated, including horizontal scroll.
+Choose Physical button holds or Raw for immediate down/up input. Ordinary
+cursor motion still uses the fast pointer channel after action acknowledgement.
 
 Guest-first/Raw requests every available key through Keyboard Lock in native
 fullscreen when supported. Firefox reserves Esc for page fullscreen; use
