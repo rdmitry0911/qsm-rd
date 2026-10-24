@@ -5,11 +5,12 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
-Current preview: **0.4.0+stock4.1**. It preserves video reference detail across
-adaptive-rate changes and corrects keyboard state when focus moves between
-console and client fields. Update all installed QSM profiles together, then
-reload the Proxmox page with cache bypass and reopen consoles. VM/LXC reboot
-or desktop reprovisioning is not needed for these fixes.
+Current preview: **0.4.0+stock4.2**. Exact typing is the default: one complete
+key action per client press/repeat prevents delayed releases from creating
+extra guest repeats. Physical holds/Raw remain available. The stock4.1 video
+reference-detail fix is retained. Update all installed QSM profiles together,
+reload PVE with cache bypass and reopen/reload consoles. VM/LXC reboot or
+desktop reprovisioning is not needed.
 
 Project sponsor: Takt — https://taktcycles.com/
 

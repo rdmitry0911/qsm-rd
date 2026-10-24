@@ -1,0 +1,21 @@
+qsm-direct-terminal: WebRTC offer candidates=10 mdns=0 resolved=4
+qsm-direct-terminal: WebRTC video answer codec=video/H264 pt=105 fmtp=level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
+qsm-direct-terminal: WebRTC ICE state=checking
+qsm-direct-terminal: WebRTC connection state=connecting
+qsm-direct-terminal: WebRTC ICE state=completed
+qsm-direct-terminal: WebRTC connection state=connected
+QSM_DIRECT_MEDIA_CAPTURE_AFTER_3S source=wlroots encoded_frames=9 errors=0 display_failed=no captured_frames=9 idr_requests=0 encoded_units=43 separate_cursor=1 cursor_images=2 cursor_fallbacks=0 capture_failures=0 size=1280x720 shm_format=0x1 convert_mean_us=828 convert_max_us=2174 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=0 submitted_frames=9 cursor_records=5 video_records=48 video_send_failures=0 audio_submissions=0 recent_error=none
+qsm-direct-terminal: input lease expired keys=1 buttons=0
+qsm-direct-terminal: input timing hold_ms=901 client_hold_ms=102 event_delay_ms=0 lease_released=1
+QSM_DIRECT_MEDIA_HEALTH source=wlroots encoded_frames=25 errors=0 display_failed=no captured_frames=25 idr_requests=0 encoded_units=148 separate_cursor=1 cursor_images=2 cursor_fallbacks=0 capture_failures=0 size=1280x720 shm_format=0x1 convert_mean_us=711 convert_max_us=2174 resizes_applied=1 resizes_failed=0 pointer_events=3 key_events=2 submitted_frames=25 cursor_records=8 video_records=156 video_send_failures=0 audio_submissions=0 recent_error=none
+qsm-direct-terminal: media health video_fps=14.8 queue=0 drops=0 overflows=0 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=0 bitrate_kbps=2000 maximum_kbps=2000 paced_packets=451 paced_bytes=72375 input_leased=1 input_snapshots=199 input_expired_keys=1 input_hold_max_ms=901 input_client_hold_max_ms=102 input_event_delay_max_ms=0 input_atomic_taps=0
+qsm-direct-terminal: input lease expired keys=1 buttons=0
+qsm-direct-terminal: input timing hold_ms=1409 client_hold_ms=552 event_delay_ms=0 lease_released=1
+qsm-direct-terminal: media health video_fps=15.0 queue=0 drops=0 overflows=0 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=0 bitrate_kbps=2000 maximum_kbps=2000 paced_packets=902 paced_bytes=140561 input_leased=1 input_snapshots=398 input_expired_keys=2 input_hold_max_ms=1409 input_client_hold_max_ms=552 input_event_delay_max_ms=0 input_atomic_taps=1
+QSM_DIRECT_MEDIA_HEALTH source=wlroots encoded_frames=52 errors=0 display_failed=no captured_frames=52 idr_requests=0 encoded_units=298 separate_cursor=1 cursor_images=2 cursor_fallbacks=0 capture_failures=0 size=1280x720 shm_format=0x1 convert_mean_us=689 convert_max_us=2174 resizes_applied=1 resizes_failed=0 pointer_events=9 key_events=6 submitted_frames=52 cursor_records=13 video_records=311 video_send_failures=0 audio_submissions=0 recent_error=none
+qsm-direct-terminal: media health video_fps=15.0 queue=0 drops=0 overflows=0 waiting_idr=0 remote_lost=0 loss_fraction=0 rtt_ms=1 bitrate_kbps=2000 maximum_kbps=2000 paced_packets=1353 paced_bytes=208866 input_leased=1 input_snapshots=597 input_expired_keys=2 input_hold_max_ms=1409 input_client_hold_max_ms=552 input_event_delay_max_ms=1 input_atomic_taps=8
+QSM_DIRECT_MEDIA_HEALTH source=wlroots encoded_frames=75 errors=0 display_failed=no captured_frames=75 idr_requests=0 encoded_units=448 separate_cursor=1 cursor_images=2 cursor_fallbacks=0 capture_failures=0 size=1280x720 shm_format=0x1 convert_mean_us=689 convert_max_us=2174 resizes_applied=1 resizes_failed=0 pointer_events=12 key_events=20 submitted_frames=75 cursor_records=17 video_records=465 video_send_failures=0 audio_submissions=0 recent_error=none
+qsm-direct-terminal: input timing hold_ms=1003 client_hold_ms=1001 event_delay_ms=1 lease_released=0
+qsm-direct-terminal: WebRTC ICE state=closed
+qsm-direct-terminal: WebRTC connection state=closed
+QSM_DIRECT_MEDIA_STOPPING source=wlroots encoded_frames=100 errors=0 display_failed=no captured_frames=100 idr_requests=1 encoded_units=557 separate_cursor=1 cursor_images=2 cursor_fallbacks=0 capture_failures=0 size=1280x720 shm_format=0x1 convert_mean_us=688 convert_max_us=2174 resizes_applied=1 resizes_failed=0 pointer_events=12 key_events=30 submitted_frames=100 cursor_records=21 video_records=578 video_send_failures=1 audio_submissions=0 recent_error=none

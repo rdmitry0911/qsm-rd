@@ -1,0 +1,10 @@
+qsm-direct-terminal: WebRTC offer candidates=10 mdns=0 resolved=4
+qsm-direct-terminal: WebRTC video answer codec=video/H264 pt=105 fmtp=level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
+qsm-direct-terminal: WebRTC ICE state=checking
+qsm-direct-terminal: WebRTC connection state=connecting
+qsm-direct-terminal: WebRTC ICE state=completed
+qsm-direct-terminal: WebRTC connection state=connected
+QSM_DIRECT_MEDIA_CAPTURE_AFTER_3S source=wlroots encoded_frames=9 errors=0 display_failed=no captured_frames=9 idr_requests=1 encoded_units=43 separate_cursor=1 cursor_images=2 cursor_fallbacks=0 capture_failures=0 size=1280x720 shm_format=0x1 convert_mean_us=921 convert_max_us=2302 resizes_applied=1 resizes_failed=0 pointer_events=0 key_events=0 submitted_frames=9 cursor_records=5 video_records=48 video_send_failures=0 audio_submissions=0 recent_error=none
+qsm-direct-terminal: WebRTC ICE state=closed
+qsm-direct-terminal: WebRTC connection state=closed
+QSM_DIRECT_MEDIA_STOPPING source=wlroots encoded_frames=24 errors=0 display_failed=no captured_frames=24 idr_requests=2 encoded_units=125 separate_cursor=1 cursor_images=3 cursor_fallbacks=0 capture_failures=0 size=1280x720 shm_format=0x1 convert_mean_us=763 convert_max_us=2302 resizes_applied=1 resizes_failed=0 pointer_events=3 key_events=2 submitted_frames=24 cursor_records=9 video_records=134 video_send_failures=1 audio_submissions=0 recent_error=none

@@ -17,13 +17,27 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.1 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261023-stock4.1)
+[Stock4.2 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.2)
 preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
 fix to genuine rate changes, for the common VM/LXC path. The per-guest maximum
 remains configurable. Sudden large bandwidth drops can still cause freezes.
 Standalone UI compatibility with existing shared-display VMs is retained.
+
+Stock4.2 defaults to **Exact typing**: a key press or client repeat crosses
+as one complete action, so network delay cannot stretch a short press into
+native guest autorepeat. The first character is immediate. Modifier chords
+work normally. **Physical holds** and **Raw input** remain available for games
+and shortcuts which need a held ordinary key; Raw always forces physical
+input. Physical holds use 50 ms state confirmations and a 200 ms release
+watchdog, which bounds stale holds but cannot guarantee zero false native
+repeats. Reload PVE with cache bypass and reopen consoles after upgrading.
+
+Guest-first/Raw requests every available key through Keyboard Lock in native
+fullscreen when supported. Firefox reserves Esc for page fullscreen; use
+browser F11 while focus is outside the guest, or the Send to guest buttons
+for Esc and common reserved shortcuts in Console settings.
 
 Install and update the standalone packages through the signed
 [APT repository](https://rdmitry0911.github.io/qsm-rd/): follow the

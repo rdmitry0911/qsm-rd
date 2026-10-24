@@ -976,7 +976,7 @@ void WlrootsDisplay::set_ui_info(const ViewportRequest& request) {
 
 std::uint32_t WlrootsDisplay::evdev_from_qemu_key(std::uint32_t k) noexcept {
     switch (k) {
-    // The browser console sends the Meta keys as 0x5b/0x5c.
+    // Accept old viewer aliases as well as the correct extended QEMU numbers.
     case 0x5bU: case 0xdbU: return KEY_LEFTMETA;
     case 0x5cU: case 0xdcU: return KEY_RIGHTMETA;
     case 0x54U: return KEY_SYSRQ;

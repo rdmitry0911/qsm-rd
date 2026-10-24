@@ -184,6 +184,9 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
             input_connection.sendall(packet(INPUT_MOUSE_BUTTON, b"\x01\x00"))
             input_connection.sendall(packet(INPUT_KEYBOARD, b"\x00\x1e\x01\x00"))
             input_connection.sendall(packet(INPUT_KEYBOARD, b"\x00\x1e\x00\x00"))
+            # A complete character action must stay atomic even when the
+            # browser-to-node transport stalls between other messages.
+            input_connection.sendall(packet(8, struct.pack("!H", 46)))
             # Browser RTCP PLI reaches the worker over a server-private input
             # opcode. It must force recovery without becoming a browser JSON
             # capability or disturbing ordinary Display1 input.
@@ -194,7 +197,13 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
             # for each, otherwise every later Console starts with a stuck
             # drag/click or modifier.
             input_connection.sendall(packet(INPUT_MOUSE_BUTTON, b"\x01\x01"))
-            input_connection.sendall(packet(INPUT_KEYBOARD, b"\x00\x1e\x01\x00"))
+            input_connection.sendall(packet(INPUT_KEYBOARD, b"\x00\x1d\x01\x00"))
+            # Ctrl is already physically held: the chord must preserve it,
+            # adding/releasing Shift and the main key only. Tapping that held
+            # Ctrl or specifying an invalid modifier must be ignored.
+            input_connection.sendall(packet(8, struct.pack("!HHH", 46, 29, 42)))
+            input_connection.sendall(packet(8, struct.pack("!H", 29)))
+            input_connection.sendall(packet(8, struct.pack("!HH", 46, 30)))
             input_connection.close()
             connections.remove(input_connection)
 
@@ -297,7 +306,7 @@ def qualify(worker_binary: Path, fake_qemu_binary: Path, *, encoder: str,
             trace = fake_stdout.decode("utf-8", "replace").strip()
             if not all(marker in trace for marker in (
                     "FAKE_QEMU_RESULT", f"frames={frames}", f"requested={width}x{height}",
-                    "keyboard=4", "keyboard_press=2", "keyboard_release=2",
+                    "keyboard=10", "keyboard_press=5", "keyboard_release=5",
                     "mouse=6", "button_press=2", "button_release=2",
                     # The mock deliberately exposes relative mode. The
                     # retained +5,+2 delta proves the stale FFFE packet was

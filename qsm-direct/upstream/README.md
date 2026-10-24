@@ -4,7 +4,7 @@ Proxmox takes no pull requests: patches go to `pve-devel@lists.proxmox.com`
 with `git send-email`, and every contributor signs a CLA first
 ([developer documentation](https://pve.proxmox.com/wiki/Developer_Documentation)).
 
-## Current status (2026-10-23)
+## Current status (2026-10-24; discussion audit October 23)
 
 The public RFC thread has eight messages, most recently Dmitry's standalone/APT
 update on October 20. The forum's APT installation update is also published
@@ -24,6 +24,14 @@ distributes the standalone debs. The stock4.1 media update and
 reference detail when the network target changes. This does not make the PVE integration
 independent of Proxmox at runtime; see the
 [official Debian packaging assessment](debian-distribution-2026-10-20.md).
+
+Stock4.2 adds default Exact typing to prevent delayed releases from producing
+unconfirmed guest repeats, plus optional physical holds and explicit special
+key delivery. Its [input qualification](review-keyboard-2026-10-24/qualification.txt)
+includes the heartbeat-only counterexample, real Firefox/Sway text entry,
+shared input ownership and QEMU worker checks. The native bus/API proposal
+remains separate. A [forum draft](forum-keyboard-update-2026-10-24.txt) is
+prepared; no discussion message is posted by this update.
 
 The sections below preserve the earlier shared-base submission material and
 its dated validation scope; their shared9 links are historical.

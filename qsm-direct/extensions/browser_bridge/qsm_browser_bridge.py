@@ -75,6 +75,8 @@ INPUT_SCROLL = 4
 INPUT_RESIZE = 5
 INPUT_KEYFRAME_REQUEST = 6
 INPUT_VIDEO_BITRATE = 7
+INPUT_KEY_TAP = 8
+MODIFIER_KEYS = frozenset({29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc})
 MAX_FRAGMENT_BYTES = 256 * 1024
 MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024
 MAX_CURSOR_EDGE = 64
@@ -1175,6 +1177,12 @@ class UnixInputEgress:
         self._lock = threading.Lock()
         self._error: BridgeError | None = None
 
+        # One producer can serve several consoles. Keyboard/button ownership
+        # belongs to a browser peer, not to the lifetime of this shared socket.
+        self._input_state_lock = threading.RLock()
+        self._key_owners: dict[int, set[object]] = {}
+        self._button_owners: dict[int, set[object]] = {}
+
     def start(self) -> None:
         UnixTapIngress._validate_runtime_directory(self._runtime_directory)
         UnixTapIngress._validate_socket_path(self.path)
@@ -1245,7 +1253,7 @@ class UnixInputEgress:
             value = json.loads(raw)
         except json.JSONDecodeError as error:
             raise BridgeError("invalid browser control message") from error
-        if not isinstance(value, dict) or set(value) - {"op", "x", "y", "width", "height", "sequence", "button", "down", "key", "modifiers", "vertical", "horizontal", "fps"}:
+        if not isinstance(value, dict) or set(value) - {"op", "x", "y", "width", "height", "sequence", "button", "down", "key", "modifiers", "vertical", "horizontal", "fps", "client_time_ms", "event_delay_ms"}:
             raise BridgeError("invalid browser control message")
         op = value.get("op")
         payload: bytes
@@ -1276,13 +1284,28 @@ class UnixInputEgress:
                 raise BridgeError("invalid browser control message")
             opcode = INPUT_MOUSE_BUTTON
             payload = struct.pack("!BB", button, int(value["down"]))
-        elif op == "keyboard" and set(value) == {"op", "key", "down", "modifiers"}:
+        elif op == "keyboard" and set(value) - {"client_time_ms", "event_delay_ms"} == {"op", "key", "down", "modifiers"}:
             key = cls._integer(value["key"], 0, 65535)
             modifiers = cls._integer(value["modifiers"], 0, 255)
             if type(value["down"]) is not bool:
                 raise BridgeError("invalid browser control message")
+            for name in ("client_time_ms", "event_delay_ms"):
+                if name in value:
+                    cls._integer(value[name], 0, (1 << 53) - 1)
             opcode = INPUT_KEYBOARD
             payload = struct.pack("!HBB", key, int(value["down"]), modifiers)
+        elif op == "key_tap" and set(value) - {"client_time_ms", "event_delay_ms", "modifiers"} == {"op", "key"}:
+            key = cls._integer(value["key"], 0, 65535)
+            modifiers = value.get("modifiers", [])
+            if (not isinstance(modifiers, list) or len(modifiers) > 8 or
+                    any(type(item) is not int or item not in MODIFIER_KEYS or item == key for item in modifiers) or
+                    len(set(modifiers)) != len(modifiers)):
+                raise BridgeError("invalid tap modifiers")
+            for name in ("client_time_ms", "event_delay_ms"):
+                if name in value:
+                    cls._integer(value[name], 0, (1 << 53) - 1)
+            opcode = INPUT_KEY_TAP
+            payload = struct.pack("!" + "H" * (len(modifiers) + 1), key, *modifiers)
         elif op == "scroll" and set(value) == {"op", "vertical", "horizontal"}:
             vertical = cls._integer(value["vertical"], -32768, 32767)
             horizontal = cls._integer(value["horizontal"], -32768, 32767)
@@ -1306,6 +1329,62 @@ class UnixInputEgress:
     def send_browser_message(self, raw: object) -> None:
         packet = self.encode_browser_message(raw)
         self._send_packet(packet)
+
+    def send_peer_packet(self, owner: object, packet: bytes) -> bool:
+        """Serialize state edges and retain per-console ownership."""
+        opcode = packet[5]
+        if opcode == INPUT_KEY_TAP:
+            key = struct.unpack_from("!H", packet, INPUT_HEADER.size)[0]
+            with self._input_state_lock:
+                if key in self._key_owners:
+                    return False  # A tap must not release another viewer's held key.
+                desired = set(struct.unpack_from("!" + "H" * ((len(packet) - INPUT_HEADER.size - 2) // 2),
+                                                 packet, INPUT_HEADER.size + 2))
+                for modifier in self._key_owners.keys() & MODIFIER_KEYS - desired:
+                    if owner in self._key_owners[modifier]:
+                        payload = struct.pack("!HBB", modifier, 0, 0)
+                        self.send_peer_packet(owner, INPUT_HEADER.pack(
+                            INPUT_MAGIC, INPUT_VERSION, INPUT_KEYBOARD, 4) + payload)
+                return self._send_packet(packet)
+        if opcode not in (INPUT_KEYBOARD, INPUT_MOUSE_BUTTON):
+            return self._send_packet(packet)
+        if opcode == INPUT_KEYBOARD:
+            key, down, _modifiers = struct.unpack_from("!HBB", packet, INPUT_HEADER.size)
+            owners = self._key_owners
+        else:
+            key, down = struct.unpack_from("!BB", packet, INPUT_HEADER.size)
+            owners = self._button_owners
+        with self._input_state_lock:
+            current = owners.get(key, set())
+            if down:
+                if owner in current:
+                    return True
+                if not current and not self._send_packet(packet):
+                    return False
+                owners.setdefault(key, set()).add(owner)
+            elif owner in current:
+                current.remove(owner)
+                if not current:
+                    del owners[key]
+                    self._send_packet(packet)
+            return True
+
+    def release_peer(self, owner: object) -> None:
+        with self._input_state_lock:
+            for opcode, owners in ((INPUT_KEYBOARD, self._key_owners),
+                                   (INPUT_MOUSE_BUTTON, self._button_owners)):
+                for key, current in list(owners.items()):
+                    if owner not in current:
+                        continue
+                    payload = (struct.pack("!HBB", key, 0, 0) if opcode == INPUT_KEYBOARD
+                               else struct.pack("!BB", key, 0))
+                    packet = INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, opcode, len(payload)) + payload
+                    try:
+                        self.send_peer_packet(owner, packet)
+                    except BridgeError:
+                        # A broken local socket makes the worker release its
+                        # whole input state on EOF. Still retire this owner.
+                        pass
 
     def send_browser_pointer_message(self, raw: object,
                                      order: PointerSequenceFilter | None = None) -> None:
@@ -1346,7 +1425,7 @@ class UnixInputEgress:
         self._send_packet(INPUT_HEADER.pack(
             INPUT_MAGIC, INPUT_VERSION, INPUT_VIDEO_BITRATE, 4) + struct.pack("!I", bitrate_kbps))
 
-    def _send_packet(self, packet: bytes) -> None:
+    def _send_packet(self, packet: bytes) -> bool:
         with self._lock:
             if self._error is not None:
                 raise self._error
@@ -1355,7 +1434,7 @@ class UnixInputEgress:
                 # Input emitted before the authenticated receiver is live is
                 # not queued. Queuing a mouse/key state across that boundary
                 # can create a stuck key or a click in a new session.
-                return
+                return False
             try:
                 sent = connection.send(packet, socket.MSG_DONTWAIT | socket.MSG_NOSIGNAL)
             except (BlockingIOError, OSError) as error:
@@ -1366,6 +1445,7 @@ class UnixInputEgress:
                 self._connection = None
                 connection.close()
                 raise BridgeError("local input receiver is unavailable")
+            return True
 
     def close(self) -> None:
         self._stopping.set()
@@ -1390,6 +1470,145 @@ class UnixInputEgress:
             pass
         except OSError:
             pass
+
+
+class BrowserInputState:
+    """Per-viewer input state, bounded by explicitly negotiated snapshots.
+
+    Reliable delivery is not timely delivery: a late keyup can leave Linux
+    autorepeating a short press for seconds. Fresh browser snapshots lease
+    held keys/buttons for 200 ms. Expiry only releases; a stale snapshot can
+    never manufacture a new press. Older clients retain edge-only operation.
+    """
+
+    LEASE_SECONDS = 0.2
+    SNAPSHOT_SECONDS = 0.05
+
+    def __init__(self, egress: UnixInputEgress, *, now: Callable[[], float] = time.monotonic) -> None:
+        self.egress = egress
+        self._now = now
+        self._keys: dict[int, float] = {}
+        self._buttons: dict[int, float] = {}
+        self._press_times: dict[int, tuple[float, int | None]] = {}
+        self.leased = False
+        self.snapshots = 0
+        self.expired_keys = 0
+        self.expired_buttons = 0
+        self.max_hold_ms = 0
+        self.max_client_hold_ms = 0
+        self.max_event_delay_ms = 0
+        self.taps = 0
+
+    @staticmethod
+    def _snapshot_items(value: object, minimum: int, maximum: int) -> set[int]:
+        if not isinstance(value, list) or len(value) > 32:
+            raise BridgeError("invalid browser input snapshot")
+        items = {UnixInputEgress._integer(item, minimum, maximum) for item in value}
+        if len(items) != len(value):
+            raise BridgeError("invalid browser input snapshot")
+        return items
+
+    def _release(self, opcode: int, key: int) -> None:
+        payload = (struct.pack("!HBB", key, 0, 0) if opcode == INPUT_KEYBOARD
+                   else struct.pack("!BB", key, 0))
+        self.egress.send_peer_packet(self, INPUT_HEADER.pack(
+            INPUT_MAGIC, INPUT_VERSION, opcode, len(payload)) + payload)
+
+    def handle(self, raw: object) -> None:
+        if not isinstance(raw, str) or not raw.isascii() or not 1 <= len(raw) <= MAX_CONTROL_MESSAGE_BYTES:
+            raise BridgeError("invalid browser control message")
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise BridgeError("invalid browser control message") from error
+        now = self._now()
+        # An overdue event-loop callback must not let a queued, stale snapshot
+        # renew an already expired press when the loop wakes up again.
+        self.expire()
+        if isinstance(value, dict) and value.get("op") == "input_state":
+            if set(value) != {"op", "keys", "buttons"}:
+                raise BridgeError("invalid browser input snapshot")
+            keys = self._snapshot_items(value["keys"], 0, 65535)
+            buttons = self._snapshot_items(value["buttons"], 1, 5)
+            self.leased = True
+            self.snapshots += 1
+            for opcode, held, reported in ((INPUT_KEYBOARD, self._keys, keys),
+                                            (INPUT_MOUSE_BUTTON, self._buttons, buttons)):
+                for key in list(held):
+                    if key in reported:
+                        held[key] = now + self.LEASE_SECONDS
+                    else:
+                        self._release(opcode, key)
+                        del held[key]
+            # An empty/released snapshot can repair a keyup that the browser
+            # failed to enqueue. Do not retain its timing record indefinitely.
+            for key in self._press_times.keys() - keys:
+                del self._press_times[key]
+            return
+        packet = self.egress.encode_browser_message(raw)
+        if packet[5] == INPUT_KEYBOARD:
+            key, down, _ = struct.unpack_from("!HBB", packet, INPUT_HEADER.size)
+            if down and key not in self._press_times and len(self._press_times) >= 32:
+                raise BridgeError("too many held browser keys")
+        if not self.egress.send_peer_packet(self, packet):
+            return
+        opcode = packet[5]
+        if opcode == INPUT_KEY_TAP:
+            self.taps += 1
+            self.max_event_delay_ms = max(self.max_event_delay_ms, value.get("event_delay_ms", 0))
+            return
+        if opcode == INPUT_KEYBOARD:
+            key, down, _modifiers = struct.unpack_from("!HBB", packet, INPUT_HEADER.size)
+            held = self._keys
+            if down and key not in held:
+                self._press_times[key] = (now, value.get("client_time_ms"))
+            elif not down:
+                timing = self._press_times.pop(key, None)
+                if timing is not None:
+                    server_hold = max(0, round((now - timing[0]) * 1000))
+                    self.max_hold_ms = max(self.max_hold_ms, server_hold)
+                    client_end = value.get("client_time_ms")
+                    client_hold = (-1 if timing[1] is None or client_end is None
+                                   else max(0, client_end - timing[1]))
+                    self.max_client_hold_ms = max(self.max_client_hold_ms, client_hold)
+                    if server_hold >= 250:
+                        print(f"qsm-direct-terminal: input timing hold_ms={server_hold} "
+                              f"client_hold_ms={client_hold} "
+                              f"event_delay_ms={value.get('event_delay_ms', -1)} "
+                              f"lease_released={int(key not in held)}", file=sys.stderr, flush=True)
+            self.max_event_delay_ms = max(self.max_event_delay_ms, value.get("event_delay_ms", 0))
+        elif opcode == INPUT_MOUSE_BUTTON:
+            key, down = struct.unpack_from("!BB", packet, INPUT_HEADER.size)
+            held = self._buttons
+        else:
+            return
+        if down:
+            held[key] = now + self.LEASE_SECONDS if self.leased else float("inf")
+        else:
+            held.pop(key, None)
+
+    def expire(self) -> None:
+        now = self._now()
+        counts = []
+        for opcode, held in ((INPUT_KEYBOARD, self._keys), (INPUT_MOUSE_BUTTON, self._buttons)):
+            count = 0
+            for key, deadline in list(held.items()):
+                if deadline <= now:
+                    self._release(opcode, key)
+                    del held[key]
+                    count += 1
+            counts.append(count)
+        self.expired_keys += counts[0]
+        self.expired_buttons += counts[1]
+        if any(counts):
+            print(f"qsm-direct-terminal: input lease expired keys={counts[0]} buttons={counts[1]}",
+                  file=sys.stderr, flush=True)
+
+    def release(self) -> None:
+        self.egress.release_peer(self)
+        self._keys.clear()
+        self._buttons.clear()
+        self._press_times.clear()
 
 
 class SharedMediaIngress:
@@ -1517,6 +1736,9 @@ class BrowserWebRtcBridge:
         self._pointer_order = PointerSequenceFilter()
         self.input = shared_input or UnixInputEgress(
             runtime_directory, expected_uid=expected_producer_uid)
+        self._input_state = BrowserInputState(self.input)
+        self._input_watchdog: asyncio.Task[None] | None = None
+        self._input_ended = False
         self._last_keyframe_request = float("-inf")
         self._video_rate = video_rate or AdaptiveVideoRate(video_bitrate_kbps, self.input.set_video_bitrate)
         self._video_pacer = _VideoPacer(video_bitrate_kbps)
@@ -1588,7 +1810,13 @@ class BrowserWebRtcBridge:
                   f"overflows={self.video_track.overflows} waiting_idr={int(self.video_track._waiting_for_keyframe)} "
                   f"remote_lost={loss} loss_fraction={fraction} rtt_ms={rtt_ms} "
                   f"bitrate_kbps={self._video_rate.current_kbps} maximum_kbps={self._video_rate.maximum_kbps} "
-                  f"paced_packets={self._video_pacer.sent_packets} paced_bytes={self._video_pacer.sent_bytes}",
+                  f"paced_packets={self._video_pacer.sent_packets} paced_bytes={self._video_pacer.sent_bytes} "
+                  f"input_leased={int(self._input_state.leased)} input_snapshots={self._input_state.snapshots} "
+                  f"input_expired_keys={self._input_state.expired_keys} "
+                  f"input_hold_max_ms={self._input_state.max_hold_ms} "
+                  f"input_client_hold_max_ms={self._input_state.max_client_hold_ms} "
+                  f"input_event_delay_max_ms={self._input_state.max_event_delay_ms} "
+                  f"input_atomic_taps={self._input_state.taps}",
                   file=sys.stderr, flush=True)
             previous_time, previous_frames = now, frames
 
@@ -1774,6 +2002,20 @@ class BrowserWebRtcBridge:
                 self._sent_cursor_shape_id = None
                 self._publish_cursor()
                 self._video_rate_changed(self._video_rate.current_kbps)
+                try:
+                    channel.send(json.dumps({"op": "qsm_input_policy", "version": 1,
+                        "key_taps": True,
+                        "lease_ms": round(BrowserInputState.LEASE_SECONDS * 1000),
+                        "snapshot_ms": round(BrowserInputState.SNAPSHOT_SECONDS * 1000)}))
+                except Exception:
+                    pass
+                if self._input_watchdog is None:
+                    self._input_watchdog = asyncio.create_task(self._watch_input())
+
+            @channel.on("close")
+            def on_control_close() -> None:
+                self._input_ended = True
+                self._input_state.release()
             if getattr(channel, "readyState", None) == "open":
                 on_control_open()
         else:
@@ -1781,11 +2023,13 @@ class BrowserWebRtcBridge:
 
         @channel.on("message")
         def on_message(message: object) -> None:
+            if self._closed or self._input_ended:
+                return
             try:
                 if control:
                     guest = self._guest_request(message)
                     if guest is None:
-                        self.input.send_browser_message(message)
+                        self._input_state.handle(message)
                     else:
                         asyncio.create_task(self._dispatch_guest_request(channel, *guest))
                 else:
@@ -1797,6 +2041,16 @@ class BrowserWebRtcBridge:
                 close = getattr(channel, "close", None)
                 if callable(close):
                     close()
+                self._input_state.release()
+
+    async def _watch_input(self) -> None:
+        while not self._closed:
+            await asyncio.sleep(0.02)
+            try:
+                self._input_state.expire()
+            except BridgeError:
+                self._input_state.release()
+                return
 
     def start_taps(self) -> tuple[str, str]:
         if self._closed:
@@ -2154,6 +2408,12 @@ class BrowserWebRtcBridge:
         if self._closed:
             return
         self._closed = True
+        # Release this browser's authority before any asynchronous teardown,
+        # including when the shared producer stays alive for another viewer.
+        self._input_state.release()
+        if self._input_watchdog is not None:
+            self._input_watchdog.cancel()
+            await asyncio.gather(self._input_watchdog, return_exceptions=True)
         if self._ice_lease is not None:
             await self._ice_lease.stop()
         self._video_rate.remove(self)
@@ -2188,6 +2448,7 @@ __all__ = [
     "MAX_CONTROL_MESSAGE_BYTES",
     "INPUT_HEADER",
     "INPUT_KEYBOARD",
+    "INPUT_KEY_TAP",
     "INPUT_MAGIC",
     "INPUT_MOUSE_BUTTON",
     "INPUT_MOUSE_POSITION",

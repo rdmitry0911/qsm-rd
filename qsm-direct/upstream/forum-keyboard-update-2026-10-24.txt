@@ -1,0 +1,16 @@
+Hi guys, another input update in stock4.2.
+
+A short key press could still turn into repeated characters when delivery of key release was delayed. The reliable channel eventually delivered the release, but the guest had already started its own autorepeat. The earlier focus-release fix did not cover that case.
+
+Exact typing is now the default. Each press or real client repeat crosses as one complete action, including its modifiers; the worker executes the down/up locally. The first character is immediate. A network delay can delay an action, but cannot stretch that action into extra guest repeats.
+
+I checked this with Firefox and a real LXC desktop. With a 900 ms control-delivery gap, the old mode produced 8 characters from one short press; the exact mode produced 1. A heartbeat-only watchdog still produced 5 in a second case, whereas exact typing again produced 1. Six confirmed client events produced exactly six characters. Modifier chords also passed.
+
+Physical holds and Raw input remain available for games and shortcut editors. These preserve guest-held state and native repeat, with a watchdog to bound stale input; they do not have the exact mode's repeat-count guarantee. Closing one console now releases only its own keys when other viewers share the producer.
+
+Keyboard Lock requests all available keys in supported full-screen browsers. Firefox reserves Esc for page fullscreen; on desktop use browser F11 while focus is outside the guest, or the new Esc/Alt+Tab/Ctrl+Alt+Del/Super buttons in Settings. OS-reserved keys remain subject to browser/OS support.
+
+The common VM/LXC path is updated, with no new Proxmox backend patch or guest agent requirement. Source, matching debs and checks are here:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.2
+
+Update all installed QSM profiles together, then reload the PVE page with cache bypass and reopen consoles. If you previously selected Raw, select Guest first + Exact typing for text entry. Thank you, Dmitry

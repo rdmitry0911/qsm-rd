@@ -3,7 +3,7 @@ qsm-pve-direct for Proxmox VE 9
 
 `qsm-pve-direct` is a browser-native PVE console transport.
 
-Standalone release 0.4.0+stock3
+Standalone release 0.4.0+stock4.2
 -----------------------------
 For official PVE 9 install matching qsm-pve-direct and
 qsm-pve-direct-standalone debs. Follow README.standalone, installed with the
@@ -335,3 +335,35 @@ qsm-pve-direct-lxc enable supports --login-manager sddm --sddm-deb FILE
 --restart. Dedicated virtual graphical seats let a full SDDM authenticate
 and own desktop sessions without host VTs. See the LXC package
 README.native-sddm for the qualified Ubuntu/Qt 5 profile and rollback.
+
+Keyboard reliability (stock4.2)
+------------------------------
+Reliable delivery can still delay keyup long enough to start native guest
+autorepeat. Exact typing is now the default: each source press or repeat is
+one complete key_tap action, including its modifier snapshot. The worker
+executes its down/up edges locally, so network timing cannot stretch that
+action. The first character does not wait for a heartbeat. Repeats are sent
+only for real browser repeat events, never synthesized from elapsed network
+time. Clipboard and special-key chords use the same atomic command.
+
+Physical holds and Raw input retain native guest-held state for games and
+shortcut editors. Raw always forces physical holds. A per-peer state snapshot
+arrives every 50 ms; a 200 ms watchdog bounds unconfirmed holds. This watchdog
+is a fallback, not a guarantee against all false native repeats: a recent
+heartbeat can keep a key held across the native repeat threshold. Exact typing
+is the mode that avoids this transport-induced count error. A network stall
+can cancel a physical hold; release and press again to resume it.
+
+Closing a console releases only its own input, even if another viewer keeps
+the shared producer alive. Atomic actions preserve previously held modifiers
+and do not release another viewer's held main key.
+Reload the PVE page with cache bypass and reopen consoles after upgrading.
+Old cached viewers retain the older edge-only behavior. Health records expose
+input_leased, input_snapshots and timeout/timing counters without logging key
+identities or typed content. Client/server hold timing distinguishes browser
+event delay from delayed delivery.
+
+Guest-first/Raw native fullscreen requests all keys through Keyboard Lock
+where supported. The browser may require permission. Firefox does not provide
+that API and reserves Esc for exiting page fullscreen. Console Settings has
+Send to guest buttons for Esc, Alt+Tab, Ctrl+Alt+Del and Super/Windows.

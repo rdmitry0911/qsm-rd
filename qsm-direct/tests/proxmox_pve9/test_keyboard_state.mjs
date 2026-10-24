@@ -10,8 +10,10 @@ const section = (start, end) => {
 const keyboard = section('const sendKeyboard =', '// Map a printable character');
 const listeners = section("for (const name of ['keydown', 'keyup']) {\n                video.addEventListener", "peer.addTransceiver('video'");
 const make = new Function('env', `
-    const {video, kbInput, document, send, settings, actions} = env;
-    const heldKeys = new Set();
+    const {video, kbInput, document, send, settings, actions, popup} = env;
+    const heldKeys = new Set(), heldMouseButtons = new Set(), physicalHeldKeys = new Set();
+    let inputStateEnabled = false, inputStateTimer = null, inputTapsEnabled = false;
+    const KEY_INPUT_MODE={typing:'client-repeat',physical:'guest-repeat'},keyInputModeHint={};
     let diagKeySent = 0, diagLastInput = '', fullscreenEscapePending = false;
     const noteGuestInput = () => {}, qemuKey = event => ({KeyA:30, ControlLeft:29, KeyV:47})[event.code] ?? null;
     const KEYBOARD_PRIORITY = {client:'client', raw:'raw'};
@@ -22,7 +24,7 @@ const make = new Function('env', `
     const status = {}, gettext = value => value;
     ${keyboard}
     ${listeners}
-    return {heldKeys, sendKeyboard};
+    return {heldKeys, sendKeyboard, acceptInputPolicy, publishInputState};
 `);
 const target = () => {
     const listeners = new Map();
@@ -33,15 +35,20 @@ const target = () => {
         for (const callback of listeners.get(name) || []) { callback(event); }
     }};
 };
-const harness = () => {
+const harness = (keyInputMode='guest-repeat', keyboardPriority='guest') => {
     const video = target(), kbInput = target(), document = target(), messages = [], actions = [];
     let open = true;
-    const state = make({video, kbInput, document, messages, actions,
-        settings:{keyboardPriority:'guest'}, send:message => {
+    const timers = new Map(); let nextTimer = 0;
+    const popup = {performance:{now:()=>1100},
+        setInterval:callback => {timers.set(++nextTimer, callback); return nextTimer;},
+        clearInterval:id => timers.delete(id)};
+    const state = make({video, kbInput, document, messages, actions, popup,
+        settings:{keyboardPriority,keyInputMode}, send:message => {
             if (!open) { return false; }
             messages.push(message); return true;
         }});
     return {...state, video, kbInput, document, messages, actions,
+        tick:() => {for (const callback of timers.values()) {callback();}},
         open:value => { open = value; },
         key(name, code = 'KeyA', extra = {}) {
             const event = {code, repeat:false, preventDefault() {}, ...extra};
@@ -89,4 +96,49 @@ for (const element of ['video', 'kbInput']) {
     assert.deepEqual(h.actions, ['paste'], 'host autorepeat must not paste clipboard repeatedly');
     assert.deepEqual(edges(h), [[29,true],[29,false]]);
 }
-console.log('PASS: guest keyboard edges, focus changes, foreign repeats and clipboard repeat');
+{
+    const h = harness(); h.tick();
+    assert.equal(h.messages.length, 0, 'old servers receive no unknown input operations');
+    h.acceptInputPolicy({version:1, lease_ms:200, snapshot_ms:50});
+    h.key('keydown', 'KeyA', {timeStamp:1000}); h.tick();
+    assert.deepEqual(h.messages.at(-1), {op:'input_state',keys:[30],buttons:[]});
+    const down = h.messages.find(message => message.op === 'keyboard');
+    assert.equal(down.client_time_ms, 1000); assert.equal(down.event_delay_ms, 100);
+    h.key('keyup', 'KeyA', {timeStamp:1100}); h.tick();
+    assert.deepEqual(h.messages.at(-1), {op:'input_state',keys:[],buttons:[]});
+}
+{
+    const h = harness('client-repeat');
+    h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+    h.key('keydown', 'KeyA', {repeat:true});
+    assert.equal(h.messages.filter(m=>m.op==='key_tap').length,0,'foreign repeats remain local');
+    h.key('keydown');
+    for(let n=0;n<3;++n){h.key('keydown','KeyA',{repeat:true});}
+    h.tick();
+    assert.deepEqual(h.messages.at(-1),{op:'input_state',keys:[],buttons:[]},'typing never leases a held character');
+    h.open(false); h.key('keyup'); h.open(true);
+    assert.equal(h.messages.filter(m=>m.op==='key_tap').length,4,'only four source events generate four actions');
+    assert.equal(h.messages.filter(m=>m.op==='keyboard').length,0,'no network-separated down/up pair for text');
+    h.key('keydown','ControlLeft'); h.key('keydown','KeyA',{ctrlKey:true});
+    assert.deepEqual(h.messages.at(-1),{op:'key_tap',key:30,modifiers:[29]});
+    h.key('keyup','KeyA'); h.key('keyup','ControlLeft');
+    assert.deepEqual(h.messages.at(-1),{op:'keyboard',key:29,down:false,modifiers:0});
+    h.key('keydown','KeyA',{shiftKey:true});
+    assert.deepEqual(h.messages.at(-1),{op:'key_tap',key:30,modifiers:[42]},'unseen physical modifiers accompany the action');
+}
+{
+    const h=harness('client-repeat','raw');
+    h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+    h.key('keydown'); h.key('keydown','KeyA',{repeat:true}); h.key('keyup');
+    assert.deepEqual(edges(h).filter(([key])=>key!==undefined),[[30,true],[30,false]],'Raw always preserves physical holds');
+}
+{
+    const fragment=source.slice(source.indexOf('const sendGuestChord ='),source.indexOf('// Ctrl+C, or Ctrl+Shift+C'));
+    const makeChord=new Function('inputTapsEnabled','send',fragment+'return sendGuestChord;');
+    const messages=[];makeChord(true,message=>messages.push(message))([29,42],46);
+    assert.deepEqual(messages,[{op:'key_tap',key:46,modifiers:[29,42]}],'clipboard/special chords cross as one action');
+    const defaults=source.slice(source.indexOf('const defaultConsoleSettings ='),source.indexOf('// Standard receiver target'));
+    const getDefaults=new Function('CONSOLE_SETTING_SCHEMA','KEYBOARD_PRIORITY','KEY_INPUT_MODE',defaults+'return defaultConsoleSettings();');
+    assert.equal(getDefaults({}, {guest:'guest'}, {typing:'typing',physical:'physical'}).keyInputMode,'typing','exact typing must be default');
+}
+console.log('PASS: guest keyboard edges, focus changes, exact typing, raw holds, chords and clipboard repeat');

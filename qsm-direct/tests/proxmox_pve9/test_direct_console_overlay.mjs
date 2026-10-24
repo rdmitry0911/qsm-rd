@@ -193,8 +193,8 @@ assert.match(source, /Guest first — forward received keys/,
     'the settings panel must let a user choose guest shortcut priority');
 assert.match(source, /Raw input — send each key and mouse press\/release/,
     'the settings panel must expose explicit raw keyboard and mouse edge delivery');
-assert.match(source, /settings\.keyboardPriority !== KEYBOARD_PRIORITY\.client[\s\S]*?keyboard\.lock\(\['Escape'\]\)/,
-    'both guest-priority modes must request Chrome Keyboard Lock for Escape in native full screen');
+assert.match(source, /settings\.keyboardPriority !== KEYBOARD_PRIORITY\.client[\s\S]*?keyboard\.lock\(\)/,
+    'both guest-priority modes must request all available keys in native full screen');
 assert.match(source, /Client first — browser shortcuts win/,
     'the settings panel must let a user choose client shortcut priority');
 assert.match(source, /Ctrl\+Alt\+Shift\+Esc/,

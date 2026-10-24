@@ -106,6 +106,7 @@ constexpr std::uint8_t input_resize = 5U;
 // authenticated WebRTC peer sends RTCP PLI, never from browser JSON input.
 constexpr std::uint8_t input_keyframe_request = 6U;
 constexpr std::uint8_t input_video_bitrate = 7U;
+constexpr std::uint8_t input_key_tap = 8U;
 constexpr std::size_t packet_header_size = 20U;
 constexpr std::size_t input_header_size = 8U;
 constexpr std::size_t max_fragment_bytes = 256U * 1024U;
@@ -1672,6 +1673,34 @@ private:
             session_.key(key, down);
             if (down) { pressed_keys_.insert(key); }
             else { pressed_keys_.erase(key); }
+        } else if (op == input_key_tap && payload.size() >= 2U && payload.size() <= 18U && payload.size() % 2U == 0U) {
+            const auto key = read_u16(payload, 0U);
+            if (pressed_keys_.contains(key)) { return; }
+            std::vector<std::uint16_t> modifiers;
+            for (std::size_t index = 2U; index < payload.size(); index += 2U) {
+                const auto modifier = read_u16(payload, index);
+                if (modifier == key || (modifier != 29U && modifier != 42U && modifier != 54U && modifier != 56U &&
+                    modifier != 0x9dU && modifier != 0xb8U && modifier != 0xdbU && modifier != 0xdcU)) { return; }
+                modifiers.push_back(modifier);
+            }
+            // One complete action crosses the network and local socket.
+            // Network jitter can never stretch the interval between these
+            // edges and start guest-native autorepeat for a short tap.
+            std::vector<std::uint16_t> added_modifiers;
+            for (const auto modifier : modifiers) {
+                if (pressed_keys_.contains(modifier)) { continue; }
+                pressed_keys_.insert(modifier);
+                added_modifiers.push_back(modifier);
+                session_.key(modifier, true);
+            }
+            pressed_keys_.insert(key);
+            session_.key(key, true);
+            session_.key(key, false);
+            pressed_keys_.erase(key);
+            for (auto it = added_modifiers.rbegin(); it != added_modifiers.rend(); ++it) {
+                session_.key(*it, false);
+                pressed_keys_.erase(*it);
+            }
         } else if (op == input_scroll && payload.size() == 4U) {
             const auto vertical = read_i16(payload, 0U);
             // Display1 represents wheel movement with QEMU's InputButton

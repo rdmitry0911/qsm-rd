@@ -1,0 +1,37 @@
+{
+  "firefox_page_fullscreen": {
+    "window": false,
+    "page": false,
+    "esc": 0,
+    "keyboardLock": false
+  },
+  "firefox_browser_f11_before_escape": {
+    "window": true,
+    "page": false
+  },
+  "firefox_browser_f11": {
+    "window": true,
+    "page": false,
+    "esc": 1
+  },
+  "chromium_active_window": "127.0.0.1:41135 - Google Chrome for Testing",
+  "chromium_native_xtest": {
+    "page": true,
+    "esc": 0,
+    "active": "VIDEO",
+    "keyEvents": [],
+    "lock_result": true
+  },
+  "chromium_cdp_escape": {
+    "page": true,
+    "esc": 1,
+    "active": "VIDEO",
+    "keyEvents": [
+      [
+        "Escape",
+        "VIDEO"
+      ]
+    ],
+    "lock_result": true
+  }
+}

@@ -55,6 +55,7 @@
         raw: 'raw-events',
         client: 'client-first',
     });
+    const KEY_INPUT_MODE = Object.freeze({ typing: 'client-repeat', physical: 'guest-repeat' });
     const CONSOLE_SETTING_SCHEMA = Object.freeze({
         toolbarHotZonePx: { defaultValue: 32, minimum: 4, maximum: 160 },
         toolbarNearbyPx: { defaultValue: 36, minimum: 0, maximum: 240 },
@@ -83,6 +84,7 @@
         // received keys by default. The explicit client-first mode remains
         // available for users who want browser/OS shortcuts to win.
         keyboardPriority: KEYBOARD_PRIORITY.guest,
+        keyInputMode: KEY_INPUT_MODE.typing,
     });
     // Standard receiver target is in milliseconds; the older Chromium hint
     // uses seconds. This is a target: the browser can enforce a larger floor.
@@ -111,6 +113,9 @@
             }
             if (Object.values(KEYBOARD_PRIORITY).includes(stored.keyboardPriority)) {
                 settings.keyboardPriority = stored.keyboardPriority;
+            }
+            if (Object.values(KEY_INPUT_MODE).includes(stored.keyInputMode)) {
+                settings.keyInputMode = stored.keyInputMode;
             }
         } catch (_error) { /* A disabled/private localStorage uses defaults. */ }
         return settings;
@@ -656,13 +661,14 @@
         F4: 62, F5: 63, F6: 64, F7: 65, F8: 66, F9: 67, F10: 68, NumLock: 69, ScrollLock: 70,
         Numpad7: 71, Numpad8: 72, Numpad9: 73, NumpadSubtract: 74, Numpad4: 75, Numpad5: 76,
         Numpad6: 77, NumpadAdd: 78, Numpad1: 79, Numpad2: 80, Numpad3: 81, Numpad0: 82,
-        NumpadDecimal: 83, F11: 87, F12: 88,
+        NumpadDecimal: 83, IntlBackslash: 86, F11: 87, F12: 88,
     };
     const extendedScanCodes = {
         // Display1 takes QEMU's key number, not a raw set-1 byte stream.
         // The E0 prefix is therefore folded into QEMU's extended number
         // (for example Insert is 0xd2, not the VNC-style 0x152).
-        ControlRight: 0x9d, AltRight: 0xb8, MetaLeft: 0x5b, MetaRight: 0x5c,
+        ControlRight: 0x9d, AltRight: 0xb8, MetaLeft: 0xdb, MetaRight: 0xdc,
+        NumpadEnter: 0x9c, NumpadDivide: 0xb5, PrintScreen: 0xb7, Pause: 0xc6, ContextMenu: 0xdd,
         Insert: 0xd2, Delete: 0xd3, Home: 0xc7, End: 0xcf, PageUp: 0xc9, PageDown: 0xd1,
         ArrowUp: 0xc8, ArrowLeft: 0xcb, ArrowRight: 0xcd, ArrowDown: 0xd0,
     };
@@ -1285,12 +1291,54 @@
         }
         keyboardPriorityInput.value = settings.keyboardPriority;
         keyboardPolicyForm.append(keyboardPriorityLabel, keyboardPriorityInput);
+        const keyInputModeLabel = document.createElement('label');
+        keyInputModeLabel.htmlFor = 'qsm-direct-key-input-mode';
+        keyInputModeLabel.textContent = gettext('Key repeat and holds');
+        const keyInputModeInput = document.createElement('select');
+        keyInputModeInput.id = 'qsm-direct-key-input-mode';
+        keyInputModeInput.style.cssText = 'width:100%;box-sizing:border-box;padding:4px 6px';
+        for (const [value, label] of [
+            [KEY_INPUT_MODE.typing, gettext('Exact typing — client repeats')],
+            [KEY_INPUT_MODE.physical, gettext('Physical holds — guest repeats')],
+        ]) {
+            const option = document.createElement('option'); option.value = value; option.textContent = label;
+            keyInputModeInput.append(option);
+        }
+        keyInputModeInput.value = settings.keyInputMode;
+        keyInputModeInput.disabled = settings.keyboardPriority === KEYBOARD_PRIORITY.raw;
+        if (keyInputModeInput.disabled) { keyInputModeInput.value = KEY_INPUT_MODE.physical; }
+        keyboardPolicyForm.append(keyInputModeLabel, keyInputModeInput);
+        const keyInputModeHint = document.createElement('p');
+        keyInputModeHint.style.cssText = 'margin:8px 0;color:#cbd5e1;line-height:1.35';
+        keyInputModeHint.textContent = gettext('Exact typing sends each character/repeat as one complete action, so a delayed release cannot generate extra characters. Modifier chords still work. Use Physical holds or Raw input for games and shortcuts that require holding an ordinary key. Physical mode uses guest autorepeat, which can repeat during input delays. Raw input always uses physical holds.');
         const keyboardPolicyHint = document.createElement('p');
-        keyboardPolicyHint.textContent = gettext('Guest first forwards every key event received by this window, including Ctrl/Alt/Meta. To leave guest keyboard capture, press Ctrl+Alt+Shift+Esc; focus moves to Settings. Raw input sends one physical down and up edge for every received keyboard or mouse action and reserves no QSM chord; use the Settings button to return to client controls. In native full screen Chrome locks Escape for both guest modes when the browser supports Keyboard Lock. In client-first mode, browser Copy/Paste, tab/window/navigation, refresh, full-screen and developer-tool shortcuts stay local; all other received keys go to the guest.');
+        keyboardPolicyHint.textContent = gettext('Guest first forwards received keys, including Ctrl/Alt/Meta, with clipboard integration. To leave guest keyboard capture, press Ctrl+Alt+Shift+Esc; focus moves to Settings. Raw input sends literal key edges and reserves no QSM chord. In native full screen, supported browsers request all available keys through Keyboard Lock. In client-first mode, browser shortcuts stay local.');
         keyboardPolicyHint.style.cssText = 'margin:8px 0;color:#cbd5e1;line-height:1.35';
         const keyboardUnavailableHint = document.createElement('p');
         keyboardUnavailableHint.textContent = gettext('Always unavailable to a web console when claimed before the browser: macOS Cmd+Tab, Cmd+Space, Cmd+Q, Ctrl+Cmd+Q and Cmd+Option+Esc; Windows Ctrl+Alt+Del and Win+L; compositor Super/secure-attention shortcuts. Browser policy can also reserve its own full-screen or window-management shortcuts.');
         keyboardUnavailableHint.style.cssText = 'margin:0 0 14px;color:#fbbf24;line-height:1.35';
+        const keyboardCaptureStatus = document.createElement('p');
+        keyboardCaptureStatus.style.cssText = 'margin:8px 0;color:#cbd5e1;line-height:1.35';
+        const specialKeys = document.createElement('div');
+        specialKeys.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 14px';
+        for (const [label, modifiers, key] of [
+            ['Esc', [], 1], ['Alt+Tab', [56], 15], ['Ctrl+Alt+Del', [29, 56], 0xd3],
+            ['Super / Windows', [], 0xdb],
+        ]) {
+            const action = document.createElement('button');
+            action.type = 'button';
+            action.textContent = label;
+            action.title = gettext('Send to guest') + ': ' + label;
+            action.style.cssText = 'padding:4px 8px;cursor:pointer';
+            action.addEventListener('click', () => {
+                if (!control || control.readyState !== 'open') { return; }
+                releaseHeldInput();
+                setSettingsPanelOpen(false);
+                video.focus({ preventScroll: true });
+                sendGuestChord(modifiers, key);
+            });
+            specialKeys.append(action);
+        }
         const settingsForm = document.createElement('div');
         settingsForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:center';
         const settingLabels = {
@@ -1409,7 +1457,7 @@
         settingsActions.append(resetSettings, closeSettings);
         settingsPanel.append(settingsTitle, settingsHint, mediaPolicyTitle, mediaPolicyHint,
             mediaPolicyForm, saveMediaPolicy, keyboardPolicyTitle, keyboardPolicyForm,
-            keyboardPolicyHint, keyboardUnavailableHint, gesturesTitle, gesturesHint,
+            keyboardPolicyHint, keyInputModeHint, keyboardCaptureStatus, specialKeys, keyboardUnavailableHint, gesturesTitle, gesturesHint,
             gesturesForm, resetGestures, settingsForm, settingsActions);
         toolbar.append(status, copy, paste, audio, mic, kbButton, fullscreen, diagButton, settingsButton);
         // On-screen diagnostics for the case a client shows no picture (mostly
@@ -1442,6 +1490,10 @@
         let latestPointer = null;
         const heldMouseButtons = new Set();
         const heldKeys = new Set();
+        let inputStateTimer = null;
+        let inputStateEnabled = false;
+        let inputTapsEnabled = false;
+        const physicalHeldKeys = new Set();
         let fullscreenEscapePending = false;
         // `qsm-pointer` is deliberately unordered and non-retransmitted.
         // Preserve an explicit sequence number with every latest-state sample
@@ -1677,20 +1729,60 @@
             try { control.send(JSON.stringify(value)); return true; }
             catch (_error) { return false; }
         };
+        let keyboardLockGeneration = 0;
+        const keyboardController = () => {
+            let keyboard;
+            try { keyboard = popup.navigator && popup.navigator.keyboard; }
+            catch (_error) { return null; }
+            try { return popup.top.navigator.keyboard || keyboard; }
+            catch (_error) { return keyboard; }
+        };
+        const releaseGuestKeyboardLock = () => {
+            keyboardLockGeneration += 1;
+            const keyboard = keyboardController();
+            if (keyboard && typeof keyboard.unlock === 'function') {
+                try { keyboard.unlock(); } catch (_error) { /* A closed document has already lost its lock. */ }
+            }
+        };
         const updateGuestKeyboardLock = () => {
+            if (closed) { releaseGuestKeyboardLock(); return; }
             // Native full screen normally lets the browser reserve Escape.
             // Chrome's Keyboard Lock API is the standards-based exception:
             // in either guest-priority mode retain Escape for the VM, so its
             // own shortcut editor sees the real key edge.
-            const keyboard = popup.navigator && popup.navigator.keyboard;
-            if (!keyboard) { return; }
+            const generation = ++keyboardLockGeneration;
+            const keyboard = keyboardController();
+            if (!keyboard || typeof keyboard.lock !== 'function') {
+                keyboardCaptureStatus.textContent = gettext('This browser cannot lock reserved keys. Firefox keeps Esc for page full screen; on desktop use browser F11 instead of the QSM full-screen button, or use Send to guest buttons below.');
+                return;
+            }
             if (document.fullscreenElement && settings.keyboardPriority !== KEYBOARD_PRIORITY.client &&
-                typeof keyboard.lock === 'function') {
-                Promise.resolve(keyboard.lock(['Escape'])).catch(() => undefined);
+                (document.activeElement === video || document.activeElement === kbInput)) {
+                try {
+                    // No key list means every key the OS/browser permits,
+                    // rather than reserving only Escape for the guest.
+                    Promise.resolve(keyboard.lock()).then(() => {
+                        if (generation === keyboardLockGeneration) {
+                            keyboardCaptureStatus.textContent = gettext('Keyboard capture active for all available keys. Hold Esc to exit browser full screen.');
+                        }
+                    }).catch(() => {
+                        if (generation === keyboardLockGeneration) {
+                            keyboardCaptureStatus.textContent = gettext('Keyboard capture was denied. Allow keyboard capture in the browser or use Send to guest buttons below.');
+                        }
+                    });
+                } catch (_error) {
+                    keyboardCaptureStatus.textContent = gettext('Keyboard capture is unavailable. Use Send to guest buttons below.');
+                }
             } else if (typeof keyboard.unlock === 'function') {
                 keyboard.unlock();
+                keyboardCaptureStatus.textContent = gettext('Enter QSM full screen and focus the guest picture to capture available browser keys.');
             }
         };
+        for (const element of [video, kbInput]) {
+            element.addEventListener('focus', updateGuestKeyboardLock);
+            element.addEventListener('blur', updateGuestKeyboardLock);
+        }
+        updateGuestKeyboardLock();
         const bytesToB64 = (bytes) => {
             let binary = '';
             const view = new Uint8Array(bytes);
@@ -1931,6 +2023,8 @@
         });
         const applyConsoleSettings = () => {
             writeConsoleSettings(browserStorage, settings);
+            keyInputModeInput.disabled = settings.keyboardPriority === KEYBOARD_PRIORITY.raw;
+            keyInputModeInput.value = keyInputModeInput.disabled ? KEY_INPUT_MODE.physical : settings.keyInputMode;
             updateGuestKeyboardLock();
             applyReceiverPlayoutDelay(videoReceiver, settings.playoutDelayMs);
             if (toolbarTimer !== null) {
@@ -1973,10 +2067,19 @@
             settings.keyboardPriority = value;
             applyConsoleSettings();
         });
+        keyInputModeInput.addEventListener('change', () => {
+            if (!Object.values(KEY_INPUT_MODE).includes(keyInputModeInput.value)) {
+                keyInputModeInput.value = settings.keyInputMode; return;
+            }
+            releaseHeldInput();
+            settings.keyInputMode = keyInputModeInput.value;
+            applyConsoleSettings();
+        });
         resetSettings.addEventListener('click', () => {
             Object.assign(settings, defaultConsoleSettings());
             for (const [name, input] of settingInputs) { input.value = String(settings[name]); }
             keyboardPriorityInput.value = settings.keyboardPriority;
+            keyInputModeInput.value = settings.keyInputMode;
             applyConsoleSettings();
         });
         settingsButton.addEventListener('click', () => setSettingsPanelOpen(!settingsPanelOpen));
@@ -2092,6 +2195,10 @@
             }
         };
         const sendGuestChord = (modifiers, key) => {
+            if (inputTapsEnabled) {
+                send({ op: 'key_tap', key, modifiers });
+                return;
+            }
             // Send an explicit physical chord.  The reliable control channel
             // preserves these edges, while the worker serializes them to the
             // Display1 keyboard endpoint.
@@ -2207,23 +2314,69 @@
             send({ op: 'mouse_button', button, down });
             diagButtonSent += 1; diagLastInput = 'button' + button + (down ? '↓' : '↑');
         };
-        const sendKeyboard = (key, down, repeat = false) => {
+        const sendKeyboard = (key, down, repeat = false, sourceTime = null, sourceEvent = null) => {
             if (!Number.isInteger(key) || key < 0 || key > 0xffff) { return; }
-            // The guest owns autorepeat. In particular, a repeat whose first
-            // keydown belonged to another field must never start a new guest
-            // press when pointer-enter gives the video keyboard focus.
-            if (down && repeat) { return; }
+            // Only a repeat of a press started here is eligible. Exact typing
+            // sends one atomic action per client event; physical mode leaves
+            // autorepeat to the guest while snapshots bound stale holds.
+            const modifier = [29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc].includes(key);
+            const atomic = inputTapsEnabled && settings.keyInputMode === KEY_INPUT_MODE.typing &&
+                settings.keyboardPriority !== KEYBOARD_PRIORITY.raw && !modifier;
+            if (down && repeat && (!atomic || !heldKeys.has(key))) { return; }
+            const message = { op: 'keyboard', key, down, modifiers: 0 };
+            if (inputStateEnabled && Number.isFinite(sourceTime) && sourceTime >= 0) {
+                message.client_time_ms = Math.round(sourceTime);
+                message.event_delay_ms = Math.max(0, Math.round(popup.performance.now() - sourceTime));
+            }
             noteGuestInput();
             if (down) {
-                if (heldKeys.has(key)) { return; }
-                if (!send({ op: 'keyboard', key, down, modifiers: 0 })) { return; }
+                if (heldKeys.has(key) && !repeat) { return; }
+                if (atomic) {
+                    delete message.down; delete message.modifiers; message.op = 'key_tap';
+                    const modifiers = [...physicalHeldKeys].filter(value =>
+                        [29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc].includes(value));
+                    if (sourceEvent) {
+                        for (const [flag, group] of [['ctrlKey', [29, 0x9d]], ['shiftKey', [42, 54]],
+                            ['altKey', [56, 0xb8]], ['metaKey', [0xdb, 0xdc]]]) {
+                            if (sourceEvent[flag] === false) {
+                                for (let i = modifiers.length - 1; i >= 0; --i) {
+                                    if (group.includes(modifiers[i])) { modifiers.splice(i, 1); }
+                                }
+                            } else if (sourceEvent[flag] === true && !modifiers.some(value => group.includes(value))) {
+                                modifiers.push(group[0]);
+                            }
+                        }
+                    }
+                    message.modifiers = modifiers;
+                    if (!send(message)) { return; }
+                } else {
+                    if (!send(message)) { return; }
+                    physicalHeldKeys.add(key);
+                }
                 heldKeys.add(key);
             } else {
                 if (!heldKeys.has(key)) { return; }
-                send({ op: 'keyboard', key, down, modifiers: 0 });
+                if (physicalHeldKeys.has(key)) { send(message); physicalHeldKeys.delete(key); }
                 heldKeys.delete(key);
             }
             diagKeySent += 1; diagLastInput = 'key' + key + (down ? '↓' : '↑');
+        };
+        const publishInputState = () => {
+            if (!inputStateEnabled) { return; }
+            send({ op: 'input_state', keys: [...physicalHeldKeys], buttons: [...heldMouseButtons] });
+        };
+        const acceptInputPolicy = (message) => {
+            // Negotiate first: a new viewer must not send unknown operations
+            // to an older bridge during a rolling upgrade.
+            if (message.version !== 1 || message.lease_ms !== 200 || message.snapshot_ms !== 50) { return; }
+            if (inputStateTimer !== null) { popup.clearInterval(inputStateTimer); }
+            inputStateEnabled = true;
+            inputTapsEnabled = message.key_taps === true;
+            if (!inputTapsEnabled && settings.keyInputMode === KEY_INPUT_MODE.typing) {
+                keyInputModeHint.textContent = gettext('Exact typing is unavailable on this server; physical input is active. Update the QSM host package and reopen this console.');
+            }
+            publishInputState();
+            inputStateTimer = popup.setInterval(publishInputState, message.snapshot_ms);
         };
         // Element focus can move to the toolbar/settings without window blur.
         // Release there, and catch keyups even if their new target is another
@@ -2235,7 +2388,7 @@
         kbInput.addEventListener('blur', releaseGuestKeys);
         document.addEventListener('keyup', (event) => {
             const key = qemuKey(event);
-            if (key !== null) { sendKeyboard(key, false); }
+            if (key !== null) { sendKeyboard(key, false, false, event.timeStamp, event); }
         }, true);
         // Map a printable character to a US-layout scancode + shift flag, so
         // the on-screen keyboard (which reports typed text, not key codes) can
@@ -2284,7 +2437,7 @@
             kbInput.addEventListener(name, (event) => {
                 const code = scanCodes[event.code] !== undefined ? scanCodes[event.code]
                     : (extendedScanCodes[event.code] !== undefined ? extendedScanCodes[event.code] : null);
-                if (code !== null) { sendKeyboard(code, name === 'keydown', event.repeat); event.preventDefault(); }
+                if (code !== null) { sendKeyboard(code, name === 'keydown', event.repeat, event.timeStamp, event); event.preventDefault(); }
                 // Keep the field empty so the OS keyboard never shows a caret
                 // position that fights composition on the next character.
                 kbInput.value = '';
@@ -2320,6 +2473,7 @@
             // release edges ahead of a transport close.
             for (const button of [...heldMouseButtons]) { sendMouseButton(button, false); }
             for (const key of [...heldKeys]) { sendKeyboard(key, false); }
+            publishInputState();
         };
         const leaveGuestKeyboardCapture = () => {
             // The escape chord is intentionally local only in guest-first
@@ -2347,6 +2501,9 @@
             if (closed) { return; }
             releaseHeldInput();
             closed = true;
+            releaseGuestKeyboardLock();
+            inputStateEnabled = false;
+            if (inputStateTimer !== null) { popup.clearInterval(inputStateTimer); inputStateTimer = null; }
             if (observer) { observer.disconnect(); }
             stopMicrophone();
             if (peer) { peer.close(); }
@@ -2811,7 +2968,9 @@
                 let message;
                 try { message = JSON.parse(event.data); } catch (_error) { return; }
                 if (!message || typeof message !== 'object') { return; }
-                if (message.op === 'qsm_video_rate') {
+                if (message.op === 'qsm_input_policy') {
+                    acceptInputPolicy(message);
+                } else if (message.op === 'qsm_video_rate') {
                     acceptVideoRate(message);
                 } else if (message.op === 'qsm_guest_result' && typeof message.request_id === 'string') {
                     const request = guestRequests.get(message.request_id);
@@ -3304,7 +3463,7 @@
                         // native shortcut and the guest sees no partial key.
                         return;
                     } else if (key !== null) {
-                        sendKeyboard(key, name === 'keydown', event.repeat); event.preventDefault();
+                        sendKeyboard(key, name === 'keydown', event.repeat, event.timeStamp, event); event.preventDefault();
                     }
                 });
             }

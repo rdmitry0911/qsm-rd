@@ -1,0 +1,123 @@
+QSM Direct stock4.2 input qualification — 2026-10-24
+====================================================
+
+Diagnosis on the unmodified stock4.1 production VM 103
+----------------------------------------------------
+The long-running console remained connected. Existing media logs showed no
+input failures; median sampled RTT was 110 ms, maximum 403 ms. Those media
+counters did not measure keyboard edge timing.
+
+Read-only D-Bus observation at QEMU and a concurrent guest evdev observer
+collected counts and completed hold durations, without retaining key
+identities or typed content. All 178 presses/releases completed. The guest
+kernel emitted 89 repeat events. The longest D-Bus hold was 870.86 ms; the
+guest maximum was approximately 875 ms. The USB keyboard kernel repeat delay
+and period were 250/33 ms. Hold stretching therefore already existed before
+guest processing. The exact contribution of browser dispatch versus network
+jitter cannot be distinguished retrospectively; new source-event timing
+metadata provides that distinction without logging actual keys.
+
+Compatible solution and explicit mode choice
+--------------------------------------------
+The user selected Exact typing as the default. Each initial ordinary-key
+press and actual browser repeat is one key_tap command. Modifiers accompany
+the action, and the worker executes the complete chord locally. The first
+character is immediate; it does not wait for a snapshot. No independent
+guest-held character is left for a delayed network keyup to release.
+Modifiers and physical/Raw mode retain held state with per-peer ownership.
+
+Physical snapshots renew every 50 ms, with a 200 ms watchdog. This watchdog
+is only a bounded-hold fallback: a recent snapshot followed by a network gap
+can still span the native repeat threshold. The real test below explicitly
+reproduces that counterexample. It is not presented as zero-error typing.
+Snapshots release missing inputs but never create new presses. Closing a
+peer releases its own keys even when another peer keeps the producer alive.
+
+The proposed guest-aware model is sound: allow the first character at once,
+then repeat only from confirmed client-held time. Standard QEMU Display1
+Keyboard Press/Release and ordinary USB HID do not carry that repeat policy;
+retroactive release timing cannot undo already delivered characters. Exact
+typing is a compatible action-count solution for existing guests, rather
+than claiming to modify their native timers. Physical key-state polling in
+games/shortcut editors requires Physical holds or Raw input. Shared input
+also cannot isolate competing users; taps cannot release another viewer's
+already-held main key.
+
+Sources checked:
+https://www.qemu.org/docs/master/interop/dbus-display.html#org-qemu-display1-keyboard-interface
+https://cgit.freedesktop.org/wayland/wayland/tree/protocol/wayland.xml
+https://wicg.github.io/keyboard-lock/
+
+Wayland keyboard v10 has an explicit repeated state with repeat_info rate 0,
+but requires compositor/toolkit support. It is not used or claimed here.
+
+Real Firefox/worker/desktop regression
+-------------------------------------
+Fixture: disposable CT108 Sway seat, a full-screen Qt line edit. Production
+JS keyboard handlers, real SCTP, the production worker and wlroots virtual
+keyboard are used. Only the browser-to-server control stream is paused for
+900 ms by the test wrapper; video remains connected. This is an injected
+control-delivery gap, not a claim of a shaped physical VPN capture.
+
+Completed cases (real-input-result.json):
+* stock4.1 physical edges, a short source press: 8 characters.
+* new physical/watchdog, gap beginning immediately: 1 character.
+* new physical/watchdog, recent heartbeat then gap: 5 characters.
+* Exact typing, immediate gap: 1 character.
+* Exact typing, recent heartbeat then gap: 1 character.
+* six real DOM press/repeat events across a gap: exactly 6 characters.
+* Raw, one genuine uninterrupted physical hold: native repetition remains
+  (11 characters in this run); no additional watchdog expiry.
+* Shift-modified typing and an atomic Shift+Left chord: uppercase character
+  and selected length 1, respectively.
+
+The baseline used the immutable stock4.1 bridge/worker. The fixed case used
+the new source and the Debian 13-built worker. SDP/ICE secrets stayed in SSH
+pipes and were not written to the review bundle. The fixture records only
+its owned test input's length/uppercase/selection flags.
+
+Fixture operation: start inside CT108 with systemd-run, RuntimeMaxSec=900,
+unit qsm-keyboard24-fixture. Stopping a host pct-exec wrapper alone does not
+reliably terminate an in-container GUI child. Earlier duplicate owned test
+fixtures were removed; the final run used one container-owned service. The
+fixture also takes a singleton lock. Focus is selected by its exact title
+on the lab compositor before each case. No production guest input was
+injected by the test; production VM 103 observation was read-only.
+
+Local regression gates
+----------------------
+The local Python report includes existing aiortc negative-negotiation
+teardown/closed-loop warnings; these are not failed test assertions.
+68 bridge/controller/input tests pass. CTest has 21 passing gates, including
+new browser keyboard capture/state tests. The production worker/fake-QEMU
+E2E confirms 5 presses + 5 releases, atomic plain/chord handling, preservation
+of an already-held Ctrl, rejection of invalid modifiers, cleanup on EOF,
+cursor/resize and video recovery. Final logs are bundled.
+
+Fullscreen/key capture
+----------------------
+Keyboard Lock now requests all available keys, unlocks on client focus and
+console close, and reports denial instead of silently ignoring it. The
+same-origin top-level controller is used for native iframe fullscreen.
+Esc, Alt+Tab, Ctrl+Alt+Del and Super buttons use atomic chords. Meta uses the
+correct QEMU extended numbers 0xdb/0xdc.
+
+Headful Firefox 157 with an owned Xvfb/Openbox display and XTEST input:
+page fullscreen reserves Escape (zero guest DOM Escape events); browser F11
+fullscreen stays active while the guest receives Escape. F11 is invoked
+while focus is outside the guest. Firefox has no Keyboard Lock API.
+
+Chromium 145 grants lock-all and retains page fullscreen; a CDP-injected Esc
+reaches the video. XTEST injection under that lock produced no DOM events,
+so it is inconclusive for real hardware capture, not a hardware pass. Node
+tests verify API arguments, iframe ownership, denial, unlock and chord
+routing. Secure OS sequences can still be reserved before browser delivery.
+
+Upgrade
+--------
+Both bridge and worker must come from the matching core package. Reload the
+PVE page with cache bypass and reopen/reload consoles. Old cached viewers
+retain old edge-only behavior. Raw always overrides the selected typing
+mode; select Guest first + Exact typing for normal text entry.
+The video budget/encoder configuration is unchanged from stock4.1; no new
+codec/hardware quality qualification is claimed by this input update.

@@ -1,0 +1,7 @@
+{
+  "qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py": "36f149d904b989432ca759c1da9d3bb7238598df981cca5f220021e0a23a982a",
+  "qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js": "1b796d5a977f8fd8beefed41a484baa634360f7054587ae49aeb0fd022370ec3",
+  "qsm-direct/tools/qsm_direct_media_worker.cpp": "98824c6c9280f7f68f713dfeacc9333a050c27b4c16c5161a53c63677ad2558d",
+  "qsm-direct/tests/browser_bridge/test_input_state.py": "48cd28715a6ae9159c50a32f62a087170d0a707755906ca05214696684e58e8b",
+  "qsm-direct/tests/proxmox_pve9/test_keyboard_capture.mjs": "315ef994e30e02a8e565e922ae5b2db873c33dd64af2eead56e0e99c37c1cec5"
+}
