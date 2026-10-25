@@ -1,0 +1,37 @@
+{
+  "profile": "standalone stock PVE 9.2.21 / Debian 13",
+  "guest": "Debian 13 / Plasma Wayland LXC",
+  "viewer": "Firefox 157 / Linux",
+  "codec": "video/H264",
+  "resolution": {
+    "width": 1280,
+    "height": 726
+  },
+  "decoded_frames": 971,
+  "dropped_frames": 0,
+  "ice_policy": "relay",
+  "turn_client_transport": "tcp",
+  "public_port": 8006,
+  "data_channels": [
+    {
+      "label": "qsm-control",
+      "state": "open",
+      "sent": 326
+    },
+    {
+      "label": "qsm-pointer",
+      "state": "open",
+      "sent": 5
+    }
+  ],
+  "signal_request_statuses": [
+    200,
+    200,
+    200
+  ],
+  "private_backends_loopback_only": true,
+  "vm_pids_and_states_preserved": true,
+  "container_states_preserved": true,
+  "host_not_rebooted": true,
+  "scope": "Additional live-node connectivity and routing check. No physical Internet-router test, new performance benchmark, HEVC check or hardware-encoder qualification is claimed. Guest credentials and personal screen contents were not collected."
+}

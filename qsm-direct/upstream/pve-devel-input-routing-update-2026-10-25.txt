@@ -1,0 +1,56 @@
+Hi Alexandre, hi all,
+
+A follow-up to yesterday's stock4.3 input update: the standalone preview
+and signed APT feed now provide 0.4.0+stock4.13.
+
+The viewer has an explicit Capture keyboard action, using the browser's
+fullscreen keyboard-capture API where supported; F11 is not required.
+Settings and host application switching preserve fullscreen. Focus loss
+releases guest-held input, and returning resumes capture without restoring
+old holds. Capture, release and fullscreen exit are separate controls.
+
+The existing shortcut-priority editor now routes complete chords, including
+modifier-only combinations. Host-reserved prefixes stay local until a
+guest action is known, avoiding a stray guest Alt/Meta when the host takes
+an application-switch shortcut. All 11 combinations of two or more logical
+Ctrl/Alt/Shift/Meta modifiers default to Host/browser; removing an exact
+rule or selecting Guest routes the completed combination to the guest.
+Rules persist, and logical modifiers respect Option/Command remapping.
+
+Stock4.13 preserves observed modifier press order when committing one
+complete action on the first release. This was checked with the production
+viewer, installed bridge/worker and a real VM USB input device, including
+guest evdev and Plasma layout changes in both release orders. The guest
+must also have the requested layout shortcut configured. Physical Raw
+input remains available. OS-reserved shortcuts are still subject to host
+policy; these changes cannot force a native shortcut to reach a web app.
+
+All 24 CTest gates pass, including 26,784 modifier-routing cases. Browser
+checks cover Firefox and Chromium; physical macOS qualification remains
+outstanding. The worker, bridge and input protocol are unchanged from
+stock4.3, and these viewer fixes require no guest update or reboot.
+
+I also deployed the existing optional single-TCP-8006 gateway on another
+stock PVE 9.2 / Debian 13 node. A Firefox H.264 LXC desktop connected with
+relay-only ICE over TURN/TCP on 8006, with open control and pointer channels
+and loopback-only service backends. This is an additional node connectivity
+check, not a new Internet/NAT or latency benchmark. Gateway activation
+restarts the web services; VM/CT states and VM PIDs were preserved.
+The gateway remains an explicit single-node profile with documented
+activation/listener effects and rollback. Outer TURN control is plain TCP;
+HTTPS, SRTP and DTLS protect the respective application payloads.
+
+Source, five matching debs, guides and qualification:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.13
+
+Signed APT repository:
+https://rdmitry0911.github.io/qsm-rd/
+
+Update installed QSM profiles together, reload PVE with cache bypass and
+reopen consoles. The native shared-bus/API/UI proposal still awaits review;
+this standalone viewer update does not change that proposed interface.
+
+Project sponsor: Takt, https://taktcycles.com/
+
+Thanks,
+Dmitry

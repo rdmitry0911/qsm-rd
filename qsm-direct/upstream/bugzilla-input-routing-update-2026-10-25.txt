@@ -1,0 +1,19 @@
+Standalone implementation follow-up, 2026-10-25
+
+Following comment #1, the current standalone preview is 0.4.0+stock4.13:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.13
+
+The viewer now has an explicit Capture keyboard action using supported browser fullscreen/keyboard-capture APIs, without depending on F11. Settings and host application switching preserve fullscreen; focus loss releases held guest input, and returning resumes capture without restoring old holds. Capture, release and fullscreen exit are separate controls.
+
+The existing shortcut-priority editor routes complete chords, including modifier-only combinations. Reserved host prefixes no longer leak an initial Alt/Meta press into the guest. All 11 combinations of two or more Ctrl/Alt/Shift/Meta modifiers default to Host/browser; an exact Guest override or removal routes the completed combination to the guest. Rules persist, logical modifiers respect Option/Command remapping, and completed guest modifier actions retain their observed press order regardless of release order. The guest's own layout shortcut must also be configured. Raw remains available; native OS shortcuts cannot be forced through browser policy.
+
+24 CTest gates pass, including 26,784 modifier-routing cases. Full viewer checks cover Firefox/Chromium and real VM USB input/Plasma layout changes. Physical macOS qualification remains outstanding. Worker, bridge and input protocol are unchanged from stock4.3, so these viewer fixes need no guest package update or reboot.
+
+The existing single-TCP-8006 standalone gateway was also deployed on another stock PVE 9.2 / Debian 13 node. A Firefox H.264 LXC desktop used relay-only TURN/TCP on 8006 for video, control and pointer channels, while the service backends remained loopback-only. VM/CT states and VM PIDs were preserved during activation. This checks another node's connectivity, not Internet-router coverage or new latency figures. Activation remains explicit, with the documented proxy/listener effects and rollback. HTTPS protects UI/signalling, SRTP protects media and DTLS protects data channels; outer TURN control is plain TCP.
+
+Signed APT installation and upgrade instructions:
+https://rdmitry0911.github.io/qsm-rd/
+
+The native shared per-VM D-Bus/API/UI proposal and its pending upstream review are unchanged. This unofficial standalone release does not resolve the request for native integration or the separate rendernode request #4771.
+
+Project sponsor: Takt, https://taktcycles.com/

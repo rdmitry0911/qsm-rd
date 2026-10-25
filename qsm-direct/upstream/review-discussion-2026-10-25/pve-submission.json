@@ -1,0 +1,31 @@
+{
+  "message_id": "<179293981837.3090704.6601261792618612901.qsm-stock4.13-update@taktcycles.com>",
+  "date": "Sun, 25 Oct 2026 14:50:18 +0000",
+  "from": "rdmitry@taktcycles.com",
+  "reply_to": "rdmitry0911@gmail.com",
+  "recipients": [
+    "pve-devel@lists.proxmox.com",
+    "alexandre.derumier@groupe-cyllene.com"
+  ],
+  "in_reply_to": "<179283663410.2345286.10377571210474311317.qsm-stock4.3-update@taktcycles.com>",
+  "source_eml": "pve-devel-input-routing-update-2026-10-25.eml",
+  "eml_sha256": "98b1b4889deba2d7a147e7257e0ba6d547e4e4de7b7721e76c7e8b380bd1c4f9",
+  "submission_status": "published_and_verified",
+  "started_at": "2026-10-25T14:50:44.762297+00:00",
+  "smtp_code": 250,
+  "smtp_response": "2.0.0 Ok: queued as C853C1D717B4",
+  "submitted_at": "2026-10-25T14:50:44.824572+00:00",
+  "public_archive": "https://lore.proxmox.com/pve-devel/179293981837.3090704.6601261792618612901.qsm-stock4.13-update@taktcycles.com/",
+  "public_rfc_message_count": 10,
+  "body_verified": true,
+  "verified_at": "2026-10-25T14:53:56.700073+00:00",
+  "recipient_relay_acceptance": {
+    "recipients": [
+      "pve-devel@lists.proxmox.com",
+      "alexandre.derumier@groupe-cyllene.com"
+    ],
+    "smtp_code": 250,
+    "relay_queue_id": "DB7941397F",
+    "local_queue_empty": true
+  }
+}

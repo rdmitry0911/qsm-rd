@@ -1,0 +1,13 @@
+{
+  "bug_id": 8106,
+  "comment_id": 37754,
+  "comment_number": 2,
+  "creator": "rdmitry0911@gmail.com",
+  "creation_time": "2026-10-25T14:51:30Z",
+  "url": "https://bugzilla.proxmox.com/show_bug.cgi?id=8106#c2",
+  "draft": "../bugzilla-input-routing-update-2026-10-25.txt",
+  "draft_sha256": "989660a61e157ea683efe5ee2eefc64782062efa52ec7fe2c40d46bd5573a129",
+  "delivery_status": "published_and_verified",
+  "verified_at": "2026-10-25T14:51:30.891780+00:00",
+  "duplicate_check": "Exact text was checked before posting; public comment body verified afterward."
+}

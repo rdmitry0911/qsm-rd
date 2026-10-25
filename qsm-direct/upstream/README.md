@@ -4,34 +4,33 @@ Proxmox takes no pull requests: patches go to `pve-devel@lists.proxmox.com`
 with `git send-email`, and every contributor signs a CLA first
 ([developer documentation](https://pve.proxmox.com/wiki/Developer_Documentation)).
 
-## Current status (2026-10-24; discussion audit October 23)
+## Current status (2026-10-25)
 
-The public RFC thread has eight messages, most recently Dmitry's standalone/APT
-update on October 20. The forum's APT installation update is also published
-(post #8). No later reply was found in either discussion. Alexandre's October 15
-questions about pveproxy/8007 and the latency method were answered on October 16.
-The linked shared-base series remain proposals awaiting upstream review.
+The public RFC thread has ten messages, including the published October 24
+stock4.3 update and today's [stock4.13 follow-up](pve-devel-input-routing-update-2026-10-25.eml),
+with Alexandre copied. Bugzilla #8106 has the architecture/runtime update in
+comment #1 and today's [input/capture follow-up](bugzilla-input-routing-update-2026-10-25.txt)
+in comment #2; both publications are verified. No new maintainer response was
+found. Alexandre's October 15 questions were answered on October 16, and the
+native shared-base/API/UI series still await upstream review.
 
-The [latest discussion audit](discussion-status-2026-10-23.md) records the
-forum, pve-devel, Bugzilla #8106, related #4771, Debian ITP/RFS and GitHub
-issue/PR status. Bugzilla still needs an architecture/progress update;
-an updated comment is prepared, awaiting Bugzilla authentication. The Debian
-ITP progress message was sent on October 22 and verified in the public BTS.
-The standalone stock4.1 release runs on official PVE packages, separately from
-the native shared-base proposal. A [signed APT repository](../packaging/apt/README.md)
-distributes the standalone debs. The stock4.1 media update and
-[validation](review-video-budget-2026-10-23/qualification.txt) preserve static
-reference detail when the network target changes. This does not make the PVE integration
-independent of Proxmox at runtime; see the
+The [latest discussion audit and publication records](discussion-status-2026-10-25.md)
+cover pve-devel, the forum, Bugzilla #8106, Debian ITP/RFS and GitHub issues/PRs.
+The forum has nine posts; its latest is Dmitry's October 24 stock4.3 update.
+Today's [forum follow-up](forum-input-routing-update-2026-10-25.txt) is a draft
+for the user to publish. The Debian review source is unchanged, with no new
+ITP/RFS review response; no duplicate Debian update was sent.
+
+The unofficial standalone stock4.13 preview runs on official PVE 9 / Debian 13
+amd64 packages and is distributed through the [signed APT repository](../packaging/apt/README.md).
+It retains Exact typing/clicks and the media reference-detail fix, and adds
+explicit keyboard capture, fullscreen/focus fixes and configurable complete
+modifier-shortcut routing with preserved press order. Its
+[VM input/layout qualification](review-vm103-modifier-order-2026-10-25/)
+and an [additional stock-node TCP 8006 gateway check](review-discussion-2026-10-25/additional-stock-node-gateway.json)
+are available. Physical macOS qualification remains outstanding. This does not
+make the PVE add-on independent of Proxmox at runtime; see the
 [official Debian packaging assessment](debian-distribution-2026-10-20.md).
-
-Stock4.2 adds default Exact typing to prevent delayed releases from producing
-unconfirmed guest repeats, plus optional physical holds and explicit special
-key delivery. Its [input qualification](review-keyboard-2026-10-24/qualification.txt)
-includes the heartbeat-only counterexample, real Firefox/Sway text entry,
-shared input ownership and QEMU worker checks. The native bus/API proposal
-remains separate. A [forum draft](forum-keyboard-update-2026-10-24.txt) is
-prepared; no discussion message is posted by this update.
 
 The sections below preserve the earlier shared-base submission material and
 its dated validation scope; their shared9 links are historical.

@@ -1,0 +1,30 @@
+Hi guys, another update on keyboard handling and the single-port setup. The signed APT repository now has stock4.13.
+
+There is an explicit Capture keyboard button in the left toolbar and Settings. It requests fullscreen keyboard capture through the browser, so F11 is not needed. With supported capture, a short Esc and available browser shortcuts go to the guest. Opening Settings or switching to another host application no longer exits fullscreen. Held guest keys/buttons are released when focus leaves; returning resumes capture without restoring old holds. Release keyboard and Exit Full Screen are separate actions, and the toolbar handle stays at the left edge.
+
+The existing Settings > Keyboard shortcut priority > Host shortcuts list now controls complete combinations, including modifier-only shortcuts. Alt+Tab, Meta+Tab and combinations such as Alt+Shift, Ctrl+Shift and Meta+Shift default to Host / browser. To use one in the guest, change its exact rule to Guest or remove it. Edits and removals persist. A reserved host shortcut no longer leaks its leading Alt/Meta press into the guest.
+
+Completed modifier-only guest shortcuts are sent on the first release, without an extra timer, preserving the order in which the modifiers were pressed. This matters for layout switching. I checked both release orders through an actual VM USB keyboard and Plasma: Alt+Shift worked, and Meta+Shift worked after adding that binding in the guest. QSM's routing rule does not configure the guest's layout shortcut.
+
+Guest first also respects logical Option/Command remapping. OS-reserved shortcuts can still be handled by the host before a web page receives them; Send to guest buttons remain available. The automated Mac modifier cases are modelled on Linux, so feedback from physical Macs would be useful.
+
+I've also checked the optional TCP 8006 gateway on another stock PVE 9.2 node with a Debian 13 / Plasma Wayland LXC desktop in Firefox. Video, control and pointer channels connected through TURN over TCP on 8006; the separate service listeners stayed on loopback. PVE and QSM therefore share the existing public port, with no extra incoming UDP range. The gateway remains an explicitly enabled single-node profile; its activation and rollback instructions still apply. Media/input payloads remain encrypted; outer TURN control uses plain TCP, as described in the earlier post.
+
+Source, matching debs, installation guides and test reports:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.13
+
+Signed APT repository and setup:
+https://rdmitry0911.github.io/qsm-rd/
+
+For an existing APT installation:
+
+apt update
+apt install --only-upgrade qsm-pve-direct qsm-pve-direct-standalone qsm-pve-direct-lxc qsm-pve-direct-gateway
+
+This upgrades the profiles already installed. Reload PVE with cache bypass and reopen consoles, then click Capture keyboard. These input/UI fixes need no guest package update or guest reboot. Restarting QSM services interrupts existing console connections while guests keep running.
+
+Feedback on layout shortcuts, remapped Mac modifiers and the 8006 gateway would be welcome. Please include your browser/OS, VM or LXC, the shortcut rule and the guest's own binding.
+
+Project sponsor: Takt — https://taktcycles.com/
+
+Thank you, Dmitry
