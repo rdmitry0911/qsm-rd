@@ -1,0 +1,16 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.13",
+  "source_commit": "26882bc4acd525029719a824e4c523e42333da44",
+  "apt_manifest_commit": "141fdbeb78767a4dfaa6a82fcde20c5765244cca",
+  "apt_workflow": "https://github.com/rdmitry0911/qsm-rd/actions/runs/40192047440",
+  "apt_workflow_result": "success",
+  "public_apt": "https://rdmitry0911.github.io/qsm-rd/",
+  "verified_downloads": 71,
+  "release_verification": "18 release assets downloaded; detached signature and 16 payload checksums match. Public APT verifies all 71 pinned packages and rejects metadata/deb tampering.",
+  "deployment": "192.168.64.20 four matching stock4.13 profiles configured; dpkg audit empty, apt-get check passes; services active; VM103/CT105 running; served viewer matches live-VM103-qualified source.",
+  "test_scope": "24 CTest gates, 26,784 modifier routing/order cases. Full viewer/Linux Firefox actual keyboard dispatch via installed native terminal service/shared bridge+worker into live VM103 USB evdev. Both release orders verified; no physical Mac claim.",
+  "behavior": "Modifier-only Guest atomic actions preserve observed down order; explicit modifier sends use Shift last. First-release commit, exact host/Guest rules and Raw retained. Worker/bridge unchanged.",
+  "guest_layout_finding": "Saved and active Plasma binding in VM103 is Alt+Shift. Actual Meta+Shift evdev arrives but leaves layout unchanged; actual Alt+Shift switches ru to us. Original layout restored; 2560x1440 output preserved. No guest binding change made.",
+  "measurement_correction": "An initial compositor query before input completion raced delivery. Final probe waits for guest evdev completion. The proven fixed defect is reversed down order, independently visible in baseline/fixed evdev traces.",
+  "discussion_messages": "Draft prepared; no external discussion messages posted."
+}
