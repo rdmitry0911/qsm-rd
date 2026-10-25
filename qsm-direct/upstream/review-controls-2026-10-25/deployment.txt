@@ -1,0 +1,12 @@
+192.168.64.20 upgraded to matching stock4.8 core/standalone/LXC/gateway.
+APT simulation selected exactly four QSM host packages, no removals or guest
+deb installation. Terminal/signal/gateway/turn active; dpkg audit empty;
+VM103 and CT105 remain running. Installed/HTTPS-served viewer match package.
+Worker/bridge unchanged from prior qualified payloads. Embedded guest deb
+matches the separate guest asset. No guest stop/restart/update performed.
+Downloaded release signature and every asset SHA256 verified with public key.
+22 CTest gates; Firefox/Chromium full UI cases in top/embedded at two sizes;
+headful native XTEST Esc after fullscreen upgrade all pass. API/Ext stubs
+used, no physical Mac/new guest transport/hardware qualification claimed.
+No discussion mail/comments sent. Reload PVE and reopen console to load
+stable left-edge handle and enable-only Capture action; explicit exit remains.
