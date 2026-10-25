@@ -1,0 +1,14 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.5",
+  "source_commit": "e597019ad6acf272ab31e3b6f7880e4b7620b704",
+  "apt_manifest_commit": "ff197cc31b2b15694354c0e5c67c09a7dc9cfa4d",
+  "apt_workflow": "https://github.com/rdmitry0911/qsm-rd/actions/runs/40168600966",
+  "apt_workflow_result": "success",
+  "public_apt": "https://rdmitry0911.github.io/qsm-rd/",
+  "verified_downloads": 31,
+  "release_verification": "Downloaded signed checksums and every asset verified with public key/SHA256. Real public APT downloads all pinned versions and rejects metadata/deb tampering.",
+  "deployment": "192.168.64.20 matching stock4.5 host profiles, services active, VM103/CT105 running, HTTPS viewer hash matches package.",
+  "test_scope": "Deterministic complete Firefox/Chromium UI blur/focus tests and real Firefox/SCTP/LXC modifier release; no physical macOS app-switch qualification.",
+  "behavior": "Temporary blur/hidden releases held input but preserves fullscreen intent; return resumes within existing fullscreen. Explicit exit paths remain.",
+  "discussion_messages": "Draft prepared; no discussion mail/comments sent."
+}
