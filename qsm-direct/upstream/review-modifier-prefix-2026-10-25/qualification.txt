@@ -1,0 +1,36 @@
+Stock4.9 modifier-prefix qualification, 2026-10-25
+
+Root cause: only Meta was deferred. Alt (and a Shift prefix for reverse
+switching) was still sent before the host had decided where Tab belonged.
+All shortcut modifiers now defer after modern atomic-input negotiation,
+except in Raw. Exact key actions carry a complete modifier snapshot; pending
+prefixes never enter heartbeat physicalHeldKeys. Focus/hidden/suspended
+cleanup drops them; no source release outside focus invents a tap. Focused
+solo modifiers and modifier-only chords complete once on release. Physical
+main-key/mouse/wheel actions flush modifiers as required. No main-key timer.
+
+22 CTest gates pass; new cases include both sides/all modifier families,
+Mac/Linux profiles, Tab entirely absent, late keyup before blur, heartbeat
+exclusion, reverse switch prefix, Alt+Shift either release order, Alt menu,
+right Alt guest action, clipboard/client-first cancellation, mouse and Raw.
+Full production UI (API/Ext stubs) Firefox/Chromium, top/embedded at 1280x800
+and 640x480 passes; stock4.8 controls/capture behavior retained.
+
+Real qualification uses owned Xvfb :219/Openbox/Firefox 157/XTEST native
+modifier events -> production input fragments -> actual SCTP/installed
+bridge/worker -> owned CT108 Sway/Qt fixture. Baseline source from signed
+stock4.8 tag is compared with working source. Prefix is sampled before ANY
+guest main-key action, after several heartbeat ticks. Baseline sends Alt
+press (and Shift for reverse); fixed source sends none. Tab consumption is
+modelled by omitting DOM Tab, activating an owned second host window and
+explicitly injecting blur where browser automation keeps DOM focus. JSON
+results record native activation and blur injection separately. This is not
+qualification of native macOS Alt/Cmd+Tab or third-party global shortcuts.
+
+Fixed-path guest checks cover solo Alt release, atomic guest Alt+F, physical
+Alt+F holds, and Raw immediate Alt. Private bridge packet recording is only
+for these controlled fixture keys; no production key logging is added.
+Owned CT108 fixture stopped and original output dimensions restored. No
+production guest stopped/restarted/updated. Worker/bridge/protocol unchanged;
+final packages must match their already qualified payloads. No discussion
+mail/forum/Bugzilla messages posted by this release.

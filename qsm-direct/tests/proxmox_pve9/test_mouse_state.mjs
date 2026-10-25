@@ -7,7 +7,7 @@ const {video,document,popup,send,settings}=env;
 const MOUSE_INPUT_MODE={exact:'exact-clicks',physical:'physical-buttons'},KEYBOARD_PRIORITY={raw:'raw'};
 let inputMouseActionsEnabled=true,mouseFenceSequence=null,pointerSequence=0,pointerTimer=null,pendingPointer=null,latestPointer=null;
 const heldMouseButtons=new Set(),physicalHeldKeys=new Set();
-${part('const deferredMetaKeys =','let fullscreenEscapePending =')}
+${part('const deferredModifiers =','let fullscreenEscapePending =')}
 let diagButtonSent=0,diagLastInput='',usingTouchInput=false;
 const noteGuestInput=()=>{},ensurePlaying=()=>{},observeToolbarZone=()=>{},placeGuestCursor=()=>{};
 const pointerForMouseEvent=e=>({op:'mouse_position',x:e.clientX,y:e.clientY,width:1280,height:720});
@@ -21,7 +21,7 @@ const releaseHeldInput=()=>{cancelPendingMouse();for(const n of [...heldMouseBut
 ${part('const buttonMask =','// Touch and pen input')}
 document.addEventListener('mouseup',endMouse);
 ${part('let wheelX =',"video.addEventListener('paste'")}
-return {heldMouseButtons,deferredMetaKeys,pendingMousePresses,releaseHeldInput,sendMouseClick,physicalHeldKeys,
+return {heldMouseButtons,deferredModifiers,pendingMousePresses,releaseHeldInput,sendMouseClick,physicalHeldKeys,
     fence:()=>mouseFenceSequence,ack:seq=>{if(seq===mouseFenceSequence)mouseFenceSequence=null;},
     oldServer:()=>{inputMouseActionsEnabled=false;}};
 `);
@@ -85,16 +85,20 @@ for(const mode of ['raw','old','physical']){
  h.event('wheel',0,0,{deltaX:0,deltaY:1,deltaMode:1});assert.equal(h.messages.at(-1).vertical,16);
 }
 {
- const h=harness();h.deferredMetaKeys.set(0xdb,false);h.event('mousedown',100,100,{metaKey:true});assert.equal(h.deferredMetaKeys.get(0xdb),true,'mouse down consumes Command before keyup or click classification');h.event('mouseup',100,100,{metaKey:true});
- assert.deepEqual(h.messages[0].modifiers,[0xdb]);assert.equal(h.deferredMetaKeys.get(0xdb),true,'exact mouse click consumes the deferred Command modifier');
+ const h=harness();h.deferredModifiers.set(0xdb,false);h.event('mousedown',100,100,{metaKey:true});assert.equal(h.deferredModifiers.get(0xdb),true,'mouse down consumes Command before keyup or click classification');h.event('mouseup',100,100,{metaKey:true});
+ assert.deepEqual(h.messages[0].modifiers,[0xdb]);assert.equal(h.deferredModifiers.get(0xdb),true,'exact mouse click consumes the deferred Command modifier');
 }
 {
- const h=harness();h.settings.mouseInputMode='physical-buttons';h.deferredMetaKeys.set(0xdb,false);h.event('mousedown',100,100,{metaKey:true});h.event('mouseup',100,100,{metaKey:true});
- assert.equal(h.messages[0].op,'keyboard');assert.equal(h.messages[0].key,0xdb);assert.equal(h.messages[1].op,'mouse_button');assert.equal(h.deferredMetaKeys.size,0,'physical dragging flushes its modifier before the button edge');
+ const h=harness();h.settings.mouseInputMode='physical-buttons';h.deferredModifiers.set(0xdb,false);h.event('mousedown',100,100,{metaKey:true});h.event('mouseup',100,100,{metaKey:true});
+ assert.equal(h.messages[0].op,'keyboard');assert.equal(h.messages[0].key,0xdb);assert.equal(h.messages[1].op,'mouse_button');assert.equal(h.deferredModifiers.size,0,'physical dragging flushes its modifier before the button edge');
 }
 {
- const h=harness();h.deferredMetaKeys.set(0xdb,false);h.event('wheel',0,0,{deltaX:0,deltaY:1,deltaMode:0});
+ const h=harness();h.deferredModifiers.set(0xdb,false);h.event('wheel',0,0,{deltaX:0,deltaY:1,deltaMode:0});
  assert.deepEqual(h.messages.map(m=>m.op),['keyboard','scroll'],'modifier-wheel flushes Command before scrolling');
  assert.equal(h.messages[0].key,0xdb);assert.equal(h.physicalHeldKeys.has(0xdb),true);
+}
+for(const [scan,flag]of [[29,'ctrlKey'],[42,'shiftKey'],[56,'altKey'],[0xb8,'altKey'],[0xdb,'metaKey']]){
+ const h=harness();h.deferredModifiers.set(scan,false);h.event('mousedown',100,100,{[flag]:true});h.event('mouseup',100,100,{[flag]:true});
+ assert.deepEqual(h.messages[0].modifiers,[scan]);assert.equal(h.deferredModifiers.get(scan),true,'exact mouse actions consume deferred modifiers without separate edges');
 }
 console.log('QSM_MOUSE_TRACKPAD_STATE_OK');

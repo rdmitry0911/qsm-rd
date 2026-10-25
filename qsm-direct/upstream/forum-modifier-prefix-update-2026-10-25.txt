@@ -1,0 +1,8 @@
+Hi guys, stock4.9 fixes a leading Alt press reaching the guest during host application switching. The earlier protection covered Command; Alt still went out on keydown.
+
+Shortcut modifiers now wait for an actual guest action outside Raw. A host-swallowed Tab followed by focus loss cancels the pending prefix. Exact typing includes modifiers in the complete guest action; standalone modifiers still work on release. Physical holds, dragging/wheel and Raw remain available. The fixed controls/fullscreen behavior from stock4.8 stays.
+
+22 CTest gates and full Firefox/Chromium UI checks pass. A headful Firefox/real WebRTC/CT108 fixture comparison reproduces the old initial Alt and qualifies the pending-prefix fix. Tab consumption/focus handoff are modelled, so no native macOS qualification is claimed. Worker/bridge unchanged.
+
+Reload PVE and reopen consoles after updating. No guest update/restart needed.
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.9

@@ -5,13 +5,12 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
-Current preview: **0.4.0+stock4.8** keeps the controls handle fixed at the
-left edge and makes Capture keyboard an enable/resume action. Repeated
-Capture clicks preserve fullscreen; Release keyboard in Settings and Exit
-Full Screen are separate actions. This includes embedded consoles and
-upgrading ordinary fullscreen to keyboard capture. Settings and logical
-macOS modifier behavior from previous releases remain. Guest first selects
-routing; click Capture keyboard to acquire browser capture, without F11.
+Current preview: **0.4.0+stock4.9** prevents a leading Alt/Ctrl/Shift/
+Command from leaking into the guest when the host consumes a shortcut.
+Exact typing carries modifiers with the guest action; pending prefixes
+cancel on focus loss. Solo modifiers work on release. Physical holds/Raw
+remain available. Fixed controls, enable-only Capture and fullscreen
+Settings behavior from stock4.8 remain.
 Exact mouse/trackpad clicks are the
 default too: complete clicks include their position and modifiers. Confirmed
 drags remain ordered and guarded; fractional two-axis scrolling is retained.

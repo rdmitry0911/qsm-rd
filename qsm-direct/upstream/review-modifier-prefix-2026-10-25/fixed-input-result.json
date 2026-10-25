@@ -1,0 +1,234 @@
+[
+  {
+    "mode": "top",
+    "case": "HOST_ALT_TAB",
+    "baseline": false,
+    "before_Tab_wire": [],
+    "wire": [],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    },
+    "tab_consumption_modelled": true,
+    "native_window_activation": true,
+    "DOM_blur_injected": true
+  },
+  {
+    "mode": "top",
+    "case": "HOST_REVERSE_ALT_TAB",
+    "baseline": false,
+    "before_Tab_wire": [],
+    "wire": [],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    },
+    "tab_consumption_modelled": true,
+    "native_window_activation": true,
+    "DOM_blur_injected": true
+  },
+  {
+    "mode": "top",
+    "case": "SOLO_ALT_RELEASE",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 56,
+        "modifiers": []
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "top",
+    "case": "ATOMIC_GUEST_ALT_F",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 33,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "top",
+    "case": "PHYSICAL_GUEST_ALT_F",
+    "wire": [
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 33,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 33,
+        "down": false
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": false
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "top",
+    "case": "RAW_IMMEDIATE_ALT",
+    "wire": [
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": false
+      }
+    ]
+  },
+  {
+    "mode": "embedded",
+    "case": "HOST_ALT_TAB",
+    "baseline": false,
+    "before_Tab_wire": [],
+    "wire": [],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    },
+    "tab_consumption_modelled": true,
+    "native_window_activation": true,
+    "DOM_blur_injected": true
+  },
+  {
+    "mode": "embedded",
+    "case": "HOST_REVERSE_ALT_TAB",
+    "baseline": false,
+    "before_Tab_wire": [],
+    "wire": [],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    },
+    "tab_consumption_modelled": true,
+    "native_window_activation": true,
+    "DOM_blur_injected": true
+  },
+  {
+    "mode": "embedded",
+    "case": "SOLO_ALT_RELEASE",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 56,
+        "modifiers": []
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "ATOMIC_GUEST_ALT_F",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 33,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "PHYSICAL_GUEST_ALT_F",
+    "wire": [
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 33,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 33,
+        "down": false
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": false
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "RAW_IMMEDIATE_ALT",
+    "wire": [
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": false
+      }
+    ]
+  }
+]

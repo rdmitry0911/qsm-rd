@@ -22,7 +22,7 @@ assert.ok(start > 0 && end > start);
 const recognizer = new Function('env', `
     const {video, document, popup, gestureToAction, queuePointer, flushPointer,
         pointerForMouseEvent, sendMouseButton, sendMouseClick, send, releaseHeldInput} = env;
-    const endMouse=()=>{},releaseGuestKeyboardLock=()=>{},markMetaUsed=()=>{},flushDeferredMeta=()=>{};
+    const endMouse=()=>{},releaseGuestKeyboardLock=()=>{},markModifiersUsed=()=>{},flushDeferredModifiers=()=>{};
     let usingTouchInput = false, toolbarVisible = false, toolbarPinned = false;
     let zoomScale = 1, zoomTx = 0, zoomTy = 0;
     const MIN_ZOOM = 1, MAX_ZOOM = 4;

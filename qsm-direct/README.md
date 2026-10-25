@@ -17,7 +17,7 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.8 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.8)
+[Stock4.9 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.9)
 preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
@@ -80,6 +80,15 @@ clicks never release capture or exit fullscreen. A separate **Release keyboard**
 action in Settings and the **Exit Full Screen** control provide explicit exits,
 including in an embedded console. Capture can upgrade an existing ordinary
 fullscreen session without leaving it. Settings still preserves fullscreen.
+
+Stock4.9 extends deferred shortcut prefixes to Alt, Ctrl and Shift as well
+as Command. A host can consume Tab before DOM; pending modifiers then
+cancel on focus loss without a stray guest Alt/menu press. Exact typing
+sends modifiers inside the complete guest action. Solo modifiers and
+modifier-only shortcuts complete on focused release. Physical main-key
+holds, physical dragging and wheel input flush pending modifiers before
+the guest action; Raw retains immediate physical edges. No debounce is
+added to an ordinary key press. Matching modern host capability is required.
 
 Install and update the standalone packages through the signed
 [APT repository](https://rdmitry0911.github.io/qsm-rd/): follow the

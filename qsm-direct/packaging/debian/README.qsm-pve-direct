@@ -3,7 +3,7 @@ qsm-pve-direct for Proxmox VE 9
 
 `qsm-pve-direct` is a browser-native PVE console transport.
 
-Standalone release 0.4.0+stock4.8
+Standalone release 0.4.0+stock4.9
 -----------------------------
 For official PVE 9 install matching qsm-pve-direct and
 qsm-pve-direct-standalone debs. Follow README.standalone, installed with the
@@ -454,3 +454,14 @@ also exits native capture in embedded and separate consoles. Outside native
 fullscreen, the embedded in-page maximize keeps its existing behavior.
 The button label stays Capture keyboard; its pressed state marks the request.
 Reload the PVE page and reopen consoles after updating; no guest update.
+
+Deferred host-shortcut prefixes (stock4.9)
+---------------------------------------
+Stock4.9 extends deferred shortcut prefixes to Alt, Ctrl and Shift as well
+as Command. A host can consume Tab before DOM; pending modifiers then
+cancel on focus loss without a stray guest Alt/menu press. Exact typing
+sends modifiers inside the complete guest action. Solo modifiers and
+modifier-only shortcuts complete on focused release. Physical main-key
+holds, physical dragging and wheel input flush pending modifiers before
+the guest action; Raw retains immediate physical edges. No debounce is
+added to an ordinary key press. Matching modern host capability is required.

@@ -1,0 +1,164 @@
+[
+  {
+    "mode": "top",
+    "case": "HOST_ALT_TAB",
+    "baseline": true,
+    "before_Tab_wire": [
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      }
+    ],
+    "wire": [
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": false
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    },
+    "tab_consumption_modelled": true,
+    "native_window_activation": true,
+    "DOM_blur_injected": true
+  },
+  {
+    "mode": "top",
+    "case": "HOST_REVERSE_ALT_TAB",
+    "baseline": true,
+    "before_Tab_wire": [
+      {
+        "op": "keyboard",
+        "key": 42,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      }
+    ],
+    "wire": [
+      {
+        "op": "keyboard",
+        "key": 42,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 42,
+        "down": false
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": false
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    },
+    "tab_consumption_modelled": true,
+    "native_window_activation": true,
+    "DOM_blur_injected": true
+  },
+  {
+    "mode": "embedded",
+    "case": "HOST_ALT_TAB",
+    "baseline": true,
+    "before_Tab_wire": [
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      }
+    ],
+    "wire": [
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": false
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    },
+    "tab_consumption_modelled": true,
+    "native_window_activation": true,
+    "DOM_blur_injected": true
+  },
+  {
+    "mode": "embedded",
+    "case": "HOST_REVERSE_ALT_TAB",
+    "baseline": true,
+    "before_Tab_wire": [
+      {
+        "op": "keyboard",
+        "key": 42,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      }
+    ],
+    "wire": [
+      {
+        "op": "keyboard",
+        "key": 42,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 42,
+        "down": false
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": false
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    },
+    "tab_consumption_modelled": true,
+    "native_window_activation": true,
+    "DOM_blur_injected": true
+  }
+]

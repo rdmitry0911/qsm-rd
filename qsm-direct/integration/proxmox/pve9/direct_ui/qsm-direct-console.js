@@ -1565,18 +1565,18 @@
             pendingMousePresses.clear();
         };
         const physicalHeldKeys = new Set();
-        // Exact typing defers macOS Command until a complete guest action.
-        // A host Command+Tab can then be discarded without a stray guest
-        // Alt/Super press or a launcher opening on modifier release.
-        const deferredMetaKeys = new Map();
+        // A host switch can consume Tab before the browser receives it.
+        // Defer shortcut modifiers until a guest action, so losing focus
+        // cannot leave a stray Alt/Super/menu press in the guest.
+        const deferredModifiers = new Map();
         const hostPlatform = popup.navigator.platform || popup.navigator.userAgent || '';
-        const markMetaUsed = () => {
-            for (const key of deferredMetaKeys.keys()) { deferredMetaKeys.set(key, true); }
+        const markModifiersUsed = () => {
+            for (const key of deferredModifiers.keys()) { deferredModifiers.set(key, true); }
         };
-        const flushDeferredMeta = () => {
-            for (const key of [...deferredMetaKeys.keys()]) {
+        const flushDeferredModifiers = () => {
+            for (const key of [...deferredModifiers.keys()]) {
                 if (send({ op: 'keyboard', key, down: true, modifiers: 0 })) {
-                    deferredMetaKeys.delete(key); physicalHeldKeys.add(key);
+                    deferredModifiers.delete(key); physicalHeldKeys.add(key);
                 }
             }
         };
@@ -2586,8 +2586,8 @@
         };
         const exactMouseClicks = () => inputMouseActionsEnabled &&
             settings.mouseInputMode === MOUSE_INPUT_MODE.exact && settings.keyboardPriority !== KEYBOARD_PRIORITY.raw;
-        const mouseModifiers = (event) => {
-            const result = [...physicalHeldKeys, ...deferredMetaKeys.keys()].filter(key => [29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc].includes(key));
+        const inputModifiers = (event) => {
+            const result = [...physicalHeldKeys, ...deferredModifiers.keys()].filter(key => [29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc].includes(key));
             if (event) {
                 for (const [flag, group] of [['ctrlKey', [29, 0x9d]], ['shiftKey', [42, 54]],
                     ['altKey', [56, 0xb8]], ['metaKey', [0xdb, 0xdc]]]) {
@@ -2602,12 +2602,12 @@
         };
         const sendMouseAction = (button, action, point = latestPointer, event = null) => {
             if (!point || !Number.isInteger(button) || button < 1 || button > 5) { return false; }
-            markMetaUsed();
+            markModifiersUsed();
             const { x, y, width, height } = point;
             const sequence = pointerSequence;
             pointerSequence = (pointerSequence + 1) >>> 0;
             if (!send({ op: 'mouse_action', button, action, sequence, x, y, width, height,
-                modifiers: mouseModifiers(event) })) { return false; }
+                modifiers: inputModifiers(event) })) { return false; }
             // Until the bridge has queued this action, subsequent coordinates
             // must not overtake it through the unordered pointer channel.
             mouseFenceSequence = sequence;
@@ -2629,7 +2629,7 @@
             if (exactMouseClicks()) {
                 if (!sendMouseAction(button, down ? 1 : 0, point, event)) { return; }
             } else {
-                if (down) { markMetaUsed(); flushDeferredMeta(); }
+                if (down) { markModifiersUsed(); flushDeferredModifiers(); }
                 if (!send({ op: 'mouse_button', button, down })) { return; }
             }
             if (down) {
@@ -2645,27 +2645,30 @@
             if (!Number.isInteger(key) || key < 0 || key > 0xffff) { return; }
             if (down && sourceEvent && (keyboardCaptureSuspended || document.hidden ||
                 (typeof document.hasFocus === 'function' && !document.hasFocus()))) { return; }
-            if (!down && deferredMetaKeys.has(key)) {
-                const used = deferredMetaKeys.get(key);
-                deferredMetaKeys.delete(key); heldKeys.delete(key);
-                // A physical solo Command tap still sends a guest Super tap.
-                // Focus cleanup or a host-only chord must never synthesize it.
-                if (sourceEvent && !used) { noteGuestInput(); send({ op: 'key_tap', key, modifiers: [] }); }
+            if (!down && deferredModifiers.has(key)) {
+                const used = deferredModifiers.get(key);
+                const modifiers = inputModifiers(sourceEvent).filter(value => value !== key);
+                deferredModifiers.delete(key); heldKeys.delete(key);
+                // A deliberate modifier-only shortcut is completed on release.
+                // Cleanup/host focus loss must never synthesize a menu tap.
+                if (sourceEvent && !used && !keyboardCaptureSuspended && !document.hidden &&
+                    (typeof document.hasFocus !== 'function' || document.hasFocus())) {
+                    markModifiersUsed();
+                    noteGuestInput(); send({ op: 'key_tap', key, modifiers });
+                }
                 return;
             }
-            const meta = key === 0xdb || key === 0xdc;
-            const deferMeta = inputTapsEnabled && /Mac|iPad|iPhone|iPod/.test(hostPlatform) && meta &&
-                settings.keyboardPriority !== KEYBOARD_PRIORITY.raw;
-            if (down && deferMeta) {
-                if (repeat) { return; }
-                if (!heldKeys.has(key)) { heldKeys.add(key); deferredMetaKeys.set(key, false); }
-                return;
-            }
-            if (down && !meta) { markMetaUsed(); }
-            // Only a repeat of a press started here is eligible. Exact typing
-            // sends one atomic action per client event; physical mode leaves
-            // autorepeat to the guest while snapshots bound stale holds.
             const modifier = [29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc].includes(key);
+            const deferModifier = inputTapsEnabled && modifier && settings.keyboardPriority !== KEYBOARD_PRIORITY.raw;
+            if (down && deferModifier) {
+                if (repeat) { return; }
+                if (!heldKeys.has(key)) { heldKeys.add(key); deferredModifiers.set(key, false); }
+                return;
+            }
+            if (down && !modifier) { markModifiersUsed(); }
+            // Only a repeat of a press started here is eligible. Exact typing
+            // sends one complete action per client event; physical main-key
+            // holds flush their pending modifiers immediately before the key.
             const atomic = inputTapsEnabled && settings.keyInputMode === KEY_INPUT_MODE.typing &&
                 settings.keyboardPriority !== KEYBOARD_PRIORITY.raw && !modifier;
             if (down && repeat && (!atomic || !heldKeys.has(key))) { return; }
@@ -2679,24 +2682,10 @@
                 if (heldKeys.has(key) && !repeat) { return; }
                 if (atomic) {
                     delete message.down; delete message.modifiers; message.op = 'key_tap';
-                    const modifiers = [...physicalHeldKeys].filter(value =>
-                        [29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc].includes(value));
-                    if (sourceEvent) {
-                        for (const [flag, group] of [['ctrlKey', [29, 0x9d]], ['shiftKey', [42, 54]],
-                            ['altKey', [56, 0xb8]], ['metaKey', [0xdb, 0xdc]]]) {
-                            if (sourceEvent[flag] === false) {
-                                for (let i = modifiers.length - 1; i >= 0; --i) {
-                                    if (group.includes(modifiers[i])) { modifiers.splice(i, 1); }
-                                }
-                            } else if (sourceEvent[flag] === true && !modifiers.some(value => group.includes(value))) {
-                                modifiers.push(group[0]);
-                            }
-                        }
-                    }
-                    message.modifiers = modifiers;
+                    message.modifiers = inputModifiers(sourceEvent);
                     if (!send(message)) { return; }
                 } else {
-                    flushDeferredMeta();
+                    flushDeferredModifiers();
                     if (!send(message)) { return; }
                     physicalHeldKeys.add(key);
                 }
@@ -2741,7 +2730,7 @@
         }, true);
         const routeHostApplicationSwitch = (event) => {
             if (settings.keyboardPriority === KEYBOARD_PRIORITY.raw || !hostApplicationSwitch(event, hostPlatform)) { return false; }
-            markMetaUsed();
+            markModifiersUsed();
             releaseHeldInput();
             // Do not prevent the native host shortcut, and do not forward its
             // Tab to the guest. OS global shortcuts cannot be cancelled here.
@@ -3479,7 +3468,7 @@
                 ensurePlaying(); video.focus();
                 const button = event.button + 1;
                 if (button < 1 || button > 5 || pendingMousePresses.has(button) || heldMouseButtons.has(button)) { return; }
-                markMetaUsed();
+                markModifiersUsed();
                 const point = pointerForMouseEvent(event);
                 queuePointer(point);
                 if (exactMouseClicks()) {
@@ -3563,7 +3552,7 @@
                 // Worker emits one wheel click per op (sign only): accumulate
                 // finger travel and send one op per notch, natural direction
                 // (drag down = content down = wheel-up = vertical<0), capped/event.
-                markMetaUsed(); flushDeferredMeta();
+                markModifiersUsed(); flushDeferredModifiers();
                 scrollAccumY += dy;
                 let notches = 0;
                 while (Math.abs(scrollAccumY) >= SCROLL_STEP_PX && notches < 8) {
@@ -3797,7 +3786,7 @@
                 const vertical = Math.max(-32768, Math.min(32767, Math.trunc(wheelY)));
                 wheelX -= horizontal; wheelY -= vertical;
                 if (vertical || horizontal) {
-                    markMetaUsed(); flushDeferredMeta();
+                    markModifiersUsed(); flushDeferredModifiers();
                     send({ op: 'scroll', vertical, horizontal });
                 }
                 event.preventDefault();
@@ -3872,7 +3861,7 @@
                     } else if (clientFirst && clientFirstShortcut(event)) {
                         // Leave the main event local and cancel modifiers
                         // that began here, avoiding a stray guest menu tap.
-                        markMetaUsed(); releaseHeldInput();
+                        markModifiersUsed(); releaseHeldInput();
                         return;
                     } else if (key !== null) {
                         event.preventDefault(); event.stopPropagation();

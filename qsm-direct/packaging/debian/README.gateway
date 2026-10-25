@@ -1,7 +1,7 @@
 QSM Direct: optional TCP 8006 gateway (experimental, single-node PVE 9)
 ===================================================================
 
-Release: 0.4.0+stock4.8. This explicit standalone profile shares TCP 8006 between
+Release: 0.4.0+stock4.9. This explicit standalone profile shares TCP 8006 between
 normal PVE HTTPS and authenticated TURN/TCP. Signalling uses /qsm-direct/ on the
 PVE browser origin. Video/audio and input/clipboard are encrypted by WebRTC.
 TURN control messages use plain TCP, WITHOUT TLS. See Encryption below.
@@ -13,14 +13,14 @@ Requirements and package installation
 ------------------------------------
 Read INSTALL-STOCK.txt / README.standalone first for platform, VM and LXC setup.
 No patched Proxmox debs are needed on stock PVE. Download matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.8
-Verify SHA256SUMS-stock4.8. Install as root on the PVE HOST:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.9
+Verify SHA256SUMS-stock4.9. Install as root on the PVE HOST:
 
-  apt install ./qsm-pve-direct_0.4.0+stock4.8_amd64.deb \
-              ./qsm-pve-direct-standalone_0.4.0+stock4.8_all.deb \
-              ./qsm-pve-direct-gateway_0.4.0+stock4.8_all.deb
+  apt install ./qsm-pve-direct_0.4.0+stock4.9_amd64.deb \
+              ./qsm-pve-direct-standalone_0.4.0+stock4.9_all.deb \
+              ./qsm-pve-direct-gateway_0.4.0+stock4.9_all.deb
 
-If the LXC helper is already installed, include its matching stock4.8 deb in that
+If the LXC helper is already installed, include its matching stock4.9 deb in that
 same transaction. For new LXC setup install the separate helper as described in
 README.standalone; it embeds the guest payload. NEVER install qsm-console-guest
 on the PVE host. Package installation does not activate a new gateway.
@@ -248,3 +248,14 @@ also exits native capture in embedded and separate consoles. Outside native
 fullscreen, the embedded in-page maximize keeps its existing behavior.
 The button label stays Capture keyboard; its pressed state marks the request.
 Reload the PVE page and reopen consoles after updating; no guest update.
+
+Deferred host-shortcut prefixes (stock4.9)
+---------------------------------------
+Stock4.9 extends deferred shortcut prefixes to Alt, Ctrl and Shift as well
+as Command. A host can consume Tab before DOM; pending modifiers then
+cancel on focus loss without a stray guest Alt/menu press. Exact typing
+sends modifiers inside the complete guest action. Solo modifiers and
+modifier-only shortcuts complete on focused release. Physical main-key
+holds, physical dragging and wheel input flush pending modifiers before
+the guest action; Raw retains immediate physical edges. No debounce is
+added to an ordinary key press. Matching modern host capability is required.
