@@ -1,0 +1,12 @@
+192.168.64.20 upgraded to matching stock4.5 core/standalone/LXC/gateway.
+APT simulation selected these four host packages only, without removals.
+All QSM services active; dpkg audit empty; VM103 and CT105 remain running.
+Installed/HTTPS-served viewer and bridge/worker match final package hashes.
+Worker/bridge remain identical to stock4.3/4.4 qualified payloads. The guest
+deb is embedded in LXC helper, not installed on PVE host. CT108 test fixture
+stopped and output restored. No production guest restart/reprovisioning.
+Downloaded release signature and all SHA256 checks pass with public key.
+Reload PVE without cache and reopen consoles before retrying host app switching.
+Physical macOS app switching is not claimed as tested; deterministic browser
+blur/focus and real Firefox/LXC modifier release are qualified.
+No email/forum/Bugzilla message posted by this release.
