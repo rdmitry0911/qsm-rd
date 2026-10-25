@@ -1,0 +1,18 @@
+node:internal/process/esm_loader:40
+      internalBinding('errors').triggerUncaughtException(
+                                ^
+
+AssertionError [ERR_ASSERTION]: modifier-only action preserves original press order in either release order
+    at file:///home/dima/Projects/q-sunshine/qsm-direct/tests/proxmox_pve9/test_keyboard_state.mjs:244:10
+    at ModuleJob.run (node:internal/modules/esm/module_job:195:25)
+    at async ModuleLoader.import (node:internal/modules/esm/loader:336:24)
+    at async loadESM (node:internal/process/esm_loader:34:7)
+    at async handleMainPromise (node:internal/modules/run_main:106:12) {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: [ { op: 'key_tap', key: 42, modifiers: [ 56 ] } ],
+  expected: [ { op: 'key_tap', key: 56, modifiers: [ 42 ] } ],
+  operator: 'deepStrictEqual'
+}
+
+Node.js v18.19.1

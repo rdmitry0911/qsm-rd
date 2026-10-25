@@ -1,0 +1,54 @@
+Internal ctest changing into directory: /tmp/qsm-rate-bands-20261023/build-local
+Test project /tmp/qsm-rate-bands-20261023/build-local
+      Start  1: qsm_signal_endpoint
+ 1/24 Test  #1: qsm_signal_endpoint ..................   Passed    0.10 sec
+      Start  2: qsm_gateway
+ 2/24 Test  #2: qsm_gateway ..........................   Passed    0.10 sec
+      Start  3: qsm_shared_display
+ 3/24 Test  #3: qsm_shared_display ...................   Passed    0.47 sec
+      Start  4: qsm_direct_guest_channel
+ 4/24 Test  #4: qsm_direct_guest_channel .............   Passed    4.06 sec
+      Start  5: qsm_direct_guest_package
+ 5/24 Test  #5: qsm_direct_guest_package .............   Passed    0.05 sec
+      Start  6: qsm_direct_encoder_probe
+ 6/24 Test  #6: qsm_direct_encoder_probe .............   Passed    0.05 sec
+      Start  7: qsm_direct_terminal_autoprovision
+ 7/24 Test  #7: qsm_direct_terminal_autoprovision ....   Passed    1.60 sec
+      Start  8: qsm_direct_api_service_integration
+ 8/24 Test  #8: qsm_direct_api_service_integration ...   Passed    0.05 sec
+      Start  9: qsm_direct_ui_package_state
+ 9/24 Test  #9: qsm_direct_ui_package_state ..........   Passed    0.10 sec
+      Start 10: qsm_signal_endpoint_browser
+10/24 Test #10: qsm_signal_endpoint_browser ..........   Passed    0.13 sec
+      Start 11: qsm_direct_pve_console_overlay
+11/24 Test #11: qsm_direct_pve_console_overlay .......   Passed    0.14 sec
+      Start 12: qsm_local_cursor
+12/24 Test #12: qsm_local_cursor .....................   Passed    0.10 sec
+      Start 13: qsm_receiver_playout
+13/24 Test #13: qsm_receiver_playout .................   Passed    0.10 sec
+      Start 14: qsm_pointer_pacing
+14/24 Test #14: qsm_pointer_pacing ...................   Passed    0.11 sec
+      Start 15: qsm_touch_gestures
+15/24 Test #15: qsm_touch_gestures ...................   Passed    0.11 sec
+      Start 16: qsm_keyboard_state
+16/24 Test #16: qsm_keyboard_state ...................   Passed   10.27 sec
+      Start 17: qsm_keyboard_capture
+17/24 Test #17: qsm_keyboard_capture .................   Passed    0.11 sec
+      Start 18: qsm_mouse_state
+18/24 Test #18: qsm_mouse_state ......................   Passed    0.10 sec
+      Start 19: qsm_host_shortcuts
+19/24 Test #19: qsm_host_shortcuts ...................   Passed    0.12 sec
+      Start 20: qmdp_core_tests
+20/24 Test #20: qmdp_core_tests ......................   Passed    0.14 sec
+      Start 21: qmdp_dbus_integration_tests
+21/24 Test #21: qmdp_dbus_integration_tests ..........   Passed    0.71 sec
+      Start 22: qmdp_no_gpu_ffmpeg_selftest
+22/24 Test #22: qmdp_no_gpu_ffmpeg_selftest ..........   Passed    0.91 sec
+      Start 23: qmdp_message_bus_map_e2e
+23/24 Test #23: qmdp_message_bus_map_e2e .............   Passed    1.27 sec
+      Start 24: qmdp_message_bus_inline_e2e
+24/24 Test #24: qmdp_message_bus_inline_e2e ..........   Passed    1.24 sec
+
+100% tests passed, 0 tests failed out of 24
+
+Total Test time (real) =  22.15 sec

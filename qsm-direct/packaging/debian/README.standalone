@@ -1,7 +1,7 @@
 QSM Direct standalone profile for stock Proxmox VE 9
 ===================================================
 
-Release: 0.4.0+stock4.12, Debian 13 / amd64. The standalone profile uses official
+Release: 0.4.0+stock4.13, Debian 13 / amd64. The standalone profile uses official
 Proxmox packages: a guarded web UI overlay and independent PVE-authorized HTTPS
 signalling service. It shares the native preview's media worker, encoders and
 adaptive bitrate controller. No rebuilt Proxmox debs are needed on stock PVE.
@@ -10,8 +10,8 @@ pve-container 6.1.14. UI activation is guarded by version/template checksums;
 other reviewed versions are listed in pve-manager-index-template.sha256.
 
 Download the matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.12
-Verify SHA256SUMS-stock4.12 before installation (sha256sum -c SHA256SUMS-stock4.12
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.13
+Verify SHA256SUMS-stock4.13 before installation (sha256sum -c SHA256SUMS-stock4.13
 when all listed assets have been downloaded). Do not mix QSM package versions.
 Do not install patched Proxmox debs from the older native preview for this setup.
 The separate qsm-console-guest asset belongs INSIDE an LXC, never on the PVE host.
@@ -35,8 +35,8 @@ B. Optional single-port gateway: PVE HTTPS, QSM signalling and authenticated
 
 Install base packages as root on the PVE node:
 
-    apt install ./qsm-pve-direct_0.4.0+stock4.12_amd64.deb \
-                ./qsm-pve-direct-standalone_0.4.0+stock4.12_all.deb
+    apt install ./qsm-pve-direct_0.4.0+stock4.13_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock4.13_all.deb
     qsm-pve-direct-endpoint --show
     qsm-pve-direct-ui status
     systemctl is-active qsm-pve-direct-terminal qsm-pve-direct-signal
@@ -95,7 +95,7 @@ LXC setup
 ---------
 Install the matching helper on the HOST:
 
-    apt install ./qsm-pve-direct-lxc_0.4.0+stock4.12_all.deb
+    apt install ./qsm-pve-direct-lxc_0.4.0+stock4.13_all.deb
     qsm-pve-direct-lxc enable VMID --session wayland
 
 Replace VMID with the chosen Debian/Ubuntu container with a Plasma desktop.
@@ -117,10 +117,10 @@ Upgrading an existing installation
 Update the core AND each installed version-matched QSM profile/helper in the
 same apt transaction. For a standalone node with gateway and LXC helper:
 
-    apt install ./qsm-pve-direct_0.4.0+stock4.12_amd64.deb \
-                ./qsm-pve-direct-standalone_0.4.0+stock4.12_all.deb \
-                ./qsm-pve-direct-gateway_0.4.0+stock4.12_all.deb \
-                ./qsm-pve-direct-lxc_0.4.0+stock4.12_all.deb
+    apt install ./qsm-pve-direct_0.4.0+stock4.13_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock4.13_all.deb \
+                ./qsm-pve-direct-gateway_0.4.0+stock4.13_all.deb \
+                ./qsm-pve-direct-lxc_0.4.0+stock4.13_all.deb
 
 Omit gateway/helper if those profiles are not installed or wanted. QSM service
 restarts can interrupt open consoles; reconnect/hard-reload after upgrading.
@@ -321,3 +321,13 @@ reload. Alt+Shift, Ctrl+Shift and Win+Shift no longer remain blocked as
 prefixes of longer host rules after their exact rule is removed. Recording,
 editing and Send to guest support modifier-only combinations. Main-key
 chords are matched separately. Raw and bare host-prefix protection remain.
+
+Modifier press order (stock4.13)
+--------------------------------
+Stock4.13 preserves the observed modifier key-down order when a complete
+modifier-only action is committed on release. Releasing Meta before Shift
+no longer turns Meta-then-Shift into Shift-then-Meta. Explicit modifier-only
+Send to guest actions use Shift last. The 11 editable Host/browser defaults,
+Guest overrides and first-release commit remain unchanged. Guest shortcuts
+must match the guest's actual binding: forwarding Meta+Shift does not invoke
+an Alt+Shift layout action. No extra input timer is introduced.

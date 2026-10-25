@@ -797,7 +797,13 @@
     const shortcutGuestChord = (shortcut) => {
         const canonical = parseShortcut(shortcut);
         if (!canonical) { return null; }
-        const parts = canonical.split('+'), code = parts.pop();
+        const parts = canonical.split('+');
+        // Explicit modifier-only sends use the usual Shift-last gesture.
+        // Storage canonicalization is not a keyboard press-order policy.
+        if (parts.every(name => SHORTCUT_MODIFIERS.includes(name)) && parts.includes('Shift')) {
+            parts.splice(parts.indexOf('Shift'), 1); parts.push('Shift');
+        }
+        const code = parts.pop();
         const modifierKeys = { Ctrl: 29, Alt: 56, Shift: 42, Meta: 0xdb };
         return { key: modifierKeys[code] || qemuKey({ code }), modifiers: parts.map(name => modifierKeys[name]) };
     };
@@ -1595,7 +1601,7 @@
         const specialKeys = document.createElement('div');
         specialKeys.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 14px';
         for (const [label, modifiers, key] of [
-            ['Esc', [], 1], ['Alt', [], 56], ['Alt+Shift', [42], 56],
+            ['Esc', [], 1], ['Alt', [], 56], ['Alt+Shift', [56], 42],
             ['Alt+Tab', [56], 15], ['Ctrl+Alt+Del', [29, 56], 0xd3],
             ['Super / Windows', [], 0xdb],
         ]) {
@@ -2873,6 +2879,8 @@
             if (!down && deferredModifiers.has(key)) {
                 const used = deferredModifiers.get(key);
                 const modifiers = inputModifiers(sourceEvent).filter(value => value !== key);
+                const active = new Set([key, ...modifiers]);
+                const pressOrder = [...deferredModifiers.keys()].filter(value => active.has(value));
                 deferredModifiers.delete(key); heldKeys.delete(key);
                 // Release completes a modifier-only combination. Match that
                 // exact combination, not the prefix of a longer shortcut.
@@ -2892,7 +2900,14 @@
                         else if (rule.action === 'toolbar') { revealHandle.click(); }
                     } else if (rule?.action === 'guest' || sourceEvent.key === 'AltGraph' ||
                         (shortcut && shortcut.includes('+')) || !isHostShortcutPrefix([key, ...modifiers], rules)) {
-                        noteGuestInput(); send({ op: 'key_tap', key, modifiers });
+                        // The released key commits the action, but must not
+                        // become its last pressed key. Keep the observed down
+                        // order so Meta-then-Shift cannot turn into Shift-Meta.
+                        const tapKey = pressOrder.at(-1) || key;
+                        const tapModifiers = [...new Set([
+                            ...modifiers.filter(value => !pressOrder.includes(value)), ...pressOrder,
+                        ])].filter(value => value !== tapKey);
+                        noteGuestInput(); send({ op: 'key_tap', key: tapKey, modifiers: tapModifiers });
                     }
                 }
                 return;

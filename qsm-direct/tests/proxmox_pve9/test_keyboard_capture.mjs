@@ -145,7 +145,7 @@ function harness({keyboard=null,topKeyboard=keyboard,option=true,reject=false,pr
   ${section('const specialKeys =','const settingsForm =')}
  `)({document,video,buttons,actions});
  for(const button of buttons)button.click();
- assert.deepEqual(actions.filter(Array.isArray),[[[],1],[[],56],[[42],56],[[56],15],[[29,56],0xd3],[[],0xdb]]);
+ assert.deepEqual(actions.filter(Array.isArray),[[[],1],[[],56],[[56],42],[[56],15],[[29,56],0xd3],[[],0xdb]]);
  const maps=new Function(section('const scanCodes =','// A guest-first console')+'return qemuKey;')();
  for(const [code,key]of Object.entries({MetaLeft:0xdb,MetaRight:0xdc,IntlBackslash:86,NumpadEnter:0x9c,NumpadDivide:0xb5,PrintScreen:0xb7,Pause:0xc6,ContextMenu:0xdd}))assert.equal(maps({code}),key);
 }

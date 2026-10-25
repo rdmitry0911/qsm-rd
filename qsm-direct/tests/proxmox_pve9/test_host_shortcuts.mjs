@@ -28,7 +28,7 @@ assert.equal(api.matchShortcutRule({code:'Tab',altKey:true,shiftKey:true},[rule]
 assert.deepEqual(api.shortcutGuestChord('Cmd+Shift+Tab'),{key:15,modifiers:[42,0xdb]},'one-off guest action bypasses routing and keeps its exact chord');
 storage.value=JSON.stringify({hostShortcuts:[{shortcut:'unknown',action:'host'}]});assert.deepEqual(api.readConsoleSettings(storage).hostShortcuts,defaults.hostShortcuts,'malformed persisted rules do not silently disable defaults');
 assert.equal(api.modifierShortcutFromKeys([54,184,157]),'Ctrl+Alt+Shift');
-assert.deepEqual(api.shortcutGuestChord('Win+Shift'),{key:219,modifiers:[42]},'modifier-only Send to guest uses real scancodes');
+assert.deepEqual(api.shortcutGuestChord('Win+Shift'),{key:42,modifiers:[219]},'modifier-only Send to guest uses real scancodes');
 assert.deepEqual(api.normalizeShortcutRules([{shortcut:'Alt+Shift',action:'guest'},{shortcut:'Ctrl+Shift',action:'host'}]),[{shortcut:'Alt+Shift',action:'guest'},{shortcut:'Ctrl+Shift',action:'host'}]);
 assert.equal(api.shortcutFromEvent({code:'MetaLeft',key:'Alt',altKey:true,shiftKey:true}),'Alt+Shift','record uses logical host modifier remapping');
 const modifierRules=defaults.hostShortcuts.filter(r=>r.shortcut.split('+').every(p=>['Ctrl','Alt','Shift','Meta'].includes(p)));

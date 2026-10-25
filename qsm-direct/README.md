@@ -17,7 +17,7 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.12 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.12)
+[Stock4.13 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.13)
 preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
@@ -121,6 +121,14 @@ reload. Alt+Shift, Ctrl+Shift and Win+Shift no longer remain blocked as
 prefixes of longer host rules after their exact rule is removed. Recording,
 editing and Send to guest support modifier-only combinations. Main-key
 chords are matched separately. Raw and bare host-prefix protection remain.
+
+Stock4.13 preserves the observed modifier key-down order when a complete
+modifier-only action is committed on release. Releasing Meta before Shift
+no longer turns Meta-then-Shift into Shift-then-Meta. Explicit modifier-only
+Send to guest actions use Shift last. The 11 editable Host/browser defaults,
+Guest overrides and first-release commit remain unchanged. Guest shortcuts
+must match the guest's actual binding: forwarding Meta+Shift does not invoke
+an Alt+Shift layout action. No extra input timer is introduced.
 
 Install and update the standalone packages through the signed
 [APT repository](https://rdmitry0911.github.io/qsm-rd/): follow the

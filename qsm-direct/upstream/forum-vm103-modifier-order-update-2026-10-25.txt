@@ -1,0 +1,11 @@
+Hi guys, stock4.13 preserves modifier press order when a modifier-only Guest action is completed on release.
+
+The previous client could turn Meta-then-Shift into Shift-then-Meta if Meta was released first. It now keeps the observed down order while still sending one complete action immediately on first release. Explicit modifier sends use Shift last. Raw and the 11 editable host defaults/Guest overrides remain available.
+
+This was checked through the full browser client, installed shared bridge/worker and an actual VM USB keyboard, including guest evdev events and Plasma layout changes. Meta+Shift reached the guest; that VM's actual layout shortcut was Alt+Shift, which switched language in both release orders. Forwarding a combination does not change the guest's binding.
+
+24 CTest gates pass, including 26,784 modifier routing cases. This uses Linux Firefox browser input; physical Mac qualification is still needed. Worker/bridge unchanged; no guest restart required. Reload PVE and reopen consoles after updating.
+
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.13
+APT: https://rdmitry0911.github.io/qsm-rd/
+Sponsored by Takt — https://taktcycles.com/

@@ -1,0 +1,35 @@
+stock4.13 / VM103 qualification — 2026-10-25
+
+The reported Meta+Shift/layout issue was checked on VM103 rather than an
+LXC fixture. Its saved and active Plasma layout shortcut is Alt+Shift.
+A controlled direct QEMU D-Bus check and a full viewer/native terminal
+service/installed shared bridge+worker check confirm Meta+Shift reaches
+Linux USB-keyboard evdev (Meta=125, Shift=42), but is not the configured
+layout action. Alt+Shift reaches evdev (56,42) and switches ru to us. Original
+layout is restored. No production text keys are captured; watchers filter
+only the controlled modifiers, do not grab the device and expire after 4s.
+Owned temporary watcher files are removed. QSM browser prefs are local to
+the test context, not the user's Mac. No guest shortcut config is changed
+by this qualification.
+
+One initial layout check read the compositor before waiting for guest
+input completion. That apparent Alt+Shift miss was a measurement race,
+not evidence of a layout delivery failure. The final probe waits for all
+four guest modifier events before querying layout. The actual separate
+ordering bug is recorded at evdev: stock4.12 reverses down order when the
+first pressed modifier is released first. The corrected client uses the
+last observed down key as its atomic main key, retaining original prefix
+order. Atomic releases remain reverse order; Raw keeps physical edges.
+Explicit modifier-only sends prefer Shift last. Both release orders now
+produce Meta-down/Shift-down and Alt-down/Shift-down in their original
+order. Alt+Shift changes layout for both; Meta+Shift leaves the configured
+Alt+Shift layout unchanged. Guest layout restored, VM103 stays running,
+original 2560x1440 output preserved; control-channel resize is suppressed
+only in this live-VM test to avoid disturbing the user's display.
+
+24 CTest gates pass, including 26,784 modifier routing/order cases and
+explicit guest button helpers. Full viewer uses real headful Linux Firefox
+keyboard dispatch, actual input-policy negotiation and installed native
+root-only offer service; only test auth/SDP routing is substituted. No
+physical macOS claim is made. Worker, bridge and protocol unchanged.
+No external discussion messages posted; draft only.

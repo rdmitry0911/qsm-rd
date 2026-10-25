@@ -1,0 +1,1 @@
+PASS: Firefox/Safari fullscreen capture, Chromium, release, denial, ownership, races and guest buttons

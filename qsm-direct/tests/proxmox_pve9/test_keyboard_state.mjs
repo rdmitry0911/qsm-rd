@@ -241,7 +241,7 @@ for(const releaseFirst of ['AltLeft','ShiftLeft']){
   assert.deepEqual(packets(h),[{op:'key_tap',key:56,modifiers:[42]}],'completed Alt+Shift is sent once on first release');
  }else{
   h.key('keyup','ShiftLeft',{key:'Shift',altKey:true,shiftKey:false});h.key('keyup','AltLeft',{key:'Alt',altKey:false,shiftKey:false});
-  assert.deepEqual(packets(h),[{op:'key_tap',key:42,modifiers:[56]}],'completed Alt+Shift works in either release order');
+  assert.deepEqual(packets(h),[{op:'key_tap',key:56,modifiers:[42]}],'modifier-only action preserves original press order in either release order');
  }
 }
 {
@@ -359,7 +359,7 @@ for(let mask=1;mask<16;mask++){
    for(const name of press)emit('keydown',name);
    assert.deepEqual(packets(h),[],'modifier combinations must not fire while they could still be a longer chord');
    emit('keyup',release[0]);
-   const want=routing==='default-host'?[]:[{op:'key_tap',key:descriptors[release[0]][3],modifiers:press.filter(n=>n!==release[0]).map(n=>descriptors[n][3])}];
+   const want=routing==='default-host'?[]:[{op:'key_tap',key:descriptors[press.at(-1)][3],modifiers:press.slice(0,-1).map(n=>descriptors[n][3])}];
    assert.deepEqual(packets(h),want,`${shortcut} ${variant} ${mode} ${routing}: first release commits exact rule without a timer`);
    for(const name of release.slice(1))emit('keyup',name);
    assert.deepEqual(packets(h),want,'remaining modifier releases cannot append solo taps');

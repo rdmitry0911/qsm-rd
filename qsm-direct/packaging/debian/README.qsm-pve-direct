@@ -3,7 +3,7 @@ qsm-pve-direct for Proxmox VE 9
 
 `qsm-pve-direct` is a browser-native PVE console transport.
 
-Standalone release 0.4.0+stock4.12
+Standalone release 0.4.0+stock4.13
 -----------------------------
 For official PVE 9 install matching qsm-pve-direct and
 qsm-pve-direct-standalone debs. Follow README.standalone, installed with the
@@ -502,3 +502,13 @@ reload. Alt+Shift, Ctrl+Shift and Win+Shift no longer remain blocked as
 prefixes of longer host rules after their exact rule is removed. Recording,
 editing and Send to guest support modifier-only combinations. Main-key
 chords are matched separately. Raw and bare host-prefix protection remain.
+
+Modifier press order (stock4.13)
+--------------------------------
+Stock4.13 preserves the observed modifier key-down order when a complete
+modifier-only action is committed on release. Releasing Meta before Shift
+no longer turns Meta-then-Shift into Shift-then-Meta. Explicit modifier-only
+Send to guest actions use Shift last. The 11 editable Host/browser defaults,
+Guest overrides and first-release commit remain unchanged. Guest shortcuts
+must match the guest's actual binding: forwarding Meta+Shift does not invoke
+an Alt+Shift layout action. No extra input timer is introduced.
