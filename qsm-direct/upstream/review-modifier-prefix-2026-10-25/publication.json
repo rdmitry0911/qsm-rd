@@ -1,0 +1,14 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.9",
+  "source_commit": "f401244b641ec5a908eccb2c5e8722a1490e892f",
+  "apt_manifest_commit": "c42349139b6e67a86a9380452f0a97207a874d58",
+  "apt_workflow": "https://github.com/rdmitry0911/qsm-rd/actions/runs/40179896726",
+  "apt_workflow_result": "success",
+  "public_apt": "https://rdmitry0911.github.io/qsm-rd/",
+  "verified_downloads": 51,
+  "release_verification": "Downloaded signature and all assets verify with public key/SHA256. Public APT verifies every pinned package and rejects metadata/deb tampering.",
+  "deployment": "192.168.64.20 matching stock4.9 host profiles; services active, VM103/CT105 running, installed/HTTPS viewer matches package. CT108 fixture stopped and original output restored.",
+  "test_scope": "22 final CTest gates including AltGraph; full Firefox/Chromium UI; Firefox/XTEST/real SCTP/CT108 old/new prefix comparison. Missing Tab and blur handoff modelled; no native macOS chord or new hardware qualification.",
+  "behavior": "All modern non-Raw shortcut modifier prefixes wait for a guest action, remain absent from heartbeat state and cancel on focus loss. Exact actions carry modifier snapshots; focused solo/modifier-only release, physical action flush, Raw and legacy paths retained.",
+  "discussion_messages": "Draft prepared; no discussion mail/comments sent."
+}
