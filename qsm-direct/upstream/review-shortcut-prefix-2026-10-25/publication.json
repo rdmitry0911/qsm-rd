@@ -1,0 +1,14 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.11",
+  "source_commit": "258a9d65377243d909ea6f7b2b2c36f7eb4cd87f",
+  "apt_manifest_commit": "52cea601dd31ef5f09928a64f8463b346f6960a3",
+  "apt_workflow": "https://github.com/rdmitry0911/qsm-rd/actions/runs/40187832473",
+  "apt_workflow_result": "success",
+  "public_apt": "https://rdmitry0911.github.io/qsm-rd/",
+  "verified_downloads": 61,
+  "release_verification": "18 release assets downloaded; detached signature and all 16 payload checksums match. Public APT downloads and verifies all 61 pinned packages and rejects metadata/deb tampering.",
+  "deployment": "192.168.64.20 stock4.11 four matching host profiles; dpkg audit empty, apt-get check passes; services active, VM103/CT105 running, package/installed/HTTPS viewer hash matches. CT108 restored.",
+  "test_scope": "24 CTest gates; complete production viewer headful Firefox over real SCTP/installed bridge+worker/CT108. Real input-policy negotiation, no forced capabilities. Standalone and embedded. Logical events/MacIntel modelled on Linux; no physical Mac qualification.",
+  "behavior": "Modifier-only release that could prefix an active host rule stays local even if Tab is hidden and keyup precedes blur. Guest Alt+F, unreserved modifier taps, empty lists, explicit Alt/Alt+Shift/Super buttons, per-rule send and Raw retain their guest path. No added debounce. Worker/bridge unchanged.",
+  "discussion_messages": "Draft prepared; no discussion mail/comments posted."
+}
