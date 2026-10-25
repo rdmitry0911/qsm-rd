@@ -1,0 +1,14 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.6",
+  "source_commit": "1c7ee05172a6bd566df4e8258df1e8817e921050",
+  "apt_manifest_commit": "84de00a8be19b0bc66af4f71874f99150f43b15e",
+  "apt_workflow": "https://github.com/rdmitry0911/qsm-rd/actions/runs/40171404168",
+  "apt_workflow_result": "success",
+  "public_apt": "https://rdmitry0911.github.io/qsm-rd/",
+  "verified_downloads": 36,
+  "release_verification": "Downloaded release signature and all assets verify with public key/SHA256. Public APT validates pinned versions/signatures and rejects metadata/deb tampering.",
+  "deployment": "192.168.64.20 matching stock4.6 host profiles, four services active, VM103/CT105 running, HTTPS viewer hash matches package.",
+  "test_scope": "22 CTest gates and full Firefox/Chromium UI checks pass. Simulated MacIntel/swapped logical DOM modifiers through real Firefox/SCTP/bridge/worker/CT108. No physical Mac qualification.",
+  "behavior": "Guest first follows logical host modifier mapping, keeps logical macOS Cmd+Tab host-only and logical Option+Tab guest-only. Deferred Command prevents partial guest modifier/menu taps. Raw intentionally retains physical behavior.",
+  "discussion_messages": "Draft prepared; no discussion mail/comments sent."
+}
