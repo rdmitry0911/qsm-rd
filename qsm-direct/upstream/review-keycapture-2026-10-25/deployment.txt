@@ -1,0 +1,12 @@
+192.168.64.20: matching stock4.4 core/standalone/LXC/gateway installed.
+APT simulation selected only these four host packages, with no removals.
+All four QSM services active; dpkg audit empty; VM103 and CT105 running.
+Installed viewer/bridge/worker and HTTPS-served viewer match release hashes.
+Worker and bridge are byte-identical to qualified stock4.3 payloads; the
+viewer implements the new capture controls. The matching guest deb is
+embedded in the LXC helper, not installed on PVE host. No guest was stopped,
+rebooted or reprovisioned. CT108 test fixture stopped and output restored.
+Downloaded release assets pass the public-key signature and all SHA256 checks.
+Reload PVE with cache bypass and reopen consoles, then click Capture keyboard.
+No macOS F11 assignment change is required. Physical Mac testing is outstanding.
+Forum text is prepared only; no discussion mail/comments were posted.
