@@ -1,0 +1,10 @@
+192.168.64.20: four matching 0.4.0+stock4.12 host profiles installed.
+APT simulation allowed only the four requested QSM upgrades and no removal.
+The guest-only package was not installed on the PVE host. dpkg audit is
+empty, apt-get check passes. Terminal/signal/gateway/TURN services active.
+VM103 and CT105 remain running, no guest restart/provisioning performed.
+PVE UI active; package, installed and HTTPS-served viewer hashes match.
+Viewer matches the actual full-production Firefox/SCTP qualification.
+Worker/bridge bytes match the previous qualified builds. CT108 owned test
+fixture stopped; output restored. Published release downloaded in full,
+public-key signature and all payload SHA256 digests match local assets.
