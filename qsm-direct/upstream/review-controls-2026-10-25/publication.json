@@ -1,0 +1,14 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.8",
+  "source_commit": "b7e7f19ae5dcd5f99924eccbcd3c5adce1775479",
+  "apt_manifest_commit": "bfea7e4e6ce27ef2b1b483fe4a361dd5cffe7389",
+  "apt_workflow": "https://github.com/rdmitry0911/qsm-rd/actions/runs/40177630036",
+  "apt_workflow_result": "success",
+  "public_apt": "https://rdmitry0911.github.io/qsm-rd/",
+  "verified_downloads": 46,
+  "release_verification": "Downloaded signature and all release assets verify with public key/SHA256. Public APT verifies all pinned packages and rejects metadata/deb tampering.",
+  "deployment": "192.168.64.20 stock4.8 matching host profiles; services active, VM103/CT105 running, installed/HTTPS viewer matches package.",
+  "test_scope": "22 CTest gates; complete Firefox/Chromium UI, separate and embedded at two sizes; headful native XTEST Esc after ordinary fullscreen upgrade. API/Ext stubs; no physical Mac/new guest transport/hardware qualification.",
+  "behavior": "Handle stays at x=0 across repeated toggles; strip has separate inset. Capture is enable/resume only, retains label and never acts as Release; explicit Release and native fullscreen exit work in both contexts.",
+  "discussion_messages": "Draft prepared; no discussion mail/comments sent."
+}
