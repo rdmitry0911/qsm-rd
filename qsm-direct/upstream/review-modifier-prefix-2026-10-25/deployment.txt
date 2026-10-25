@@ -1,0 +1,14 @@
+192.168.64.20 upgraded to matching stock4.9 core/standalone/LXC/gateway.
+APT plan selected exactly these four QSM host packages, no removals or guest
+deb installation. Terminal/signal/gateway/turn active; dpkg audit empty;
+VM103 and CT105 remain running. Installed/HTTPS-served viewer match package.
+Worker/bridge identical to qualified prior payloads; embedded guest deb
+matches separate asset. No production guest restart/update. CT108 owned
+fixture stopped, original 1970x1220 output restored before deployment.
+Downloaded release signature and every asset SHA256 verified with public key.
+22 final CTest gates pass, including AltGraph follow-up. Firefox/Chromium
+full UI checks and Firefox/XTEST/real SCTP/CT108 baseline/fixed comparison
+pass. Tab consumption/focus handoff is modelled; no native macOS chord or
+new hardware qualification claimed. No production key logging added.
+No discussion mail/comments sent. Reload PVE and reopen consoles, Guest
+first + Exact typing, to avoid sending pending host-switch modifier prefixes.
