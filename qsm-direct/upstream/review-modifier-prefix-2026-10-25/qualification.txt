@@ -34,3 +34,9 @@ Owned CT108 fixture stopped and original output dimensions restored. No
 production guest stopped/restarted/updated. Worker/bridge/protocol unchanged;
 final packages must match their already qualified payloads. No discussion
 mail/forum/Bugzilla messages posted by this release.
+
+Final shared-modifier snapshot follow-up: preserve independent AltGraph via
+getModifierState even when altKey=false. Covered by a new keyboard regression
+and final 22 CTest run. This narrow branch follows the real SCTP comparison;
+the ordinary Alt/Shift path used in that run is unchanged. Normative state
+reference: https://www.w3.org/TR/uievents/#dom-keyboardevent-getmodifierstate

@@ -1,6 +1,6 @@
 {
-  "qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js": "903d215b8a0996e0eb6aae87752e8caa2521fe5fdc89d46e1dd84b05f365ec1f",
-  "qsm-direct/tests/proxmox_pve9/test_keyboard_state.mjs": "d2bcce2c4b3c5dc59c0d8cdbf1f234484b74f708c3ef33b2f50d0b3034b2e03f",
+  "qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js": "d97c41070a03533d0bc6c0a76f8c767e686f027216a335d8bc5a33d457973dc0",
+  "qsm-direct/tests/proxmox_pve9/test_keyboard_state.mjs": "36f3cd294e71282a01e6737e4f7b651814bf2ee88f82eb52289ee3ca954128d0",
   "qsm-direct/tests/proxmox_pve9/test_mouse_state.mjs": "a17128358ac8439636b071eb521287c669b0f2e4a5b1c143ee5ed3da92c991a4",
   "qsm-direct/tests/proxmox_pve9/test_touch_gestures.mjs": "50bae8b639f97c9e84898caa7b352fc306ac8df2c9c699f85a5be886bffb8a39"
 }

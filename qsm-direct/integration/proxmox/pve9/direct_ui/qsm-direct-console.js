@@ -2589,13 +2589,15 @@
         const inputModifiers = (event) => {
             const result = [...physicalHeldKeys, ...deferredModifiers.keys()].filter(key => [29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc].includes(key));
             if (event) {
+                const altGraph = typeof event.getModifierState === 'function' && event.getModifierState('AltGraph');
                 for (const [flag, group] of [['ctrlKey', [29, 0x9d]], ['shiftKey', [42, 54]],
                     ['altKey', [56, 0xb8]], ['metaKey', [0xdb, 0xdc]]]) {
-                    if (event[flag] === false) {
+                    const active = flag === 'altKey' && altGraph ? true : event[flag];
+                    if (active === false) {
                         for (let i = result.length - 1; i >= 0; --i) {
                             if (group.includes(result[i])) { result.splice(i, 1); }
                         }
-                    } else if (event[flag] === true && !result.some(key => group.includes(key))) { result.push(group[0]); }
+                    } else if (active === true && !result.some(key => group.includes(key))) { result.push(flag === 'altKey' && altGraph ? 0xb8 : group[0]); }
                 }
             }
             return result;

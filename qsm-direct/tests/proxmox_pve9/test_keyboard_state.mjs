@@ -261,4 +261,12 @@ for(const releaseFirst of ['AltLeft','ShiftLeft']){
  h.key('keydown','AltLeft',{key:'Alt',altKey:true});const e=h.key('keydown','ArrowLeft',{key:'ArrowLeft',altKey:true});h.key('keyup','AltLeft',{key:'Alt',altKey:false});
  assert.deepEqual(packets(h),[],'client-first browser shortcut discards the pending Alt');assert.equal(e.defaultPrevented,false);
 }
+{
+ const h=harness('client-repeat');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','AltRight',{key:'AltGraph',location:2,altKey:false,getModifierState:n=>n==='AltGraph'});
+ h.key('keydown','KeyE',{key:'€',altKey:false,ctrlKey:false,getModifierState:n=>n==='AltGraph'});
+ h.key('keyup','KeyE',{key:'€',altKey:false,ctrlKey:false,getModifierState:n=>n==='AltGraph'});
+ h.key('keyup','AltRight',{key:'AltGraph',location:2,altKey:false,getModifierState:()=>false});
+ assert.deepEqual(packets(h),[{op:'key_tap',key:18,modifiers:[0xb8]}],'AltGraph is an independent modifier state and survives altKey=false');
+}
 console.log('PASS: deferred modifier prefixes, host-swallowed Tab, focus cleanup, exact guest actions, raw holds and clipboard');
