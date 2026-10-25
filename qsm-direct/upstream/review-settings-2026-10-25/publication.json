@@ -1,0 +1,14 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.7",
+  "source_commit": "11af049238b83e88d20d359a1cde18435744ae31",
+  "apt_manifest_commit": "b0d14d476198ddbb95b65a668d8cfc77e604fbb2",
+  "apt_workflow": "https://github.com/rdmitry0911/qsm-rd/actions/runs/40172912794",
+  "apt_workflow_result": "success",
+  "public_apt": "https://rdmitry0911.github.io/qsm-rd/",
+  "verified_downloads": 41,
+  "release_verification": "Downloaded release signature and all assets verify with public key/SHA256. Public APT validates all pinned versions and rejects metadata/deb tampering.",
+  "deployment": "192.168.64.20 matching stock4.7 host profiles; four services active, VM103/CT105 running, installed/HTTPS viewer matches package.",
+  "test_scope": "22 CTest gates and complete production UI Firefox/Chromium checks, standalone and embedded, pass. API/Ext stubs used. No new physical Mac/transport/hardware qualification.",
+  "behavior": "Settings preserves fullscreen and releases held input; Close refocuses/resumes. Capture keyboard is a text toolbar control and first Settings action. Reveal handle cannot overlap toolbar controls. Pending-request Settings focus/intent preserved.",
+  "discussion_messages": "Draft prepared; no discussion mail/comments sent."
+}
