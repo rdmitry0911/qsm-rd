@@ -1,0 +1,6 @@
+PASS: explicit signed Valid-Until with 30-day metadata lifetime
+PASS: signed APT update, no authentication warnings
+PASS: real APT download and SHA256 verification of all 56 packages
+PASS: only six allowlisted QSM packages, no Proxmox replacements
+PASS: APT rejects tampered InRelease
+PASS: APT rejects a modified deb with signed indexes unchanged

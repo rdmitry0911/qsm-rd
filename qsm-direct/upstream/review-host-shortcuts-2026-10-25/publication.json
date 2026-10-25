@@ -1,0 +1,14 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.10",
+  "source_commit": "fe83a60d94af591c90d257b107886c2e34210a0a",
+  "apt_manifest_commit": "d7e182b3b6bd46319066ed23254034cde12f46bb",
+  "apt_workflow": "https://github.com/rdmitry0911/qsm-rd/actions/runs/40185928482",
+  "apt_workflow_result": "success",
+  "public_apt": "https://rdmitry0911.github.io/qsm-rd/",
+  "verified_downloads": 56,
+  "release_verification": "Downloaded signature and all assets verify with public key/SHA256. Public APT verifies all pinned packages and rejects metadata/deb tampering.",
+  "deployment": "192.168.64.20 final stock4.10 matching host profiles, all configured; dpkg audit empty, apt-get check passes; services active, VM103/CT105 running, installed/HTTPS viewer matches package. CT108 restored.",
+  "test_scope": "24 final CTest gates; Firefox/Chromium full editor top/embedded; real SCTP/CT108 baseline/new routing with complete DOM chords before blur. MacIntel/logical events simulated on Linux, no physical Mac qualification.",
+  "behavior": "Editable persistent independent Guest first/Client first host rules, Raw bypass, native/local actions, keyboard recording, CRUD/reset, one-off Send to guest. Complete chords latched through keyup; delayed host paste cannot re-enter guest. Separate bounded overlay-size limit accepts shipped viewer without relaxing stock-template checks.",
+  "discussion_messages": "Draft prepared; no discussion mail/comments sent."
+}
