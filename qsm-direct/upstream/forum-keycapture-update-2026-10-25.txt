@@ -1,0 +1,16 @@
+Hi guys, a correction to the Firefox keyboard-capture information and a fix in stock4.4.
+
+QSM previously requested only Chromium's navigator.keyboard.lock(). Current Firefox has a different mechanism, enabled when entering fullscreen with requestFullscreen({keyboardLock: "browser"}); Safari uses that API too where supported. QSM was missing that path. The earlier advice to use browser F11 was a workaround, and is inconvenient when macOS already assigns that key.
+
+There is now an explicit Capture keyboard button in the toolbar and Settings. It works in embedded consoles too, opening actual fullscreen with capture. The normal in-page maximize control stays separate. No F11 or system shortcut remapping is required.
+
+A short Esc and available browser shortcuts go to the guest. Click Release keyboard, open Settings or hold Esc to leave capture. Guest first also provides Ctrl+Alt+Shift+Esc; Raw keeps its existing no-QSM-chord behavior. Exact typing and Exact clicks are retained. OS-reserved shortcuts remain subject to the platform, with Send to guest buttons for keys the browser cannot receive.
+
+I checked headful Firefox 157 with native Linux keyboard events, real WebRTC and a test LXC: Esc, Ctrl+W/T/L/Tab, F5 and Ctrl+R/F reached the guest in both separate and embedded consoles without leaving fullscreen. The release controls passed too. I have not tested on a physical Mac or Safari.
+
+Source, matching debs, guides and checks:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.4
+
+Update installed QSM profiles together, reload PVE with cache bypass and reopen consoles, then click Capture keyboard. No guest reboot or guest update is needed.
+
+Thank you, Dmitry

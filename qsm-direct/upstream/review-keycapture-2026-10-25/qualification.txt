@@ -1,0 +1,49 @@
+Stock4.4 fullscreen keyboard capture, 2026-10-25
+
+Root cause: QSM only requested Chromium navigator.keyboard.lock(). Firefox
+151+ and Safari use FullscreenOptions.keyboardLock = browser. Current Firefox
+can capture browser shortcuts; the earlier blanket Firefox limitation was
+incorrect. The new option is detected by WebIDL dictionary consumption, not
+by UA sniffing or merely assuming that ordinary fullscreen implies capture.
+Unsupported/denied capture remains visible. Explicit Capture works in the
+embedded console without replacing its separate page-maximize control.
+
+Sources checked:
+https://developer.mozilla.org/en-US/docs/Web/API/Element/requestFullscreen
+https://bugzilla.mozilla.org/show_bug.cgi?id=2032302
+https://github.com/whatwg/fullscreen/pull/232
+
+Qualification: headful Firefox 157 on an owned Xvfb/Openbox display; XTEST
+keyboard events via xdotool; production keyboard/controller/fullscreen JS
+fragments -> real SCTP -> stock4.3 worker/bridge -> CT108 Sway -> owned Qt GUI.
+Both separate and same-origin embedded console contexts pass. Ordinary
+requestFullscreen reproduces Esc exiting with no guest Esc. With the new
+capture, guest receives Esc, Ctrl+W/T/L/Tab, F5 and Ctrl+R/F; fullscreen stays
+active. Guest press/release records and browser state are attached. Release
+button, Settings with restored client focus, Ctrl+Alt+Shift+Esc and long Esc
+exit pass. No F11 is used in these tests.
+
+Complete unmodified production JS (test-only export of openConsole) is also
+loaded with Ext/PVE API stubs to exercise real UI initialization. In Firefox
+and Chromium, both popup/viewer and embedded modes capture/release without
+page errors. Explicit DOM blur releases capture before media connects too.
+Chromium is granted its normal test-origin keyboardLock permission by CDP.
+These smoke checks do not authenticate a production PVE account or inject
+production guest input. No user credentials/SDP secrets are recorded.
+
+22 CTest gates pass. Controller tests cover option consumption, old browser
+non-support, permission denial, Chromium top-level ownership, Raw/Client
+policies, close, explicit blur/visibility and late asynchronous completion
+after cancellation. Exact typing/clicks and worker protocols are unchanged.
+
+Limits: no physical Mac/Safari qualification. Native X11 app focus transfer
+was inconclusive in this automation environment: the WM's active window
+changed but Firefox still reported document.hasFocus true, with no DOM blur.
+The release-on-delivered-blur path is verified with real production DOM and
+unit events, not claimed as an OS focus-transfer hardware pass. This does
+not affect the native keyboard/guest tests above. OS-reserved shortcuts can
+still stay local. The new user workflow requires no F11 or macOS remapping.
+
+CT108 fixture is stopped and its 1970x1220 output restored after testing.
+Production VM103/CT105 are not stopped or reprovisioned. No Proxmox backend
+patch, guest update, media requalification or new protocol is required.

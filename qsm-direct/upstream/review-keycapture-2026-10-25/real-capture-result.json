@@ -1,0 +1,436 @@
+[
+  {
+    "mode": "top",
+    "case": "BASELINE_ESC_EXITS",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 135
+    },
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "top",
+    "case": "NATIVE_ESC_AND_BROWSER_CHORDS",
+    "browser": {
+      "full": true,
+      "status": "Keyboard capture active. Hold Esc or click Release keyboard to exit full screen.",
+      "pressed": "true",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 260
+    },
+    "guest": {
+      "events": [
+        [
+          "press",
+          16777216,
+          0
+        ],
+        [
+          "release",
+          16777216,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          87,
+          67108864
+        ],
+        [
+          "release",
+          87,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          84,
+          67108864
+        ],
+        [
+          "release",
+          84,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          76,
+          67108864
+        ],
+        [
+          "release",
+          76,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          16777217,
+          67108864
+        ],
+        [
+          "release",
+          16777217,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777268,
+          0
+        ],
+        [
+          "release",
+          16777268,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          82,
+          67108864
+        ],
+        [
+          "release",
+          82,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          70,
+          67108864
+        ],
+        [
+          "release",
+          70,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ]
+      ],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    },
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64; rv:157.0) Gecko/20100101 Firefox/157.0"
+  },
+  {
+    "mode": "top",
+    "case": "SETTINGS_RELEASE",
+    "browser": {
+      "full": false,
+      "status": "Client keyboard shortcuts active. Click Capture keyboard to return to the guest.",
+      "pressed": "false",
+      "active": "settings",
+      "keyboardLock": false,
+      "sent": 280
+    }
+  },
+  {
+    "mode": "top",
+    "case": "MOUSE_RELEASE_BUTTON",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "settings",
+      "keyboardLock": false,
+      "sent": 287
+    }
+  },
+  {
+    "mode": "top",
+    "case": "LOCAL_EXIT_CHORD",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "settings",
+      "keyboardLock": false,
+      "sent": 300
+    }
+  },
+  {
+    "mode": "top",
+    "case": "LONG_ESCAPE_EXIT",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 378
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "NATIVE_ESC_AND_BROWSER_CHORDS",
+    "browser": {
+      "full": true,
+      "status": "Keyboard capture active. Hold Esc or click Release keyboard to exit full screen.",
+      "pressed": "true",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 183
+    },
+    "guest": {
+      "events": [
+        [
+          "press",
+          16777216,
+          0
+        ],
+        [
+          "release",
+          16777216,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          87,
+          67108864
+        ],
+        [
+          "release",
+          87,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          84,
+          67108864
+        ],
+        [
+          "release",
+          84,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          76,
+          67108864
+        ],
+        [
+          "release",
+          76,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          16777217,
+          67108864
+        ],
+        [
+          "release",
+          16777217,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777268,
+          0
+        ],
+        [
+          "release",
+          16777268,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          82,
+          67108864
+        ],
+        [
+          "release",
+          82,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          70,
+          67108864
+        ],
+        [
+          "release",
+          70,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ]
+      ],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    },
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64; rv:157.0) Gecko/20100101 Firefox/157.0"
+  },
+  {
+    "mode": "embedded",
+    "case": "SETTINGS_RELEASE",
+    "browser": {
+      "full": false,
+      "status": "Client keyboard shortcuts active. Click Capture keyboard to return to the guest.",
+      "pressed": "false",
+      "active": "settings",
+      "keyboardLock": false,
+      "sent": 204
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "MOUSE_RELEASE_BUTTON",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "settings",
+      "keyboardLock": false,
+      "sent": 211
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "LOCAL_EXIT_CHORD",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "settings",
+      "keyboardLock": false,
+      "sent": 224
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "LONG_ESCAPE_EXIT",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 302
+    }
+  }
+]

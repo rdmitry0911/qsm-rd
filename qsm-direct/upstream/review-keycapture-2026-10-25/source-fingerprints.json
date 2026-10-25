@@ -1,0 +1,5 @@
+{
+  "qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js": "f65e92f58dcbf2721864553477707d1081f8e2812eb4c825906b24087543162e",
+  "qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py": "e5165acf7c4a1178c5c47f3acb2da7ff8066fa8df4cf5f3df4253b4bc378e3f9",
+  "qsm-direct/tools/qsm_direct_media_worker.cpp": "4f4b5aac10863445c099615c498bc999df3754b74b4ec65b51d859916ea48b56"
+}

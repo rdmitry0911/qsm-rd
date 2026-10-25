@@ -17,7 +17,7 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.3 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.3)
+[Stock4.4 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.4)
 preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
@@ -43,10 +43,15 @@ Fractional trackpad scroll deltas are accumulated, including horizontal scroll.
 Choose Physical button holds or Raw for immediate down/up input. Ordinary
 cursor motion still uses the fast pointer channel after action acknowledgement.
 
-Guest-first/Raw requests every available key through Keyboard Lock in native
-fullscreen when supported. Firefox reserves Esc for page fullscreen; use
-browser F11 while focus is outside the guest, or the Send to guest buttons
-for Esc and common reserved shortcuts in Console settings.
+Stock4.4 adds **Capture keyboard (full screen)** in the toolbar and Settings,
+including in the embedded console. Firefox/Safari use the Fullscreen API's
+keyboard-lock option; Chromium retains its separate Keyboard Lock API.
+No F11 or macOS shortcut remapping is required. Single Esc and available
+browser shortcuts go to the guest. Click Release keyboard, open Settings,
+or hold Esc to leave capture; Guest first also provides Ctrl+Alt+Shift+Esc.
+OS-reserved keys still depend on the platform; Send to guest buttons remain
+available. The earlier Firefox limitation was a missing QSM API path,
+not a claim that current Firefox cannot capture browser shortcuts.
 
 Install and update the standalone packages through the signed
 [APT repository](https://rdmitry0911.github.io/qsm-rd/): follow the

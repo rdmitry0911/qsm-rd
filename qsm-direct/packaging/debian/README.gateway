@@ -1,7 +1,7 @@
 QSM Direct: optional TCP 8006 gateway (experimental, single-node PVE 9)
 ===================================================================
 
-Release: 0.4.0+stock4.3. This explicit standalone profile shares TCP 8006 between
+Release: 0.4.0+stock4.4. This explicit standalone profile shares TCP 8006 between
 normal PVE HTTPS and authenticated TURN/TCP. Signalling uses /qsm-direct/ on the
 PVE browser origin. Video/audio and input/clipboard are encrypted by WebRTC.
 TURN control messages use plain TCP, WITHOUT TLS. See Encryption below.
@@ -13,14 +13,14 @@ Requirements and package installation
 ------------------------------------
 Read INSTALL-STOCK.txt / README.standalone first for platform, VM and LXC setup.
 No patched Proxmox debs are needed on stock PVE. Download matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.3
-Verify SHA256SUMS-stock4.3. Install as root on the PVE HOST:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.4
+Verify SHA256SUMS-stock4.4. Install as root on the PVE HOST:
 
-  apt install ./qsm-pve-direct_0.4.0+stock4.3_amd64.deb \
-              ./qsm-pve-direct-standalone_0.4.0+stock4.3_all.deb \
-              ./qsm-pve-direct-gateway_0.4.0+stock4.3_all.deb
+  apt install ./qsm-pve-direct_0.4.0+stock4.4_amd64.deb \
+              ./qsm-pve-direct-standalone_0.4.0+stock4.4_all.deb \
+              ./qsm-pve-direct-gateway_0.4.0+stock4.4_all.deb
 
-If the LXC helper is already installed, include its matching stock4.3 deb in that
+If the LXC helper is already installed, include its matching stock4.4 deb in that
 same transaction. For new LXC setup install the separate helper as described in
 README.standalone; it embeds the guest payload. NEVER install qsm-console-guest
 on the PVE host. Package installation does not activate a new gateway.
@@ -158,10 +158,9 @@ entry if an older browser preference selected Raw. No guest reboot or desktop
 reprovisioning is needed. Both the bridge and worker must come from the same
 core package; a cached older viewer retains its prior behavior.
 
-Console Settings also provides Esc/Alt+Tab/Ctrl+Alt+Del/Super buttons. Supported
-full-screen browsers request all available keys through Keyboard Lock; Firefox
-reserves Esc for page fullscreen, so use its browser fullscreen mode or the
-explicit Send to guest buttons.
+Console Settings also provides Esc/Alt+Tab/Ctrl+Alt+Del/Super buttons.
+Stock4.4 adds Capture keyboard (full screen) for Firefox/Safari and Chromium;
+use the capture button instead of system F11. See the instructions below.
 
 Mouse / trackpad input (stock4.3)
 --------------------------------
@@ -176,3 +175,25 @@ at 500 ms. Both scroll axes work and fractional trackpad deltas accumulate.
 Normal double clicks pass; native double-click timing can still be affected
 by delivery jitter. Generic virtual input cannot carry original click times.
 Reload PVE with cache bypass and reopen consoles. No guest update is needed.
+
+Fullscreen keyboard capture (stock4.4)
+-------------------------------------
+Reload PVE with cache bypass and reopen the console after updating.
+Click Capture keyboard (keyboard/padlock toolbar button or Settings action).
+The embedded console enters actual full screen for capture; its existing
+page-maximize button still provides in-page enlargement separately.
+Capture selects Guest first if Client first was saved, preserving Exact typing
+and Exact clicks. Firefox desktop 151+ uses requestFullscreen keyboardLock:
+"browser"; Safari uses the same API where supported. Chromium retains
+navigator.keyboard.lock() and its permission flow. F11 is not required, so
+macOS system assignments need no changes. Click the guest picture for input.
+
+A short Esc is sent to the guest. Hold Esc or click Release keyboard to exit.
+Opening Settings, switching to Client first, focus leaving the browser or
+closing the console releases capture. Guest first reserves Ctrl+Alt+Shift+Esc;
+Raw keeps its existing no-QSM-chord policy. OS-reserved keys are not guaranteed
+to reach any web app; use Send to guest buttons where necessary.
+
+Headful Firefox 157 / Linux XTEST / real LXC checks cover ordinary Esc and
+browser chords in separate and embedded consoles; complete production UI
+smoke checks pass too. No physical macOS/Safari qualification is claimed.

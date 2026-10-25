@@ -1,0 +1,16 @@
+[
+  {
+    "mode": "top",
+    "complete_production_JS": true,
+    "capture_and_release": true,
+    "explicit_blur_before_media_release": true,
+    "page_errors": []
+  },
+  {
+    "mode": "embedded",
+    "complete_production_JS": true,
+    "capture_and_release": true,
+    "explicit_blur_before_media_release": true,
+    "page_errors": []
+  }
+]

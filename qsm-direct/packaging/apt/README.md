@@ -5,7 +5,10 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
-Current preview: **0.4.0+stock4.3**. Exact mouse/trackpad clicks are now the
+Current preview: **0.4.0+stock4.4** adds Capture keyboard for Firefox/Safari
+fullscreen and Chromium, including embedded consoles, without F11/macOS
+shortcut changes. Click Release keyboard or hold Esc to exit.
+Exact mouse/trackpad clicks are the
 default too: complete clicks include their position and modifiers. Confirmed
 drags remain ordered and guarded; fractional two-axis scrolling is retained.
 Exact typing is the default: one complete

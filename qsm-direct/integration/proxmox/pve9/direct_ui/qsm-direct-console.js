@@ -982,6 +982,13 @@
         const fullscreen = document.createElement('button');
         fullscreen.type = 'button';
         fullscreen.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1;pointer-events:auto';
+        const captureKeyboard = document.createElement('button');
+        captureKeyboard.type = 'button';
+        captureKeyboard.textContent = '⌨🔒';
+        captureKeyboard.style.cssText = 'width:40px;height:30px;padding:0;cursor:pointer;font-size:16px;line-height:1;pointer-events:auto';
+        captureKeyboard.setAttribute('aria-label', gettext('Capture keyboard (full screen)'));
+        captureKeyboard.title = gettext('Capture keyboard (full screen)');
+        captureKeyboard.setAttribute('aria-pressed', 'false');
         const settingsButton = document.createElement('button');
         settingsButton.type = 'button';
         settingsButton.textContent = '⚙';
@@ -1155,10 +1162,8 @@
             // The embedded card maximises within the page; only the separate
             // window console uses exclusive OS full screen.
             if (embedded) { toggleEmbeddedMaximize(); return; }
-            const action = document.fullscreenElement
-                ? document.exitFullscreen()
-                : document.documentElement.requestFullscreen();
-            if (action && typeof action.catch === 'function') { action.catch(() => undefined); }
+            if (document.fullscreenElement) { exitConsoleFullscreen(); }
+            else { enterConsoleFullscreen(settings.keyboardPriority !== KEYBOARD_PRIORITY.client); }
         });
         let restoreClientFocusAfterFullscreen = false;
         document.addEventListener('fullscreenchange', () => {
@@ -1335,13 +1340,17 @@
         mouseInputModeHint.style.cssText = 'margin:8px 0;color:#cbd5e1;line-height:1.35';
         mouseInputModeHint.textContent = gettext('Exact clicks send a complete click with its position on release, including trackpad taps. Moving 4 pixels or holding for 250 ms starts a drag/hold. Drag movement and release stay ordered. Raw input uses immediate physical button edges.');
         const keyboardPolicyHint = document.createElement('p');
-        keyboardPolicyHint.textContent = gettext('Guest first forwards received keys, including Ctrl/Alt/Meta, with clipboard integration. To leave guest keyboard capture, press Ctrl+Alt+Shift+Esc; focus moves to Settings. Raw input sends literal key edges and reserves no QSM chord. In native full screen, supported browsers request all available keys through Keyboard Lock. In client-first mode, browser shortcuts stay local.');
+        keyboardPolicyHint.textContent = gettext('Guest first forwards received keys, including Ctrl/Alt/Meta, with clipboard integration. Click Capture keyboard for full-screen capture, including in the embedded console. Hold Esc or click Release keyboard to exit; Guest first also reserves Ctrl+Alt+Shift+Esc. Raw input reserves no QSM chord. In client-first mode, browser shortcuts stay local.');
         keyboardPolicyHint.style.cssText = 'margin:8px 0;color:#cbd5e1;line-height:1.35';
         const keyboardUnavailableHint = document.createElement('p');
-        keyboardUnavailableHint.textContent = gettext('Always unavailable to a web console when claimed before the browser: macOS Cmd+Tab, Cmd+Space, Cmd+Q, Ctrl+Cmd+Q and Cmd+Option+Esc; Windows Ctrl+Alt+Del and Win+L; compositor Super/secure-attention shortcuts. Browser policy can also reserve its own full-screen or window-management shortcuts.');
+        keyboardUnavailableHint.textContent = gettext('Keys reserved by the operating system can stay local, including macOS Cmd+Tab / Cmd+Space and Windows Ctrl+Alt+Del / Win+L. Capture keyboard does not require F11 or changes to macOS shortcuts. Use Send to guest buttons for keys the browser cannot receive.');
         keyboardUnavailableHint.style.cssText = 'margin:0 0 14px;color:#fbbf24;line-height:1.35';
         const keyboardCaptureStatus = document.createElement('p');
         keyboardCaptureStatus.style.cssText = 'margin:8px 0;color:#cbd5e1;line-height:1.35';
+        const captureKeyboardSettings = document.createElement('button');
+        captureKeyboardSettings.type = 'button';
+        captureKeyboardSettings.textContent = gettext('Capture keyboard (full screen)');
+        captureKeyboardSettings.style.cssText = 'margin:0 0 8px;padding:5px 9px;cursor:pointer';
         const specialKeys = document.createElement('div');
         specialKeys.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 14px';
         for (const [label, modifiers, key] of [
@@ -1480,9 +1489,9 @@
         settingsActions.append(resetSettings, closeSettings);
         settingsPanel.append(settingsTitle, settingsHint, mediaPolicyTitle, mediaPolicyHint,
             mediaPolicyForm, saveMediaPolicy, keyboardPolicyTitle, keyboardPolicyForm,
-            keyboardPolicyHint, keyInputModeHint, mouseInputModeHint, keyboardCaptureStatus, specialKeys, keyboardUnavailableHint, gesturesTitle, gesturesHint,
+            keyboardPolicyHint, keyInputModeHint, mouseInputModeHint, keyboardCaptureStatus, captureKeyboardSettings, specialKeys, keyboardUnavailableHint, gesturesTitle, gesturesHint,
             gesturesForm, resetGestures, settingsForm, settingsActions);
-        toolbar.append(status, copy, paste, audio, mic, kbButton, fullscreen, diagButton, settingsButton);
+        toolbar.append(status, copy, paste, audio, mic, kbButton, fullscreen, captureKeyboard, diagButton, settingsButton);
         // On-screen diagnostics for the case a client shows no picture (mostly
         // phones/tablets/TVs where remote logs are unreachable). Hidden until a
         // few seconds pass with no decoded frame, then it prints the video and
@@ -1760,6 +1769,10 @@
             catch (_error) { return false; }
         };
         let keyboardLockGeneration = 0;
+        let fullscreenCaptureRequested = false;
+        let fullscreenKeyboardLock = false;
+        let fullscreenRequestPending = false;
+        let fullscreenRequestGeneration = 0;
         const keyboardController = () => {
             let keyboard;
             try { keyboard = popup.navigator && popup.navigator.keyboard; }
@@ -1767,51 +1780,158 @@
             try { return popup.top.navigator.keyboard || keyboard; }
             catch (_error) { return keyboard; }
         };
+        const setKeyboardCaptureLabel = () => {
+            const active = Boolean(document.fullscreenElement && fullscreenCaptureRequested);
+            const label = active ? gettext('Release keyboard and exit full screen') : gettext('Capture keyboard (full screen)');
+            captureKeyboard.title = label;
+            captureKeyboard.setAttribute('aria-label', label);
+            captureKeyboard.setAttribute('aria-pressed', String(active));
+            captureKeyboard.style.background = active ? '#1d4ed8' : '';
+            captureKeyboard.disabled = fullscreenRequestPending;
+            captureKeyboardSettings.textContent = label;
+            captureKeyboardSettings.disabled = fullscreenRequestPending;
+        };
+        const exitConsoleFullscreen = () => {
+            releaseHeldInput();
+            if (!document.fullscreenElement) { return; }
+            const action = document.exitFullscreen();
+            if (action && typeof action.catch === 'function') {
+                action.catch(() => {
+                    keyboardCaptureStatus.textContent = gettext('Could not exit full screen. Hold Esc to leave keyboard capture.');
+                });
+            }
+        };
         const releaseGuestKeyboardLock = () => {
+            fullscreenRequestGeneration += 1;
             keyboardLockGeneration += 1;
             const keyboard = keyboardController();
             if (keyboard && typeof keyboard.unlock === 'function') {
                 try { keyboard.unlock(); } catch (_error) { /* A closed document has already lost its lock. */ }
             }
+            // Firefox/Safari tie their lock to the Fullscreen API. Unlike
+            // Chromium's keyboard.unlock(), releasing it requires leaving
+            // the full-screen session that this console requested.
+            if (fullscreenCaptureRequested && document.fullscreenElement) {
+                restoreClientFocusAfterFullscreen = true;
+                exitConsoleFullscreen();
+            }
+            fullscreenCaptureRequested = false;
+            fullscreenKeyboardLock = false;
+            setKeyboardCaptureLabel();
         };
         const updateGuestKeyboardLock = () => {
+            if (!document.fullscreenElement) {
+                fullscreenCaptureRequested = false;
+                fullscreenKeyboardLock = false;
+            }
+            setKeyboardCaptureLabel();
             if (closed) { releaseGuestKeyboardLock(); return; }
-            // Native full screen normally lets the browser reserve Escape.
-            // Chrome's Keyboard Lock API is the standards-based exception:
-            // in either guest-priority mode retain Escape for the VM, so its
-            // own shortcut editor sees the real key edge.
             const generation = ++keyboardLockGeneration;
             const keyboard = keyboardController();
-            if (!keyboard || typeof keyboard.lock !== 'function') {
-                keyboardCaptureStatus.textContent = gettext('This browser cannot lock reserved keys. Firefox keeps Esc for page full screen; on desktop use browser F11 instead of the QSM full-screen button, or use Send to guest buttons below.');
+            const guestFocus = document.activeElement === video || document.activeElement === kbInput;
+            if (settings.keyboardPriority === KEYBOARD_PRIORITY.client || settingsPanelOpen) {
+                releaseGuestKeyboardLock();
+                keyboardCaptureStatus.textContent = gettext('Client keyboard shortcuts active. Click Capture keyboard to return to the guest.');
                 return;
             }
-            if (document.fullscreenElement && settings.keyboardPriority !== KEYBOARD_PRIORITY.client &&
-                (document.activeElement === video || document.activeElement === kbInput)) {
-                try {
-                    // No key list means every key the OS/browser permits,
-                    // rather than reserving only Escape for the guest.
-                    Promise.resolve(keyboard.lock()).then(() => {
-                        if (generation === keyboardLockGeneration) {
-                            keyboardCaptureStatus.textContent = gettext('Keyboard capture active for all available keys. Hold Esc to exit browser full screen.');
-                        }
-                    }).catch(() => {
-                        if (generation === keyboardLockGeneration) {
-                            keyboardCaptureStatus.textContent = gettext('Keyboard capture was denied. Allow keyboard capture in the browser or use Send to guest buttons below.');
-                        }
-                    });
-                } catch (_error) {
-                    keyboardCaptureStatus.textContent = gettext('Keyboard capture is unavailable. Use Send to guest buttons below.');
+            if (document.fullscreenElement && fullscreenKeyboardLock) {
+                keyboardCaptureStatus.textContent = guestFocus
+                    ? gettext('Keyboard capture active. Hold Esc or click Release keyboard to exit full screen.')
+                    : gettext('Keyboard capture paused — click the guest picture to resume, or Release keyboard to exit.');
+                return;
+            }
+            if (keyboard && typeof keyboard.lock === 'function') {
+                if (document.fullscreenElement && guestFocus) {
+                    try {
+                        // Chromium's separate API still needs the top-level
+                        // owner for a same-origin embedded console.
+                        Promise.resolve(keyboard.lock()).then(() => {
+                            if (generation === keyboardLockGeneration) {
+                                keyboardCaptureStatus.textContent = gettext('Keyboard capture active for all available keys. Hold Esc or click Release keyboard to exit full screen.');
+                            }
+                        }).catch(() => {
+                            if (generation === keyboardLockGeneration) {
+                                keyboardCaptureStatus.textContent = gettext('Keyboard capture was denied. Allow keyboard capture in the browser or use Send to guest buttons below.');
+                            }
+                        });
+                    } catch (_error) {
+                        keyboardCaptureStatus.textContent = gettext('Keyboard capture is unavailable. Use Send to guest buttons below.');
+                    }
+                } else {
+                    if (typeof keyboard.unlock === 'function') { keyboard.unlock(); }
+                    keyboardCaptureStatus.textContent = gettext('Click Capture keyboard and focus the guest picture to capture available browser keys.');
                 }
-            } else if (typeof keyboard.unlock === 'function') {
-                keyboard.unlock();
-                keyboardCaptureStatus.textContent = gettext('Enter QSM full screen and focus the guest picture to capture available browser keys.');
+            } else {
+                keyboardCaptureStatus.textContent = document.fullscreenElement && fullscreenCaptureRequested
+                    ? gettext('This browser did not enable keyboard capture. Use Send to guest buttons or update the browser.')
+                    : gettext('Click Capture keyboard to enter full screen with guest keys. F11 is not required.');
             }
         };
+        const enterConsoleFullscreen = (capture = true) => {
+            if (fullscreenRequestPending || closed) { return; }
+            releaseHeldInput();
+            if (capture && settings.keyboardPriority === KEYBOARD_PRIORITY.client) {
+                settings.keyboardPriority = KEYBOARD_PRIORITY.guest;
+                keyboardPriorityInput.value = settings.keyboardPriority;
+                applyConsoleSettings();
+            }
+            setSettingsPanelOpen(false);
+            video.focus({ preventScroll: true });
+            fullscreenRequestPending = true;
+            const requestGeneration = ++fullscreenRequestGeneration;
+            fullscreenCaptureRequested = capture;
+            let optionRead = false;
+            // WebIDL only reads known dictionary members. This detects the
+            // Firefox/Safari API without browser sniffing or assuming that
+            // a resolved ordinary fullscreen request has locked keys.
+            const options = capture ? {
+                get keyboardLock() { optionRead = true; return 'browser'; },
+            } : { keyboardLock: 'none' };
+            try {
+                const action = document.documentElement.requestFullscreen(options);
+                Promise.resolve(action).then(() => {
+                    fullscreenRequestPending = false;
+                    fullscreenKeyboardLock = capture && optionRead && Boolean(document.fullscreenElement);
+                    if (requestGeneration !== fullscreenRequestGeneration || closed ||
+                        settings.keyboardPriority === KEYBOARD_PRIORITY.client || settingsPanelOpen) {
+                        // A request can complete after window blur/close. It
+                        // still owns this newly entered fullscreen session.
+                        fullscreenCaptureRequested = capture;
+                        releaseGuestKeyboardLock(); return;
+                    }
+                    video.focus({ preventScroll: true });
+                    updateGuestKeyboardLock();
+                }).catch(() => {
+                    fullscreenRequestPending = false;
+                    fullscreenCaptureRequested = false;
+                    fullscreenKeyboardLock = false;
+                    setKeyboardCaptureLabel();
+                    keyboardCaptureStatus.textContent = gettext('Full-screen keyboard capture was denied or is unsupported. Allow full screen in the browser or use Send to guest buttons.');
+                });
+            } catch (_error) {
+                fullscreenRequestPending = false;
+                fullscreenCaptureRequested = false;
+                fullscreenKeyboardLock = false;
+                keyboardCaptureStatus.textContent = gettext('This browser cannot enter full-screen keyboard capture. Use Send to guest buttons.');
+            }
+            setKeyboardCaptureLabel();
+        };
+        const toggleKeyboardCapture = () => {
+            if (document.fullscreenElement && fullscreenCaptureRequested) { releaseGuestKeyboardLock(); }
+            else { enterConsoleFullscreen(true); }
+        };
+        captureKeyboard.addEventListener('click', toggleKeyboardCapture);
+        captureKeyboardSettings.addEventListener('click', toggleKeyboardCapture);
         for (const element of [video, kbInput]) {
             element.addEventListener('focus', updateGuestKeyboardLock);
             element.addEventListener('blur', updateGuestKeyboardLock);
         }
+        // Fullscreen capture can be requested before media connects. Its
+        // lifecycle must therefore be independent of the WebRTC listeners.
+        popup.addEventListener('blur', releaseGuestKeyboardLock);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) { releaseGuestKeyboardLock(); }
+        });
         updateGuestKeyboardLock();
         const bytesToB64 = (bytes) => {
             let binary = '';
@@ -2068,6 +2188,7 @@
         const setSettingsPanelOpen = (open) => {
             settingsPanelOpen = open;
             settingsPanel.style.display = open ? 'block' : 'none';
+            updateGuestKeyboardLock();
             if (open) {
                 revealToolbar();
                 loadVmMediaPolicy();

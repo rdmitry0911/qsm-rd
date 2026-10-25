@@ -3,7 +3,7 @@ qsm-pve-direct for Proxmox VE 9
 
 `qsm-pve-direct` is a browser-native PVE console transport.
 
-Standalone release 0.4.0+stock4.3
+Standalone release 0.4.0+stock4.4
 -----------------------------
 For official PVE 9 install matching qsm-pve-direct and
 qsm-pve-direct-standalone debs. Follow README.standalone, installed with the
@@ -363,10 +363,10 @@ input_leased, input_snapshots and timeout/timing counters without logging key
 identities or typed content. Client/server hold timing distinguishes browser
 event delay from delayed delivery.
 
-Guest-first/Raw native fullscreen requests all keys through Keyboard Lock
-where supported. The browser may require permission. Firefox does not provide
-that API and reserves Esc for exiting page fullscreen. Console Settings has
-Send to guest buttons for Esc, Alt+Tab, Ctrl+Alt+Del and Super/Windows.
+Guest-first/Raw captures available browser keys in fullscreen. Stock4.4
+supports Firefox/Safari via the Fullscreen API option, and Chromium via its
+separate Keyboard Lock API. Permission may be required. Console Settings
+retains Send to guest buttons for Esc, Alt+Tab, Ctrl+Alt+Del and Super/Windows.
 
 Mouse / trackpad input (stock4.3)
 --------------------------------
@@ -381,3 +381,25 @@ at 500 ms. Both scroll axes work and fractional trackpad deltas accumulate.
 Normal double clicks pass; native double-click timing can still be affected
 by delivery jitter. Generic virtual input cannot carry original click times.
 Reload PVE with cache bypass and reopen consoles. No guest update is needed.
+
+Fullscreen keyboard capture (stock4.4)
+-------------------------------------
+Reload PVE with cache bypass and reopen the console after updating.
+Click Capture keyboard (keyboard/padlock toolbar button or Settings action).
+The embedded console enters actual full screen for capture; its existing
+page-maximize button still provides in-page enlargement separately.
+Capture selects Guest first if Client first was saved, preserving Exact typing
+and Exact clicks. Firefox desktop 151+ uses requestFullscreen keyboardLock:
+"browser"; Safari uses the same API where supported. Chromium retains
+navigator.keyboard.lock() and its permission flow. F11 is not required, so
+macOS system assignments need no changes. Click the guest picture for input.
+
+A short Esc is sent to the guest. Hold Esc or click Release keyboard to exit.
+Opening Settings, switching to Client first, focus leaving the browser or
+closing the console releases capture. Guest first reserves Ctrl+Alt+Shift+Esc;
+Raw keeps its existing no-QSM-chord policy. OS-reserved keys are not guaranteed
+to reach any web app; use Send to guest buttons where necessary.
+
+Headful Firefox 157 / Linux XTEST / real LXC checks cover ordinary Esc and
+browser chords in separate and embedded consoles; complete production UI
+smoke checks pass too. No physical macOS/Safari qualification is claimed.

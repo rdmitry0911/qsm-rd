@@ -87,7 +87,7 @@ assert.match(source, /event\.streams && event\.streams\[0\]/,
     'the popup must tolerate a valid WebRTC track event without a stream array');
 assert.match(source, /new MediaStream\(\)/,
     'a streamless remote track must be attached to a local MediaStream rather than rendering black');
-assert.match(source, /document\.documentElement\.requestFullscreen\(\)/,
+assert.match(source, /document\.documentElement\.requestFullscreen\(options\)/,
     'the popup must provide a full-screen action for the entire display');
 assert.match(source, /position:absolute;z-index:10;top:12px;left:0;display:flex;flex-direction:column/,
     'the console controls must overlay from the left edge without consuming guest video pixels');
@@ -193,7 +193,7 @@ assert.match(source, /Guest first — forward received keys/,
     'the settings panel must let a user choose guest shortcut priority');
 assert.match(source, /Raw input — send each key and mouse press\/release/,
     'the settings panel must expose explicit raw keyboard and mouse edge delivery');
-assert.match(source, /settings\.keyboardPriority !== KEYBOARD_PRIORITY\.client[\s\S]*?keyboard\.lock\(\)/,
+assert.match(source, /settings\.keyboardPriority === KEYBOARD_PRIORITY\.client \|\| settingsPanelOpen[\s\S]*?releaseGuestKeyboardLock\(\);[\s\S]*?keyboard\.lock\(\)/,
     'both guest-priority modes must request all available keys in native full screen');
 assert.match(source, /Client first — browser shortcuts win/,
     'the settings panel must let a user choose client shortcut priority');
@@ -221,7 +221,7 @@ assert.doesNotMatch(source, /sendGuestShortcut\(47\)/,
     'the clipboard action must not inject Ctrl+V into terminal emulators');
 assert.match(source, /else if \(clientFirst && clientFirstShortcut\(event\)\)/,
     'client-first mode must leave its other browser shortcuts untouched before forwarding remaining keys');
-assert.match(source, /macOS Cmd\+Tab, Cmd\+Space, Cmd\+Q,[\s\S]*?Windows Ctrl\+Alt\+Del and Win\+L/,
+assert.match(source, /macOS Cmd\+Tab \/ Cmd\+Space[\s\S]*?Windows Ctrl\+Alt\+Del \/ Win\+L/,
     'settings must name OS shortcuts which no web console can capture');
 assert.doesNotMatch(source, /qsmResizeEdge|popup\.resizeBy\(/,
     'the browser must not overlay host resize controls which would intercept guest cursor input');
