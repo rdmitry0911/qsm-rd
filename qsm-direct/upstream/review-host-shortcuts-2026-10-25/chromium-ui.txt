@@ -1,0 +1,2 @@
+chromium top SHORTCUT_EDITOR_PASS
+chromium embedded SHORTCUT_EDITOR_PASS

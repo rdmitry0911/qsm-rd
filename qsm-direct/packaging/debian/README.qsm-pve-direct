@@ -3,7 +3,7 @@ qsm-pve-direct for Proxmox VE 9
 
 `qsm-pve-direct` is a browser-native PVE console transport.
 
-Standalone release 0.4.0+stock4.9
+Standalone release 0.4.0+stock4.10
 -----------------------------
 For official PVE 9 install matching qsm-pve-direct and
 qsm-pve-direct-standalone debs. Follow README.standalone, installed with the
@@ -465,3 +465,16 @@ modifier-only shortcuts complete on focused release. Physical main-key
 holds, physical dragging and wheel input flush pending modifiers before
 the guest action; Raw retains immediate physical edges. No debounce is
 added to an ordinary key press. Matching modern host capability is required.
+
+Configurable host shortcuts (stock4.10)
+-------------------------------------
+Stock4.10 replaces fixed host/browser exceptions with editable Host
+shortcuts in Settings > Keyboard shortcut priority. Each rule has an exact
+logical modifier combination and a Host/browser, Release keyboard, Toggle
+fullscreen or Show/hide controls action. Add, record, edit, remove or reset
+rules; preferences apply immediately and persist in this browser. Guest first
+and Client first have separate lists. Raw bypasses the list. Default host
+rules reserve Alt+Tab, Alt+Shift+Tab, Meta+Tab and Shift+Meta+Tab; Ctrl+Alt+
+Shift+Escape releases capture. A per-rule Send to guest bypass is available.
+No additional Ctrl+Alt+Tab remapping is installed. Host rules prevent guest
+forwarding; native OS/browser execution remains subject to its own policy.

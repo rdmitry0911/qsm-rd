@@ -111,8 +111,8 @@ assert.match(source, /video\.addEventListener\('pointercancel', \(event\) => \{[
     'browser pointer cancellation must release held guest input');
 assert.match(source, /for \(const button of \[\.\.\.heldMouseButtons\]\) \{ sendMouseButton\(button, false\); \}/,
     'a native transition must send releases for each held mouse button');
-assert.match(source, /const fullscreenEscape = event\.code === 'Escape' &&[\s\S]*?document\.fullscreenElement \|\| fullscreenEscapePending/,
-    'Escape must be recognized as a browser full-screen action before generic guest-key handling');
+assert.match(source, /for \(const shortcut of \['Escape', 'F5'/,
+    'client-first Escape must be represented in its editable host rule defaults');
 assert.match(source, /const action = document\.exitFullscreen\(\);/,
     'Escape in full screen must explicitly request the native popup exit');
 assert.match(source, /Guest display kept its own size\. If the guest is asleep or locked, move the mouse or press a key here\./,
@@ -205,8 +205,8 @@ assert.match(source, /restoreClientFocusAfterFullscreen/,
     'guest-first capture exit must restore client focus after leaving full screen');
 assert.match(source, /const leaveGuestKeyboardCapture = \(\) => \{[\s\S]*?document\.fullscreenElement[\s\S]*?document\.exitFullscreen\(\)/,
     'the guest-first capture-exit chord must also leave native full screen');
-assert.match(source, /if \(!clientFirst && !rawInput && guestCaptureExitShortcut\(event\)\)/,
-    'the escape chord must be local only while guest-first capture is active, never Raw input');
+assert.match(source, /rule\.action === 'release'[\s\S]*?leaveGuestKeyboardCapture\(\)/,
+    'the configured release action must invoke the existing capture exit');
 assert.match(source, /if \(!rawInput && pasteShortcut\)/,
     'browser clipboard shortcuts must work outside Raw input without consuming physical Raw shortcuts');
 assert.match(source, /if \(settings\.keyboardPriority === KEYBOARD_PRIORITY\.raw\) \{ return; \}/,
@@ -219,8 +219,8 @@ assert.match(source, /const sendGuestPasteShortcut = \(\) => sendGuestChord\(\[4
     'universal guest paste must use Shift+Insert so terminals do not receive literal Ctrl+V');
 assert.doesNotMatch(source, /sendGuestShortcut\(47\)/,
     'the clipboard action must not inject Ctrl+V into terminal emulators');
-assert.match(source, /else if \(clientFirst && clientFirstShortcut\(event\)\)/,
-    'client-first mode must leave its other browser shortcuts untouched before forwarding remaining keys');
+assert.match(source, /if \(routeHostShortcut\(event\)\) \{ return; \}/,
+    'configured host rules must run before guest and clipboard forwarding');
 assert.match(source, /macOS Cmd\+Tab \/ Cmd\+Space[\s\S]*?Windows Ctrl\+Alt\+Del \/ Win\+L/,
     'settings must name OS shortcuts which no web console can capture');
 assert.doesNotMatch(source, /qsmResizeEdge|popup\.resizeBy\(/,

@@ -1,7 +1,7 @@
 QSM Direct: optional TCP 8006 gateway (experimental, single-node PVE 9)
 ===================================================================
 
-Release: 0.4.0+stock4.9. This explicit standalone profile shares TCP 8006 between
+Release: 0.4.0+stock4.10. This explicit standalone profile shares TCP 8006 between
 normal PVE HTTPS and authenticated TURN/TCP. Signalling uses /qsm-direct/ on the
 PVE browser origin. Video/audio and input/clipboard are encrypted by WebRTC.
 TURN control messages use plain TCP, WITHOUT TLS. See Encryption below.
@@ -13,14 +13,14 @@ Requirements and package installation
 ------------------------------------
 Read INSTALL-STOCK.txt / README.standalone first for platform, VM and LXC setup.
 No patched Proxmox debs are needed on stock PVE. Download matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.9
-Verify SHA256SUMS-stock4.9. Install as root on the PVE HOST:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.10
+Verify SHA256SUMS-stock4.10. Install as root on the PVE HOST:
 
-  apt install ./qsm-pve-direct_0.4.0+stock4.9_amd64.deb \
-              ./qsm-pve-direct-standalone_0.4.0+stock4.9_all.deb \
-              ./qsm-pve-direct-gateway_0.4.0+stock4.9_all.deb
+  apt install ./qsm-pve-direct_0.4.0+stock4.10_amd64.deb \
+              ./qsm-pve-direct-standalone_0.4.0+stock4.10_all.deb \
+              ./qsm-pve-direct-gateway_0.4.0+stock4.10_all.deb
 
-If the LXC helper is already installed, include its matching stock4.9 deb in that
+If the LXC helper is already installed, include its matching stock4.10 deb in that
 same transaction. For new LXC setup install the separate helper as described in
 README.standalone; it embeds the guest payload. NEVER install qsm-console-guest
 on the PVE host. Package installation does not activate a new gateway.
@@ -259,3 +259,16 @@ modifier-only shortcuts complete on focused release. Physical main-key
 holds, physical dragging and wheel input flush pending modifiers before
 the guest action; Raw retains immediate physical edges. No debounce is
 added to an ordinary key press. Matching modern host capability is required.
+
+Configurable host shortcuts (stock4.10)
+-------------------------------------
+Stock4.10 replaces fixed host/browser exceptions with editable Host
+shortcuts in Settings > Keyboard shortcut priority. Each rule has an exact
+logical modifier combination and a Host/browser, Release keyboard, Toggle
+fullscreen or Show/hide controls action. Add, record, edit, remove or reset
+rules; preferences apply immediately and persist in this browser. Guest first
+and Client first have separate lists. Raw bypasses the list. Default host
+rules reserve Alt+Tab, Alt+Shift+Tab, Meta+Tab and Shift+Meta+Tab; Ctrl+Alt+
+Shift+Escape releases capture. A per-rule Send to guest bypass is available.
+No additional Ctrl+Alt+Tab remapping is installed. Host rules prevent guest
+forwarding; native OS/browser execution remains subject to its own policy.

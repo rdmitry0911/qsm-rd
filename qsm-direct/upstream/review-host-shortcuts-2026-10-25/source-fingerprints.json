@@ -1,0 +1,7 @@
+{
+  "qsm-direct/CMakeLists.txt": "76c2797e462fe0d1fe3e9e4d6fbf0c31266a97edf3d6c9b4a8bc1f57d25e17d4",
+  "qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js": "40ba4aa3c899fa44d382e6cc3f4c8c02d552a655deeab5215370cc83efd6c477",
+  "qsm-direct/tests/proxmox_pve9/test_keyboard_state.mjs": "12af424dd34858935b324afa3cd7ba1229626574b9803217b597a74415db76b1",
+  "qsm-direct/tests/proxmox_pve9/test_direct_console_overlay.mjs": "4f6af8bdc4fe874ed7bdbc17120a15130013870bb166508521e8900e751d24b4",
+  "qsm-direct/tests/proxmox_pve9/test_host_shortcuts.mjs": "084c20b70090a5fe0a9416d0212ee9462992b72502aab31591e815a502eaf0e9"
+}

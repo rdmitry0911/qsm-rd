@@ -1,0 +1,124 @@
+[
+  {
+    "mode": "top",
+    "case": "FULL_ALT_TAB",
+    "all_DOM_events_delivered_before_blur": true,
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 15,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "top",
+    "case": "FULL_REVERSE_ALT_TAB",
+    "all_DOM_events_delivered_before_blur": true,
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 15,
+        "modifiers": [
+          42,
+          56
+        ]
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "top",
+    "case": "ALT_RELEASE_BEFORE_TAB",
+    "all_DOM_events_delivered_before_blur": true,
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 15,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "FULL_ALT_TAB",
+    "all_DOM_events_delivered_before_blur": true,
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 15,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "FULL_REVERSE_ALT_TAB",
+    "all_DOM_events_delivered_before_blur": true,
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 15,
+        "modifiers": [
+          42,
+          56
+        ]
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "ALT_RELEASE_BEFORE_TAB",
+    "all_DOM_events_delivered_before_blur": true,
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 15,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  }
+]

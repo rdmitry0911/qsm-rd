@@ -1,0 +1,2 @@
+firefox top SHORTCUT_EDITOR_PASS
+firefox embedded SHORTCUT_EDITOR_PASS

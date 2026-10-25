@@ -1,0 +1,30 @@
+[
+  {
+    "mode": "top",
+    "complete_production_JS": true,
+    "default_host_rules": 8,
+    "add_edit_remove_record": true,
+    "duplicate_validation": true,
+    "persistent_reopen": true,
+    "separate_priority_lists": true,
+    "raw_bypasses_and_disables_editor": true,
+    "reset_defaults": true,
+    "editing_preserves_fullscreen": true,
+    "close_refocuses_guest": true,
+    "page_errors": []
+  },
+  {
+    "mode": "embedded",
+    "complete_production_JS": true,
+    "default_host_rules": 8,
+    "add_edit_remove_record": true,
+    "duplicate_validation": true,
+    "persistent_reopen": true,
+    "separate_priority_lists": true,
+    "raw_bypasses_and_disables_editor": true,
+    "reset_defaults": true,
+    "editing_preserves_fullscreen": true,
+    "close_refocuses_guest": true,
+    "page_errors": []
+  }
+]

@@ -17,7 +17,7 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.9 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.9)
+[Stock4.10 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.10)
 preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
@@ -89,6 +89,18 @@ modifier-only shortcuts complete on focused release. Physical main-key
 holds, physical dragging and wheel input flush pending modifiers before
 the guest action; Raw retains immediate physical edges. No debounce is
 added to an ordinary key press. Matching modern host capability is required.
+
+Stock4.10 replaces fixed host/browser exceptions with editable **Host
+shortcuts** in Settings > Keyboard shortcut priority. Each rule has an exact
+logical modifier combination and a Host/browser, Release keyboard, Toggle
+fullscreen or Show/hide controls action. Add, record, edit, remove or reset
+rules; preferences apply immediately and persist in this browser. Guest first
+and Client first have separate lists. Raw bypasses the list. Default host
+rules reserve Alt+Tab, Alt+Shift+Tab, Meta+Tab and Shift+Meta+Tab; Ctrl+Alt+
+Shift+Escape releases capture. A per-rule Send to guest bypass is available.
+No additional Ctrl+Alt+Tab remapping is installed. Host rules prevent guest
+forwarding; native OS/browser execution remains subject to its own policy.
+
 
 Install and update the standalone packages through the signed
 [APT repository](https://rdmitry0911.github.io/qsm-rd/): follow the

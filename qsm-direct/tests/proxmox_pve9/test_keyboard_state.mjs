@@ -24,17 +24,19 @@ const make = new Function('env', `
     ${modifierState}
     let keyboardCaptureSuspended=false;
     const KEYBOARD_PRIORITY = {client:'client', raw:'raw'};
-    const guestCaptureExitShortcut = () => false;
-    ${section('const clientFirstShortcut =','const guestCaptureExitShortcut =')}
-    const leaveGuestKeyboardCapture = () => {}, releaseHeldInput = () => releaseGuestKeys();
+    const leaveGuestKeyboardCapture = () => actions.push('release'), releaseHeldInput = () => releaseGuestKeys();
+    const fullscreen={click:()=>actions.push('fullscreen')},revealHandle={click:()=>actions.push('toolbar')};
     const pasteFromBrowser = () => { actions.push('paste'); return Promise.resolve(); };
     const guestSelectionToBrowser = () => { actions.push('copy'); return Promise.resolve(); };
     const status = {}, gettext = value => value;
+    const pasteTextIntoGuest=text=>{actions.push('pasted:'+text);return Promise.resolve();};
     ${section('const inputModifiers =','const sendMouseAction =')}
+    ${section('const sendGuestChord =','// Ctrl+C, or Ctrl+Shift+C')}
     ${keyboard}
+    ${section("video.addEventListener('paste'","for (const name of ['keydown', 'keyup']) {\n                video.addEventListener")}
     ${listeners}
     ${kbListeners}
-    return {heldKeys, physicalHeldKeys, deferredModifiers, sendKeyboard, acceptInputPolicy, publishInputState,pause:v=>{keyboardCaptureSuspended=v;}};
+    return {settings, hostShortcutKeys, heldKeys, physicalHeldKeys, deferredModifiers, sendKeyboard, acceptInputPolicy, publishInputState,pause:v=>{keyboardCaptureSuspended=v;}};
 `);
 const target = () => {
     const listeners = new Map();
@@ -49,7 +51,7 @@ const harness = (keyInputMode='guest-repeat', keyboardPriority='guest', platform
     const video = target(), kbInput = target(), document = target(), messages = [], actions = [];
     let open = true;
     const timers = new Map(); let nextTimer = 0;
-    const popup = {navigator:{platform},performance:{now:()=>1100},
+    const popup = {...target(),navigator:{platform},performance:{now:()=>1100},
         setInterval:callback => {timers.set(++nextTimer, callback); return nextTimer;},
         clearInterval:id => timers.delete(id)};
     const state = make({video, kbInput, document, messages, actions, popup,
@@ -61,7 +63,7 @@ const harness = (keyInputMode='guest-repeat', keyboardPriority='guest', platform
         tick:() => {for (const callback of timers.values()) {callback();}},
         open:value => { open = value; },
         key(name, code = 'KeyA', extra = {}) {
-            const event = {code, repeat:false, defaultPrevented:false,preventDefault() {this.defaultPrevented=true;},stopPropagation(){}, ...extra};
+            const event = {type:name, code, repeat:false, defaultPrevented:false,preventDefault() {this.defaultPrevented=true;},stopPropagation(){}, ...extra};
             if (name === 'keyup') { document.emit(name, event); }
             video.emit(name, event);return event;
         }};
@@ -148,8 +150,8 @@ for (const element of ['video', 'kbInput']) {
     const messages=[];makeChord(true,message=>messages.push(message))([29,42],46);
     assert.deepEqual(messages,[{op:'key_tap',key:46,modifiers:[29,42]}],'clipboard/special chords cross as one action');
     const defaults=source.slice(source.indexOf('const defaultConsoleSettings ='),source.indexOf('// Standard receiver target'));
-    const getDefaults=new Function('CONSOLE_SETTING_SCHEMA','KEYBOARD_PRIORITY','KEY_INPUT_MODE','MOUSE_INPUT_MODE',defaults+'return defaultConsoleSettings();');
-    assert.equal(getDefaults({}, {guest:'guest'}, {typing:'typing',physical:'physical'},{exact:'exact'}).keyInputMode,'typing','exact typing must be default');
+    const getDefaults=new Function('CONSOLE_SETTING_SCHEMA','KEYBOARD_PRIORITY','KEY_INPUT_MODE','MOUSE_INPUT_MODE','defaultShortcutRules',defaults+'return defaultConsoleSettings();');
+    assert.equal(getDefaults({}, {guest:'guest'}, {typing:'typing',physical:'physical'},{exact:'exact'},()=>[]).keyInputMode,'typing','exact typing must be default');
 }
 
 const packets=h=>h.messages.filter(m=>m.op==='keyboard'||m.op==='key_tap');
@@ -173,7 +175,7 @@ for(const [physical,logical,scan,side]of [['AltLeft','Meta',0xdb,1],['AltRight',
  const h=harness('client-repeat','guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
  h.key('keydown','MetaLeft',{key:'Alt',location:1,altKey:true});
  const tab=h.key('keydown','Tab',{key:'Tab',altKey:true});h.key('keyup','Tab',{key:'Tab',altKey:true});h.key('keyup','MetaLeft',{key:'Alt',location:1,altKey:false});
- assert.ok(tab.defaultPrevented);assert.deepEqual(packets(h),[{op:'key_tap',key:15,modifiers:[56]}],'remapped Option+Tab produces guest Alt+Tab only');
+ assert.equal(tab.defaultPrevented,false);assert.deepEqual(packets(h),[],'remapped Option+Tab is reserved for the host on macOS even when DOM receives Tab');
 }
 {
  const h=harness('client-repeat','guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
@@ -210,7 +212,7 @@ for(const [physical,logical,scan,side]of [['AltLeft','Meta',0xdb,1],['AltRight',
 
 {
  const h=harness('client-repeat','guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
- const emit=(name,code,key,metaKey)=>{const e={code,key,metaKey,repeat:false,preventDefault(){},stopPropagation(){}};if(name==='keyup')h.document.emit(name,e);h.kbInput.emit(name,e);};
+ const emit=(name,code,key,metaKey)=>{const e={type:name,code,key,metaKey,repeat:false,preventDefault(){},stopPropagation(){}};if(name==='keyup')h.document.emit(name,e);h.kbInput.emit(name,e);};
  emit('keydown','AltLeft','Meta',true);emit('keydown','Tab','Tab',true);emit('keyup','Tab','Tab',true);emit('keyup','AltLeft','Meta',false);
  assert.deepEqual(packets(h),[],'the physical keyboard path behind the on-screen input applies host routing too');
 }
@@ -268,5 +270,43 @@ for(const releaseFirst of ['AltLeft','ShiftLeft']){
  h.key('keyup','KeyE',{key:'€',altKey:false,ctrlKey:false,getModifierState:n=>n==='AltGraph'});
  h.key('keyup','AltRight',{key:'AltGraph',location:2,altKey:false,getModifierState:()=>false});
  assert.deepEqual(packets(h),[{op:'key_tap',key:18,modifiers:[0xb8]}],'AltGraph is an independent modifier state and survives altKey=false');
+}
+// Full DOM sequence reported by the user: Alt down, Tab down/up, Alt up,
+// with host focus loss only after all four events. Nothing may reach guest.
+for(const mode of ['client-repeat','guest-repeat'])for(const side of ['Left','Right'])for(const reverse of [false,true]){
+ const h=harness(mode,'guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ if(reverse)h.key('keydown','ShiftLeft',{key:'Shift',shiftKey:true});
+ h.key('keydown','Meta'+side,{key:'Alt',location:side==='Right'?2:1,altKey:true,shiftKey:reverse});
+ const tab=h.key('keydown','Tab',{key:'Tab',altKey:true,shiftKey:reverse});h.key('keyup','Tab',{key:'Tab',altKey:true,shiftKey:reverse});h.key('keyup','Meta'+side,{key:'Alt',altKey:false,shiftKey:reverse});
+ if(reverse)h.key('keyup','ShiftLeft',{key:'Shift',shiftKey:false});
+ h.tick();assert.deepEqual(packets(h),[],'complete DOM host chord must emit zero guest packets before blur');assert.equal(tab.defaultPrevented,false);assert.equal(h.heldKeys.size,0);
+}
+{
+ const h=harness('client-repeat','guest','Linux');h.settings.hostShortcuts=[];h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','AltLeft',{key:'Alt',altKey:true});h.key('keydown','Tab',{key:'Tab',altKey:true});h.key('keyup','Tab',{key:'Tab',altKey:true});h.key('keyup','AltLeft',{key:'Alt',altKey:false});
+ assert.deepEqual(packets(h),[{op:'key_tap',key:15,modifiers:[56]}],'removing the host rule allows the full guest Alt+Tab action');
+}
+{
+ const h=harness('client-repeat','guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ const emit=(name,code,key,flags)=>{const e={type:name,code,key,repeat:false,preventDefault(){},stopPropagation(){},...flags};if(name==='keyup')h.document.emit(name,e);h.kbInput.emit(name,e);};
+ emit('keydown','AltLeft','Alt',{altKey:true});emit('keydown','Tab','Tab',{altKey:true});emit('keyup','Tab','Tab',{altKey:true});emit('keyup','AltLeft','Alt',{altKey:false});assert.deepEqual(packets(h),[],'on-screen input physical keyboard path reserves the complete host chord too');
+}
+for(const action of ['host','release','fullscreen','toolbar']){
+ const h=harness('client-repeat');h.settings.hostShortcuts=[{shortcut:'Ctrl+KeyK',action}];h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','ControlLeft',{key:'Control',ctrlKey:true});const down=h.key('keydown','KeyK',{key:'k',ctrlKey:true});
+ h.key('keydown','KeyK',{key:'k',ctrlKey:true,repeat:true});h.key('keyup','ControlLeft',{key:'Control',ctrlKey:false});const up=h.key('keyup','KeyK',{key:'k',ctrlKey:false});
+ assert.deepEqual(packets(h),[],'host rules never forward their prefixes or main keys');assert.equal(h.hostShortcutKeys.size,0,'keyup is latched even after modifiers release');
+ assert.equal(down.defaultPrevented,action!=='host');assert.equal(up.defaultPrevented,action!=='host');assert.deepEqual(h.actions,action==='host'?[]:[action],'local rule actions execute once, not on repeat or release');
+}
+{
+ const h=harness('client-repeat');h.settings.hostShortcuts=[{shortcut:'Ctrl+KeyK',action:'host'}];h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','ControlLeft',{key:'Control',ctrlKey:true});h.key('keydown','KeyK',{key:'k',ctrlKey:true});h.document.emit('keyup',{type:'keyup',code:'KeyK',ctrlKey:false});
+ assert.equal(h.hostShortcutKeys.size,0,'keyup at another target retires host ownership');assert.deepEqual(packets(h),[]);
+}
+{
+ const h=harness('client-repeat');h.settings.hostShortcuts=[{shortcut:'Ctrl+KeyV',action:'host'}];h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','ControlLeft',{key:'Control',ctrlKey:true});h.key('keydown','KeyV',{key:'v',ctrlKey:true});h.key('keyup','KeyV',{key:'v',ctrlKey:true});h.key('keyup','ControlLeft',{key:'Control',ctrlKey:false});
+ const e={preventDefault(){this.prevented=true;},clipboardData:{getData:()=> 'host-only text'}};h.video.emit('paste',e);
+ assert.equal(e.prevented,true);assert.deepEqual(h.actions,[],'native paste after keyup must not bypass the host shortcut rule');assert.deepEqual(packets(h),[]);
 }
 console.log('PASS: deferred modifier prefixes, host-swallowed Tab, focus cleanup, exact guest actions, raw holds and clipboard');

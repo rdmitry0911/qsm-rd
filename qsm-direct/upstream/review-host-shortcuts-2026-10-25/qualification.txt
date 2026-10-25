@@ -1,0 +1,47 @@
+Stock4.10 configurable host-shortcut list, 2026-10-25
+
+The user confirmed full Alt/Tab press/release delivery and asked to complete
+existing Keyboard shortcut priority Settings instead of fixed exceptions.
+Host/browser exceptions and QSM capture-exit routing now use one editable
+rule list, separate for Guest first / Client first; Raw bypasses it. Defaults
+reserve application switching and expose release as a configurable action.
+Rules match exact logical modifiers with code/layout-stable main keys.
+Prefixes remain deferred. Main-key ownership is latched through keyup even
+when modifiers release first, globally retired on keyup/blur, and deduplicated
+between document capture and element handlers. Local actions execute once.
+Host clipboard paste cannot leak through a delayed paste event after keyup.
+Aliases, validation/128-entry limit, duplicate rejection, keyboard recording,
+CRUD, profile defaults, persistence, migration, explicit guest send included.
+No Ctrl+Alt+Tab ad-hoc guest remapping remains.
+
+23 final CTest gates pass. Keyboard regressions deliver all four DOM events
+before blur, both sides, both input modes, forward/reverse, modifier-first
+release, custom actions/autorepeat, outside-target keyup and delayed paste.
+Pure rules tests cover parser, aliases, exactness, invalid data, migration,
+empty list persistence, profiles, defaults and explicit guest chord mapping.
+Full production UI with API/Ext stubs, Firefox and Chromium, standalone and
+embedded, covers add/edit/remove/record, duplicate validation, reopened
+preferences, independent profiles, Raw-disabled controls, reset and editing
+without leaving fullscreen. Final source follow-ups clarify two UI hints and move client-first Escape
+into the same editable defaults, removing its separate fixed branch. Final
+23 CTest gates cover that change; Guest first packet routing is unchanged.
+
+Headful Firefox on owned Xvfb/Openbox -> production input fragments -> real
+SCTP/installed bridge/worker -> owned CT108 fixture. Complete logical DOM
+Alt-down/Tab-down/Tab-up/Alt-up (no blur before all events) reproduces the
+stock4.9 guest key_tap Alt+Tab. Default rules suppress every keyboard packet,
+also reverse and modifier-first release. Custom host Ctrl+K, removing the
+Alt+Tab rule, one-off Send to guest and Raw bypass pass. A compositor may
+consume guest Alt+Tab before Qt, so the explicit send is qualified by actual
+bridge egress, not by claiming Qt receives that global guest chord.
+MacIntel and logical DOM events simulated on Linux; no native macOS/global
+hotkey qualification claimed. Private packet capture only owns known test
+fixture events, no production key logging. CT108 fixture stopped and output
+restored to original 1970x1220. No production guest stop/restart/update.
+Worker/bridge/protocol unchanged; final package provenance must verify.
+
+References informing local action/bypass model:
+https://remmina.gitlab.io/remminadoc.gitlab.io/md__builds__remmina_remmina_ci__remmina_wiki__remmina__preferences.html
+https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/7/html/virtualization_deployment_and_administration_guide/chap-graphic_user_interface_tools_for_guest_virtual_machine_management
+https://manpages.debian.org/experimental/virt-viewer/remote-viewer.1.en.html
+No forum/mail/Bugzilla message posted by this release.

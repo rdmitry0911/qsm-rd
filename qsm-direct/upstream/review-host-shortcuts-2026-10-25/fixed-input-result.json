@@ -1,0 +1,200 @@
+[
+  {
+    "mode": "top",
+    "case": "FULL_ALT_TAB",
+    "all_DOM_events_delivered_before_blur": true,
+    "wire": [],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "top",
+    "case": "FULL_REVERSE_ALT_TAB",
+    "all_DOM_events_delivered_before_blur": true,
+    "wire": [],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "top",
+    "case": "ALT_RELEASE_BEFORE_TAB",
+    "all_DOM_events_delivered_before_blur": true,
+    "wire": [],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "top",
+    "case": "CUSTOM_HOST_RULE",
+    "wire": []
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_RULE_GOES_TO_GUEST",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 15,
+        "modifiers": [
+          56
+        ]
+      }
+    ]
+  },
+  {
+    "mode": "top",
+    "case": "EXPLICIT_SEND_TO_GUEST_BYPASS",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 15,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "top",
+    "case": "RAW_BYPASS",
+    "wire": [
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 15,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 15,
+        "down": false
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": false
+      }
+    ]
+  },
+  {
+    "mode": "embedded",
+    "case": "FULL_ALT_TAB",
+    "all_DOM_events_delivered_before_blur": true,
+    "wire": [],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "FULL_REVERSE_ALT_TAB",
+    "all_DOM_events_delivered_before_blur": true,
+    "wire": [],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "ALT_RELEASE_BEFORE_TAB",
+    "all_DOM_events_delivered_before_blur": true,
+    "wire": [],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "CUSTOM_HOST_RULE",
+    "wire": []
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_RULE_GOES_TO_GUEST",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 15,
+        "modifiers": [
+          56
+        ]
+      }
+    ]
+  },
+  {
+    "mode": "embedded",
+    "case": "EXPLICIT_SEND_TO_GUEST_BYPASS",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 15,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "RAW_BYPASS",
+    "wire": [
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 15,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 15,
+        "down": false
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": false
+      }
+    ]
+  }
+]

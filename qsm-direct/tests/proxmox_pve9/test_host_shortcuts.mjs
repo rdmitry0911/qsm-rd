@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+const source=fs.readFileSync(new URL('../../integration/proxmox/pve9/direct_ui/qsm-direct-console.js',import.meta.url),'utf8');
+const part=(a,b)=>{const i=source.indexOf(a),j=source.indexOf(b,i);assert.ok(i>=0&&j>i);return source.slice(i,j);};
+const api=new Function(`${part('const CONSOLE_SETTINGS_STORAGE_KEY =','// Display1 injects')}
+${part('const scanCodes =','// A guest-first console')}
+return {parseShortcut,shortcutFromEvent,normalizeShortcutRules,defaultShortcutRules,shortcutRulesForSettings,matchShortcutRule,shortcutGuestChord,readConsoleSettings,writeConsoleSettings,defaultConsoleSettings};`)();
+for(const [text,canonical]of [['option+tab','Alt+Tab'],['Command+Shift+Tab','Shift+Meta+Tab'],['ctrl+alt+esc','Ctrl+Alt+Escape'],['Super+l','Meta+KeyL'],['F11','F11'],['Ctrl+Equal','Ctrl+Equal'],['Ctrl+Shift+1','Ctrl+Shift+Digit1']])assert.equal(api.parseShortcut(text),canonical);
+for(const bad of ['', 'Ctrl+Alt','Alt+Alt+Tab','Ctrl++','Ctrl+Q+W','__proto__+F','constructor','Ctrl+UnrecognisedKey','a'.repeat(100)])assert.equal(api.parseShortcut(bad),null,bad);
+assert.equal(api.shortcutFromEvent({code:'Tab',altKey:true}), 'Alt+Tab');
+assert.equal(api.shortcutFromEvent({code:'Tab',altKey:true,shiftKey:true}), 'Alt+Shift+Tab');
+assert.equal(api.shortcutFromEvent({code:'KeyE',getModifierState:n=>n==='AltGraph'}),null,'AltGraph is not a host Alt shortcut');
+const defaults=api.defaultConsoleSettings();assert.equal(defaults.keyboardPriority,'guest-first');
+assert.ok(defaults.hostShortcuts.some(r=>r.shortcut==='Alt+Tab'&&r.action==='host'));
+assert.ok(defaults.hostShortcuts.some(r=>r.shortcut==='Ctrl+Alt+Shift+Escape'&&r.action==='release'));
+assert.ok(defaults.clientShortcuts.some(r=>r.shortcut==='Ctrl+Shift+KeyT'&&r.action==='host'));
+assert.ok(defaults.clientShortcuts.length<128);
+assert.ok(defaults.clientShortcuts.some(r=>r.shortcut==='Escape'&&r.action==='host'));
+const storage={value:JSON.stringify({keyboardPriority:'guest-first',keyInputMode:'client-repeat',targetFps:45}),getItem(){return this.value;},setItem(_key,value){this.value=value;}};
+const migrated=api.readConsoleSettings(storage);assert.equal(migrated.targetFps,45);assert.deepEqual(migrated.hostShortcuts,defaults.hostShortcuts,'old saved preferences gain explicit default host rules');
+migrated.hostShortcuts=[];migrated.clientShortcuts=[{shortcut:'Ctrl+KeyL',action:'host'}];api.writeConsoleSettings(storage,migrated);
+const saved=api.readConsoleSettings(storage);assert.deepEqual(saved.hostShortcuts,[],'an intentionally empty list remains empty after reload');assert.equal(saved.clientShortcuts.length,1);
+for(const bad of [[{shortcut:'Alt+Tab',action:'eval'}],[{shortcut:'Alt+Tab',action:'host'},{shortcut:'option+tab',action:'toolbar'}],Array(129).fill({shortcut:'F1',action:'host'}),{},null])assert.equal(api.normalizeShortcutRules(bad),null);
+assert.deepEqual(api.normalizeShortcutRules([{shortcut:'cmd+shift+f',action:'toolbar'}]),[{shortcut:'Shift+Meta+KeyF',action:'toolbar'}]);
+const rule={shortcut:'Alt+Tab',action:'host'};
+assert.equal(api.matchShortcutRule({code:'Tab',altKey:true},[rule]),rule);
+assert.equal(api.matchShortcutRule({code:'Tab',altKey:true,shiftKey:true},[rule]),null,'extra modifiers need their own explicit rule');
+assert.deepEqual(api.shortcutGuestChord('Cmd+Shift+Tab'),{key:15,modifiers:[42,0xdb]},'one-off guest action bypasses routing and keeps its exact chord');
+storage.value=JSON.stringify({hostShortcuts:[{shortcut:'unknown',action:'host'}]});assert.deepEqual(api.readConsoleSettings(storage).hostShortcuts,defaults.hostShortcuts,'malformed persisted rules do not silently disable defaults');
+console.log('QSM_HOST_SHORTCUTS_OK');
