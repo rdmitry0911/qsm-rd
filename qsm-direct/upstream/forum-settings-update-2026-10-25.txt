@@ -1,0 +1,8 @@
+Hi guys, stock4.7 fixes a fullscreen/capture UI issue: opening Settings now releases guest-held input while keeping fullscreen, and closing Settings resumes guest capture.
+
+Capture keyboard is now a text button near the top of the left toolbar and the first action in Settings, visible without scrolling. Guest first selects input routing; Capture keyboard requests the browser's full-screen capture. I also fixed the reveal handle overlapping toolbar controls at some embedded-console sizes.
+
+Firefox and Chromium checks pass with the complete UI in both separate and embedded consoles, plus all 22 CTest gates. No new physical Mac or hardware qualification is claimed. The worker/bridge are unchanged; stock4.6 logical Option/Command remapping remains.
+
+Reload PVE and reopen the console after upgrading. No guest restart/update needed.
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.7

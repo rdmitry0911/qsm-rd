@@ -1,0 +1,33 @@
+Stock4.7 Settings/fullscreen/capture UI qualification, 2026-10-25
+
+Root cause: updateGuestKeyboardLock grouped Settings with explicit Client
+first, calling releaseGuestKeyboardLock / exitFullscreen. The text capture
+action was below media/keyboard policy content, and an icon-only toolbar
+control was hard to discover. A real click probe also found the midpoint
+reveal handle intercepting Settings clicks in the embedded console.
+
+Settings now releases held input, unlocks Chromium's separate controller
+and preserves the native fullscreen capture session. DOM focus belongs to
+Settings. Closing refocuses the video and resumes without a new fullscreen
+request. Opening Settings while a request is pending retains capture intent
+and cannot steal panel focus on completion. Explicit Release/Client first/
+close and long Esc remain exit paths. Capture has visible text near the top
+of the toolbar and is the first Settings action; Close is in the panel header.
+Reopening resets scrollTop. A ResizeObserver keeps the reveal handle beside
+the visible toolbar; hiding returns it to the screen edge. Observer disconnects
+with console close. The embedded in-page maximize behavior is retained.
+
+22 CTest gates pass. Complete production JavaScript with API/Ext stubs runs
+in Firefox 157 and Chromium, standalone and embedded. Native DOM clicks
+verify capture without scrolling, no control/handle overlap, capture from
+Settings, editing a local numeric setting while staying fullscreen, Close
+refocus/resume, blur/focus preservation, and explicit Release exit. No page
+errors. Screenshots included. Unit cases cover Firefox/Safari controller,
+Chromium unlock/relock, explicit Client first, pending request/focus races.
+Browser smoke: /tmp/takt-roi-check-venv/bin/python, Playwright browsers cached
+under /home/dima/.cache/ms-playwright; scripts contain local fixture paths.
+
+No new physical macOS, real guest transport or hardware qualification is
+claimed for this UI-only change. Worker, bridge and input protocol unchanged;
+final package provenance verifies payload identity. No live guest is stopped
+or updated. No email/forum/Bugzilla message posted by this release.

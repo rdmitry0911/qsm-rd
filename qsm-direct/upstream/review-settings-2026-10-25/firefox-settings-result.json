@@ -1,0 +1,30 @@
+[
+  {
+    "mode": "top",
+    "complete_production_JS": true,
+    "text_capture_button": true,
+    "reveal_handle_does_not_overlap_controls": true,
+    "settings_capture_visible_without_scrolling": true,
+    "capture_from_settings": true,
+    "settings_preserves_fullscreen": true,
+    "settings_edit_preserves_fullscreen": true,
+    "close_settings_refocuses_guest_and_resumes": true,
+    "blur_focus_preserves_capture": true,
+    "explicit_release_exits": true,
+    "page_errors": []
+  },
+  {
+    "mode": "embedded",
+    "complete_production_JS": true,
+    "text_capture_button": true,
+    "reveal_handle_does_not_overlap_controls": true,
+    "settings_capture_visible_without_scrolling": true,
+    "capture_from_settings": true,
+    "settings_preserves_fullscreen": true,
+    "settings_edit_preserves_fullscreen": true,
+    "close_settings_refocuses_guest_and_resumes": true,
+    "blur_focus_preserves_capture": true,
+    "explicit_release_exits": true,
+    "page_errors": []
+  }
+]

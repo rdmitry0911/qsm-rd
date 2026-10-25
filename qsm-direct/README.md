@@ -17,7 +17,7 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.6 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.6)
+[Stock4.7 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.7)
 preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
@@ -47,7 +47,7 @@ Stock4.4 adds **Capture keyboard (full screen)** in the toolbar and Settings,
 including in the embedded console. Firefox/Safari use the Fullscreen API's
 keyboard-lock option; Chromium retains its separate Keyboard Lock API.
 No F11 or macOS shortcut remapping is required. Single Esc and available
-browser shortcuts go to the guest. Click Release keyboard, open Settings,
+browser shortcuts go to the guest. Click Release keyboard
 or hold Esc to leave capture; Guest first also provides Ctrl+Alt+Shift+Esc.
 OS-reserved keys still depend on the platform; Send to guest buttons remain
 available. The earlier Firefox limitation was a missing QSM API path,
@@ -57,7 +57,7 @@ Stock4.5 preserves fullscreen when switching host applications or tabs.
 QSM releases guest-held input and pauses delivery on blur/visibility loss;
 on return it resumes capture inside the existing fullscreen, without
 restoring old holds or requesting fullscreen again. Explicit Release
-keyboard, Settings, Client first, close and long Esc remain exit paths.
+keyboard, Client first, close and long Esc remain exit paths.
 
 Stock4.6 respects logical modifier remapping, including swapped macOS
 Option/Command, while printable keys retain guest-layout physical positions.
@@ -67,6 +67,11 @@ stray guest Alt/Super or launcher tap. Mouse chords and physical main-key
 holds flush/use the modifier as needed; an intentional solo Command tap
 still sends Super. **Raw** keeps physical positions and bypasses host routing.
 Use **Guest first**, not Raw, to follow the macOS modifier swap.
+
+Stock4.7 keeps fullscreen while opening/editing Settings and resumes guest
+capture on Close. **Capture keyboard** is now a text button near the top of
+the toolbar and the first Settings action, with Close beside the panel title.
+The reveal handle stays beside the visible toolbar, avoiding blocked controls.
 
 Install and update the standalone packages through the signed
 [APT repository](https://rdmitry0911.github.io/qsm-rd/): follow the

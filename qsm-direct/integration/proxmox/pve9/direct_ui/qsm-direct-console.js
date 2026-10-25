@@ -999,8 +999,8 @@
         fullscreen.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1;pointer-events:auto';
         const captureKeyboard = document.createElement('button');
         captureKeyboard.type = 'button';
-        captureKeyboard.textContent = '⌨🔒';
-        captureKeyboard.style.cssText = 'width:40px;height:30px;padding:0;cursor:pointer;font-size:16px;line-height:1;pointer-events:auto';
+        captureKeyboard.textContent = gettext('Capture keyboard');
+        captureKeyboard.style.cssText = 'min-width:32px;max-width:160px;min-height:30px;padding:5px 8px;cursor:pointer;font-size:12px;line-height:1.25;pointer-events:auto';
         captureKeyboard.setAttribute('aria-label', gettext('Capture keyboard (full screen)'));
         captureKeyboard.title = gettext('Capture keyboard (full screen)');
         captureKeyboard.setAttribute('aria-pressed', 'false');
@@ -1194,7 +1194,7 @@
                 if (restoreClientFocusAfterFullscreen) {
                     restoreClientFocusAfterFullscreen = false;
                     settingsButton.focus({ preventScroll: true });
-                } else {
+                } else if (!settingsPanelOpen) {
                     video.focus({ preventScroll: true });
                 }
             }, 0);
@@ -1502,12 +1502,19 @@
         closeSettings.type = 'button';
         closeSettings.textContent = gettext('Close');
         closeSettings.style.cssText = 'padding:4px 9px;cursor:pointer';
-        settingsActions.append(resetSettings, closeSettings);
-        settingsPanel.append(settingsTitle, settingsHint, mediaPolicyTitle, mediaPolicyHint,
-            mediaPolicyForm, saveMediaPolicy, keyboardPolicyTitle, keyboardPolicyForm,
-            keyboardPolicyHint, keyInputModeHint, mouseInputModeHint, keyboardCaptureStatus, captureKeyboardSettings, specialKeys, keyboardUnavailableHint, gesturesTitle, gesturesHint,
+        const settingsHeader = document.createElement('div');
+        settingsHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px';
+        settingsHeader.append(settingsTitle, closeSettings);
+        settingsActions.append(resetSettings);
+        // Capture is the first Settings action, visible without scrolling past
+        // encoder policy and gesture preferences. Guest first alone cannot
+        // acquire the browser's fullscreen keyboard permission.
+        settingsPanel.append(settingsHeader, captureKeyboardSettings, keyboardCaptureStatus,
+            settingsHint, mediaPolicyTitle, mediaPolicyHint, mediaPolicyForm, saveMediaPolicy,
+            keyboardPolicyTitle, keyboardPolicyForm, keyboardPolicyHint, keyInputModeHint,
+            mouseInputModeHint, specialKeys, keyboardUnavailableHint, gesturesTitle, gesturesHint,
             gesturesForm, resetGestures, settingsForm, settingsActions);
-        toolbar.append(status, copy, paste, audio, mic, kbButton, fullscreen, captureKeyboard, diagButton, settingsButton);
+        toolbar.append(status, captureKeyboard, fullscreen, copy, paste, audio, mic, kbButton, diagButton, settingsButton);
         // On-screen diagnostics for the case a client shows no picture (mostly
         // phones/tablets/TVs where remote logs are unreachable). Hidden until a
         // few seconds pass with no decoded frame, then it prints the video and
@@ -1717,6 +1724,14 @@
                 toolbarRevealTimer = null;
             }
         };
+        const placeRevealHandle = () => {
+            // Keep the handle beside a visible strip, never on top of its
+            // controls (the old midpoint anchor covered Settings in iframes).
+            revealHandle.style.left = toolbarVisible ? `${toolbar.getBoundingClientRect().width}px` : '0';
+        };
+        const toolbarSizeObserver = new popup.ResizeObserver(placeRevealHandle);
+        toolbarSizeObserver.observe(toolbar);
+        placeRevealHandle();
         const revealToolbar = () => {
             if (closed) { return; }
             cancelToolbarReveal();
@@ -1724,11 +1739,13 @@
             toolbarVisible = true;
             toolbar.style.opacity = '1';
             toolbar.style.transform = 'translateX(0)';
+            placeRevealHandle();
         };
         const hideToolbarNow = () => {
             toolbarVisible = false;
             toolbar.style.opacity = '0';
             toolbar.style.transform = 'translateX(-100%)';
+            placeRevealHandle();
         };
         // The handle pins the toolbar open (touch has no hover to re-reveal it);
         // a second tap unpins and hides it, giving the guest the full screen.
@@ -1815,6 +1832,7 @@
         const setKeyboardCaptureLabel = () => {
             const active = Boolean(document.fullscreenElement && fullscreenCaptureRequested);
             const label = active ? gettext('Release keyboard and exit full screen') : gettext('Capture keyboard (full screen)');
+            captureKeyboard.textContent = active ? gettext('Release keyboard') : gettext('Capture keyboard');
             captureKeyboard.title = label;
             captureKeyboard.setAttribute('aria-label', label);
             captureKeyboard.setAttribute('aria-pressed', String(active));
@@ -1874,7 +1892,7 @@
             updateGuestKeyboardLock();
         };
         const updateGuestKeyboardLock = () => {
-            if (!document.fullscreenElement) {
+            if (!document.fullscreenElement && !fullscreenRequestPending) {
                 fullscreenCaptureRequested = false;
                 fullscreenKeyboardLock = false;
             }
@@ -1883,9 +1901,22 @@
             const generation = ++keyboardLockGeneration;
             const keyboard = keyboardController();
             const guestFocus = document.activeElement === video || document.activeElement === kbInput;
-            if (settings.keyboardPriority === KEYBOARD_PRIORITY.client || settingsPanelOpen) {
+            if (settings.keyboardPriority === KEYBOARD_PRIORITY.client) {
                 releaseGuestKeyboardLock();
                 keyboardCaptureStatus.textContent = gettext('Client keyboard shortcuts active. Click Capture keyboard to return to the guest.');
+                return;
+            }
+            if (settingsPanelOpen) {
+                // Settings takes DOM focus and releases held guest input.
+                // Keep Firefox/Safari's fullscreen-bound capture alive; only
+                // explicit Release / Client first / close should exit it.
+                releaseHeldInput();
+                if (keyboard && typeof keyboard.unlock === 'function') {
+                    try { keyboard.unlock(); } catch (_error) { /* Document may be closing. */ }
+                }
+                keyboardCaptureStatus.textContent = document.fullscreenElement && fullscreenCaptureRequested
+                    ? gettext('Guest keyboard input paused while Settings is open. Full screen is preserved; close Settings to resume.')
+                    : gettext('Guest first forwards received keys. Click Capture keyboard to enter full screen and capture browser shortcuts.');
                 return;
             }
             if (keyboardCaptureSuspended || document.hidden ||
@@ -1953,13 +1984,13 @@
                     fullscreenRequestPending = false;
                     fullscreenKeyboardLock = capture && optionRead && Boolean(document.fullscreenElement);
                     if (requestGeneration !== fullscreenRequestGeneration || closed ||
-                        settings.keyboardPriority === KEYBOARD_PRIORITY.client || settingsPanelOpen) {
+                        settings.keyboardPriority === KEYBOARD_PRIORITY.client) {
                         // An explicitly cancelled request can complete late. It
                         // still owns this newly entered fullscreen session.
                         fullscreenCaptureRequested = capture;
                         releaseGuestKeyboardLock(); return;
                     }
-                    if (!keyboardCaptureSuspended && !document.hidden &&
+                    if (!settingsPanelOpen && !keyboardCaptureSuspended && !document.hidden &&
                         (typeof document.hasFocus !== 'function' || document.hasFocus())) {
                         video.focus({ preventScroll: true });
                     }
@@ -2251,15 +2282,19 @@
             }
         };
         const setSettingsPanelOpen = (open) => {
+            const wasOpen = settingsPanelOpen;
             settingsPanelOpen = open;
             settingsPanel.style.display = open ? 'block' : 'none';
-            updateGuestKeyboardLock();
             if (open) {
+                settingsPanel.scrollTop = 0;
+                captureKeyboardSettings.focus({ preventScroll: true });
                 revealToolbar();
                 loadVmMediaPolicy();
             } else {
+                if (wasOpen) { video.focus({ preventScroll: true }); }
                 hideToolbarSoon();
             }
+            updateGuestKeyboardLock();
         };
         const commitSetting = (name) => {
             const input = settingInputs.get(name);
@@ -2809,6 +2844,7 @@
             inputStateEnabled = false;
             if (inputStateTimer !== null) { popup.clearInterval(inputStateTimer); inputStateTimer = null; }
             if (observer) { observer.disconnect(); }
+            toolbarSizeObserver.disconnect();
             stopMicrophone();
             if (peer) { peer.close(); }
             if (closeWatcher !== null) { window.clearInterval(closeWatcher); }

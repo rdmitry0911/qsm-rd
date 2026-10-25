@@ -3,7 +3,7 @@ qsm-pve-direct for Proxmox VE 9
 
 `qsm-pve-direct` is a browser-native PVE console transport.
 
-Standalone release 0.4.0+stock4.6
+Standalone release 0.4.0+stock4.7
 -----------------------------
 For official PVE 9 install matching qsm-pve-direct and
 qsm-pve-direct-standalone debs. Follow README.standalone, installed with the
@@ -385,7 +385,8 @@ Reload PVE with cache bypass and reopen consoles. No guest update is needed.
 Fullscreen keyboard capture (stock4.4)
 -------------------------------------
 Reload PVE with cache bypass and reopen the console after updating.
-Click Capture keyboard (keyboard/padlock toolbar button or Settings action).
+Click the text Capture keyboard button near the top of the left toolbar
+or the first action in Settings. Guest first alone is a routing policy.
 The embedded console enters actual full screen for capture; its existing
 page-maximize button still provides in-page enlargement separately.
 Capture selects Guest first if Client first was saved, preserving Exact typing
@@ -395,8 +396,9 @@ navigator.keyboard.lock() and its permission flow. F11 is not required, so
 macOS system assignments need no changes. Click the guest picture for input.
 
 A short Esc is sent to the guest. Hold Esc or click Release keyboard to exit.
-Opening Settings, switching to Client first or closing the console releases
-capture. Stock4.5 pauses input on host app/tab switching without exiting
+Switching to Client first or closing the console releases capture.
+Opening Settings preserves fullscreen and releases guest-held input; close
+Settings to focus the guest and resume capture. Stock4.5 pauses input on host app/tab switching without exiting
 fullscreen, then resumes capture inside the existing fullscreen on return.
 Held keys/buttons are released on blur; old holds are never restored. Guest first reserves Ctrl+Alt+Shift+Esc;
 Raw keeps its existing no-QSM-chord policy. OS-reserved keys are not guaranteed
@@ -426,3 +428,16 @@ it. Late source presses while unfocused and foreign repeats are ignored.
 Raw deliberately uses physical positions/edges and bypasses host-only routing;
 use it only when literal physical input is required. Reload PVE without cache
 and reopen consoles after upgrading. No guest update is required.
+
+Settings and capture controls (stock4.7)
+---------------------------------------
+Opening/editing Settings releases guest-held input while preserving full
+screen. Close at the top right refocuses the guest and resumes capture.
+Capture keyboard is a text action near the top of the left toolbar and the
+first Settings action, visible without scrolling. Reopening Settings resets
+its scroll position. Guest first alone selects input routing; Capture keyboard
+requests the browser's full-screen capture. The separate embedded in-page
+maximize control remains available. The reveal handle sits beside a visible
+toolbar, avoiding overlap with its controls at smaller iframe sizes.
+Explicit Release keyboard, Client first, close and long Esc remain exits.
+Reload the PVE page and reopen consoles after updating; no guest update.

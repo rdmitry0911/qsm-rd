@@ -5,11 +5,13 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
-Current preview: **0.4.0+stock4.6** fixes swapped macOS Option/Command
-routing. Guest first follows logical modifiers; logical Command+Tab remains
-on the host, logical Option+Tab goes to the guest. Raw retains physical
-positions. Fullscreen preservation from stock4.5 and Capture keyboard from
-stock4.4 remain available, without F11 or changing macOS assignments.
+Current preview: **0.4.0+stock4.7** keeps fullscreen when opening/editing
+Settings and resumes guest capture on Close. Capture keyboard is a text
+button near the top of the toolbar and the first Settings action. The reveal
+handle no longer overlaps toolbar controls. Logical macOS modifier routing
+from stock4.6, focus preservation and browser keyboard capture remain.
+Guest first selects routing; click Capture keyboard to acquire full-screen
+browser capture. No F11 or macOS assignment changes are required.
 Exact mouse/trackpad clicks are the
 default too: complete clicks include their position and modifiers. Confirmed
 drags remain ordered and guarded; fractional two-axis scrolling is retained.

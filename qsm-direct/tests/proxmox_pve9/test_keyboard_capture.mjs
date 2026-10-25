@@ -36,7 +36,12 @@ function harness({keyboard=null,topKeyboard=keyboard,option=true,reject=false,pr
  assert.ok(h.calls.some(x=>Array.isArray(x)&&x[0]==='fullscreen'&&x[1]==='browser'),'Firefox/Safari receives keyboardLock browser');
  assert.match(h.status.textContent,/capture active/);assert.equal(h.captureKeyboard.attrs['aria-pressed'],'true');
  assert.equal(h.document.activeElement,h.video);assert.ok(!h.calls.includes('F11'),'no OS hotkey is used');
- h.openSettings(true);assert.ok(h.calls.includes('exit'),'opening client Settings releases fullscreen-bound lock');assert.ok(h.restore());
+ h.calls.length=0;h.document.activeElement=h.captureKeyboardSettings;h.openSettings(true);
+ assert.ok(h.calls.includes('release'),'opening Settings releases held guest input');
+ assert.ok(h.document.fullscreenElement);assert.ok(!h.calls.includes('exit'),'Settings preserves Firefox/Safari fullscreen-bound capture');
+ assert.equal(h.captureKeyboard.attrs['aria-pressed'],'true');assert.match(h.status.textContent,/Settings is open/);
+ h.document.activeElement=h.video;h.openSettings(false);assert.match(h.status.textContent,/capture active/);
+ assert.ok(!h.calls.some(v=>Array.isArray(v)&&v[0]==='fullscreen'),'closing Settings resumes the existing capture');
 }
 {
  const calls=[];const keyboard={lock:(...args)=>{calls.push(['lock',...args]);return Promise.resolve();},unlock:()=>calls.push(['unlock'])};
@@ -96,6 +101,24 @@ function harness({keyboard=null,topKeyboard=keyboard,option=true,reject=false,pr
 {
  const h=harness();h.enterConsoleFullscreen();await tick();h.document.fullscreenElement=null;h.updateGuestKeyboardLock();assert.equal(h.captureKeyboard.attrs['aria-pressed'],'false');
  h.enterConsoleFullscreen();await tick();h.close();assert.ok(h.calls.includes('exit'),'closing the console releases fullscreen capture');
+}
+{
+ const calls=[];const keyboard={lock:()=>{calls.push('lock');return Promise.resolve();},unlock:()=>calls.push('unlock')};
+ const h=harness({keyboard,option:false});h.enterConsoleFullscreen();await tick();h.calls.length=0;calls.length=0;
+ h.document.activeElement=h.captureKeyboardSettings;h.openSettings(true);assert.equal(calls.at(-1),'unlock');
+ assert.ok(h.document.fullscreenElement);assert.ok(!h.calls.includes('exit'));
+ h.document.activeElement=h.video;h.openSettings(false);await tick();assert.equal(calls.at(-1),'lock');assert.match(h.status.textContent,/capture active/);
+}
+{
+ const h=harness({defer:true});h.enterConsoleFullscreen();h.document.activeElement=h.captureKeyboardSettings;h.openSettings(true);
+ const focuses=h.calls.filter(v=>v==='focus').length;h.resolve();await tick();assert.ok(h.document.fullscreenElement);
+ assert.ok(!h.calls.includes('exit'),'opening Settings cannot retire a pending capture request');
+ assert.equal(h.calls.filter(v=>v==='focus').length,focuses,'pending fullscreen must not steal focus from Settings');
+ assert.match(h.status.textContent,/Settings is open/);h.document.activeElement=h.video;h.openSettings(false);assert.match(h.status.textContent,/capture active/);
+}
+{
+ const h=harness();h.enterConsoleFullscreen();await tick();h.openSettings(true);h.settings.keyboardPriority='client-first';h.updateGuestKeyboardLock();
+ assert.ok(h.calls.includes('exit'),'explicit Client first still exits capture from Settings');
 }
 {
  const actions=[],buttons=[],video={focus:()=>actions.push('focus')};
