@@ -4,5 +4,5 @@ The last modifier-prefix fix did not cover the full Alt-down, Tab-down, Tab-up, 
 
 Each rule can keep native host/browser handling or run a console release/fullscreen/toolbar action. Add, record, edit, remove, reset and per-rule Send to guest are available. Guest first and Client first lists persist independently; Raw bypasses them. Existing preferences gain defaults without losing other settings.
 
-23 CTest gates and full Firefox/Chromium editor checks pass. A real WebRTC/CT108 comparison with complete DOM chords reproduces stock4.9's guest Alt+Tab and confirms zero guest keyboard packets under the new host rule. No native Mac qualification is claimed; worker/bridge unchanged. Reload PVE and reopen consoles after updating, no guest restart needed.
+24 CTest gates and full Firefox/Chromium editor checks pass. A real WebRTC/CT108 comparison with complete DOM chords reproduces stock4.9's guest Alt+Tab and confirms zero guest keyboard packets under the new host rule. No native Mac qualification is claimed; worker/bridge unchanged. Reload PVE and reopen consoles after updating, no guest restart needed.
 https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.10

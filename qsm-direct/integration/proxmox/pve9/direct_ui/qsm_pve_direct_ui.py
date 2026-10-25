@@ -47,6 +47,7 @@ ANCHOR = (
     b'src="/pve2/js/pvemanagerlib.js?ver=[% version %]"></script>\n'
 )
 MAX_TEMPLATE_BYTES = 256 * 1024
+MAX_OVERLAY_BYTES = 1024 * 1024
 MAX_SUPPORT_MANIFEST_BYTES = 128 * 1024
 _VERSION_PATTERN = re.compile(r"\A[A-Za-z0-9.+:~_-]{1,128}\Z", re.ASCII)
 _HASH_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z", re.ASCII)
@@ -437,7 +438,7 @@ class UiIntegration:
         # before adding a template reference to it.
         content = _read_regular(
             self.paths.overlay,
-            maximum=MAX_TEMPLATE_BYTES,
+            maximum=MAX_OVERLAY_BYTES,
             require_root_owner=self.require_root_owner,
         )
         if not content.startswith(b"/*\n * qsm-pve-direct Console menu integration"):

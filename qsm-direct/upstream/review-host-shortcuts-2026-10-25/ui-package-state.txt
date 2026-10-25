@@ -1,0 +1,9 @@
+test_overlay_still_rejects_oversize_symlink_and_writable_files (__main__.OverlayAssetTests.test_overlay_still_rejects_oversize_symlink_and_writable_files) ... ok
+test_shipped_viewer_is_accepted_independently_of_template_limit (__main__.OverlayAssetTests.test_shipped_viewer_is_accepted_independently_of_template_limit) ... ok
+test_configured_package_with_pending_triggers_is_usable (__main__.PackageStateTests.test_configured_package_with_pending_triggers_is_usable) ... ok
+test_unconfigured_or_malformed_packages_remain_unsupported (__main__.PackageStateTests.test_unconfigured_or_malformed_packages_remain_unsupported) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.006s
+
+OK

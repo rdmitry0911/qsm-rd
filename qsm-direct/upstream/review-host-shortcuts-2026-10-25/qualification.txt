@@ -14,7 +14,7 @@ Aliases, validation/128-entry limit, duplicate rejection, keyboard recording,
 CRUD, profile defaults, persistence, migration, explicit guest send included.
 No Ctrl+Alt+Tab ad-hoc guest remapping remains.
 
-23 final CTest gates pass. Keyboard regressions deliver all four DOM events
+24 final CTest gates pass. Keyboard regressions deliver all four DOM events
 before blur, both sides, both input modes, forward/reverse, modifier-first
 release, custom actions/autorepeat, outside-target keyup and delayed paste.
 Pure rules tests cover parser, aliases, exactness, invalid data, migration,
@@ -24,7 +24,7 @@ embedded, covers add/edit/remove/record, duplicate validation, reopened
 preferences, independent profiles, Raw-disabled controls, reset and editing
 without leaving fullscreen. Final source follow-ups clarify two UI hints and move client-first Escape
 into the same editable defaults, removing its separate fixed branch. Final
-23 CTest gates cover that change; Guest first packet routing is unchanged.
+24 CTest gates cover that change; Guest first packet routing is unchanged.
 
 Headful Firefox on owned Xvfb/Openbox -> production input fragments -> real
 SCTP/installed bridge/worker -> owned CT108 fixture. Complete logical DOM
@@ -45,3 +45,12 @@ https://remmina.gitlab.io/remminadoc.gitlab.io/md__builds__remmina_remmina_ci__r
 https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/7/html/virtualization_deployment_and_administration_guide/chap-graphic_user_interface_tools_for_guest_virtual_machine_management
 https://manpages.debian.org/experimental/virt-viewer/remote-viewer.1.en.html
 No forum/mail/Bugzilla message posted by this release.
+
+Deployment caught the shipped JS growing past the old shared 256 KiB file
+limit. A separate bounded 1 MiB overlay limit now accepts the actual asset;
+the stock PVE template remains at 256 KiB. Ownership, symlink, writable-file,
+magic-prefix and supported-template checks remain. Added package-state gate
+loads the actual shipped viewer and verifies oversized template/overlay,
+symlink and writable-overlay rejection. Final 24 CTest gates pass. Initial
+unpublished 4.10 installation left standalone/gateway pending configuration;
+final rebuilt debs must be reinstalled together to complete configuration.
