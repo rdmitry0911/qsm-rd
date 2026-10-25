@@ -1,0 +1,14 @@
+192.168.64.20 upgraded to matching stock4.6 core/standalone/LXC/gateway.
+APT simulation selected exactly these four host packages, without removals.
+All QSM services active; dpkg audit empty; VM103 and CT105 remain running.
+Installed/HTTPS-served viewer and bridge/worker match final package hashes.
+Worker/bridge remain identical to stock4.3/4.4/4.5 payloads. Guest deb is
+embedded in the LXC helper, not installed on the PVE host. CT108 owned fixture
+stopped, output restored to 1970x1220. No production guest restart/update.
+Downloaded GitHub release signature and all SHA256 checks pass with public key.
+Reload PVE without cache, reopen consoles, choose Guest first. With swapped
+Mac keys, physical Command+Tab is guest Alt+Tab, physical Option+Tab remains
+native host Cmd+Tab. Raw retains physical positions and bypasses routing.
+Physical macOS switching is not claimed tested: remapping/platform events
+are simulated on Linux through actual Firefox/SCTP/bridge/worker/CT108.
+No email/forum/Bugzilla message posted by this release.
