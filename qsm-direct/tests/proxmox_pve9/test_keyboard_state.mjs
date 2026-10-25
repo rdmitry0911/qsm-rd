@@ -68,6 +68,7 @@ const harness = (keyInputMode='guest-repeat', keyboardPriority='guest', platform
             video.emit(name, event);return event;
         }};
 };
+const defaultRulesWithout = shortcut => new Function(maps+'return defaultShortcutRules();')().filter(rule=>rule.shortcut!==shortcut);
 const edges = h => h.messages.map(({key, down}) => [key, down]);
 
 {
@@ -233,14 +234,14 @@ for(const state of ['unfocused','hidden','suspended']){
  h.key('keyup','AltLeft',{key:'Alt',altKey:false});assert.deepEqual(packets(h),[],`${state} keyup preceding blur must not synthesize solo Alt`);
 }
 for(const releaseFirst of ['AltLeft','ShiftLeft']){
- const h=harness('client-repeat','guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ const h=harness('client-repeat','guest','MacIntel');h.settings.hostShortcuts=defaultRulesWithout('Alt+Shift');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
  h.key('keydown','ShiftLeft',{key:'Shift',shiftKey:true});h.key('keydown','AltLeft',{key:'Alt',altKey:true,shiftKey:true});h.tick();assert.deepEqual(packets(h),[],'reverse host switching has no leaked Shift/Alt prefix');
  if(releaseFirst==='AltLeft'){
   h.key('keyup','AltLeft',{key:'Alt',altKey:false,shiftKey:true});h.key('keyup','ShiftLeft',{key:'Shift',altKey:false,shiftKey:false});
-  assert.deepEqual(packets(h),[],'a swallowed reverse host switch cannot become guest Alt+Shift on release');
+  assert.deepEqual(packets(h),[{op:'key_tap',key:56,modifiers:[42]}],'completed Alt+Shift is sent once on first release');
  }else{
   h.key('keyup','ShiftLeft',{key:'Shift',altKey:true,shiftKey:false});h.key('keyup','AltLeft',{key:'Alt',altKey:false,shiftKey:false});
-  assert.deepEqual(packets(h),[],'a swallowed reverse host switch stays local in either release order');
+  assert.deepEqual(packets(h),[{op:'key_tap',key:42,modifiers:[56]}],'completed Alt+Shift works in either release order');
  }
 }
 {
@@ -326,11 +327,72 @@ for(const mode of ['client-repeat','guest-repeat'])for(const [code,key,flag]of [
  assert.deepEqual(packets(h),[{op:'key_tap',key:56,modifiers:[]}],'an empty host list explicitly permits a standalone guest Alt tap');
 }
 {
- const h=harness('client-repeat');h.settings.hostShortcuts=[{shortcut:'Ctrl+Shift+KeyK',action:'host'}];h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ const h=harness('client-repeat');h.settings.hostShortcuts=[{shortcut:'Ctrl+Shift+KeyK',action:'host'},{shortcut:'Ctrl+Shift',action:'host'}];h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
  h.key('keydown','ControlLeft',{key:'Control',ctrlKey:true});h.key('keydown','ShiftRight',{key:'Shift',ctrlKey:true,shiftKey:true});
  h.key('keyup','ControlLeft',{key:'Control',ctrlKey:false,shiftKey:true});h.key('keyup','ShiftRight',{key:'Shift',shiftKey:false});
- assert.deepEqual(packets(h),[],'custom reserved prefixes suppress their whole modifier-only release');
+ assert.deepEqual(packets(h),[],'an exact modifier-only host rule reserves the completed combination');
  h.key('keydown','AltLeft',{key:'Alt',altKey:true});h.key('keyup','AltLeft',{key:'Alt',altKey:false});
  assert.deepEqual(packets(h),[{op:'key_tap',key:56,modifiers:[]}],'unreserved modifiers retain their standalone guest action');
 }
-console.log('PASS: deferred modifier prefixes, host-swallowed Tab, focus cleanup, exact guest actions, raw holds and clipboard');
+// Every subset of two or more logical modifiers follows its exact rule.
+// Exercise all press/release permutations, both sides, remapping, both key
+// modes and both keyboard targets. The first release must complete it now.
+const permutations = xs => xs.length ? xs.flatMap((x,i)=>permutations(xs.filter((_v,j)=>i!==j)).map(rest=>[x,...rest])) : [[]];
+const modifierNames=['Ctrl','Alt','Shift','Meta'];
+let modifierCases=0;
+for(let mask=1;mask<16;mask++){
+ const names=modifierNames.filter((_n,i)=>mask&(1<<i));if(names.length<2)continue;
+ const shortcut=names.join('+');
+ for(const mode of ['client-repeat','guest-repeat'])for(const targetName of ['video','kbInput'])for(const variant of ['Left','Right','Swapped']){
+  const descriptors={Ctrl:['Control','ctrlKey','Control',variant==='Right'?157:29],Alt:[variant==='Swapped'?'Meta':'Alt','altKey','Alt',variant==='Right'?184:56],Shift:['Shift','shiftKey','Shift',variant==='Right'?54:42],Meta:[variant==='Swapped'?'Alt':'Meta','metaKey','Meta',variant==='Right'?220:219]};
+  for(const press of permutations(names))for(const release of permutations(names))for(const routing of ['default-host','removed','guest']){
+   const h=harness(mode,'guest','MacIntel');h.document.hasFocus=()=>true;
+   if(routing!=='default-host'){h.settings.hostShortcuts=defaultRulesWithout(shortcut);if(routing==='guest')h.settings.hostShortcuts.push({shortcut,action:'guest'});}
+   h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+   const active=new Set();
+   const emit=(type,name)=>{
+    const [physical,flag,key]=descriptors[name];if(type==='keydown')active.add(name);else active.delete(name);
+    const e={type,code:physical+(variant==='Right'?'Right':'Left'),key,repeat:false,preventDefault(){this.prevented=true;},stopPropagation(){}};
+    for(const n of modifierNames)e[descriptors[n][1]]=active.has(n);
+    if(type==='keyup')h.document.emit(type,e);h[targetName].emit(type,e);return e;
+   };
+   for(const name of press)emit('keydown',name);
+   assert.deepEqual(packets(h),[],'modifier combinations must not fire while they could still be a longer chord');
+   emit('keyup',release[0]);
+   const want=routing==='default-host'?[]:[{op:'key_tap',key:descriptors[release[0]][3],modifiers:press.filter(n=>n!==release[0]).map(n=>descriptors[n][3])}];
+   assert.deepEqual(packets(h),want,`${shortcut} ${variant} ${mode} ${routing}: first release commits exact rule without a timer`);
+   for(const name of release.slice(1))emit('keyup',name);
+   assert.deepEqual(packets(h),want,'remaining modifier releases cannot append solo taps');
+   assert.equal(h.heldKeys.size,0);assert.equal(h.deferredModifiers.size,0);assert.equal(h.physicalHeldKeys.size,0);modifierCases++;
+  }
+ }
+}
+for(const action of ['host','guest','release','fullscreen','toolbar']){
+ const h=harness('client-repeat');h.settings.hostShortcuts=[{shortcut:'Ctrl+Shift',action}];h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','ControlLeft',{key:'Control',ctrlKey:true});const shift=h.key('keydown','ShiftLeft',{key:'Shift',ctrlKey:true,shiftKey:true});
+ assert.deepEqual(h.actions,[],'modifier-only console action waits for completion, not for more time');
+ h.key('keyup','ShiftLeft',{key:'Shift',ctrlKey:true,shiftKey:false});h.key('keyup','ControlLeft',{key:'Control',ctrlKey:false});
+ assert.deepEqual(h.actions,['release','fullscreen','toolbar'].includes(action)?[action]:[]);
+ assert.deepEqual(packets(h),action==='guest'?[{op:'key_tap',key:42,modifiers:[29]}]:[]);
+ assert.equal(Boolean(shift.defaultPrevented),action!=='host','an exact native host modifier rule keeps browser default handling');
+}
+{
+ const h=harness('client-repeat');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','ControlLeft',{key:'Control',ctrlKey:true});h.key('keydown','ShiftLeft',{key:'Shift',ctrlKey:true,shiftKey:true});
+ h.key('keydown','KeyA',{key:'a',ctrlKey:true,shiftKey:true});h.key('keyup','KeyA',{key:'a',ctrlKey:true,shiftKey:true});
+ h.key('keyup','ShiftLeft',{key:'Shift',ctrlKey:true,shiftKey:false});h.key('keyup','ControlLeft',{key:'Control',ctrlKey:false});
+ assert.deepEqual(packets(h),[{op:'key_tap',key:30,modifiers:[29,42]}],'default Ctrl+Shift host rule cannot steal a longer guest Ctrl+Shift+A chord');
+}
+{
+ const h=harness('client-repeat');h.settings.hostShortcuts=defaultRulesWithout('Alt+Shift');h.settings.hostShortcuts.push({shortcut:'Alt+Shift',action:'guest'});h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','AltLeft',{key:'Alt',altKey:true});h.key('keydown','ShiftLeft',{key:'Shift',altKey:true,shiftKey:true});
+ h.key('keydown','Tab',{key:'Tab',altKey:true,shiftKey:true});h.key('keyup','Tab',{key:'Tab',altKey:true,shiftKey:true});
+ h.key('keyup','ShiftLeft',{key:'Shift',altKey:true,shiftKey:false});h.key('keyup','AltLeft',{key:'Alt',altKey:false});
+ assert.deepEqual(packets(h),[],'Guest Alt+Shift override cannot steal a received longer host Alt+Shift+Tab chord');
+}
+{
+ const h=harness('client-repeat');h.settings.hostShortcuts=[{shortcut:'Alt',action:'guest'}];h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','AltLeft',{key:'Alt',altKey:true});h.key('keyup','AltLeft',{key:'Alt',altKey:false});
+ assert.deepEqual(packets(h),[{op:'key_tap',key:56,modifiers:[]}],'an exact Guest modifier rule can opt into a standalone Alt tap');
+}
+console.log(`PASS: ${modifierCases} modifier-only routing cases, host-swallowed Tab, focus cleanup, exact guest actions, raw holds and clipboard`);

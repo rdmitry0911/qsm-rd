@@ -1,7 +1,7 @@
 QSM Direct: optional TCP 8006 gateway (experimental, single-node PVE 9)
 ===================================================================
 
-Release: 0.4.0+stock4.11. This explicit standalone profile shares TCP 8006 between
+Release: 0.4.0+stock4.12. This explicit standalone profile shares TCP 8006 between
 normal PVE HTTPS and authenticated TURN/TCP. Signalling uses /qsm-direct/ on the
 PVE browser origin. Video/audio and input/clipboard are encrypted by WebRTC.
 TURN control messages use plain TCP, WITHOUT TLS. See Encryption below.
@@ -13,12 +13,12 @@ Requirements and package installation
 ------------------------------------
 Read INSTALL-STOCK.txt / README.standalone first for platform, VM and LXC setup.
 No patched Proxmox debs are needed on stock PVE. Download matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.11
-Verify SHA256SUMS-stock4.11. Install as root on the PVE HOST:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.12
+Verify SHA256SUMS-stock4.12. Install as root on the PVE HOST:
 
-  apt install ./qsm-pve-direct_0.4.0+stock4.11_amd64.deb \
-              ./qsm-pve-direct-standalone_0.4.0+stock4.11_all.deb \
-              ./qsm-pve-direct-gateway_0.4.0+stock4.11_all.deb
+  apt install ./qsm-pve-direct_0.4.0+stock4.12_amd64.deb \
+              ./qsm-pve-direct-standalone_0.4.0+stock4.12_all.deb \
+              ./qsm-pve-direct-gateway_0.4.0+stock4.12_all.deb
 
 If the LXC helper is already installed, include its matching stock4.10 deb in that
 same transaction. For new LXC setup install the separate helper as described in
@@ -283,3 +283,16 @@ This also means a deliberate bare reserved modifier uses the explicit Alt,
 Alt+Shift or Super Send to guest button. Unreserved modifier-only actions,
 normal guest chords such as Alt+F, explicit per-rule sends and Raw remain
 available. The active editable rule list controls which prefixes are local.
+
+Exact modifier-only shortcut rules (stock4.12)
+---------------------------------------------
+Stock4.12 makes completed modifier-only combinations explicit shortcut
+rules. All 11 combinations of two or more Ctrl/Alt/Shift/Meta modifiers
+are listed as Host/browser by default in both profiles. Existing browser
+preferences gain missing defaults once, preserving custom actions. Remove
+a rule or select Guest to send that exact combination immediately on first
+release; later releases do not add taps. Deleted defaults stay deleted on
+reload. Alt+Shift, Ctrl+Shift and Win+Shift no longer remain blocked as
+prefixes of longer host rules after their exact rule is removed. Recording,
+editing and Send to guest support modifier-only combinations. Main-key
+chords are matched separately. Raw and bare host-prefix protection remain.

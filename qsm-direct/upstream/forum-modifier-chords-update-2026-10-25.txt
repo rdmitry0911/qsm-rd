@@ -1,0 +1,13 @@
+Hi guys, stock4.12 adds proper modifier-only rules to Settings > Keyboard shortcut priority > Host shortcuts.
+
+All 11 combinations of two or more Ctrl/Alt/Shift/Win (Command on macOS) modifiers default to Host / browser. Remove the exact rule or change it to Guest if you want to use Alt+Shift, Ctrl+Shift, Win+Shift, etc. inside the guest. A completed combination is sent once on release, without additional waiting. It no longer gets blocked simply because it could also begin a longer host shortcut.
+
+Recording, editing, persistent removal and one-off Send to guest work with modifier-only combinations. Existing browser settings gain missing defaults once; custom actions are preserved and deleted rules do not reappear. Longer guest/host chords are still matched independently; Raw remains available.
+
+24 CTest gates pass, including 26,784 modifier routing cases. Full Firefox/Chromium UI checks and real WebRTC/CT108 A/B checks cover the reported combinations, Guest overrides and removal. This models DOM/MacIntel events on Linux; no physical Mac qualification is claimed. The browser can route only keys it receives from the OS. Worker/bridge and guest installation are unchanged.
+
+Source, packages and instructions:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.12
+APT: https://rdmitry0911.github.io/qsm-rd/
+
+Sponsored by Takt — https://taktcycles.com/

@@ -1,0 +1,778 @@
+[
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Alt+Shift_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_GOES_TO_GUEST_Alt+Shift_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "EXPLICIT_GUEST_Alt+Shift_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Ctrl+Shift_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_GOES_TO_GUEST_Ctrl+Shift_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          29
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "EXPLICIT_GUEST_Ctrl+Shift_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          29
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Shift+Meta_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_GOES_TO_GUEST_Shift+Meta_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "EXPLICIT_GUEST_Shift+Meta_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Ctrl+Alt+Shift+Meta_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_GOES_TO_GUEST_Ctrl+Alt+Shift+Meta_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          29,
+          56,
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "EXPLICIT_GUEST_Ctrl+Alt+Shift+Meta_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          29,
+          56,
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Alt+Shift_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_GOES_TO_GUEST_Alt+Shift_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "EXPLICIT_GUEST_Alt+Shift_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Ctrl+Shift_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_GOES_TO_GUEST_Ctrl+Shift_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          29
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "EXPLICIT_GUEST_Ctrl+Shift_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          29
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Shift+Meta_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_GOES_TO_GUEST_Shift+Meta_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "EXPLICIT_GUEST_Shift+Meta_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Ctrl+Alt+Shift+Meta_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_GOES_TO_GUEST_Ctrl+Alt+Shift+Meta_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          29,
+          56,
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "EXPLICIT_GUEST_Ctrl+Alt+Shift+Meta_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          29,
+          56,
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "BARE_ALT_NO_TAB",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "FULL_ALT_TAB",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": true,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "ACTUAL_EDITOR_GUEST_CTRL_SHIFT",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          29
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "MODIFIER_RULE_SEND_BYPASS",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          56
+        ]
+      }
+    ]
+  },
+  {
+    "mode": "top",
+    "complete_production_JS": true,
+    "source_sha256": "24d46f2cb50147963f589c6c7a10f4f9dd064449b39f7db52433905d6ab24a51",
+    "forced_policy": false,
+    "negotiated_policy": {
+      "op": "qsm_input_policy",
+      "version": 1,
+      "key_taps": true,
+      "mouse_actions": true,
+      "lease_ms": 200,
+      "snapshot_ms": 50
+    },
+    "page_errors": []
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Alt+Shift_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_GOES_TO_GUEST_Alt+Shift_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "EXPLICIT_GUEST_Alt+Shift_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Ctrl+Shift_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_GOES_TO_GUEST_Ctrl+Shift_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          29
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "EXPLICIT_GUEST_Ctrl+Shift_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          29
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Shift+Meta_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_GOES_TO_GUEST_Shift+Meta_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "EXPLICIT_GUEST_Shift+Meta_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Ctrl+Alt+Shift+Meta_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_GOES_TO_GUEST_Ctrl+Alt+Shift+Meta_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          29,
+          56,
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "EXPLICIT_GUEST_Ctrl+Alt+Shift+Meta_False",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          29,
+          56,
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Alt+Shift_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_GOES_TO_GUEST_Alt+Shift_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "EXPLICIT_GUEST_Alt+Shift_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Ctrl+Shift_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_GOES_TO_GUEST_Ctrl+Shift_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          29
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "EXPLICIT_GUEST_Ctrl+Shift_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          29
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Shift+Meta_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_GOES_TO_GUEST_Shift+Meta_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "EXPLICIT_GUEST_Shift+Meta_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Ctrl+Alt+Shift+Meta_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_GOES_TO_GUEST_Ctrl+Alt+Shift+Meta_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          29,
+          56,
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "EXPLICIT_GUEST_Ctrl+Alt+Shift+Meta_True",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": [
+          29,
+          56,
+          42
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "BARE_ALT_NO_TAB",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "FULL_ALT_TAB",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": true,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "ACTUAL_EDITOR_GUEST_CTRL_SHIFT",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          29
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "MODIFIER_RULE_SEND_BYPASS",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 42,
+        "modifiers": [
+          56
+        ]
+      }
+    ]
+  },
+  {
+    "mode": "embedded",
+    "complete_production_JS": true,
+    "source_sha256": "24d46f2cb50147963f589c6c7a10f4f9dd064449b39f7db52433905d6ab24a51",
+    "forced_policy": false,
+    "negotiated_policy": {
+      "op": "qsm_input_policy",
+      "version": 1,
+      "key_taps": true,
+      "mouse_actions": true,
+      "lease_ms": 200,
+      "snapshot_ms": 50
+    },
+    "page_errors": []
+  }
+]

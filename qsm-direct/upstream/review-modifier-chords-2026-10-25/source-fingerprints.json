@@ -1,0 +1,5 @@
+{
+  "qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js": "24d46f2cb50147963f589c6c7a10f4f9dd064449b39f7db52433905d6ab24a51",
+  "qsm-direct/tests/proxmox_pve9/test_keyboard_state.mjs": "299784d5cadc3391112554b4fcbc39fb424be0aed71ec721ef18fb821fd41913",
+  "qsm-direct/tests/proxmox_pve9/test_host_shortcuts.mjs": "453f7f04fe58a26aef47cb9da335385d83168312b16380755e4148413bdc56d8"
+}

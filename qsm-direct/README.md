@@ -17,7 +17,7 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.11 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.11)
+[Stock4.12 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.12)
 preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
@@ -110,6 +110,17 @@ This also means a deliberate bare reserved modifier uses the explicit Alt,
 Alt+Shift or Super Send to guest button. Unreserved modifier-only actions,
 normal guest chords such as Alt+F, explicit per-rule sends and Raw remain
 available. The active editable rule list controls which prefixes are local.
+
+Stock4.12 makes completed modifier-only combinations explicit shortcut
+rules. All 11 combinations of two or more Ctrl/Alt/Shift/Meta modifiers
+are listed as Host/browser by default in both profiles. Existing browser
+preferences gain missing defaults once, preserving custom actions. Remove
+a rule or select Guest to send that exact combination immediately on first
+release; later releases do not add taps. Deleted defaults stay deleted on
+reload. Alt+Shift, Ctrl+Shift and Win+Shift no longer remain blocked as
+prefixes of longer host rules after their exact rule is removed. Recording,
+editing and Send to guest support modifier-only combinations. Main-key
+chords are matched separately. Raw and bare host-prefix protection remain.
 
 Install and update the standalone packages through the signed
 [APT repository](https://rdmitry0911.github.io/qsm-rd/): follow the

@@ -5,12 +5,12 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
-Current preview: **0.4.0+stock4.11** fixes a remaining host Alt/Meta
-prefix leak when the OS consumes Tab and keyup arrives before blur. Reserved
-modifier-only prefixes stay local on release. Explicit Alt, Alt+Shift and
-Super buttons send deliberate modifier taps to the guest; normal guest
-chords, per-rule sends and Raw remain available. The editable Host shortcuts
-list and separate Guest first / Client first profiles are retained.
+Current preview: **0.4.0+stock4.12** adds exact modifier-only shortcut
+rules. All 11 combinations of two or more Ctrl/Alt/Shift/Meta modifiers
+default to Host/browser. Remove the exact rule or choose Guest to send it
+on release without extra waiting. Guest overrides, modifier recording,
+one-off sends and persistent rule removal are supported. Existing browser
+preferences gain missing modifier defaults once; custom actions survive.
 Exact mouse/trackpad clicks are the
 default too: complete clicks include their position and modifiers. Confirmed
 drags remain ordered and guarded; fractional two-axis scrolling is retained.

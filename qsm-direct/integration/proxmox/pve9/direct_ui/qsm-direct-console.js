@@ -89,6 +89,7 @@
         mouseInputMode: MOUSE_INPUT_MODE.exact,
         hostShortcuts: defaultShortcutRules(),
         clientShortcuts: defaultShortcutRules(true),
+        modifierShortcutDefaultsVersion: 1,
     });
     // Standard receiver target is in milliseconds; the older Chromium hint
     // uses seconds. This is a target: the browser can enforce a larger floor.
@@ -126,7 +127,14 @@
             }
             for (const name of ['hostShortcuts', 'clientShortcuts']) {
                 const rules = normalizeShortcutRules(stored[name]);
-                if (rules !== null) { settings[name] = rules; }
+                if (rules !== null) {
+                    settings[name] = rules;
+                    if (stored.modifierShortcutDefaultsVersion !== 1) {
+                        const seen = new Set(rules.map(rule => rule.shortcut));
+                        settings[name] = [...rules, ...defaultModifierShortcutRules()
+                            .filter(rule => !seen.has(rule.shortcut))].slice(0, 128);
+                    }
+                }
             }
         } catch (_error) { /* A disabled/private localStorage uses defaults. */ }
         return settings;
@@ -696,7 +704,15 @@
         }
         return scanCodes[event.code] || extendedScanCodes[event.code] || null;
     };
-    const SHORTCUT_ACTIONS = Object.freeze(['host', 'release', 'fullscreen', 'toolbar']);
+    const SHORTCUT_ACTIONS = Object.freeze(['host', 'guest', 'release', 'fullscreen', 'toolbar']);
+    const SHORTCUT_MODIFIERS = Object.freeze(['Ctrl', 'Alt', 'Shift', 'Meta']);
+    const shortcutModifierName = (key) => ({ 29: 'Ctrl', 157: 'Ctrl', 42: 'Shift', 54: 'Shift',
+        56: 'Alt', 184: 'Alt', 219: 'Meta', 220: 'Meta' })[key] || null;
+    const modifierShortcutFromKeys = (keys) => {
+        const names = keys.map(shortcutModifierName);
+        return names.length && names.every(Boolean)
+            ? SHORTCUT_MODIFIERS.filter(name => names.includes(name)).join('+') : null;
+    };
     const parseShortcut = (value) => {
         if (typeof value !== 'string' || value.length > 96) { return null; }
         const parts = value.trim().split('+').map(part => part.trim());
@@ -715,13 +731,14 @@
                     .find(name => name.toLowerCase() === part.toLowerCase()));
             if (!code || /^(Control|Alt|Meta|Shift)(Left|Right)$/.test(code)) { return null; }
         }
-        if (!code) { return null; }
-        return [...['Ctrl', 'Alt', 'Shift', 'Meta'].filter(name => modifiers.has(name)), code].join('+');
+        if (!code && !modifiers.size) { return null; }
+        return [...SHORTCUT_MODIFIERS.filter(name => modifiers.has(name)), ...(code ? [code] : [])].join('+');
     };
     const shortcutFromEvent = (event) => {
         if (typeof event.getModifierState === 'function' && event.getModifierState('AltGraph')) { return null; }
-        return parseShortcut([event.ctrlKey && 'Ctrl', event.altKey && 'Alt', event.shiftKey && 'Shift',
-            event.metaKey && 'Meta', event.code].filter(Boolean).join('+'));
+        const modifier = shortcutModifierName(qemuKey(event));
+        return parseShortcut([...new Set([event.ctrlKey && 'Ctrl', event.altKey && 'Alt', event.shiftKey && 'Shift',
+            event.metaKey && 'Meta', modifier].filter(Boolean)), ...(!modifier ? [event.code] : [])].filter(Boolean).join('+'));
     };
     const normalizeShortcutRules = (value) => {
         if (!Array.isArray(value) || value.length > 128) { return null; }
@@ -734,10 +751,19 @@
         }
         return rules;
     };
+    const defaultModifierShortcutRules = () => {
+        const rules = [];
+        for (let mask = 1; mask < (1 << SHORTCUT_MODIFIERS.length); mask += 1) {
+            const names = SHORTCUT_MODIFIERS.filter((_name, index) => mask & (1 << index));
+            if (names.length > 1) { rules.push({ shortcut: names.join('+'), action: 'host' }); }
+        }
+        return rules;
+    };
     const defaultShortcutRules = (browser = false) => {
         const rules = ['Alt+Tab', 'Alt+Shift+Tab', 'Meta+Tab', 'Shift+Meta+Tab',
             'Meta+Space', 'Meta+L', 'Ctrl+Alt+Delete'].map(shortcut => ({ shortcut, action: 'host' }));
         rules.push({ shortcut: 'Ctrl+Alt+Shift+Escape', action: 'release' });
+        rules.push(...defaultModifierShortcutRules());
         if (browser) {
             for (const modifier of ['Ctrl', 'Meta']) {
                 for (const key of ['C', 'V', 'L', 'T', 'W', 'R', 'N', 'P', 'F', 'G', 'H', 'J', 'K', 'D',
@@ -762,18 +788,18 @@
         return shortcut ? rules.find(rule => rule.shortcut === shortcut) || null : null;
     };
     const isHostShortcutPrefix = (keys, rules) => {
-        const names = keys.map(key => ({ 29: 'Ctrl', 157: 'Ctrl', 42: 'Shift', 54: 'Shift',
-            56: 'Alt', 184: 'Alt', 219: 'Meta', 220: 'Meta' })[key]);
+        const names = keys.map(shortcutModifierName);
         return names.length > 0 && names.every(Boolean) && rules.some(rule => {
-            const modifiers = rule.shortcut.split('+').slice(0, -1);
-            return names.every(name => modifiers.includes(name));
+            const modifiers = rule.shortcut.split('+').filter(name => SHORTCUT_MODIFIERS.includes(name));
+            return rule.action !== 'guest' && names.every(name => modifiers.includes(name));
         });
     };
     const shortcutGuestChord = (shortcut) => {
         const canonical = parseShortcut(shortcut);
         if (!canonical) { return null; }
         const parts = canonical.split('+'), code = parts.pop();
-        return { key: qemuKey({ code }), modifiers: parts.map(name => ({ Ctrl: 29, Alt: 56, Shift: 42, Meta: 0xdb })[name]) };
+        const modifierKeys = { Ctrl: 29, Alt: 56, Shift: 42, Meta: 0xdb };
+        return { key: modifierKeys[code] || qemuKey({ code }), modifiers: parts.map(name => modifierKeys[name]) };
     };
 
     // A guest-first console forwards received keys except its explicit host rules.
@@ -1389,7 +1415,7 @@
         shortcutTitle.textContent = gettext('Host shortcuts');
         shortcutTitle.style.cssText = 'font-weight:600;margin-bottom:6px';
         const shortcutHint = document.createElement('p');
-        shortcutHint.textContent = gettext('Listed shortcuts stay out of the guest. Host/browser keeps native handling; other actions control this console. Send to guest bypasses a rule once. Modifier names follow host remapping; Meta means Command on macOS. Raw bypasses this list.');
+        shortcutHint.textContent = gettext('Rules select Host/browser, Guest or a console action. All combinations of two or more modifiers default to Host/browser. Remove a rule or select Guest to send that completed combination to the guest on release. Exact matching keeps Alt+Shift separate from Alt+Shift+Tab. Send to guest bypasses a rule once. Modifier names follow host remapping; Meta means Command on macOS. Raw bypasses this list.');
         shortcutHint.style.cssText = 'margin:0 0 8px;color:#cbd5e1;line-height:1.35';
         const shortcutList = document.createElement('ul');
         shortcutList.setAttribute('aria-label', gettext('Configured host shortcuts'));
@@ -1403,7 +1429,7 @@
         shortcutInput.style.cssText = 'min-width:100px;width:100%;box-sizing:border-box;padding:5px 7px';
         const shortcutAction = document.createElement('select');
         shortcutAction.setAttribute('aria-label', gettext('Shortcut action'));
-        const shortcutLabels = { host: gettext('Host / browser'), release: gettext('Release keyboard'),
+        const shortcutLabels = { host: gettext('Host / browser'), guest: gettext('Guest'), release: gettext('Release keyboard'),
             fullscreen: gettext('Toggle full screen'), toolbar: gettext('Show / hide controls') };
         for (const action of SHORTCUT_ACTIONS) {
             const option = document.createElement('option'); option.value = action;
@@ -1420,13 +1446,13 @@
         const shortcutError = document.createElement('p');
         shortcutError.setAttribute('role', 'alert'); shortcutError.style.cssText = 'margin:6px 0;color:#fbbf24';
         const shortcutRecordHint = document.createElement('p');
-        shortcutRecordHint.textContent = gettext('Enter e.g. Alt+Tab, Cmd+Space or Ctrl+Shift+F. Record captures keys received by the browser; enter OS-reserved combinations manually. Include a non-modifier key. Modifier-only prefixes of these rules stay local on release, even if the OS withholds the main key. Use Send to guest buttons for an explicit Alt, Alt+Shift or Super tap.');
+        shortcutRecordHint.textContent = gettext('Enter e.g. Alt+Tab, Alt+Shift, Ctrl+Shift or Win+Shift. Record completes a modifier-only combination on release. No extra waiting is added. A bare modifier that could start a host shortcut stays local unless an exact Guest rule permits it. Record captures keys received by the browser; enter OS-reserved combinations manually.');
         shortcutRecordHint.style.cssText = 'margin:6px 0;color:#cbd5e1;line-height:1.35';
         shortcutForm.append(shortcutInput, shortcutAction, recordShortcut, saveShortcut, cancelShortcut, resetShortcuts);
         shortcutEditor.append(shortcutTitle, shortcutHint, shortcutList, shortcutForm, shortcutError, shortcutRecordHint);
-        let editingShortcut = null, recordingShortcut = false;
+        let editingShortcut = null, recordingShortcut = false, recordedModifierShortcut = null;
         const clearShortcutEdit = () => {
-            editingShortcut = null; recordingShortcut = false; shortcutInput.value = '';
+            editingShortcut = null; recordingShortcut = false; recordedModifierShortcut = null; shortcutInput.value = '';
             recordShortcut.textContent = gettext('Record shortcut'); saveShortcut.textContent = gettext('Add shortcut');
             cancelShortcut.hidden = true; shortcutError.textContent = '';
         };
@@ -1472,6 +1498,7 @@
         };
         recordShortcut.addEventListener('click', () => {
             recordingShortcut = !recordingShortcut;
+            recordedModifierShortcut = null;
             recordShortcut.textContent = recordingShortcut ? gettext('Press a shortcut…') : gettext('Record shortcut');
             shortcutError.textContent = ''; shortcutInput.focus({ preventScroll: true });
         });
@@ -1480,12 +1507,20 @@
             event.preventDefault(); event.stopPropagation();
             const shortcut = shortcutFromEvent(event);
             if (!shortcut) { return; }
+            if (shortcutModifierName(qemuKey(event))) { recordedModifierShortcut = shortcut; return; }
             shortcutInput.value = shortcut; recordingShortcut = false;
+            recordShortcut.textContent = gettext('Record shortcut');
+        });
+        shortcutInput.addEventListener('keyup', (event) => {
+            if (!recordingShortcut || !recordedModifierShortcut) { return; }
+            event.preventDefault(); event.stopPropagation();
+            shortcutInput.value = recordedModifierShortcut;
+            recordingShortcut = false; recordedModifierShortcut = null;
             recordShortcut.textContent = gettext('Record shortcut');
         });
         saveShortcut.addEventListener('click', () => {
             const shortcut = parseShortcut(shortcutInput.value), rules = [...shortcutRulesForSettings(settings)];
-            if (!shortcut) { shortcutError.textContent = gettext('Use modifiers and a key, e.g. Alt+Tab or Ctrl+Shift+F.'); return; }
+            if (!shortcut) { shortcutError.textContent = gettext('Use a key combination, e.g. Alt+Tab, Alt+Shift or Ctrl+Shift+F.'); return; }
             if (rules.some((rule, index) => index !== editingShortcut && rule.shortcut === shortcut)) {
                 shortcutError.textContent = gettext('This shortcut already has a rule. Edit or remove that rule.'); return;
             }
@@ -2839,15 +2874,24 @@
                 const used = deferredModifiers.get(key);
                 const modifiers = inputModifiers(sourceEvent).filter(value => value !== key);
                 deferredModifiers.delete(key); heldKeys.delete(key);
-                // The OS can swallow Tab and deliver Alt/Meta keyup before
-                // blur, while hasFocus() is still true. A reserved prefix is
-                // indistinguishable from a bare modifier tap: keep it local.
-                // Unreserved modifier-only shortcuts and AltGraph still work.
+                // Release completes a modifier-only combination. Match that
+                // exact combination, not the prefix of a longer shortcut.
+                // A lone ambiguous Alt/Meta still has no evidence of a guest
+                // chord when the OS hides Tab; an explicit Guest rule opts in.
                 if (sourceEvent && !used && !keyboardCaptureSuspended && !document.hidden &&
                     (typeof document.hasFocus !== 'function' || document.hasFocus())) {
                     markModifiersUsed();
-                    if (sourceEvent.key === 'AltGraph' ||
-                        !isHostShortcutPrefix([key, ...modifiers], shortcutRulesForSettings(settings))) {
+                    const shortcut = modifierShortcutFromKeys([key, ...modifiers]);
+                    const rules = shortcutRulesForSettings(settings);
+                    const rule = rules.find(item => item.shortcut === shortcut);
+                    if (rule && rule.action !== 'guest') {
+                        releaseHeldInput();
+                        if (rule.action !== 'host') { sourceEvent.preventDefault(); sourceEvent.stopPropagation(); }
+                        if (rule.action === 'release') { leaveGuestKeyboardCapture(); }
+                        else if (rule.action === 'fullscreen') { fullscreen.click(); }
+                        else if (rule.action === 'toolbar') { revealHandle.click(); }
+                    } else if (rule?.action === 'guest' || sourceEvent.key === 'AltGraph' ||
+                        (shortcut && shortcut.includes('+')) || !isHostShortcutPrefix([key, ...modifiers], rules)) {
                         noteGuestInput(); send({ op: 'key_tap', key, modifiers });
                     }
                 }
@@ -2928,10 +2972,13 @@
         const routeHostShortcut = (event) => {
             if (routedShortcutEvents.has(event)) { return true; }
             if (settings.keyboardPriority === KEYBOARD_PRIORITY.raw) { return false; }
+            // Modifier-only rules commit on release inside sendKeyboard.
+            // On keydown they could still be part of a longer guest chord.
+            if (shortcutModifierName(qemuKey(event))) { return false; }
             const latched = hostShortcutKeys.get(event.code);
             const rule = latched || (event.type === 'keydown'
                 ? matchShortcutRule(event, shortcutRulesForSettings(settings)) : null);
-            if (!rule) { return false; }
+            if (!rule || rule.action === 'guest') { return false; }
             routedShortcutEvents.add(event);
             if (event.type === 'keyup') { hostShortcutKeys.delete(event.code); }
             else { hostShortcutKeys.set(event.code, rule); }
@@ -2999,7 +3046,9 @@
                 const code = qemuKey(event, settings.keyboardPriority === KEYBOARD_PRIORITY.raw);
                 if (routeHostShortcut(event)) { return; }
                 if (code !== null) {
-                    event.preventDefault(); event.stopPropagation();
+                    if (!shortcutModifierName(code) ||
+                        matchShortcutRule(event, shortcutRulesForSettings(settings))?.action !== 'host') { event.preventDefault(); }
+                    event.stopPropagation();
                     sendKeyboard(code, name === 'keydown', event.repeat, event.timeStamp, event);
                 }
                 // Keep the field empty so the OS keyboard never shows a caret
@@ -4055,7 +4104,9 @@
                             });
                         }
                     } else if (key !== null) {
-                        event.preventDefault(); event.stopPropagation();
+                        if (!shortcutModifierName(key) ||
+                            matchShortcutRule(event, shortcutRulesForSettings(settings))?.action !== 'host') { event.preventDefault(); }
+                        event.stopPropagation();
                         sendKeyboard(key, name === 'keydown', event.repeat, event.timeStamp, event);
                     }
                 });

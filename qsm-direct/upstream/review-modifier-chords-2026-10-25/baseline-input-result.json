@@ -1,0 +1,256 @@
+[
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Alt+Shift_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_STILL_BLOCKED_Alt+Shift_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Ctrl+Shift_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_STILL_BLOCKED_Ctrl+Shift_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Shift+Meta_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_STILL_BLOCKED_Shift+Meta_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Alt+Shift_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_STILL_BLOCKED_Alt+Shift_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Ctrl+Shift_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_STILL_BLOCKED_Ctrl+Shift_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "DEFAULT_HOST_Shift+Meta_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "REMOVED_STILL_BLOCKED_Shift+Meta_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "BARE_ALT_NO_TAB",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "FULL_ALT_TAB",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": true,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "complete_production_JS": true,
+    "source_sha256": "208eacc2b229154a32d770757bfe5464ced5bfd9427141e8e2af3cb92a040b78",
+    "forced_policy": false,
+    "negotiated_policy": {
+      "op": "qsm_input_policy",
+      "version": 1,
+      "key_taps": true,
+      "mouse_actions": true,
+      "lease_ms": 200,
+      "snapshot_ms": 50
+    },
+    "page_errors": []
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Alt+Shift_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_STILL_BLOCKED_Alt+Shift_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Ctrl+Shift_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_STILL_BLOCKED_Ctrl+Shift_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Shift+Meta_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_STILL_BLOCKED_Shift+Meta_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Alt+Shift_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_STILL_BLOCKED_Alt+Shift_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Ctrl+Shift_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_STILL_BLOCKED_Ctrl+Shift_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "DEFAULT_HOST_Shift+Meta_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "REMOVED_STILL_BLOCKED_Shift+Meta_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "BARE_ALT_NO_TAB",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "FULL_ALT_TAB",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": true,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "complete_production_JS": true,
+    "source_sha256": "208eacc2b229154a32d770757bfe5464ced5bfd9427141e8e2af3cb92a040b78",
+    "forced_policy": false,
+    "negotiated_policy": {
+      "op": "qsm_input_policy",
+      "version": 1,
+      "key_taps": true,
+      "mouse_actions": true,
+      "lease_ms": 200,
+      "snapshot_ms": 50
+    },
+    "page_errors": []
+  }
+]

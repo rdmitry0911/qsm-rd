@@ -4,9 +4,9 @@ const source=fs.readFileSync(new URL('../../integration/proxmox/pve9/direct_ui/q
 const part=(a,b)=>{const i=source.indexOf(a),j=source.indexOf(b,i);assert.ok(i>=0&&j>i);return source.slice(i,j);};
 const api=new Function(`${part('const CONSOLE_SETTINGS_STORAGE_KEY =','// Display1 injects')}
 ${part('const scanCodes =','// A guest-first console')}
-return {parseShortcut,shortcutFromEvent,normalizeShortcutRules,defaultShortcutRules,shortcutRulesForSettings,matchShortcutRule,shortcutGuestChord,readConsoleSettings,writeConsoleSettings,defaultConsoleSettings};`)();
-for(const [text,canonical]of [['option+tab','Alt+Tab'],['Command+Shift+Tab','Shift+Meta+Tab'],['ctrl+alt+esc','Ctrl+Alt+Escape'],['Super+l','Meta+KeyL'],['F11','F11'],['Ctrl+Equal','Ctrl+Equal'],['Ctrl+Shift+1','Ctrl+Shift+Digit1']])assert.equal(api.parseShortcut(text),canonical);
-for(const bad of ['', 'Ctrl+Alt','Alt+Alt+Tab','Ctrl++','Ctrl+Q+W','__proto__+F','constructor','Ctrl+UnrecognisedKey','a'.repeat(100)])assert.equal(api.parseShortcut(bad),null,bad);
+return {parseShortcut,shortcutFromEvent,normalizeShortcutRules,defaultShortcutRules,shortcutRulesForSettings,matchShortcutRule,shortcutGuestChord,modifierShortcutFromKeys,readConsoleSettings,writeConsoleSettings,defaultConsoleSettings};`)();
+for(const [text,canonical]of [['option+tab','Alt+Tab'],['Command+Shift+Tab','Shift+Meta+Tab'],['ctrl+alt+esc','Ctrl+Alt+Escape'],['Super+l','Meta+KeyL'],['F11','F11'],['Ctrl+Equal','Ctrl+Equal'],['Ctrl+Shift+1','Ctrl+Shift+Digit1'],['Alt+Shift','Alt+Shift'],['Win+Shift','Shift+Meta'],['Control+Shift','Ctrl+Shift'],['Command','Meta']])assert.equal(api.parseShortcut(text),canonical);
+for(const bad of ['', 'Ctrl++Alt','Alt+Alt+Tab','Ctrl++','Ctrl+Q+W','__proto__+F','constructor','Ctrl+UnrecognisedKey','a'.repeat(100)])assert.equal(api.parseShortcut(bad),null,bad);
 assert.equal(api.shortcutFromEvent({code:'Tab',altKey:true}), 'Alt+Tab');
 assert.equal(api.shortcutFromEvent({code:'Tab',altKey:true,shiftKey:true}), 'Alt+Shift+Tab');
 assert.equal(api.shortcutFromEvent({code:'KeyE',getModifierState:n=>n==='AltGraph'}),null,'AltGraph is not a host Alt shortcut');
@@ -27,4 +27,21 @@ assert.equal(api.matchShortcutRule({code:'Tab',altKey:true},[rule]),rule);
 assert.equal(api.matchShortcutRule({code:'Tab',altKey:true,shiftKey:true},[rule]),null,'extra modifiers need their own explicit rule');
 assert.deepEqual(api.shortcutGuestChord('Cmd+Shift+Tab'),{key:15,modifiers:[42,0xdb]},'one-off guest action bypasses routing and keeps its exact chord');
 storage.value=JSON.stringify({hostShortcuts:[{shortcut:'unknown',action:'host'}]});assert.deepEqual(api.readConsoleSettings(storage).hostShortcuts,defaults.hostShortcuts,'malformed persisted rules do not silently disable defaults');
+assert.equal(api.modifierShortcutFromKeys([54,184,157]),'Ctrl+Alt+Shift');
+assert.deepEqual(api.shortcutGuestChord('Win+Shift'),{key:219,modifiers:[42]},'modifier-only Send to guest uses real scancodes');
+assert.deepEqual(api.normalizeShortcutRules([{shortcut:'Alt+Shift',action:'guest'},{shortcut:'Ctrl+Shift',action:'host'}]),[{shortcut:'Alt+Shift',action:'guest'},{shortcut:'Ctrl+Shift',action:'host'}]);
+assert.equal(api.shortcutFromEvent({code:'MetaLeft',key:'Alt',altKey:true,shiftKey:true}),'Alt+Shift','record uses logical host modifier remapping');
+const modifierRules=defaults.hostShortcuts.filter(r=>r.shortcut.split('+').every(p=>['Ctrl','Alt','Shift','Meta'].includes(p)));
+assert.equal(modifierRules.length,11,'all combinations of 2, 3 and 4 distinct modifiers have explicit defaults');
+assert.ok(modifierRules.every(r=>r.action==='host'));
+assert.ok(['Alt+Shift','Ctrl+Shift','Shift+Meta','Ctrl+Alt+Shift+Meta'].every(s=>modifierRules.some(r=>r.shortcut===s)));
+storage.value=JSON.stringify({hostShortcuts:[{shortcut:'Alt+Tab',action:'host'},{shortcut:'Alt+Shift',action:'guest'}],clientShortcuts:[{shortcut:'Ctrl+KeyL',action:'toolbar'}],targetFps:45});
+const upgraded=api.readConsoleSettings(storage);
+assert.equal(upgraded.modifierShortcutDefaultsVersion,1);
+assert.equal(upgraded.targetFps,45);assert.equal(upgraded.hostShortcuts.length,12);assert.equal(upgraded.clientShortcuts.length,12);
+assert.equal(upgraded.hostShortcuts.find(r=>r.shortcut==='Alt+Shift').action,'guest','one-time defaults must preserve an explicit override');
+assert.equal(upgraded.clientShortcuts.find(r=>r.shortcut==='Ctrl+KeyL').action,'toolbar','migration preserves unrelated custom actions');
+upgraded.hostShortcuts=upgraded.hostShortcuts.filter(r=>r.shortcut!=='Ctrl+Shift');api.writeConsoleSettings(storage,upgraded);
+assert.ok(!api.readConsoleSettings(storage).hostShortcuts.some(r=>r.shortcut==='Ctrl+Shift'),'a deleted default must not reappear on reload');
+upgraded.hostShortcuts=[];api.writeConsoleSettings(storage,upgraded);assert.deepEqual(api.readConsoleSettings(storage).hostShortcuts,[]);
 console.log('QSM_HOST_SHORTCUTS_OK');

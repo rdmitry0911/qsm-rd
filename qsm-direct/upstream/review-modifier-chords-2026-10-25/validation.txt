@@ -1,0 +1,38 @@
+stock4.12 qualification — 2026-10-25
+
+Scope: exact configurable modifier-only rules; default all 11 combinations
+of 2+ logical modifiers to host as requested. Remove/change to Guest to
+send on first release, without another timer. Full main-key chords remain
+independent. Parser, recorder and send helpers accept modifier-only chords.
+Stored preferences migrate missing defaults once, preserve overrides and
+persist the version marker on edits so removal is never undone on reload.
+
+24 final CTest gates pass; modifier state regression exercises 26,784 cases
+for every 2/3/4-modifier combination and press/release permutation, both
+sides/remapped keys, both modes/targets and default/removed/Guest routing.
+Focused bare Alt with hidden Tab still emits zero packets by default.
+Longer guest Ctrl+Shift+A and received host Alt+Shift+Tab remain correct.
+
+Full production editor Firefox and Chromium tests pass top/embedded,
+including modifier recording, editing Guest, persistent removal, separate
+profiles, reset and fullscreen. An initial test retained a locator across
+iframe replacement; it was corrected to rebind the new frame. Final UI
+runs have zero page errors. The real-input test reveals the auto-hidden
+toolbar through its ordinary handle before opening Settings.
+
+Full production viewer Firefox A/B uses actual SCTP and the installed
+bridge/worker against owned CT108. API auth/SDP transport and observation
+hooks are lab substitutes; handlers are complete production source and
+input policy comes from the real bridge, never forced. Stock4.11 blocks
+Alt+Shift/Ctrl+Shift/Shift+Meta after attempted rule removal. Fixed source
+routes explicit default host, removed and Guest cases correctly in exact
+and physical main-key modes, standalone/embedded. It also verifies the
+actual editor Guest Ctrl+Shift change and modifier-rule Send bypass.
+
+DOM/MacIntel are modelled on Linux, not native physical macOS. Browser
+routing cannot infer a hidden system key from an identical modifier-only
+DOM sequence. Explicit Guest/removal intentionally selects guest routing;
+all default modifier combinations stay local. Worker/bridge/protocol
+unchanged. CT108 owned fixture stopped and original output restored.
+No production guest input logged/injected, VM103/CT105 restart/provisioning
+or external discussion message performed.
