@@ -1,0 +1,14 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.12",
+  "source_commit": "f5ecea970bbdb7f9a35c4bbaaada2a0f88a3f4fc",
+  "apt_manifest_commit": "d85f3a12fddeffe64558b3b4d646fe50522d881b",
+  "apt_workflow": "https://github.com/rdmitry0911/qsm-rd/actions/runs/40189588595",
+  "apt_workflow_result": "success",
+  "public_apt": "https://rdmitry0911.github.io/qsm-rd/",
+  "verified_downloads": 66,
+  "release_verification": "18 release assets downloaded; detached signature and all 16 payload checksums match. Public APT verifies all 66 pinned packages and rejects metadata/deb tampering.",
+  "deployment": "192.168.64.20 four matching stock4.12 host profiles; dpkg audit empty, apt-get check passes; services active, VM103/CT105 running, package/installed/HTTPS viewer hash matches. CT108 restored.",
+  "test_scope": "24 CTest gates including 26,784 modifier routing cases. Full production Firefox/Chromium editor top/embedded, real SCTP full-viewer baseline/new input routing with actual input negotiation and actual editor Guest override. DOM/MacIntel modelled on Linux; no physical Mac qualification.",
+  "behavior": "All 11 combinations of 2+ logical modifiers have explicit Host/browser defaults. Removal or Guest action sends completed modifier-only chord on first release without added waiting; longer main-key chords remain independent. Existing profiles gain missing defaults once; custom edits/removal persist. Parser/record/send accept modifier-only shortcuts. Bare host-prefix protection and Raw retained. Worker/bridge unchanged.",
+  "discussion_messages": "Draft prepared; no external discussion messages posted."
+}
