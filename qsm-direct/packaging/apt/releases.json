@@ -415,6 +415,47 @@
           "sha256": "3a8ec628fc17bbc9ebdfae2b55243b744106bf9fc6303ec182f1c4fa5ee93c7f"
         }
       ]
+    },
+    {
+      "tag": "v0.4.0-qsm-direct-20261025-stock4.10",
+      "source_commit": "fe83a60d94af591c90d257b107886c2e34210a0a",
+      "assets": [
+        {
+          "filename": "qsm-console-guest_0.4.0+stock4.10_all.deb",
+          "package": "qsm-console-guest",
+          "version": "0.4.0+stock4.10",
+          "architecture": "all",
+          "sha256": "9e98ecc72632bbf31065498d56e3b911e70bbec0485e31d4820cfdbc53f0efe3"
+        },
+        {
+          "filename": "qsm-pve-direct-gateway_0.4.0+stock4.10_all.deb",
+          "package": "qsm-pve-direct-gateway",
+          "version": "0.4.0+stock4.10",
+          "architecture": "all",
+          "sha256": "8e6536a88f58fbc67f9554096381f72bf6b27cb8ff97dd1e953890085e81e6cf"
+        },
+        {
+          "filename": "qsm-pve-direct-lxc_0.4.0+stock4.10_all.deb",
+          "package": "qsm-pve-direct-lxc",
+          "version": "0.4.0+stock4.10",
+          "architecture": "all",
+          "sha256": "4a1447869ac407b7c8285544566de51e7a3d3bd69d678d3a26cfe8a73270542e"
+        },
+        {
+          "filename": "qsm-pve-direct-standalone_0.4.0+stock4.10_all.deb",
+          "package": "qsm-pve-direct-standalone",
+          "version": "0.4.0+stock4.10",
+          "architecture": "all",
+          "sha256": "6075bbbbb28de347355b7a7b418c6941bea163481a7077e532b75fc93120baab"
+        },
+        {
+          "filename": "qsm-pve-direct_0.4.0+stock4.10_amd64.deb",
+          "package": "qsm-pve-direct",
+          "version": "0.4.0+stock4.10",
+          "architecture": "amd64",
+          "sha256": "37df75b6ef548a6354e9562771d3d3d8aa4a349f48b00bec8b0d7c47b6d42db4"
+        }
+      ]
     }
   ]
 }

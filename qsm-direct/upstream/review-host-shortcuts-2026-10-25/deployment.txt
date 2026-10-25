@@ -1,0 +1,17 @@
+192.168.64.20 runs matching final stock4.10 core/standalone/LXC/gateway.
+Initial installation caught viewer >256 KiB guard. Final deb has a separate
+bounded overlay limit, while stock-template and ownership checks remain.
+The initial unpublished same-version packages left two profiles pending;
+APT --reinstall then hit its local-all-architecture filename error before
+unpacking. Final reviewed four debs installed in dependency order via dpkg.
+All packages configured; dpkg audit empty and apt-get check passes. Terminal,
+signal/gateway/turn active; VM103 and CT105 running. Installed/HTTPS viewer
+matches final package; worker/bridge unchanged. Guest deb not installed on
+PVE host. CT108 fixture stopped and output restored before deployment.
+Downloaded public release signature and every asset SHA256 verified.
+24 final CTest gates, editor Firefox/Chromium top/embedded, and complete-DOM
+WebRTC old/new comparison pass. MacIntel/logical DOM modelled on Linux;
+no physical Mac qualification claimed. No discussion mail/comments sent.
+Reload PVE and reopen console: Settings > Keyboard shortcut priority > Host
+shortcuts. Default Alt+Tab families stay out of the guest; Send to guest can
+bypass a rule once. Preferences apply immediately and persist per browser.
