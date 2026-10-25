@@ -1,0 +1,17 @@
+The user explicitly selected adding Meta+Shift while preserving Alt+Shift.
+The existing KGlobalAccel layout action had key 150994976 (Alt+Shift).
+Meta+Shift key 285212704 had no conflicting global action and was appended
+through KGlobalAccel.setForeignShortcut. Both active and saved shortcuts
+are verified. This is a VM103 user preference, not a QSM package default.
+
+A subsequent full browser/installed terminal/bridge/worker/live VM test
+verifies both combinations with Shift-first and other-modifier-first
+release. Guest USB evdev receives the original down order. A bounded
+org.kde.KeyboardLayouts.layoutChanged and component shortcut signal
+observer confirms exactly one invocation and one layout change per action.
+This accounts for asynchronous Plasma handling rather than reading its
+state too early. The first post-update single-read check was inconclusive
+for one Alt+Shift case; final signal-based verification covers all four.
+No guest typed-text events are captured. Original active layout restored;
+all owned temporary observers/files removed. The user's Mac browser
+preferences are browser-local; the test context selects Guest for both.

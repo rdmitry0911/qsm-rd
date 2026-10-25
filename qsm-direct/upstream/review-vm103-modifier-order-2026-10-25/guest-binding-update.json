@@ -1,0 +1,12 @@
+{
+  "action": "Switch to Next Keyboard Layout",
+  "before": [
+    150994976
+  ],
+  "after": [
+    150994976,
+    285212704
+  ],
+  "added": "Meta+Shift",
+  "preserved_existing": true
+}

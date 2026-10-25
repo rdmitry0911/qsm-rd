@@ -1,0 +1,239 @@
+{
+  "source_sha256": "d2b73b8b5d0bb48a72f298b49476f067c5146525c06a7b80baf78bfda741c715",
+  "vmid": 103,
+  "actual_installed_shared_terminal_bridge_worker": true,
+  "resize_suppressed_for_production_VM": true,
+  "cases": [
+    {
+      "combo": "Meta+Shift",
+      "released_first": "Shift",
+      "before": 0,
+      "after": 1,
+      "sent": [
+        {
+          "op": "key_tap",
+          "key": 42,
+          "modifiers": [
+            219
+          ]
+        }
+      ],
+      "guest_evdev": {
+        "modifier_events": [
+          [
+            125,
+            1
+          ],
+          [
+            42,
+            1
+          ],
+          [
+            42,
+            0
+          ],
+          [
+            125,
+            0
+          ]
+        ],
+        "complete": true,
+        "text_keys_recorded": false
+      },
+      "guest_gui": {
+        "events": [
+          {
+            "event": "shortcut",
+            "args": [
+              "KDE Keyboard Layout Switcher",
+              "Switch to Next Keyboard Layout",
+              "0"
+            ]
+          },
+          {
+            "event": "layoutChanged",
+            "index": 1
+          }
+        ],
+        "done": true
+      },
+      "keyboard_events": "Playwright Firefox actual keyboard dispatch, no modelled DOM events"
+    },
+    {
+      "combo": "Meta+Shift",
+      "released_first": "Meta",
+      "before": 0,
+      "after": 1,
+      "sent": [
+        {
+          "op": "key_tap",
+          "key": 42,
+          "modifiers": [
+            219
+          ]
+        }
+      ],
+      "guest_evdev": {
+        "modifier_events": [
+          [
+            125,
+            1
+          ],
+          [
+            42,
+            1
+          ],
+          [
+            42,
+            0
+          ],
+          [
+            125,
+            0
+          ]
+        ],
+        "complete": true,
+        "text_keys_recorded": false
+      },
+      "guest_gui": {
+        "events": [
+          {
+            "event": "shortcut",
+            "args": [
+              "KDE Keyboard Layout Switcher",
+              "Switch to Next Keyboard Layout",
+              "0"
+            ]
+          },
+          {
+            "event": "layoutChanged",
+            "index": 1
+          }
+        ],
+        "done": true
+      },
+      "keyboard_events": "Playwright Firefox actual keyboard dispatch, no modelled DOM events"
+    },
+    {
+      "combo": "Alt+Shift",
+      "released_first": "Shift",
+      "before": 0,
+      "after": 1,
+      "sent": [
+        {
+          "op": "key_tap",
+          "key": 42,
+          "modifiers": [
+            56
+          ]
+        }
+      ],
+      "guest_evdev": {
+        "modifier_events": [
+          [
+            56,
+            1
+          ],
+          [
+            42,
+            1
+          ],
+          [
+            42,
+            0
+          ],
+          [
+            56,
+            0
+          ]
+        ],
+        "complete": true,
+        "text_keys_recorded": false
+      },
+      "guest_gui": {
+        "events": [
+          {
+            "event": "shortcut",
+            "args": [
+              "KDE Keyboard Layout Switcher",
+              "Switch to Next Keyboard Layout",
+              "0"
+            ]
+          },
+          {
+            "event": "layoutChanged",
+            "index": 1
+          }
+        ],
+        "done": true
+      },
+      "keyboard_events": "Playwright Firefox actual keyboard dispatch, no modelled DOM events"
+    },
+    {
+      "combo": "Alt+Shift",
+      "released_first": "Alt",
+      "before": 0,
+      "after": 1,
+      "sent": [
+        {
+          "op": "key_tap",
+          "key": 42,
+          "modifiers": [
+            56
+          ]
+        }
+      ],
+      "guest_evdev": {
+        "modifier_events": [
+          [
+            56,
+            1
+          ],
+          [
+            42,
+            1
+          ],
+          [
+            42,
+            0
+          ],
+          [
+            56,
+            0
+          ]
+        ],
+        "complete": true,
+        "text_keys_recorded": false
+      },
+      "guest_gui": {
+        "events": [
+          {
+            "event": "shortcut",
+            "args": [
+              "KDE Keyboard Layout Switcher",
+              "Switch to Next Keyboard Layout",
+              "0"
+            ]
+          },
+          {
+            "event": "layoutChanged",
+            "index": 1
+          }
+        ],
+        "done": true
+      },
+      "keyboard_events": "Playwright Firefox actual keyboard dispatch, no modelled DOM events"
+    }
+  ],
+  "original_layout": 0,
+  "policy": {
+    "op": "qsm_input_policy",
+    "version": 1,
+    "key_taps": true,
+    "mouse_actions": true,
+    "lease_ms": 200,
+    "snapshot_ms": 50
+  },
+  "page_errors": [],
+  "restored_layout": 0
+}
