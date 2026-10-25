@@ -25,7 +25,7 @@ function harness({keyboard=null,topKeyboard=keyboard,option=true,reject=false,pr
   if(defer)return new Promise(r=>{resolve=()=>{document.fullscreenElement=document.documentElement;r();};});
   document.fullscreenElement=document.documentElement;return Promise.resolve();
  };
- video.focus=()=>{document.activeElement=video;};
+ video.focus=()=>{calls.push('focus');document.activeElement=video;};
  const popup={...target(),navigator:{keyboard},top:{navigator:{keyboard:topKeyboard}}};
  const state=factory({popup:{...popup,navigator:{keyboard},top:{navigator:{keyboard:topKeyboard}}},document,video,kbInput,settings,keyboardCaptureStatus:status,
   captureKeyboard,captureKeyboardSettings,keyboardPriorityInput:{},applyConsoleSettings:()=>calls.push('persist'),releaseHeldInput:()=>calls.push('release')});
@@ -67,10 +67,31 @@ function harness({keyboard=null,topKeyboard=keyboard,option=true,reject=false,pr
  const h=harness({defer:true});h.enterConsoleFullscreen();h.releaseGuestKeyboardLock();h.resolve();await tick();assert.ok(h.calls.includes('exit'));assert.doesNotMatch(h.status.textContent||'',/^Keyboard capture active/,'late fullscreen resolution cannot reacquire released capture');
 }
 {
- const h=harness();h.enterConsoleFullscreen();await tick();h.popup.listeners.blur();assert.ok(h.calls.includes('exit'),'capture releases on blur even before media connects');
+ const h=harness();h.enterConsoleFullscreen();await tick();h.calls.length=0;
+ h.popup.listeners.blur();assert.ok(h.calls.includes('release'),'blur releases guest-held input even before media connects');
+ assert.ok(!h.calls.includes('exit'),'host Alt/Cmd+Tab must preserve fullscreen');
+ assert.equal(h.captureKeyboard.attrs['aria-pressed'],'true');assert.match(h.status.textContent,/paused/);
+ h.popup.listeners.focus();await tick();assert.match(h.status.textContent,/capture active/);
+ assert.equal(h.calls.filter(v=>Array.isArray(v)&&v[0]==='fullscreen').length,0,'return does not request a new fullscreen');
 }
 {
- const h=harness();h.enterConsoleFullscreen();await tick();h.document.hidden=true;h.document.listeners.visibilitychange();assert.ok(h.calls.includes('exit'));
+ const h=harness();h.enterConsoleFullscreen();await tick();h.calls.length=0;
+ h.document.hidden=true;h.document.listeners.visibilitychange();assert.ok(!h.calls.includes('exit'));
+ h.document.hidden=false;h.document.listeners.visibilitychange();await tick();assert.match(h.status.textContent,/capture active/);
+ assert.equal(h.calls.filter(v=>Array.isArray(v)&&v[0]==='fullscreen').length,0);
+}
+{
+ const calls=[];const keyboard={lock:()=>{calls.push('lock');return Promise.resolve();},unlock:()=>calls.push('unlock')};
+ const h=harness({keyboard,option:false});h.enterConsoleFullscreen();await tick();h.calls.length=0;calls.length=0;
+ h.popup.listeners.blur();assert.equal(calls.at(-1),'unlock');assert.ok(!h.calls.includes('exit'));
+ h.popup.listeners.focus();await tick();assert.equal(calls.at(-1),'lock');assert.match(h.status.textContent,/capture active/);
+ assert.ok(!h.calls.some(v=>Array.isArray(v)&&v[0]==='fullscreen'));
+}
+{
+ const h=harness({defer:true});h.enterConsoleFullscreen();const focusCalls=h.calls.filter(v=>v==='focus').length;
+ h.popup.listeners.blur();h.resolve();await tick();assert.ok(h.document.fullscreenElement);assert.ok(!h.calls.includes('exit'));
+ assert.equal(h.calls.filter(v=>v==='focus').length,focusCalls,'a late request may not focus the background guest');
+ assert.match(h.status.textContent,/paused/);h.popup.listeners.focus();await tick();assert.match(h.status.textContent,/capture active/);
 }
 {
  const h=harness();h.enterConsoleFullscreen();await tick();h.document.fullscreenElement=null;h.updateGuestKeyboardLock();assert.equal(h.captureKeyboard.attrs['aria-pressed'],'false');

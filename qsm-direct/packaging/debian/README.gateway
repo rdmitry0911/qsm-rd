@@ -1,7 +1,7 @@
 QSM Direct: optional TCP 8006 gateway (experimental, single-node PVE 9)
 ===================================================================
 
-Release: 0.4.0+stock4.4. This explicit standalone profile shares TCP 8006 between
+Release: 0.4.0+stock4.5. This explicit standalone profile shares TCP 8006 between
 normal PVE HTTPS and authenticated TURN/TCP. Signalling uses /qsm-direct/ on the
 PVE browser origin. Video/audio and input/clipboard are encrypted by WebRTC.
 TURN control messages use plain TCP, WITHOUT TLS. See Encryption below.
@@ -13,14 +13,14 @@ Requirements and package installation
 ------------------------------------
 Read INSTALL-STOCK.txt / README.standalone first for platform, VM and LXC setup.
 No patched Proxmox debs are needed on stock PVE. Download matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.4
-Verify SHA256SUMS-stock4.4. Install as root on the PVE HOST:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.5
+Verify SHA256SUMS-stock4.5. Install as root on the PVE HOST:
 
-  apt install ./qsm-pve-direct_0.4.0+stock4.4_amd64.deb \
-              ./qsm-pve-direct-standalone_0.4.0+stock4.4_all.deb \
-              ./qsm-pve-direct-gateway_0.4.0+stock4.4_all.deb
+  apt install ./qsm-pve-direct_0.4.0+stock4.5_amd64.deb \
+              ./qsm-pve-direct-standalone_0.4.0+stock4.5_all.deb \
+              ./qsm-pve-direct-gateway_0.4.0+stock4.5_all.deb
 
-If the LXC helper is already installed, include its matching stock4.4 deb in that
+If the LXC helper is already installed, include its matching stock4.5 deb in that
 same transaction. For new LXC setup install the separate helper as described in
 README.standalone; it embeds the guest payload. NEVER install qsm-console-guest
 on the PVE host. Package installation does not activate a new gateway.
@@ -189,8 +189,10 @@ navigator.keyboard.lock() and its permission flow. F11 is not required, so
 macOS system assignments need no changes. Click the guest picture for input.
 
 A short Esc is sent to the guest. Hold Esc or click Release keyboard to exit.
-Opening Settings, switching to Client first, focus leaving the browser or
-closing the console releases capture. Guest first reserves Ctrl+Alt+Shift+Esc;
+Opening Settings, switching to Client first or closing the console releases
+capture. Stock4.5 pauses input on host app/tab switching without exiting
+fullscreen, then resumes capture inside the existing fullscreen on return.
+Held keys/buttons are released on blur; old holds are never restored. Guest first reserves Ctrl+Alt+Shift+Esc;
 Raw keeps its existing no-QSM-chord policy. OS-reserved keys are not guaranteed
 to reach any web app; use Send to guest buttons where necessary.
 

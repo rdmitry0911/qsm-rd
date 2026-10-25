@@ -3,7 +3,7 @@ qsm-pve-direct for Proxmox VE 9
 
 `qsm-pve-direct` is a browser-native PVE console transport.
 
-Standalone release 0.4.0+stock4.4
+Standalone release 0.4.0+stock4.5
 -----------------------------
 For official PVE 9 install matching qsm-pve-direct and
 qsm-pve-direct-standalone debs. Follow README.standalone, installed with the
@@ -395,8 +395,10 @@ navigator.keyboard.lock() and its permission flow. F11 is not required, so
 macOS system assignments need no changes. Click the guest picture for input.
 
 A short Esc is sent to the guest. Hold Esc or click Release keyboard to exit.
-Opening Settings, switching to Client first, focus leaving the browser or
-closing the console releases capture. Guest first reserves Ctrl+Alt+Shift+Esc;
+Opening Settings, switching to Client first or closing the console releases
+capture. Stock4.5 pauses input on host app/tab switching without exiting
+fullscreen, then resumes capture inside the existing fullscreen on return.
+Held keys/buttons are released on blur; old holds are never restored. Guest first reserves Ctrl+Alt+Shift+Esc;
 Raw keeps its existing no-QSM-chord policy. OS-reserved keys are not guaranteed
 to reach any web app; use Send to guest buttons where necessary.
 

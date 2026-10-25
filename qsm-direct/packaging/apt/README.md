@@ -5,7 +5,9 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
-Current preview: **0.4.0+stock4.4** adds Capture keyboard for Firefox/Safari
+Current preview: **0.4.0+stock4.5** preserves fullscreen across host app/tab
+switches, releasing held input and resuming capture when focus returns.
+The stock4.4 Capture keyboard feature remains available for Firefox/Safari
 fullscreen and Chromium, including embedded consoles, without F11/macOS
 shortcut changes. Click Release keyboard or hold Esc to exit.
 Exact mouse/trackpad clicks are the

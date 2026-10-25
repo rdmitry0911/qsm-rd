@@ -1,0 +1,563 @@
+[
+  {
+    "mode": "top",
+    "case": "BASELINE_ESC_EXITS",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 138,
+      "requests": 1
+    },
+    "guest": {
+      "events": [],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "top",
+    "case": "NATIVE_ESC_AND_BROWSER_CHORDS",
+    "browser": {
+      "full": true,
+      "status": "Keyboard capture active. Hold Esc or click Release keyboard to exit full screen.",
+      "pressed": "true",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 263,
+      "requests": 2
+    },
+    "guest": {
+      "events": [
+        [
+          "press",
+          16777216,
+          0
+        ],
+        [
+          "release",
+          16777216,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          87,
+          67108864
+        ],
+        [
+          "release",
+          87,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          84,
+          67108864
+        ],
+        [
+          "release",
+          84,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          76,
+          67108864
+        ],
+        [
+          "release",
+          76,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          16777217,
+          67108864
+        ],
+        [
+          "release",
+          16777217,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777268,
+          0
+        ],
+        [
+          "release",
+          16777268,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          82,
+          67108864
+        ],
+        [
+          "release",
+          82,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          70,
+          67108864
+        ],
+        [
+          "release",
+          70,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ]
+      ],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    },
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64; rv:157.0) Gecko/20100101 Firefox/157.0"
+  },
+  {
+    "mode": "top",
+    "case": "BLUR_RESUME_PRESERVES_FULLSCREEN_AND_RELEASES_MODIFIER",
+    "before": {
+      "full": true,
+      "status": "Keyboard capture active. Hold Esc or click Release keyboard to exit full screen.",
+      "pressed": "true",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 332,
+      "requests": 2
+    },
+    "paused": {
+      "full": true,
+      "status": "Keyboard input paused while the console is unfocused. Full screen is preserved; return to resume.",
+      "pressed": "true",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 340,
+      "requests": 2
+    },
+    "resumed": {
+      "full": true,
+      "status": "Keyboard capture active. Hold Esc or click Release keyboard to exit full screen.",
+      "pressed": "true",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 342,
+      "requests": 2
+    },
+    "guest": {
+      "events": [
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          65,
+          0
+        ],
+        [
+          "release",
+          65,
+          0
+        ]
+      ],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "top",
+    "case": "SETTINGS_RELEASE",
+    "browser": {
+      "full": false,
+      "status": "Client keyboard shortcuts active. Click Capture keyboard to return to the guest.",
+      "pressed": "false",
+      "active": "settings",
+      "keyboardLock": false,
+      "sent": 369,
+      "requests": 2
+    }
+  },
+  {
+    "mode": "top",
+    "case": "MOUSE_RELEASE_BUTTON",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "settings",
+      "keyboardLock": false,
+      "sent": 375,
+      "requests": 3
+    }
+  },
+  {
+    "mode": "top",
+    "case": "LOCAL_EXIT_CHORD",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "settings",
+      "keyboardLock": false,
+      "sent": 388,
+      "requests": 4
+    }
+  },
+  {
+    "mode": "top",
+    "case": "LONG_ESCAPE_EXIT",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 466,
+      "requests": 5
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "NATIVE_ESC_AND_BROWSER_CHORDS",
+    "browser": {
+      "full": true,
+      "status": "Keyboard capture active. Hold Esc or click Release keyboard to exit full screen.",
+      "pressed": "true",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 184,
+      "requests": 1
+    },
+    "guest": {
+      "events": [
+        [
+          "press",
+          16777216,
+          0
+        ],
+        [
+          "release",
+          16777216,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          87,
+          67108864
+        ],
+        [
+          "release",
+          87,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          84,
+          67108864
+        ],
+        [
+          "release",
+          84,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          76,
+          67108864
+        ],
+        [
+          "release",
+          76,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          16777217,
+          67108864
+        ],
+        [
+          "release",
+          16777217,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777268,
+          0
+        ],
+        [
+          "release",
+          16777268,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          82,
+          67108864
+        ],
+        [
+          "release",
+          82,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "press",
+          70,
+          67108864
+        ],
+        [
+          "release",
+          70,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ]
+      ],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    },
+    "user_agent": "Mozilla/5.0 (X11; Linux x86_64; rv:157.0) Gecko/20100101 Firefox/157.0"
+  },
+  {
+    "mode": "embedded",
+    "case": "BLUR_RESUME_PRESERVES_FULLSCREEN_AND_RELEASES_MODIFIER",
+    "before": {
+      "full": true,
+      "status": "Keyboard capture active. Hold Esc or click Release keyboard to exit full screen.",
+      "pressed": "true",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 251,
+      "requests": 1
+    },
+    "paused": {
+      "full": true,
+      "status": "Keyboard input paused while the console is unfocused. Full screen is preserved; return to resume.",
+      "pressed": "true",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 260,
+      "requests": 1
+    },
+    "resumed": {
+      "full": true,
+      "status": "Keyboard capture active. Hold Esc or click Release keyboard to exit full screen.",
+      "pressed": "true",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 262,
+      "requests": 1
+    },
+    "guest": {
+      "events": [
+        [
+          "press",
+          16777249,
+          67108864
+        ],
+        [
+          "release",
+          16777249,
+          0
+        ],
+        [
+          "press",
+          65,
+          0
+        ],
+        [
+          "release",
+          65,
+          0
+        ]
+      ],
+      "focus": true,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "SETTINGS_RELEASE",
+    "browser": {
+      "full": false,
+      "status": "Client keyboard shortcuts active. Click Capture keyboard to return to the guest.",
+      "pressed": "false",
+      "active": "settings",
+      "keyboardLock": false,
+      "sent": 288,
+      "requests": 1
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "MOUSE_RELEASE_BUTTON",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "settings",
+      "keyboardLock": false,
+      "sent": 295,
+      "requests": 2
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "LOCAL_EXIT_CHORD",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "settings",
+      "keyboardLock": false,
+      "sent": 307,
+      "requests": 3
+    }
+  },
+  {
+    "mode": "embedded",
+    "case": "LONG_ESCAPE_EXIT",
+    "browser": {
+      "full": false,
+      "status": "Click Capture keyboard to enter full screen with guest keys. F11 is not required.",
+      "pressed": "false",
+      "active": "guest",
+      "keyboardLock": false,
+      "sent": 385,
+      "requests": 4
+    }
+  }
+]

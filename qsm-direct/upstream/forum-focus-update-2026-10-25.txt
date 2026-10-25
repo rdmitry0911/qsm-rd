@@ -1,0 +1,14 @@
+Hi guys, stock4.5 fixes a regression in the new keyboard-capture feature.
+
+Switching to another host application with Alt/Cmd+Tab could exit QSM fullscreen because I treated every window blur as an explicit capture release. That was too broad.
+
+Temporary focus loss now releases guest-held keys/buttons and pauses input while preserving the fullscreen session. Returning resumes capture without restoring old holds or requesting fullscreen again. Explicit Release keyboard, Settings, Client first, close and long Esc remain exit paths. F11 is still unnecessary.
+
+The complete UI blur/focus path passes in Firefox and Chromium, in both standalone and embedded consoles. A real Firefox/LXC check also confirms modifier release and normal typing after return. These checks inject the page's blur/focus events; I have not qualified physical macOS app switching. Browser/OS fullscreen policy remains outside QSM's control.
+
+Source, matching debs and checks:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.5
+
+Update installed profiles together, reload PVE with cache bypass and reopen consoles. No guest restart is needed.
+
+Thank you, Dmitry

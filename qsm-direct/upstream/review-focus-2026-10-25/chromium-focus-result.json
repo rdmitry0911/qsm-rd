@@ -1,0 +1,18 @@
+[
+  {
+    "mode": "top",
+    "complete_production_JS": true,
+    "capture_and_release": true,
+    "blur_preserves_fullscreen": true,
+    "focus_resumes_capture": true,
+    "page_errors": []
+  },
+  {
+    "mode": "embedded",
+    "complete_production_JS": true,
+    "capture_and_release": true,
+    "blur_preserves_fullscreen": true,
+    "focus_resumes_capture": true,
+    "page_errors": []
+  }
+]

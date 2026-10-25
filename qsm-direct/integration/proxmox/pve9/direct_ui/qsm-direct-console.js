@@ -1773,6 +1773,7 @@
         let fullscreenKeyboardLock = false;
         let fullscreenRequestPending = false;
         let fullscreenRequestGeneration = 0;
+        let keyboardCaptureSuspended = false;
         const keyboardController = () => {
             let keyboard;
             try { keyboard = popup.navigator && popup.navigator.keyboard; }
@@ -1802,6 +1803,7 @@
             }
         };
         const releaseGuestKeyboardLock = () => {
+            keyboardCaptureSuspended = false;
             fullscreenRequestGeneration += 1;
             keyboardLockGeneration += 1;
             const keyboard = keyboardController();
@@ -1819,6 +1821,27 @@
             fullscreenKeyboardLock = false;
             setKeyboardCaptureLabel();
         };
+        const suspendGuestKeyboardCapture = () => {
+            // Host app/tab switching is a temporary loss of input authority,
+            // not an explicit request to leave the console's fullscreen.
+            // In particular, Firefox/Safari's fullscreen-bound lock must not
+            // be released by exitFullscreen() on Alt/Cmd+Tab.
+            releaseHeldInput();
+            keyboardCaptureSuspended = true;
+            keyboardLockGeneration += 1;
+            const keyboard = keyboardController();
+            if (keyboard && typeof keyboard.unlock === 'function') {
+                try { keyboard.unlock(); } catch (_error) { /* Window may be closing. */ }
+            }
+            keyboardCaptureStatus.textContent = gettext('Keyboard input paused while the console is unfocused. Full screen is preserved; return to resume.');
+        };
+        const resumeGuestKeyboardCapture = () => {
+            if (closed || document.hidden || (typeof document.hasFocus === 'function' && !document.hasFocus())) { return; }
+            keyboardCaptureSuspended = false;
+            // Never manufacture held keys/buttons or request fullscreen on
+            // return. Only restore capture inside an existing full screen.
+            updateGuestKeyboardLock();
+        };
         const updateGuestKeyboardLock = () => {
             if (!document.fullscreenElement) {
                 fullscreenCaptureRequested = false;
@@ -1832,6 +1855,11 @@
             if (settings.keyboardPriority === KEYBOARD_PRIORITY.client || settingsPanelOpen) {
                 releaseGuestKeyboardLock();
                 keyboardCaptureStatus.textContent = gettext('Client keyboard shortcuts active. Click Capture keyboard to return to the guest.');
+                return;
+            }
+            if (keyboardCaptureSuspended || document.hidden ||
+                (typeof document.hasFocus === 'function' && !document.hasFocus())) {
+                suspendGuestKeyboardCapture();
                 return;
             }
             if (document.fullscreenElement && fullscreenKeyboardLock) {
@@ -1869,6 +1897,7 @@
         };
         const enterConsoleFullscreen = (capture = true) => {
             if (fullscreenRequestPending || closed) { return; }
+            keyboardCaptureSuspended = false;
             releaseHeldInput();
             if (capture && settings.keyboardPriority === KEYBOARD_PRIORITY.client) {
                 settings.keyboardPriority = KEYBOARD_PRIORITY.guest;
@@ -1894,12 +1923,15 @@
                     fullscreenKeyboardLock = capture && optionRead && Boolean(document.fullscreenElement);
                     if (requestGeneration !== fullscreenRequestGeneration || closed ||
                         settings.keyboardPriority === KEYBOARD_PRIORITY.client || settingsPanelOpen) {
-                        // A request can complete after window blur/close. It
+                        // An explicitly cancelled request can complete late. It
                         // still owns this newly entered fullscreen session.
                         fullscreenCaptureRequested = capture;
                         releaseGuestKeyboardLock(); return;
                     }
-                    video.focus({ preventScroll: true });
+                    if (!keyboardCaptureSuspended && !document.hidden &&
+                        (typeof document.hasFocus !== 'function' || document.hasFocus())) {
+                        video.focus({ preventScroll: true });
+                    }
                     updateGuestKeyboardLock();
                 }).catch(() => {
                     fullscreenRequestPending = false;
@@ -1928,9 +1960,11 @@
         }
         // Fullscreen capture can be requested before media connects. Its
         // lifecycle must therefore be independent of the WebRTC listeners.
-        popup.addEventListener('blur', releaseGuestKeyboardLock);
+        popup.addEventListener('blur', suspendGuestKeyboardCapture);
+        popup.addEventListener('focus', resumeGuestKeyboardCapture);
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) { releaseGuestKeyboardLock(); }
+            if (document.hidden) { suspendGuestKeyboardCapture(); }
+            else { resumeGuestKeyboardCapture(); }
         });
         updateGuestKeyboardLock();
         const bytesToB64 = (bytes) => {

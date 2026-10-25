@@ -17,7 +17,7 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.4 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.4)
+[Stock4.5 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.5)
 preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
@@ -52,6 +52,12 @@ or hold Esc to leave capture; Guest first also provides Ctrl+Alt+Shift+Esc.
 OS-reserved keys still depend on the platform; Send to guest buttons remain
 available. The earlier Firefox limitation was a missing QSM API path,
 not a claim that current Firefox cannot capture browser shortcuts.
+
+Stock4.5 preserves fullscreen when switching host applications or tabs.
+QSM releases guest-held input and pauses delivery on blur/visibility loss;
+on return it resumes capture inside the existing fullscreen, without
+restoring old holds or requesting fullscreen again. Explicit Release
+keyboard, Settings, Client first, close and long Esc remain exit paths.
 
 Install and update the standalone packages through the signed
 [APT repository](https://rdmitry0911.github.io/qsm-rd/): follow the

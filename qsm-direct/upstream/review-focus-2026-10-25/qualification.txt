@@ -1,0 +1,34 @@
+Stock4.5 focus/fullscreen regression, 2026-10-25
+
+Stock4.4's blur/hidden handlers called releaseGuestKeyboardLock, which
+explicitly called exitFullscreen. Temporary host app switching therefore
+exited QSM fullscreen. Blur/hidden now suspends input and releases held
+keys/buttons, retaining the existing fullscreen/capture intent. Focus/visible
+resumes capture without restoring old holds or requesting fullscreen again.
+Chromium unlocks while suspended and reacquires its separate lock on return.
+Explicit Release, Settings, Client first and close still cancel/exit capture.
+A fullscreen request completing while suspended cannot focus the background
+video. Explicit cancellation still retires a late request.
+
+Full production JavaScript with API/Ext stubs is exercised in Firefox and
+Chromium, both standalone and embedded contexts. Injected window blur keeps
+fullscreen and reports paused; injected focus resumes capture; explicit
+Release exits. No page errors. These tests reproduce the old forced-exit
+handler deterministically, independently of automation's OS-focus quirks.
+
+Headful Firefox 157/XTEST -> production JS/SCTP -> unchanged worker/bridge ->
+CT108 Sway/owned Qt fixture: Ctrl held, injected blur produces one release,
+fullscreen remains, focus resumes without another requestFullscreen, and
+subsequent A has no modifier. Both standalone and embedded cases pass. Short
+Esc/browser chords and explicit/long-Esc exits remain covered by the same run.
+
+22 CTest gates pass, including pending-request, Chromium reacquisition,
+visibility, explicit release and stale-focus regressions. The real blur/focus
+is injected into the page; physical macOS Alt/Cmd+Tab was not available.
+Browser/OS may independently change fullscreen policy; QSM no longer forces
+exit on temporary blur. No fresh video/hardware benchmark is implied.
+
+CT108 owned fixture stopped and output restored to 1970x1220. No production
+guest was stopped/reprovisioned. This is only a viewer/controller change;
+worker and bridge are unchanged, verified again in final package provenance.
+No email, forum or Bugzilla message posted by this release.
