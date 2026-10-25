@@ -17,7 +17,7 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.5 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.5)
+[Stock4.6 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.6)
 preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
@@ -58,6 +58,15 @@ QSM releases guest-held input and pauses delivery on blur/visibility loss;
 on return it resumes capture inside the existing fullscreen, without
 restoring old holds or requesting fullscreen again. Explicit Release
 keyboard, Settings, Client first, close and long Esc remain exit paths.
+
+Stock4.6 respects logical modifier remapping, including swapped macOS
+Option/Command, while printable keys retain guest-layout physical positions.
+Logical Command+Tab stays on macOS; logical Option+Tab sends guest Alt+Tab.
+Command is deferred until a guest action so host switching does not emit a
+stray guest Alt/Super or launcher tap. Mouse chords and physical main-key
+holds flush/use the modifier as needed; an intentional solo Command tap
+still sends Super. **Raw** keeps physical positions and bypasses host routing.
+Use **Guest first**, not Raw, to follow the macOS modifier swap.
 
 Install and update the standalone packages through the signed
 [APT repository](https://rdmitry0911.github.io/qsm-rd/): follow the

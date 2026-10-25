@@ -1,0 +1,42 @@
+Stock4.6 logical modifiers / host routing qualification, 2026-10-25
+
+Root cause: qemuKey mapped modifier event.code physically, ignoring logical
+host remapping. Guest first now uses logical event.key for modifiers while
+retaining printable positions for the guest layout. Side/location is kept.
+With swapped macOS Option/Command, physical Option is logical Command
+(host Cmd+Tab), physical Command is logical Option (guest Alt+Tab).
+Raw intentionally keeps physical positions/edges and bypasses host routing.
+
+Outside Raw, Command is deferred until a guest action. A host switch can
+then cancel it without a guest modifier/menu tap. Complete keyboard and
+exact mouse actions include logical modifiers; physical main-key holds,
+physical dragging and modifier-wheel flush the deferred press. A real solo
+Command tap sends Super. Blur/host routing and foreign repeats never invent
+that tap. Fresh source keydowns while hidden/unfocused/suspended are ignored.
+
+Headful Firefox 157 / Linux XTEST -> production input JS / real SCTP ->
+installed bridge/worker -> CT108 Sway / owned Qt fixture, top and embedded:
+- native ordinary Esc and browser Ctrl+W/T/L/Tab/F5/R/F reach the guest;
+- simulated MacIntel + swapped logical modifier DOM events: host Cmd+Tab
+  produces zero guest keyboard packets; guest Option+Tab produces exactly
+  Alt down, atomic Tab with Alt, Alt up; Command+A produces only its logical
+  modifier chord, with no extra Super/menu tap;
+- explicit Settings/Release and long Esc exits continue to work.
+Private isolated-input-bridge instrumentation records only the known test
+fixture's keyboard messages. No key-event logging added to production.
+The Mac platform/remapping events are simulated on Linux; native macOS
+hotkey interception and physical Mac qualification are NOT claimed.
+
+Final full production-source initialization, keyboard capture, blur/focus
+and explicit exit smoke checks pass in Firefox and Chromium, top/embedded,
+with API/Ext stubs and no page errors. Final 22 CTest gates pass. Unit
+regressions cover both modifier sides/remapping, Raw, physical main-key
+holds, solo Command, exact mouse click, drag, wheel, foreign repeats,
+suspended input and the physical-keyboard kbInput handler.
+Unit mouse/foreign-repeat cases include final follow-up changes after the
+real SCTP run; that run qualifies routing, not a native physical Mac.
+
+CT108 owned fixture stopped; output restored to 1970x1220. No production
+guest stopped/reprovisioned. This is a viewer/controller change. Worker and
+bridge remain unchanged; final package provenance verifies their hashes.
+No email, forum or Bugzilla message is posted by this release.

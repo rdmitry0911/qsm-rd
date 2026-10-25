@@ -1,0 +1,14 @@
+Hi guys, stock4.6 fixes a macOS modifier-remapping issue found with Option and Command swapped.
+
+QSM mapped modifier positions physically, so the guest could interpret a key differently from macOS. Guest first now follows the logical modifier after remapping, while ordinary printable positions still use the guest layout. Logical Command+Tab stays on the Mac; logical Option+Tab sends guest Alt+Tab. With swapped keys, those are physical Option+Tab and physical Command+Tab respectively.
+
+Command is also deferred until a guest action, preventing stray guest Alt/Super/menu effects when the main shortcut belongs to the host. Guest keyboard/mouse chords, dragging and modifier-wheel remain supported. A genuine solo Command tap still sends Super. Raw retains physical positions and bypasses this routing, so choose Guest first for the remapped behavior.
+
+The swapped host profile was simulated in Firefox through real WebRTC: host Command+Tab produced no guest key packets, guest Option+Tab produced exactly Alt+Tab, and a guest Command chord contained its logical modifier without an extra tap. Separate and embedded contexts pass, along with Firefox/Chromium UI and unit checks. I have not qualified a physical Mac. This does not give a web page control over native macOS or third-party global hotkeys.
+
+Source, matching debs, instructions and checks:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.6
+
+Reload PVE without cache and reopen consoles after updating all installed profiles together. No guest update is needed.
+
+Thank you, Dmitry

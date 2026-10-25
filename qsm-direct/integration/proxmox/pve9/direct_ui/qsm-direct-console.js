@@ -677,7 +677,22 @@
         Insert: 0xd2, Delete: 0xd3, Home: 0xc7, End: 0xcf, PageUp: 0xc9, PageDown: 0xd1,
         ArrowUp: 0xc8, ArrowLeft: 0xcb, ArrowRight: 0xcd, ArrowDown: 0xd0,
     };
-    const qemuKey = (event) => scanCodes[event.code] || extendedScanCodes[event.code] || null;
+    const qemuKey = (event, raw = false) => {
+        // Keep printable keys physical for the guest layout, but modifiers
+        // must follow the host's logical remapping (e.g. macOS Option/Command
+        // swap). Raw input deliberately retains physical key positions.
+        if (!raw && /^(Control|Alt|Meta|Shift)(Left|Right)$/.test(event.code || '')) {
+            const modifiers = { Control: [29, 0x9d], Alt: [56, 0xb8],
+                Meta: [0xdb, 0xdc], OS: [0xdb, 0xdc], Shift: [42, 54] };
+            const pair = modifiers[event.key];
+            if (pair) { return pair[event.location === 2 || /Right$/.test(event.code) ? 1 : 0]; }
+            if (event.key === 'AltGraph') { return 0xb8; }
+        }
+        return scanCodes[event.code] || extendedScanCodes[event.code] || null;
+    };
+    const hostApplicationSwitch = (event, platform) => /Mac|iPad|iPhone|iPod/.test(platform || '') &&
+        event.code === 'Tab' && event.metaKey && !event.ctrlKey;
+
     // A guest-first console forwards every DOM key the browser actually
     // delivers. These chords are the intentionally local set in client-first
     // mode; shortcuts claimed by an OS/compositor before the browser are
@@ -1344,6 +1359,7 @@
         keyboardPolicyHint.style.cssText = 'margin:8px 0;color:#cbd5e1;line-height:1.35';
         const keyboardUnavailableHint = document.createElement('p');
         keyboardUnavailableHint.textContent = gettext('Keys reserved by the operating system can stay local, including macOS Cmd+Tab / Cmd+Space and Windows Ctrl+Alt+Del / Win+L. Capture keyboard does not require F11 or changes to macOS shortcuts. Use Send to guest buttons for keys the browser cannot receive.');
+        keyboardUnavailableHint.textContent += ' ' + gettext('Host modifier remapping is respected in Guest first: logical Command+Tab stays on macOS; logical Option+Tab goes to the guest. With swapped Option/Command, use their remapped meanings. Raw input keeps physical positions and bypasses this routing.');
         keyboardUnavailableHint.style.cssText = 'margin:0 0 14px;color:#fbbf24;line-height:1.35';
         const keyboardCaptureStatus = document.createElement('p');
         keyboardCaptureStatus.style.cssText = 'margin:8px 0;color:#cbd5e1;line-height:1.35';
@@ -1533,6 +1549,21 @@
             pendingMousePresses.clear();
         };
         const physicalHeldKeys = new Set();
+        // Exact typing defers macOS Command until a complete guest action.
+        // A host Command+Tab can then be discarded without a stray guest
+        // Alt/Super press or a launcher opening on modifier release.
+        const deferredMetaKeys = new Map();
+        const hostPlatform = popup.navigator.platform || popup.navigator.userAgent || '';
+        const markMetaUsed = () => {
+            for (const key of deferredMetaKeys.keys()) { deferredMetaKeys.set(key, true); }
+        };
+        const flushDeferredMeta = () => {
+            for (const key of [...deferredMetaKeys.keys()]) {
+                if (send({ op: 'keyboard', key, down: true, modifiers: 0 })) {
+                    deferredMetaKeys.delete(key); physicalHeldKeys.add(key);
+                }
+            }
+        };
         let fullscreenEscapePending = false;
         // `qsm-pointer` is deliberately unordered and non-retransmitted.
         // Preserve an explicit sequence number with every latest-state sample
@@ -2499,7 +2530,7 @@
         const exactMouseClicks = () => inputMouseActionsEnabled &&
             settings.mouseInputMode === MOUSE_INPUT_MODE.exact && settings.keyboardPriority !== KEYBOARD_PRIORITY.raw;
         const mouseModifiers = (event) => {
-            const result = [...physicalHeldKeys].filter(key => [29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc].includes(key));
+            const result = [...physicalHeldKeys, ...deferredMetaKeys.keys()].filter(key => [29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc].includes(key));
             if (event) {
                 for (const [flag, group] of [['ctrlKey', [29, 0x9d]], ['shiftKey', [42, 54]],
                     ['altKey', [56, 0xb8]], ['metaKey', [0xdb, 0xdc]]]) {
@@ -2514,6 +2545,7 @@
         };
         const sendMouseAction = (button, action, point = latestPointer, event = null) => {
             if (!point || !Number.isInteger(button) || button < 1 || button > 5) { return false; }
+            markMetaUsed();
             const { x, y, width, height } = point;
             const sequence = pointerSequence;
             pointerSequence = (pointerSequence + 1) >>> 0;
@@ -2539,7 +2571,10 @@
             if (down === heldMouseButtons.has(button)) { return; }
             if (exactMouseClicks()) {
                 if (!sendMouseAction(button, down ? 1 : 0, point, event)) { return; }
-            } else if (!send({ op: 'mouse_button', button, down })) { return; }
+            } else {
+                if (down) { markMetaUsed(); flushDeferredMeta(); }
+                if (!send({ op: 'mouse_button', button, down })) { return; }
+            }
             if (down) {
                 if (heldMouseButtons.has(button)) { return; }
                 heldMouseButtons.add(button);
@@ -2551,6 +2586,25 @@
         };
         const sendKeyboard = (key, down, repeat = false, sourceTime = null, sourceEvent = null) => {
             if (!Number.isInteger(key) || key < 0 || key > 0xffff) { return; }
+            if (down && sourceEvent && (keyboardCaptureSuspended || document.hidden ||
+                (typeof document.hasFocus === 'function' && !document.hasFocus()))) { return; }
+            if (!down && deferredMetaKeys.has(key)) {
+                const used = deferredMetaKeys.get(key);
+                deferredMetaKeys.delete(key); heldKeys.delete(key);
+                // A physical solo Command tap still sends a guest Super tap.
+                // Focus cleanup or a host-only chord must never synthesize it.
+                if (sourceEvent && !used) { noteGuestInput(); send({ op: 'key_tap', key, modifiers: [] }); }
+                return;
+            }
+            const meta = key === 0xdb || key === 0xdc;
+            const deferMeta = inputTapsEnabled && /Mac|iPad|iPhone|iPod/.test(hostPlatform) && meta &&
+                settings.keyboardPriority !== KEYBOARD_PRIORITY.raw;
+            if (down && deferMeta) {
+                if (repeat) { return; }
+                if (!heldKeys.has(key)) { heldKeys.add(key); deferredMetaKeys.set(key, false); }
+                return;
+            }
+            if (down && !meta) { markMetaUsed(); }
             // Only a repeat of a press started here is eligible. Exact typing
             // sends one atomic action per client event; physical mode leaves
             // autorepeat to the guest while snapshots bound stale holds.
@@ -2585,6 +2639,7 @@
                     message.modifiers = modifiers;
                     if (!send(message)) { return; }
                 } else {
+                    flushDeferredMeta();
                     if (!send(message)) { return; }
                     physicalHeldKeys.add(key);
                 }
@@ -2624,9 +2679,17 @@
         video.addEventListener('blur', releaseGuestKeys);
         kbInput.addEventListener('blur', releaseGuestKeys);
         document.addEventListener('keyup', (event) => {
-            const key = qemuKey(event);
+            const key = qemuKey(event, settings.keyboardPriority === KEYBOARD_PRIORITY.raw);
             if (key !== null) { sendKeyboard(key, false, false, event.timeStamp, event); }
         }, true);
+        const routeHostApplicationSwitch = (event) => {
+            if (settings.keyboardPriority === KEYBOARD_PRIORITY.raw || !hostApplicationSwitch(event, hostPlatform)) { return false; }
+            markMetaUsed();
+            releaseHeldInput();
+            // Do not prevent the native host shortcut, and do not forward its
+            // Tab to the guest. OS global shortcuts cannot be cancelled here.
+            return true;
+        };
         // Map a printable character to a US-layout scancode + shift flag, so
         // the on-screen keyboard (which reports typed text, not key codes) can
         // drive the guest.  Built once from the shared scanCodes table.
@@ -2672,9 +2735,12 @@
         // straight through; the rest arrive as text via beforeinput below.
         for (const name of ['keydown', 'keyup']) {
             kbInput.addEventListener(name, (event) => {
-                const code = scanCodes[event.code] !== undefined ? scanCodes[event.code]
-                    : (extendedScanCodes[event.code] !== undefined ? extendedScanCodes[event.code] : null);
-                if (code !== null) { sendKeyboard(code, name === 'keydown', event.repeat, event.timeStamp, event); event.preventDefault(); }
+                const code = qemuKey(event, settings.keyboardPriority === KEYBOARD_PRIORITY.raw);
+                if (routeHostApplicationSwitch(event)) { return; }
+                if (code !== null) {
+                    event.preventDefault(); event.stopPropagation();
+                    sendKeyboard(code, name === 'keydown', event.repeat, event.timeStamp, event);
+                }
                 // Keep the field empty so the OS keyboard never shows a caret
                 // position that fights composition on the next character.
                 kbInput.value = '';
@@ -3356,6 +3422,7 @@
                 ensurePlaying(); video.focus();
                 const button = event.button + 1;
                 if (button < 1 || button > 5 || pendingMousePresses.has(button) || heldMouseButtons.has(button)) { return; }
+                markMetaUsed();
                 const point = pointerForMouseEvent(event);
                 queuePointer(point);
                 if (exactMouseClicks()) {
@@ -3439,6 +3506,7 @@
                 // Worker emits one wheel click per op (sign only): accumulate
                 // finger travel and send one op per notch, natural direction
                 // (drag down = content down = wheel-up = vertical<0), capped/event.
+                markMetaUsed(); flushDeferredMeta();
                 scrollAccumY += dy;
                 let notches = 0;
                 while (Math.abs(scrollAccumY) >= SCROLL_STEP_PX && notches < 8) {
@@ -3671,7 +3739,10 @@
                 const horizontal = Math.max(-32768, Math.min(32767, Math.trunc(wheelX)));
                 const vertical = Math.max(-32768, Math.min(32767, Math.trunc(wheelY)));
                 wheelX -= horizontal; wheelY -= vertical;
-                if (vertical || horizontal) { send({ op: 'scroll', vertical, horizontal }); }
+                if (vertical || horizontal) {
+                    markMetaUsed(); flushDeferredMeta();
+                    send({ op: 'scroll', vertical, horizontal });
+                }
                 event.preventDefault();
             }, { passive: false });
             video.addEventListener('paste', (event) => {
@@ -3689,7 +3760,8 @@
             });
             for (const name of ['keydown', 'keyup']) {
                 video.addEventListener(name, (event) => {
-                    const key = qemuKey(event);
+                    const key = qemuKey(event, settings.keyboardPriority === KEYBOARD_PRIORITY.raw);
+                    if (routeHostApplicationSwitch(event)) { return; }
                     const clientFirst = settings.keyboardPriority === KEYBOARD_PRIORITY.client;
                     const rawInput = settings.keyboardPriority === KEYBOARD_PRIORITY.raw;
                     if (!clientFirst && !rawInput && guestCaptureExitShortcut(event)) {
@@ -3741,11 +3813,13 @@
                             });
                         }
                     } else if (clientFirst && clientFirstShortcut(event)) {
-                        // Leave the event untouched: the browser receives its
-                        // native shortcut and the guest sees no partial key.
+                        // Leave the main event local and cancel modifiers
+                        // that began here, avoiding a stray guest menu tap.
+                        markMetaUsed(); releaseHeldInput();
                         return;
                     } else if (key !== null) {
-                        sendKeyboard(key, name === 'keydown', event.repeat, event.timeStamp, event); event.preventDefault();
+                        event.preventDefault(); event.stopPropagation();
+                        sendKeyboard(key, name === 'keydown', event.repeat, event.timeStamp, event);
                     }
                 });
             }

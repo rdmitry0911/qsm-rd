@@ -8,7 +8,10 @@ const section = (start, end) => {
     return source.slice(a, b);
 };
 const keyboard = section('const sendKeyboard =', '// Map a printable character');
+const maps = section('const scanCodes =','// A guest-first console');
+const metaState = section('const deferredMetaKeys =','let fullscreenEscapePending =');
 const listeners = section("for (const name of ['keydown', 'keyup']) {\n                video.addEventListener", "peer.addTransceiver('video'");
+const kbListeners=section("for (const name of ['keydown', 'keyup']) {\n            kbInput.addEventListener",'// beforeinput is the primary path');
 const make = new Function('env', `
     const {video, kbInput, document, send, settings, actions, popup} = env;
     const heldKeys = new Set(), heldMouseButtons = new Set(), physicalHeldKeys = new Set();
@@ -16,7 +19,10 @@ const make = new Function('env', `
     const mouseInputModeHint={};
     const KEY_INPUT_MODE={typing:'client-repeat',physical:'guest-repeat'},keyInputModeHint={};
     let diagKeySent = 0, diagLastInput = '', fullscreenEscapePending = false;
-    const noteGuestInput = () => {}, qemuKey = event => ({KeyA:30, ControlLeft:29, KeyV:47})[event.code] ?? null;
+    const noteGuestInput = () => {};
+    ${maps}
+    ${metaState}
+    let keyboardCaptureSuspended=false;
     const KEYBOARD_PRIORITY = {client:'client', raw:'raw'};
     const guestCaptureExitShortcut = () => false, clientFirstShortcut = () => false;
     const leaveGuestKeyboardCapture = () => {}, releaseHeldInput = () => releaseGuestKeys();
@@ -25,7 +31,8 @@ const make = new Function('env', `
     const status = {}, gettext = value => value;
     ${keyboard}
     ${listeners}
-    return {heldKeys, sendKeyboard, acceptInputPolicy, publishInputState};
+    ${kbListeners}
+    return {heldKeys, physicalHeldKeys, deferredMetaKeys, sendKeyboard, acceptInputPolicy, publishInputState,pause:v=>{keyboardCaptureSuspended=v;}};
 `);
 const target = () => {
     const listeners = new Map();
@@ -36,11 +43,11 @@ const target = () => {
         for (const callback of listeners.get(name) || []) { callback(event); }
     }};
 };
-const harness = (keyInputMode='guest-repeat', keyboardPriority='guest') => {
+const harness = (keyInputMode='guest-repeat', keyboardPriority='guest', platform='Linux') => {
     const video = target(), kbInput = target(), document = target(), messages = [], actions = [];
     let open = true;
     const timers = new Map(); let nextTimer = 0;
-    const popup = {performance:{now:()=>1100},
+    const popup = {navigator:{platform},performance:{now:()=>1100},
         setInterval:callback => {timers.set(++nextTimer, callback); return nextTimer;},
         clearInterval:id => timers.delete(id)};
     const state = make({video, kbInput, document, messages, actions, popup,
@@ -52,9 +59,9 @@ const harness = (keyInputMode='guest-repeat', keyboardPriority='guest') => {
         tick:() => {for (const callback of timers.values()) {callback();}},
         open:value => { open = value; },
         key(name, code = 'KeyA', extra = {}) {
-            const event = {code, repeat:false, preventDefault() {}, ...extra};
+            const event = {code, repeat:false, defaultPrevented:false,preventDefault() {this.defaultPrevented=true;},stopPropagation(){}, ...extra};
             if (name === 'keyup') { document.emit(name, event); }
-            video.emit(name, event);
+            video.emit(name, event);return event;
         }};
 };
 const edges = h => h.messages.map(({key, down}) => [key, down]);
@@ -141,5 +148,68 @@ for (const element of ['video', 'kbInput']) {
     const defaults=source.slice(source.indexOf('const defaultConsoleSettings ='),source.indexOf('// Standard receiver target'));
     const getDefaults=new Function('CONSOLE_SETTING_SCHEMA','KEYBOARD_PRIORITY','KEY_INPUT_MODE','MOUSE_INPUT_MODE',defaults+'return defaultConsoleSettings();');
     assert.equal(getDefaults({}, {guest:'guest'}, {typing:'typing',physical:'physical'},{exact:'exact'}).keyInputMode,'typing','exact typing must be default');
+}
+
+const packets=h=>h.messages.filter(m=>m.op==='keyboard'||m.op==='key_tap');
+{
+ const h=harness('client-repeat','guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','AltLeft',{key:'Meta',metaKey:true,repeat:true});h.key('keyup','AltLeft',{key:'Meta'});
+ assert.equal(h.deferredMetaKeys.size,0);assert.deepEqual(packets(h),[],'a foreign repeating modifier cannot create a later solo Super tap');
+}
+
+for(const [physical,logical,scan,side]of [['AltLeft','Meta',0xdb,1],['AltRight','Meta',0xdc,2]]){
+ const h=harness('client-repeat','guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown',physical,{key:logical,location:side,metaKey:true});
+ assert.equal(packets(h).length,0,'remapped Command is deferred instead of pressing guest Alt');
+ const tab=h.key('keydown','Tab',{key:'Tab',metaKey:true});
+ h.key('keyup','Tab',{key:'Tab',metaKey:true});h.key('keyup',physical,{key:logical,location:side,metaKey:false});
+ assert.equal(tab.defaultPrevented,false,'native host Command+Tab remains available');
+ assert.deepEqual(packets(h),[],'host switch produces neither guest Tab nor a lone Super tap');
+ assert.equal(h.heldKeys.size,0);assert.equal(h.deferredMetaKeys.size,0);
+}
+{
+ const h=harness('client-repeat','guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','MetaLeft',{key:'Alt',location:1,altKey:true});
+ const tab=h.key('keydown','Tab',{key:'Tab',altKey:true});h.key('keyup','Tab',{key:'Tab',altKey:true});h.key('keyup','MetaLeft',{key:'Alt',location:1,altKey:false});
+ assert.ok(tab.defaultPrevented);assert.deepEqual(packets(h),[{op:'keyboard',key:56,down:true,modifiers:0},{op:'key_tap',key:15,modifiers:[56]},{op:'keyboard',key:56,down:false,modifiers:0}],'remapped Option+Tab produces guest Alt+Tab only');
+}
+{
+ const h=harness('client-repeat','guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','AltLeft',{key:'Meta',metaKey:true});h.key('keydown','KeyA',{key:'a',metaKey:true});h.key('keyup','KeyA',{key:'a',metaKey:true});h.key('keyup','AltLeft',{key:'Meta',metaKey:false});
+ assert.deepEqual(packets(h),[{op:'key_tap',key:30,modifiers:[0xdb]}],'a guest Command chord carries the logical modifier without extra menu taps');
+}
+{
+ const h=harness('client-repeat','guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','AltLeft',{key:'Meta',metaKey:true});h.key('keyup','AltLeft',{key:'Meta',metaKey:false});assert.deepEqual(packets(h),[{op:'key_tap',key:0xdb,modifiers:[]}],'a genuine solo logical Command tap remains available');
+}
+{
+ const h=harness('guest-repeat','guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','AltLeft',{key:'Meta',metaKey:true});h.key('keydown','KeyA',{key:'a',metaKey:true});h.key('keyup','KeyA',{key:'a',metaKey:true});h.key('keyup','AltLeft',{key:'Meta',metaKey:false});
+ assert.deepEqual(packets(h).map(m=>[m.key,m.down]),[[0xdb,true],[30,true],[30,false],[0xdb,false]],'physical main-key holds flush the logical modifier before the held key');
+}
+{
+ const h=harness('client-repeat','raw','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','AltLeft',{key:'Meta',metaKey:true});h.key('keydown','Tab',{key:'Tab',metaKey:true});h.key('keyup','Tab',{key:'Tab',metaKey:true});h.key('keyup','AltLeft',{key:'Meta',metaKey:false});
+ assert.deepEqual(packets(h).map(m=>[m.key,m.down]),[[56,true],[15,true],[15,false],[56,false]],'Raw remains literal physical positions/edges');
+}
+{
+ const h=harness('client-repeat','guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ h.key('keydown','AltLeft',{key:'Meta',metaKey:true});h.video.emit('blur');h.key('keyup','AltLeft',{key:'Meta',metaKey:false});assert.deepEqual(packets(h),[],'focus cleanup must not invent a solo modifier tap');
+ h.pause(true);h.key('keydown','KeyA',{key:'a'});h.key('keydown','ControlLeft',{key:'Control'});assert.deepEqual(packets(h),[],'late source presses while paused stay out of the guest');
+ h.pause(false);h.key('keydown','KeyA',{key:'a',repeat:true});assert.deepEqual(packets(h),[],'foreign repeats after return do not revive an old press');
+ h.key('keydown','KeyA',{key:'a'});h.key('keyup','KeyA',{key:'a'});assert.equal(packets(h).length,1);
+}
+{
+ const maps=new Function(section('const scanCodes =','// A guest-first console')+'return qemuKey;')();
+ for(const [code,key,want,raw]of [['AltLeft','Meta',0xdb,56],['MetaLeft','Alt',56,0xdb],['AltRight','Meta',0xdc,0xb8],['MetaRight','Alt',0xb8,0xdc],['ControlLeft','Shift',42,29],['KeyA','a',30,30]]){
+  assert.equal(maps({code,key}),want);assert.equal(maps({code,key},true),raw);
+ }
+}
+
+{
+ const h=harness('client-repeat','guest','MacIntel');h.acceptInputPolicy({version:1,lease_ms:200,snapshot_ms:50,key_taps:true});
+ const emit=(name,code,key,metaKey)=>{const e={code,key,metaKey,repeat:false,preventDefault(){},stopPropagation(){}};if(name==='keyup')h.document.emit(name,e);h.kbInput.emit(name,e);};
+ emit('keydown','AltLeft','Meta',true);emit('keydown','Tab','Tab',true);emit('keyup','Tab','Tab',true);emit('keyup','AltLeft','Meta',false);
+ assert.deepEqual(packets(h),[],'the physical keyboard path behind the on-screen input applies host routing too');
 }
 console.log('PASS: guest keyboard edges, focus changes, exact typing, raw holds, chords and clipboard repeat');

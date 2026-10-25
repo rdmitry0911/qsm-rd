@@ -5,11 +5,11 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
-Current preview: **0.4.0+stock4.5** preserves fullscreen across host app/tab
-switches, releasing held input and resuming capture when focus returns.
-The stock4.4 Capture keyboard feature remains available for Firefox/Safari
-fullscreen and Chromium, including embedded consoles, without F11/macOS
-shortcut changes. Click Release keyboard or hold Esc to exit.
+Current preview: **0.4.0+stock4.6** fixes swapped macOS Option/Command
+routing. Guest first follows logical modifiers; logical Command+Tab remains
+on the host, logical Option+Tab goes to the guest. Raw retains physical
+positions. Fullscreen preservation from stock4.5 and Capture keyboard from
+stock4.4 remain available, without F11 or changing macOS assignments.
 Exact mouse/trackpad clicks are the
 default too: complete clicks include their position and modifiers. Confirmed
 drags remain ordered and guarded; fractional two-axis scrolling is retained.
