@@ -1,0 +1,41 @@
+Stock4.8 fixed handle and one-way Capture action, 2026-10-25
+
+Two reproduced regressions in stock4.7:
+1. placeRevealHandle tied left to toolbar width, moving the handle on open.
+2. Capture still toggled releaseGuestKeyboardLock when already captured,
+   exiting fullscreen. The same action/label changed meaning after focus.
+
+The handle is now fixed at x=0. The strip is inset 32px, with its hidden
+transform retiring the inset too. No toolbar-width observer is needed.
+Handle click toggles visible/hidden and publishes its expanded state.
+Capture is idempotent enable/resume, with stable labels. Existing active
+capture only releases old guest holds, closes Settings and refocuses video;
+it never requests exit/re-entry. The distinct Settings Release action keeps
+explicit cancellation and pending-request retirement. Native fullscreen exit
+is handled before embedded in-page maximize, so the exit control works in
+both contexts. Existing embedded maximize semantics remain outside native
+fullscreen. Settings and stock4.6 modifier behavior retained.
+
+22 CTest gates pass. Production UI JS (API/Ext stubs), Firefox/Chromium,
+standalone and embedded, 1280x800 and 640x480, eight cases:
+- repeated handle hide/show stays x=0, expanded state matches; no control
+  overlap after strip transition; hidden strip retires entirely past left;
+- upgrade ordinary fullscreen to capture with no application exit calls;
+- three repeated active Capture clicks keep fullscreen without new request;
+- Capture in active Settings closes panel, refocuses video, does not exit;
+- settings edits remain fullscreen; separate Release and fullscreen exit work;
+- embedded page-maximize -> native capture -> return preserves page-maximize.
+
+Headful Firefox 157 on owned Xvfb :221 / Openbox with real XTEST Esc, both
+contexts: baseline ordinary fullscreen exits despite DOM preventDefault;
+after upgrading ordinary fullscreen with Capture, native Esc reaches DOM
+and fullscreen remains. Scripts record application exit/request counters and
+real fullscreen state. Headful test fixture has no guest media transport.
+No production key logging is added. All pages have no JavaScript errors.
+
+Platform/remapping profile is simulated MacIntel on Linux. No physical Mac,
+Safari, new guest transport, video or hardware qualification claimed. Worker,
+bridge and input protocol unchanged; final packages verify payload identity.
+No guest is stopped/updated. No discussion mail/comments sent.
+Reproduce with /tmp/takt-roi-check-venv/bin/python browser-controls-probe.py
+firefox, chromium, or firefox --native (local Playwright/Xvfb paths embedded).

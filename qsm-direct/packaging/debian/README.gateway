@@ -1,7 +1,7 @@
 QSM Direct: optional TCP 8006 gateway (experimental, single-node PVE 9)
 ===================================================================
 
-Release: 0.4.0+stock4.7. This explicit standalone profile shares TCP 8006 between
+Release: 0.4.0+stock4.8. This explicit standalone profile shares TCP 8006 between
 normal PVE HTTPS and authenticated TURN/TCP. Signalling uses /qsm-direct/ on the
 PVE browser origin. Video/audio and input/clipboard are encrypted by WebRTC.
 TURN control messages use plain TCP, WITHOUT TLS. See Encryption below.
@@ -13,14 +13,14 @@ Requirements and package installation
 ------------------------------------
 Read INSTALL-STOCK.txt / README.standalone first for platform, VM and LXC setup.
 No patched Proxmox debs are needed on stock PVE. Download matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.7
-Verify SHA256SUMS-stock4.7. Install as root on the PVE HOST:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.8
+Verify SHA256SUMS-stock4.8. Install as root on the PVE HOST:
 
-  apt install ./qsm-pve-direct_0.4.0+stock4.7_amd64.deb \
-              ./qsm-pve-direct-standalone_0.4.0+stock4.7_all.deb \
-              ./qsm-pve-direct-gateway_0.4.0+stock4.7_all.deb
+  apt install ./qsm-pve-direct_0.4.0+stock4.8_amd64.deb \
+              ./qsm-pve-direct-standalone_0.4.0+stock4.8_all.deb \
+              ./qsm-pve-direct-gateway_0.4.0+stock4.8_all.deb
 
-If the LXC helper is already installed, include its matching stock4.7 deb in that
+If the LXC helper is already installed, include its matching stock4.8 deb in that
 same transaction. For new LXC setup install the separate helper as described in
 README.standalone; it embeds the guest payload. NEVER install qsm-console-guest
 on the PVE host. Package installation does not activate a new gateway.
@@ -234,4 +234,17 @@ requests the browser's full-screen capture. The separate embedded in-page
 maximize control remains available. The reveal handle sits beside a visible
 toolbar, avoiding overlap with its controls at smaller iframe sizes.
 Explicit Release keyboard, Client first, close and long Esc remain exits.
+Reload the PVE page and reopen consoles after updating; no guest update.
+
+Fixed controls and one-way capture action (stock4.8)
+--------------------------------------------------
+The controls handle stays at the left screen edge when toggled. The toolbar
+has its own inset, preserving access without overlap or moving the handle
+according to toolbar width. The handle's accessible state follows visibility.
+Capture keyboard now only enables/resumes capture; repeated clicks keep
+fullscreen, including from Settings and an existing ordinary fullscreen.
+Release keyboard in Settings is a separate explicit action. Exit Full Screen
+also exits native capture in embedded and separate consoles. Outside native
+fullscreen, the embedded in-page maximize keeps its existing behavior.
+The button label stays Capture keyboard; its pressed state marks the request.
 Reload the PVE page and reopen consoles after updating; no guest update.

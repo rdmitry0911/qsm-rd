@@ -1,0 +1,40 @@
+[
+  {
+    "mode": "top",
+    "viewport": [
+      1280,
+      800
+    ],
+    "complete_production_JS": true,
+    "fixed_left_handle_repeated_toggle": true,
+    "no_handle_control_overlap": true,
+    "capture_upgrades_ordinary_fullscreen_without_exit": true,
+    "repeated_capture_keeps_fullscreen_without_new_request": true,
+    "capture_from_active_settings_resumes_without_exit": true,
+    "settings_edit_preserves_fullscreen": true,
+    "explicit_fullscreen_exit": true,
+    "distinct_release_exits": true,
+    "in_page_maximize_capture_roundtrip": false,
+    "native_XTEST_Esc_after_upgrade": true,
+    "page_errors": []
+  },
+  {
+    "mode": "embedded",
+    "viewport": [
+      1280,
+      800
+    ],
+    "complete_production_JS": true,
+    "fixed_left_handle_repeated_toggle": true,
+    "no_handle_control_overlap": true,
+    "capture_upgrades_ordinary_fullscreen_without_exit": true,
+    "repeated_capture_keeps_fullscreen_without_new_request": true,
+    "capture_from_active_settings_resumes_without_exit": true,
+    "settings_edit_preserves_fullscreen": true,
+    "explicit_fullscreen_exit": true,
+    "distinct_release_exits": true,
+    "in_page_maximize_capture_roundtrip": true,
+    "native_XTEST_Esc_after_upgrade": true,
+    "page_errors": []
+  }
+]

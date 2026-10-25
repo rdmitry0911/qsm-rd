@@ -943,13 +943,14 @@
         // lose a row of guest pixels merely because its window has controls.
         document.body.style.cssText = 'width:100vw;height:100vh;min-width:100vw;min-height:100vh;margin:0;position:relative;overflow:hidden;background:#000;color:#fff;font:13px sans-serif';
         const toolbar = document.createElement('div');
+        toolbar.id = 'qsm-direct-toolbar';
         toolbar.setAttribute('aria-label', gettext('Console controls'));
         // The control strip floats over the guest video.  Its container is
         // click-through (pointer-events:none) so moving the mouse across the
         // strip still reaches the guest; only the actual buttons below opt
         // back in (pointer-events:auto).  Otherwise the revealed toolbar left
         // a dead band down the left edge where guest input was swallowed.
-        toolbar.style.cssText = 'position:absolute;z-index:10;top:12px;left:0;display:flex;flex-direction:column;align-items:stretch;gap:5px;padding:6px;background:rgba(17,24,39,.88);box-shadow:1px 0 6px rgba(0,0,0,.55);border-radius:0 7px 7px 0;opacity:1;transform:translateX(0);transition:opacity .16s ease,transform .16s ease;pointer-events:none';
+        toolbar.style.cssText = 'position:absolute;z-index:10;top:12px;left:32px;display:flex;flex-direction:column;max-width:calc(100vw - 44px);box-sizing:border-box;align-items:stretch;gap:5px;padding:6px;background:rgba(17,24,39,.88);box-shadow:1px 0 6px rgba(0,0,0,.55);border-radius:0 7px 7px 0;opacity:1;transform:translateX(0);transition:opacity .16s ease,transform .16s ease;pointer-events:none';
         // Always-visible reveal handle: the toolbar reveals on mouse hover, but
         // touchscreens have no hover, so on a tablet/phone the controls (⌨
         // keyboard, settings, clipboard) would be unreachable once the toolbar
@@ -957,8 +958,7 @@
         const revealHandle = document.createElement('button');
         revealHandle.type = 'button';
         revealHandle.textContent = '☰';
-        revealHandle.setAttribute('aria-label', gettext('Show console controls'));
-        revealHandle.title = gettext('Show console controls');
+        revealHandle.setAttribute('aria-controls', toolbar.id);
         revealHandle.style.cssText = 'position:fixed;z-index:11;left:0;top:50%;transform:translateY(-50%);width:26px;height:52px;padding:0;border:0;border-radius:0 8px 8px 0;cursor:pointer;font-size:16px;line-height:1;color:#e5e7eb;background:rgba(17,24,39,.55);pointer-events:auto';
         const status = document.createElement('span');
         status.textContent = gettext('Connecting…');
@@ -1174,10 +1174,10 @@
             video.focus({ preventScroll: true });
         };
         fullscreen.addEventListener('click', () => {
-            // The embedded card maximises within the page; only the separate
-            // window console uses exclusive OS full screen.
-            if (embedded) { toggleEmbeddedMaximize(); return; }
+            // Native fullscreen has an explicit exit in both contexts. The
+            // embedded card retains its in-page maximize outside that mode.
             if (document.fullscreenElement) { exitConsoleFullscreen(); }
+            else if (embedded) { toggleEmbeddedMaximize(); }
             else { enterConsoleFullscreen(settings.keyboardPriority !== KEYBOARD_PRIORITY.client); }
         });
         let restoreClientFocusAfterFullscreen = false;
@@ -1367,6 +1367,15 @@
         captureKeyboardSettings.type = 'button';
         captureKeyboardSettings.textContent = gettext('Capture keyboard (full screen)');
         captureKeyboardSettings.style.cssText = 'margin:0 0 8px;padding:5px 9px;cursor:pointer';
+        const releaseKeyboardSettings = document.createElement('button');
+        releaseKeyboardSettings.type = 'button';
+        releaseKeyboardSettings.textContent = gettext('Release keyboard');
+        releaseKeyboardSettings.setAttribute('aria-label', gettext('Release keyboard and exit full screen'));
+        releaseKeyboardSettings.title = gettext('Release keyboard and exit full screen');
+        releaseKeyboardSettings.style.cssText = 'margin:0 0 8px;padding:5px 9px;cursor:pointer';
+        const keyboardCaptureActions = document.createElement('div');
+        keyboardCaptureActions.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px';
+        keyboardCaptureActions.append(captureKeyboardSettings, releaseKeyboardSettings);
         const specialKeys = document.createElement('div');
         specialKeys.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 14px';
         for (const [label, modifiers, key] of [
@@ -1509,7 +1518,7 @@
         // Capture is the first Settings action, visible without scrolling past
         // encoder policy and gesture preferences. Guest first alone cannot
         // acquire the browser's fullscreen keyboard permission.
-        settingsPanel.append(settingsHeader, captureKeyboardSettings, keyboardCaptureStatus,
+        settingsPanel.append(settingsHeader, keyboardCaptureActions, keyboardCaptureStatus,
             settingsHint, mediaPolicyTitle, mediaPolicyHint, mediaPolicyForm, saveMediaPolicy,
             keyboardPolicyTitle, keyboardPolicyForm, keyboardPolicyHint, keyInputModeHint,
             mouseInputModeHint, specialKeys, keyboardUnavailableHint, gesturesTitle, gesturesHint,
@@ -1724,14 +1733,15 @@
                 toolbarRevealTimer = null;
             }
         };
-        const placeRevealHandle = () => {
-            // Keep the handle beside a visible strip, never on top of its
-            // controls (the old midpoint anchor covered Settings in iframes).
-            revealHandle.style.left = toolbarVisible ? `${toolbar.getBoundingClientRect().width}px` : '0';
+        const setToolbarHandleLabel = () => {
+            // The handle stays at the screen's left edge. The strip is inset
+            // by 32px, so controls never overlap this fixed hit target.
+            const label = toolbarVisible ? gettext('Hide console controls') : gettext('Show console controls');
+            revealHandle.setAttribute('aria-label', label);
+            revealHandle.setAttribute('aria-expanded', String(toolbarVisible));
+            revealHandle.title = label;
         };
-        const toolbarSizeObserver = new popup.ResizeObserver(placeRevealHandle);
-        toolbarSizeObserver.observe(toolbar);
-        placeRevealHandle();
+        setToolbarHandleLabel();
         const revealToolbar = () => {
             if (closed) { return; }
             cancelToolbarReveal();
@@ -1739,18 +1749,18 @@
             toolbarVisible = true;
             toolbar.style.opacity = '1';
             toolbar.style.transform = 'translateX(0)';
-            placeRevealHandle();
+            setToolbarHandleLabel();
         };
         const hideToolbarNow = () => {
             toolbarVisible = false;
             toolbar.style.opacity = '0';
-            toolbar.style.transform = 'translateX(-100%)';
-            placeRevealHandle();
+            toolbar.style.transform = 'translateX(calc(-100% - 32px))';
+            setToolbarHandleLabel();
         };
         // The handle pins the toolbar open (touch has no hover to re-reveal it);
         // a second tap unpins and hides it, giving the guest the full screen.
         revealHandle.addEventListener('click', () => {
-            toolbarPinned = !toolbarPinned;
+            toolbarPinned = !toolbarVisible;
             if (toolbarPinned) {
                 revealToolbar();
                 revealHandle.style.background = 'rgba(29,78,216,.9)';
@@ -1778,7 +1788,7 @@
             // visible toolbar alive indefinitely, while an intentional move
             // toward its left edge never hides it just before a click.
             const near = event.clientX >= box.left &&
-                event.clientX <= box.left + toolbar.offsetWidth + settings.toolbarNearbyPx &&
+                event.clientX <= box.left + 32 + toolbar.offsetWidth + settings.toolbarNearbyPx &&
                 event.clientY >= box.top + 12 - settings.toolbarNearbyPx &&
                 event.clientY <= box.top + 12 + toolbar.offsetHeight + settings.toolbarNearbyPx;
             pointerNearToolbar = near;
@@ -1831,8 +1841,8 @@
         };
         const setKeyboardCaptureLabel = () => {
             const active = Boolean(document.fullscreenElement && fullscreenCaptureRequested);
-            const label = active ? gettext('Release keyboard and exit full screen') : gettext('Capture keyboard (full screen)');
-            captureKeyboard.textContent = active ? gettext('Release keyboard') : gettext('Capture keyboard');
+            const label = gettext('Capture keyboard (full screen)');
+            captureKeyboard.textContent = gettext('Capture keyboard');
             captureKeyboard.title = label;
             captureKeyboard.setAttribute('aria-label', label);
             captureKeyboard.setAttribute('aria-pressed', String(active));
@@ -1840,6 +1850,7 @@
             captureKeyboard.disabled = fullscreenRequestPending;
             captureKeyboardSettings.textContent = label;
             captureKeyboardSettings.disabled = fullscreenRequestPending;
+            releaseKeyboardSettings.disabled = !active && !fullscreenRequestPending;
         };
         const exitConsoleFullscreen = () => {
             releaseHeldInput();
@@ -2010,12 +2021,23 @@
             }
             setKeyboardCaptureLabel();
         };
-        const toggleKeyboardCapture = () => {
-            if (document.fullscreenElement && fullscreenCaptureRequested) { releaseGuestKeyboardLock(); }
-            else { enterConsoleFullscreen(true); }
+        const captureGuestKeyboard = () => {
+            if (fullscreenRequestPending || closed) { return; }
+            if (document.fullscreenElement && fullscreenCaptureRequested) {
+                // Capture is idempotent. Focus changes before a click must
+                // never turn an enable/resume action into fullscreen exit.
+                keyboardCaptureSuspended = false;
+                releaseHeldInput();
+                setSettingsPanelOpen(false);
+                video.focus({ preventScroll: true });
+                updateGuestKeyboardLock();
+            } else {
+                enterConsoleFullscreen(true);
+            }
         };
-        captureKeyboard.addEventListener('click', toggleKeyboardCapture);
-        captureKeyboardSettings.addEventListener('click', toggleKeyboardCapture);
+        captureKeyboard.addEventListener('click', captureGuestKeyboard);
+        captureKeyboardSettings.addEventListener('click', captureGuestKeyboard);
+        releaseKeyboardSettings.addEventListener('click', releaseGuestKeyboardLock);
         for (const element of [video, kbInput]) {
             element.addEventListener('focus', updateGuestKeyboardLock);
             element.addEventListener('blur', updateGuestKeyboardLock);
@@ -2844,7 +2866,6 @@
             inputStateEnabled = false;
             if (inputStateTimer !== null) { popup.clearInterval(inputStateTimer); inputStateTimer = null; }
             if (observer) { observer.disconnect(); }
-            toolbarSizeObserver.disconnect();
             stopMicrophone();
             if (peer) { peer.close(); }
             if (closeWatcher !== null) { window.clearInterval(closeWatcher); }

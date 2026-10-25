@@ -1,0 +1,4 @@
+chromium top 1280 CONTROLS_PASS
+chromium top 640 CONTROLS_PASS
+chromium embedded 1280 CONTROLS_PASS
+chromium embedded 640 CONTROLS_PASS

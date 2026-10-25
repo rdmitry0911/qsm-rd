@@ -1,0 +1,8 @@
+Hi guys, stock4.8 fixes two control regressions reported after stock4.7.
+
+The controls handle stays at the left screen edge when opening/closing the toolbar. Capture keyboard is now an enable/resume action: repeated clicks keep fullscreen and return input to the guest. Release keyboard is a separate Settings action; the fullscreen exit control also works in the embedded console. Settings still preserves fullscreen.
+
+Firefox and Chromium checks pass at desktop and narrow sizes, both standalone and embedded. A headful Firefox/XTEST check confirms native Esc stays in the page after upgrading ordinary fullscreen to keyboard capture. All 22 CTest gates pass. No new physical Mac or hardware qualification is claimed; worker/bridge unchanged.
+
+Reload PVE and reopen the console after upgrading. No guest update or restart is needed.
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.8

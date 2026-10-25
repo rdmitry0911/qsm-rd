@@ -3,7 +3,7 @@ qsm-pve-direct for Proxmox VE 9
 
 `qsm-pve-direct` is a browser-native PVE console transport.
 
-Standalone release 0.4.0+stock4.7
+Standalone release 0.4.0+stock4.8
 -----------------------------
 For official PVE 9 install matching qsm-pve-direct and
 qsm-pve-direct-standalone debs. Follow README.standalone, installed with the
@@ -440,4 +440,17 @@ requests the browser's full-screen capture. The separate embedded in-page
 maximize control remains available. The reveal handle sits beside a visible
 toolbar, avoiding overlap with its controls at smaller iframe sizes.
 Explicit Release keyboard, Client first, close and long Esc remain exits.
+Reload the PVE page and reopen consoles after updating; no guest update.
+
+Fixed controls and one-way capture action (stock4.8)
+--------------------------------------------------
+The controls handle stays at the left screen edge when toggled. The toolbar
+has its own inset, preserving access without overlap or moving the handle
+according to toolbar width. The handle's accessible state follows visibility.
+Capture keyboard now only enables/resumes capture; repeated clicks keep
+fullscreen, including from Settings and an existing ordinary fullscreen.
+Release keyboard in Settings is a separate explicit action. Exit Full Screen
+also exits native capture in embedded and separate consoles. Outside native
+fullscreen, the embedded in-page maximize keeps its existing behavior.
+The button label stays Capture keyboard; its pressed state marks the request.
 Reload the PVE page and reopen consoles after updating; no guest update.

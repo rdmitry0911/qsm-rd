@@ -1,0 +1,4 @@
+firefox top 1280 CONTROLS_PASS
+firefox top 640 CONTROLS_PASS
+firefox embedded 1280 CONTROLS_PASS
+firefox embedded 640 CONTROLS_PASS

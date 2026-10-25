@@ -17,7 +17,7 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.7 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.7)
+[Stock4.8 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.8)
 preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
@@ -72,6 +72,14 @@ Stock4.7 keeps fullscreen while opening/editing Settings and resumes guest
 capture on Close. **Capture keyboard** is now a text button near the top of
 the toolbar and the first Settings action, with Close beside the panel title.
 The reveal handle stays beside the visible toolbar, avoiding blocked controls.
+
+Stock4.8 fixes two follow-up UI regressions: the controls handle stays at
+its fixed left-edge position, with the toolbar inset so nothing overlaps it.
+**Capture keyboard** is an enable/resume action and keeps its label; repeated
+clicks never release capture or exit fullscreen. A separate **Release keyboard**
+action in Settings and the **Exit Full Screen** control provide explicit exits,
+including in an embedded console. Capture can upgrade an existing ordinary
+fullscreen session without leaving it. Settings still preserves fullscreen.
 
 Install and update the standalone packages through the signed
 [APT repository](https://rdmitry0911.github.io/qsm-rd/): follow the

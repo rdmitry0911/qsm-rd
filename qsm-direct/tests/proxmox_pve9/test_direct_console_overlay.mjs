@@ -89,8 +89,8 @@ assert.match(source, /new MediaStream\(\)/,
     'a streamless remote track must be attached to a local MediaStream rather than rendering black');
 assert.match(source, /document\.documentElement\.requestFullscreen\(options\)/,
     'the popup must provide a full-screen action for the entire display');
-assert.match(source, /position:absolute;z-index:10;top:12px;left:0;display:flex;flex-direction:column/,
-    'the console controls must overlay from the left edge without consuming guest video pixels');
+assert.match(source, /position:absolute;z-index:10;top:12px;left:32px;display:flex;flex-direction:column/,
+    'the console controls must overlay beside the fixed left-edge handle without consuming guest video pixels');
 assert.match(source, /video\.style\.cssText = 'position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain;outline:none;touch-action:none/,
     'the guest image must use the browser viewport rather than a stale percentage-layout box after resize');
 assert.match(source, /document\.addEventListener\('fullscreenchange', \(\) => \{\s*releaseHeldInput\(\);\s*updateGuestKeyboardLock\(\);\s*setFullscreenToggle\(\);[\s\S]*?resizeConsole\(true\);/,
@@ -161,7 +161,7 @@ assert.match(source, /if \(!guestAsleepHint\) \{ status\.textContent = gettext\(
     'a decoded frame must not overwrite the wake hint while the guest output is off');
 assert.match(source, /const hideToolbarSoon = \(\) =>/,
     'an idle connected console must auto-hide its floating controls');
-assert.match(source, /toolbar\.style\.transform = 'translateX\(-100%\)'/,
+assert.match(source, /toolbar\.style\.transform = 'translateX\(calc\(-100% - 32px\)\)'/,
     'auto-hiding controls must move completely outside the guest picture on the left');
 assert.match(source, /toolbarHotZonePx: \{ defaultValue: 32, minimum: 4, maximum: 160 \}/,
     'the toolbar activation strip must be a bounded user preference');

@@ -3,20 +3,20 @@ import fs from 'node:fs';
 const source = fs.readFileSync(new URL('../../integration/proxmox/pve9/direct_ui/qsm-direct-console.js', import.meta.url), 'utf8');
 const section=(start,end)=>{const a=source.indexOf(start),b=source.indexOf(end,a);assert.ok(a>=0&&b>a);return source.slice(a,b);};
 const factory=new Function('env',`
-    const {popup,document,video,kbInput,settings,keyboardCaptureStatus,captureKeyboard,captureKeyboardSettings,
+    const {popup,document,video,kbInput,settings,keyboardCaptureStatus,captureKeyboard,captureKeyboardSettings,releaseKeyboardSettings,
         keyboardPriorityInput,applyConsoleSettings,releaseHeldInput}=env;
     const KEYBOARD_PRIORITY={client:'client-first',guest:'guest-first'},gettext=value=>value;
     let closed=false,settingsPanelOpen=false,restoreClientFocusAfterFullscreen=false;
     const setSettingsPanelOpen=open=>{settingsPanelOpen=open;updateGuestKeyboardLock();};
     ${section('let keyboardLockGeneration =','const bytesToB64 =')}
-    return {updateGuestKeyboardLock,releaseGuestKeyboardLock,enterConsoleFullscreen,toggleKeyboardCapture,
+    return {updateGuestKeyboardLock,releaseGuestKeyboardLock,enterConsoleFullscreen,captureGuestKeyboard,
         openSettings:open=>{settingsPanelOpen=open;updateGuestKeyboardLock();},close:()=>{closed=true;releaseGuestKeyboardLock();},
         restore:()=>restoreClientFocusAfterFullscreen};
 `);
 const target=()=>({listeners:{},style:{},attrs:{},addEventListener(name,fn){this.listeners[name]=fn;},setAttribute(n,v){this.attrs[n]=v;},focus(){}});
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function harness({keyboard=null,topKeyboard=keyboard,option=true,reject=false,priority='guest-first',defer=false}={}){
- const calls=[],video=target(),kbInput=target(),captureKeyboard=target(),captureKeyboardSettings=target(),status={},settings={keyboardPriority:priority};
+ const calls=[],video=target(),kbInput=target(),captureKeyboard=target(),captureKeyboardSettings=target(),releaseKeyboardSettings=target(),status={},settings={keyboardPriority:priority};
  let resolve;
  const document={...target(),fullscreenElement:null,activeElement:video,documentElement:{},exitFullscreen(){calls.push('exit');this.fullscreenElement=null;return Promise.resolve();}};
  document.documentElement.requestFullscreen=options=>{
@@ -28,8 +28,8 @@ function harness({keyboard=null,topKeyboard=keyboard,option=true,reject=false,pr
  video.focus=()=>{calls.push('focus');document.activeElement=video;};
  const popup={...target(),navigator:{keyboard},top:{navigator:{keyboard:topKeyboard}}};
  const state=factory({popup:{...popup,navigator:{keyboard},top:{navigator:{keyboard:topKeyboard}}},document,video,kbInput,settings,keyboardCaptureStatus:status,
-  captureKeyboard,captureKeyboardSettings,keyboardPriorityInput:{},applyConsoleSettings:()=>calls.push('persist'),releaseHeldInput:()=>calls.push('release')});
- return {...state,calls,popup,document,video,kbInput,settings,status,captureKeyboard,captureKeyboardSettings,resolve:()=>resolve()};
+  captureKeyboard,captureKeyboardSettings,releaseKeyboardSettings,keyboardPriorityInput:{},applyConsoleSettings:()=>calls.push('persist'),releaseHeldInput:()=>calls.push('release')});
+ return {...state,calls,popup,document,video,kbInput,settings,status,captureKeyboard,captureKeyboardSettings,releaseKeyboardSettings,resolve:()=>resolve()};
 }
 {
  const h=harness();h.captureKeyboard.listeners.click();await tick();
@@ -63,7 +63,22 @@ function harness({keyboard=null,topKeyboard=keyboard,option=true,reject=false,pr
  const h=harness({reject:true});h.enterConsoleFullscreen();await tick();assert.match(h.status.textContent,/denied/);assert.equal(h.captureKeyboard.attrs['aria-pressed'],'false');assert.equal(h.captureKeyboard.disabled,false);
 }
 {
- const h=harness();h.enterConsoleFullscreen();await tick();h.toggleKeyboardCapture();assert.ok(h.calls.includes('exit'),'the mouse-accessible release button exits capture');
+ const h=harness();assert.equal(h.releaseKeyboardSettings.disabled,true);h.enterConsoleFullscreen();await tick();h.calls.length=0;
+ h.captureKeyboard.listeners.click();h.captureKeyboard.listeners.click();h.openSettings(true);h.captureKeyboardSettings.listeners.click();await tick();
+ assert.ok(h.document.fullscreenElement);assert.ok(!h.calls.includes('exit'),'Capture is enable/resume only, including repeated clicks and Settings');
+ assert.ok(!h.calls.some(v=>Array.isArray(v)&&v[0]==='fullscreen'),'already active Capture does not request fullscreen again');
+ assert.equal(h.captureKeyboard.textContent,'Capture keyboard');assert.equal(h.captureKeyboard.attrs['aria-label'],'Capture keyboard (full screen)');
+ assert.equal(h.releaseKeyboardSettings.disabled,false);h.releaseKeyboardSettings.listeners.click();assert.ok(h.calls.includes('exit'),'the distinct Release action exits capture');
+}
+{
+ const h=harness();h.document.fullscreenElement=h.document.documentElement;h.updateGuestKeyboardLock();h.calls.length=0;
+ h.captureKeyboard.listeners.click();await tick();assert.ok(h.document.fullscreenElement);assert.ok(!h.calls.includes('exit'),'Capture upgrades ordinary fullscreen without exit');
+ assert.match(h.status.textContent,/capture active/);assert.equal(h.calls.filter(v=>Array.isArray(v)&&v[0]==='fullscreen').length,1);
+}
+{
+ const h=harness({defer:true});h.captureKeyboard.listeners.click();h.captureKeyboard.listeners.click();h.captureKeyboardSettings.listeners.click();
+ assert.equal(h.calls.filter(v=>Array.isArray(v)&&v[0]==='fullscreen').length,1,'rapid Capture clicks coalesce a pending request');
+ h.resolve();await tick();assert.ok(h.document.fullscreenElement);assert.ok(!h.calls.includes('exit'));
 }
 {
  const h=harness({priority:'client-first'});h.captureKeyboardSettings.listeners.click();await tick();assert.equal(h.settings.keyboardPriority,'guest-first');assert.ok(h.calls.includes('persist'),'explicit Capture switches/persists Guest first');
