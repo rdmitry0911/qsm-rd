@@ -1,0 +1,14 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.4",
+  "source_commit": "60ce6afb063b65aabef1cd27c0ee46a0bf904b1a",
+  "apt_manifest_commit": "2956cbee03fe0623ec21b4dacfd1f05855fe5d7e",
+  "apt_workflow": "https://github.com/rdmitry0911/qsm-rd/actions/runs/40167478874",
+  "apt_workflow_result": "success",
+  "public_apt": "https://rdmitry0911.github.io/qsm-rd/",
+  "verified_downloads": 26,
+  "signature_and_sha256": "Downloaded release verified with public archive key; all pinned versions downloaded by real APT; metadata/deb tamper rejection passes.",
+  "deployment": "192.168.64.20 four host profiles at stock4.4, all QSM services active, VM103/CT105 running, installed/HTTPS viewer matches release.",
+  "test_scope": "Headful Linux Firefox/XTEST/SCTP/LXC and complete Firefox/Chromium UI smoke tests; physical Mac/Safari not qualified.",
+  "user_workflow": "Reload PVE without cache, reopen console, click Capture keyboard in toolbar or Settings; F11 and macOS remapping are unnecessary.",
+  "discussion_messages": "Forum draft prepared only; no discussion mail/comments posted."
+}
