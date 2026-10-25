@@ -1,0 +1,344 @@
+[
+  {
+    "mode": "top",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_AltLeft_Alt_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_AltRight_Alt_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_AltLeft_Meta_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_MetaLeft_Alt_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_AltLeft_Alt_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_AltRight_Alt_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_AltLeft_Meta_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_MetaLeft_Alt_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "FULL_ALT_TAB",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": true,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "GUEST_ALT_F",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 33,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "EMPTY_RULES_ALLOWS_SOLO_ALT",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 56,
+        "modifiers": []
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "case": "EXPLICIT_BUTTON_Alt",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 56,
+        "modifiers": []
+      }
+    ]
+  },
+  {
+    "mode": "top",
+    "case": "EXPLICIT_BUTTON_Alt+Shift",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 56,
+        "modifiers": [
+          42
+        ]
+      }
+    ]
+  },
+  {
+    "mode": "top",
+    "case": "EXPLICIT_BUTTON_Super / Windows",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": []
+      }
+    ]
+  },
+  {
+    "mode": "top",
+    "case": "RAW_SOLO_ALT",
+    "wire": [
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": false
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "top",
+    "complete_production_JS": true,
+    "source_sha256": "208eacc2b229154a32d770757bfe5464ced5bfd9427141e8e2af3cb92a040b78",
+    "forced_policy": false,
+    "negotiated_policy": {
+      "op": "qsm_input_policy",
+      "version": 1,
+      "key_taps": true,
+      "mouse_actions": true,
+      "lease_ms": 200,
+      "snapshot_ms": 50
+    },
+    "page_errors": []
+  },
+  {
+    "mode": "embedded",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_AltLeft_Alt_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_AltRight_Alt_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_AltLeft_Meta_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_MetaLeft_Alt_False",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_AltLeft_Alt_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_AltRight_Alt_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_AltLeft_Meta_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "NO_TAB_KEYUP_BEFORE_BLUR_MetaLeft_Alt_True",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "FULL_ALT_TAB",
+    "wire": [],
+    "hasFocus_after_events": true,
+    "DOM_Tab": true,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "GUEST_ALT_F",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 33,
+        "modifiers": [
+          56
+        ]
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "EMPTY_RULES_ALLOWS_SOLO_ALT",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 56,
+        "modifiers": []
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "case": "EXPLICIT_BUTTON_Alt",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 56,
+        "modifiers": []
+      }
+    ]
+  },
+  {
+    "mode": "embedded",
+    "case": "EXPLICIT_BUTTON_Alt+Shift",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 56,
+        "modifiers": [
+          42
+        ]
+      }
+    ]
+  },
+  {
+    "mode": "embedded",
+    "case": "EXPLICIT_BUTTON_Super / Windows",
+    "wire": [
+      {
+        "op": "key_tap",
+        "key": 219,
+        "modifiers": []
+      }
+    ]
+  },
+  {
+    "mode": "embedded",
+    "case": "RAW_SOLO_ALT",
+    "wire": [
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": true
+      },
+      {
+        "op": "keyboard",
+        "key": 56,
+        "down": false
+      }
+    ],
+    "hasFocus_after_events": true,
+    "DOM_Tab": false,
+    "blur_injected": false
+  },
+  {
+    "mode": "embedded",
+    "complete_production_JS": true,
+    "source_sha256": "208eacc2b229154a32d770757bfe5464ced5bfd9427141e8e2af3cb92a040b78",
+    "forced_policy": false,
+    "negotiated_policy": {
+      "op": "qsm_input_policy",
+      "version": 1,
+      "key_taps": true,
+      "mouse_actions": true,
+      "lease_ms": 200,
+      "snapshot_ms": 50
+    },
+    "page_errors": []
+  }
+]

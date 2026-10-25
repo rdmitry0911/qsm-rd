@@ -17,7 +17,7 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.10 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.10)
+[Stock4.11 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.11)
 preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
@@ -101,6 +101,15 @@ Shift+Escape releases capture. A per-rule Send to guest bypass is available.
 No additional Ctrl+Alt+Tab remapping is installed. Host rules prevent guest
 forwarding; native OS/browser execution remains subject to its own policy.
 
+
+Stock4.11 fixes a remaining host-shortcut prefix leak: the OS can consume
+Tab and deliver Alt/Meta keyup before blur while the page still has focus.
+Modifier-only prefixes of an active Host shortcuts rule now stay local on
+release; they cannot turn a host switch into a solo guest Alt/Super/menu tap.
+This also means a deliberate bare reserved modifier uses the explicit Alt,
+Alt+Shift or Super Send to guest button. Unreserved modifier-only actions,
+normal guest chords such as Alt+F, explicit per-rule sends and Raw remain
+available. The active editable rule list controls which prefixes are local.
 
 Install and update the standalone packages through the signed
 [APT repository](https://rdmitry0911.github.io/qsm-rd/): follow the

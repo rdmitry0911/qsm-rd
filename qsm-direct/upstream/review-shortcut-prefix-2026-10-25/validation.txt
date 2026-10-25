@@ -1,0 +1,28 @@
+stock4.11 qualification — 2026-10-25
+
+User clarified the guest Alt effect appears after Alt+Tab/release. The host
+loaded stock4.10's content-addressed JS after installation, so stale source
+was not assumed. The remaining bug is the focused modifier-only release
+fallback when the OS withholds Tab and DOM blur has not occurred yet.
+
+Regression tests fail on stock4.10 and pass on corrected source. 24 CTest
+gates pass. Complete production viewer A/B (not extracted input fragments)
+runs in headful Firefox over actual SCTP/installed host bridge+worker and
+owned CT108. Input policy is negotiated by the actual bridge; it is never
+forced by the test. Only API auth/SDP transport and observation hooks are
+substituted. No production guest input is logged or injected.
+
+Baseline sends a solo guest Alt/Meta after keyup with hasFocus true and no
+DOM Tab or blur. Fixed source sends none in both exact/physical main-key
+modes, both Alt sides and logical Option/Command remapping. Full Alt+Tab
+stays local; guest Alt+F, explicitly empty rules, actual UI modifier buttons
+and Raw keep their intended egress. Custom rules, modifier release orders,
+cleanup and next-key state are covered by the state regression test.
+
+Native macOS physical/global shortcut behavior was not tested. The safety
+choice also suppresses intentional modifier-only taps that could prefix a
+host rule; explicit Alt/Alt+Shift/Super buttons provide the guest action.
+AltGraph/unreserved modifier-only actions remain available. No main-key
+latency/debounce was introduced. Worker/bridge/protocol unchanged.
+Owned CT108 fixture stopped; original 1970x1220 output restored.
+No VM103/CT105 restart, desktop provisioning or external discussion post.

@@ -761,6 +761,14 @@
         const shortcut = shortcutFromEvent(event);
         return shortcut ? rules.find(rule => rule.shortcut === shortcut) || null : null;
     };
+    const isHostShortcutPrefix = (keys, rules) => {
+        const names = keys.map(key => ({ 29: 'Ctrl', 157: 'Ctrl', 42: 'Shift', 54: 'Shift',
+            56: 'Alt', 184: 'Alt', 219: 'Meta', 220: 'Meta' })[key]);
+        return names.length > 0 && names.every(Boolean) && rules.some(rule => {
+            const modifiers = rule.shortcut.split('+').slice(0, -1);
+            return names.every(name => modifiers.includes(name));
+        });
+    };
     const shortcutGuestChord = (shortcut) => {
         const canonical = parseShortcut(shortcut);
         if (!canonical) { return null; }
@@ -1412,7 +1420,7 @@
         const shortcutError = document.createElement('p');
         shortcutError.setAttribute('role', 'alert'); shortcutError.style.cssText = 'margin:6px 0;color:#fbbf24';
         const shortcutRecordHint = document.createElement('p');
-        shortcutRecordHint.textContent = gettext('Enter e.g. Alt+Tab, Cmd+Space or Ctrl+Shift+F. Record captures keys received by the browser; enter OS-reserved combinations manually. Include a non-modifier key.');
+        shortcutRecordHint.textContent = gettext('Enter e.g. Alt+Tab, Cmd+Space or Ctrl+Shift+F. Record captures keys received by the browser; enter OS-reserved combinations manually. Include a non-modifier key. Modifier-only prefixes of these rules stay local on release, even if the OS withholds the main key. Use Send to guest buttons for an explicit Alt, Alt+Shift or Super tap.');
         shortcutRecordHint.style.cssText = 'margin:6px 0;color:#cbd5e1;line-height:1.35';
         shortcutForm.append(shortcutInput, shortcutAction, recordShortcut, saveShortcut, cancelShortcut, resetShortcuts);
         shortcutEditor.append(shortcutTitle, shortcutHint, shortcutList, shortcutForm, shortcutError, shortcutRecordHint);
@@ -1552,7 +1560,8 @@
         const specialKeys = document.createElement('div');
         specialKeys.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 14px';
         for (const [label, modifiers, key] of [
-            ['Esc', [], 1], ['Alt+Tab', [56], 15], ['Ctrl+Alt+Del', [29, 56], 0xd3],
+            ['Esc', [], 1], ['Alt', [], 56], ['Alt+Shift', [42], 56],
+            ['Alt+Tab', [56], 15], ['Ctrl+Alt+Del', [29, 56], 0xd3],
             ['Super / Windows', [], 0xdb],
         ]) {
             const action = document.createElement('button');
@@ -2830,12 +2839,17 @@
                 const used = deferredModifiers.get(key);
                 const modifiers = inputModifiers(sourceEvent).filter(value => value !== key);
                 deferredModifiers.delete(key); heldKeys.delete(key);
-                // A deliberate modifier-only shortcut is completed on release.
-                // Cleanup/host focus loss must never synthesize a menu tap.
+                // The OS can swallow Tab and deliver Alt/Meta keyup before
+                // blur, while hasFocus() is still true. A reserved prefix is
+                // indistinguishable from a bare modifier tap: keep it local.
+                // Unreserved modifier-only shortcuts and AltGraph still work.
                 if (sourceEvent && !used && !keyboardCaptureSuspended && !document.hidden &&
                     (typeof document.hasFocus !== 'function' || document.hasFocus())) {
                     markModifiersUsed();
-                    noteGuestInput(); send({ op: 'key_tap', key, modifiers });
+                    if (sourceEvent.key === 'AltGraph' ||
+                        !isHostShortcutPrefix([key, ...modifiers], shortcutRulesForSettings(settings))) {
+                        noteGuestInput(); send({ op: 'key_tap', key, modifiers });
+                    }
                 }
                 return;
             }

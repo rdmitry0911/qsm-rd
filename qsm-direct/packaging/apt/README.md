@@ -5,12 +5,12 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
-Current preview: **0.4.0+stock4.10** adds the editable Host shortcuts list
-under Settings > Keyboard shortcut priority. Default Alt+Tab / Cmd+Tab
-families stay in the host even when every DOM event reaches QSM. Rules can
-be added, recorded, edited, removed, reset or sent to the guest once. Guest
-first and Client first lists persist independently; Raw bypasses the list.
-Capture controls, fullscreen Settings and exact input remain available.
+Current preview: **0.4.0+stock4.11** fixes a remaining host Alt/Meta
+prefix leak when the OS consumes Tab and keyup arrives before blur. Reserved
+modifier-only prefixes stay local on release. Explicit Alt, Alt+Shift and
+Super buttons send deliberate modifier taps to the guest; normal guest
+chords, per-rule sends and Raw remain available. The editable Host shortcuts
+list and separate Guest first / Client first profiles are retained.
 Exact mouse/trackpad clicks are the
 default too: complete clicks include their position and modifiers. Confirmed
 drags remain ordered and guarded; fractional two-axis scrolling is retained.

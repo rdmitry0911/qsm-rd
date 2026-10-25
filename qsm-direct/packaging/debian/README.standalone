@@ -1,7 +1,7 @@
 QSM Direct standalone profile for stock Proxmox VE 9
 ===================================================
 
-Release: 0.4.0+stock4.10, Debian 13 / amd64. The standalone profile uses official
+Release: 0.4.0+stock4.11, Debian 13 / amd64. The standalone profile uses official
 Proxmox packages: a guarded web UI overlay and independent PVE-authorized HTTPS
 signalling service. It shares the native preview's media worker, encoders and
 adaptive bitrate controller. No rebuilt Proxmox debs are needed on stock PVE.
@@ -10,8 +10,8 @@ pve-container 6.1.14. UI activation is guarded by version/template checksums;
 other reviewed versions are listed in pve-manager-index-template.sha256.
 
 Download the matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.10
-Verify SHA256SUMS-stock4.10 before installation (sha256sum -c SHA256SUMS-stock4.10
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.11
+Verify SHA256SUMS-stock4.11 before installation (sha256sum -c SHA256SUMS-stock4.11
 when all listed assets have been downloaded). Do not mix QSM package versions.
 Do not install patched Proxmox debs from the older native preview for this setup.
 The separate qsm-console-guest asset belongs INSIDE an LXC, never on the PVE host.
@@ -35,8 +35,8 @@ B. Optional single-port gateway: PVE HTTPS, QSM signalling and authenticated
 
 Install base packages as root on the PVE node:
 
-    apt install ./qsm-pve-direct_0.4.0+stock4.10_amd64.deb \
-                ./qsm-pve-direct-standalone_0.4.0+stock4.10_all.deb
+    apt install ./qsm-pve-direct_0.4.0+stock4.11_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock4.11_all.deb
     qsm-pve-direct-endpoint --show
     qsm-pve-direct-ui status
     systemctl is-active qsm-pve-direct-terminal qsm-pve-direct-signal
@@ -95,7 +95,7 @@ LXC setup
 ---------
 Install the matching helper on the HOST:
 
-    apt install ./qsm-pve-direct-lxc_0.4.0+stock4.10_all.deb
+    apt install ./qsm-pve-direct-lxc_0.4.0+stock4.11_all.deb
     qsm-pve-direct-lxc enable VMID --session wayland
 
 Replace VMID with the chosen Debian/Ubuntu container with a Plasma desktop.
@@ -117,10 +117,10 @@ Upgrading an existing installation
 Update the core AND each installed version-matched QSM profile/helper in the
 same apt transaction. For a standalone node with gateway and LXC helper:
 
-    apt install ./qsm-pve-direct_0.4.0+stock4.10_amd64.deb \
-                ./qsm-pve-direct-standalone_0.4.0+stock4.10_all.deb \
-                ./qsm-pve-direct-gateway_0.4.0+stock4.10_all.deb \
-                ./qsm-pve-direct-lxc_0.4.0+stock4.10_all.deb
+    apt install ./qsm-pve-direct_0.4.0+stock4.11_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock4.11_all.deb \
+                ./qsm-pve-direct-gateway_0.4.0+stock4.11_all.deb \
+                ./qsm-pve-direct-lxc_0.4.0+stock4.11_all.deb
 
 Omit gateway/helper if those profiles are not installed or wanted. QSM service
 restarts can interrupt open consoles; reconnect/hard-reload after upgrading.
@@ -297,3 +297,14 @@ rules reserve Alt+Tab, Alt+Shift+Tab, Meta+Tab and Shift+Meta+Tab; Ctrl+Alt+
 Shift+Escape releases capture. A per-rule Send to guest bypass is available.
 No additional Ctrl+Alt+Tab remapping is installed. Host rules prevent guest
 forwarding; native OS/browser execution remains subject to its own policy.
+
+Reserved shortcut prefixes (stock4.11)
+--------------------------------------
+Stock4.11 fixes a remaining host-shortcut prefix leak: the OS can consume
+Tab and deliver Alt/Meta keyup before blur while the page still has focus.
+Modifier-only prefixes of an active Host shortcuts rule now stay local on
+release; they cannot turn a host switch into a solo guest Alt/Super/menu tap.
+This also means a deliberate bare reserved modifier uses the explicit Alt,
+Alt+Shift or Super Send to guest button. Unreserved modifier-only actions,
+normal guest chords such as Alt+F, explicit per-rule sends and Raw remain
+available. The active editable rule list controls which prefixes are local.

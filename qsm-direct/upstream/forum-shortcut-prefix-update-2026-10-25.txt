@@ -1,0 +1,13 @@
+Hi guys, stock4.11 fixes another corner case in host shortcut routing.
+
+When the OS consumes Tab, Firefox can still deliver Alt/Command keyup before the page reports blur. The previous code could interpret it as a solo guest modifier tap, producing a guest menu effect after switching host applications. Modifier-only prefixes of configured host shortcuts now stay local on release, without a timeout.
+
+Normal guest chords such as Alt+F still work. For a deliberate reserved modifier tap, Settings has explicit Alt, Alt+Shift and Super / Windows buttons. The editable host list, per-rule Send to guest and Raw input remain available.
+
+24 CTest gates pass. Full production viewer checks over real WebRTC reproduce the previous leak and confirm zero guest packets for the fixed sequence, including in the embedded console. This uses modelled DOM/MacIntel events on Linux; native Mac qualification is still needed. No worker/bridge or guest update is required. Reload PVE and reopen consoles after updating.
+
+Source, packages and installation instructions:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.11
+APT: https://rdmitry0911.github.io/qsm-rd/
+
+Sponsored by Takt — https://taktcycles.com/
