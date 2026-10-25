@@ -1,0 +1,13 @@
+192.168.64.20 upgraded to matching stock4.7 core/standalone/LXC/gateway.
+APT simulation selected exactly these four QSM host packages, without removals.
+QSM terminal/signal/gateway/turn services active; dpkg audit empty; VM103 and
+CT105 remain running. HTTPS-served and installed viewer match final package.
+Worker/bridge payloads unchanged from stock4.3/4.4/4.5/4.6; embedded guest
+payload matches separate guest deb, not installed on the PVE host.
+Downloaded release signature and every SHA256 verified with public key.
+Complete UI Firefox/Chromium checks, standalone and embedded, pass; all
+22 CTest gates pass. No physical Mac or new transport/hardware qualification.
+No live guest stopped or updated. No discussion mail/comments sent.
+Reload the PVE page, reopen console, click text Capture keyboard near the
+start of the left toolbar or first action in Settings. Settings stays fullscreen;
+Close in the header returns focus to the guest and resumes capture.

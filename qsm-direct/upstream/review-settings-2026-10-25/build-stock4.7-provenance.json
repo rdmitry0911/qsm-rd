@@ -1,0 +1,48 @@
+{
+  "source_commit": "11af049238b83e88d20d359a1cde18435744ae31",
+  "tag": "v0.4.0-qsm-direct-20261025-stock4.7",
+  "build_environment": "unprivileged isolated Debian 13, offline namespace, FFmpeg 7.1 ABI",
+  "worker_sha256": "521066786eb7d6d050df51ec1448293e4fa7ddac1886fb5b2ea114d4cbf18217",
+  "bridge_sha256": "e5165acf7c4a1178c5c47f3acb2da7ff8066fa8df4cf5f3df4253b4bc378e3f9",
+  "viewer_sha256": "a8791b7abb9d763e0535b64db31cd5fd6f34c90a68c4a40af291e9eb2bdf795b",
+  "worker_matches_real_CT108_qualification": true,
+  "worker_and_protocol_unchanged_from_stock4_3": true,
+  "matching_embedded_guest": true,
+  "assets": [
+    {
+      "filename": "qsm-console-guest_0.4.0+stock4.7_all.deb",
+      "package": "qsm-console-guest",
+      "version": "0.4.0+stock4.7",
+      "architecture": "all",
+      "sha256": "10a387f1650dc2d4779dce0f5dd2970e3d9011f4dfc36e4d8837b6db3cfa893f"
+    },
+    {
+      "filename": "qsm-pve-direct-gateway_0.4.0+stock4.7_all.deb",
+      "package": "qsm-pve-direct-gateway",
+      "version": "0.4.0+stock4.7",
+      "architecture": "all",
+      "sha256": "a73390bed620e648b12532bdcd5ff6afd94f7a75e0b7fcb33c05ac7550a9f2ef"
+    },
+    {
+      "filename": "qsm-pve-direct-lxc_0.4.0+stock4.7_all.deb",
+      "package": "qsm-pve-direct-lxc",
+      "version": "0.4.0+stock4.7",
+      "architecture": "all",
+      "sha256": "2d1967b4f695a03bad9b6c184a7bd046af6d9599b17349b860c4bed1a53eaa75"
+    },
+    {
+      "filename": "qsm-pve-direct-standalone_0.4.0+stock4.7_all.deb",
+      "package": "qsm-pve-direct-standalone",
+      "version": "0.4.0+stock4.7",
+      "architecture": "all",
+      "sha256": "dbb68b5aefa2cc05d37685720ec40349f0ab2f47ed495c7414e4e56f0fc086c5"
+    },
+    {
+      "filename": "qsm-pve-direct_0.4.0+stock4.7_amd64.deb",
+      "package": "qsm-pve-direct",
+      "version": "0.4.0+stock4.7",
+      "architecture": "amd64",
+      "sha256": "f74424abef8d12609155e1cd393a89d8189fd5b6408aeffbffab1f1bf9f1438c"
+    }
+  ]
+}
