@@ -146,10 +146,11 @@
         }
         present(enabled) {
             const base = this.regions.canvas, target = this.canvas;
-            const ready = enabled && (this.captured || this.regions.painted !== null) &&
+            const ready = enabled && (this.captured || (this.regions.width > 0 && this.regions.painted !== null)) &&
                 this.exact.width > 0 && base.width === this.exact.width && base.height === this.exact.height;
             this.exact.style.display = 'none';
             if (!ready) {
+                if (!enabled) { this.captured = false; }
                 this.dirty = true;
                 target.style.display = 'none';
                 base.style.display = this.regions.width ? 'block' : 'none';

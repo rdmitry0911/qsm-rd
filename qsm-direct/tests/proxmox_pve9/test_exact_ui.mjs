@@ -68,6 +68,10 @@ assert.equal(backing.style.display, 'block');
 regionState.width = 0; compositor.present(false);
 assert.equal(native.style.opacity, '');
 assert.equal(backing.style.display, 'none');
+compositor.present(true);
+assert.equal(composed.style.display, 'none', 're-enabling must not briefly display a base retained from the previous session');
+compositor.capture(); compositor.present(true);
+assert.equal(composed.style.display, 'block', 're-enabling becomes visible after a fresh presented base');
 const painted = [], clears = [], errors = [], pending = [];
 const context = { createImageData: (w, h) => ({ data: new Uint8Array(w * h * 4) }),
     putImageData: (image, x, y) => painted.push({ pixels: image.data, x, y }),
