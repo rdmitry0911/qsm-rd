@@ -10,6 +10,8 @@ import tempfile
 import time
 import re
 import unittest
+import json
+from dataclasses import replace
 from unittest.mock import AsyncMock, patch
 import av
 from fractions import Fraction
@@ -528,6 +530,32 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 _VideoPacer(invalid)
 
+    async def test_exact_ui_transmission_credit_preempts_an_encoded_video_burst(self) -> None:
+        from types import SimpleNamespace
+        from aiortc.rtp import RtpPacket, HeaderExtensionsMap
+        clock = [100.0]
+        async def advance(seconds):
+            clock[0] += seconds + 0.000001
+        sender = SimpleNamespace(_ssrc=1, _rtx_ssrc=2,
+                                 _RTCRtpSender__rtp_header_extensions_map=HeaderExtensionsMap())
+        packet = RtpPacket(payload_type=102, ssrc=1, payload=b"v" * 1150).serialize()
+        sent = []
+        async def forward(data):
+            sent.append(clock[0])
+        with patch("extensions.browser_bridge.qsm_browser_bridge.time.monotonic", side_effect=lambda: clock[0]), \
+             patch("extensions.browser_bridge.qsm_browser_bridge.asyncio.sleep", side_effect=advance):
+            pacer = _VideoPacer(2000)
+            # Idle credit cannot erase a just-sent exact-text burst.
+            clock[0] += 10
+            pacer.account_auxiliary(12000)
+            debt = pacer._tokens
+            self.assertLess(debt, 0)
+            pacer.set_bitrate(1000)
+            self.assertEqual(pacer._tokens, debt, "a rate change retains UI debt")
+            start = clock[0]
+            await pacer.send(packet, sender, forward)
+            self.assertGreaterEqual(sent[0] - start, (len(packet) + 64 - debt) / pacer._rate)
+
     async def test_audio_and_rtcp_bypass_a_waiting_video_packet(self) -> None:
         from types import SimpleNamespace
         from aiortc.rtp import RtpPacket, RtcpSrPacket, RtcpSenderInfo, HeaderExtensionsMap
@@ -637,6 +665,42 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((bridge._latest_cursor.sequence, bridge._latest_cursor.x,
                                   bridge._latest_cursor.y), (8, 121, 81))
                 bridge.ingress.raise_if_failed()
+            finally:
+                await bridge.close()
+
+    async def test_duplicate_scanout_cursor_is_bounded_and_lost_final_position_is_refreshed(self) -> None:
+        class Channel:
+            readyState = "open"
+            bufferedAmount = 0
+            def __init__(self):
+                self.messages = []
+            def send(self, data):
+                self.messages.append(json.loads(data))
+
+        with tempfile.TemporaryDirectory(prefix="qsm-browser-cursor-rate.") as directory:
+            bridge = BrowserWebRtcBridge(Path(directory), fps=60)
+            channel = Channel()
+            bridge._cursor_channel = channel
+            cursor = GuestCursor(sequence=1, shape_id=0, visible=True, x=120, y=80,
+                                 width=0, height=0, hotspot_x=0, hotspot_y=0, bgra=b"")
+            try:
+                with patch("extensions.browser_bridge.qsm_browser_bridge.time.monotonic", return_value=10):
+                    for seq in range(1, 501):
+                        bridge._receive_cursor(replace(cursor, sequence=seq))
+                    self.assertEqual(len(channel.messages), 1)
+                    bridge._receive_cursor(replace(cursor, sequence=501, x=121))
+                    self.assertEqual(len(channel.messages), 2, "real movement is immediate")
+                # No new scanout or pointer event is required for repair.
+                with patch("extensions.browser_bridge.qsm_browser_bridge.time.monotonic", return_value=10.25):
+                    bridge._publish_cursor()
+                    self.assertEqual(len(channel.messages), 3)
+                    self.assertEqual(channel.messages[-1], channel.messages[-2])
+                    channel.bufferedAmount = 1024
+                    bridge._receive_cursor(replace(cursor, sequence=502, visible=False))
+                    self.assertEqual(len(channel.messages), 3)
+                    channel.bufferedAmount = 0
+                    bridge._publish_cursor()
+                    self.assertFalse(channel.messages[-1]["visible"])
             finally:
                 await bridge.close()
 

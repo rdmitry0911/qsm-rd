@@ -117,7 +117,8 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
             wake_by(t.busy_until);
             ++stats_.busy_tiles;
             if (t.active) {
-                if (++cleared > 32U) { reset_needed_ = true; break; }
+                if (cleared >= 32U) { wake_by(now); continue; }
+                ++cleared;
                 if (!emit(clear, static_cast<std::uint16_t>(x), static_cast<std::uint16_t>(y),
                           static_cast<std::uint16_t>(w), static_cast<std::uint16_t>(h), {}, send)) { break; }
                 t.active = false;
@@ -235,7 +236,11 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
         if (!t.active || !t.dirty) { continue; }
         const auto x = static_cast<std::uint32_t>(i % cols) * tile_edge;
         const auto y = static_cast<std::uint32_t>(i / cols) * tile_edge;
-        if (++cleared > 32U) { reset_needed_ = true; break; }
+        // A large damage burst must not reset unrelated static text or
+        // discard every viewer's bitmap cache. Continue bounded clears on
+        // the next immediate pass; only transport loss requires a reset.
+        if (cleared >= 32U) { wake_by(now); continue; }
+        ++cleared;
         if (!emit(clear, static_cast<std::uint16_t>(x), static_cast<std::uint16_t>(y),
             static_cast<std::uint16_t>(std::min<std::uint32_t>(tile_edge, width - x)),
             static_cast<std::uint16_t>(std::min<std::uint32_t>(tile_edge, height - y)), {}, send)) { break; }

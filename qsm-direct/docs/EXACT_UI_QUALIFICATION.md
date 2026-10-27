@@ -1,5 +1,7 @@
 # Mixed-content desktop qualification, 2026-10-27
 
+This is the historical exp19 LXC report. See the [subsequent VM qualification](VM_MIXED_QUALIFICATION_20261027.md) for newer fixes and encoder/browser coverage.
+
 Candidate package: `0.4.0+stock4.14~exp19`. The complete mixed-content run used
 exp18. Exp19 adds only a bounded frame-metadata send under SCTP backpressure;
 that branch has a dedicated regression test. Worker/UI composition code is the

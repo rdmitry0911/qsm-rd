@@ -158,11 +158,23 @@ class _VideoPacer:
         self._burst = max(VIDEO_PACING_BURST_BYTES, int(self._rate * .002))
         self._tokens = min(getattr(self, "_tokens", 0.), self._burst)
 
+    def account_auxiliary(self, size: int) -> None:
+        # Share transmission credit, not just raw-frame admission. An already
+        # encoded IDR can otherwise fill TURN/TCP ahead of new exact text.
+        # SCTP/audio remain immediate; subsequent video pays their wire cost.
+        now = time.monotonic()
+        self._tokens = min(self._burst, self._tokens +
+                           max(0, now - self._updated) * self._rate)
+        self._updated = now
+        self._tokens -= size + 64 * max(1, (size + VIDEO_RTP_PAYLOAD_MAX - 1) // VIDEO_RTP_PAYLOAD_MAX)
+
     async def send(self, data: bytes, sender: object,
                    forward: Callable[..., Any]) -> None:
         if (len(data) < 12 or data[0] >> 6 != 2 or 192 <= data[1] <= 223 or
                 struct.unpack_from("!I", data, 8)[0] not in
                 (sender._ssrc, sender._rtx_ssrc)):
+            if len(data) >= 12 and data[0] >> 6 == 2:
+                self.account_auxiliary(len(data))
             await forward(data)
             return
         # IPv6 + UDP + the maximum SRTP tag; accounting is conservative on IPv4.
@@ -1892,6 +1904,8 @@ class BrowserWebRtcBridge:
         self._on_terminal = on_terminal
         self._terminal_notified = False
         self._latest_cursor: GuestCursor | None = None
+        self._sent_cursor_state: tuple | None = None
+        self._cursor_sent_at = float("-inf")
         self._sent_cursor_shape_id: int | None = None
         self._cursor_channel: object | None = None
         self._control_channel: object | None = None
@@ -1919,7 +1933,8 @@ class BrowserWebRtcBridge:
                                       self.input.probe_lossless_ui,
                                       lambda: self._video_rate.current_kbps,
                                       default_enabled=os.environ.get("QSM_DIRECT_EXACT_UI_DEFAULT") == "1",
-                                      demand=lambda percent: self.input.set_ui_budget(self, percent))
+                                      demand=lambda percent: self.input.set_ui_budget(self, percent),
+                                      account=lambda size: self._video_pacer.account_auxiliary(size))
         self._input_watchdog: asyncio.Task[None] | None = None
         self._input_ended = False
         self._last_keyframe_request = float("-inf")
@@ -2041,7 +2056,10 @@ class BrowserWebRtcBridge:
         if payload.get("op") == "qsm_video_frame" and getattr(channel, "bufferedAmount", 0) >= exact_ui.MAX_BUFFERED:
             return False
         try:
-            channel.send(json.dumps(payload, separators=(",", ":"), ensure_ascii=True))
+            data = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+            channel.send(data)
+            if payload.get("op") != "qsm_guest_clipboard" and payload.get("op") != "qsm_guest_result":
+                self._video_pacer.account_auxiliary(len(data))
             return True
         except Exception:
             # SCTP closure is ordinary browser lifecycle, not a media failure.
@@ -2077,12 +2095,26 @@ class BrowserWebRtcBridge:
         channel = self._cursor_channel
         if channel is None or getattr(channel, "readyState", None) != "open":
             return
+        state = cursor.shape_id, cursor.visible, cursor.x, cursor.y
+        now = time.monotonic()
+        # Display1 can repeat an identical MouseSet on every scanout update.
+        # Hundreds of redundant SCTP records/second consume narrow-link
+        # headroom reserved for text. Real movement is immediate; a small
+        # refresh repairs loss of the final unreliable position, even idle.
+        if state == self._sent_cursor_state and now - self._cursor_sent_at < 0.25:
+            return
+        if getattr(channel, "bufferedAmount", 0) >= 1024:
+            return
         try:
-            channel.send(json.dumps({
+            data = json.dumps({
                 "op": "qsm_guest_cursor", "sequence": cursor.sequence,
                 "shape_id": cursor.shape_id, "visible": cursor.visible,
                 "x": cursor.x, "y": cursor.y,
-            }, separators=(",", ":"), ensure_ascii=True))
+            }, separators=(",", ":"), ensure_ascii=True)
+            channel.send(data)
+            self._video_pacer.account_auxiliary(len(data))
+            self._sent_cursor_state = state
+            self._cursor_sent_at = now
         except Exception:
             # This channel deliberately carries replaceable state. A later
             # MouseSet will supersede a dropped/closing record.
@@ -2285,6 +2317,7 @@ class BrowserWebRtcBridge:
             await asyncio.sleep(0.02)
             try:
                 self._input_state.expire()
+                self._publish_cursor()
             except BridgeError:
                 self._input_state.release()
                 return
@@ -2381,7 +2414,9 @@ class BrowserWebRtcBridge:
         channel = self._cursor_channel
         if channel is not None and getattr(channel, "readyState", None) == "open":
             try:
-                channel.send(json.dumps(payload, separators=(",", ":"), ensure_ascii=True))
+                data = json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+                channel.send(data)
+                self._video_pacer.account_auxiliary(len(data))
             except Exception:
                 pass  # The next update/health tick replaces a lost sample.
         else:

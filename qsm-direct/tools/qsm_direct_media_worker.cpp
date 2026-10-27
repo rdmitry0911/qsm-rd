@@ -490,7 +490,7 @@ public:
         send(audio_, ++audio_number_, packet_audio, data);
     }
 
-    void send_cursor(const qmdp::CursorState &cursor, bool include_shape,
+    bool send_cursor(const qmdp::CursorState &cursor, bool include_shape,
                      std::uint64_t shape_id) noexcept {
         try {
             std::uint16_t width = 0U;
@@ -542,11 +542,13 @@ public:
                 if (!pixels.empty()) {
                     ++cursor_shape_records_;
                 }
+                return true;
             }
         } catch (...) {
             // Cursor publication must never backpressure or terminate the
             // Display1 event loop. The next mouse event will retry it.
         }
+        return false;
     }
 
     [[nodiscard]] Stats stats() const noexcept {
@@ -1063,19 +1065,26 @@ public:
         if (!running_.load()) {
             return;
         }
-        bool include_shape = false;
-        std::uint64_t shape_id = 0U;
-        {
-            std::lock_guard lock(cursor_mutex_);
-            include_shape = !same_cursor_shape(cursor.shape, last_cursor_shape_);
-            last_cursor_shape_ = cursor.shape;
-            if (include_shape && cursor.shape) {
-                ++cursor_shape_id_;
-                if (cursor_shape_id_ == 0U) { ++cursor_shape_id_; }
-            }
-            shape_id = cursor.shape ? cursor_shape_id_ : 0U;
+        std::lock_guard lock(cursor_mutex_);
+        const bool include_shape = !same_cursor_shape(cursor.shape, last_cursor_shape_);
+        if (last_cursor_state_ && !include_shape &&
+            cursor.visible == last_cursor_state_->visible &&
+            cursor.x == last_cursor_state_->x && cursor.y == last_cursor_state_->y) {
+            return;
         }
-        sink_.send_cursor(cursor, include_shape, shape_id);
+        auto generation = cursor_shape_id_;
+        if (include_shape && cursor.shape) {
+            ++generation;
+            if (generation == 0U) { ++generation; }
+        }
+        // Suppress only successfully published state. A full private socket
+        // must not prevent a later identical MouseSet retrying its shape or
+        // final position. Serialize publication with the deduplication state.
+        if (sink_.send_cursor(cursor, include_shape, cursor.shape ? generation : 0U)) {
+            last_cursor_state_ = cursor;
+            last_cursor_shape_ = cursor.shape;
+            cursor_shape_id_ = generation;
+        }
     }
 
     void request_lossless_ui(std::uint8_t mode) noexcept {
@@ -1788,6 +1797,7 @@ private:
     mutable std::mutex stats_mutex_;
     VideoStats video_stats_;
     std::mutex cursor_mutex_;
+    std::optional<qmdp::CursorState> last_cursor_state_;
     std::shared_ptr<const qmdp::CursorShape> last_cursor_shape_;
     std::uint64_t cursor_shape_id_ {};
     std::mutex audio_mutex_;

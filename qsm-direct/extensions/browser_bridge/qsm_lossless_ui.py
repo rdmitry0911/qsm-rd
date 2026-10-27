@@ -188,9 +188,11 @@ class Peer:
                  probe: Callable[[], object] = lambda: None,
                  bitrate: Callable[[], int] = lambda: 8000,
                  default_enabled: bool = False,
-                 demand: Callable[[int], object] = lambda _: None) -> None:
+                 demand: Callable[[int], object] = lambda _: None,
+                 account: Callable[[int], object] = lambda _: None) -> None:
         self.source, self.policy, self.resync = source, policy, resync
         self.demand = demand
+        self.account = account
         self.reserved = 0
         self.version = 1
         self.ack_serial = 0
@@ -393,8 +395,10 @@ class Peer:
             self.ack_pending = self.ack_serial = 0
             self.cache.clear(); self.cache_keys.clear(); self.cache_next = 0
             width, height = self.source.geometry
-            channel.send(Update(RESET, width=width, height=height, capture=self.source.capture).wire(
-                self.epoch, self.serial, stamped=self.version >= 2))
+            record = Update(RESET, width=width, height=height, capture=self.source.capture).wire(
+                self.epoch, self.serial, stamped=self.version >= 2)
+            channel.send(record)
+            self.account(len(record))
             self.credit -= HEADER.size
             self.pending = OrderedDict(self.source.tiles)
             self.snapshot = False
@@ -415,6 +419,7 @@ class Peer:
             self.pending.pop(key)
             self.serial = (self.serial + 1) & 0xffff_ffff
             channel.send(command.wire(self.epoch, self.serial, stamped=self.version >= 2))
+            self.account(size)
             self._remember(entry)
             self.cache_hits += command.op == 8
             self.scroll_copies += command.op == 9

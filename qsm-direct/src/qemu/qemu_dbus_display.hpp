@@ -208,6 +208,7 @@ private:
 
     mutable std::mutex lifecycle_mutex_;
     mutable std::mutex main_bus_mutex_;
+    std::chrono::steady_clock::time_point next_keyboard_edge_ {};
     dbus::Bus main_bus_;
     dbus::Bus peer_bus_;
     // `sd_bus_slot` keeps a reference to its bus.  Retain a separate duplicate

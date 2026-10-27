@@ -136,6 +136,32 @@ assert.equal(fencedClears.length, 1, 'a replacement patch survives the pending r
 await fence.receive(record(3, { epoch: 2, serial: 3, capture: 170, w: 64, h: 64 }));
 fence.videoFrame(503); fence.mapVideoFrame(503, 170);
 assert.equal(fencedClears.length, 2, 'late control mapping also releases its presented frame');
+// A decoded-size transition can prevent the base canvas from being updated.
+// Its RTP callback alone must not reveal the previously painted old window.
+const baseCanvas = { width: 0, height: 0, style: {}, getContext: () => ({ drawImage() {} }) };
+const baseVideo = { videoWidth: 128, videoHeight: 64, style: {} };
+const base = new sandbox.Region(baseCanvas, baseVideo);
+const coupledClears = [];
+const overlay = { width: 0, height: 0, style: {}, getContext: () => ({ ...context,
+    clearRect: (...args) => coupledClears.push(args),
+}) };
+const coupled = new sandbox.Renderer(overlay, data => Promise.resolve(zlib.inflateSync(data)),
+    () => {}, () => {}, (rtp, region) => !region || base.painted === rtp);
+const full = [128, 64, 0, 0, 128, 64], crop = [128, 64, 64, 0, 64, 64];
+coupled.configure(true); await coupled.receive(record(1, { width: 128, capture: 10 }));
+base.map(700, full); base.frame(700); coupled.mapVideoFrame(700, 10, full); coupled.videoFrame(700);
+await coupled.receive(record(2, { width: 128, x: 64, w: 64, h: 64, serial: 2, capture: 11, pixels }));
+await coupled.receive(record(3, { width: 128, x: 64, w: 64, h: 64, serial: 3, capture: 20 }));
+base.map(701, crop); base.frame(701); coupled.mapVideoFrame(701, 20, crop); coupled.videoFrame(701);
+assert.equal(base.painted, 700);
+assert.equal(coupled.videoCapture, 10);
+assert.equal(coupledClears.length, 0, 'unpainted crop metadata cannot uncover the old base canvas');
+baseVideo.videoWidth = 64;
+base.frame(702); coupled.videoFrame(702);
+// Control metadata arrives after presentation, as in the real viewer handler.
+base.map(702, crop); coupled.mapVideoFrame(702, 21, crop);
+assert.equal(base.painted, 702);
+assert.equal(coupledClears.length, 1, 'only a successfully painted matching crop releases old exact pixels');
 r.configure(true); await r.receive(record(1, { width: 16384, height: 16384 }));
 assert.equal(r.enabled, false); assert.equal(errors.length, 1);
 assert.equal(clears.length, 1);

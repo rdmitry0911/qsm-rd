@@ -714,6 +714,12 @@ void QemuDbusDisplay::set_ui_info(const ViewportRequest& request) {
 
 void QemuDbusDisplay::key(std::uint32_t qemu_key_number, bool pressed) {
     main_bus_send([&] {
+        // The legacy USB HID keyboard consumes one edge per interrupt poll
+        // (8/10 ms) and has only sixteen queued scancodes. A network burst
+        // must not overflow it and lose a release. Pace locally, including
+        // modifier edges, without accumulating credit while the user is idle.
+        // The first edge is immediate; wlroots input has no USB pacing.
+        std::this_thread::sleep_until(next_keyboard_edge_);
         dbus::Message call;
         const std::string path = console_path();
         const char *member = pressed ? "Press" : "Release";
@@ -727,6 +733,7 @@ void QemuDbusDisplay::key(std::uint32_t qemu_key_number, bool pressed) {
                     std::string("mark QEMU Keyboard.") + member + " no-reply");
         dbus::check(sd_bus_send(main_bus_.get(), call.get(), nullptr),
                     std::string("send QEMU Keyboard.") + member);
+        next_keyboard_edge_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(10);
     });
 }
 

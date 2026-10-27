@@ -90,7 +90,7 @@
     class VideoRegionRenderer {
         constructor(canvas, video, acknowledge = () => {}) {
             this.canvas = canvas; this.video = video; this.acknowledge = acknowledge;
-            this.frames = new Map(); this.presented = null;
+            this.frames = new Map(); this.presented = null; this.painted = null;
             this.width = this.height = 0; this.acknowledged = false;
         }
         map(rtp, region) {
@@ -118,6 +118,7 @@
             }
             const ctx = this.canvas.getContext('2d', { alpha: false });
             ctx.drawImage(this.video, x, y, w, h);
+            this.painted = rtp;
             this.canvas.style.display = 'block'; this.video.style.opacity = '0';
             if (!x && !y && w === sw && h === sh && !this.acknowledged) {
                 this.acknowledged = true; this.acknowledge(rtp);
@@ -126,11 +127,12 @@
     }
 
     class ExactUiRenderer {
-        constructor(canvas, inflate, failed = () => {}, acknowledge = () => {}) {
+        constructor(canvas, inflate, failed = () => {}, acknowledge = () => {}, canPresent = () => true) {
             this.canvas = canvas;
             this.inflate = inflate;
             this.failed = failed;
             this.acknowledge = acknowledge;
+            this.canPresent = canPresent;
             this.active = new Map();
             this.cache = new Map(); this.cached = [];
             this.clears = new Map();
@@ -191,6 +193,10 @@
             const frame = this.videoFrames.get(rtp);
             if (!frame) { return; }
             const { capture, region } = frame;
+            // A crop can change decoded dimensions before its mapped base
+            // picture has been painted. Never reveal the previous canvas
+            // merely because the video element reported a frame callback.
+            if (!this.canPresent(rtp, region)) { return; }
             this.videoCapture = Math.max(this.videoCapture, capture);
             this.videoRegion = region;
             let changed = false;
@@ -1491,7 +1497,7 @@
             if (control && control.readyState === 'open' && exactUiPolicy.max_version >= 2) {
                 control.send(JSON.stringify(ack));
             }
-        });
+        }, (rtp, region) => !region || videoRegions.painted === rtp);
         if (typeof video.requestVideoFrameCallback === 'function') {
             const presented = (_now, metadata) => {
                 const frameSupport = Number.isInteger(metadata.rtpTimestamp);
@@ -4020,7 +4026,9 @@
                     exactUiPolicy = message;
                     updateExactPreference();
                 } else if (message.op === 'qsm_video_frame') {
-                    const region = videoRegions.map(message.rtp, message.region) ? message.region : null;
+                    const mapped = videoRegions.map(message.rtp, message.region);
+                    if (message.region !== undefined && !mapped) { return; }
+                    const region = mapped ? message.region : null;
                     exactRenderer.mapVideoFrame(message.rtp, message.capture, region);
                 } else if (message.op === 'qsm_mouse_ack') {
                     if (message.sequence === mouseFenceSequence) { mouseFenceSequence = null; }

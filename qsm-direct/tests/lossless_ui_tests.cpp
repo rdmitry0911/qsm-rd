@@ -170,6 +170,36 @@ int main() {
     sticky_motion.update(std::make_shared<const Bytes>(monochrome), 64, 64,
         now + std::chrono::milliseconds(96), 8000, sink);
     assert(sticky_motion.stats().patches == motion_patches && sticky_motion.motion_region());
+    // A playing region larger than the clear batch must not discard the
+    // neighboring static desktop/cache. Drain invalidations in bounded
+    // immediate batches, preserving the original source epoch.
+    UI large_motion;
+    auto desktop = std::make_shared<const Bytes>(pixels(1024, 512));
+    for (unsigned n = 0; n < 8; ++n) {
+        large_motion.update(desktop, 1024, 512, now + std::chrono::milliseconds(n), 8000, sink);
+    }
+    assert(large_motion.stats().patches == 128);
+    sent.clear();
+    for (unsigned frame = 1; frame <= 2; ++frame) {
+        auto updated = *desktop;
+        for (unsigned y = 0; y < 512; ++y) {
+            for (unsigned x = 256; x < 1024; ++x) {
+                updated[(y * 1024 + x) * 4] = static_cast<std::uint8_t>(frame);
+            }
+        }
+        desktop = std::make_shared<const Bytes>(std::move(updated));
+        large_motion.update(desktop, 1024, 512,
+            now + std::chrono::milliseconds(frame * 10), 8000, sink);
+    }
+    for (unsigned n = 0; n < 5; ++n) {
+        const auto clears_before = large_motion.stats().clears;
+        large_motion.update(desktop, 1024, 512, now + std::chrono::milliseconds(20), 8000, sink);
+        assert(large_motion.stats().clears - clears_before <= 32);
+    }
+    assert(large_motion.stats().resets == 1 && large_motion.stats().clears == 96);
+    assert(std::none_of(sent.begin(), sent.end(), [](const Bytes& p) {
+        return p[4] == UI::reset || ((p[4] == UI::clear || p[4] == UI::patch) && u16(p, 20) < 256);
+    }));
     assert(UI::greeting().size() == 28 && UI::greeting(7).size() == 32);
     std::cout << "QSM_LOSSLESS_UI_CORE_OK\n";
 }

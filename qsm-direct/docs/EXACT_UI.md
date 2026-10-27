@@ -37,6 +37,14 @@ or caret metadata; keyboard-only focus changes may fall back to video. Cached re
 several viewers share the maximum requested reservation rather than multiplying
 it. Old workers retain their original per-viewer 15%/128 KiB/s limit.
 
+The per-peer RTP pacer also charges successfully queued exact records, small
+control messages, cursor updates and audio/RTCP. Those updates stay immediate;
+subsequent video repays their conservative wire cost, including for an already
+encoded large picture. Changing the video target retains outstanding debt.
+Large clipboard/result transfers are outside this small-control accounting.
+Repeated identical VM cursor notifications are suppressed; the bridge refreshes
+the final unreliable cursor position at most four times/s to repair loss.
+
 Each viewer keeps one latest pending operation per tile. Browser inflation is
 limited to eight concurrent jobs and coalesces queued tile history. Processing
 acknowledgements report received sequence and outstanding decode work. Bitmap
@@ -49,7 +57,10 @@ A monotonic capture identifier accompanies exact updates and the actual encoded
 picture. The bridge maps that identifier to the picture's RTP timestamp. Browsers
 that expose `requestVideoFrameCallback` RTP metadata release old overlay pixels
 only after an appropriate video picture is submitted to the browser compositor.
-A fresh text patch can still lead video. Same-size resets retain backing pixels
+When video is composed into a region canvas, the matching picture must also
+have been successfully painted with the expected decoded dimensions before
+releasing old exact pixels. Invalid or late region metadata cannot bypass that
+fence. A fresh text patch can still lead video. Same-size resets retain backing pixels
 until the matching presentation fence; late inflations cannot resurrect old tiles.
 
 Browsers without usable RTP frame metadata negotiate the original tile protocol
@@ -146,7 +157,7 @@ with old workers/bridges remains part of upgrade testing.
 Build on Debian 13 with `zlib1g-dev` and the existing package dependencies:
 
 ```sh
-export QSM_DIRECT_DEB_VERSION='0.4.0+stock4.14~exp19'
+export QSM_DIRECT_DEB_VERSION='0.4.0+stock4.14~exp26'
 for profile in qsm-pve-direct qsm-pve-direct-standalone qsm-pve-direct-lxc qsm-pve-direct-gateway; do
     bash "packaging/debian/build-$profile-deb.sh"
 done
@@ -158,13 +169,13 @@ PYTHONPATH=. python3 -m unittest discover -s tests/signal -v
 node tests/proxmox_pve9/test_exact_ui.mjs
 ```
 
-Live qualification uses an owned native Wayland LXC, H.264/NVENC and Firefox,
-including a separate input window overlapping a playing clip. Check real glyph
-appearance, exact pixels, visible motion, scrolling, move/resize/close and old
-pixel resurrection. Compare identical shaped paths and video targets. VM,
-HEVC, QSV/VA-API and other browsers still need equivalent live mixed-content
-qualification; common capture code alone is not that evidence. There has been
-no measured comparison with Microsoft RDP.
+Live qualification includes owned native Wayland LXC and QEMU VM capture,
+H.264/NVENC/QSV/VA-API, and HEVC with an actual Chromium hardware receiver.
+Check real glyph appearance, exact source pixels, composed visible motion,
+scrolling, move/resize/close and old pixel resurrection. Compare identical shaped
+paths and video targets. There has been no measured comparison with Microsoft RDP.
 
-The [2026-10-27 qualification report](EXACT_UI_QUALIFICATION.md) includes actual
-glyph samples, burst input, overlap checks, transport checks and coverage limits.
+The [VM qualification report](VM_MIXED_QUALIFICATION_20261027.md) records current
+coverage, input/cursor/cache/painting fixes and limits. The
+[historical LXC qualification](EXACT_UI_QUALIFICATION.md) retains its original
+samples and transport checks.

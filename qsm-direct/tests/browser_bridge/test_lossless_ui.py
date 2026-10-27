@@ -80,6 +80,24 @@ class EventDrivenTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ExactUiTests(unittest.TestCase):
+    def test_wire_accounting_includes_reset_compact_patches_and_clear_only_after_send(self):
+        s = source(); s.features = 7
+        s.feed(patch().wire(1, 2))
+        costs = []
+        p = Peer(s, lambda _: None, lambda: None, account=costs.append)
+        p.version = 4; p.channel = Channel(); p.enable(True); p.drain()
+        self.assertEqual([raw[4] for raw in p.channel.sent], [RESET, 6])
+        s.feed(Update(CLEAR, 1, 3, 128, 64, 0, 0, 64, 64, capture=123).wire(1, 3))
+        p.drain()
+        self.assertEqual(costs, [len(raw) for raw in p.channel.sent])
+        self.assertEqual(p.channel.sent[-1][4], CLEAR)
+        class FailingChannel(Channel):
+            def send(self, value): raise OSError("closed test channel")
+        p.channel = FailingChannel(); p.enable(True)
+        before = list(costs)
+        with self.assertRaises(OSError): p.drain()
+        self.assertEqual(costs, before, "failed sends cannot create phantom video debt")
+
     def test_negotiated_capabilities_and_capture_stamp_survive_shared_cache(self):
         s = Source(); s.feed(Update(HELLO, payload=struct.pack("!I", 3)).wire(0, 0))
         s.feed(Update(RESET, width=128, height=64, capture=100).wire(1, 1))
