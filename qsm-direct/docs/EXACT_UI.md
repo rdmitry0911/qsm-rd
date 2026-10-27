@@ -7,7 +7,10 @@ and LXC backends; no additional guest package is required for these changes.
 
 The option remains experimental and **off by default** in the package. Open
 **Console settings → Experimental exact UI** in a supported browser. An explicit
-browser choice persists. Administrators can choose the default in a terminal
+browser choice persists, including an unchecked choice overriding an administrator
+default. The checkbox requests the mode; the status reports Off, Enabling or Active
+from the server acknowledgement. Reload the Proxmox page before opening a new
+console to load updated viewer code. Administrators can choose the default in a terminal
 service drop-in:
 
 ```ini
@@ -27,8 +30,13 @@ immediately. Timers cover bandwidth refill, motion settling and liveness;
 there is no 16 ms worker or 20 ms UI bridge polling interval.
 
 The common video/UI budget charges every source UI byte, including invalidations.
-Refinement normally receives 15% of the current target. Foreground updates and
-large snapshots can borrow up to 50%, with a 512 KiB/s ceiling and a 16 KiB burst.
+Refinement, full snapshots and scroll repaints normally receive 15% of the
+current target. Only recent forwarded keyboard activity may borrow up to 50%;
+source priority remains bounded near the last guest click for one second.
+The ceiling is 512 KiB/s. Bursts are limited to about 20 ms of the complete path,
+with a one-maximum-tile floor and a 16 KiB ceiling. A bulk pending queue alone
+never authorizes the foreground share. Source UI byte debt is repaid progressively
+rather than stopping video to pay an entire tile burst at once.
 Video pays by admitting fewer raw pictures; the encoder's static-picture quality
 and predictive reference chain are retained. Pending foreground tiles preserve
 their priority across refills. Keyboard events temporarily prioritize a bounded
@@ -97,7 +105,11 @@ new unready viewer restores full video. Invalid, large, empty or odd-sized crop
 candidates use full video. The region grows to retain coverage and does not shrink with per-frame tile
 classification; mode or desktop changes reset it. Changing crop dimensions
 requires a fresh encoder picture and can briefly reduce video cadence. Leave this experiment disabled
-for installations that have not qualified those transitions.
+for installations that have not qualified those transitions. A separate
+`QSM_DIRECT_VIDEO_REGIONS=0` override disables it for new sessions. Even full
+fallback in a primed region session uses a browser canvas; native video plus
+exact UI is the current conservative configuration for the Firefox/macOS
+regression. Reopen the console after changing the service environment.
 
 This implementation uses pixels, not window or text semantics. In nested Plasma,
 the outer Sway sees the nested KWin surface; per-application focus, caret and
@@ -157,7 +169,7 @@ with old workers/bridges remains part of upgrade testing.
 Build on Debian 13 with `zlib1g-dev` and the existing package dependencies:
 
 ```sh
-export QSM_DIRECT_DEB_VERSION='0.4.0+stock4.14~exp26'
+export QSM_DIRECT_DEB_VERSION='0.4.0+stock4.14~exp29'
 for profile in qsm-pve-direct qsm-pve-direct-standalone qsm-pve-direct-lxc qsm-pve-direct-gateway; do
     bash "packaging/debian/build-$profile-deb.sh"
 done
@@ -179,3 +191,6 @@ The [VM qualification report](VM_MIXED_QUALIFICATION_20261027.md) records curren
 coverage, input/cursor/cache/painting fixes and limits. The
 [historical LXC qualification](EXACT_UI_QUALIFICATION.md) retains its original
 samples and transport checks.
+
+The [subsequent smoothness regression report](EXACT_UI_SMOOTHNESS_20261027.md)
+records the real 100 ms RTT / narrow-channel comparison and scheduling changes.

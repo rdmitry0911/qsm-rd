@@ -1657,6 +1657,7 @@ class BrowserInputState:
         self.max_client_hold_ms = 0
         self.max_event_delay_ms = 0
         self.taps = 0
+        self.last_key_at = float("-inf")
         self.clicks = 0
         self.pointer_order = pointer_order or PointerSequenceFilter()
         self._mouse_actions = PointerSequenceFilter()
@@ -1739,10 +1740,13 @@ class BrowserInputState:
             return ack
         if opcode == INPUT_KEY_TAP:
             self.taps += 1
+            self.last_key_at = now
             self.max_event_delay_ms = max(self.max_event_delay_ms, value.get("event_delay_ms", 0))
             return
         if opcode == INPUT_KEYBOARD:
             key, down, _modifiers = struct.unpack_from("!HBB", packet, INPUT_HEADER.size)
+            if down:
+                self.last_key_at = now
             held = self._keys
             if down and key not in held:
                 self._press_times[key] = (now, value.get("client_time_ms"))
@@ -1934,7 +1938,8 @@ class BrowserWebRtcBridge:
                                       lambda: self._video_rate.current_kbps,
                                       default_enabled=os.environ.get("QSM_DIRECT_EXACT_UI_DEFAULT") == "1",
                                       demand=lambda percent: self.input.set_ui_budget(self, percent),
-                                      account=lambda size: self._video_pacer.account_auxiliary(size))
+                                      account=lambda size: self._video_pacer.account_auxiliary(size),
+                                      interactive=lambda: time.monotonic() - self._input_state.last_key_at < 1)
         self._input_watchdog: asyncio.Task[None] | None = None
         self._input_ended = False
         self._last_keyframe_request = float("-inf")
@@ -1989,6 +1994,7 @@ class BrowserWebRtcBridge:
         # Numeric transport counters only: no media, credentials or addresses.
         previous_time = time.monotonic()
         previous_frames = self.video_track.delivered_units
+        previous_ui_bytes = self._ui_peer.sent_bytes
         while not self._closed:
             await asyncio.sleep(10)
             if self._closed or self._pc.connectionState != "connected":
@@ -2009,6 +2015,11 @@ class BrowserWebRtcBridge:
                   f"remote_lost={loss} loss_fraction={fraction} rtt_ms={rtt_ms} "
                   f"bitrate_kbps={self._video_rate.current_kbps} maximum_kbps={self._video_rate.maximum_kbps} "
                   f"paced_packets={self._video_pacer.sent_packets} paced_bytes={self._video_pacer.sent_bytes} "
+                  f"ui_on={int(self._ui_peer.enabled)} "
+                  f"ui_kbps={(self._ui_peer.sent_bytes - previous_ui_bytes) * 8 / max(0.001, now - previous_time) / 1000:.1f} "
+                  f"ui_pending={len(self._ui_peer.pending)} ui_decode_pending={self._ui_peer.ack_pending} "
+                  f"ui_buffered={getattr(self._ui_peer.channel, 'bufferedAmount', 0)} "
+                  f"ui_gaps={self._ui_source.gaps} regions={int(self._regions_eligible)} "
                   f"input_leased={int(self._input_state.leased)} input_snapshots={self._input_state.snapshots} "
                   f"input_expired_keys={self._input_state.expired_keys} "
                   f"input_hold_max_ms={self._input_state.max_hold_ms} "
@@ -2018,6 +2029,7 @@ class BrowserWebRtcBridge:
                   f"input_expired_buttons={self._input_state.expired_buttons}",
                   file=sys.stderr, flush=True)
             previous_time, previous_frames = now, frames
+            previous_ui_bytes = self._ui_peer.sent_bytes
 
     @property
     def terminal(self) -> bool:

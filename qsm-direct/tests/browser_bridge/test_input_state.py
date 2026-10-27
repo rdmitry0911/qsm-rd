@@ -179,6 +179,21 @@ class InputStateTests(unittest.TestCase):
         self.assertEqual(len(self.sent), 1, 'network delay cannot create another text action')
         self.assertEqual(self.peer.taps, 1)
 
+    def test_typing_priority_is_not_renewed_by_heartbeats_pointer_or_releases(self):
+        self.assertEqual(self.peer.last_key_at, float('-inf'))
+        self.peer.handle('{"op":"key_tap","key":30}')
+        self.assertEqual(self.peer.last_key_at, 100)
+        self.clock += 2
+        self.snapshot(self.peer)
+        self.peer.handle('{"op":"mouse_button","button":1,"down":true}')
+        self.peer.handle('{"op":"mouse_button","button":1,"down":false}')
+        self.assertEqual(self.peer.last_key_at, 100)
+        self.key(self.peer, True)
+        self.assertEqual(self.peer.last_key_at, 102)
+        self.clock += 1
+        self.key(self.peer, False)
+        self.assertEqual(self.peer.last_key_at, 102)
+
     def test_atomic_tap_does_not_release_another_viewers_held_key(self):
         other = BrowserInputState(self.egress, now=lambda: self.clock)
         self.key(other, True)

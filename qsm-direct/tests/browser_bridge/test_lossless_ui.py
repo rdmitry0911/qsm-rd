@@ -1,4 +1,5 @@
 import asyncio
+from collections import OrderedDict
 import struct
 import time
 import unittest
@@ -117,7 +118,8 @@ class ExactUiTests(unittest.TestCase):
         from dataclasses import replace
         s = source(); s.features = 1; reservations = []
         with mock_patch('extensions.browser_bridge.qsm_lossless_ui.time.monotonic', return_value=100):
-            p = Peer(s, lambda _: None, lambda: None, bitrate=lambda: 500, demand=reservations.append)
+            p = Peer(s, lambda _: None, lambda: None, bitrate=lambda: 500,
+                     demand=reservations.append, interactive=lambda: True)
             p.channel = Channel(); p.enable(True); p.drain(); p.credit = 0
             # A large latest foreground tile must not lose its credit to
             # many cheap background tiles while it waits to fit.
@@ -134,6 +136,39 @@ class ExactUiTests(unittest.TestCase):
             self.assertFalse(p.pending)
             p._reservation(); self.assertEqual(reservations[-1], 0)
         self.assertEqual(p.channel.bufferedAmountLowThreshold, 0)
+
+    def test_bulk_repaint_cannot_borrow_typing_bandwidth_or_accumulate_large_idle_burst(self):
+        from dataclasses import replace
+        import random
+        s = source(); s.features = 1
+        s.feed(Update(RESET, width=2048, height=64).wire(2, 1))
+        payload = zlib.compress(random.Random(123).randbytes(4096))
+        for n in range(32):
+            s.feed(Update(PATCH, width=2048, height=64, x=n * 64, w=64, h=64,
+                          payload=payload, encoding=1).wire(2, n + 2))
+        typing = False; reservations = []
+        with mock_patch('extensions.browser_bridge.qsm_lossless_ui.time.monotonic', return_value=100):
+            p = Peer(s, lambda _: None, lambda: None, bitrate=lambda: 1500,
+                     demand=reservations.append, interactive=lambda: typing)
+            p.channel = Channel(); p.enable(True)
+            # A full replay or already-seen/changed tiles are bulk work until
+            # actual keyboard activity grants a bounded foreground lease.
+            p.pending = OrderedDict((key, replace(u, priority=True)) for key, u in s.tiles.items())
+            p.channel.bufferedAmount = MAX_BUFFERED
+            p._reservation()
+            self.assertEqual(reservations[-1], 15)
+            self.assertEqual(p._rate(), 1500 * 125 * .15)
+            p.channel.bufferedAmount = 0; p.drain()
+            self.assertLessEqual(sum(map(len, p.channel.sent)), HEADER.size + 6190)
+            self.assertTrue(p.pending, 'bulk snapshot must be spread across refills')
+            typing = True; p.channel.bufferedAmount = MAX_BUFFERED; p._reservation()
+            self.assertEqual(reservations[-1], 50)
+            typing = False; p._reservation()
+            self.assertEqual(reservations[-1], 15)
+        with mock_patch('extensions.browser_bridge.qsm_lossless_ui.time.monotonic', return_value=160):
+            p.channel.bufferedAmount = 0; p.channel.sent.clear(); p.drain()
+            self.assertLessEqual(sum(map(len, p.channel.sent)), 6190,
+                                 'idle time cannot refill a 16 KiB burst on a narrow path')
 
     def test_acknowledged_bitmap_copy_fill_scroll_and_epoch_invalidation(self):
         s = source(); p = Peer(s, lambda _: None, lambda: None); p.version = 3

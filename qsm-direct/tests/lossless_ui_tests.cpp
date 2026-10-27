@@ -6,6 +6,7 @@
 #endif
 #include <cassert>
 #include <iostream>
+#include <random>
 #include <zlib.h>
 
 using UI = qmdp::LosslessUi;
@@ -110,6 +111,26 @@ int main() {
     const auto before_refill = scheduled.stats().patches;
     scheduled.update(idle, 1024, 1024, *scheduled.next_wakeup(), 500, sink);
     assert(scheduled.stats().patches > before_refill);
+    // Even after idle, a narrow-link snapshot must not emit 16 KiB at once
+    // and stall the video producer for the duration of that burst.
+    UI paced_snapshot; Bytes noise(512U * 64U * 4U, 255);
+    std::minstd_rand random(123);
+    for (std::size_t at = 0; at < noise.size(); at += 4) {
+        const auto value = static_cast<std::uint8_t>(random());
+        noise[at] = noise[at + 1] = noise[at + 2] = value;
+    }
+    auto snapshot = std::make_shared<const Bytes>(noise); sent.clear();
+    paced_snapshot.update(snapshot, 512, 64, now, 1500, sink);
+    std::size_t burst_bytes = 0;
+    for (const auto& record : sent) { burst_bytes += record.size(); }
+    assert(burst_bytes <= UI::header_size + 6190U);
+    assert(paced_snapshot.stats().patches == 1);
+    paced_snapshot.update(snapshot, 512, 64, now, 1500, sink);
+    assert(paced_snapshot.stats().patches == 1);
+    for (unsigned n = 1; n <= 8; ++n) {
+        paced_snapshot.update(snapshot, 512, 64, now + std::chrono::milliseconds(n * 200), 1500, sink);
+    }
+    assert(paced_snapshot.stats().patches == 8);
     UI regions; auto moving = pixels(512, 256);
     for (unsigned frame = 0; frame < 6; ++frame) {
         for (unsigned y = 0; y < 128; ++y) {
@@ -176,7 +197,7 @@ int main() {
     UI large_motion;
     auto desktop = std::make_shared<const Bytes>(pixels(1024, 512));
     for (unsigned n = 0; n < 8; ++n) {
-        large_motion.update(desktop, 1024, 512, now + std::chrono::milliseconds(n), 8000, sink);
+        large_motion.update(desktop, 1024, 512, now + std::chrono::milliseconds(n * 5), 8000, sink);
     }
     assert(large_motion.stats().patches == 128);
     sent.clear();
@@ -189,11 +210,11 @@ int main() {
         }
         desktop = std::make_shared<const Bytes>(std::move(updated));
         large_motion.update(desktop, 1024, 512,
-            now + std::chrono::milliseconds(frame * 10), 8000, sink);
+            now + std::chrono::milliseconds(40 + frame * 10), 8000, sink);
     }
     for (unsigned n = 0; n < 5; ++n) {
         const auto clears_before = large_motion.stats().clears;
-        large_motion.update(desktop, 1024, 512, now + std::chrono::milliseconds(20), 8000, sink);
+        large_motion.update(desktop, 1024, 512, now + std::chrono::milliseconds(60), 8000, sink);
         assert(large_motion.stats().clears - clears_before <= 32);
     }
     assert(large_motion.stats().resets == 1 && large_motion.stats().clears == 96);

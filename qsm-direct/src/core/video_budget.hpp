@@ -23,14 +23,15 @@ public:
         if (updated_) {
             const double refill = std::max(0.0, std::chrono::duration<double>(now - *updated_).count()) * rate;
             const double reserved = refill * std::min(ui_reservation, 50U) / 100.0;
-            const double observed = std::min(auxiliary_, reserved);
-            // Fresh source UI has already been charged by account_auxiliary.
-            // Charge only the remaining reservation used by cached replay.
-            credit_ += refill - (reserved - observed);
+            // Repay source UI progressively, even after the peer's short
+            // reservation has ended. Debiting a whole tile burst immediately
+            // stalls video for that burst's complete transmission time.
+            // Include wire/liveness headroom so a sustained 15% payload
+            // share can retire its overhead rather than accumulating debt.
+            const double observed = std::min(auxiliary_, std::max(reserved * 1.12, refill * .20));
+            credit_ += refill - std::max(reserved, observed);
             auxiliary_ -= observed;
         }
-        if (!ui_reservation) { auxiliary_ = 0; }
-        auxiliary_ = std::min(auxiliary_, 16384.0 + rate * .05);
         updated_ = now;
         // Idle time must not accumulate a large burst. A rate change also
         // retains outstanding IDR debt instead of refilling the bucket.
@@ -48,7 +49,6 @@ public:
     void account_auxiliary(std::size_t bytes) {
         std::lock_guard lock(mutex_);
         const double cost = static_cast<double>(bytes) * 1.12;
-        credit_ -= cost;
         auxiliary_ += cost;
     }
 

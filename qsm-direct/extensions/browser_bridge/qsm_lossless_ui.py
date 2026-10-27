@@ -189,10 +189,12 @@ class Peer:
                  bitrate: Callable[[], int] = lambda: 8000,
                  default_enabled: bool = False,
                  demand: Callable[[int], object] = lambda _: None,
-                 account: Callable[[int], object] = lambda _: None) -> None:
+                 account: Callable[[int], object] = lambda _: None,
+                 interactive: Callable[[], bool] = lambda: False) -> None:
         self.source, self.policy, self.resync = source, policy, resync
         self.demand = demand
         self.account = account
+        self.interactive = interactive
         self.reserved = 0
         self.version = 1
         self.ack_serial = 0
@@ -327,16 +329,25 @@ class Peer:
             self.cache_keys = {k: v for k, v in self.cache_keys.items() if v != expired}
 
     def _rate(self) -> float:
-        share = 0.5 if self.source.features & 1 and (len(self.pending) > 16 or
-                any(u.priority for u in self.pending.values())) else 0.15
+        # A snapshot or scroll repaint is not evidence of interactive typing.
+        # Borrowing half the path for either caused visible video stalls.
+        share = 0.5 if self.source.features & 1 and self.interactive() else 0.15
         return min(512 * 1024 if self.source.features & 1 else 128 * 1024,
                    max(0, self.bitrate()) * 125 * share)
+
+    def _burst(self) -> float:
+        # Bound low-rate SCTP bursts to about 20 ms of the complete path,
+        # while allowing one maximum tile/cache command to make progress.
+        return min(MAX_BUFFERED, max(HEADER.size + 8 + MAX_PAYLOAD + 10,
+                                     max(0, self.bitrate()) * 125 * .02))
 
     def _reservation(self) -> None:
         channel = self.channel
         buffered = getattr(channel, "bufferedAmount", 0) if channel else 0
         outstanding = buffered + sum(HEADER.size + len(u.payload) for u in self.pending.values())
-        percent = min(50, math.ceil(outstanding * 100 / max(1, self.bitrate() * 125 * .1)))
+        capacity = max(1, self.bitrate() * 125)
+        limit = min(50, math.ceil(self._rate() * 100 / capacity))
+        percent = min(limit, math.ceil(outstanding * 100 / (capacity * .1)))
         percent = percent if self.enabled and self.source.features & 1 else 0
         if percent != self.reserved:
             self.reserved = percent
@@ -360,7 +371,7 @@ class Peer:
                 if self.snapshot and self.source.geometry is not None and buffered <= MAX_BUFFERED:
                     deadlines.append(now)
                 rate = self._rate()
-                credit = min(MAX_BUFFERED, self.credit + max(0, now - self.credit_at) * rate)
+                credit = min(self._burst(), self.credit + max(0, now - self.credit_at) * rate)
                 for update in self.pending.values():
                     command, _ = self._command(update)
                     size = HEADER.size + (8 if self.version >= 2 and update.capture else 0) + len(command.payload)
@@ -383,7 +394,7 @@ class Peer:
         self.source.poll(time.monotonic())
         now = time.monotonic()
         rate = self._rate()
-        self.credit = min(float(MAX_BUFFERED), self.credit + max(0, now - self.credit_at) * rate)
+        self.credit = min(self._burst(), self.credit + max(0, now - self.credit_at) * rate)
         self.credit_at = now
         if self.source.geometry is None:
             return

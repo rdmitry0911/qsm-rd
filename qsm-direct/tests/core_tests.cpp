@@ -359,12 +359,47 @@ void test_ui_replay_reserves_capacity_without_double_charging_fresh_tiles() {
     // Fifty percent cache replay takes twice as long to repay encoder debt.
     CHECK(!reserved.ready(start + 150ms, 8000U, 50));
     CHECK(normal.ready(start + 150ms, 8000U));
-    // A freshly emitted tile is already charged. Its observed bytes pay
-    // the reservation once, instead of subtracting the same cost twice.
+    // Source tiles pay the reservation once rather than doubling its cost.
     fresh.account_auxiliary(10000U);
     CHECK(!fresh.ready(start + 20ms, 8000U, 50));
     CHECK(fresh.ready(start + 250ms, 8000U, 50));
     CHECK(reserved.ready(start + 250ms, 8000U, 50));
+}
+
+void test_ui_burst_repays_bandwidth_without_a_long_video_admission_pause() {
+    using namespace std::chrono_literals;
+    qmdp::VideoBudget mixed, video;
+    const qmdp::VideoBudget::Clock::time_point start {};
+    CHECK(mixed.ready(start, 1500U)); CHECK(video.ready(start, 1500U));
+    mixed.account_auxiliary(16000U);
+    unsigned mixed_frames = 0, video_frames = 0, missed = 0, max_missed = 0;
+    for (unsigned n = 1; n <= 40; ++n) {
+        const auto tick = start + n * 16ms;
+        if (mixed.ready(tick, 1500U)) {
+            mixed.account(2500U); ++mixed_frames; missed = 0;
+        } else {
+            max_missed = std::max(max_missed, ++missed);
+        }
+        if (video.ready(tick, 1500U)) { video.account(2500U); ++video_frames; }
+    }
+    CHECK(mixed_frames < video_frames); // UI bytes still consume capacity.
+    CHECK(max_missed <= 1U); // No six-tick pause to pay the whole UI burst.
+
+    // A rate decrease must retain UI debt, rather than clamp away unpaid
+    // bytes or turn the complete old-rate burst into an immediate pause.
+    qmdp::VideoBudget reduced, plain;
+    CHECK(reduced.ready(start, 8000U)); CHECK(plain.ready(start, 8000U));
+    reduced.account_auxiliary(100000U);
+    mixed_frames = video_frames = missed = max_missed = 0;
+    for (unsigned n = 1; n <= 400; ++n) {
+        const auto tick = start + n * 16ms;
+        if (reduced.ready(tick, 500U)) {
+            reduced.account(900U); if (n > 200) { ++mixed_frames; } missed = 0;
+        } else { max_missed = std::max(max_missed, ++missed); }
+        if (plain.ready(tick, 500U)) { plain.account(900U); if (n > 200) { ++video_frames; } }
+    }
+    CHECK(mixed_frames < video_frames);
+    CHECK(max_missed <= 1U);
 }
 
 void test_video_budget_keeps_keyframe_debt_across_rate_changes() {
@@ -393,6 +428,7 @@ int main() {
     test_video_budget_limits_encoded_bytes_before_admitting_raw_frames();
     test_video_budget_keeps_keyframe_debt_across_rate_changes();
     test_ui_replay_reserves_capacity_without_double_charging_fresh_tiles();
+    test_ui_burst_repays_bandwidth_without_a_long_video_admission_pause();
 
     if (failures == 0) {
         std::cout << "all qmdp core tests passed\n";

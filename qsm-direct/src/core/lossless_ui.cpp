@@ -152,12 +152,13 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
     if (moving && right > left && bottom > top) {
         region_ = Region {left, top, right - left, bottom - top};
     }
-    // Foreground changes and a substantial snapshot may borrow half the
-    // common budget. Every emitted byte is also charged to VideoBudget;
-    // frame admission, rather than encoder quality, pays for the burst.
-    const double share = !interactive.empty() || !urgent.empty() || background.size() > 16 ? 0.50 : 0.15;
+    // Only the bounded recent keyboard-focus area may borrow video capacity.
+    // Bulk snapshots and scroll repaints must retain the background share.
+    const double share = !interactive.empty() ? 0.50 : 0.15;
     const double rate = std::min(512.0 * 1024.0, static_cast<double>(bitrate_kbps) * 125.0 * share);
-    credit_ = std::min(16384.0, credit_ + std::max(0.0, std::chrono::duration<double>(now - credit_at_).count()) * rate);
+    const double burst = std::clamp(static_cast<double>(bitrate_kbps) * 125.0 * .020,
+                                   static_cast<double>(max_payload + header_size + 8U + 10U), 16384.0);
+    credit_ = std::min(burst, credit_ + std::max(0.0, std::chrono::duration<double>(now - credit_at_).count()) * rate);
     credit_at_ = now;
     if (!reset_needed_) {
         interactive.insert(interactive.end(), urgent.begin(), urgent.end());

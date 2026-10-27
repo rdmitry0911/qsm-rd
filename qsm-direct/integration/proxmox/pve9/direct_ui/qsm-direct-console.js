@@ -1534,7 +1534,9 @@
             }
             exactUiStatus.textContent = !supported ? gettext('This browser cannot use exact UI.') :
                 !exactUiPolicy.available ? gettext('Waiting for exact UI support…') :
-                wanted ? `${gettext('Exact UI')}: ${exactRenderer.patches} ${gettext('updates')}` : '';
+                !wanted ? `${gettext('Exact UI')}: ${gettext('Off')}` :
+                !exactUiPolicy.enabled ? `${gettext('Exact UI')}: ${gettext('Enabling…')}` :
+                `${gettext('Exact UI')}: ${gettext('Active')} · ${exactRenderer.patches} ${gettext('updates')}`;
         };
         // QEMU Display1 supplies the cursor shape and position separately
         // from scanout damage. This canvas is deliberately visual-only: it
