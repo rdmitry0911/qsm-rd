@@ -1,0 +1,46 @@
+{
+  "message_id": "<179308326004.3823774.17621657443116900285.qsm-exact-ui-exp6-update@taktcycles.com>",
+  "date": "Tue, 27 Oct 2026 06:41:00 +0000",
+  "from": "rdmitry@taktcycles.com",
+  "reply_to": "rdmitry0911@gmail.com",
+  "recipients": [
+    "pve-devel@lists.proxmox.com",
+    "alexandre.derumier@groupe-cyllene.com"
+  ],
+  "in_reply_to": "<179293981837.3090704.6601261792618612901.qsm-stock4.13-update@taktcycles.com>",
+  "source_eml": "pve-devel-exact-ui-update-2026-10-27.eml",
+  "eml_sha256": "3c69b8ae8ddf811d507fed91456ac86e929f1b9f9e1e4f68904e1be06ade74e1",
+  "submission_status": "published_and_verified",
+  "started_at": "2026-10-27T06:44:40.758596+00:00",
+  "smtp_code": 250,
+  "smtp_response": "2.0.0 Ok: queued as C63E41E6DF31",
+  "submitted_at": "2026-10-27T06:44:40.815666+00:00",
+  "archive_checks": {
+    "rfc": {
+      "url": "https://lore.proxmox.com/pve-devel/30bceb85ccdffaa64be2221199f7193cb9699a01.camel@groupe-cyllene.com/t.mbox.gz",
+      "messages": 12,
+      "body_verified": true,
+      "verified_at": "2026-10-27T06:55:32.183628+00:00"
+    }
+  },
+  "public_archive": "https://lore.proxmox.com/pve-devel/179308326004.3823774.17621657443116900285.qsm-exact-ui-exp6-update@taktcycles.com/",
+  "recipient_relay_acceptance": {
+    "recipients": [
+      "pve-devel@lists.proxmox.com",
+      "alexandre.derumier@groupe-cyllene.com"
+    ],
+    "smtp_code": 250,
+    "relay_queue_id": "D3FFC14081",
+    "local_status": "sent; local queue entry removed"
+  },
+  "recipient_mx_acceptance": {
+    "pve-devel@lists.proxmox.com": {
+      "smtp_code": 250,
+      "response": "2.5.0 OK (20B896AE048607D287)"
+    },
+    "alexandre.derumier@groupe-cyllene.com": {
+      "smtp_code": 250,
+      "response": "2.0.0 Ok: queued as 4jDLZd52N9z45SWY"
+    }
+  }
+}

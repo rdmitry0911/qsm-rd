@@ -1,0 +1,21 @@
+Hi guys, I've added an experimental mixed-content mode for sharper text and faster desktop updates while video is playing.
+
+The existing video stream is still there. QSM now also sends small, losslessly compressed pixel tiles for text and other compressible UI areas over a separate WebRTC data channel. The browser draws these above the video, using the guest's actual pixels. There is no OCR or replacement font rendering. Frequently changing areas stay in the video path and can be refined when they settle.
+
+I specifically tested typing in a separate text window overlapping a playing clip. The entered string arrived without missing or repeated characters, and the uncovered part of the clip kept moving. Scrolling, moving, resizing and closing the window also passed the checks, including sampling its old position for reappearing tiles.
+
+In one controlled Firefox/LXC run, the median visible response to a typed key in that overlapping window went from 157 to 59 ms on a 20 Mbit/s link, and from 176 to 75 ms with the downlink limited to 2 Mbit/s. Each case used 15 keys and a guest-drawn marker updated by the text field. These are small laboratory measurements at LAN RTT, not an RDP comparison or a claim about every Internet connection. A 512x128 text-area crop matched all 65,536 guest pixels exactly.
+
+There are still limits: a large newly opened text window needed about 4.5 seconds for full refinement at the narrow target. The video still encodes the whole desktop; this first version has no CopyRect/scroll protocol or separately cropped video stream. Live mixed-content testing so far covers LXC, Firefox and H.264/NVENC; the installed service was also checked with libx264. Equivalent VM, HEVC, QSV and VA-API runs are still needed. The implementation uses the common VM/LXC capture path, but that does not replace those tests.
+
+Source, experimental debs, installation and test reports:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027-exact-ui-exp6-source1
+
+This is a separate experimental build, 0.4.0+stock4.14~exp6. The signed APT feed remains on stock4.13. The mode is off by default in the package: enable Settings > Experimental exact UI after installing the matching experimental profiles and reloading PVE. There is also a documented node default; an explicit browser choice overrides it. No guest package update or guest reboot is needed. Restarting QSM services interrupts console connections while guests keep running.
+
+The extra layer uses the existing DTLS-protected WebRTC connection. With the optional single-port gateway, it also goes through TCP 8006; no additional public port is required.
+
+Feedback on mixed text/video windows would be useful, especially on VMs and on higher-latency links. Please include the browser, codec/encoder, guest type, transport and whether the text window overlaps video.
+
+Project sponsor: Takt (https://taktcycles.com/).
+Thank you, Dmitry

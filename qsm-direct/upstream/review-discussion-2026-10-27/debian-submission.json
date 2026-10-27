@@ -1,0 +1,52 @@
+{
+  "message_id": "<179308326004.3823774.3220402865484337736.qsm-exact-ui-exp6-update@taktcycles.com>",
+  "date": "Tue, 27 Oct 2026 06:41:00 +0000",
+  "from": "rdmitry@taktcycles.com",
+  "reply_to": "rdmitry0911@gmail.com",
+  "recipients": [
+    "1151422@bugs.debian.org",
+    "1151425@bugs.debian.org"
+  ],
+  "in_reply_to": " <179267850534.2866960.8156901383925310987.qsm-itp-progress@taktcycles.com>",
+  "source_eml": "debian-exact-ui-status-2026-10-27.eml",
+  "eml_sha256": "7f6a1325235beceabb7aab17644e52ceeaa0cc9ef736ab16c862066a48d067fb",
+  "submission_status": "recipient_mx_accepted",
+  "started_at": "2026-10-27T06:45:40.089647+00:00",
+  "smtp_code": 250,
+  "smtp_response": "2.0.0 Ok: queued as 167831E6DF37",
+  "submitted_at": "2026-10-27T06:45:40.103269+00:00",
+  "archive_checks": {
+    "itp": {
+      "url": "https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1151422;mbox=yes",
+      "messages": 2,
+      "body_verified": false,
+      "verified_at": "2026-10-27T06:55:32.729207+00:00"
+    },
+    "rfs": {
+      "url": "https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=1151425;mbox=yes",
+      "messages": 1,
+      "body_verified": false,
+      "verified_at": "2026-10-27T06:55:33.226847+00:00"
+    }
+  },
+  "recipient_relay_acceptance": {
+    "recipients": [
+      "1151422@bugs.debian.org",
+      "1151425@bugs.debian.org"
+    ],
+    "smtp_code": 250,
+    "relay_queue_id": "19C4514078",
+    "local_status": "sent; local queue entry removed"
+  },
+  "recipient_mx_acceptance": {
+    "1151422@bugs.debian.org": {
+      "smtp_code": 250,
+      "response": "OK id=1xLawJ-00AT6s-2f"
+    },
+    "1151425@bugs.debian.org": {
+      "smtp_code": 250,
+      "response": "OK id=1xLb2d-00AU3B-2T"
+    }
+  },
+  "public_bts_body_verified": false
+}

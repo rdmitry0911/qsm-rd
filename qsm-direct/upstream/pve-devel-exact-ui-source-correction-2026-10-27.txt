@@ -1,0 +1,17 @@
+Hi all,
+
+A source-publication correction to my previous update: I omitted the
+worker integration from the first Git commit/source archive. The tested
+debs already contained it. The complete source is now committed, and a
+corrected source revision with the same tested binary packages is here:
+
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027-exact-ui-exp6-source1
+
+The earlier experimental tag is retained and its release page points to
+this revision. Please use the new source archive/tag. Runtime/build
+sources were checked byte for byte against the snapshot used to build
+the exp6 debs; their package version and binary hashes are unchanged.
+The measurements and limitations in my previous update still apply.
+
+Sorry for the publication error.
+Dmitry

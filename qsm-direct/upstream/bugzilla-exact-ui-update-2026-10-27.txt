@@ -1,0 +1,18 @@
+Experimental mixed-content consumer follow-up, 2026-10-27
+
+An experimental QSM consumer snapshot, 0.4.0+stock4.14~exp6, adds an optional lossless pixel-tile layer above the existing desktop video. Compressible UI regions can update without waiting for video presentation; frequent motion stays in the video path. This uses the common captured surface, not OCR or replacement text/fonts, and requires no new guest-package functionality or additional PVE patch. The native shared per-VM D-Bus/API/UI proposal remains unchanged and pending review.
+
+The new reliable WebRTC data channel has bounded tiles/decompression, a bounded shared cache and latest-state queues per viewer. Refinement/replay bandwidth is limited; worker UI bytes also debit the common video budget. Clears, geometry epochs and per-tile serials prevent stale asynchronous decodes from repainting after invalidation. Source gaps/heartbeat expiry clear the cache and request a snapshot. Old/new bridge/worker combinations retain video and input.
+
+A real Wayland LXC/Firefox/H.264-NVENC test covered typing in a separate window overlapping a playing clip, scrolling, moving, resizing and closing it. The complete typed string matched. In one run with 15 keys per case, median visible-marker response changed from 157 to 59 ms at 20 Mbit/s and 176 to 75 ms at 2 Mbit/s. These are shaped-link measurements at LAN RTT, not an RDP or Internet comparison. All 65,536 pixels in a 512x128 text crop matched the source. The uncovered clip kept changing; sampled old-window markers did not reappear after move/close.
+
+Limits: a large new text window still needed about 4.5 seconds for full refinement at the narrow target. Video still encodes the whole desktop; there is no CopyRect/scroll protocol or cropped video substream, and tile/video presentation is not frame-synchronous. Live equivalent VM/HEVC/QSV/VA-API mixed-content tests remain outstanding. The installed service path was also checked with H.264/libx264. Common-path code is not a substitute for that missing coverage.
+
+27 CTest and 83 bridge tests pass. The package default remains off, with a viewer checkbox and explicit per-node default; saved user choices take precedence. The new layer is DTLS-protected and needs no additional public port with the existing TCP 8006 gateway. This is a separate experimental release; normal signed APT remains stock4.13.
+
+Source, debs, design, installation and validation:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027-exact-ui-exp6
+
+This does not resolve the native-integration feature request or rendernode request #4771. The frozen Debian contrib source review and upload-sponsorship requests remain separate.
+
+Project sponsor: Takt, https://taktcycles.com/

@@ -1,0 +1,6 @@
+Source-publication correction to comment #3:
+
+The first Git commit/source archive omitted the media-worker integration, although the tested exp6 debs contained it. The complete source is now committed. Use the corrected source revision and its signed assets:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027-exact-ui-exp6-source1
+
+The earlier experimental release now points to this revision. Runtime/build sources were checked byte for byte against the exp6 build snapshot; the tested deb versions and binary hashes are unchanged. The reported measurements, experimental status and remaining qualification limits still apply. This corrects source publication, not the native-integration review status.

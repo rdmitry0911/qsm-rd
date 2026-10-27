@@ -1,0 +1,35 @@
+From: Dmitry R <rdmitry@taktcycles.com>
+Reply-To: Dmitry R <rdmitry0911@gmail.com>
+To: pve-devel@lists.proxmox.com
+Cc: Alexandre Derumier <alexandre.derumier@groupe-cyllene.com>
+Subject: Re: [RFC] WebRTC console for VMs via QEMU's D-Bus display
+In-Reply-To: =?utf-8?q?=3C179308326004=2E3823774=2E17621657443116900285=2Eqs?=
+ =?utf-8?q?m-exact-ui-exp6-update=40taktcycles=2Ecom=3E?=
+References:
+ <CAANzA5H4-dLnboSPPpA6yuw=R2wxQ8S1ewZMJwk+Fy4S9LGYEQ@mail.gmail.com> 
+ =?utf-8?q?=3C179308326004=2E3823774=2E17621657443116900285=2Eqsm-exact-ui-e?=
+ =?utf-8?q?xp6-update=40taktcycles=2Ecom=3E?=
+Date: Tue, 27 Oct 2026 06:53:42 +0000
+Message-ID: <179308402281.3826615.2893539585058852580.qsm-exact-ui-source-correction@taktcycles.com>
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+Hi all,
+
+A source-publication correction to my previous update: I omitted the
+worker integration from the first Git commit/source archive. The tested
+debs already contained it. The complete source is now committed, and a
+corrected source revision with the same tested binary packages is here:
+
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027=
+-exact-ui-exp6-source1
+
+The earlier experimental tag is retained and its release page points to
+this revision. Please use the new source archive/tag. Runtime/build
+sources were checked byte for byte against the snapshot used to build
+the exp6 debs; their package version and binary hashes are unchanged.
+The measurements and limitations in my previous update still apply.
+
+Sorry for the publication error.
+Dmitry

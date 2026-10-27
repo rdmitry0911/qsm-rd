@@ -1,0 +1,13 @@
+{
+  "bug_id": 8106,
+  "comment_id": 37784,
+  "comment_number": 4,
+  "creator": "rdmitry0911@gmail.com",
+  "creation_time": "2026-10-27T06:54:54Z",
+  "url": "https://bugzilla.proxmox.com/show_bug.cgi?id=8106#c4",
+  "draft": "../bugzilla-exact-ui-source-correction-2026-10-27.txt",
+  "draft_sha256": "422379786aae1579c323707ac793f4380563072967b8ca574ea5a148b8405f83",
+  "delivery_status": "published_and_verified",
+  "verified_at": "2026-10-27T06:54:54.688454+00:00",
+  "duplicate_check": "Exact text was checked before posting; public comment body verified afterward."
+}

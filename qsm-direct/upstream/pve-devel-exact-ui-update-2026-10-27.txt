@@ -1,0 +1,56 @@
+Hi Alexandre, hi all,
+
+Following the stock4.13 update, I have an experimental mixed-content path
+in the QSM consumer. It uses the same capture surface and does not change
+the proposed shared per-VM D-Bus foundation or require new PVE patches.
+
+The existing full-desktop video remains. An optional lossless pixel-tile
+layer carries compressible UI regions over a separate reliable WebRTC data
+channel. Frequently changing tiles stay in video; settled regions can be
+refined. There is no OCR, replacement font rendering or application text
+extraction, and this stage needs no additional guest-package functionality.
+
+The implementation bounds geometry, tile payloads, decompression, shared
+cache and each viewer's pending state/SCTP queue. The worker and cached
+replay reserve a small share of the current bandwidth target; the worker's
+UI bytes also debit its video budget. New changes take priority over idle
+refinement. Gaps/heartbeat expiry clear stale cache state and request a
+snapshot. Epochs and serials invalidate late browser decodes after clears,
+geometry changes or disable. Old/new worker and bridge combinations were
+checked for video/input compatibility.
+
+I specifically tested a separate text-input window overlapping a playing
+clip in a real Wayland LXC/Firefox session, with H.264/NVENC and the existing
+TURN/TCP 8006 gateway. In one controlled run, median key-to-visible-marker
+response changed from 157 to 59 ms at a 20 Mbit/s downlink, and 176 to 75 ms
+at 2 Mbit/s, with 15 keys per case and LAN RTT. The guest checked the full
+input string. A 512x128 text crop matched all 65,536 source pixels. Moving,
+scrolling, resizing and closing the overlapping window passed the recorded
+checks; the uncovered clip continued producing different pictures.
+
+These are small laboratory results, not a comparison with RDP or an
+Internet latency guarantee. Large-window refinement still took about 4.5 s
+at the narrow target. This stage still video-encodes the whole desktop and
+has no CopyRect/scroll protocol, compositor window hints or cropped video
+substream. Tile/video presentation is not frame-synchronous. Equivalent
+live VM, HEVC, QSV and VA-API mixed-content runs remain outstanding.
+
+The experimental package set is 0.4.0+stock4.14~exp6. It is off by default;
+the viewer has an Experimental exact UI checkbox and there is an explicit
+node-default override. An explicit browser choice takes precedence. The
+installed stock-PVE service path was also checked with H.264/libx264. The
+new layer uses DTLS and adds no public port in the existing 8006 gateway.
+
+Source, matching debs, design/installation notes and qualification:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027-exact-ui-exp6
+
+27 CTest gates and 83 bridge tests pass. The normal signed APT preview
+remains stock4.13; this experimental snapshot is distributed separately.
+The Debian review source and pending native-integration proposal are not
+superseded. Feedback on region classification, occlusion and integrating
+future compositor hints with the shared display consumer would be useful.
+
+Project sponsor: Takt, https://taktcycles.com/
+
+Thanks,
+Dmitry

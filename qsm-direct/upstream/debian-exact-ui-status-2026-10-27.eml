@@ -1,0 +1,52 @@
+From: Dmitry R <rdmitry@taktcycles.com>
+Reply-To: Dmitry R <rdmitry0911@gmail.com>
+To: 1151422@bugs.debian.org
+Cc: 1151425@bugs.debian.org
+Subject: Re: Bug#1151422: ITP: qsm-pve-direct -- WebRTC graphical console for
+ Proxmox VE
+In-Reply-To:
+ <179267850534.2866960.8156901383925310987.qsm-itp-progress@taktcycles.com>
+References:
+ <179250930471.27151.8600307222447068955.qsm-contrib-itp@taktcycles.com>
+ <179267850534.2866960.8156901383925310987.qsm-itp-progress@taktcycles.com>
+Date: Tue, 27 Oct 2026 06:41:00 +0000
+Message-ID: <179308326004.3823774.3220402865484337736.qsm-exact-ui-exp6-update@taktcycles.com>
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+
+Hi,
+
+A short status update for ITP #1151422 and RFS #1151425. There is a new
+upstream experimental snapshot with an optional lossless UI-pixel layer
+above the existing WebRTC video:
+
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027=
+-exact-ui-exp6
+
+This is a runtime/development snapshot, not a new Debian source upload.
+The signed Debian review source remains 0.4.0+20261020-0exp1 at:
+
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-debian-contrib-2026=
+1020-review2
+
+Its prior Lintian/build/autopkgtest results apply to that frozen review
+source, not automatically to the new snapshot. The latter adds zlib1g-dev
+as a build dependency and zlib1g at runtime, alongside code and unit tests
+for the optional tile path. I would keep the first archive review focused
+on the existing source, or rebase it after a reviewer advises on scope.
+No upload to Debian has taken place. Independent human review and a Debian
+Developer upload sponsor are still needed. Proxmox runtime dependencies
+remain the reason for proposing contrib.
+
+For the experimental implementation, 27 CTest gates and 83 bridge tests
+pass; live mixed-content coverage is currently LXC/Firefox/H.264 and does
+not establish VM/HEVC or RDP-equivalent behavior. It is off by default and
+is not promoted into the normal signed APT preview. The release documents
+remaining refinement/occlusion limits and its narrower validation scope.
+
+Project sponsor: Takt, https://taktcycles.com/ (separate from Debian upload
+sponsorship).
+
+Thanks,
+Dmitry

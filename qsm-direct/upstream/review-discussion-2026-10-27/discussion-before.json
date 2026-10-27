@@ -1,0 +1,25 @@
+{
+  "checked_at": "2026-10-27T06:58:59.379658+00:00",
+  "before_publication": {
+    "forum_posts": 10,
+    "forum_latest": "https://forum.proxmox.com/posts/874070/",
+    "forum_latest_author": "rdmitry0911",
+    "pve_rfc_messages": 10,
+    "bugzilla_8106_comments": 3,
+    "debian_itp_messages": 2,
+    "debian_rfs_messages": 1,
+    "github_open_issues_or_prs": 0,
+    "new_external_reply": false
+  },
+  "after_publication": {
+    "pve_rfc_messages": 12,
+    "pve_original_and_correction_bodies_verified": true,
+    "bugzilla_comment_numbers": [
+      3,
+      4
+    ],
+    "debian_mx_accepted_both": true,
+    "debian_public_body_verified": false,
+    "forum_posted": false
+  }
+}

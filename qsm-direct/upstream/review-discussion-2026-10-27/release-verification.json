@@ -1,0 +1,18 @@
+{
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027-exact-ui-exp6-source1",
+  "source_commit": "f7294b8f8d8247421a914d2212dcde47e9fbc195",
+  "version": "0.4.0+stock4.14~exp6",
+  "is_prerelease": true,
+  "assets_downloaded": 10,
+  "payloads_verified": 8,
+  "signature_verified": true,
+  "signing_fingerprint": "BA99528182B7EADD0199B6986A09741B1DBEAEF2",
+  "sha256_manifest": "7fcb4de57fe5c186564dcedc2e06c5e805bda380971d0c5e95f2b032e7b7460f",
+  "normal_apt_unchanged": "0.4.0+stock4.13",
+  "github_filename_note": "GitHub normalizes ~ to . in deb asset names; signed manifest uses public filenames; internal package versions retain ~.",
+  "source_revision": 1,
+  "runtime_build_source_files_checked": 10,
+  "runtime_sources_match_exp6_build": true,
+  "all_five_binary_payload_hashes_unchanged": true,
+  "supersedes": "v0.4.0-qsm-direct-20261027-exact-ui-exp6"
+}

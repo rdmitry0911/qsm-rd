@@ -4,36 +4,27 @@ Proxmox takes no pull requests: patches go to `pve-devel@lists.proxmox.com`
 with `git send-email`, and every contributor signs a CLA first
 ([developer documentation](https://pve.proxmox.com/wiki/Developer_Documentation)).
 
-## Current status (2026-10-25)
+## Current status (2026-10-27)
 
-The public RFC thread has ten messages, including the published October 24
-stock4.3 update and today's [stock4.13 follow-up](pve-devel-input-routing-update-2026-10-25.eml),
-with Alexandre copied. Bugzilla #8106 has the architecture/runtime update in
-comment #1 and today's [input/capture follow-up](bugzilla-input-routing-update-2026-10-25.txt)
-in comment #2; both publications are verified. No new maintainer response was
-found. Alexandre's October 15 questions were answered on October 16, and the
-native shared-base/API/UI series still await upstream review.
+The separate [experimental exact UI source1 release](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027-exact-ui-exp6-source1)
+adds opt-in lossless pixel tiles above the existing video. It includes the
+complete worker integration, signed matching debs and the recorded overlapping
+text/video qualification. Normal signed APT remains stock4.13. Runtime/build
+source files in the corrected public archive match the tested exp6 build;
+the initial experimental source tag is retained and explicitly superseded.
 
-The [latest discussion audit and publication records](discussion-status-2026-10-25.md)
-cover pve-devel, the forum, Bugzilla #8106, Debian ITP/RFS and GitHub issues/PRs.
-The forum has nine posts; its latest is Dmitry's October 24 stock4.3 update.
-Today's [forum follow-up](forum-input-routing-update-2026-10-25.txt) is a draft
-for the user to publish. The Debian review source is unchanged, with no new
-ITP/RFS review response; no duplicate Debian update was sent.
+The [October 27 discussion and deployment record](discussion-status-2026-10-27.md)
+covers the additional native/standalone node rollout, published pve-devel
+follow-up and correction (Alexandre copied), Bugzilla comments #3/#4, the
+Debian ITP/RFS status delivery and a forum draft awaiting account access.
+No new external review response was present before these follow-ups.
+The native shared per-VM D-Bus/API/UI proposal remains pending review.
 
-The unofficial standalone stock4.13 preview runs on official PVE 9 / Debian 13
-amd64 packages and is distributed through the [signed APT repository](../packaging/apt/README.md).
-It retains Exact typing/clicks and the media reference-detail fix, and adds
-explicit keyboard capture, fullscreen/focus fixes and configurable complete
-modifier-shortcut routing with preserved press order. Its
-[VM input/layout qualification](review-vm103-modifier-order-2026-10-25/)
-and an [additional stock-node TCP 8006 gateway check](review-discussion-2026-10-25/additional-stock-node-gateway.json)
-are available. Physical macOS qualification remains outstanding. This does not
-make the PVE add-on independent of Proxmox at runtime; see the
-[official Debian packaging assessment](debian-distribution-2026-10-20.md).
-
-The sections below preserve the earlier shared-base submission material and
-its dated validation scope; their shared9 links are historical.
+The prototype is off by default in the package and does not replace the
+frozen Debian contrib review source. Large-window refinement, video/tile
+presentation and missing VM/codec coverage are documented; no RDP-equivalence
+claim is made. The [stable input/capture update](discussion-status-2026-10-25.md)
+and earlier shared-base submission material remain available below.
 
 ## Debian contrib procedure (2026-10-20)
 
