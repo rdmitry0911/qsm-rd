@@ -88,30 +88,42 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
         bool changed = !previous_;
         std::uint32_t damage = 0;
         const auto sparse_limit = w * h / 8U;
+        const auto minor_limit = std::max(1U, w * h / 64U);
         if (previous_ && pixels != previous_) {
             for (std::uint32_t row = 0; row < h && damage <= sparse_limit; ++row) {
                 const auto offset = (static_cast<std::size_t>(y + row) * width + x) * 4U;
                 if (std::memcmp(pixels->data() + offset, previous_->data() + offset, w * 4U) == 0) { continue; }
-                changed = true;
                 for (std::uint32_t col = 0; col < w && damage <= sparse_limit; ++col) {
                     const auto at = offset + col * 4U;
-                    if (std::memcmp(pixels->data() + at, previous_->data() + at, 4U) != 0) {
+                    // X/alpha bytes are not part of our opaque RGB output.
+                    if (std::memcmp(pixels->data() + at, previous_->data() + at, 3U) != 0) {
+                        changed = true;
                         ++damage;
                     }
                 }
             }
         }
-        const bool sparse = previous_ && changed && damage <= sparse_limit && now >= t.busy_until && in_focus(x, y, w, h);
+        const bool sparse = previous_ && changed && damage <= sparse_limit &&
+            (now >= t.busy_until || now - t.dense_changed >= settle_delay) && in_focus(x, y, w, h);
         if (changed) {
             t.streak = t.changed != Clock::time_point {} && now - t.changed < std::chrono::milliseconds(75)
                 ? t.streak + 1U : 1U;
             t.urgent = static_cast<bool>(previous_);
+            t.sparse_dirty = previous_ && damage <= sparse_limit &&
+                (damage <= minor_limit || in_focus(x, y, w, h));
+            if (previous_ && damage > minor_limit && !sparse) {
+                t.dense_streak = t.dense_changed != Clock::time_point {} &&
+                    now - t.dense_changed < motion_hold ? t.dense_streak + 1U : 1U;
+                t.dense_changed = now;
+            }
             t.changed = now; t.pending.clear(); t.incompressible = false; t.dirty = true;
             // Fast typing/caret changes touch little of a tile. Frequency
             // alone must not turn them into video and stall exact input
             // behind the 250 ms motion-settling window.
             if (sparse) { t.busy_until = {}; }
-            else if (t.streak >= 3U) { t.busy_until = now + std::chrono::milliseconds(250); }
+            else if (t.streak >= 3U || (previous_ && damage > minor_limit && t.dense_streak >= 2U)) {
+                t.busy_until = now + motion_hold;
+            }
         }
         if (now < t.busy_until) {
             wake_by(t.busy_until);
@@ -126,6 +138,14 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
             continue;
         }
         if ((!t.active || t.dirty) && !t.incompressible) {
+            // Refine only a quiet background, never the first two pictures
+            // of a moving region. Sparse foreground text/caret changes can
+            // replace an existing exact bitmap without a blur/clear cycle.
+            const bool foreground = in_focus(x, y, w, h) && (!previous_ || t.sparse_dirty);
+            if (!foreground && !(t.active && t.sparse_dirty) && now < t.changed + settle_delay) {
+                wake_by(t.changed + settle_delay);
+                continue;
+            }
             // A newly typed character has priority over an unfinished idle
             // snapshot, even near the bottom of a large desktop.
             (in_focus(x, y, w, h) ? interactive : t.urgent ? urgent : background).push_back(i);
@@ -210,11 +230,12 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
                 }
                 // An obsolete exact tile must not hide newer video while
                 // its replacement waits for bandwidth.
-                if (t.active && t.dirty) {
+                if (t.active && t.dirty && (!t.sparse_dirty || now >= t.published + settle_delay)) {
                     if (!emit(clear, static_cast<std::uint16_t>(x), static_cast<std::uint16_t>(y),
                         static_cast<std::uint16_t>(w), static_cast<std::uint16_t>(h), {}, send)) { break; }
                     t.active = false;
                 }
+                if (t.active && t.sparse_dirty) { wake_by(t.published + settle_delay); }
                 // Preserve credit for the oldest foreground tile. Small
                 // background patches cannot continually spend its refill.
                 if (t.urgent || in_focus(x, y, w, h)) { break; }
@@ -222,7 +243,8 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
             }
             if (!emit(patch, static_cast<std::uint16_t>(x), static_cast<std::uint16_t>(y),
                       static_cast<std::uint16_t>(w), static_cast<std::uint16_t>(h), t.pending, send, t.encoding)) { break; }
-            t.active = true; t.dirty = false; t.urgent = false; t.pending.clear();
+            t.active = true; t.dirty = false; t.urgent = false; t.sparse_dirty = false;
+            t.published = now; t.pending.clear();
             if (++published >= 16U) {
                 // Continue a bounded batch immediately; its next pass will
                 // calculate the exact refill deadline if credit runs out.
@@ -235,6 +257,13 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
     for (std::size_t i = 0; i < tiles_.size() && !reset_needed_; ++i) {
         auto& t = tiles_[i];
         if (!t.active || !t.dirty) { continue; }
+        // A small pending text edit must not erase all unchanged glyphs.
+        // Bound the grace period so an unavailable exact sender cannot hide
+        // live video indefinitely.
+        if (t.sparse_dirty && now < t.published + settle_delay) {
+            wake_by(t.published + settle_delay);
+            continue;
+        }
         const auto x = static_cast<std::uint32_t>(i % cols) * tile_edge;
         const auto y = static_cast<std::uint32_t>(i / cols) * tile_edge;
         // A large damage burst must not reset unrelated static text or

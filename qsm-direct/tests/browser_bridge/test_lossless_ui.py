@@ -81,6 +81,38 @@ class EventDrivenTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ExactUiTests(unittest.TestCase):
+    def test_backpressure_does_not_prepare_bitmaps_but_still_sends_invalidations(self):
+        s = source(); p = Peer(s, lambda _: None, lambda: None)
+        p.version = 3; p.channel = Channel(); p.enable(True); p.drain()
+        s.feed(patch().wire(1, 2))
+        for blocked in ('decode', 'sctp'):
+            p.ack_pending = 39 if blocked == 'decode' else 0
+            p.channel.bufferedAmount = MAX_BUFFERED // 2 if blocked == 'sctp' else 0
+            with mock_patch.object(p, '_command', side_effect=AssertionError('blocked bitmap work')):
+                p.drain(); p._delay(time.monotonic(), time.monotonic())
+        p.ack_pending = 39; p.channel.bufferedAmount = 0
+        s.feed(Update(CLEAR, width=128, height=64, w=64, h=64, capture=100).wire(1, 3))
+        s.feed(patch(4).wire(1, 4))
+        with mock_patch.object(p, '_command', side_effect=AssertionError('blocked replacement')):
+            p.drain()
+        self.assertEqual(p.channel.sent[-1][4], CLEAR)
+        self.assertTrue(p.pending, 'replacement waits without preserving stale visible pixels')
+        p.ack_pending = 0; p.drain()
+        self.assertEqual([raw[4] for raw in p.channel.sent][-2:], [CLEAR, 6])
+
+    def test_replacement_cannot_coalesce_away_an_unsent_clear(self):
+        s = source(); s.feed(patch().wire(1, 2))
+        p = Peer(s, lambda _: None, lambda: None); p.version = 2
+        p.channel = Channel(); p.enable(True); p.drain()
+        p.channel.bufferedAmount = MAX_BUFFERED
+        s.feed(Update(CLEAR, width=128, height=64, w=64, h=64, capture=100).wire(1, 3))
+        s.feed(patch(4).wire(1, 4)); p.drain()
+        self.assertEqual(len(p.invalidations), 1)
+        self.assertEqual(len(p.pending), 1)
+        p.channel.bufferedAmount = 0; p.drain()
+        self.assertEqual([raw[4] for raw in p.channel.sent][-2:], [CLEAR, PATCH])
+        self.assertFalse(p.invalidations)
+
     def test_wire_accounting_includes_reset_compact_patches_and_clear_only_after_send(self):
         s = source(); s.features = 7
         s.feed(patch().wire(1, 2))

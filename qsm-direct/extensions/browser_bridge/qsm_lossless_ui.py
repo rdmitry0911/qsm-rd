@@ -212,6 +212,7 @@ class Peer:
         self.channel = None
         self.task: asyncio.Task | None = None
         self.pending: OrderedDict[tuple[int, int], Update] = OrderedDict()
+        self.invalidations: OrderedDict[tuple[int, int], Update] = OrderedDict()
         self.snapshot = True
         self.epoch = self.serial = 0
         self.sent_patches = self.sent_bytes = 0
@@ -245,20 +246,22 @@ class Peer:
             self.announce()
             self._request_reset()
         elif update.op in (RESET, GAP):
-            self.pending.clear(); self.snapshot = True
+            self.pending.clear(); self.invalidations.clear(); self.snapshot = True
             if update.op == GAP:
                 self._request_reset()
         elif self.enabled:
             key = update.x, update.y
             self.pending.pop(key, None)
-            self.pending[key] = update
-            # Fresh input/invalidations outrank an unfinished cached snapshot.
-            self.pending.move_to_end(key, last=False)
+            if update.op == CLEAR:
+                self.invalidations[key] = update
+            else:
+                self.pending[key] = update
+                self.pending.move_to_end(key, last=False)
         self.wake()
 
     def enable(self, enabled: bool) -> None:
         self.enabled = enabled and self.source.available
-        self.pending.clear(); self.snapshot = True
+        self.pending.clear(); self.invalidations.clear(); self.snapshot = True
         self.announce()
         self.wake()
 
@@ -345,6 +348,7 @@ class Peer:
         channel = self.channel
         buffered = getattr(channel, "bufferedAmount", 0) if channel else 0
         outstanding = buffered + sum(HEADER.size + len(u.payload) for u in self.pending.values())
+        outstanding += len(self.invalidations) * (HEADER.size + 8)
         capacity = max(1, self.bitrate() * 125)
         limit = min(50, math.ceil(self._rate() * 100 / capacity))
         percent = min(limit, math.ceil(outstanding * 100 / (capacity * .1)))
@@ -353,7 +357,7 @@ class Peer:
             self.reserved = percent
             self.demand(percent)
         if channel is not None:
-            channel.bufferedAmountLowThreshold = MAX_BUFFERED // 2 if self.pending else 0
+            channel.bufferedAmountLowThreshold = MAX_BUFFERED // 2 if self.pending or self.invalidations else 0
 
     def _delay(self, now: float, announced: float) -> float | None:
         deadlines = []
@@ -372,11 +376,17 @@ class Peer:
                     deadlines.append(now)
                 rate = self._rate()
                 credit = min(self._burst(), self.credit + max(0, now - self.credit_at) * rate)
+                if self.invalidations and buffered + HEADER.size + 8 <= MAX_BUFFERED:
+                    deadlines.append(now)
                 for update in self.pending.values():
+                    # Do not inflate/scan bitmap caches for work which cannot
+                    # enter the browser's decode window. Waiting is passive.
+                    if self.version >= 2 and self.ack_pending >= 32:
+                        break
+                    if buffered >= MAX_BUFFERED // 2:
+                        break
                     command, _ = self._command(update)
                     size = HEADER.size + (8 if self.version >= 2 and update.capture else 0) + len(command.payload)
-                    if update.op == PATCH and self.version >= 2 and self.ack_pending >= 32:
-                        continue
                     if buffered + size > MAX_BUFFERED:
                         continue  # bufferedamountlow wakes the sender.
                     if update.op != PATCH or credit >= size:
@@ -412,17 +422,37 @@ class Peer:
             self.account(len(record))
             self.credit -= HEADER.size
             self.pending = OrderedDict(self.source.tiles)
+            self.invalidations.clear()
             self.snapshot = False
         sent = 0
+        # A replacement patch must never coalesce away the invalidation of
+        # an older visible tile. Send bounded, cheap clears before preparing
+        # any replacement, even when pixel inflation is backpressured.
+        for key, update in tuple(self.invalidations.items())[:32]:
+            record = update.wire(self.epoch, (self.serial + 1) & 0xffff_ffff,
+                                 stamped=self.version >= 2)
+            if getattr(channel, "bufferedAmount", 0) + len(record) > MAX_BUFFERED:
+                return
+            channel.send(record)
+            self.serial = (self.serial + 1) & 0xffff_ffff
+            self.invalidations.pop(key)
+            self.account(len(record))
+            self.credit -= len(record)
+            self.sent_bytes += len(record)
+            sent += len(record)
+        if self.invalidations:
+            return
         for key, update in tuple(self.pending.items()):
             if sent >= MAX_BUFFERED:
+                break
+            if self.version >= 2 and self.ack_pending >= 32:
+                break
+            if getattr(channel, "bufferedAmount", 0) >= MAX_BUFFERED // 2:
                 break
             command, entry = self._command(update)
             size = HEADER.size + (8 if self.version >= 2 and update.capture else 0) + len(command.payload)
             if getattr(channel, "bufferedAmount", 0) + size > MAX_BUFFERED:
                 break
-            if update.op == PATCH and self.version >= 2 and self.ack_pending >= 32:
-                continue
             if update.op == PATCH and self.credit < size:
                 break
             # Clears/reset may borrow a few bytes: stale pixels must disappear
@@ -457,7 +487,7 @@ class Peer:
                     self._reservation()
                 except Exception:
                     # Clear local history on a transient SCTP send failure.
-                    self.pending.clear(); self.snapshot = True
+                    self.pending.clear(); self.invalidations.clear(); self.snapshot = True
                     failed = True
                 now = time.monotonic()
                 if self.enabled and now - announced >= 1:
@@ -477,6 +507,7 @@ class Peer:
         self._closed = True
         self.enabled = False
         self.pending.clear()
+        self.invalidations.clear()
         self._reservation()
         self.wake()
         self.source.unsubscribe(self.receive)

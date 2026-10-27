@@ -207,7 +207,11 @@
                     if (job.x < x || job.y < y || job.x + job.w > x + w || job.y + job.h > y + h) { continue; }
                 }
                 this.clears.delete(key); changed = true;
-                if (this.wanted.get(key) === job.serial) {
+                // A newer received patch may still be inflating. It cannot
+                // protect the older bitmap actually covering this video.
+                const tile = this.active.get(key);
+                if (tile && (tile.epoch !== job.epoch ||
+                    ((job.serial - tile.serial) >>> 0) < 0x80000000)) {
                     this.context.clearRect(job.x, job.y, job.w, job.h); this.active.delete(key);
                 }
             }
@@ -258,7 +262,7 @@
                         this.cache.clear(); this.cached = [];
                         for (const [key, tile] of this.active) {
                             this.wanted.set(key, serial);
-                            this.erase(key, { ...tile, capture, serial });
+                            this.erase(key, { ...tile, epoch, capture, serial });
                         }
                     } else {
                         this.clear();
@@ -300,7 +304,7 @@
                 }
                 const previous = this.pending.get(key);
                 if (previous) { previous.done(); this.pending.delete(key); }
-                if (op === 3) { this.erase(key, { x, y, w, h, capture, serial }); return; }
+                if (op === 3) { this.erase(key, { epoch, x, y, w, h, capture, serial }); return; }
                 // Network arrival and browser inflation are independently
                 // paced. Keep one newest job per tile and at most eight
                 // inflations instead of disabling the layer on a short burst.
@@ -334,7 +338,12 @@
             if (op === 6) {
                 const color = new Uint8Array(data, payloadAt, 4);
                 if (color[3] !== 255) { throw Error('Invalid fill alpha'); }
-                for (let at = 0; at < image.data.length; at += 4) { image.data.set(color, at); }
+                // Read/write native words through the same representation;
+                // this preserves RGBA on either endianness and avoids 4096
+                // individual typed-array calls for each opaque fill tile.
+                const pixel = new Uint8Array(4); pixel.set(color);
+                new Uint32Array(image.data.buffer, image.data.byteOffset, w * h)
+                    .fill(new Uint32Array(pixel.buffer)[0]);
             } else if (op === 8) {
                 image.data.set(reference.image.data);
             } else if (op === 9) {
@@ -371,7 +380,7 @@
             }
             if (this.wanted.get(key) !== serial) { return; }
             this.context.putImageData(image, x, y);
-            this.active.set(key, { x, y, w, h, capture }); this.clears.delete(key);
+            this.active.set(key, { epoch: this.epoch, serial, x, y, w, h, capture }); this.clears.delete(key);
             this.patches += 1; this.bytes += data.byteLength;
         }
     }

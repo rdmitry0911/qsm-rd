@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
 
-const source = fs.readFileSync(new URL('../../integration/proxmox/pve9/direct_ui/qsm-direct-console.js', import.meta.url), 'utf8');
+const source = fs.readFileSync(process.env.QSM_EXACT_UI_SOURCE || new URL('../../integration/proxmox/pve9/direct_ui/qsm-direct-console.js', import.meta.url), 'utf8');
 const begin = source.indexOf('    class ExactUiRenderer {');
 const end = source.indexOf('    const defaultConsoleSettings', begin);
 assert.ok(begin > 0 && end > begin);
@@ -136,6 +136,30 @@ assert.equal(fencedClears.length, 1, 'a replacement patch survives the pending r
 await fence.receive(record(3, { epoch: 2, serial: 3, capture: 170, w: 64, h: 64 }));
 fence.videoFrame(503); fence.mapVideoFrame(503, 170);
 assert.equal(fencedClears.length, 2, 'late control mapping also releases its presented frame');
+// A received replacement is not necessarily a painted replacement. Its
+// pending inflation must not cancel the clearing of an older visible tile.
+const lateInflations = [], lateClears = [];
+const lateCanvas = { width: 0, height: 0, style: {}, getContext: () => ({ ...context,
+    clearRect: (...args) => lateClears.push(args),
+}) };
+const late = new sandbox.Renderer(lateCanvas,
+    data => new Promise(resolve => lateInflations.push(() => resolve(zlib.inflateSync(data)))));
+late.configure(true); await late.receive(record(1, { capture: 10 }));
+const oldBitmap = late.receive(record(2, { serial: 2, capture: 20, w: 64, h: 64, pixels }));
+lateInflations.shift()(); await oldBitmap;
+await late.receive(record(3, { serial: 3, capture: 30, w: 64, h: 64 }));
+const newBitmap = late.receive(record(2, { serial: 4, capture: 40, w: 64, h: 64, pixels }));
+late.mapVideoFrame(600, 30); late.videoFrame(600);
+assert.equal(lateClears.length, 1, 'an unpainted replacement cannot leave the old square over newer video');
+assert.equal(late.active.size, 0);
+lateInflations.shift()(); await newBitmap;
+assert.equal(late.active.get('0:0').serial, 4);
+await late.receive(record(1, { epoch: 2, capture: 50 }));
+const afterReset = late.receive(record(2, { epoch: 2, serial: 2, capture: 60, w: 64, h: 64, pixels }));
+late.mapVideoFrame(601, 50); late.videoFrame(601);
+assert.equal(lateClears.length, 2, 'reset fencing also inspects the painted epoch, not pending patch serials');
+lateInflations.shift()(); await afterReset;
+assert.equal(late.active.get('0:0').epoch, 2);
 // A decoded-size transition can prevent the base canvas from being updated.
 // Its RTP callback alone must not reveal the previously painted old window.
 const baseCanvas = { width: 0, height: 0, style: {}, getContext: () => ({ drawImage() {} }) };

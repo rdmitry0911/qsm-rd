@@ -53,7 +53,11 @@ Large clipboard/result transfers are outside this small-control accounting.
 Repeated identical VM cursor notifications are suppressed; the bridge refreshes
 the final unreliable cursor position at most four times/s to repair loss.
 
-Each viewer keeps one latest pending operation per tile. Browser inflation is
+Each viewer keeps one latest pending pixel update and one latest mandatory
+invalidation per tile. A replacement cannot erase the unsent invalidation of
+an older visible bitmap. Cheap clears are sent first in bounded batches.
+Bitmap inflation/cache analysis waits until SCTP and decoder windows have room;
+a full decoder window must not trigger repeated preparation of blocked work. Browser inflation is
 limited to eight concurrent jobs and coalesces queued tile history. Processing
 acknowledgements report received sequence and outstanding decode work. Bitmap
 references require a separate acknowledgement that the bitmap was decoded.
@@ -68,7 +72,10 @@ only after an appropriate video picture is submitted to the browser compositor.
 When video is composed into a region canvas, the matching picture must also
 have been successfully painted with the expected decoded dimensions before
 releasing old exact pixels. Invalid or late region metadata cannot bypass that
-fence. A fresh text patch can still lead video. Same-size resets retain backing pixels
+fence. A fresh text patch can still lead video. Fenced clears compare the epoch and
+serial of the bitmap actually painted, rather than the latest received update.
+An in-flight replacement therefore cannot keep an older square on top of new
+video. Same-size epoch resets use the same painted-bitmap rule. Same-size resets retain backing pixels
 until the matching presentation fence; late inflations cannot resurrect old tiles.
 
 Browsers without usable RTP frame metadata negotiate the original tile protocol
@@ -122,10 +129,15 @@ implemented here. The current generic path works without it.
   is at most 16,384. Larger desktops continue through video without an overlay.
 * Worker payloads are bounded zlib-compressed opaque RGBA or exact grayscale,
   at most 6,144 bytes. There is no chroma subsampling or quantization in tiles.
-* Three dense changes less than 75 ms apart select video until 250 ms after the
-  latest busy change. Sparse changes (at most 1/8 of a tile) near the last clicked input location
-  keep the exact path during fast typing, including colored font antialiasing. Established motion retains video classification
-  until it settles, including during occasional sparse frames. This remains a pixel-damage heuristic.
+* Background tiles must remain RGB-stable for 120 ms before refinement.
+  Two significant changes within one second, or three rapid changes within
+  75 ms, select video for one second after the last motion. This prevents
+  short playback pauses from repeatedly acquiring exact squares. Small caret
+  edits can retain exact backing briefly; recent keyboard focus permits sparse
+  text updates immediately and can reclaim a field after 120 ms without a
+  significant change. Larger background text motion is not treated as a caret.
+  Classification is still a pixel heuristic, not guest window/caret semantics.
+* Unused source alpha/X changes do not invalidate opaque RGB output.
 * The shared compressed cache is limited to 16 MiB. Per-viewer SCTP buffering is
   bounded to 16 KiB. Slow viewers do not accumulate desktop history.
 * Gaps and missing worker heartbeats invalidate source caches. Decode errors
@@ -169,7 +181,7 @@ with old workers/bridges remains part of upgrade testing.
 Build on Debian 13 with `zlib1g-dev` and the existing package dependencies:
 
 ```sh
-export QSM_DIRECT_DEB_VERSION='0.4.0+stock4.14~exp29'
+export QSM_DIRECT_DEB_VERSION='0.4.0+stock4.14~exp32'
 for profile in qsm-pve-direct qsm-pve-direct-standalone qsm-pve-direct-lxc qsm-pve-direct-gateway; do
     bash "packaging/debian/build-$profile-deb.sh"
 done
@@ -194,3 +206,7 @@ samples and transport checks.
 
 The [subsequent smoothness regression report](EXACT_UI_SMOOTHNESS_20261027.md)
 records the real 100 ms RTT / narrow-channel comparison and scheduling changes.
+
+The [temporal-artifact regression](EXACT_UI_TEMPORAL_20261027.md) reproduces old
+squares over a moving picture and an unpainted replacement defeating a clear.
+It supersedes any implication that static-pixel/FPS checks proved visual correctness.

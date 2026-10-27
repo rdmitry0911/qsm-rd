@@ -22,6 +22,8 @@ public:
     static constexpr std::size_t header_size = 28;
     static constexpr std::size_t max_payload = 6144;
     static constexpr std::uint64_t max_pixels = 3840U * 2160U;
+    static constexpr auto settle_delay = std::chrono::milliseconds(120);
+    static constexpr auto motion_hold = std::chrono::milliseconds(1000);
     enum Op : std::uint8_t { hello = 0, reset = 1, patch = 2, clear = 3, heartbeat = 4 };
     struct Region {
         std::uint32_t x {}, y {}, width {}, height {};
@@ -47,9 +49,9 @@ public:
 
 private:
     struct Tile {
-        Clock::time_point changed {}, busy_until {};
-        unsigned streak {};
-        bool active {}, incompressible {}, dirty {}, urgent {};
+        Clock::time_point changed {}, dense_changed {}, busy_until {}, published {};
+        unsigned streak {}, dense_streak {};
+        bool active {}, incompressible {}, dirty {}, urgent {}, sparse_dirty {};
         std::uint8_t encoding {};
         std::vector<std::uint8_t> pending;
     };
