@@ -116,7 +116,7 @@
                 this.width = this.canvas.width = sw; this.height = this.canvas.height = sh;
                 this.acknowledged = false;
             }
-            const ctx = this.canvas.getContext('2d', { alpha: false });
+            const ctx = this.canvas.getContext('2d', { alpha: false, colorSpace: 'srgb' });
             ctx.drawImage(this.video, x, y, w, h);
             this.painted = rtp;
             this.canvas.style.display = 'block'; this.video.style.opacity = '0';
@@ -126,13 +126,55 @@
         }
     }
 
+    // Sample the base picture and exact pixels on one native pixel grid,
+    // before CSS scaling or display colour management. A hardware video plane
+    // and an independently scaled RGB canvas need not render the same colour
+    // or subpixel position, even when their capture timestamps agree.
+    class ExactUiCompositor {
+        constructor(canvas, video, exact, regions) {
+            this.canvas = canvas; this.video = video; this.exact = exact; this.regions = regions;
+            this.captured = false; this.dirty = true;
+        }
+        capture() {
+            if (this.regions.width) { this.dirty = true; return; }
+            const { videoWidth: w, videoHeight: h } = this.video;
+            if (!w || !h) { return; }
+            const base = this.regions.canvas;
+            if (base.width !== w || base.height !== h) { base.width = w; base.height = h; }
+            base.getContext('2d', { alpha: false, colorSpace: 'srgb' }).drawImage(this.video, 0, 0);
+            this.captured = true; this.dirty = true;
+        }
+        present(enabled) {
+            const base = this.regions.canvas, target = this.canvas;
+            const ready = enabled && (this.captured || this.regions.painted !== null) &&
+                this.exact.width > 0 && base.width === this.exact.width && base.height === this.exact.height;
+            this.exact.style.display = 'none';
+            if (!ready) {
+                this.dirty = true;
+                target.style.display = 'none';
+                base.style.display = this.regions.width ? 'block' : 'none';
+                this.video.style.opacity = this.regions.width ? '0' : '';
+                return;
+            }
+            if (!this.dirty && target.style.display === 'block') { return; }
+            if (target.width !== base.width || target.height !== base.height) {
+                target.width = base.width; target.height = base.height;
+            }
+            const ctx = target.getContext('2d', { alpha: false, colorSpace: 'srgb' });
+            ctx.drawImage(base, 0, 0); ctx.drawImage(this.exact, 0, 0);
+            this.dirty = false;
+            target.style.display = 'block'; base.style.display = 'none'; this.video.style.opacity = '0';
+        }
+    }
+
     class ExactUiRenderer {
-        constructor(canvas, inflate, failed = () => {}, acknowledge = () => {}, canPresent = () => true) {
+        constructor(canvas, inflate, failed = () => {}, acknowledge = () => {}, canPresent = () => true, painted = () => {}) {
             this.canvas = canvas;
             this.inflate = inflate;
             this.failed = failed;
             this.acknowledge = acknowledge;
             this.canPresent = canPresent;
+            this.painted = painted;
             this.active = new Map();
             this.cache = new Map(); this.cached = [];
             this.clears = new Map();
@@ -169,6 +211,7 @@
             this.width = this.height = 0;
             this.canvas.width = this.canvas.height = 0;
             this.canvas.style.display = 'none';
+            this.painted();
         }
         report() {
             if (this.ackQueued) { return; }
@@ -217,7 +260,7 @@
                     this.context.clearRect(job.x, job.y, job.w, job.h); this.active.delete(key);
                 }
             }
-            if (changed) { this.report(); }
+            if (changed) { this.report(); this.painted(); }
             this.presentReady();
         }
         presentReady() {
@@ -232,7 +275,7 @@
                 this.active.set(key, { epoch, serial, x, y, w, h, capture }); this.clears.delete(key);
                 this.patches += 1; this.bytes += job.bytes;
             }
-            if (changed) { this.report(); }
+            if (changed) { this.report(); this.painted(); }
         }
         erase(key, job) {
             const r = this.videoRegion;
@@ -240,7 +283,7 @@
                 job.x + job.w <= r[2] + r[4] && job.y + job.h <= r[3] + r[5]);
             if ((job.capture > this.videoCapture || !covered) && this.active.has(key)) { this.clears.set(key, job); }
             else { this.context.clearRect(job.x, job.y, job.w, job.h); this.active.delete(key); }
-            this.report();
+            this.report(); this.painted();
         }
         async receive(data) {
             if (!this.enabled) { return; }
@@ -285,7 +328,7 @@
                     } else {
                         this.clear();
                         this.width = this.canvas.width = width; this.height = this.canvas.height = height;
-                        this.context = this.canvas.getContext('2d', { alpha: true });
+                        this.context = this.canvas.getContext('2d', { alpha: true, colorSpace: 'srgb' });
                     }
                     this.epoch = epoch; this.serial = serial; this.report();
                     return;
@@ -1517,6 +1560,17 @@
         const videoRegions = new VideoRegionRenderer(videoCanvas, video, rtp => {
             if (control && control.readyState === 'open') { control.send(JSON.stringify({ op: 'qsm_video_ack', rtp })); }
         });
+        const composedCanvas = document.createElement('canvas');
+        composedCanvas.setAttribute('aria-hidden', 'true');
+        composedCanvas.style.cssText = 'display:none;position:fixed;inset:0;width:100vw;height:100vh;object-fit:contain;pointer-events:none;z-index:3';
+        const exactCompositor = new ExactUiCompositor(composedCanvas, video, exactCanvas, videoRegions);
+        let compositionQueued = false;
+        const queueComposition = () => {
+            exactCompositor.dirty = true;
+            if (compositionQueued || popup.closed) { return; }
+            compositionQueued = true;
+            popup.requestAnimationFrame(() => { compositionQueued = false; syncExactGeometry(); });
+        };
         const remoteVideoWidth = () => videoRegions.width || video.videoWidth;
         const remoteVideoHeight = () => videoRegions.height || video.videoHeight;
         let exactUiPolicy = { available: false, enabled: false };
@@ -1531,7 +1585,7 @@
             if (control && control.readyState === 'open' && exactUiPolicy.max_version >= 2) {
                 control.send(JSON.stringify(ack));
             }
-        }, (rtp, region) => !region || videoRegions.painted === rtp);
+        }, (rtp, region) => !region || videoRegions.painted === rtp, queueComposition);
         if (typeof video.requestVideoFrameCallback === 'function') {
             const presented = (_now, metadata) => {
                 const frameSupport = Number.isInteger(metadata.rtpTimestamp);
@@ -1539,16 +1593,32 @@
                     exactFrameSupport = frameSupport; updateExactPreference();
                 }
                 if (frameSupport) {
-                    videoRegions.frame(metadata.rtpTimestamp); exactRenderer.videoFrame(metadata.rtpTimestamp);
-                    syncExactGeometry();
+                    videoRegions.frame(metadata.rtpTimestamp);
                 }
+                if (exactRenderer.enabled) { exactCompositor.capture(); }
+                if (frameSupport) {
+                    exactRenderer.videoFrame(metadata.rtpTimestamp);
+                }
+                syncExactGeometry();
                 video.requestVideoFrameCallback(presented);
             };
             video.requestVideoFrameCallback(presented);
         }
+        let legacyCompositionFrame = null;
         const syncExactGeometry = () => {
-            exactCanvas.style.display = exactRenderer.enabled && exactRenderer.width === remoteVideoWidth() &&
-                exactRenderer.height === remoteVideoHeight() && exactRenderer.width > 0 ? 'block' : 'none';
+            const enabled = exactRenderer.enabled && exactRenderer.width === remoteVideoWidth() &&
+                exactRenderer.height === remoteVideoHeight() && exactRenderer.width > 0;
+            if (enabled && typeof video.requestVideoFrameCallback !== 'function') {
+                exactCompositor.capture();
+                if (legacyCompositionFrame === null && !popup.closed) {
+                    legacyCompositionFrame = popup.requestAnimationFrame(() => {
+                        legacyCompositionFrame = null; syncExactGeometry();
+                    });
+                }
+            } else if (legacyCompositionFrame !== null) {
+                popup.cancelAnimationFrame(legacyCompositionFrame); legacyCompositionFrame = null;
+            }
+            exactCompositor.present(enabled);
         };
         const updateExactPreference = () => {
             applyExactUiDefault(settings, exactUiPolicy);
@@ -2194,7 +2264,7 @@
         // (the diagnostics toggle among them), which made it impossible to turn
         // off on a phone.  max-width keeps it off the controls entirely.
         diag.style.cssText = 'position:fixed;right:8px;top:8px;z-index:30;margin:0;max-width:min(70vw,520px);white-space:pre-wrap;word-break:break-word;padding:10px 12px;background:rgba(0,0,0,.82);color:#e5e7eb;font:13px/1.45 monospace;border:1px solid #334155;border-radius:8px;pointer-events:none';
-        document.body.append(video, exactCanvas, videoCanvas, guestCursor, guestPointer, toolbar, settingsPanel, diag, kbInput, revealHandle);
+        document.body.append(video, exactCanvas, videoCanvas, composedCanvas, guestCursor, guestPointer, toolbar, settingsPanel, diag, kbInput, revealHandle);
         popup.focus();
 
         let peer = null;
@@ -2811,6 +2881,8 @@
             exactCanvas.style.transformOrigin = video.style.transformOrigin;
             videoCanvas.style.transform = video.style.transform;
             videoCanvas.style.transformOrigin = video.style.transformOrigin;
+            composedCanvas.style.transform = video.style.transform;
+            composedCanvas.style.transformOrigin = video.style.transformOrigin;
             syncExactGeometry();
             placeGuestCursor();
         };
@@ -4066,6 +4138,7 @@
                     if (message.region !== undefined && !mapped) { return; }
                     const region = mapped ? message.region : null;
                     exactRenderer.mapVideoFrame(message.rtp, message.capture, region);
+                    if (mapped && videoRegions.painted === message.rtp) { queueComposition(); }
                 } else if (message.op === 'qsm_mouse_ack') {
                     if (message.sequence === mouseFenceSequence) { mouseFenceSequence = null; }
                 } else if (message.op === 'qsm_video_rate') {

@@ -68,6 +68,22 @@ These acknowledgements do not claim physical display or input completion.
 
 ## Video/UI composition
 
+While exact UI is enabled, the browser combines the presented base picture and
+exact pixels into one sRGB canvas at guest resolution, before applying CSS scaling
+and the monitor colour transform. Independent hardware-video and canvas layers
+can otherwise differ in colour conversion or fractional scaling. This client
+composition requires an additional canvas copy; disabling the option restores
+the ordinary video presentation path. Cropped video retains its full-desktop
+base canvas, including pixels outside the current crop. UI-only redraws use that
+presented base rather than sampling an unfenced future media-element frame.
+
+The encoder describes the original desktop as BT.709/sRGB primaries and transfer,
+with limited-range YUV and the existing BT.601 conversion matrix. Both libavcodec
+and the FFmpeg process path explicitly configure the conversion and signal these
+values; VA-API uploads retain the frame tags. This avoids asking decoders or the
+display pipeline to guess the colour space of an untagged video. The exact layer
+uses an explicitly sRGB canvas. These tags do not make 4:2:0 video pixel-exact.
+
 A monotonic capture identifier accompanies exact updates and the actual encoded
 picture. The bridge maps that identifier to the picture's RTP timestamp. Browsers
 that expose `requestVideoFrameCallback` RTP metadata paint new overlay pixels

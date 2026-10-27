@@ -9,7 +9,7 @@ const end = source.indexOf('    const defaultConsoleSettings', begin);
 assert.ok(begin > 0 && end > begin);
 const sandbox = vm.createContext({ ArrayBuffer, DataView, Uint8Array, Map, Error, Number, queueMicrotask });
 const regionBegin = source.indexOf('    class VideoRegionRenderer {');
-vm.runInContext(source.slice(regionBegin, end) + '\nglobalThis.Renderer = ExactUiRenderer; globalThis.Region = VideoRegionRenderer;', sandbox);
+vm.runInContext(source.slice(regionBegin, end) + '\nglobalThis.Renderer = ExactUiRenderer; globalThis.Region = VideoRegionRenderer; globalThis.Compositor = ExactUiCompositor;', sandbox);
 const record = (op, { epoch = 1, serial = 1, width = 64, height = 64, x = 0, y = 0, w = 0, h = 0, pixels, encoding = 0, capture = 0 } = {}) => {
     const data = pixels ? zlib.deflateSync(pixels) : new Uint8Array();
     const buffer = new ArrayBuffer(28 + (capture ? 8 : 0) + data.length), view = new DataView(buffer);
@@ -32,6 +32,42 @@ regionVideo.videoWidth = 640; regionVideo.videoHeight = 448; regionRenderer.fram
 assert.deepEqual(regionDraws.at(-1), [640, 64, 640, 448]);
 assert.equal(regionCanvas.width, 1280); assert.equal(regionVideo.style.opacity, '0');
 assert.equal(regionRenderer.map(3, [1280, 720, 1000, 0, 640, 448]), false);
+// UI-only repaint must use the last presented base, even if the media element
+// already exposes a newer frame. Both images are combined before CSS scaling.
+const raster = (w, h, value) => {
+    const image = { width: w, height: h, style: {}, data: new Uint8Array(w * h * 4) };
+    if (value !== undefined) {
+        for (let i = 0; i < image.data.length; i += 4) { image.data.set([value, value, value, 255], i); }
+    }
+    image.getContext = () => ({ drawImage: other => {
+        for (let i = 0; i < other.data.length; i += 4) {
+            if (other.data[i + 3] === 255) { image.data.set(other.data.subarray(i, i + 4), i); }
+        }
+    } });
+    return image;
+};
+const native = { ...raster(128, 64, 10), videoWidth: 128, videoHeight: 64 };
+const backing = raster(128, 64), exact = raster(128, 64), composed = raster(128, 64);
+exact.data.set([200, 30, 40, 255], 64 * 4);
+const regionState = { canvas: backing, width: 0, painted: null };
+const compositor = new sandbox.Compositor(composed, native, exact, regionState);
+compositor.capture(); compositor.present(true);
+assert.deepEqual([...composed.data.subarray(64 * 4, 64 * 4 + 4)], [200, 30, 40, 255]);
+assert.equal(composed.data[0], 10);
+native.data.fill(255); compositor.present(true);
+assert.equal(composed.data[0], 10, 'an unfenced future video frame cannot leak into a UI-only repaint');
+compositor.capture(); compositor.present(true);
+assert.equal(composed.data[0], 255, 'the next presented base advances the complete composition');
+regionState.width = 128; regionState.painted = 42; backing.data.fill(20);
+for (let i = 3; i < backing.data.length; i += 4) { backing.data[i] = 255; }
+compositor.capture(); compositor.present(true);
+assert.equal(composed.data[0], 20, 'a crop must use the retained full-desktop base, not stretch the media element');
+compositor.present(false);
+assert.equal(composed.style.display, 'none');
+assert.equal(backing.style.display, 'block');
+regionState.width = 0; compositor.present(false);
+assert.equal(native.style.opacity, '');
+assert.equal(backing.style.display, 'none');
 const painted = [], clears = [], errors = [], pending = [];
 const context = { createImageData: (w, h) => ({ data: new Uint8Array(w * h * 4) }),
     putImageData: (image, x, y) => painted.push({ pixels: image.data, x, y }),

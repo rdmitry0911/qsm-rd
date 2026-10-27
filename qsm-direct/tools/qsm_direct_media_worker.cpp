@@ -744,6 +744,10 @@ public:
             frame_->format = software_format;
             frame_->width = static_cast<int>(width);
             frame_->height = static_cast<int>(height);
+            frame_->color_range = AVCOL_RANGE_MPEG;
+            frame_->colorspace = AVCOL_SPC_SMPTE170M;
+            frame_->color_primaries = AVCOL_PRI_BT709;
+            frame_->color_trc = AVCOL_TRC_IEC61966_2_1;
             const int allocated = av_frame_get_buffer(frame_, 32);
             if (allocated < 0) {
                 throw WorkerError("cannot allocate video pixels: " + error_string(allocated));
@@ -753,6 +757,14 @@ public:
                                    SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
             if (scale_ == nullptr) {
                 throw WorkerError("cannot initialise BGRA to video conversion");
+            }
+            // Keep the existing BT.601 YUV matrix, but make its range and
+            // sRGB desktop transfer/primaries explicit. Untagged HD video
+            // can be displayed differently from the exact sRGB canvas.
+            const auto *coefficients = sws_getCoefficients(SWS_CS_ITU601);
+            if (sws_setColorspaceDetails(scale_, coefficients, 1, coefficients, 0,
+                                        0, 1 << 16, 1 << 16) < 0) {
+                throw WorkerError("cannot configure desktop video colour conversion");
             }
         } catch (...) {
             release();
@@ -823,6 +835,10 @@ public:
             }
             upload_->pts = frame_->pts;
             upload_->pict_type = frame_->pict_type;
+            upload_->color_range = frame_->color_range;
+            upload_->colorspace = frame_->colorspace;
+            upload_->color_primaries = frame_->color_primaries;
+            upload_->color_trc = frame_->color_trc;
             input = upload_;
         }
         const int submitted = avcodec_send_frame(context_, input);
@@ -844,6 +860,10 @@ private:
         context_->width = static_cast<int>(width_);
         context_->height = static_cast<int>(height_);
         context_->pix_fmt = vaapi_ ? AV_PIX_FMT_VAAPI : qsv_ ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
+        context_->color_range = AVCOL_RANGE_MPEG;
+        context_->colorspace = AVCOL_SPC_SMPTE170M;
+        context_->color_primaries = AVCOL_PRI_BT709;
+        context_->color_trc = AVCOL_TRC_IEC61966_2_1;
         context_->time_base = AVRational {1, static_cast<int>(fps_)};
         context_->framerate = AVRational {static_cast<int>(fps_), 1};
         // QSV's GopPicSize is a 16-bit field; 65535 is its infinite-GOP value.
@@ -1493,11 +1513,16 @@ private:
                 "-maxrate", std::to_string(video_bitrate_kbps_ * 1000U),
                 "-bufsize", std::to_string(video_bitrate_kbps_ * 1000U / fps_),
             };
+            const std::string colour_filter = "scale=in_range=pc:out_range=tv:out_color_matrix=bt601";
             if (std::string_view(encoder_).ends_with("_vaapi")) {
-                arguments.insert(arguments.end(), {"-vaapi_device", *vaapi_device_, "-vf", "format=nv12,hwupload"});
+                arguments.insert(arguments.end(), {"-vaapi_device", *vaapi_device_, "-vf", colour_filter + ",format=nv12,hwupload"});
             } else if (std::string_view(encoder_).ends_with("_qsv")) {
-                arguments.insert(arguments.end(), {"-vf", "format=nv12"});
+                arguments.insert(arguments.end(), {"-vf", colour_filter + ",format=nv12"});
+            } else {
+                arguments.insert(arguments.end(), {"-vf", colour_filter});
             }
+            arguments.insert(arguments.end(), {"-color_range", "tv", "-colorspace", "smpte170m",
+                                               "-color_primaries", "bt709", "-color_trc", "iec61966-2-1"});
             if (std::string_view(encoder_).ends_with("_nvenc")) {
                 arguments.insert(arguments.end(), {"-preset", "p1", "-tune", "ll", "-forced-idr", "1",
                                                    "-zerolatency", "1", "-delay", "0", "-rc-lookahead", "0",
