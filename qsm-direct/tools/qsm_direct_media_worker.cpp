@@ -20,6 +20,7 @@
 #include "core/pixel_format.hpp"
 #include "core/resize_coalescer.hpp"
 #include "core/video_budget.hpp"
+#include "core/lossless_ui.hpp"
 #include "interfaces/media_adapter.hpp"
 #include "pipeline/desktop_session.hpp"
 #include "qemu/qemu_dbus_display.hpp"
@@ -95,6 +96,7 @@ constexpr std::uint32_t packet_config = 0x00000010U;
 constexpr std::uint32_t packet_cursor = 0x00000020U;
 // A network-order u64 media timestamp precedes a timed video access unit.
 constexpr std::uint32_t packet_video_time = 0x00000040U;
+constexpr std::uint32_t packet_ui = 0x00000080U;
 constexpr std::uint32_t input_magic = 0x51534d49U; // QSMI
 constexpr std::uint8_t input_version = 1U;
 constexpr std::uint8_t input_mouse_position = 1U;
@@ -108,6 +110,7 @@ constexpr std::uint8_t input_keyframe_request = 6U;
 constexpr std::uint8_t input_video_bitrate = 7U;
 constexpr std::uint8_t input_key_tap = 8U;
 constexpr std::uint8_t input_mouse_action = 9U;
+constexpr std::uint8_t input_lossless_ui = 10U;
 constexpr std::size_t packet_header_size = 20U;
 constexpr std::size_t input_header_size = 8U;
 constexpr std::size_t max_fragment_bytes = 256U * 1024U;
@@ -453,6 +456,10 @@ public:
         send(audio_, 0U, packet_audio | packet_config, empty, opus_samples_per_frame);
     }
 
+    [[nodiscard]] bool send_ui(std::span<const std::uint8_t> payload) noexcept {
+        return send(video_, ui_number_.fetch_add(1U) + 1U, packet_ui, payload);
+    }
+
     void send_audio(std::span<const std::uint8_t> data) noexcept {
         send(audio_, ++audio_number_, packet_audio, data);
     }
@@ -614,6 +621,7 @@ private:
     std::optional<std::chrono::steady_clock::time_point> video_origin_;
     std::uint32_t audio_number_ {};
     std::atomic<std::uint32_t> cursor_number_ {};
+    std::atomic<std::uint32_t> ui_number_ {};
     std::uint64_t video_access_units_ {};
     std::uint64_t video_records_ {};
     std::uint64_t video_send_failures_ {};
@@ -966,11 +974,13 @@ public:
         }
 #endif
         video_thread_ = std::thread(&DirectMediaAdapter::video_loop, this);
+        ui_thread_ = std::thread(&DirectMediaAdapter::ui_loop, this);
     }
 
     void stop() noexcept override {
         running_ = false;
         video_cv_.notify_all();
+        if (ui_thread_.joinable()) { ui_thread_.join(); }
         if (video_thread_.joinable()) {
             video_thread_.join();
         }
@@ -1027,6 +1037,12 @@ public:
         sink_.send_cursor(cursor, include_shape, shape_id);
     }
 
+    void request_lossless_ui(std::uint8_t mode) noexcept {
+        if (mode == 3) { ui_probe_.store(true); return; }
+        const bool was_enabled = ui_enabled_.exchange(mode != 0);
+        if (mode == 2 || (mode == 1 && !was_enabled)) { ui_resync_.store(true); }
+    }
+
     void submit_audio(std::span<const float> interleaved_samples, std::uint32_t sample_rate,
                       std::uint16_t channels) override {
         if (!running_.load() || sample_rate != opus_sample_rate || channels != opus_channels || !opus_) {
@@ -1071,6 +1087,39 @@ private:
     struct OpusDeleter {
         void operator()(OpusEncoder *encoder) const noexcept { opus_encoder_destroy(encoder); }
     };
+
+    void ui_loop() noexcept {
+        const auto greeting = qmdp::LosslessUi::greeting();
+        qmdp::LosslessUi ui;
+        while (running_.load()) {
+            // Older bridge processes never probe opcode 10 and must keep
+            // receiving the original media protocol after a package upgrade.
+            if (ui_probe_.exchange(false) && !sink_.send_ui(greeting)) { ui_probe_.store(true); }
+            if (!ui_enabled_.load()) {
+                ui.disable();
+            } else {
+                std::shared_ptr<const std::vector<std::uint8_t>> pixels;
+                std::uint32_t width, height;
+                {
+                    std::lock_guard lock(video_mutex_);
+                    pixels = latest_bgra_; width = latest_width_; height = latest_height_;
+                }
+                if (ui_resync_.exchange(false)) { ui.resync(); }
+                try {
+                    ui.update(std::move(pixels), width, height, std::chrono::steady_clock::now(),
+                        requested_bitrate_kbps_.load(), [this](std::span<const std::uint8_t> record) {
+                            const bool sent = sink_.send_ui(record);
+                            if (sent) { video_budget_.account(record.size()); }
+                            return sent;
+                        });
+                } catch (...) {
+                    // An optional exact layer cannot stop capture or video.
+                    ui.resync();
+                }
+            }
+            std::this_thread::sleep_for(16ms);
+        }
+    }
 
     static void write_all(int descriptor, std::span<const std::uint8_t> data) {
         std::size_t offset = 0U;
@@ -1529,6 +1578,10 @@ private:
     std::uint32_t video_bitrate_kbps_ {};
     std::atomic<std::uint32_t> requested_bitrate_kbps_ {};
     qmdp::VideoBudget video_budget_;
+    std::atomic<bool> ui_enabled_ {false};
+    std::atomic<bool> ui_probe_ {false};
+    std::atomic<bool> ui_resync_ {false};
+    std::thread ui_thread_;
     std::atomic<bool> running_ {false};
     std::atomic<bool> force_idr_ {false};
     std::atomic<std::uint64_t> keyframe_requests_ {};
@@ -1773,6 +1826,8 @@ private:
             media_.request_idr();
         } else if (op == input_video_bitrate && payload.size() == 4U) {
             media_.request_bitrate(read_u32(payload, 0U));
+        } else if (op == input_lossless_ui && payload.size() == 1U && payload[0] <= 3U) {
+            media_.request_lossless_ui(payload[0]);
         }
     }
 

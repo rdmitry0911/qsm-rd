@@ -1,4 +1,9 @@
-# QSM Direct experimental exact UI — stock4.14~exp6
+# QSM Direct experimental exact UI — stock4.14~exp6, source revision 1
+
+This source revision includes the worker integration omitted from the first
+published Git snapshot. The tested deb payloads are unchanged and remain
+version **0.4.0+stock4.14~exp6**. Use this release's source archive or tag;
+the earlier experimental source tag is superseded.
 
 An optional lossless pixel layer for text/UI above the existing desktop video.
 The browser can display a small UI change without waiting for the next video
@@ -40,15 +45,16 @@ hashes before installation. The signing key is the existing QSM archive key:
 
 `BA99528182B7EADD0199B6986A09741B1DBEAEF2`
 
-Download the matching debs. For an existing installation, include the core
+GitHub asset filenames use `.exp6`; the package version inside each deb is
+`0.4.0+stock4.14~exp6`. Download the matching debs. For an existing installation, include the core
 and every already installed host profile in **one apt transaction**. For a
 stock-PVE node with standalone, gateway and LXC profiles already installed:
 
 ```sh
-apt install ./qsm-pve-direct_0.4.0+stock4.14~exp6_amd64.deb \
-  ./qsm-pve-direct-standalone_0.4.0+stock4.14~exp6_all.deb \
-  ./qsm-pve-direct-gateway_0.4.0+stock4.14~exp6_all.deb \
-  ./qsm-pve-direct-lxc_0.4.0+stock4.14~exp6_all.deb
+apt install ./qsm-pve-direct_0.4.0+stock4.14.exp6_amd64.deb \
+  ./qsm-pve-direct-standalone_0.4.0+stock4.14.exp6_all.deb \
+  ./qsm-pve-direct-gateway_0.4.0+stock4.14.exp6_all.deb \
+  ./qsm-pve-direct-lxc_0.4.0+stock4.14.exp6_all.deb
 ```
 
 Omit profiles not installed. On an existing native/shared-platform node,
@@ -91,9 +97,9 @@ or the matching previously saved debs. Preserve the existing native/standalone
 profile and gateway configuration.
 
 Design, wire bounds, installation and coverage:
-[qsm-direct/docs/EXACT_UI.md](https://github.com/rdmitry0911/qsm-rd/blob/v0.4.0-qsm-direct-20261027-exact-ui-exp6/qsm-direct/docs/EXACT_UI.md).
+[qsm-direct/docs/EXACT_UI.md](https://github.com/rdmitry0911/qsm-rd/blob/v0.4.0-qsm-direct-20261027-exact-ui-exp6-source1/qsm-direct/docs/EXACT_UI.md).
 Measured run and raw traces:
-[qsm-direct/upstream/review-exact-ui-2026-10-27](https://github.com/rdmitry0911/qsm-rd/tree/v0.4.0-qsm-direct-20261027-exact-ui-exp6/qsm-direct/upstream/review-exact-ui-2026-10-27).
+[qsm-direct/upstream/review-exact-ui-2026-10-27](https://github.com/rdmitry0911/qsm-rd/tree/v0.4.0-qsm-direct-20261027-exact-ui-exp6-source1/qsm-direct/upstream/review-exact-ui-2026-10-27).
 The release includes the full source snapshot, matching debs, review evidence
 and signed SHA256 checksums.
 

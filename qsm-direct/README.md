@@ -9,7 +9,7 @@ permission. Nothing to install on the client.
 Project sponsor: [Takt](https://taktcycles.com/).
 
 The source tree also contains an opt-in [experimental exact UI layer](docs/EXACT_UI.md)
-for lossless text/UI tiles above video. The separate [experimental source and debs](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027-exact-ui-exp6)
+for lossless text/UI tiles above video. The separate [experimental source and debs](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027-exact-ui-exp6-source1)
 are off by default and are not part of the stable stock4.13 release linked below.
 
 On a tablet, slide one finger to move the cursor and tap to click. Hold
