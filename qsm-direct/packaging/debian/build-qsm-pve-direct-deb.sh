@@ -88,6 +88,7 @@ install -d "$package_root/bin" "$package_root/browser_bridge" "$package_root/dir
 install -m 0755 "$worker" "$package_root/bin/qsm-direct-media-worker"
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/__init__.py" "$package_root/browser_bridge/__init__.py"
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/qsm_browser_bridge.py" "$package_root/browser_bridge/qsm_browser_bridge.py"
+install -m 0644 "$ROOT_DIR/extensions/browser_bridge/qsm_lossless_ui.py" "$package_root/browser_bridge/qsm_lossless_ui.py"
 install -m 0644 "$ROOT_DIR/extensions/signal/qsm_gateway.py" "$package_root/browser_bridge/qsm_gateway.py"
 install -m 0644 "$ROOT_DIR/extensions/signal/qsm_gateway.py" "$package_root/signal_service/qsm_gateway.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/__init__.py" "$package_root/direct_guest/__init__.py"
@@ -154,7 +155,7 @@ Section: net
 Priority: optional
 Architecture: amd64
 Maintainer: Dmitry R <rdmitry0911@gmail.com>
-Depends: libc6 (>= 2.38), libopus0 (>= 1.3), libstdc++6 (>= 13), libsystemd0, libavcodec61, libavutil59, libswscale8, libwayland-client0, libxkbcommon0, dbus, ffmpeg, python3, python3-aiortc, python3-av, pve-manager, qemu-server
+Depends: libc6 (>= 2.38), libopus0 (>= 1.3), zlib1g, libstdc++6 (>= 13), libsystemd0, libavcodec61, libavutil59, libswscale8, libwayland-client0, libxkbcommon0, dbus, ffmpeg, python3, python3-aiortc, python3-av, pve-manager, qemu-server
 Description: WebRTC graphical console for Proxmox VE 9 (media worker and service)
  qsm-pve-direct streams the display of a VM (QEMU D-Bus display) or of an LXC
  container console to the browser over WebRTC, hardware-encoded (NVENC,

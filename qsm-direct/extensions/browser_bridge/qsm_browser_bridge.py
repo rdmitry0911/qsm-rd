@@ -12,6 +12,11 @@ signing key appears in this module's wire protocol or browser response.
 
 from __future__ import annotations
 
+try:
+    from . import qsm_lossless_ui as exact_ui
+except ImportError:
+    import qsm_lossless_ui as exact_ui
+
 # The installed module lives next to this file; source tests use its package.
 try:
     from .qsm_gateway import read_gateway, IcePeerLease
@@ -61,6 +66,7 @@ PACKET_AUDIO = 0x00000008
 PACKET_CONFIG = 0x00000010
 PACKET_CURSOR = 0x00000020
 PACKET_VIDEO_TIME = 0x00000040
+PACKET_UI = 0x00000080
 CURSOR_HEADER = struct.Struct("!BBQQiiHHHH")
 CURSOR_VERSION = 1
 CURSOR_VISIBLE = 0x01
@@ -77,6 +83,7 @@ INPUT_KEYFRAME_REQUEST = 6
 INPUT_VIDEO_BITRATE = 7
 INPUT_KEY_TAP = 8
 INPUT_MOUSE_ACTION = 9
+INPUT_LOSSLESS_UI = 10
 MODIFIER_KEYS = frozenset({29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc})
 MAX_FRAGMENT_BYTES = 256 * 1024
 MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024
@@ -917,7 +924,8 @@ class UnixTapIngress:
     def __init__(self, runtime_directory: Path, loop: asyncio.AbstractEventLoop,
                  video_track: _PacketTrack, audio_track: _PacketTrack, *, fps: int,
                  expected_uid: int | None = None,
-                 on_cursor: Callable[[GuestCursor], None] | None = None) -> None:
+                 on_cursor: Callable[[GuestCursor], None] | None = None,
+                 on_ui: Callable[[bytes], None] | None = None) -> None:
         self._runtime_directory = runtime_directory
         self._loop = loop
         self._video_track = video_track
@@ -925,6 +933,7 @@ class UnixTapIngress:
         self._video_assembler = _VideoAssembler(fps)
         self._audio_assembler = _AudioAssembler()
         self._on_cursor = on_cursor
+        self._on_ui = on_ui
         self._cursor_shapes: dict[int, GuestCursor] = {}
         self._expected_uid = os.geteuid() if expected_uid is None else expected_uid
         if not isinstance(self._expected_uid, int) or self._expected_uid < 0:
@@ -1105,6 +1114,12 @@ class UnixTapIngress:
                         if cursor is not None:
                             self._publish_cursor(cursor)
                         continue
+                    if not is_audio and packet_flags & PACKET_UI:
+                        if packet_flags != PACKET_UI | PACKET_FIRST | PACKET_END or fragment != 0:
+                            raise BridgeError("invalid exact UI packet framing")
+                        if self._on_ui is not None:
+                            self._loop.call_soon_threadsafe(self._on_ui, packet[PACKET_HEADER.size:])
+                        continue
                     if bool(packet_flags & PACKET_AUDIO) != is_audio:
                         raise BridgeError("local media packet arrived on the wrong socket")
                     unit = assembler.add(frame, fragment, packet_flags, packet[PACKET_HEADER.size:])
@@ -1183,6 +1198,8 @@ class UnixInputEgress:
         self._input_state_lock = threading.RLock()
         self._key_owners: dict[int, set[object]] = {}
         self._button_owners: dict[int, set[object]] = {}
+        self._ui_owners: set[object] = set()
+        self._ui_probe_at = float("-inf")
 
     def start(self) -> None:
         UnixTapIngress._validate_runtime_directory(self._runtime_directory)
@@ -1457,6 +1474,33 @@ class UnixInputEgress:
         self._send_packet(INPUT_HEADER.pack(
             INPUT_MAGIC, INPUT_VERSION, INPUT_VIDEO_BITRATE, 4) + struct.pack("!I", bitrate_kbps))
 
+    def set_lossless_ui(self, owner: object, enabled: bool) -> bool:
+        with self._input_state_lock:
+            before = bool(self._ui_owners)
+            if enabled:
+                self._ui_owners.add(owner)
+            else:
+                self._ui_owners.discard(owner)
+            if before != bool(self._ui_owners):
+                self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_LOSSLESS_UI, 1) +
+                                  bytes([int(bool(self._ui_owners))]))
+                return True
+            return False
+
+    def request_ui_snapshot(self) -> None:
+        with self._input_state_lock:
+            if self._ui_owners:
+                self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_LOSSLESS_UI, 1) + b'\x02')
+
+    def probe_lossless_ui(self) -> None:
+        # Old workers ignore the unknown private opcode. Do not send any new
+        # media records until a new bridge explicitly requests this greeting.
+        with self._input_state_lock:
+            now = time.monotonic()
+            if now - self._ui_probe_at >= 1:
+                if self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_LOSSLESS_UI, 1) + b'\x03'):
+                    self._ui_probe_at = now
+
     def _send_packet(self, packet: bytes) -> bool:
         with self._lock:
             if self._error is not None:
@@ -1683,9 +1727,11 @@ class SharedMediaIngress:
         self._video = _TrackFanout()
         self._audio = _TrackFanout()
         self._cursors = _CursorFanout()
+        self.ui = exact_ui.Source()
         self._ingress = UnixTapIngress(
             runtime_directory, loop, self._video, self._audio, fps=fps,
-            expected_uid=expected_producer_uid, on_cursor=self._cursors.put_nowait)
+            expected_uid=expected_producer_uid, on_cursor=self._cursors.put_nowait,
+            on_ui=self.ui.feed)
         self._started = False
         self._closed = False
 
@@ -1780,13 +1826,14 @@ class BrowserWebRtcBridge:
         self._cursor_channel: object | None = None
         self._control_channel: object | None = None
         self._cursor_listener = self._receive_cursor
+        self._ui_source = shared_media.ui if shared_media is not None else exact_ui.Source()
         if shared_media is None:
             self.video_track = _PacketTrack("video", maximum_queue=VIDEO_QUEUE_DEPTH)
             self.audio_track = _PacketTrack("audio", maximum_queue=AUDIO_QUEUE_DEPTH)
             self.ingress = UnixTapIngress(runtime_directory, self._loop, self.video_track,
                                            self.audio_track, fps=fps,
                                            expected_uid=expected_producer_uid,
-                                           on_cursor=self._cursor_listener)
+                                           on_cursor=self._cursor_listener, on_ui=self._ui_source.feed)
         else:
             self.video_track, self.audio_track = shared_media.subscribe(self._cursor_listener)
             self.ingress = None
@@ -1795,6 +1842,10 @@ class BrowserWebRtcBridge:
         self.input = shared_input or UnixInputEgress(
             runtime_directory, expected_uid=expected_producer_uid)
         self._input_state = BrowserInputState(self.input, pointer_order=self._pointer_order)
+        self._ui_peer = exact_ui.Peer(self._ui_source, self._send_control, self.input.request_ui_snapshot,
+                                      self.input.probe_lossless_ui,
+                                      lambda: self._video_rate.current_kbps,
+                                      default_enabled=os.environ.get("QSM_DIRECT_EXACT_UI_DEFAULT") == "1")
         self._input_watchdog: asyncio.Task[None] | None = None
         self._input_ended = False
         self._last_keyframe_request = float("-inf")
@@ -2071,11 +2122,13 @@ class BrowserWebRtcBridge:
                     pass
                 if self._input_watchdog is None:
                     self._input_watchdog = asyncio.create_task(self._watch_input())
+                self._ui_peer.announce()
 
             @channel.on("close")
             def on_control_close() -> None:
                 self._input_ended = True
                 self._input_state.release()
+                self._set_lossless_ui(False)
             if getattr(channel, "readyState", None) == "open":
                 on_control_open()
         else:
@@ -2087,6 +2140,13 @@ class BrowserWebRtcBridge:
                 return
             try:
                 if control:
+                    if isinstance(message, str) and len(message) <= MAX_CONTROL_MESSAGE_BYTES:
+                        ui_request = json.loads(message)
+                        if isinstance(ui_request, dict) and ui_request.get("op") == "qsm_ui_mode":
+                            if set(ui_request) != {"op", "enabled"} or type(ui_request["enabled"]) is not bool:
+                                raise BridgeError("invalid exact UI mode")
+                            self._set_lossless_ui(ui_request["enabled"])
+                            return
                     guest = self._guest_request(message)
                     if guest is None:
                         ack = self._input_state.handle(message)
@@ -2096,7 +2156,7 @@ class BrowserWebRtcBridge:
                         asyncio.create_task(self._dispatch_guest_request(channel, *guest))
                 else:
                     self._input_state.handle_pointer(message)
-            except BridgeError:
+            except (BridgeError, ValueError):
                 # A malformed browser command must not tear down encrypted
                 # video. Close this data channel; a fresh PVE Console launch
                 # is required for another input authority.
@@ -2104,6 +2164,15 @@ class BrowserWebRtcBridge:
                 if callable(close):
                     close()
                 self._input_state.release()
+
+    def _set_lossless_ui(self, enabled: bool) -> None:
+        enabled = enabled and self._ui_source.available
+        try:
+            if self.input.set_lossless_ui(self, enabled):
+                self._ui_source.invalidate()
+        except BridgeError:
+            enabled = False
+        self._ui_peer.enable(enabled)
 
     async def _watch_input(self) -> None:
         while not self._closed:
@@ -2418,6 +2487,12 @@ class BrowserWebRtcBridge:
             self._publish_cursor()
             self._publish_video_rate()
 
+        ui_channel = self._pc.createDataChannel("qsm-exact-ui", ordered=True)
+
+        @ui_channel.on("open")
+        def on_ui_open() -> None:
+            self._ui_peer.opened(ui_channel)
+
         answer = await self._pc.createAnswer()
         # One fixed-format journal line per session naming the negotiated
         # video codec and its fmtp: a browser that decodes nothing is then
@@ -2470,6 +2545,8 @@ class BrowserWebRtcBridge:
         if self._closed:
             return
         self._closed = True
+        self._set_lossless_ui(False)
+        await self._ui_peer.close()
         # Release this browser's authority before any asynchronous teardown,
         # including when the shared producer stays alive for another viewer.
         self._input_state.release()

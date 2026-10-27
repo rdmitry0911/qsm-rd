@@ -1,0 +1,64 @@
+[
+  {
+    "page_errors": [],
+    "other_node_ports": [],
+    "automatically_checked": true,
+    "option_available": true,
+    "video": {
+      "width": 1280,
+      "height": 726,
+      "currentTime": 0.127709
+    },
+    "stream": {
+      "patches": 55,
+      "bytes": 86453,
+      "state": "connected",
+      "policy": {
+        "op": "qsm_ui_policy",
+        "version": 1,
+        "available": true,
+        "enabled": true,
+        "default_enabled": true,
+        "patches": 0,
+        "bytes": 0,
+        "tiles": 0,
+        "gaps": 0
+      },
+      "relay": false
+    },
+    "explicit_opt_out_persisted": true,
+    "manual_reenable": true,
+    "profile": "native API / direct UDP"
+  },
+  {
+    "page_errors": [],
+    "other_node_ports": [],
+    "automatically_checked": true,
+    "option_available": true,
+    "video": {
+      "width": 1280,
+      "height": 726,
+      "currentTime": 0.127709
+    },
+    "stream": {
+      "patches": 41,
+      "bytes": 66875,
+      "state": "connected",
+      "policy": {
+        "op": "qsm_ui_policy",
+        "version": 1,
+        "available": true,
+        "enabled": true,
+        "default_enabled": true,
+        "patches": 4,
+        "bytes": 16281,
+        "tiles": 4,
+        "gaps": 0
+      },
+      "relay": true
+    },
+    "explicit_opt_out_persisted": true,
+    "manual_reenable": true,
+    "profile": "standalone gateway / TURN TCP 8006"
+  }
+]

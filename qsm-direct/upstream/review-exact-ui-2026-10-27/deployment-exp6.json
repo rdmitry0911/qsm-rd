@@ -1,0 +1,32 @@
+{
+  "version": "0.4.0+stock4.14~exp6",
+  "node_default": true,
+  "override": "/etc/systemd/system/qsm-pve-direct-terminal.service.d/exact-ui-default.conf",
+  "same_boot": true,
+  "same_vm_status_and_pids": true,
+  "same_ct_status": true,
+  "packages": "qsm-pve-direct 0.4.0+stock4.14~exp6\nqsm-pve-direct-gateway 0.4.0+stock4.14~exp6\nqsm-pve-direct-lxc 0.4.0+stock4.14~exp6\nqsm-pve-direct-standalone 0.4.0+stock4.14~exp6\n",
+  "services": {
+    "qsm-pve-direct-terminal": "active",
+    "qsm-pve-direct-signal": "active",
+    "qsm-pve-direct-gateway": "active",
+    "qsm-pve-direct-turn": "active"
+  },
+  "dpkg_audit": "",
+  "old_orphan_worker_removed": true,
+  "source_hashes": {
+    "/usr/lib/qsm-pve-direct/browser_bridge/qsm_browser_bridge.py": "1eff1b68c7e64c3dd770c177db9c6f23db55a8969cd1b511ecf9171c050e0749",
+    "/usr/lib/qsm-pve-direct/browser_bridge/qsm_lossless_ui.py": "fced1f76204baeb52cede8a24024bcec3043f18d20df703917243db1bfbd890c",
+    "/usr/share/pve-manager/js/qsm-pve-direct-console.js": "61fa76d6ef09cd7c52647f5e084b6da661b94cd5748ed1e5c5440e59ab830236"
+  },
+  "owned_lab_outputs": [
+    {
+      "name": "HEADLESS-1",
+      "mode": {
+        "width": 1280,
+        "height": 720,
+        "refresh": 60000
+      }
+    }
+  ]
+}

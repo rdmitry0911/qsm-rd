@@ -1,0 +1,31 @@
+[
+  {
+    "node_default": true,
+    "same_boot": true,
+    "same_vm_states_and_pids": true,
+    "same_ct_states": true,
+    "packages": "qsm-pve-direct 0.4.0+stock4.14~exp6\nqsm-pve-direct-lxc 0.4.0+stock4.14~exp6\n",
+    "services": {
+      "qsm-pve-direct-terminal": "active"
+    },
+    "dpkg_audit": "",
+    "profile": "native/shared API",
+    "original_test_display_restored": true
+  },
+  {
+    "node_default": true,
+    "same_boot": true,
+    "same_vm_states_and_pids": true,
+    "same_ct_states": true,
+    "packages": "qsm-pve-direct 0.4.0+stock4.14~exp6\nqsm-pve-direct-gateway 0.4.0+stock4.14~exp6\nqsm-pve-direct-lxc 0.4.0+stock4.14~exp6\nqsm-pve-direct-standalone 0.4.0+stock4.14~exp6\n",
+    "services": {
+      "qsm-pve-direct-terminal": "active",
+      "qsm-pve-direct-signal": "active",
+      "qsm-pve-direct-gateway": "active",
+      "qsm-pve-direct-turn": "active"
+    },
+    "dpkg_audit": "",
+    "profile": "standalone TCP 8006 gateway",
+    "original_test_display_restored": true
+  }
+]

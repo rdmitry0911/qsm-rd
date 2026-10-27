@@ -4,7 +4,7 @@ const source=fs.readFileSync(new URL('../../integration/proxmox/pve9/direct_ui/q
 const part=(a,b)=>{const i=source.indexOf(a),j=source.indexOf(b,i);assert.ok(i>=0&&j>i);return source.slice(i,j);};
 const api=new Function(`${part('const CONSOLE_SETTINGS_STORAGE_KEY =','// Display1 injects')}
 ${part('const scanCodes =','// A guest-first console')}
-return {parseShortcut,shortcutFromEvent,normalizeShortcutRules,defaultShortcutRules,shortcutRulesForSettings,matchShortcutRule,shortcutGuestChord,modifierShortcutFromKeys,readConsoleSettings,writeConsoleSettings,defaultConsoleSettings};`)();
+return {parseShortcut,shortcutFromEvent,normalizeShortcutRules,defaultShortcutRules,shortcutRulesForSettings,matchShortcutRule,shortcutGuestChord,modifierShortcutFromKeys,readConsoleSettings,writeConsoleSettings,defaultConsoleSettings,applyExactUiDefault};`)();
 for(const [text,canonical]of [['option+tab','Alt+Tab'],['Command+Shift+Tab','Shift+Meta+Tab'],['ctrl+alt+esc','Ctrl+Alt+Escape'],['Super+l','Meta+KeyL'],['F11','F11'],['Ctrl+Equal','Ctrl+Equal'],['Ctrl+Shift+1','Ctrl+Shift+Digit1'],['Alt+Shift','Alt+Shift'],['Win+Shift','Shift+Meta'],['Control+Shift','Ctrl+Shift'],['Command','Meta']])assert.equal(api.parseShortcut(text),canonical);
 for(const bad of ['', 'Ctrl++Alt','Alt+Alt+Tab','Ctrl++','Ctrl+Q+W','__proto__+F','constructor','Ctrl+UnrecognisedKey','a'.repeat(100)])assert.equal(api.parseShortcut(bad),null,bad);
 assert.equal(api.shortcutFromEvent({code:'Tab',altKey:true}), 'Alt+Tab');
@@ -44,4 +44,21 @@ assert.equal(upgraded.clientShortcuts.find(r=>r.shortcut==='Ctrl+KeyL').action,'
 upgraded.hostShortcuts=upgraded.hostShortcuts.filter(r=>r.shortcut!=='Ctrl+Shift');api.writeConsoleSettings(storage,upgraded);
 assert.ok(!api.readConsoleSettings(storage).hostShortcuts.some(r=>r.shortcut==='Ctrl+Shift'),'a deleted default must not reappear on reload');
 upgraded.hostShortcuts=[];api.writeConsoleSettings(storage,upgraded);assert.deepEqual(api.readConsoleSettings(storage).hostShortcuts,[]);
+storage.value=JSON.stringify({exactUi:false,targetFps:45});
+const exactDefault=api.readConsoleSettings(storage);
+api.applyExactUiDefault(exactDefault,{available:false,default_enabled:true});
+assert.equal(exactDefault.exactUi,false,'no node default before worker capability');
+api.applyExactUiDefault(exactDefault,{available:true,default_enabled:true});
+assert.equal(exactDefault.exactUi,true,'old implicit false follows the enabled node default');
+assert.equal(exactDefault.targetFps,45);
+exactDefault.exactUi=false;exactDefault.exactUiPreferenceSet=true;api.writeConsoleSettings(storage,exactDefault);
+const exactSaved=api.readConsoleSettings(storage);api.applyExactUiDefault(exactSaved,{available:true,default_enabled:true});
+assert.equal(exactSaved.exactUi,false,'explicit opt-out survives reload and policy announcements');
+storage.value=JSON.stringify({exactUi:true});const exactOldOptIn=api.readConsoleSettings(storage);
+api.applyExactUiDefault(exactOldOptIn,{available:true,default_enabled:false});
+assert.equal(exactOldOptIn.exactUi,true,'old explicit opt-in is preserved');
+storage.value=JSON.stringify({exactUi:true,exactUiPreferenceSet:false});
+const exactAutomatic=api.readConsoleSettings(storage);
+api.applyExactUiDefault(exactAutomatic,{available:true,default_enabled:false});
+assert.equal(exactAutomatic.exactUi,false,'saving unrelated settings must not turn a node default into an explicit opt-in');
 console.log('QSM_HOST_SHORTCUTS_OK');

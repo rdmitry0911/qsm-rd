@@ -1,0 +1,20 @@
+{
+  "qsm-direct/CMakeLists.txt": "a5c65737c567b46319b4625bf1bc3893337908088edfde4da6a2d1d7c70c5ddc",
+  "qsm-direct/README.md": "2f4048491cdf4e4758d676164b58ee4b3b3f64a350b7f76e3edf70fc7d2d2a8b",
+  "qsm-direct/debian/control": "41867bb74e6b2c63a2e7e42567982f50eccee82dd43c77744f3af6fa3a8b66a5",
+  "qsm-direct/debian/stage.py": "720028838d9206cdf8fa0e4caa2ab6eaa915ce52e47334b8c245c7be32a43a63",
+  "qsm-direct/docs/EXACT_UI.md": "11d99ff846ea52509210e1942efc849da8072977d7951ebaebb4e6f53f8bbf9d",
+  "qsm-direct/docs/TESTING.md": "ca7dd0080fb13d73d473d5748c955499bb2d9a84a184be99ee28e566f28e5d50",
+  "qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py": "1eff1b68c7e64c3dd770c177db9c6f23db55a8969cd1b511ecf9171c050e0749",
+  "qsm-direct/extensions/browser_bridge/qsm_lossless_ui.py": "fced1f76204baeb52cede8a24024bcec3043f18d20df703917243db1bfbd890c",
+  "qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js": "61fa76d6ef09cd7c52647f5e084b6da661b94cd5748ed1e5c5440e59ab830236",
+  "qsm-direct/packaging/debian/build-qsm-pve-direct-deb.sh": "816ad088266ddd18776005d0e3d6e1bc2322c663fb632800b7181f2262b5261a",
+  "qsm-direct/src/core/lossless_ui.cpp": "fd7677d6f6d49300fbad5ca17028cf5bfeeeb6802a3a0cc10aa432983fb8cc6b",
+  "qsm-direct/src/core/lossless_ui.hpp": "e53e35b29d8f05a82ad6b721dc24780be7cf6b09013c603eca430deab811d224",
+  "qsm-direct/tests/browser_bridge/test_input_state.py": "108e3fad9a6eb53af5ad6f18744f1261ed9c75b77f424f436bc265253687f640",
+  "qsm-direct/tests/browser_bridge/test_lossless_ui.py": "43d4857b23f45418d13c19c4610a5107632f6d8b7b5f869aa0ea0340daffe071",
+  "qsm-direct/tests/lossless_ui_tests.cpp": "434160e506879db34707805e3933158c0773856f1f37afdef36390a7e75f70ca",
+  "qsm-direct/tests/proxmox_pve9/test_exact_ui.mjs": "2ada1cbc4d0ba40e92334d8eb71839afa53d3f2c0570ba321b1ec1d3c4992da7",
+  "qsm-direct/tests/proxmox_pve9/test_host_shortcuts.mjs": "8dc54f219a469745e200bd5e7e8c045b15413a6f41aefc4a1281a716561bc8a1",
+  "qsm-direct/tools/qsm_direct_media_worker.cpp": "02e60b6e14b771661c433f8238a4c6d36e94db590b97bb99b8d4118c92ffb467"
+}

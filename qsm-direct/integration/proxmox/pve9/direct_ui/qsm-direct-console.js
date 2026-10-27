@@ -77,6 +77,113 @@
     // its last picture is covered by the stalled-resize path instead.
     const GUEST_SLEEP_HINT_MS = 4000;
 
+    const applyExactUiDefault = (settings, policy) => {
+        if (policy.available === true && typeof policy.default_enabled === 'boolean' &&
+            !settings.exactUiPreferenceSet) {
+            settings.exactUi = policy.default_enabled;
+        }
+    };
+
+    // Exact UI records are independent of video decode/presentation. Keep
+    // geometry epochs and per-tile serials across asynchronous inflation so
+    // an older patch can never paint over a newer clear, resize or disable.
+    class ExactUiRenderer {
+        constructor(canvas, inflate, failed = () => {}) {
+            this.canvas = canvas;
+            this.inflate = inflate;
+            this.failed = failed;
+            this.enabled = false;
+            this.epoch = null;
+            this.serial = null;
+            this.generation = 0;
+            this.width = this.height = 0;
+            this.wanted = new Map();
+            this.inflight = 0;
+            this.patches = this.bytes = 0;
+            this.context = null;
+        }
+        configure(enabled) {
+            if (this.enabled === enabled) { return; }
+            this.enabled = enabled;
+            this.clear();
+        }
+        clear() {
+            this.generation += 1;
+            this.epoch = this.serial = null;
+            this.wanted.clear();
+            this.width = this.height = 0;
+            this.canvas.width = this.canvas.height = 0;
+            this.canvas.style.display = 'none';
+        }
+        async receive(data) {
+            if (!this.enabled) { return; }
+            const operationGeneration = this.generation;
+            try {
+                if (!(data instanceof ArrayBuffer) || data.byteLength < 28 || data.byteLength > 6172) {
+                    throw Error('Invalid exact UI record');
+                }
+                const v = new DataView(data);
+                const encoding = v.getUint8(5);
+                if (v.getUint32(0) !== 0x51554931 || (encoding & ~1) || v.getUint16(6)) {
+                    throw Error('Unsupported exact UI record');
+                }
+                const op = v.getUint8(4), epoch = v.getUint32(8), serial = v.getUint32(12);
+                const width = v.getUint16(16), height = v.getUint16(18);
+                const x = v.getUint16(20), y = v.getUint16(22), w = v.getUint16(24), h = v.getUint16(26);
+                if (!epoch || !width || !height || width > 16384 || height > 16384 || width * height > 8294400) {
+                    throw Error('Invalid exact UI geometry');
+                }
+                if (op === 1) {
+                    if (encoding || data.byteLength !== 28 || x || y || w || h) { throw Error('Invalid exact UI reset'); }
+                    if (epoch === this.epoch && (serial === this.serial ||
+                        ((serial - this.serial) >>> 0) >= 0x80000000)) { return; }
+                    if (this.epoch !== null && epoch !== this.epoch &&
+                        ((epoch - this.epoch) >>> 0) >= 0x80000000) { return; }
+                    this.clear(); this.epoch = epoch; this.serial = serial;
+                    this.width = this.canvas.width = width; this.height = this.canvas.height = height;
+                    this.context = this.canvas.getContext('2d', { alpha: true });
+                    return;
+                }
+                if (epoch !== this.epoch || width !== this.width || height !== this.height) { return; }
+                if (serial === this.serial || ((serial - this.serial) >>> 0) >= 0x80000000) { return; }
+                if (![2, 3].includes(op) || x >= width || y >= height || x % 64 || y % 64 ||
+                    w !== Math.min(64, width - x) || h !== Math.min(64, height - y) ||
+                    (op === 3 && (encoding || data.byteLength !== 28))) { throw Error('Invalid exact UI tile'); }
+                this.serial = serial;
+                const key = `${x}:${y}`;
+                this.wanted.set(key, serial);
+                if (op === 3) { this.context.clearRect(x, y, w, h); return; }
+                if (this.inflight >= 32) { throw Error('Exact UI decoder busy'); }
+                const generation = this.generation;
+                this.inflight += 1;
+                let pixels;
+                const expected = w * h * (encoding ? 1 : 4);
+                try { pixels = await this.inflate(new Uint8Array(data, 28), expected); }
+                finally { this.inflight -= 1; }
+                if (!this.enabled || generation !== this.generation || this.wanted.get(key) !== serial) { return; }
+                if (pixels.length !== expected) { throw Error('Invalid exact UI pixel count'); }
+                const image = this.context.createImageData(w, h);
+                if (encoding) {
+                    for (let i = 0; i < pixels.length; ++i) {
+                        const at = i * 4;
+                        image.data[at] = image.data[at + 1] = image.data[at + 2] = pixels[i];
+                        image.data[at + 3] = 255;
+                    }
+                } else {
+                    for (let i = 3; i < pixels.length; i += 4) {
+                        if (pixels[i] !== 255) { throw Error('Invalid exact UI alpha'); }
+                    }
+                    image.data.set(pixels);
+                }
+                this.context.putImageData(image, x, y);
+                this.patches += 1; this.bytes += data.byteLength;
+            } catch (error) {
+                if (operationGeneration !== this.generation) { return; }
+                this.configure(false); this.failed(error);
+            }
+        }
+    }
+
     const defaultConsoleSettings = () => ({
         ...Object.fromEntries(Object.entries(CONSOLE_SETTING_SCHEMA).map(
             ([name, definition]) => [name, definition.defaultValue],
@@ -90,6 +197,8 @@
         hostShortcuts: defaultShortcutRules(),
         clientShortcuts: defaultShortcutRules(true),
         modifierShortcutDefaultsVersion: 1,
+        exactUi: false,
+        exactUiPreferenceSet: false,
     });
     // Standard receiver target is in milliseconds; the older Chromium hint
     // uses seconds. This is a target: the browser can enforce a larger floor.
@@ -116,6 +225,11 @@
                     settings[name] = value;
                 }
             }
+            if (typeof stored.exactUi === 'boolean') { settings.exactUi = stored.exactUi; }
+            // Earlier versions persisted their false default with unrelated
+            // settings. A deliberate selection now has an explicit marker.
+            settings.exactUiPreferenceSet = stored.exactUiPreferenceSet === true ||
+                (!Object.hasOwn(stored, 'exactUiPreferenceSet') && stored.exactUi === true);
             if (Object.values(KEYBOARD_PRIORITY).includes(stored.keyboardPriority)) {
                 settings.keyboardPriority = stored.keyboardPriority;
             }
@@ -1152,6 +1266,54 @@
         // an Android tablet or phone.  user-select/touch-callout off keeps a
         // long press from starting a browser text selection over the video.
         video.style.cssText = 'position:fixed;inset:0;display:block;width:100vw;height:100vh;max-width:none;max-height:none;background:#000;object-fit:contain;outline:none;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none';
+        const exactCanvas = document.createElement('canvas');
+        exactCanvas.setAttribute('aria-hidden', 'true');
+        exactCanvas.style.cssText = 'display:none;position:fixed;inset:0;width:100vw;height:100vh;object-fit:contain;pointer-events:none;z-index:2';
+        const inflateExactPixels = async (compressed, expected) => {
+            const reader = new Blob([compressed]).stream()
+                .pipeThrough(new DecompressionStream('deflate')).getReader();
+            const pixels = new Uint8Array(expected);
+            let offset = 0;
+            try {
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) { break; }
+                    if (offset + value.length > expected) { throw Error('Oversized exact UI tile'); }
+                    pixels.set(value, offset); offset += value.length;
+                }
+                if (offset !== expected) { throw Error('Incomplete exact UI tile'); }
+                return pixels;
+            } finally { await reader.cancel().catch(() => {}); }
+        };
+        let exactUiPolicy = { available: false, enabled: false };
+        let exactUiRequested = null;
+        const exactRenderer = new ExactUiRenderer(exactCanvas, inflateExactPixels, () => {
+            settings.exactUi = false;
+            settings.exactUiPreferenceSet = true;
+            exactUiInput.checked = false;
+            applyConsoleSettings();
+        });
+        const syncExactGeometry = () => {
+            exactCanvas.style.display = exactRenderer.enabled && exactRenderer.width === video.videoWidth &&
+                exactRenderer.height === video.videoHeight && exactRenderer.width > 0 ? 'block' : 'none';
+        };
+        const updateExactPreference = () => {
+            applyExactUiDefault(settings, exactUiPolicy);
+            const supported = typeof DecompressionStream === 'function';
+            exactUiInput.checked = settings.exactUi;
+            exactUiInput.disabled = !supported || !exactUiPolicy.available;
+            const wanted = supported && exactUiPolicy.available && settings.exactUi;
+            exactRenderer.configure(wanted);
+            syncExactGeometry();
+            if (control && control.readyState === 'open' && exactUiRequested !== wanted &&
+                (exactUiPolicy.available || exactUiRequested === true)) {
+                exactUiRequested = wanted;
+                control.send(JSON.stringify({ op: 'qsm_ui_mode', enabled: wanted }));
+            }
+            exactUiStatus.textContent = !supported ? gettext('This browser cannot use exact UI.') :
+                !exactUiPolicy.available ? gettext('Waiting for exact UI support…') :
+                wanted ? `${gettext('Exact UI')}: ${exactRenderer.patches} ${gettext('updates')}` : '';
+        };
         // QEMU Display1 supplies the cursor shape and position separately
         // from scanout damage. This canvas is deliberately visual-only: it
         // never participates in hit testing, resize, or input forwarding.
@@ -1620,6 +1782,21 @@
             specialKeys.append(action);
         }
         const settingsForm = document.createElement('div');
+        const exactUiLabel = document.createElement('label');
+        exactUiLabel.style.cssText = 'display:flex;align-items:center;gap:8px;margin:14px 0 4px';
+        const exactUiInput = document.createElement('input');
+        exactUiInput.type = 'checkbox'; exactUiInput.id = 'qsm-direct-exact-ui';
+        exactUiInput.checked = settings.exactUi; exactUiInput.disabled = true;
+        const exactUiText = document.createElement('span');
+        exactUiText.textContent = gettext('Experimental exact UI');
+        exactUiLabel.append(exactUiInput, exactUiText);
+        const exactUiStatus = document.createElement('div');
+        exactUiStatus.style.cssText = 'color:#cbd5e1;font-size:12px;margin:0 0 12px';
+        exactUiInput.addEventListener('change', () => {
+            settings.exactUi = exactUiInput.checked;
+            settings.exactUiPreferenceSet = true;
+            applyConsoleSettings();
+        });
         settingsForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:center';
         const settingLabels = {
             toolbarHotZonePx: gettext('Left activation zone (px)'),
@@ -1745,7 +1922,7 @@
             settingsHint, keyboardPolicyTitle, keyboardPolicyForm, shortcutEditor, keyboardPolicyHint, keyInputModeHint,
             mouseInputModeHint, specialKeys, keyboardUnavailableHint,
             mediaPolicyTitle, mediaPolicyHint, mediaPolicyForm, saveMediaPolicy, gesturesTitle, gesturesHint,
-            gesturesForm, resetGestures, settingsForm, settingsActions);
+            gesturesForm, resetGestures, exactUiLabel, exactUiStatus, settingsForm, settingsActions);
         toolbar.append(status, captureKeyboard, fullscreen, copy, paste, audio, mic, kbButton, diagButton, settingsButton);
         // On-screen diagnostics for the case a client shows no picture (mostly
         // phones/tablets/TVs where remote logs are unreachable). Hidden until a
@@ -1759,7 +1936,7 @@
         // (the diagnostics toggle among them), which made it impossible to turn
         // off on a phone.  max-width keeps it off the controls entirely.
         diag.style.cssText = 'position:fixed;right:8px;top:8px;z-index:30;margin:0;max-width:min(70vw,520px);white-space:pre-wrap;word-break:break-word;padding:10px 12px;background:rgba(0,0,0,.82);color:#e5e7eb;font:13px/1.45 monospace;border:1px solid #334155;border-radius:8px;pointer-events:none';
-        document.body.append(video, guestCursor, guestPointer, toolbar, settingsPanel, diag, kbInput, revealHandle);
+        document.body.append(video, exactCanvas, guestCursor, guestPointer, toolbar, settingsPanel, diag, kbInput, revealHandle);
         popup.focus();
 
         let peer = null;
@@ -2372,6 +2549,9 @@
                 video.style.transform = `translate(${zoomTx}px, ${zoomTy}px) scale(${zoomScale})`;
             }
             diagZoom = zoomScale.toFixed(2);
+            exactCanvas.style.transform = video.style.transform;
+            exactCanvas.style.transformOrigin = video.style.transformOrigin;
+            syncExactGeometry();
             placeGuestCursor();
         };
         const zoomAroundPoint = (mx, my, newScale) => {
@@ -2517,6 +2697,7 @@
         });
         const applyConsoleSettings = () => {
             writeConsoleSettings(browserStorage, settings);
+            updateExactPreference();
             refreshShortcutEditor();
             keyInputModeInput.disabled = settings.keyboardPriority === KEYBOARD_PRIORITY.raw;
             keyInputModeInput.value = keyInputModeInput.disabled ? KEY_INPUT_MODE.physical : settings.keyInputMode;
@@ -3131,6 +3312,7 @@
             status.textContent = gettext('Client keyboard shortcuts active — click the guest picture to resume.');
         };
         const close = () => {
+            exactRenderer.configure(false);
             if (closed) { return; }
             releaseHeldInput();
             closed = true;
@@ -3319,6 +3501,15 @@
             pointer = peer.createDataChannel('qsm-pointer', { ordered: false, maxRetransmits: 0 });
             peer.addEventListener('datachannel', (event) => {
                 const channel = event.channel;
+                if (channel && channel.label === 'qsm-exact-ui' && channel.ordered === true &&
+                    channel.maxRetransmits === null && channel.maxPacketLifeTime === null) {
+                    channel.binaryType = 'arraybuffer';
+                    channel.addEventListener('message', (uiEvent) => {
+                        void exactRenderer.receive(uiEvent.data).then(syncExactGeometry);
+                    });
+                    channel.addEventListener('close', () => exactRenderer.configure(false), { once: true });
+                    return;
+                }
                 if (!channel || channel.label !== 'qsm-guest-cursor' ||
                     channel.ordered !== false || channel.maxRetransmits !== 0) { return; }
                 channel.addEventListener('message', (cursorEvent) => {
@@ -3597,7 +3788,7 @@
                 if (usingTouchInput) { placeGuestCursor(); }
                 return { op: 'mouse_position', x: gx, y: gy, width: sourceWidth, height: sourceHeight };
             };
-            control.addEventListener('open', () => resize(true));
+            control.addEventListener('open', () => { exactUiRequested = null; updateExactPreference(); resize(true); });
             control.addEventListener('message', (event) => {
                 if (typeof event.data !== 'string') { return; }
                 let message;
@@ -3605,6 +3796,9 @@
                 if (!message || typeof message !== 'object') { return; }
                 if (message.op === 'qsm_input_policy') {
                     acceptInputPolicy(message);
+                } else if (message.op === 'qsm_ui_policy' && message.version === 1) {
+                    exactUiPolicy = message;
+                    updateExactPreference();
                 } else if (message.op === 'qsm_mouse_ack') {
                     if (message.sequence === mouseFenceSequence) { mouseFenceSequence = null; }
                 } else if (message.op === 'qsm_video_rate') {
@@ -3663,6 +3857,7 @@
             // mode.  The video event merely lets its outstanding retry yield
             // to the newer Console request.
             video.addEventListener('resize', () => {
+                syncExactGeometry();
                 placeGuestCursor();
                 reflowView();
                 // The retry identity carries the session FPS; a literal

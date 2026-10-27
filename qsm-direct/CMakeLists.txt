@@ -17,6 +17,7 @@ option(QMDP_ENABLE_DMABUF_READBACK
 
 include(CTest)
 find_package(Threads REQUIRED)
+find_package(ZLIB REQUIRED)
 
 set(QMDP_WARNINGS
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Wconversion;-Wshadow>
@@ -44,9 +45,10 @@ add_library(qmdp_core
     src/core/pixel_format.cpp
     src/core/resize_coalescer.cpp
     src/core/session.cpp
+    src/core/lossless_ui.cpp
 )
 target_include_directories(qmdp_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(qmdp_core PUBLIC Threads::Threads)
+target_link_libraries(qmdp_core PUBLIC Threads::Threads ZLIB::ZLIB)
 qmdp_target_defaults(qmdp_core)
 
 add_library(qmdp_pipeline
@@ -238,6 +240,11 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter)
 
     if(Python3_Interpreter_FOUND)
+        add_test(NAME qsm_lossless_ui_protocol
+            COMMAND ${Python3_EXECUTABLE} -m unittest discover
+                -s ${CMAKE_CURRENT_SOURCE_DIR}/tests/browser_bridge -p test_lossless_ui.py -v)
+        set_tests_properties(qsm_lossless_ui_protocol PROPERTIES
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}" TIMEOUT 20)
         add_test(NAME qsm_signal_endpoint
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/signal/test_endpoint.py)
@@ -306,7 +313,7 @@ if(BUILD_TESTING)
                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_direct_console_overlay.mjs
             )
             set_tests_properties(qsm_direct_pve_console_overlay PROPERTIES TIMEOUT 20)
-            foreach(browser_test local_cursor receiver_playout pointer_pacing touch_gestures keyboard_state keyboard_capture mouse_state host_shortcuts)
+            foreach(browser_test exact_ui local_cursor receiver_playout pointer_pacing touch_gestures keyboard_state keyboard_capture mouse_state host_shortcuts)
                 add_test(NAME qsm_${browser_test}
                     COMMAND ${QSM_DIRECT_NODE_EXECUTABLE}
                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_${browser_test}.mjs)
@@ -316,6 +323,10 @@ if(BUILD_TESTING)
     endif()
 
     add_executable(qmdp_core_tests tests/core_tests.cpp)
+    add_executable(qmdp_lossless_ui_tests tests/lossless_ui_tests.cpp)
+    target_link_libraries(qmdp_lossless_ui_tests PRIVATE qmdp_core)
+    qmdp_target_defaults(qmdp_lossless_ui_tests)
+    add_test(NAME qmdp_lossless_ui_tests COMMAND qmdp_lossless_ui_tests)
     target_link_libraries(qmdp_core_tests PRIVATE qmdp_core qmdp_pipeline Threads::Threads)
     qmdp_target_defaults(qmdp_core_tests)
     add_test(NAME qmdp_core_tests COMMAND qmdp_core_tests)

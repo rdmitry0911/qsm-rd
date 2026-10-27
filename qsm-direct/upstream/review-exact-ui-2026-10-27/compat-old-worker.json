@@ -1,0 +1,44 @@
+{
+  "cases": [
+    {
+      "name": "old_worker",
+      "exact": false,
+      "overlapping_video": false,
+      "samples_ms": [
+        125,
+        92,
+        109,
+        106,
+        93,
+        107,
+        90,
+        108,
+        109,
+        108,
+        108,
+        91,
+        107,
+        91,
+        108
+      ],
+      "median_ms": 107,
+      "p95_ms": 125,
+      "guest_characters": 15,
+      "fixture_text_matches": true,
+      "base_size": [
+        1280,
+        720
+      ],
+      "video_frames": 11600,
+      "server": {
+        "state": "connected",
+        "compat": "old_worker",
+        "ui_available": false,
+        "video_overflows": 4,
+        "video_drops": 201
+      }
+    }
+  ],
+  "page_errors": [],
+  "exact_option_disabled": true
+}

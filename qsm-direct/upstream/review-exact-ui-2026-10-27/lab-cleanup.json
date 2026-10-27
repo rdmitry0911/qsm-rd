@@ -1,0 +1,24 @@
+{
+  "same_boot": true,
+  "same_vm_status_and_pids": true,
+  "same_ct_status": true,
+  "private_lab_processes": [],
+  "production_services": {
+    "qsm-pve-direct-signal": "active",
+    "qsm-pve-direct-terminal": "active",
+    "qsm-pve-direct-gateway": "active",
+    "qsm-pve-direct-turn": "active"
+  },
+  "packages": "qsm-pve-direct 0.4.0+stock4.13\nqsm-pve-direct-gateway 0.4.0+stock4.13\nqsm-pve-direct-lxc 0.4.0+stock4.13\nqsm-pve-direct-standalone 0.4.0+stock4.13\n",
+  "fixture_state": "inactive",
+  "outputs": [
+    {
+      "name": "HEADLESS-1",
+      "mode": {
+        "width": 1280,
+        "height": 720,
+        "refresh": 60000
+      }
+    }
+  ]
+}

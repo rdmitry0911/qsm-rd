@@ -1,0 +1,31 @@
+{
+  "page_errors": [],
+  "other_node_ports": [],
+  "automatically_checked": true,
+  "option_available": true,
+  "video": {
+    "width": 1280,
+    "height": 726,
+    "currentTime": 0.116099
+  },
+  "stream": {
+    "patches": 52,
+    "bytes": 100616,
+    "state": "connected",
+    "policy": {
+      "op": "qsm_ui_policy",
+      "version": 1,
+      "available": true,
+      "enabled": true,
+      "default_enabled": true,
+      "patches": 3,
+      "bytes": 14632,
+      "tiles": 3,
+      "gaps": 0
+    },
+    "relay": true
+  },
+  "explicit_opt_out_persisted": true,
+  "manual_reenable": true,
+  "guest_type": "owned test LXC"
+}

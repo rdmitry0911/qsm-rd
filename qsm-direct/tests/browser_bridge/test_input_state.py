@@ -13,6 +13,29 @@ from extensions.browser_bridge.qsm_browser_bridge import (
 
 
 class InputStateTests(unittest.TestCase):
+    def test_exact_ui_ownership_is_independent_of_keyboard_and_other_viewers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            egress = UnixInputEgress(Path(directory))
+            packets = []
+            egress._send_packet = lambda p: packets.append(p) or True
+            a, b = object(), object()
+            egress.set_lossless_ui(a, True)
+            egress.set_lossless_ui(b, True)
+            egress.set_lossless_ui(a, False)
+            self.assertEqual([p[INPUT_HEADER.size:] for p in packets], [b'\x01'])
+            egress.request_ui_snapshot()
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x02')
+            egress.set_lossless_ui(b, False)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x00')
+            before = len(packets)
+            egress.request_ui_snapshot()
+            self.assertEqual(len(packets), before)
+            egress.probe_lossless_ui(); egress.probe_lossless_ui()
+            self.assertEqual(len(packets), before + 1)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x03')
+            with self.assertRaises(BridgeError):
+                egress.encode_browser_message('{"op":"qsm_ui_mode","enabled":true}')
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)

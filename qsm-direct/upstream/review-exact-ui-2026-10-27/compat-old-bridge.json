@@ -1,0 +1,44 @@
+{
+  "cases": [
+    {
+      "name": "old_bridge",
+      "exact": false,
+      "overlapping_video": false,
+      "samples_ms": [
+        102,
+        90,
+        109,
+        92,
+        91,
+        109,
+        107,
+        126,
+        90,
+        92,
+        108,
+        93,
+        125,
+        92,
+        110
+      ],
+      "median_ms": 102,
+      "p95_ms": 126,
+      "guest_characters": 15,
+      "fixture_text_matches": true,
+      "base_size": [
+        1280,
+        720
+      ],
+      "video_frames": 9729,
+      "server": {
+        "state": "connected",
+        "compat": "old_bridge",
+        "ui_available": false,
+        "video_overflows": 4,
+        "video_drops": 201
+      }
+    }
+  ],
+  "page_errors": [],
+  "exact_option_disabled": true
+}

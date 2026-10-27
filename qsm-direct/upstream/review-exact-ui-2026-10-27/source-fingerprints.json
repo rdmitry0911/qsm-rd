@@ -1,0 +1,18 @@
+{
+  "qsm-direct/CMakeLists.txt": "a5c65737c567b46319b4625bf1bc3893337908088edfde4da6a2d1d7c70c5ddc",
+  "qsm-direct/README.md": "e1a4a39841c7f5897f70b5c8767401a4a6338516e88d8c6a8450a4c981736b4c",
+  "qsm-direct/debian/control": "41867bb74e6b2c63a2e7e42567982f50eccee82dd43c77744f3af6fa3a8b66a5",
+  "qsm-direct/debian/stage.py": "720028838d9206cdf8fa0e4caa2ab6eaa915ce52e47334b8c245c7be32a43a63",
+  "qsm-direct/docs/TESTING.md": "ca7dd0080fb13d73d473d5748c955499bb2d9a84a184be99ee28e566f28e5d50",
+  "qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py": "bff53fa5757759f463c2bb0a832944c42056dc190b60fe87de4a4a83eec28421",
+  "qsm-direct/extensions/browser_bridge/qsm_lossless_ui.py": "39d0d7d9ec1a56dfcdf3c6d0f2679d69b5e4190cc2772939531727b6636816a6",
+  "qsm-direct/integration/proxmox/pve9/direct_ui/qsm-direct-console.js": "e9225451889b8da8e677c630761879d500460f4488b6e0ef6152e488eb6e670b",
+  "qsm-direct/packaging/debian/build-qsm-pve-direct-deb.sh": "816ad088266ddd18776005d0e3d6e1bc2322c663fb632800b7181f2262b5261a",
+  "qsm-direct/src/core/lossless_ui.cpp": "fd7677d6f6d49300fbad5ca17028cf5bfeeeb6802a3a0cc10aa432983fb8cc6b",
+  "qsm-direct/src/core/lossless_ui.hpp": "e53e35b29d8f05a82ad6b721dc24780be7cf6b09013c603eca430deab811d224",
+  "qsm-direct/tests/browser_bridge/test_input_state.py": "108e3fad9a6eb53af5ad6f18744f1261ed9c75b77f424f436bc265253687f640",
+  "qsm-direct/tests/browser_bridge/test_lossless_ui.py": "0b0e6de6e390c4d812bb17eaf289366db11027f387fecf1ed53be0f1be895f01",
+  "qsm-direct/tests/lossless_ui_tests.cpp": "434160e506879db34707805e3933158c0773856f1f37afdef36390a7e75f70ca",
+  "qsm-direct/tests/proxmox_pve9/test_exact_ui.mjs": "2ada1cbc4d0ba40e92334d8eb71839afa53d3f2c0570ba321b1ec1d3c4992da7",
+  "qsm-direct/tools/qsm_direct_media_worker.cpp": "02e60b6e14b771661c433f8238a4c6d36e94db590b97bb99b8d4118c92ffb467"
+}

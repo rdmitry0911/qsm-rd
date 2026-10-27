@@ -10,6 +10,10 @@ ctest --test-dir build-direct-tests --output-on-failure
 
 It covers core/D-Bus code, the guest channel, package layout, encoder choice, terminal-service auto configuration, and the static PVE Console overlay check.
 
+The [experimental exact UI checks](EXACT_UI.md#build-and-checks) also require
+live input in a separate window overlapping a visibly advancing clip, with
+feature-off/on comparisons and window invalidation checks on a shaped link.
+
 The automatic encoder policy also requires a worker E2E test. It forces an already-selected hardware FFmpeg encoder to fail, then verifies that the first and all concurrent viewers continue on `libx264`. `Hardware only` is not part of this case and does not fall back:
 
 ```bash
