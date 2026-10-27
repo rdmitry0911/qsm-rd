@@ -148,6 +148,7 @@
             this.wanted = new Map();
             this.inflight = 0;
             this.pending = new Map();
+            this.ready = new Map();
             this.patches = this.bytes = 0;
             this.context = null;
         }
@@ -161,6 +162,7 @@
             this.epoch = this.serial = null;
             this.wanted.clear();
             this.active.clear(); this.clears.clear();
+            this.ready.clear();
             this.cache.clear(); this.cached = [];
             for (const job of this.pending.values()) { job.done(); }
             this.pending.clear();
@@ -175,7 +177,7 @@
                 this.ackQueued = false;
                 if (this.enabled && this.epoch !== null) {
                     this.acknowledge({ op: 'qsm_ui_ack', epoch: this.epoch, serial: this.serial,
-                        pending: this.pending.size + this.inflight,
+                        pending: this.pending.size + this.inflight + this.ready.size,
                         cached: this.cached.splice(0, 32).filter(id => this.cache.get(id)?.image) });
                     if (this.cached.length) { this.report(); }
                 }
@@ -214,6 +216,21 @@
                     ((job.serial - tile.serial) >>> 0) < 0x80000000)) {
                     this.context.clearRect(job.x, job.y, job.w, job.h); this.active.delete(key);
                 }
+            }
+            if (changed) { this.report(); }
+            this.presentReady();
+        }
+        presentReady() {
+            if (!this.enabled) { return; }
+            let changed = false;
+            for (const [key, job] of this.ready) {
+                if (job.capture > this.videoCapture) { continue; }
+                this.ready.delete(key); changed = true;
+                if (job.generation !== this.generation || this.wanted.get(key) !== job.serial) { continue; }
+                this.context.putImageData(job.image, job.x, job.y);
+                const { epoch, serial, x, y, w, h, capture } = job;
+                this.active.set(key, { epoch, serial, x, y, w, h, capture }); this.clears.delete(key);
+                this.patches += 1; this.bytes += job.bytes;
             }
             if (changed) { this.report(); }
         }
@@ -259,6 +276,7 @@
                         this.generation += 1;
                         for (const job of this.pending.values()) { job.done(); }
                         this.pending.clear(); this.wanted.clear(); this.clears.clear();
+                        this.ready.clear();
                         this.cache.clear(); this.cached = [];
                         for (const [key, tile] of this.active) {
                             this.wanted.set(key, serial);
@@ -280,6 +298,7 @@
                 this.serial = serial;
                 const key = `${x}:${y}`;
                 this.wanted.set(key, serial);
+                this.ready.delete(key);
                 let cacheId = null, reference = null, shift = 0;
                 if ([6, 8].includes(op) && (encoding || data.byteLength !== payloadAt + 4)) {
                     throw Error('Invalid compact UI record');
@@ -379,9 +398,15 @@
                 this.cached.push(cacheId);
             }
             if (this.wanted.get(key) !== serial) { return; }
-            this.context.putImageData(image, x, y);
-            this.active.set(key, { epoch: this.epoch, serial, x, y, w, h, capture }); this.clears.delete(key);
-            this.patches += 1; this.bytes += data.byteLength;
+            // SCTP can deliver a new UI snapshot seconds before the browser
+            // displays its corresponding video through a congested TURN/TCP
+            // connection. Fence paints as well as clears: mixed capture times
+            // otherwise turn fades and pointer-triggered transitions into
+            // old/new 64-pixel squares. One latest bitmap per tile is retained;
+            // the ACK decode window includes these presentation waiters.
+            this.ready.set(key, { epoch: this.epoch, serial, generation, capture, x, y, w, h,
+                image, bytes: data.byteLength });
+            this.presentReady();
         }
     }
 

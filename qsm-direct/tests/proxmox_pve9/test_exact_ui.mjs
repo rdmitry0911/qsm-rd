@@ -120,6 +120,7 @@ const fenceCanvas = { width: 0, height: 0, style: {}, getContext: () => ({ ...co
 }) };
 const fence = new sandbox.Renderer(fenceCanvas, data => Promise.resolve(zlib.inflateSync(data)));
 fence.configure(true); await fence.receive(record(1, { capture: 100 }));
+fence.mapVideoFrame(490, 120); fence.videoFrame(490);
 await fence.receive(record(2, { serial: 2, capture: 120, w: 64, h: 64, pixels }));
 await fence.receive(record(3, { serial: 3, capture: 130, w: 64, h: 64 }));
 assert.equal(fencedClears.length, 0);
@@ -127,15 +128,40 @@ fence.mapVideoFrame(500, 125); fence.videoFrame(500);
 assert.equal(fencedClears.length, 0, 'older video cannot uncover stale content');
 fence.mapVideoFrame(501, 130); fence.videoFrame(501);
 assert.equal(fencedClears.length, 1, 'matching presented video releases the overlay');
+fence.mapVideoFrame(502, 140); fence.videoFrame(502);
 await fence.receive(record(2, { serial: 4, capture: 140, w: 64, h: 64, pixels }));
 await fence.receive(record(1, { epoch: 2, capture: 150 }));
 assert.equal(fenceCanvas.width, 64); assert.equal(fence.active.size, 1, 'same-size reset retains the old backing until the fence');
 await fence.receive(record(2, { epoch: 2, serial: 2, capture: 160, w: 64, h: 64, pixels }));
-fence.mapVideoFrame(502, 150); fence.videoFrame(502);
-assert.equal(fencedClears.length, 1, 'a replacement patch survives the pending reset');
+fence.mapVideoFrame(503, 150); fence.videoFrame(503);
+assert.equal(fencedClears.length, 2, 'reset releases the old bitmap while the future replacement still waits');
+assert.equal(fence.active.size, 0);
+fence.mapVideoFrame(504, 160); fence.videoFrame(504);
+assert.equal(fence.active.size, 1, 'the replacement appears with its corresponding base picture');
 await fence.receive(record(3, { epoch: 2, serial: 3, capture: 170, w: 64, h: 64 }));
-fence.videoFrame(503); fence.mapVideoFrame(503, 170);
-assert.equal(fencedClears.length, 2, 'late control mapping also releases its presented frame');
+fence.videoFrame(505); fence.mapVideoFrame(505, 170);
+assert.equal(fencedClears.length, 3, 'late control mapping also releases its presented frame');
+// Under TURN/TCP congestion, reliable UI records can lead displayed video
+// by seconds. Future snapshots must not form a mosaic over its older scene.
+const futurePaints = [];
+const futureCanvas = { width: 0, height: 0, style: {}, getContext: () => ({ ...context,
+    putImageData: image => futurePaints.push(image.data[0]),
+}) };
+const future = new sandbox.Renderer(futureCanvas, data => Promise.resolve(zlib.inflateSync(data)));
+future.configure(true); await future.receive(record(1, { capture: 10 }));
+future.mapVideoFrame(610, 10); future.videoFrame(610);
+await future.receive(record(2, { serial: 2, capture: 20, w: 64, h: 64, pixels }));
+assert.equal(futurePaints.length, 0, 'a future exact bitmap cannot cover an older video scene');
+future.mapVideoFrame(611, 19); future.videoFrame(611);
+assert.equal(futurePaints.length, 0);
+future.mapVideoFrame(612, 20); future.videoFrame(612);
+assert.equal(futurePaints.length, 1, 'the exact bitmap appears when its base picture is displayed');
+await future.receive(record(2, { serial: 3, capture: 30, w: 64, h: 64, pixels }));
+await future.receive(record(3, { serial: 4, capture: 31, w: 64, h: 64 }));
+future.mapVideoFrame(613, 30); future.videoFrame(613);
+assert.equal(futurePaints.length, 1, 'a newer invalidation cancels a waiting bitmap');
+future.configure(false); future.mapVideoFrame(614, 40); future.videoFrame(614);
+assert.equal(futurePaints.length, 1, 'disable drops bitmaps waiting for video presentation');
 // A received replacement is not necessarily a painted replacement. Its
 // pending inflation must not cancel the clearing of an older visible tile.
 const lateInflations = [], lateClears = [];
@@ -145,6 +171,7 @@ const lateCanvas = { width: 0, height: 0, style: {}, getContext: () => ({ ...con
 const late = new sandbox.Renderer(lateCanvas,
     data => new Promise(resolve => lateInflations.push(() => resolve(zlib.inflateSync(data)))));
 late.configure(true); await late.receive(record(1, { capture: 10 }));
+late.mapVideoFrame(599, 20); late.videoFrame(599);
 const oldBitmap = late.receive(record(2, { serial: 2, capture: 20, w: 64, h: 64, pixels }));
 lateInflations.shift()(); await oldBitmap;
 await late.receive(record(3, { serial: 3, capture: 30, w: 64, h: 64 }));
@@ -153,12 +180,15 @@ late.mapVideoFrame(600, 30); late.videoFrame(600);
 assert.equal(lateClears.length, 1, 'an unpainted replacement cannot leave the old square over newer video');
 assert.equal(late.active.size, 0);
 lateInflations.shift()(); await newBitmap;
+assert.equal(late.active.size, 0, 'inflating a future replacement does not paint it early');
+late.mapVideoFrame(601, 40); late.videoFrame(601);
 assert.equal(late.active.get('0:0').serial, 4);
 await late.receive(record(1, { epoch: 2, capture: 50 }));
 const afterReset = late.receive(record(2, { epoch: 2, serial: 2, capture: 60, w: 64, h: 64, pixels }));
-late.mapVideoFrame(601, 50); late.videoFrame(601);
+late.mapVideoFrame(602, 50); late.videoFrame(602);
 assert.equal(lateClears.length, 2, 'reset fencing also inspects the painted epoch, not pending patch serials');
 lateInflations.shift()(); await afterReset;
+late.mapVideoFrame(603, 60); late.videoFrame(603);
 assert.equal(late.active.get('0:0').epoch, 2);
 // A decoded-size transition can prevent the base canvas from being updated.
 // Its RTP callback alone must not reveal the previously painted old window.
@@ -173,12 +203,12 @@ const coupled = new sandbox.Renderer(overlay, data => Promise.resolve(zlib.infla
     () => {}, () => {}, (rtp, region) => !region || base.painted === rtp);
 const full = [128, 64, 0, 0, 128, 64], crop = [128, 64, 64, 0, 64, 64];
 coupled.configure(true); await coupled.receive(record(1, { width: 128, capture: 10 }));
-base.map(700, full); base.frame(700); coupled.mapVideoFrame(700, 10, full); coupled.videoFrame(700);
+base.map(700, full); base.frame(700); coupled.mapVideoFrame(700, 11, full); coupled.videoFrame(700);
 await coupled.receive(record(2, { width: 128, x: 64, w: 64, h: 64, serial: 2, capture: 11, pixels }));
 await coupled.receive(record(3, { width: 128, x: 64, w: 64, h: 64, serial: 3, capture: 20 }));
 base.map(701, crop); base.frame(701); coupled.mapVideoFrame(701, 20, crop); coupled.videoFrame(701);
 assert.equal(base.painted, 700);
-assert.equal(coupled.videoCapture, 10);
+assert.equal(coupled.videoCapture, 11);
 assert.equal(coupledClears.length, 0, 'unpainted crop metadata cannot uncover the old base canvas');
 baseVideo.videoWidth = 64;
 base.frame(702); coupled.videoFrame(702);

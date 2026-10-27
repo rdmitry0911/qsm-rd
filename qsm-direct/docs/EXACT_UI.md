@@ -59,7 +59,10 @@ an older visible bitmap. Cheap clears are sent first in bounded batches.
 Bitmap inflation/cache analysis waits until SCTP and decoder windows have room;
 a full decoder window must not trigger repeated preparation of blocked work. Browser inflation is
 limited to eight concurrent jobs and coalesces queued tile history. Processing
-acknowledgements report received sequence and outstanding decode work. Bitmap
+acknowledgements report received sequence, outstanding decode work and decoded
+bitmaps waiting for their video presentation fence. Waiting bitmaps occupy the
+same 32-update feedback window, so network congestion cannot accumulate an
+unbounded queue of future snapshots. Bitmap
 references require a separate acknowledgement that the bitmap was decoded.
 These acknowledgements do not claim physical display or input completion.
 
@@ -67,12 +70,19 @@ These acknowledgements do not claim physical display or input completion.
 
 A monotonic capture identifier accompanies exact updates and the actual encoded
 picture. The bridge maps that identifier to the picture's RTP timestamp. Browsers
-that expose `requestVideoFrameCallback` RTP metadata release old overlay pixels
-only after an appropriate video picture is submitted to the browser compositor.
+that expose `requestVideoFrameCallback` RTP metadata paint new overlay pixels
+and release old pixels only after an appropriate video picture is submitted to
+the browser compositor. Reliable UI delivery can precede video presentation by
+seconds on a congested TURN/TCP connection. Painting those future snapshots
+immediately would mix different scenes as visible 64-pixel squares, even though
+both streams individually decoded correctly. The browser retains only the latest
+decoded bitmap per tile until its corresponding base picture is presented;
+newer invalidations, epoch resets and disable discard waiting replacements.
 When video is composed into a region canvas, the matching picture must also
 have been successfully painted with the expected decoded dimensions before
 releasing old exact pixels. Invalid or late region metadata cannot bypass that
-fence. A fresh text patch can still lead video. Fenced clears compare the epoch and
+fence. Exact text shares that presentation timeline; this mode does not remove
+existing video playout latency. Fenced clears compare the epoch and
 serial of the bitmap actually painted, rather than the latest received update.
 An in-flight replacement therefore cannot keep an older square on top of new
 video. Same-size epoch resets use the same painted-bitmap rule. Same-size resets retain backing pixels
