@@ -306,3 +306,33 @@ Send to guest actions use Shift last. The 11 editable Host/browser defaults,
 Guest overrides and first-release commit remain unchanged. Guest shortcuts
 must match the guest's actual binding: forwarding Meta+Shift does not invoke
 an Alt+Shift layout action. No extra input timer is introduced.
+
+Optional UDP listener (experimental mixed-content packages)
+----------------------------------------------------------
+TCP 8006 remains sufficient. If an additional UDP forwarding rule is possible,
+the optional UDP relay avoids the TCP transport's head-of-line retransmission
+wait. It shares the numeric port 8006 using the separate UDP transport:
+
+  qsm-pve-direct-gateway udp-enable --udp-port 8006
+
+This requires an already enabled TCP gateway. It starts only the dedicated
+qsm-pve-direct-turn-udp service; pveproxy and the TCP relay are not restarted.
+Forward public UDP 8006 -> node UDP 8006 and permit it in the node firewall.
+The public UDP port must match --udp-port (1024..65535). The tool does not
+change router or host ingress rules. A different free UDP port is configurable.
+Reload/reopen consoles so they receive both TURN URLs. ICE selects a working
+candidate; TCP 8006 stays available if UDP cannot be reached. It does not
+promise a seamless mid-session transport switch after connectivity changes.
+
+The UDP relay uses the same expiring authenticated credentials and scoped peer
+allowlist. Only established responses from the configured listener are added
+to the dedicated UID's OUTPUT rules. Video/audio/input contents still use
+SRTP/DTLS; plain TURN control datagrams themselves are not encrypted.
+
+To remove the optional listener while retaining TCP:
+
+  qsm-pve-direct-gateway udp-disable
+
+Reopen any UDP sessions. Disabling the entire gateway stops both relay units
+and removes its private firewall table as before. An upgrade alone does not
+enable UDP, modify NAT or restart a working gateway.

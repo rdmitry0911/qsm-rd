@@ -48,7 +48,9 @@ int main() {
     assert(ui.stats().patches == 5 && sent[0][4] == UI::patch);
     // Repeated motion relinquishes the overlay to video, then refines after settling.
     for (unsigned n = 1; n <= 8; ++n) {
-        b[0] = static_cast<std::uint8_t>(5 + n);
+        for (unsigned y = 0; y < 64; ++y) {
+            for (unsigned x = 0; x < 64; ++x) { b[(y * 65 + x) * 4] = static_cast<std::uint8_t>(5 + n); }
+        }
         ui.update(std::make_shared<const Bytes>(b), 65, 65, now + std::chrono::milliseconds(300 + n * 16), 8000, sink);
     }
     assert(ui.stats().clears > 0);
@@ -92,5 +94,82 @@ int main() {
     assert(uncompress(values.data(), &count_gray, sent[1].data() + 28,
         static_cast<uLong>(sent[1].size() - 28)) == Z_OK);
     assert(count_gray == 4096 && std::all_of(values.begin(), values.end(), [](auto v) { return v == 123; }));
+    // No capture polling is needed on an idle surface: only its lease is due.
+    assert(neutral.next_wakeup() == now + std::chrono::milliseconds(200));
+    neutral.disable(); assert(!neutral.next_wakeup());
+    // Large snapshots can continue bounded batches immediately, then sleep
+    // until enough credit exists, even if no new capture damage arrives.
+    UI scheduled; auto idle = std::make_shared<const Bytes>(pixels(1024, 1024));
+    unsigned calls = 0;
+    do {
+        scheduled.update(idle, 1024, 1024, now, 500, sink);
+        assert(scheduled.next_wakeup());
+        assert(++calls < 30);
+    } while (*scheduled.next_wakeup() <= now);
+    assert(*scheduled.next_wakeup() < now + std::chrono::milliseconds(200));
+    const auto before_refill = scheduled.stats().patches;
+    scheduled.update(idle, 1024, 1024, *scheduled.next_wakeup(), 500, sink);
+    assert(scheduled.stats().patches > before_refill);
+    UI regions; auto moving = pixels(512, 256);
+    for (unsigned frame = 0; frame < 6; ++frame) {
+        for (unsigned y = 0; y < 128; ++y) {
+            for (unsigned x = 256; x < 384; ++x) { moving[(y * 512 + x) * 4] = static_cast<std::uint8_t>(frame); }
+        }
+        regions.update(std::make_shared<const Bytes>(moving), 512, 256,
+            now + std::chrono::milliseconds(frame * 16), 8000, sink);
+    }
+    assert(regions.motion_region());
+    const auto area = *regions.motion_region();
+    assert(area.x == 256 && area.y == 0 && area.width == 128 && area.height == 128);
+    regions.update(std::make_shared<const Bytes>(moving), 512, 256,
+        now + std::chrono::milliseconds(500), 8000, sink);
+    assert(!regions.motion_region());
+    // Coverage hints must include a lone rapidly changing input tile and
+    // full-screen motion; only the video planner may choose a full fallback.
+    UI coverage; auto changes = pixels(512, 256);
+    for (unsigned frame = 0; frame < 5; ++frame) {
+        for (unsigned y = 0; y < 64; ++y) {
+            for (unsigned x = 0; x < 64; ++x) { changes[(y * 512 + x) * 4] = static_cast<std::uint8_t>(frame); }
+        }
+        coverage.update(std::make_shared<const Bytes>(changes), 512, 256,
+            now + std::chrono::milliseconds(frame * 16), 8000, sink);
+    }
+    assert(coverage.motion_region() && coverage.motion_region()->width == 64);
+    for (unsigned frame = 5; frame < 10; ++frame) {
+        changes = pixels(512, 256, frame);
+        coverage.update(std::make_shared<const Bytes>(changes), 512, 256,
+            now + std::chrono::milliseconds(frame * 16), 8000, sink);
+    }
+    assert(coverage.motion_region() && coverage.motion_region()->width == 512 &&
+           coverage.motion_region()->height == 256);
+    UI sparse_input; sparse_input.prioritize(UI::Region {0, 0, 64, 64}, now + std::chrono::seconds(1));
+    Bytes letters(64U * 64U * 4U, 255);
+    // A colored focus border does not turn the unchanged tile background
+    // into video; colored subpixel font antialiasing remains on the fast path.
+    letters[letters.size() - 4] = 0;
+    for (unsigned frame = 0; frame < 12; ++frame) {
+        letters[frame * 4] = static_cast<std::uint8_t>(frame);
+        letters[frame * 4 + 1] = static_cast<std::uint8_t>(frame + 5);
+        letters[frame * 4 + 2] = static_cast<std::uint8_t>(frame + 11);
+        sparse_input.update(std::make_shared<const Bytes>(letters), 64, 64,
+            now + std::chrono::milliseconds(frame * 16), 8000, sink);
+    }
+    assert(sparse_input.stats().patches == 12 && sparse_input.stats().clears == 0);
+    assert(!sparse_input.motion_region());
+    UI sticky_motion; sticky_motion.prioritize(UI::Region {0, 0, 64, 64}, now + std::chrono::seconds(1));
+    Bytes monochrome(64U * 64U * 4U, 255);
+    for (unsigned frame = 0; frame < 5; ++frame) {
+        for (std::size_t at = 0; at < monochrome.size(); at += 4) {
+            monochrome[at] = monochrome[at + 1] = monochrome[at + 2] = static_cast<std::uint8_t>(frame);
+        }
+        sticky_motion.update(std::make_shared<const Bytes>(monochrome), 64, 64,
+            now + std::chrono::milliseconds(frame * 16), 8000, sink);
+    }
+    const auto motion_patches = sticky_motion.stats().patches;
+    monochrome[0] = monochrome[1] = monochrome[2] = 30;
+    sticky_motion.update(std::make_shared<const Bytes>(monochrome), 64, 64,
+        now + std::chrono::milliseconds(96), 8000, sink);
+    assert(sticky_motion.stats().patches == motion_patches && sticky_motion.motion_region());
+    assert(UI::greeting().size() == 28 && UI::greeting(7).size() == 32);
     std::cout << "QSM_LOSSLESS_UI_CORE_OK\n";
 }

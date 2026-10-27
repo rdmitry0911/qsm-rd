@@ -10,6 +10,7 @@ const style = () => ({ display: '', cursor: '' });
 const context = vm.createContext({
     latestGuestCursor: { visible: true, shape_id: 7, x: 90, y: 80 },
     guestCursorShapes: new Map([[7, { cursor_url: 'data:image/png;base64,fixture', width: 32, height: 32, hotspot_x: 3, hotspot_y: 5 }]]),
+    remoteVideoWidth: () => 1280, remoteVideoHeight: () => 800,
     video: { videoWidth: 1280, videoHeight: 800, style: style() },
     guestCursor: { style: style() }, guestPointer: { style: style() },
     appliedGuestCursor: 'default', usingTouchInput: false,

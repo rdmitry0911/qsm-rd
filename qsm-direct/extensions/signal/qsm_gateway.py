@@ -30,10 +30,12 @@ def read_gateway(path=GATEWAY_PATH):
         if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o077 or info.st_size > 4096:
             raise ValueError('gateway configuration must be a private root-owned regular file')
         config = json.loads(source.read(4097))
-    if (not isinstance(config, dict) or set(config) != {'secret', 'relay_ipv4'} or
+    if (not isinstance(config, dict) or set(config) not in ({'secret', 'relay_ipv4'}, {'secret', 'relay_ipv4', 'udp_port'}) or
             not isinstance(config['secret'], str) or len(config['secret']) != 64 or
             any(c not in '0123456789abcdef' for c in config['secret'])):
         raise ValueError('invalid gateway configuration')
+    if "udp_port" in config and (type(config["udp_port"]) is not int or not 1024 <= config["udp_port"] <= 65535):
+        raise ValueError("invalid gateway UDP port")
     address = ipaddress.IPv4Address(config['relay_ipv4'])
     if address.is_loopback or address.is_unspecified or address.is_multicast or address.is_link_local:
         raise ValueError('relay_ipv4 must be a non-loopback local IPv4 address')
@@ -45,7 +47,8 @@ def ice_credentials(config, *, now=None):
     # disclosing a PVE username, guest id, ticket or stable tracking identifier.
     username = f'{int(time.time() if now is None else now) + 600}:{secrets.token_hex(12)}'
     credential = base64.b64encode(hmac.new(config['secret'].encode(), username.encode(), hashlib.sha1).digest()).decode()
-    return {'username': username, 'credential': credential, 'ttl': 600}
+    return {'username': username, 'credential': credential, 'ttl': 600,
+            **({'udp_port': config['udp_port']} if 'udp_port' in config else {})}
 
 
 class IcePeerLease:

@@ -65,6 +65,8 @@ extern "C" {
 #include <limits>
 #include <mutex>
 #include <memory>
+#include <map>
+#include <deque>
 #include <optional>
 #include <poll.h>
 #include <span>
@@ -97,6 +99,8 @@ constexpr std::uint32_t packet_cursor = 0x00000020U;
 // A network-order u64 media timestamp precedes a timed video access unit.
 constexpr std::uint32_t packet_video_time = 0x00000040U;
 constexpr std::uint32_t packet_ui = 0x00000080U;
+constexpr std::uint32_t packet_capture_time = 0x00000100U;
+constexpr std::uint32_t packet_region = 0x00000200U;
 constexpr std::uint32_t input_magic = 0x51534d49U; // QSMI
 constexpr std::uint8_t input_version = 1U;
 constexpr std::uint8_t input_mouse_position = 1U;
@@ -111,6 +115,8 @@ constexpr std::uint8_t input_video_bitrate = 7U;
 constexpr std::uint8_t input_key_tap = 8U;
 constexpr std::uint8_t input_mouse_action = 9U;
 constexpr std::uint8_t input_lossless_ui = 10U;
+constexpr std::uint8_t input_ui_budget = 11U;
+constexpr std::uint8_t input_video_regions = 12U;
 constexpr std::size_t packet_header_size = 20U;
 constexpr std::size_t input_header_size = 8U;
 constexpr std::size_t max_fragment_bytes = 256U * 1024U;
@@ -414,6 +420,20 @@ std::int16_t read_i16(std::span<const std::uint8_t> input, std::size_t offset) {
     return static_cast<std::int16_t>(read_u16(input, offset));
 }
 
+std::uint64_t capture_clock() noexcept {
+    const auto us = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    return static_cast<std::uint64_t>(us) * 90U / 1000U;
+}
+
+struct VideoRegion {
+    std::uint16_t surface_width {}, surface_height {}, x {}, y {}, width {}, height {};
+};
+struct CapturedVideo {
+    std::uint64_t capture {};
+    VideoRegion region;
+};
+
 class PacketSink {
 public:
     struct Stats {
@@ -430,7 +450,7 @@ public:
     PacketSink(const PacketSink &) = delete;
     PacketSink &operator=(const PacketSink &) = delete;
 
-    [[nodiscard]] bool send_video(bool keyframe, std::span<const std::uint8_t> data) noexcept {
+    [[nodiscard]] bool send_video(bool keyframe, std::span<const std::uint8_t> data, std::uint64_t capture = 0, std::optional<VideoRegion> region = std::nullopt) noexcept {
         try {
             const auto now = std::chrono::steady_clock::now();
             if (!video_origin_) { video_origin_ = now; }
@@ -438,8 +458,14 @@ public:
             std::vector<std::uint8_t> timed;
             timed.reserve(data.size() + 8U);
             append_u64(timed, static_cast<std::uint64_t>(elapsed) * 90U / 1000U);
+            if (capture) { append_u64(timed, capture); }
+            if (region) {
+                append_u16(timed, region->surface_width); append_u16(timed, region->surface_height);
+                append_u16(timed, region->x); append_u16(timed, region->y);
+                append_u16(timed, region->width); append_u16(timed, region->height);
+            }
             timed.insert(timed.end(), data.begin(), data.end());
-            if (send(video_, ++video_number_, packet_video_time | (keyframe ? packet_idr : 0U), timed)) {
+            if (send(video_, ++video_number_, packet_video_time | (capture ? packet_capture_time : 0U) | (region ? packet_region : 0U) | (keyframe ? packet_idr : 0U), timed)) {
                 std::lock_guard lock(mutex_);
                 ++video_access_units_;
                 return true;
@@ -635,6 +661,8 @@ public:
     struct Packet {
         std::vector<std::uint8_t> bytes;
         bool keyframe {};
+        std::uint64_t capture {};
+        VideoRegion region;
     };
 
     static bool supports(std::string_view encoder) {
@@ -765,7 +793,7 @@ public:
     }
 
     [[nodiscard]] std::vector<Packet> encode(std::span<const std::uint8_t> bgra,
-                                            bool force_idr) {
+                                            bool force_idr, std::uint64_t capture, const VideoRegion& region) {
         if (bgra.size() != static_cast<std::size_t>(width_) * height_ * 4U) {
             throw WorkerError("in-process video input frame has an invalid size");
         }
@@ -778,6 +806,7 @@ public:
         (void) sws_scale(scale_, source.data(), stride.data(), 0, static_cast<int>(height_),
                          frame_->data, frame_->linesize);
         frame_->pts = next_pts_++;
+        capture_times_[frame_->pts] = CapturedVideo {capture, region};
         frame_->pict_type = force_idr ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
         AVFrame *input = frame_;
         if (vaapi_) {
@@ -892,8 +921,11 @@ private:
             if (received < 0) {
                 throw WorkerError("video encoder did not produce a packet: " + error_string(received));
             }
+            const auto stamp = capture_times_.find(packet_->pts);
+            const auto captured = stamp == capture_times_.end() ? CapturedVideo {} : stamp->second;
+            if (stamp != capture_times_.end()) { capture_times_.erase(stamp); }
             result.push_back({.bytes = {packet_->data, packet_->data + packet_->size},
-                              .keyframe = (packet_->flags & AV_PKT_FLAG_KEY) != 0});
+                              .keyframe = (packet_->flags & AV_PKT_FLAG_KEY) != 0, .capture = captured.capture, .region = captured.region});
             av_packet_unref(packet_);
         }
     }
@@ -924,6 +956,7 @@ private:
     AVBufferRef *device_ {}, *frames_ {};
     SwsContext *scale_ {};
     std::int64_t next_pts_ {};
+    std::map<std::int64_t, CapturedVideo> capture_times_;
     std::vector<Packet> pending_packets_;
 };
 #endif
@@ -978,8 +1011,13 @@ public:
     }
 
     void stop() noexcept override {
-        running_ = false;
+        {
+            std::lock_guard lock(video_mutex_);
+            running_ = false;
+            ++ui_revision_;
+        }
         video_cv_.notify_all();
+        ui_cv_.notify_all();
         if (ui_thread_.joinable()) { ui_thread_.join(); }
         if (video_thread_.joinable()) {
             video_thread_.join();
@@ -1011,11 +1049,14 @@ public:
                 throw WorkerError("direct media adapter is stopping");
             }
             latest_bgra_ = std::move(bgra);
+            latest_capture_ = std::max(latest_capture_ + 1, capture_clock());
             latest_width_ = frame.surface->width;
             latest_height_ = frame.surface->height;
             frame_changed_ = true;
+            if (ui_enabled_.load()) { ++ui_revision_; }
         }
         video_cv_.notify_one();
+        if (ui_enabled_.load()) { ui_cv_.notify_one(); }
     }
 
     void submit_cursor(const qmdp::CursorState &cursor) override {
@@ -1038,9 +1079,42 @@ public:
     }
 
     void request_lossless_ui(std::uint8_t mode) noexcept {
-        if (mode == 3) { ui_probe_.store(true); return; }
-        const bool was_enabled = ui_enabled_.exchange(mode != 0);
-        if (mode == 2 || (mode == 1 && !was_enabled)) { ui_resync_.store(true); }
+        {
+            std::lock_guard lock(video_mutex_);
+            if (mode >= 3) { ui_probe_.store(mode); if (mode >= 4) { ui_v2_.store(true); } }
+            else {
+                const bool was_enabled = ui_enabled_.exchange(mode != 0);
+                if (mode == 2 || (mode == 1 && !was_enabled)) { ui_resync_.store(true); }
+            }
+            ++ui_revision_;
+        }
+        ui_cv_.notify_one();
+    }
+
+    void keyboard_focus(std::uint16_t x, std::uint16_t y, std::uint16_t source_width,
+                        std::uint16_t source_height) noexcept {
+        if (!source_width || !source_height || !ui_enabled_.load()) { return; }
+        {
+            std::lock_guard lock(video_mutex_);
+            if (!latest_width_ || !latest_height_) { return; }
+            const auto px = static_cast<std::uint32_t>(static_cast<std::uint64_t>(x) * latest_width_ / source_width);
+            const auto py = static_cast<std::uint32_t>(static_cast<std::uint64_t>(y) * latest_height_ / source_height);
+            const auto left = px > 256 ? px - 256 : 0U, top = py > 64 ? py - 64 : 0U;
+            ui_focus_ = qmdp::LosslessUi::Region {left, top,
+                std::min(768U, latest_width_ - left), std::min(128U, latest_height_ - top)};
+            ui_focus_until_ = std::chrono::steady_clock::now() + 1s;
+            ++ui_revision_;
+        }
+        ui_cv_.notify_one();
+    }
+
+    void video_regions(std::uint8_t mode) noexcept {
+        region_protocol_.store(true);
+        regions_enabled_.store(mode == 2);
+    }
+
+    void reserve_ui_budget(unsigned percent) noexcept {
+        ui_budget_.store(std::min(percent, 50U));
     }
 
     void submit_audio(std::span<const float> interleaved_samples, std::uint32_t sample_rate,
@@ -1066,7 +1140,12 @@ public:
 
     void request_bitrate(std::uint32_t bitrate_kbps) noexcept {
         if (bitrate_kbps >= 500U && bitrate_kbps <= 100'000U) {
-            requested_bitrate_kbps_.store(bitrate_kbps);
+            {
+                std::lock_guard lock(video_mutex_);
+                requested_bitrate_kbps_.store(bitrate_kbps);
+                ++ui_revision_;
+            }
+            ui_cv_.notify_one();
         }
     }
 
@@ -1089,35 +1168,61 @@ private:
     };
 
     void ui_loop() noexcept {
-        const auto greeting = qmdp::LosslessUi::greeting();
         qmdp::LosslessUi ui;
+        std::optional<std::chrono::steady_clock::time_point> deadline;
+        std::uint64_t observed = std::numeric_limits<std::uint64_t>::max();
+        std::unique_lock lock(video_mutex_);
         while (running_.load()) {
+            const auto changed = [this, &observed] {
+                return !running_.load() || observed != ui_revision_;
+            };
+            if (deadline) { ui_cv_.wait_until(lock, *deadline, changed); }
+            else { ui_cv_.wait(lock, changed); }
+            if (!running_.load()) { break; }
+            observed = ui_revision_;
+            auto pixels = latest_bgra_;
+            const auto width = latest_width_, height = latest_height_;
+            const auto capture = latest_capture_;
+            const auto focus = ui_focus_;
+            const auto focus_until = ui_focus_until_;
+            const bool enabled = ui_enabled_.load();
+            const bool resync = ui_resync_.exchange(false);
+            const auto probe = ui_probe_.exchange(0);
+            const auto bitrate = requested_bitrate_kbps_.load();
+            lock.unlock();
             // Older bridge processes never probe opcode 10 and must keep
             // receiving the original media protocol after a package upgrade.
-            if (ui_probe_.exchange(false) && !sink_.send_ui(greeting)) { ui_probe_.store(true); }
-            if (!ui_enabled_.load()) {
+            const bool retry_probe = probe && !sink_.send_ui(qmdp::LosslessUi::greeting(probe >= 4 ? 7U : 0U));
+            bool retry_update = false;
+            if (retry_probe) { ui_probe_.store(probe); }
+            if (!enabled) {
                 ui.disable();
             } else {
-                std::shared_ptr<const std::vector<std::uint8_t>> pixels;
-                std::uint32_t width, height;
-                {
-                    std::lock_guard lock(video_mutex_);
-                    pixels = latest_bgra_; width = latest_width_; height = latest_height_;
-                }
-                if (ui_resync_.exchange(false)) { ui.resync(); }
+                if (resync) { ui.resync(); }
                 try {
+                    ui.capture(ui_v2_.load() ? capture : 0);
+                    ui.prioritize(focus, focus_until);
                     ui.update(std::move(pixels), width, height, std::chrono::steady_clock::now(),
-                        requested_bitrate_kbps_.load(), [this](std::span<const std::uint8_t> record) {
+                        bitrate, [this](std::span<const std::uint8_t> record) {
                             const bool sent = sink_.send_ui(record);
-                            if (sent) { video_budget_.account(record.size()); }
+                            if (sent) { video_budget_.account_auxiliary(record.size()); }
                             return sent;
                         });
                 } catch (...) {
                     // An optional exact layer cannot stop capture or video.
                     ui.resync();
+                    retry_update = true;
                 }
             }
-            std::this_thread::sleep_for(16ms);
+            deadline = ui.next_wakeup();
+            if (retry_update) { deadline = std::chrono::steady_clock::now() + 10ms; }
+            if (retry_probe) {
+                const auto retry = std::chrono::steady_clock::now() + 10ms;
+                if (!deadline || retry < *deadline) { deadline = retry; }
+            }
+            const auto region = ui.motion_region();
+            lock.lock();
+            ui_region_ = region; ui_region_width_ = width; ui_region_height_ = height;
         }
     }
 
@@ -1170,14 +1275,60 @@ private:
             // refreshes also overrun the predictive-stream FIFO repeatedly.
             // The latest raw scanout remains replaceable while budget drains.
             const auto tick = std::chrono::steady_clock::now();
-            if (!video_budget_.ready(tick, requested_bitrate_kbps_.load())) {
+            if (!video_budget_.ready(tick, requested_bitrate_kbps_.load(), ui_budget_.load())) {
                 next_frame = tick + repeat_interval;
                 continue;
             }
 
-            const auto bgra = latest_bgra_;
-            const auto width = latest_width_;
-            const auto height = latest_height_;
+            auto bgra = latest_bgra_;
+            const auto capture = latest_capture_;
+            auto width = latest_width_, height = latest_height_;
+            VideoRegion region {static_cast<std::uint16_t>(width), static_cast<std::uint16_t>(height),
+                                0, 0, static_cast<std::uint16_t>(width), static_cast<std::uint16_t>(height)};
+            if (width > 16384 || height > 16384 || static_cast<std::uint64_t>(width) * height > qmdp::LosslessUi::max_pixels) {
+                region.surface_width = region.surface_height = 0;
+            }
+            const bool region_mode = regions_enabled_.load() && ui_enabled_.load();
+            if (!region_mode || crop_surface_width_ != width || crop_surface_height_ != height) {
+                video_region_.reset(); crop_surface_width_ = width; crop_surface_height_ = height;
+            }
+            std::optional<qmdp::LosslessUi::Region> selected = video_region_;
+            if (region_mode && ui_region_ && ui_region_width_ == width && ui_region_height_ == height) {
+                auto area = *ui_region_;
+                if (video_region_) {
+                    const auto left = std::min(area.x, video_region_->x), top = std::min(area.y, video_region_->y);
+                    const auto right = std::max(area.x + area.width, video_region_->x + video_region_->width);
+                    const auto bottom = std::max(area.y + area.height, video_region_->y + video_region_->height);
+                    area = {left, top, right - left, bottom - top};
+                }
+                const auto pixels = static_cast<std::uint64_t>(area.width) * area.height;
+                if (pixels * 5 < static_cast<std::uint64_t>(width) * height * 4 &&
+                    (video_region_ || pixels >= 4U * 64U * 64U)) {
+                    // Grow the envelope, never shrink it as motion touches
+                    // fewer tile rows. This avoids repeated encoder resets
+                    // on a fixed-position playing clip. Mode/desktop changes
+                    // discard the envelope and negotiate a fresh full frame.
+                    video_region_ = area; selected = area;
+                } else if (pixels * 5 >= static_cast<std::uint64_t>(width) * height * 4) {
+                    selected.reset();  // All busy pixels must be covered.
+                }
+            }
+            if (region_mode && selected) {
+                const auto& area = *selected;
+                const auto crop_width = area.width, crop_height = area.height;
+                if (crop_width >= 64 && crop_height >= 64 && crop_width % 2 == 0 && crop_height % 2 == 0) {
+                    auto crop = std::make_shared<std::vector<std::uint8_t>>(
+                        static_cast<std::size_t>(crop_width) * crop_height * 4U);
+                    for (std::uint32_t row = 0; row < crop_height; ++row) {
+                        std::memcpy(crop->data() + static_cast<std::size_t>(row) * crop_width * 4U,
+                            bgra->data() + (static_cast<std::size_t>(area.y + row) * width + area.x) * 4U,
+                            crop_width * 4U);
+                    }
+                    bgra = crop; width = crop_width; height = crop_height;
+                    region.x = static_cast<std::uint16_t>(area.x); region.y = static_cast<std::uint16_t>(area.y);
+                    region.width = static_cast<std::uint16_t>(width); region.height = static_cast<std::uint16_t>(height);
+                }
+            }
             frame_changed_ = false;
             lock.unlock();
             try {
@@ -1188,8 +1339,8 @@ private:
                         close_video_process();
                         open_video_process(width, height);
                     }
-                    for (auto &packet : libav_encoder_->encode(*bgra, force_idr)) {
-                        publish_video(packet.keyframe, packet.bytes);
+                    for (auto &packet : libav_encoder_->encode(*bgra, force_idr, capture, region)) {
+                        publish_video(packet.keyframe, packet.bytes, packet.capture, packet.region);
                     }
                 } else {
 #endif
@@ -1198,11 +1349,13 @@ private:
                     close_video_process();
                     open_video_process(width, height);
                 }
+                remember_video_capture(capture, region);
                 write_all(video_input_, *bgra);
                 if (fresh_encoder) {
                     // The first raw video frame may not be emitted until FFmpeg
                     // sees another timestamp. Establish a decodable console
                     // picture immediately; steady-state repeats are paced.
+                    remember_video_capture(capture, region);
                     write_all(video_input_, *bgra);
                 }
 #if defined(QMDP_HAS_LIBAVCODEC)
@@ -1221,8 +1374,11 @@ private:
                     next_frame = std::chrono::steady_clock::now();
                     continue;
                 }
+                lock.lock();
                 running_ = false;
+                ++ui_revision_;
                 video_cv_.notify_all();
+                ui_cv_.notify_all();
                 break;
             }
             lock.lock();
@@ -1508,9 +1664,21 @@ private:
         ::close(descriptor);
     }
 
-    void publish_video(bool keyframe, std::span<const std::uint8_t> access_unit) noexcept {
+    void remember_video_capture(std::uint64_t capture, const VideoRegion& region) {
+        std::lock_guard lock(video_capture_mutex_);
+        if (video_captures_.size() >= 256) { throw WorkerError("video capture metadata overflow"); }
+        video_captures_.push_back({capture, region});
+    }
+
+    void publish_video(bool keyframe, std::span<const std::uint8_t> access_unit,
+                       std::uint64_t capture = 0, VideoRegion region = {}) noexcept {
+        if (!capture) {
+            std::lock_guard lock(video_capture_mutex_);
+            if (!video_captures_.empty()) { capture = video_captures_.front().capture; region = video_captures_.front().region; video_captures_.pop_front(); }
+        }
         video_budget_.account(access_unit.size());
-        if (!sink_.send_video(keyframe, access_unit)) {
+        if (!sink_.send_video(keyframe, access_unit, ui_v2_.load() ? capture : 0,
+                region_protocol_.load() && region.surface_width && region.surface_height ? std::optional(region) : std::nullopt)) {
             // A local Unix socket loss invalidates the same H.264 reference
             // chain as a network loss.  The larger private buffer normally
             // avoids it, but when a busy browser peer still forces a drop,
@@ -1564,6 +1732,7 @@ private:
             }
             video_pid_ = -1;
         }
+        { std::lock_guard lock(video_capture_mutex_); video_captures_.clear(); }
         video_output_ = -1;
         width_ = 0U;
         height_ = 0U;
@@ -1579,8 +1748,22 @@ private:
     std::atomic<std::uint32_t> requested_bitrate_kbps_ {};
     qmdp::VideoBudget video_budget_;
     std::atomic<bool> ui_enabled_ {false};
-    std::atomic<bool> ui_probe_ {false};
+    std::atomic<std::uint8_t> ui_probe_ {0};
+    std::atomic<unsigned> ui_budget_ {0};
+    std::atomic<bool> ui_v2_ {false};
+    std::uint64_t latest_capture_ {};
+    std::mutex video_capture_mutex_;
+    std::deque<CapturedVideo> video_captures_;
+    std::atomic<bool> region_protocol_ {false}, regions_enabled_ {false};
+    std::optional<qmdp::LosslessUi::Region> ui_region_;
+    std::uint32_t ui_region_width_ {}, ui_region_height_ {};
+    std::optional<qmdp::LosslessUi::Region> video_region_;
+    std::uint32_t crop_surface_width_ {}, crop_surface_height_ {};
+    std::optional<qmdp::LosslessUi::Region> ui_focus_;
+    std::chrono::steady_clock::time_point ui_focus_until_ {};
     std::atomic<bool> ui_resync_ {false};
+    std::condition_variable ui_cv_;
+    std::uint64_t ui_revision_ {};
     std::thread ui_thread_;
     std::atomic<bool> running_ {false};
     std::atomic<bool> force_idr_ {false};
@@ -1659,6 +1842,11 @@ private:
         return index < 3U ? index : static_cast<std::uint8_t>(index + 2U);
     }
 
+    void prioritize_keyboard() noexcept {
+        const auto& point = ui_focus_pointer_ ? ui_focus_pointer_ : ui_pointer_;
+        if (point) { media_.keyboard_focus((*point)[0], (*point)[1], (*point)[2], (*point)[3]); }
+    }
+
     void set_pointer(std::uint16_t x, std::uint16_t y) {
         if (absolute_pointer_) { session_.absolute_pointer(x, y); }
         else if (last_x_ && last_y_) {
@@ -1722,11 +1910,13 @@ private:
                 }
                 last_pointer_sequence_ = sequence;
             }
+            ui_pointer_ = std::array{x, y, width, height};
             set_pointer(x, y);
         } else if (op == input_mouse_button && payload.size() == 2U && payload[0] >= 1U && payload[0] <= 5U &&
                    (payload[1] == 0U || payload[1] == 1U)) {
             const auto button = static_cast<std::uint8_t>(payload[0] - 1U);
             const auto down = payload[1] == 1U;
+            if (down) { ui_focus_pointer_ = ui_pointer_; }
             session_.button(qemu_button(button), down);
             pressed_buttons_[button] = down;
         } else if (op == input_mouse_action && payload.size() >= 10U && payload.size() <= 26U && payload.size() % 2U == 0U) {
@@ -1750,6 +1940,8 @@ private:
                 pressed_keys_.insert(modifier); added.push_back(modifier);
                 session_.key(modifier, true);
             }
+            ui_pointer_ = std::array{x, y, width, height};
+            if (action != 0U) { ui_focus_pointer_ = ui_pointer_; }
             set_pointer(x, y);
             if (action == 0U) {
                 if (pressed_buttons_[button]) { session_.button(qemu_button(button), false); }
@@ -1767,6 +1959,7 @@ private:
         } else if (op == input_keyboard && payload.size() == 4U && (payload[2] == 0U || payload[2] == 1U)) {
             const auto key = read_u16(payload, 0U);
             const auto down = payload[2] == 1U;
+            if (down) { prioritize_keyboard(); }
             session_.key(key, down);
             if (down) { pressed_keys_.insert(key); }
             else { pressed_keys_.erase(key); }
@@ -1790,6 +1983,7 @@ private:
                 added_modifiers.push_back(modifier);
                 session_.key(modifier, true);
             }
+            prioritize_keyboard();
             pressed_keys_.insert(key);
             session_.key(key, true);
             session_.key(key, false);
@@ -1826,8 +2020,12 @@ private:
             media_.request_idr();
         } else if (op == input_video_bitrate && payload.size() == 4U) {
             media_.request_bitrate(read_u32(payload, 0U));
-        } else if (op == input_lossless_ui && payload.size() == 1U && payload[0] <= 3U) {
+        } else if (op == input_lossless_ui && payload.size() == 1U && payload[0] <= 4U) {
             media_.request_lossless_ui(payload[0]);
+        } else if (op == input_ui_budget && payload.size() == 1U && payload[0] <= 50U) {
+            media_.reserve_ui_budget(payload[0]);
+        } else if (op == input_video_regions && payload.size() == 1U && payload[0] <= 2U) {
+            media_.video_regions(payload[0]);
         }
     }
 
@@ -1849,6 +2047,7 @@ private:
     int descriptor_ {-1};
     std::atomic<bool> stopping_ {false};
     std::thread thread_;
+    std::optional<std::array<std::uint16_t, 4>> ui_pointer_, ui_focus_pointer_;
     std::optional<std::uint16_t> last_x_;
     std::optional<std::uint16_t> last_y_;
     std::optional<std::uint32_t> last_pointer_sequence_;

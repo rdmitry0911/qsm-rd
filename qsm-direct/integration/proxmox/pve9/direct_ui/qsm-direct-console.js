@@ -87,11 +87,57 @@
     // Exact UI records are independent of video decode/presentation. Keep
     // geometry epochs and per-tile serials across asynchronous inflation so
     // an older patch can never paint over a newer clear, resize or disable.
+    class VideoRegionRenderer {
+        constructor(canvas, video, acknowledge = () => {}) {
+            this.canvas = canvas; this.video = video; this.acknowledge = acknowledge;
+            this.frames = new Map(); this.presented = null;
+            this.width = this.height = 0; this.acknowledged = false;
+        }
+        map(rtp, region) {
+            if (!Number.isInteger(rtp) || !Array.isArray(region) || region.length !== 6 ||
+                region.some(n => !Number.isInteger(n) || n < 0)) { return false; }
+            const [sw, sh, x, y, w, h] = region;
+            if (!sw || !sh || sw > 16384 || sh > 16384 || sw * sh > 8294400 ||
+                !w || !h || x + w > sw || y + h > sh) { return false; }
+            this.frames.set(rtp, region);
+            if (this.frames.size > 256) { this.frames.delete(this.frames.keys().next().value); }
+            if (this.presented === rtp) { this.frame(rtp); }
+            return true;
+        }
+        frame(rtp) {
+            this.presented = rtp;
+            const region = this.frames.get(rtp);
+            if (!region) { return; }
+            const [sw, sh, x, y, w, h] = region;
+            // Metadata and the browser-decoded picture must agree. A late
+            // mapping can never stretch a different crop across the desktop.
+            if (this.video.videoWidth !== w || this.video.videoHeight !== h) { return; }
+            if (this.width !== sw || this.height !== sh) {
+                this.width = this.canvas.width = sw; this.height = this.canvas.height = sh;
+                this.acknowledged = false;
+            }
+            const ctx = this.canvas.getContext('2d', { alpha: false });
+            ctx.drawImage(this.video, x, y, w, h);
+            this.canvas.style.display = 'block'; this.video.style.opacity = '0';
+            if (!x && !y && w === sw && h === sh && !this.acknowledged) {
+                this.acknowledged = true; this.acknowledge(rtp);
+            }
+        }
+    }
+
     class ExactUiRenderer {
-        constructor(canvas, inflate, failed = () => {}) {
+        constructor(canvas, inflate, failed = () => {}, acknowledge = () => {}) {
             this.canvas = canvas;
             this.inflate = inflate;
             this.failed = failed;
+            this.acknowledge = acknowledge;
+            this.active = new Map();
+            this.cache = new Map(); this.cached = [];
+            this.clears = new Map();
+            this.videoFrames = new Map();
+            this.videoCapture = 0;
+            this.presentedRtp = null;
+            this.ackQueued = false;
             this.enabled = false;
             this.epoch = null;
             this.serial = null;
@@ -99,6 +145,7 @@
             this.width = this.height = 0;
             this.wanted = new Map();
             this.inflight = 0;
+            this.pending = new Map();
             this.patches = this.bytes = 0;
             this.context = null;
         }
@@ -111,22 +158,80 @@
             this.generation += 1;
             this.epoch = this.serial = null;
             this.wanted.clear();
+            this.active.clear(); this.clears.clear();
+            this.cache.clear(); this.cached = [];
+            for (const job of this.pending.values()) { job.done(); }
+            this.pending.clear();
             this.width = this.height = 0;
             this.canvas.width = this.canvas.height = 0;
             this.canvas.style.display = 'none';
+        }
+        report() {
+            if (this.ackQueued) { return; }
+            this.ackQueued = true;
+            queueMicrotask(() => {
+                this.ackQueued = false;
+                if (this.enabled && this.epoch !== null) {
+                    this.acknowledge({ op: 'qsm_ui_ack', epoch: this.epoch, serial: this.serial,
+                        pending: this.pending.size + this.inflight,
+                        cached: this.cached.splice(0, 32).filter(id => this.cache.get(id)?.image) });
+                    if (this.cached.length) { this.report(); }
+                }
+            });
+        }
+        mapVideoFrame(rtp, capture, region = null) {
+            if (!Number.isInteger(rtp) || rtp < 0 || rtp > 0xffffffff ||
+                !Number.isSafeInteger(capture) || capture <= 0) { return; }
+            this.videoFrames.set(rtp, { capture, region });
+            if (this.videoFrames.size > 256) { this.videoFrames.delete(this.videoFrames.keys().next().value); }
+            if (rtp === this.presentedRtp) { this.videoFrame(rtp); }
+        }
+        videoFrame(rtp) {
+            this.presentedRtp = rtp;
+            const frame = this.videoFrames.get(rtp);
+            if (!frame) { return; }
+            const { capture, region } = frame;
+            this.videoCapture = Math.max(this.videoCapture, capture);
+            this.videoRegion = region;
+            let changed = false;
+            for (const [key, job] of this.clears) {
+                if (job.capture > capture) { continue; }
+                if (region) {
+                    const [, , x, y, w, h] = region;
+                    if (job.x < x || job.y < y || job.x + job.w > x + w || job.y + job.h > y + h) { continue; }
+                }
+                this.clears.delete(key); changed = true;
+                if (this.wanted.get(key) === job.serial) {
+                    this.context.clearRect(job.x, job.y, job.w, job.h); this.active.delete(key);
+                }
+            }
+            if (changed) { this.report(); }
+        }
+        erase(key, job) {
+            const r = this.videoRegion;
+            const covered = !r || (job.x >= r[2] && job.y >= r[3] &&
+                job.x + job.w <= r[2] + r[4] && job.y + job.h <= r[3] + r[5]);
+            if ((job.capture > this.videoCapture || !covered) && this.active.has(key)) { this.clears.set(key, job); }
+            else { this.context.clearRect(job.x, job.y, job.w, job.h); this.active.delete(key); }
+            this.report();
         }
         async receive(data) {
             if (!this.enabled) { return; }
             const operationGeneration = this.generation;
             try {
-                if (!(data instanceof ArrayBuffer) || data.byteLength < 28 || data.byteLength > 6172) {
+                if (!(data instanceof ArrayBuffer) || data.byteLength < 28 || data.byteLength > 6184) {
                     throw Error('Invalid exact UI record');
                 }
                 const v = new DataView(data);
                 const encoding = v.getUint8(5);
-                if (v.getUint32(0) !== 0x51554931 || (encoding & ~1) || v.getUint16(6)) {
+                const stampSize = v.getUint16(6);
+                if (v.getUint32(0) !== 0x51554931 || (encoding & ~1) ||
+                    ![0, 8].includes(stampSize) || data.byteLength < 28 + stampSize) {
                     throw Error('Unsupported exact UI record');
                 }
+                const payloadAt = 28 + stampSize;
+                const capture = stampSize ? v.getUint32(28) * 4294967296 + v.getUint32(32) : 0;
+                if (!Number.isSafeInteger(capture)) { throw Error('Invalid capture timestamp'); }
                 const op = v.getUint8(4), epoch = v.getUint32(8), serial = v.getUint32(12);
                 const width = v.getUint16(16), height = v.getUint16(18);
                 const x = v.getUint16(20), y = v.getUint16(22), w = v.getUint16(24), h = v.getUint16(26);
@@ -134,35 +239,112 @@
                     throw Error('Invalid exact UI geometry');
                 }
                 if (op === 1) {
-                    if (encoding || data.byteLength !== 28 || x || y || w || h) { throw Error('Invalid exact UI reset'); }
+                    if (encoding || data.byteLength !== payloadAt || x || y || w || h) { throw Error('Invalid exact UI reset'); }
                     if (epoch === this.epoch && (serial === this.serial ||
                         ((serial - this.serial) >>> 0) >= 0x80000000)) { return; }
                     if (this.epoch !== null && epoch !== this.epoch &&
                         ((epoch - this.epoch) >>> 0) >= 0x80000000) { return; }
-                    this.clear(); this.epoch = epoch; this.serial = serial;
-                    this.width = this.canvas.width = width; this.height = this.canvas.height = height;
-                    this.context = this.canvas.getContext('2d', { alpha: true });
+                    const preserve = this.width === width && this.height === height && capture > this.videoCapture;
+                    if (preserve) {
+                        this.generation += 1;
+                        for (const job of this.pending.values()) { job.done(); }
+                        this.pending.clear(); this.wanted.clear(); this.clears.clear();
+                        this.cache.clear(); this.cached = [];
+                        for (const [key, tile] of this.active) {
+                            this.wanted.set(key, serial);
+                            this.erase(key, { ...tile, capture, serial });
+                        }
+                    } else {
+                        this.clear();
+                        this.width = this.canvas.width = width; this.height = this.canvas.height = height;
+                        this.context = this.canvas.getContext('2d', { alpha: true });
+                    }
+                    this.epoch = epoch; this.serial = serial; this.report();
                     return;
                 }
                 if (epoch !== this.epoch || width !== this.width || height !== this.height) { return; }
                 if (serial === this.serial || ((serial - this.serial) >>> 0) >= 0x80000000) { return; }
-                if (![2, 3].includes(op) || x >= width || y >= height || x % 64 || y % 64 ||
+                if (![2, 3, 6, 7, 8, 9].includes(op) || x >= width || y >= height || x % 64 || y % 64 ||
                     w !== Math.min(64, width - x) || h !== Math.min(64, height - y) ||
-                    (op === 3 && (encoding || data.byteLength !== 28))) { throw Error('Invalid exact UI tile'); }
+                    (op === 3 && (encoding || data.byteLength !== payloadAt))) { throw Error('Invalid exact UI tile'); }
                 this.serial = serial;
                 const key = `${x}:${y}`;
                 this.wanted.set(key, serial);
-                if (op === 3) { this.context.clearRect(x, y, w, h); return; }
-                if (this.inflight >= 32) { throw Error('Exact UI decoder busy'); }
-                const generation = this.generation;
+                let cacheId = null, reference = null, shift = 0;
+                if ([6, 8].includes(op) && (encoding || data.byteLength !== payloadAt + 4)) {
+                    throw Error('Invalid compact UI record');
+                }
+                if ([7, 9].includes(op)) {
+                    if (data.byteLength < payloadAt + (op === 9 ? 11 : 5)) { throw Error('Truncated UI cache'); }
+                    cacheId = v.getUint32(payloadAt);
+                    if (!cacheId || this.cache.has(cacheId)) { throw Error('Invalid UI cache id'); }
+                }
+                if ([8, 9].includes(op)) {
+                    const id = v.getUint32(payloadAt + (op === 9 ? 4 : 0));
+                    reference = this.cache.get(id);
+                    if (!reference?.image || reference.w !== w || reference.h !== h) { throw Error('Missing UI bitmap'); }
+                    if (op === 9) {
+                        shift = v.getInt16(payloadAt + 8);
+                        if (encoding || !shift || Math.abs(shift) >= h) { throw Error('Invalid UI scroll'); }
+                    }
+                }
+                if (cacheId !== null) {
+                    this.cache.set(cacheId, { w, h, image: null });
+                    if (this.cache.size > 256) { this.cache.delete(this.cache.keys().next().value); }
+                }
+                const previous = this.pending.get(key);
+                if (previous) { previous.done(); this.pending.delete(key); }
+                if (op === 3) { this.erase(key, { x, y, w, h, capture, serial }); return; }
+                // Network arrival and browser inflation are independently
+                // paced. Keep one newest job per tile and at most eight
+                // inflations instead of disabling the layer on a short burst.
+                await new Promise(done => {
+                    this.pending.set(key, { key, serial, generation: this.generation,
+                        data, op, cacheId, reference, shift, encoding, payloadAt, capture, x, y, w, h, done });
+                    this.pump();
+                });
+            } catch (error) {
+                if (operationGeneration !== this.generation) { return; }
+                this.configure(false); this.failed(error);
+            }
+        }
+        pump() {
+            while (this.enabled && this.inflight < 8 && this.pending.size) {
+                const [key, job] = this.pending.entries().next().value;
+                this.pending.delete(key);
                 this.inflight += 1;
-                let pixels;
+                void this.decode(job).catch(error => {
+                    if (job.generation !== this.generation) { return; }
+                    this.configure(false); this.failed(error);
+                }).finally(() => {
+                    this.inflight -= 1; job.done(); this.pump(); this.report();
+                });
+            }
+        }
+        async decode(job) {
+            const { key, serial, generation, data, op, cacheId, reference, shift,
+                encoding, payloadAt, capture, x, y, w, h } = job;
+            const image = this.context.createImageData(w, h);
+            if (op === 6) {
+                const color = new Uint8Array(data, payloadAt, 4);
+                if (color[3] !== 255) { throw Error('Invalid fill alpha'); }
+                for (let at = 0; at < image.data.length; at += 4) { image.data.set(color, at); }
+            } else if (op === 8) {
+                image.data.set(reference.image.data);
+            } else if (op === 9) {
+                const stride = w * 4, count = (h - Math.abs(shift)) * stride;
+                const dest = Math.max(shift, 0) * stride, src = Math.max(-shift, 0) * stride;
+                image.data.set(reference.image.data.subarray(src, src + count), dest);
+                const exposed = await this.inflate(new Uint8Array(data, payloadAt + 10), Math.abs(shift) * stride);
+                if (exposed.length !== Math.abs(shift) * stride) { throw Error('Invalid scroll pixels'); }
+                for (let i = 3; i < exposed.length; i += 4) {
+                    if (exposed[i] !== 255) { throw Error('Invalid scroll alpha'); }
+                }
+                image.data.set(exposed, shift > 0 ? 0 : count);
+            } else {
                 const expected = w * h * (encoding ? 1 : 4);
-                try { pixels = await this.inflate(new Uint8Array(data, 28), expected); }
-                finally { this.inflight -= 1; }
-                if (!this.enabled || generation !== this.generation || this.wanted.get(key) !== serial) { return; }
+                const pixels = await this.inflate(new Uint8Array(data, payloadAt + (op === 7 ? 4 : 0)), expected);
                 if (pixels.length !== expected) { throw Error('Invalid exact UI pixel count'); }
-                const image = this.context.createImageData(w, h);
                 if (encoding) {
                     for (let i = 0; i < pixels.length; ++i) {
                         const at = i * 4;
@@ -175,12 +357,16 @@
                     }
                     image.data.set(pixels);
                 }
-                this.context.putImageData(image, x, y);
-                this.patches += 1; this.bytes += data.byteLength;
-            } catch (error) {
-                if (operationGeneration !== this.generation) { return; }
-                this.configure(false); this.failed(error);
             }
+            if (!this.enabled || generation !== this.generation) { return; }
+            if (cacheId !== null && this.cache.has(cacheId)) {
+                this.cache.get(cacheId).image = image;
+                this.cached.push(cacheId);
+            }
+            if (this.wanted.get(key) !== serial) { return; }
+            this.context.putImageData(image, x, y);
+            this.active.set(key, { x, y, w, h, capture }); this.clears.delete(key);
+            this.patches += 1; this.bytes += data.byteLength;
         }
     }
 
@@ -1285,17 +1471,44 @@
                 return pixels;
             } finally { await reader.cancel().catch(() => {}); }
         };
+        const videoCanvas = document.createElement('canvas');
+        videoCanvas.setAttribute('aria-hidden', 'true');
+        videoCanvas.style.cssText = 'display:none;position:fixed;inset:0;width:100vw;height:100vh;object-fit:contain;pointer-events:none;z-index:1';
+        const videoRegions = new VideoRegionRenderer(videoCanvas, video, rtp => {
+            if (control && control.readyState === 'open') { control.send(JSON.stringify({ op: 'qsm_video_ack', rtp })); }
+        });
+        const remoteVideoWidth = () => videoRegions.width || video.videoWidth;
+        const remoteVideoHeight = () => videoRegions.height || video.videoHeight;
         let exactUiPolicy = { available: false, enabled: false };
-        let exactUiRequested = null;
+        let exactUiRequested = null, exactUiVersionRequested = null;
+        let exactFrameSupport = null;
         const exactRenderer = new ExactUiRenderer(exactCanvas, inflateExactPixels, () => {
             settings.exactUi = false;
             settings.exactUiPreferenceSet = true;
             exactUiInput.checked = false;
             applyConsoleSettings();
+        }, ack => {
+            if (control && control.readyState === 'open' && exactUiPolicy.max_version >= 2) {
+                control.send(JSON.stringify(ack));
+            }
         });
+        if (typeof video.requestVideoFrameCallback === 'function') {
+            const presented = (_now, metadata) => {
+                const frameSupport = Number.isInteger(metadata.rtpTimestamp);
+                if (exactFrameSupport !== frameSupport) {
+                    exactFrameSupport = frameSupport; updateExactPreference();
+                }
+                if (frameSupport) {
+                    videoRegions.frame(metadata.rtpTimestamp); exactRenderer.videoFrame(metadata.rtpTimestamp);
+                    syncExactGeometry();
+                }
+                video.requestVideoFrameCallback(presented);
+            };
+            video.requestVideoFrameCallback(presented);
+        }
         const syncExactGeometry = () => {
-            exactCanvas.style.display = exactRenderer.enabled && exactRenderer.width === video.videoWidth &&
-                exactRenderer.height === video.videoHeight && exactRenderer.width > 0 ? 'block' : 'none';
+            exactCanvas.style.display = exactRenderer.enabled && exactRenderer.width === remoteVideoWidth() &&
+                exactRenderer.height === remoteVideoHeight() && exactRenderer.width > 0 ? 'block' : 'none';
         };
         const updateExactPreference = () => {
             applyExactUiDefault(settings, exactUiPolicy);
@@ -1303,12 +1516,15 @@
             exactUiInput.checked = settings.exactUi;
             exactUiInput.disabled = !supported || !exactUiPolicy.available;
             const wanted = supported && exactUiPolicy.available && settings.exactUi;
+            const version = exactFrameSupport ? Math.min(4, exactUiPolicy.max_version || 1) : 1;
             exactRenderer.configure(wanted);
             syncExactGeometry();
-            if (control && control.readyState === 'open' && exactUiRequested !== wanted &&
+            if (control && control.readyState === 'open' && (exactUiRequested !== wanted || exactUiVersionRequested !== version) &&
                 (exactUiPolicy.available || exactUiRequested === true)) {
-                exactUiRequested = wanted;
-                control.send(JSON.stringify({ op: 'qsm_ui_mode', enabled: wanted }));
+                exactUiRequested = wanted; exactUiVersionRequested = version;
+                videoRegions.acknowledged = false;
+                control.send(JSON.stringify({ op: 'qsm_ui_mode', enabled: wanted,
+                    ...(exactUiPolicy.max_version >= 2 ? { version } : {}) }));
             }
             exactUiStatus.textContent = !supported ? gettext('This browser cannot use exact UI.') :
                 !exactUiPolicy.available ? gettext('Waiting for exact UI support…') :
@@ -1936,7 +2152,7 @@
         // (the diagnostics toggle among them), which made it impossible to turn
         // off on a phone.  max-width keeps it off the controls entirely.
         diag.style.cssText = 'position:fixed;right:8px;top:8px;z-index:30;margin:0;max-width:min(70vw,520px);white-space:pre-wrap;word-break:break-word;padding:10px 12px;background:rgba(0,0,0,.82);color:#e5e7eb;font:13px/1.45 monospace;border:1px solid #334155;border-radius:8px;pointer-events:none';
-        document.body.append(video, exactCanvas, guestCursor, guestPointer, toolbar, settingsPanel, diag, kbInput, revealHandle);
+        document.body.append(video, exactCanvas, videoCanvas, guestCursor, guestPointer, toolbar, settingsPanel, diag, kbInput, revealHandle);
         popup.focus();
 
         let peer = null;
@@ -2026,7 +2242,7 @@
             const lines = [];
             lines.push('QSM console diagnostics');
             lines.push(`conn=${peer ? peer.connectionState : '-'} ice=${peer ? peer.iceConnectionState : '-'} gather=${peer ? peer.iceGatheringState : '-'}`);
-            lines.push(`video paused=${video.paused} readyState=${video.readyState} size=${video.videoWidth}x${video.videoHeight}`);
+            lines.push(`video paused=${video.paused} readyState=${video.readyState} size=${remoteVideoWidth()}x${remoteVideoHeight()}`);
             lines.push(`answer codec=${negotiatedVideoCodec || '?'}`);
             lines.push(`chan control=${control ? control.readyState : '-'} pointer=${pointer ? pointer.readyState : '-'}`);
             lines.push(`input focus=${popup.document.activeElement === video} sent ptr=${diagPointerSent} btn=${diagButtonSent} key=${diagKeySent} last=${diagLastInput || '-'}`);
@@ -2478,8 +2694,8 @@
         };
         const guestContentBox = () => {
             const box = video.getBoundingClientRect();
-            const sourceWidth = Math.max(1, video.videoWidth || Math.floor(box.width));
-            const sourceHeight = Math.max(1, video.videoHeight || Math.floor(box.height));
+            const sourceWidth = Math.max(1, remoteVideoWidth() || Math.floor(box.width));
+            const sourceHeight = Math.max(1, remoteVideoHeight() || Math.floor(box.height));
             const scale = Math.min(box.width / sourceWidth, box.height / sourceHeight);
             return {
                 box, sourceWidth, sourceHeight, scale,
@@ -2518,8 +2734,8 @@
         const viewMetrics = () => {
             const viewW = popup.innerWidth || video.clientWidth || 1;
             const viewH = popup.innerHeight || video.clientHeight || 1;
-            const sw = Math.max(1, video.videoWidth || viewW);
-            const sh = Math.max(1, video.videoHeight || viewH);
+            const sw = Math.max(1, remoteVideoWidth() || viewW);
+            const sh = Math.max(1, remoteVideoHeight() || viewH);
             const raw = Math.min(viewW / sw, viewH / sh);
             const contain = Number.isFinite(raw) && raw > 0 ? raw : 1;
             return { viewW, viewH, sw, sh, contain, contentLeft: (viewW - sw * contain) / 2, contentTop: (viewH - sh * contain) / 2 };
@@ -2551,6 +2767,8 @@
             diagZoom = zoomScale.toFixed(2);
             exactCanvas.style.transform = video.style.transform;
             exactCanvas.style.transformOrigin = video.style.transformOrigin;
+            videoCanvas.style.transform = video.style.transform;
+            videoCanvas.style.transformOrigin = video.style.transformOrigin;
             syncExactGeometry();
             placeGuestCursor();
         };
@@ -2571,7 +2789,7 @@
         const placeGuestCursor = () => {
             const state = latestGuestCursor;
             const shape = state && guestCursorShapes.get(state.shape_id);
-            const guestReady = !!(state && state.visible && shape && video.videoWidth && video.videoHeight);
+            const guestReady = !!(state && state.visible && shape && remoteVideoWidth() && remoteVideoHeight());
             if (state && !state.visible) {
                 guestCursor.style.display = 'none';
                 guestPointer.style.display = 'none';
@@ -2602,7 +2820,7 @@
                     offX = shape.hotspot_x * scale;
                     offY = shape.hotspot_y * scale;
                     gxp = lastSentGuestX ?? state.x; gyp = lastSentGuestY ?? state.y;
-                } else if (lastSentGuestX !== null && video.videoWidth) {
+                } else if (lastSentGuestX !== null && remoteVideoWidth()) {
                     img = SYNTHETIC_CURSOR;
                     boxW = SYNTHETIC_CURSOR_W;      // fixed on-screen size: the
                     boxH = SYNTHETIC_CURSOR_H;      // fallback is an approximation.
@@ -3412,7 +3630,7 @@
         // dark movie scene keeps small non-zero values and does not trigger.
         const guestFrameIsDark = () => {
             if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
-                !video.videoWidth || !video.videoHeight) { return null; }
+                !remoteVideoWidth() || !remoteVideoHeight()) { return null; }
             try {
                 if (!livenessCanvas) {
                     livenessCanvas = document.createElement('canvas');
@@ -3421,7 +3639,8 @@
                     livenessContext = livenessCanvas.getContext('2d', { willReadFrequently: true });
                 }
                 if (!livenessContext) { return null; }
-                livenessContext.drawImage(video, 0, 0, 32, 18);
+                livenessContext.drawImage(videoRegions.width ? videoCanvas : video, 0, 0, 32, 18);
+                if (exactRenderer.width) { livenessContext.drawImage(exactCanvas, 0, 0, 32, 18); }
                 const pixels = livenessContext.getImageData(0, 0, 32, 18).data;
                 for (let index = 0; index < pixels.length; index += 4) {
                     if (pixels[index] > 8 || pixels[index + 1] > 8 || pixels[index + 2] > 8) { return false; }
@@ -3462,7 +3681,7 @@
         const updateMediaStatus = () => {
             if (closed || !peer) { return; }
             if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-                video.videoWidth > 0 && video.videoHeight > 0) {
+                remoteVideoWidth() > 0 && remoteVideoHeight() > 0) {
                 // The sleep monitor owns the status line while the guest
                 // output is off; a decoded frame alone is not proof of a
                 // visible desktop.
@@ -3488,7 +3707,8 @@
                     vmMediaPolicyUrl().replace(/qsm-direct-settings$/, 'qsm-direct-ice'));
                 const endpoint = new URL(signalOrigin());
                 iceConfig = { iceTransportPolicy: 'relay', iceServers: [{
-                    urls: `turn:${endpoint.hostname}:${endpoint.port || '443'}?transport=tcp`,
+                    urls: [...(credentials.udp_port ? [`turn:${endpoint.hostname}:${credentials.udp_port}?transport=udp`] : []),
+                        `turn:${endpoint.hostname}:${endpoint.port || '443'}?transport=tcp`],
                     username: credentials.username, credential: credentials.credential,
                 }] };
             }
@@ -3608,8 +3828,8 @@
                             // "another console changed it" (a different size →
                             // yield), instead of mistaking our own not-yet-
                             // applied request for someone else's change.
-                            if (video.videoWidth > 0 && video.videoHeight > 0) {
-                                lastAppliedSize = `${video.videoWidth}x${video.videoHeight}`;
+                            if (remoteVideoWidth() > 0 && remoteVideoHeight() > 0) {
+                                lastAppliedSize = `${remoteVideoWidth()}x${remoteVideoHeight()}`;
                             }
                         }
                         resizeRetryIdentity = identity;
@@ -3629,10 +3849,10 @@
                         const current = dimensions(video, sessionFps);
                         const currentIdentity = `${current.width}x${current.height}@${current.fps}`;
                         if (currentIdentity !== identity) { resize(false); return; }
-                        if (video.videoWidth === current.width && video.videoHeight === current.height) {
+                        if (remoteVideoWidth() === current.width && remoteVideoHeight() === current.height) {
                             resizeRetryAttempts = 0;
                             resizeStalled = false;
-                            lastAppliedSize = `${video.videoWidth}x${video.videoHeight}`;
+                            lastAppliedSize = `${remoteVideoWidth()}x${remoteVideoHeight()}`;
                             // The geometry converged: clear a "kept its own
                             // size" line left behind by an earlier stall,
                             // and only that line — a keyboard-capture or
@@ -3649,8 +3869,8 @@
                         // shared guest — it is the reference now.  Follow it:
                         // re-sending our size here would drag the stretched
                         // console back and leave it showing a scaled desktop.
-                        const guestSize = `${video.videoWidth}x${video.videoHeight}`;
-                        if (video.videoWidth > 0 && video.videoHeight > 0 &&
+                        const guestSize = `${remoteVideoWidth()}x${remoteVideoHeight()}`;
+                        if (remoteVideoWidth() > 0 && remoteVideoHeight() > 0 &&
                             lastAppliedSize && guestSize !== lastAppliedSize) {
                             lastAppliedSize = guestSize;
                             resizeRetryAttempts = 0;
@@ -3696,10 +3916,10 @@
                 // applied, another Console is driving the shared resolution.
                 // Yield: this console follows the reference instead of shoving
                 // its own size back on every mouse move.
-                if (video.videoWidth > 0 && lastAppliedSize &&
-                    `${video.videoWidth}x${video.videoHeight}` !== lastAppliedSize) {
+                if (remoteVideoWidth() > 0 && lastAppliedSize &&
+                    `${remoteVideoWidth()}x${remoteVideoHeight()}` !== lastAppliedSize) {
                     resizeStalled = false;
-                    lastAppliedSize = `${video.videoWidth}x${video.videoHeight}`;
+                    lastAppliedSize = `${remoteVideoWidth()}x${remoteVideoHeight()}`;
                     return;
                 }
                 const now = Date.now();
@@ -3765,8 +3985,8 @@
                 // source aspect, handled below.
                 const viewW = popup.innerWidth || video.clientWidth || 1;
                 const viewH = popup.innerHeight || video.clientHeight || 1;
-                const sourceWidth = Math.max(1, video.videoWidth || viewW);
-                const sourceHeight = Math.max(1, video.videoHeight || viewH);
+                const sourceWidth = Math.max(1, remoteVideoWidth() || viewW);
+                const sourceHeight = Math.max(1, remoteVideoHeight() || viewH);
                 const rawScale = Math.min(viewW / sourceWidth, viewH / sourceHeight);
                 const scale = Number.isFinite(rawScale) && rawScale > 0 ? rawScale : 1;
                 const contentLeft = (viewW - sourceWidth * scale) / 2;
@@ -3799,6 +4019,9 @@
                 } else if (message.op === 'qsm_ui_policy' && message.version === 1) {
                     exactUiPolicy = message;
                     updateExactPreference();
+                } else if (message.op === 'qsm_video_frame') {
+                    const region = videoRegions.map(message.rtp, message.region) ? message.region : null;
+                    exactRenderer.mapVideoFrame(message.rtp, message.capture, region);
                 } else if (message.op === 'qsm_mouse_ack') {
                     if (message.sequence === mouseFenceSequence) { mouseFenceSequence = null; }
                 } else if (message.op === 'qsm_video_rate') {
@@ -3863,7 +4086,7 @@
                 // The retry identity carries the session FPS; a literal
                 // "@60" here left the convergence branch unreachable for
                 // any other target frame rate.
-                const visible = `${video.videoWidth}x${video.videoHeight}@${sessionFps}`;
+                const visible = `${remoteVideoWidth()}x${remoteVideoHeight()}@${sessionFps}`;
                 if (visible === resizeRetryIdentity) {
                     resizeRetryAttempts = 0;
                     resizeStalled = false;

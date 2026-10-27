@@ -17,12 +17,20 @@ class VideoBudget {
 public:
     using Clock = std::chrono::steady_clock;
 
-    bool ready(Clock::time_point now, std::uint32_t bitrate_kbps) {
+    bool ready(Clock::time_point now, std::uint32_t bitrate_kbps, unsigned ui_reservation = 0) {
         std::lock_guard lock(mutex_);
         const double rate = static_cast<double>(bitrate_kbps) * 1000.0 / 8.0;
         if (updated_) {
-            credit_ += std::max(0.0, std::chrono::duration<double>(now - *updated_).count()) * rate;
+            const double refill = std::max(0.0, std::chrono::duration<double>(now - *updated_).count()) * rate;
+            const double reserved = refill * std::min(ui_reservation, 50U) / 100.0;
+            const double observed = std::min(auxiliary_, reserved);
+            // Fresh source UI has already been charged by account_auxiliary.
+            // Charge only the remaining reservation used by cached replay.
+            credit_ += refill - (reserved - observed);
+            auxiliary_ -= observed;
         }
+        if (!ui_reservation) { auxiliary_ = 0; }
+        auxiliary_ = std::min(auxiliary_, 16384.0 + rate * .05);
         updated_ = now;
         // Idle time must not accumulate a large burst. A rate change also
         // retains outstanding IDR debt instead of refilling the bucket.
@@ -37,10 +45,17 @@ public:
         credit_ -= static_cast<double>(bytes) * 1.12;
     }
 
+    void account_auxiliary(std::size_t bytes) {
+        std::lock_guard lock(mutex_);
+        const double cost = static_cast<double>(bytes) * 1.12;
+        credit_ -= cost;
+        auxiliary_ += cost;
+    }
+
 private:
     std::mutex mutex_;
     std::optional<Clock::time_point> updated_;
-    double credit_ {};
+    double credit_ {}, auxiliary_ {};
 };
 
 }  // namespace qmdp

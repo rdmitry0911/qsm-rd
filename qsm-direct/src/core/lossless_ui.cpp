@@ -16,24 +16,29 @@ void put32(std::vector<std::uint8_t>& b, std::uint32_t n) {
 }
 }
 
-std::vector<std::uint8_t> LosslessUi::greeting() {
+std::vector<std::uint8_t> LosslessUi::greeting(std::uint32_t capabilities) {
     std::vector<std::uint8_t> b(header_size, 0U);
     b[0] = 'Q'; b[1] = 'U'; b[2] = 'I'; b[3] = '1';
+    if (capabilities) { put32(b, capabilities); }
     return b;
 }
 
 void LosslessUi::disable() {
+    region_.reset();
     previous_.reset(); tiles_.clear(); width_ = height_ = 0;
     reset_needed_ = true;
+    next_wakeup_.reset();
 }
 
 bool LosslessUi::emit(Op op, std::uint16_t x, std::uint16_t y, std::uint16_t w,
                      std::uint16_t h, std::span<const std::uint8_t> payload, const Send& send,
                      std::uint8_t encoding) {
     std::vector<std::uint8_t> b {'Q', 'U', 'I', '1', static_cast<std::uint8_t>(op), encoding, 0, 0};
+    if (capture_) { b[7] = 8; }
     put32(b, epoch_); put32(b, ++sequence_);
     put16(b, static_cast<std::uint16_t>(width_)); put16(b, static_cast<std::uint16_t>(height_));
     put16(b, x); put16(b, y); put16(b, w); put16(b, h);
+    if (capture_) { put32(b, static_cast<std::uint32_t>(capture_ >> 32U)); put32(b, static_cast<std::uint32_t>(capture_)); }
     b.insert(b.end(), payload.begin(), payload.end());
     if (!send(b)) { reset_needed_ = true; return false; }
     stats_.bytes += b.size();
@@ -59,14 +64,20 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
         tiles_.assign(static_cast<std::size_t>(cols) * rows, Tile {});
         previous_.reset(); reset_needed_ = false;
         credit_ = 16384.0; credit_at_ = heartbeat_at_ = now;
-        if (!emit(reset, 0, 0, 0, 0, {}, send)) { return; }
+        if (!emit(reset, 0, 0, 0, 0, {}, send)) {
+            next_wakeup_ = now + std::chrono::milliseconds(10); return;
+        }
     }
-    // Reserve a modest UI share, with a bounded burst. Video accounts for
-    // these bytes too: this is not an unmetered second desktop stream.
-    const double rate = std::min(128.0 * 1024.0, static_cast<double>(bitrate_kbps) * 125.0 * 0.15);
-    credit_ = std::min(16384.0, credit_ + std::max(0.0, std::chrono::duration<double>(now - credit_at_).count()) * rate);
-    credit_at_ = now;
-    std::vector<std::size_t> urgent, background;
+    next_wakeup_.reset();
+    const auto wake_by = [this](Clock::time_point deadline) {
+        if (!next_wakeup_ || deadline < *next_wakeup_) { next_wakeup_ = deadline; }
+    };
+    const auto in_focus = [&](std::uint32_t x, std::uint32_t y, std::uint32_t w, std::uint32_t h) {
+        return focus_ && now < focus_until_ && x + w / 2 >= focus_->x &&
+            x + w / 2 < focus_->x + focus_->width && y + h / 2 >= focus_->y &&
+            y + h / 2 < focus_->y + focus_->height;
+    };
+    std::vector<std::size_t> interactive, urgent, background;
     unsigned cleared = 0;
     for (std::size_t i = 0; i < tiles_.size(); ++i) {
         auto& t = tiles_[i];
@@ -75,19 +86,35 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
         const auto w = std::min<std::uint32_t>(tile_edge, width - x);
         const auto h = std::min<std::uint32_t>(tile_edge, height - y);
         bool changed = !previous_;
+        std::uint32_t damage = 0;
+        const auto sparse_limit = w * h / 8U;
         if (previous_ && pixels != previous_) {
-            for (std::uint32_t row = 0; row < h && !changed; ++row) {
+            for (std::uint32_t row = 0; row < h && damage <= sparse_limit; ++row) {
                 const auto offset = (static_cast<std::size_t>(y + row) * width + x) * 4U;
-                changed = std::memcmp(pixels->data() + offset, previous_->data() + offset, w * 4U) != 0;
+                if (std::memcmp(pixels->data() + offset, previous_->data() + offset, w * 4U) == 0) { continue; }
+                changed = true;
+                for (std::uint32_t col = 0; col < w && damage <= sparse_limit; ++col) {
+                    const auto at = offset + col * 4U;
+                    if (std::memcmp(pixels->data() + at, previous_->data() + at, 4U) != 0) {
+                        ++damage;
+                    }
+                }
             }
         }
+        const bool sparse = previous_ && changed && damage <= sparse_limit && now >= t.busy_until && in_focus(x, y, w, h);
         if (changed) {
             t.streak = t.changed != Clock::time_point {} && now - t.changed < std::chrono::milliseconds(75)
                 ? t.streak + 1U : 1U;
+            t.urgent = static_cast<bool>(previous_);
             t.changed = now; t.pending.clear(); t.incompressible = false; t.dirty = true;
-            if (t.streak >= 3U) { t.busy_until = now + std::chrono::milliseconds(250); }
+            // Fast typing/caret changes touch little of a tile. Frequency
+            // alone must not turn them into video and stall exact input
+            // behind the 250 ms motion-settling window.
+            if (sparse) { t.busy_until = {}; }
+            else if (t.streak >= 3U) { t.busy_until = now + std::chrono::milliseconds(250); }
         }
         if (now < t.busy_until) {
+            wake_by(t.busy_until);
             ++stats_.busy_tiles;
             if (t.active) {
                 if (++cleared > 32U) { reset_needed_ = true; break; }
@@ -100,13 +127,42 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
         if ((!t.active || t.dirty) && !t.incompressible) {
             // A newly typed character has priority over an unfinished idle
             // snapshot, even near the bottom of a large desktop.
-            ((changed || (t.active && t.dirty)) ? urgent : background).push_back(i);
+            (in_focus(x, y, w, h) ? interactive : t.urgent ? urgent : background).push_back(i);
         }
     }
+    region_.reset();
+    std::uint32_t left = width, top = height, right = 0, bottom = 0;
+    unsigned moving = 0;
+    for (std::size_t i = 0; i < tiles_.size(); ++i) {
+        const auto& t = tiles_[i];
+        if (now >= t.busy_until && !t.incompressible) { continue; }
+        const auto x = static_cast<std::uint32_t>(i % cols) * tile_edge;
+        const auto y = static_cast<std::uint32_t>(i / cols) * tile_edge;
+        left = std::min(left, x); top = std::min(top, y);
+        right = std::max(right, std::min(width, x + tile_edge));
+        bottom = std::max(bottom, std::min(height, y + tile_edge)); ++moving;
+    }
+    // A single bounding region keeps one hardware encoder/session. Generic
+    // pixel classification includes every busy or incompressible tile;
+    // uncovered desktop pixels continue through the exact layer.
+    // Report every busy tile, including a small input field outside an
+    // existing crop and motion covering the whole screen. The video thread
+    // decides whether a crop is worthwhile; missing coverage is never safe.
+    if (moving && right > left && bottom > top) {
+        region_ = Region {left, top, right - left, bottom - top};
+    }
+    // Foreground changes and a substantial snapshot may borrow half the
+    // common budget. Every emitted byte is also charged to VideoBudget;
+    // frame admission, rather than encoder quality, pays for the burst.
+    const double share = !interactive.empty() || !urgent.empty() || background.size() > 16 ? 0.50 : 0.15;
+    const double rate = std::min(512.0 * 1024.0, static_cast<double>(bitrate_kbps) * 125.0 * share);
+    credit_ = std::min(16384.0, credit_ + std::max(0.0, std::chrono::duration<double>(now - credit_at_).count()) * rate);
+    credit_at_ = now;
     if (!reset_needed_) {
-        urgent.insert(urgent.end(), background.begin(), background.end());
+        interactive.insert(interactive.end(), urgent.begin(), urgent.end());
+        interactive.insert(interactive.end(), background.begin(), background.end());
         unsigned published = 0;
-        for (const auto i : urgent) {
+        for (const auto i : interactive) {
             auto& t = tiles_[i];
             const auto x = static_cast<std::uint32_t>(i % cols) * tile_edge;
             const auto y = static_cast<std::uint32_t>(i / cols) * tile_edge;
@@ -145,6 +201,11 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
             }
             const auto cost = header_size + t.pending.size();
             if (credit_ < static_cast<double>(cost)) {
+                if (rate > 0) {
+                    const auto refill = std::chrono::ceil<Clock::duration>(
+                        std::chrono::duration<double>((static_cast<double>(cost) - credit_) / rate));
+                    wake_by(now + std::max(Clock::duration(1), refill));
+                }
                 // An obsolete exact tile must not hide newer video while
                 // its replacement waits for bandwidth.
                 if (t.active && t.dirty) {
@@ -152,12 +213,19 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
                         static_cast<std::uint16_t>(w), static_cast<std::uint16_t>(h), {}, send)) { break; }
                     t.active = false;
                 }
+                // Preserve credit for the oldest foreground tile. Small
+                // background patches cannot continually spend its refill.
+                if (t.urgent || in_focus(x, y, w, h)) { break; }
                 continue;
             }
             if (!emit(patch, static_cast<std::uint16_t>(x), static_cast<std::uint16_t>(y),
                       static_cast<std::uint16_t>(w), static_cast<std::uint16_t>(h), t.pending, send, t.encoding)) { break; }
-            t.active = true; t.dirty = false; t.pending.clear();
-            if (++published >= 16U) { break; }
+            t.active = true; t.dirty = false; t.urgent = false; t.pending.clear();
+            if (++published >= 16U) {
+                // Continue a bounded batch immediately; its next pass will
+                // calculate the exact refill deadline if credit runs out.
+                wake_by(now); break;
+            }
         }
     }
     // Only fresh exact tiles may cover video. Clear unserved old patches
@@ -173,12 +241,17 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
             static_cast<std::uint16_t>(std::min<std::uint32_t>(tile_edge, height - y)), {}, send)) { break; }
         t.active = false;
     }
-    if (reset_needed_) { (void) emit(reset, 0, 0, 0, 0, {}, send); }
+    if (reset_needed_) {
+        (void) emit(reset, 0, 0, 0, 0, {}, send);
+        next_wakeup_ = now + std::chrono::milliseconds(10);
+    }
     previous_ = std::move(pixels);
     if (!reset_needed_ && now - heartbeat_at_ >= std::chrono::milliseconds(200)) {
         heartbeat_at_ = now;
         (void) emit(heartbeat, 0, 0, 0, 0, {}, send);
     }
+    if (reset_needed_) { next_wakeup_ = now + std::chrono::milliseconds(10); }
+    else { wake_by(heartbeat_at_ + std::chrono::milliseconds(200)); }
 }
 
 } // namespace qmdp

@@ -7,8 +7,9 @@ a slow viewer cannot accumulate old desktop history or block keyboard input.
 from __future__ import annotations
 
 import asyncio
+import math
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import struct
 import time
 from typing import Callable
@@ -37,21 +38,27 @@ class Update:
     h: int = 0
     payload: bytes = b""
     encoding: int = 0
+    priority: bool = False
+    capture: int = 0
 
-    def wire(self, epoch: int, serial: int) -> bytes:
-        return HEADER.pack(MAGIC, self.op, self.encoding, 0, epoch, serial,
-                           self.width, self.height, self.x, self.y, self.w, self.h) + self.payload
+    def wire(self, epoch: int, serial: int, *, stamped: bool = True) -> bytes:
+        capture = struct.pack("!Q", self.capture) if stamped and self.capture else b""
+        return HEADER.pack(MAGIC, self.op, self.encoding, len(capture), epoch, serial,
+                           self.width, self.height, self.x, self.y, self.w, self.h) + capture + self.payload
 
 
 def decode(raw: bytes) -> Update:
-    if not isinstance(raw, bytes) or not HEADER.size <= len(raw) <= HEADER.size + MAX_PAYLOAD:
+    if not isinstance(raw, bytes) or not HEADER.size <= len(raw) <= HEADER.size + 8 + MAX_PAYLOAD:
         raise ValueError("invalid exact UI record size")
     magic, op, flags, reserved, epoch, serial, width, height, x, y, w, h = HEADER.unpack_from(raw)
-    if magic != MAGIC or flags & ~1 or (flags and op != PATCH) or reserved or op not in range(5):
+    if magic != MAGIC or flags & ~1 or (flags and op != PATCH) or reserved not in (0, 8) or op not in range(5):
         raise ValueError("unsupported exact UI record")
-    payload = raw[HEADER.size:]
+    if len(raw) < HEADER.size + reserved or (reserved and op == HELLO):
+        raise ValueError("invalid exact UI timestamp")
+    capture = struct.unpack_from("!Q", raw, HEADER.size)[0] if reserved else 0
+    payload = raw[HEADER.size + reserved:]
     if op == HELLO:
-        if any((epoch, serial, width, height, x, y, w, h)) or payload:
+        if any((epoch, serial, width, height, x, y, w, h)) or len(payload) not in (0, 4):
             raise ValueError("invalid exact UI greeting")
     else:
         if not epoch or not width or not height or width > 16384 or height > 16384 or width * height > MAX_PIXELS:
@@ -76,12 +83,15 @@ def decode(raw: bytes) -> Update:
                     raise ValueError("invalid exact UI pixel count")
                 if not flags and any(a != 255 for a in pixels[3::4]):
                     raise ValueError("exact UI tiles must be opaque")
-    return Update(op, epoch, serial, width, height, x, y, w, h, payload, flags)
+    return Update(op, epoch, serial, width, height, x, y, w, h, payload, flags, capture=capture)
 
 
 class Source:
     def __init__(self) -> None:
         self.available = False
+        self.features = 0
+        self.capture = 0
+        self.seen: set[tuple[int, int]] = set()
         self.geometry: tuple[int, int] | None = None
         self.epoch = 0
         self.serial: int | None = None
@@ -95,7 +105,7 @@ class Source:
     def subscribe(self, listener: Callable[[Update], None]) -> None:
         self.listeners.add(listener)
         if self.available:
-            listener(Update(HELLO))
+            listener(Update(HELLO, payload=struct.pack("!I", self.features) if self.features else b""))
 
     def unsubscribe(self, listener: Callable[[Update], None]) -> None:
         self.listeners.discard(listener)
@@ -106,6 +116,7 @@ class Source:
 
     def fail(self) -> None:
         self.tiles.clear(); self.bytes = 0
+        self.seen.clear()
         self.awaiting_reset = True
         self.gaps += 1
         self._notify(Update(GAP))
@@ -113,6 +124,7 @@ class Source:
     def invalidate(self) -> None:
         """A new capture subscription must not replay a previous session."""
         self.tiles.clear(); self.bytes = 0
+        self.seen.clear()
         self.awaiting_reset = True
         self._notify(Update(RESET))
 
@@ -123,11 +135,14 @@ class Source:
             self.fail()
             return
         self.last_record = time.monotonic()
+        self.capture = max(self.capture, update.capture)
         if update.op == HELLO:
+            self.features = int.from_bytes(update.payload, "big")
             self.available = True
             self.geometry = None
             self.serial = None
             self.tiles.clear(); self.bytes = 0
+            self.seen.clear()
             self.awaiting_reset = True
             self._notify(update)
             return
@@ -137,6 +152,7 @@ class Source:
             self.epoch, self.serial = update.epoch, update.serial
             self.geometry = update.width, update.height
             self.tiles.clear(); self.bytes = 0
+            self.seen.clear()
             self.awaiting_reset = False
             self._notify(update)
             return
@@ -148,6 +164,8 @@ class Source:
         self.serial = update.serial
         if update.op in (PATCH, CLEAR):
             key = update.x, update.y
+            update = replace(update, priority=key in self.seen)
+            self.seen.add(key)
             old = self.tiles.pop(key, None)
             if old:
                 self.bytes -= len(old.payload)
@@ -169,8 +187,18 @@ class Peer:
     def __init__(self, source: Source, policy: Callable[[dict], object], resync: Callable[[], object],
                  probe: Callable[[], object] = lambda: None,
                  bitrate: Callable[[], int] = lambda: 8000,
-                 default_enabled: bool = False) -> None:
+                 default_enabled: bool = False,
+                 demand: Callable[[int], object] = lambda _: None) -> None:
         self.source, self.policy, self.resync = source, policy, resync
+        self.demand = demand
+        self.reserved = 0
+        self.version = 1
+        self.ack_serial = 0
+        self.ack_pending = 0
+        self.cache: OrderedDict[int, tuple[bytes, int, int, bool]] = OrderedDict()
+        self.cache_keys: dict[tuple[int, int], int] = {}
+        self.cache_next = 0
+        self.cache_hits = self.scroll_copies = self.fills = 0
         self.probe = probe
         self.default_enabled = default_enabled
         self.bitrate = bitrate
@@ -185,14 +213,21 @@ class Peer:
         self.sent_patches = self.sent_bytes = 0
         self._closed = False
         self._resync_at = float("-inf")
+        self._probe_at = float("-inf")
+        self._wake = asyncio.Event()
         self.source.subscribe(self.receive)
+
+    def wake(self) -> None:
+        self._wake.set()
 
     def announce(self) -> None:
         self.policy({"op": "qsm_ui_policy", "version": 1,
                      "available": self.source.available, "enabled": self.enabled,
+                     "features": self.source.features, "max_version": 4,
                      "default_enabled": self.default_enabled,
                      "patches": self.sent_patches, "bytes": self.sent_bytes,
-                     "tiles": len(self.source.tiles), "gaps": self.source.gaps})
+                     "tiles": len(self.source.tiles), "gaps": self.source.gaps,
+                     "cache_hits": self.cache_hits, "scroll_copies": self.scroll_copies, "fills": self.fills})
 
     def _request_reset(self) -> None:
         now = time.monotonic()
@@ -215,17 +250,129 @@ class Peer:
             self.pending[key] = update
             # Fresh input/invalidations outrank an unfinished cached snapshot.
             self.pending.move_to_end(key, last=False)
+        self.wake()
 
     def enable(self, enabled: bool) -> None:
         self.enabled = enabled and self.source.available
         self.pending.clear(); self.snapshot = True
         self.announce()
+        self.wake()
 
     def opened(self, channel: object) -> None:
         self.channel = channel
+        # A low-buffer notification replaces periodic probing of SCTP.
+        channel.bufferedAmountLowThreshold = MAX_BUFFERED // 2
+        callback = getattr(channel, "on", None)
+        if callable(callback):
+            callback("bufferedamountlow", self.wake)
         if self.task is None:
             self.task = asyncio.create_task(self.run())
         self.announce()
+        self.wake()
+
+    def confirm_cache(self, ids: list[int]) -> None:
+        for cache_id in ids:
+            old = self.cache.get(cache_id)
+            if old is not None:
+                self.cache[cache_id] = (*old[:3], True)
+
+    def _command(self, update: Update) -> tuple[Update, tuple | None]:
+        if self.version < 3 or update.op != PATCH:
+            return update, None
+        raw = zlib.decompress(update.payload)
+        if update.encoding:
+            rgba = bytearray(len(raw) * 4)
+            rgba[0::4] = raw; rgba[1::4] = raw; rgba[2::4] = raw
+            rgba[3::4] = b'\xff' * len(raw)
+            raw = bytes(rgba)
+        color = raw[:4]
+        if raw == color * (update.w * update.h):
+            return replace(update, op=6, payload=color, encoding=0), None
+        for cache_id, (pixels, w, h, confirmed) in self.cache.items():
+            if confirmed and (w, h) == (update.w, update.h) and pixels == raw:
+                return replace(update, op=8, payload=struct.pack("!I", cache_id), encoding=0), None
+        cache_id = self.cache_next + 1
+        payload = struct.pack("!I", cache_id) + update.payload
+        result = replace(update, op=7, payload=payload)
+        # Scroll reads an immutable acknowledged bitmap. All overlapping
+        # copies therefore observe the same old pixels, never prior writes.
+        old = self.cache.get(self.cache_keys.get((update.x, update.y), 0))
+        if old and old[3] and (old[1], old[2]) == (update.w, update.h):
+            previous = old[0]; stride = update.w * 4
+            for shift in range(1, update.h):
+                count = (update.h - shift) * stride
+                for delta in (shift, -shift):
+                    dest = max(delta, 0) * stride; src = max(-delta, 0) * stride
+                    if (raw[dest:dest + 32] != previous[src:src + 32] or
+                            raw[dest:dest + count] != previous[src:src + count]):
+                        continue
+                    exposed = raw[:dest] if delta > 0 else raw[count:]
+                    candidate = struct.pack("!IIh", cache_id, self.cache_keys[(update.x, update.y)], delta) + zlib.compress(exposed, 1)
+                    if len(candidate) < len(payload):
+                        payload = candidate; result = replace(update, op=9, payload=payload, encoding=0)
+                    break
+        return result, (cache_id, raw, update.w, update.h, (update.x, update.y))
+
+    def _remember(self, entry: tuple | None) -> None:
+        if entry is None:
+            return
+        cache_id, raw, w, h, key = entry
+        self.cache_next = cache_id
+        self.cache[cache_id] = (raw, w, h, False)
+        self.cache_keys[key] = cache_id
+        if len(self.cache) > 256:
+            expired, _ = self.cache.popitem(last=False)
+            self.cache_keys = {k: v for k, v in self.cache_keys.items() if v != expired}
+
+    def _rate(self) -> float:
+        share = 0.5 if self.source.features & 1 and (len(self.pending) > 16 or
+                any(u.priority for u in self.pending.values())) else 0.15
+        return min(512 * 1024 if self.source.features & 1 else 128 * 1024,
+                   max(0, self.bitrate()) * 125 * share)
+
+    def _reservation(self) -> None:
+        channel = self.channel
+        buffered = getattr(channel, "bufferedAmount", 0) if channel else 0
+        outstanding = buffered + sum(HEADER.size + len(u.payload) for u in self.pending.values())
+        percent = min(50, math.ceil(outstanding * 100 / max(1, self.bitrate() * 125 * .1)))
+        percent = percent if self.enabled and self.source.features & 1 else 0
+        if percent != self.reserved:
+            self.reserved = percent
+            self.demand(percent)
+        if channel is not None:
+            channel.bufferedAmountLowThreshold = MAX_BUFFERED // 2 if self.pending else 0
+
+    def _delay(self, now: float, announced: float) -> float | None:
+        deadlines = []
+        if not self.source.available:
+            deadlines.append(self._probe_at + 1)
+        if self.enabled:
+            deadlines.append(announced + 1)
+            if self.source.awaiting_reset:
+                deadlines.append(self._resync_at + 0.5)
+            else:
+                deadlines.append(self.source.last_record + 0.800001)
+            channel = self.channel
+            if (channel is not None and getattr(channel, "readyState", None) == "open"):
+                buffered = getattr(channel, "bufferedAmount", 0)
+                if self.snapshot and self.source.geometry is not None and buffered <= MAX_BUFFERED:
+                    deadlines.append(now)
+                rate = self._rate()
+                credit = min(MAX_BUFFERED, self.credit + max(0, now - self.credit_at) * rate)
+                for update in self.pending.values():
+                    command, _ = self._command(update)
+                    size = HEADER.size + (8 if self.version >= 2 and update.capture else 0) + len(command.payload)
+                    if update.op == PATCH and self.version >= 2 and self.ack_pending >= 32:
+                        continue
+                    if buffered + size > MAX_BUFFERED:
+                        continue  # bufferedamountlow wakes the sender.
+                    if update.op != PATCH or credit >= size:
+                        deadlines.append(now)
+                        break
+                    if rate > 0:
+                        deadlines.append(now + (size - credit) / rate)
+                    break
+        return max(0.0, min(deadlines) - now) if deadlines else None
 
     def drain(self) -> None:
         channel = self.channel
@@ -233,7 +380,7 @@ class Peer:
             return
         self.source.poll(time.monotonic())
         now = time.monotonic()
-        rate = min(128 * 1024, max(0, self.bitrate()) * 125 * 0.15)
+        rate = self._rate()
         self.credit = min(float(MAX_BUFFERED), self.credit + max(0, now - self.credit_at) * rate)
         self.credit_at = now
         if self.source.geometry is None:
@@ -243,8 +390,11 @@ class Peer:
                 return
             self.epoch = (self.epoch + 1) & 0xffff_ffff or 1
             self.serial = 1
+            self.ack_pending = self.ack_serial = 0
+            self.cache.clear(); self.cache_keys.clear(); self.cache_next = 0
             width, height = self.source.geometry
-            channel.send(Update(RESET, width=width, height=height).wire(self.epoch, self.serial))
+            channel.send(Update(RESET, width=width, height=height, capture=self.source.capture).wire(
+                self.epoch, self.serial, stamped=self.version >= 2))
             self.credit -= HEADER.size
             self.pending = OrderedDict(self.source.tiles)
             self.snapshot = False
@@ -252,16 +402,23 @@ class Peer:
         for key, update in tuple(self.pending.items()):
             if sent >= MAX_BUFFERED:
                 break
-            size = HEADER.size + len(update.payload)
+            command, entry = self._command(update)
+            size = HEADER.size + (8 if self.version >= 2 and update.capture else 0) + len(command.payload)
             if getattr(channel, "bufferedAmount", 0) + size > MAX_BUFFERED:
                 break
-            if update.op == PATCH and self.credit < size:
+            if update.op == PATCH and self.version >= 2 and self.ack_pending >= 32:
                 continue
+            if update.op == PATCH and self.credit < size:
+                break
             # Clears/reset may borrow a few bytes: stale pixels must disappear
             # even when a cached snapshot has exhausted its refinement share.
             self.pending.pop(key)
             self.serial = (self.serial + 1) & 0xffff_ffff
-            channel.send(update.wire(self.epoch, self.serial))
+            channel.send(command.wire(self.epoch, self.serial, stamped=self.version >= 2))
+            self._remember(entry)
+            self.cache_hits += command.op == 8
+            self.scroll_copies += command.op == 9
+            self.fills += command.op == 6
             sent += size
             self.credit -= size
             self.sent_bytes += size
@@ -271,24 +428,41 @@ class Peer:
         announced = 0.0
         try:
             while not self._closed:
+                self._wake.clear()
+                failed = False
+                now = time.monotonic()
                 try:
-                    if not self.source.available:
+                    if not self.source.available and now - self._probe_at >= 1:
+                        self._probe_at = now
                         self.probe()
                     if self.enabled and self.source.awaiting_reset:
                         self._request_reset()
                     self.drain()
+                    self._reservation()
                 except Exception:
                     # Clear local history on a transient SCTP send failure.
                     self.pending.clear(); self.snapshot = True
+                    failed = True
                 now = time.monotonic()
                 if self.enabled and now - announced >= 1:
                     announced = now; self.announce()
-                await asyncio.sleep(0.02)
+                delay = 0.02 if failed else self._delay(now, announced)
+                if delay == 0:
+                    await asyncio.sleep(0)  # Fairness between bounded batches.
+                else:
+                    try:
+                        await asyncio.wait_for(self._wake.wait(), timeout=delay)
+                    except asyncio.TimeoutError:
+                        pass
         except asyncio.CancelledError:
             pass
 
     async def close(self) -> None:
         self._closed = True
+        self.enabled = False
+        self.pending.clear()
+        self._reservation()
+        self.wake()
         self.source.unsubscribe(self.receive)
         self.pending.clear()
         if self.task:

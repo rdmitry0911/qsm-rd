@@ -11,7 +11,7 @@ trap 'rm -rf "$stage"' EXIT
 mkdir -p "$OUTPUT_DIR" "$stage/DEBIAN" "$stage/usr/share/doc/$package" "$stage/usr/sbin" "$stage/usr/lib/systemd/system"
 install -m 0644 "$ROOT_DIR/packaging/debian/README.gateway" "$stage/usr/share/doc/$package/README.Debian"
 install -m 0755 "$ROOT_DIR/extensions/gateway/qsm_direct_gateway.py" "$stage/usr/sbin/qsm-pve-direct-gateway"
-for unit in qsm-pve-direct-gateway.service qsm-pve-direct-turn.service qsm-pve-direct-gateway-certs.service qsm-pve-direct-gateway-certs.timer; do
+for unit in qsm-pve-direct-gateway.service qsm-pve-direct-turn.service qsm-pve-direct-turn-udp.service qsm-pve-direct-gateway-certs.service qsm-pve-direct-gateway-certs.timer; do
     install -m 0644 "$ROOT_DIR/packaging/debian/$unit" "$stage/usr/lib/systemd/system/$unit"
 done
 cat > "$stage/DEBIAN/control" <<EOF

@@ -27,8 +27,124 @@ class Channel:
     def __init__(self): self.sent = []
     def send(self, value): self.sent.append(value)
 
+class NotifyingChannel(Channel):
+    def __init__(self): super().__init__(); self.listeners = {}
+    def on(self, event, callback): self.listeners[event] = callback
+    def flushed(self):
+        self.bufferedAmount = 0
+        self.listeners['bufferedamountlow']()
+
+class EventDrivenTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.debug = asyncio.get_running_loop().get_debug()
+        asyncio.get_running_loop().set_debug(False)
+
+    async def asyncTearDown(self):
+        asyncio.get_running_loop().set_debug(self.debug)
+
+    async def turns(self):
+        for _ in range(20): await asyncio.sleep(0)
+
+    async def test_damage_and_buffer_low_deliver_without_advancing_timer_clock(self):
+        # Freeze timer time, while still allowing ready callbacks to run.
+        # A periodic sender would stay asleep throughout this test.
+        with mock_patch('extensions.browser_bridge.qsm_lossless_ui.time.monotonic', return_value=100):
+            s = source(); p = Peer(s, lambda _: None, lambda: None); c = NotifyingChannel()
+            p.opened(c); p.enable(True)
+            try:
+                await self.turns(); self.assertEqual(len(c.sent), 1)
+                s.feed(patch().wire(1, 2)); await self.turns()
+                self.assertEqual(decode(c.sent[-1]).op, PATCH)
+                c.bufferedAmount = MAX_BUFFERED + 1
+                s.feed(patch(3, x=64).wire(1, 3)); await self.turns()
+                self.assertEqual(len(c.sent), 2)
+                c.flushed(); await self.turns()
+                self.assertEqual(decode(c.sent[-1]).x, 64)
+                self.assertEqual(len(c.sent), 3)
+            finally: await p.close()
+
+    async def test_missing_geometry_waits_for_source_rather_than_busy_spinning(self):
+        with mock_patch('extensions.browser_bridge.qsm_lossless_ui.time.monotonic', return_value=100):
+            s = Source(); s.feed(Update(HELLO).wire(0, 0))
+            p = Peer(s, lambda _: None, lambda: None); c = NotifyingChannel()
+            calls = 0; drain = p.drain
+            def counted():
+                nonlocal calls
+                calls += 1; drain()
+            p.drain = counted; p.opened(c); p.enable(True)
+            try:
+                await self.turns(); self.assertEqual(calls, 1); self.assertFalse(c.sent)
+                s.feed(Update(RESET, width=128, height=64).wire(1, 1)); await self.turns()
+                self.assertEqual(len(c.sent), 1)
+            finally: await p.close()
+
 
 class ExactUiTests(unittest.TestCase):
+    def test_negotiated_capabilities_and_capture_stamp_survive_shared_cache(self):
+        s = Source(); s.feed(Update(HELLO, payload=struct.pack("!I", 3)).wire(0, 0))
+        s.feed(Update(RESET, width=128, height=64, capture=100).wire(1, 1))
+        from dataclasses import replace
+        update = replace(patch(), capture=123)
+        s.feed(update.wire(1, 2))
+        self.assertEqual(s.features, 3); self.assertEqual(s.tiles[(0, 0)].capture, 123)
+        old = Peer(s, lambda _: None, lambda: None); old.channel = Channel(); old.enable(True); old.drain()
+        self.assertEqual(decode(old.channel.sent[-1]).capture, 0, "old browser receives the original protocol")
+        new = Peer(s, lambda _: None, lambda: None); new.version = 2
+        new.channel = Channel(); new.enable(True); new.drain()
+        self.assertEqual(decode(new.channel.sent[-1]).capture, 123)
+        bad = bytearray(update.wire(1, 3)); bad[7] = 7
+        with self.assertRaises(ValueError): decode(bytes(bad))
+
+    def test_large_foreground_tile_keeps_refill_and_cached_replay_reserves_video_budget(self):
+        from dataclasses import replace
+        s = source(); s.features = 1; reservations = []
+        with mock_patch('extensions.browser_bridge.qsm_lossless_ui.time.monotonic', return_value=100):
+            p = Peer(s, lambda _: None, lambda: None, bitrate=lambda: 500, demand=reservations.append)
+            p.channel = Channel(); p.enable(True); p.drain(); p.credit = 0
+            # A large latest foreground tile must not lose its credit to
+            # many cheap background tiles while it waits to fit.
+            noisy = bytes((i * 71 + i // 13) % 256 for i in range(4096))
+            front = Update(PATCH, width=128, height=64, w=64, h=64,
+                           payload=zlib.compress(noisy), encoding=1, priority=True)
+            p.pending[(0, 0)] = front
+            p.pending[(64, 0)] = patch(x=64)
+            p.drain(); self.assertEqual(len(p.channel.sent), 1)
+            p._reservation(); self.assertGreater(reservations[-1], 0)
+        with mock_patch('extensions.browser_bridge.qsm_lossless_ui.time.monotonic', return_value=100.1):
+            p.drain()
+            self.assertEqual(decode(p.channel.sent[1]).x, 0)
+            self.assertFalse(p.pending)
+            p._reservation(); self.assertEqual(reservations[-1], 0)
+        self.assertEqual(p.channel.bufferedAmountLowThreshold, 0)
+
+    def test_acknowledged_bitmap_copy_fill_scroll_and_epoch_invalidation(self):
+        s = source(); p = Peer(s, lambda _: None, lambda: None); p.version = 3
+        # A predictable but non-uniform bitmap, then a five-line vertical scroll.
+        raw = b''.join(bytes((y, x, (x + y) % 256, 255)) for y in range(64) for x in range(64))
+        original = Update(PATCH, width=128, height=64, w=64, h=64, payload=zlib.compress(raw))
+        command, entry = p._command(original)
+        self.assertEqual(command.op, 7); p._remember(entry)
+        again, _ = p._command(original)
+        self.assertNotEqual(again.op, 8, "an unprocessed client bitmap cannot be referenced")
+        p.confirm_cache([1])
+        again, entry = p._command(original)
+        self.assertEqual(again.op, 8); self.assertIsNone(entry)
+        scrolled = raw[5 * 64 * 4:] + b'\x11\x22\x33\xff' * (5 * 64)
+        from dataclasses import replace
+        command, entry = p._command(replace(original, payload=zlib.compress(scrolled)))
+        self.assertEqual(command.op, 9)
+        new_id, old_id, delta = struct.unpack_from("!IIh", command.payload)
+        self.assertEqual((new_id, old_id, delta), (2, 1, -5))
+        self.assertEqual(raw[-delta * 256:] + zlib.decompress(command.payload[10:]), scrolled)
+        # Copying cannot mutate the source used by another overlapping copy.
+        self.assertEqual(p.cache[1][0], raw)
+        solid, _ = p._command(patch())
+        self.assertEqual(solid.op, 6); self.assertEqual(solid.payload, b'\x11\x22\x33\xff')
+        p.channel = Channel(); p.enable(True); p.drain()
+        self.assertFalse(p.cache); self.assertFalse(p.cache_keys)
+        for n in range(300): p._remember((n + 1, raw, 64, 64, (n, 0)))
+        self.assertEqual(len(p.cache), 256); self.assertEqual(len(p.cache_keys), 256)
+
     def test_node_default_is_advertised_without_enabling_worker_or_peer(self):
         s = source(); policies = []
         p = Peer(s, policies.append, lambda: None, default_enabled=True)

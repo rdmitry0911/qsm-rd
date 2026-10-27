@@ -25,6 +25,7 @@ RUN = Path('/run/qsm-pve-direct-gateway')
 PVE = Path('/etc/default/pveproxy')
 UNITS = ('qsm-pve-direct-gateway.service', 'qsm-pve-direct-turn.service')
 TABLE = 'qsm_direct_gateway'
+UDP_UNIT = 'qsm-pve-direct-turn-udp.service'
 
 
 def run(*args, **kwargs):
@@ -135,10 +136,66 @@ no-stdout-log
 '''
 
 
+def udp_turn_config(address, secret, port):
+    if type(port) is not int or not 1024 <= port <= 65535:
+        raise ValueError('UDP port must be 1024..65535')
+    return (turn_config(address, secret)
+            .replace('listening-ip=127.0.0.1', f'listening-ip={address}')
+            .replace('listening-port=13480', f'listening-port={port}')
+            .replace('tcp-proxy-port=13479\n', '')
+            .replace('no-udp\n', 'no-tcp\n')
+            .replace('/qsm-pve-direct-turn/turndb', '/qsm-pve-direct-turn-udp/turndb'))
+
+
+def ensure_udp_set():
+    if subprocess.run(['nft', 'list', 'set', 'inet', TABLE, 'udp_ports'],
+                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
+        uid = pwd.getpwnam('qsm-turn').pw_uid
+        run('nft', '-f', '-', input=(f'add set inet {TABLE} udp_ports {{ type inet_service; }}\n'
+            f'insert rule inet {TABLE} output meta skuid {uid} udp sport @udp_ports ct state established counter accept\n').encode())
+
+
+def configure_udp(port):
+    config_path = ETC / 'gateway.json'
+    config = json.loads(config_path.read_text())
+    if not (STATE / 'before.json').exists():
+        raise ValueError('enable the TCP gateway first')
+    if port is not None and (type(port) is not int or not 1024 <= port <= 65535):
+        raise ValueError('UDP port must be 1024..65535')
+    previous = config.get('udp_port')
+    if port is not None and port != previous:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as test:
+            test.bind((config['relay_ipv4'], port))
+    ensure_udp_set()
+    run('systemctl', 'disable', '--now', UDP_UNIT)
+    if previous is not None:
+        run('nft', '-f', '-', input=f'delete element inet {TABLE} udp_ports {{ {previous} }}\n'.encode())
+    config.pop('udp_port', None)
+    udp_file = STATE / 'turn-udp.conf'
+    udp_file.unlink(missing_ok=True)
+    atomic(config_path, json.dumps(config).encode())
+    if port is not None:
+        account = pwd.getpwnam('qsm-turn')
+        atomic(udp_file, udp_turn_config(config['relay_ipv4'], config['secret'], port).encode(), 0o640)
+        os.chown(udp_file, 0, account.pw_gid)
+        run('nft', '-f', '-', input=f'add element inet {TABLE} udp_ports {{ {port} }}\n'.encode())
+        try:
+            run('systemctl', 'enable', '--now', UDP_UNIT)
+        except BaseException:
+            run('nft', '-f', '-', input=f'delete element inet {TABLE} udp_ports {{ {port} }}\n'.encode())
+            udp_file.unlink(missing_ok=True)
+            raise
+        config['udp_port'] = port
+        atomic(config_path, json.dumps(config).encode())
+    print(f'Optional UDP relay {"enabled on " + str(port) if port else "disabled"}. TCP 8006 remains available. Reload the console.')
+
+
 def firewall(uid):
     return f'''add table inet {TABLE}
 add set inet {TABLE} peers {{ type ipv4_addr . inet_service; flags timeout; timeout 15s; }}
+add set inet {TABLE} udp_ports {{ type inet_service; }}
 add chain inet {TABLE} output {{ type filter hook output priority -5; policy accept; }}
+add rule inet {TABLE} output meta skuid {uid} udp sport @udp_ports ct state established counter accept
 add rule inet {TABLE} output meta skuid {uid} meta l4proto udp ip daddr . udp dport @peers counter accept
 add rule inet {TABLE} output meta skuid {uid} meta l4proto udp counter drop
 '''
@@ -168,7 +225,7 @@ def snapshot():
 def restore():
     saved = json.loads((STATE / 'before.json').read_text())
     # Stop accepting new TURN allocations before opening the original listener.
-    for unit in UNITS:
+    for unit in (*UNITS, UDP_UNIT):
         subprocess.run(['systemctl', 'disable', '--now', unit], check=False, stdout=subprocess.DEVNULL)
     subprocess.run(['systemctl', 'disable', '--now', 'qsm-pve-direct-gateway-certs.timer'], check=False)
     for name, path in (('proxy', PVE), ('signal', ETC / 'signal.json')):
@@ -178,6 +235,7 @@ def restore():
         else:
             atomic(path, base64.b64decode(previous), 0o644 if name == 'proxy' else 0o600)
     (ETC / 'gateway.json').unlink(missing_ok=True)
+    (STATE / 'turn-udp.conf').unlink(missing_ok=True)
     subprocess.run(['nft', 'delete', 'table', 'inet', TABLE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     run('/usr/sbin/qsm-pve-direct-ui', 'reconcile')
     run('systemctl', 'restart', 'pveproxy')
@@ -246,17 +304,29 @@ def enable(address):
 
 
 def prepare():
+    with open('/run/lock/qsm-direct-gateway-prepare.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        _prepare()
+
+
+def _prepare():
     # Reboot entry point: create an empty fail-closed allowlist, then peers
     # refresh it. Never flush a global table or add any ingress ACCEPT rule.
     certificates()
     if subprocess.run(['nft', 'list', 'table', 'inet', TABLE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
         run('nft', '-f', '-', input=firewall(pwd.getpwnam('qsm-turn').pw_uid).encode())
+    ensure_udp_set()
+    config = json.loads((ETC / 'gateway.json').read_text())
+    if config.get('udp_port') is not None:
+        subprocess.run(['nft', 'add', 'element', 'inet', TABLE, 'udp_ports', '{', str(config['udp_port']), '}'],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('enable', 'disable', 'status', 'prepare', 'certificates'))
+    parser.add_argument('action', choices=('enable', 'disable', 'udp-enable', 'udp-disable', 'status', 'prepare', 'certificates'))
     parser.add_argument('--relay-ip')
+    parser.add_argument('--udp-port', type=int, default=8006)
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error('run as root')
@@ -272,6 +342,8 @@ def main():
             enable(args.relay_ip)
         elif args.action == 'disable':
             restore()
+        elif args.action in ('udp-enable', 'udp-disable'):
+            configure_udp(args.udp_port if args.action == 'udp-enable' else None)
         elif args.action == 'prepare':
             prepare()
         elif args.action == 'certificates':

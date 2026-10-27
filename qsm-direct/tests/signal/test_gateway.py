@@ -3,6 +3,7 @@ import base64
 import hashlib
 import hmac
 import importlib.util
+import json
 import os
 from pathlib import Path
 import sys
@@ -28,6 +29,66 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(value['credential'], expected)
         self.assertEqual(value['ttl'], 600)
         self.assertNotEqual(value['username'], ice_credentials({'secret': 'a' * 64}, now=1234)['username'])
+
+    def test_optional_udp_keeps_tcp_and_uses_the_same_scoped_authentication(self):
+        config = tool.udp_turn_config('192.0.2.5', 'a' * 64, 8006)
+        self.assertIn('listening-ip=192.0.2.5', config)
+        self.assertIn('listening-port=8006', config)
+        self.assertIn('no-tcp\n', config); self.assertNotIn('no-udp\n', config)
+        self.assertNotIn('tcp-proxy-port=', config)
+        self.assertIn('allowed-peer-ip=192.0.2.5', config)
+        self.assertIn('no-cli', config)
+        rules = tool.firewall(1234)
+        self.assertIn('udp sport @udp_ports ct state established', rules)
+        self.assertLess(rules.index('udp sport @udp_ports'), rules.index('udp counter drop'))
+        self.assertNotIn('hook input', rules)
+        old = ice_credentials({'secret': 'a' * 64}, now=1234)
+        new = ice_credentials({'secret': 'a' * 64, 'udp_port': 8006}, now=1234)
+        self.assertNotIn('udp_port', old); self.assertEqual(new['udp_port'], 8006)
+        for port in (True, 0, 443, 65536, '8006'):
+            with self.assertRaises(ValueError): tool.udp_turn_config('192.0.2.5', 'a' * 64, port)
+
+    def test_udp_configuration_publishes_only_after_service_start_and_keeps_tcp_running(self):
+        with tempfile.TemporaryDirectory() as directory:
+            etc, state = Path(directory) / 'etc', Path(directory) / 'state'
+            etc.mkdir(); state.mkdir(); (state / 'before.json').write_text('{}')
+            initial = {'secret': 'a' * 64, 'relay_ipv4': '192.0.2.5'}
+            (etc / 'gateway.json').write_text(json.dumps(initial))
+            calls = []
+            def run(*args, **kwargs):
+                calls.append(args)
+                if args == ('systemctl', 'enable', '--now', tool.UDP_UNIT):
+                    self.assertNotIn('udp_port', json.loads((etc / 'gateway.json').read_text()),
+                                     'do not advertise an unstarted listener')
+            with patch.object(tool, 'ETC', etc), patch.object(tool, 'STATE', state), \
+                    patch.object(tool, 'ensure_udp_set'), patch.object(tool, 'run', side_effect=run), \
+                    patch.object(tool.socket, 'socket'), patch.object(tool.os, 'chown'), \
+                    patch.object(tool.pwd, 'getpwnam', return_value=SimpleNamespace(pw_gid=1234)):
+                tool.configure_udp(8006)
+                self.assertEqual(json.loads((etc / 'gateway.json').read_text())['udp_port'], 8006)
+                self.assertIn('no-tcp', (state / 'turn-udp.conf').read_text())
+                tool.configure_udp(None)
+            self.assertEqual(json.loads((etc / 'gateway.json').read_text()), initial)
+            self.assertFalse((state / 'turn-udp.conf').exists())
+            self.assertTrue(all('pveproxy' not in args and 'flush' not in args for args in calls))
+            self.assertTrue(all(tool.UDP_UNIT in args for args in calls if args[0] == 'systemctl'))
+
+    def test_failed_udp_start_does_not_advertise_a_broken_candidate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            etc, state = Path(directory) / 'etc', Path(directory) / 'state'
+            etc.mkdir(); state.mkdir(); (state / 'before.json').write_text('{}')
+            initial = {'secret': 'a' * 64, 'relay_ipv4': '192.0.2.5'}
+            (etc / 'gateway.json').write_text(json.dumps(initial))
+            def run(*args, **kwargs):
+                if args == ('systemctl', 'enable', '--now', tool.UDP_UNIT):
+                    raise RuntimeError('owned test startup failure')
+            with patch.object(tool, 'ETC', etc), patch.object(tool, 'STATE', state), \
+                    patch.object(tool, 'ensure_udp_set'), patch.object(tool, 'run', side_effect=run), \
+                    patch.object(tool.socket, 'socket'), patch.object(tool.os, 'chown'), \
+                    patch.object(tool.pwd, 'getpwnam', return_value=SimpleNamespace(pw_gid=1234)):
+                with self.assertRaises(RuntimeError): tool.configure_udp(8006)
+            self.assertEqual(json.loads((etc / 'gateway.json').read_text()), initial)
+            self.assertFalse((state / 'turn-udp.conf').exists())
 
     def test_bootstrap_requires_vm_console_even_when_no_gateway_config_exists(self):
         auth = SimpleNamespace(authorize=lambda *args: (_ for _ in ()).throw(SignalError(401)))

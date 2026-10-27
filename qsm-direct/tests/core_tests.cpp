@@ -346,6 +346,27 @@ void test_video_budget_limits_encoded_bytes_before_admitting_raw_frames() {
     CHECK(idle_frames == 600U);
 }
 
+void test_ui_replay_reserves_capacity_without_double_charging_fresh_tiles() {
+    using namespace std::chrono_literals;
+    using Clock = qmdp::VideoBudget::Clock;
+    const Clock::time_point start {};
+    qmdp::VideoBudget reserved, normal, fresh;
+    CHECK(reserved.ready(start, 8000U, 50));
+    CHECK(normal.ready(start, 8000U));
+    CHECK(fresh.ready(start, 8000U, 50));
+    reserved.account(100000U); normal.account(100000U);
+    fresh.account(100000U);
+    // Fifty percent cache replay takes twice as long to repay encoder debt.
+    CHECK(!reserved.ready(start + 150ms, 8000U, 50));
+    CHECK(normal.ready(start + 150ms, 8000U));
+    // A freshly emitted tile is already charged. Its observed bytes pay
+    // the reservation once, instead of subtracting the same cost twice.
+    fresh.account_auxiliary(10000U);
+    CHECK(!fresh.ready(start + 20ms, 8000U, 50));
+    CHECK(fresh.ready(start + 250ms, 8000U, 50));
+    CHECK(reserved.ready(start + 250ms, 8000U, 50));
+}
+
 void test_video_budget_keeps_keyframe_debt_across_rate_changes() {
     using namespace std::chrono_literals;
     qmdp::VideoBudget budget;
@@ -371,6 +392,7 @@ int main() {
     test_audio_is_converted_to_the_session_format();
     test_video_budget_limits_encoded_bytes_before_admitting_raw_frames();
     test_video_budget_keeps_keyframe_debt_across_rate_changes();
+    test_ui_replay_reserves_capacity_without_double_charging_fresh_tiles();
 
     if (failures == 0) {
         std::cout << "all qmdp core tests passed\n";

@@ -125,7 +125,7 @@ for (const hook of ['const queuePointer = (value) => {\n                noteGues
     'noteGuestInput();\n            if (down) {']) {
     assert.ok(source.includes(hook), 'ordinary pointer and key input must note guest input and re-issue a stalled Display1 resize');
 }
-assert.match(source, /const visible = `\$\{video\.videoWidth\}x\$\{video\.videoHeight\}@\$\{sessionFps\}`;/,
+assert.match(source, /const visible = `\$\{remoteVideoWidth\(\)\}x\$\{remoteVideoHeight\(\)\}@\$\{sessionFps\}`;/,
     'the decoded-resize identity must carry the session FPS, or convergence is never recognised off 60 FPS');
 assert.match(source, /Date\.now\(\) - lastInputSentAt > 5000\) \{\s*guestAsleepHint = true;/,
     'a black picture right after input is not a sleeping guest; the wake hint must wait');
@@ -151,8 +151,8 @@ assert.match(source, /const state = await apiValue\(vmStatusUrl\(\), 'GET'/,
     'the VM run-state read must still use the stock protected PVE API');
 assert.match(source, /const GUEST_SLEEP_HINT_MS = 4000;/,
     'the sleep hint must wait long enough to exclude a mode-switch black frame');
-assert.match(source, /livenessContext\.drawImage\(video, 0, 0, 32, 18\);/,
-    'sleep detection must sample the intrinsic decoded frame, not the letterboxed CSS box');
+assert.match(source, /livenessContext\.drawImage\(videoRegions\.width \? videoCanvas : video, 0, 0, 32, 18\);/,
+    'sleep detection must sample the composed desktop instead of a cropped video region');
 assert.match(source, /pixels\[index\] > 8 \|\| pixels\[index \+ 1\] > 8 \|\| pixels\[index \+ 2\] > 8/,
     'only exact DPMS black may count as a sleeping guest; a dark movie scene must not');
 assert.match(source, /if \(livenessTimer !== null\) \{ popup\.clearInterval\(livenessTimer\); \}/,

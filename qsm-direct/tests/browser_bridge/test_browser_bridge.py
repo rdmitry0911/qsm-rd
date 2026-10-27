@@ -84,6 +84,26 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
             track.end_nowait()
         asyncio.run(receive())
 
+    def test_capture_and_region_metadata_follow_the_actual_encoded_picture(self) -> None:
+        import struct
+        from extensions.browser_bridge.qsm_browser_bridge import PACKET_CAPTURE_TIME, PACKET_REGION
+        assembler = _VideoAssembler(60)
+        flags = PACKET_FIRST | PACKET_END | PACKET_IDR | PACKET_VIDEO_TIME | PACKET_CAPTURE_TIME | PACKET_REGION
+        region = (1280, 720, 640, 64, 640, 448)
+        payload = struct.pack('!QQHHHHHH', 900000, 1234567, *region) + b'key'
+        unit = assembler.add(1, 0, flags, payload)
+        self.assertEqual(unit.data, b'key'); self.assertEqual(unit.capture, 1234567)
+        self.assertEqual(unit.region, region)
+        async def receive():
+            track = _PacketTrack('video', maximum_queue=4); track.put_nowait(unit)
+            await track.recv()
+            self.assertEqual(track.current_capture, 1234567); self.assertEqual(track.current_region, region)
+            track.end_nowait()
+        asyncio.run(receive())
+        bad = struct.pack('!QQHHHHHH', 900000, 1234567, 1280, 720, 1000, 0, 640, 448) + b'key'
+        with self.assertRaises(BridgeError): assembler.add(2, 0, flags, bad)
+        with self.assertRaises(BridgeError): assembler.add(3, 0, flags, payload[:28])
+
     def test_timed_video_reassembles_split_timestamp_and_rejects_empty_picture(self) -> None:
         import struct
         assembler = _VideoAssembler(60)
@@ -285,6 +305,22 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
 
 
 class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
+    async def test_frame_metadata_backpressure_does_not_grow_control_history(self):
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory)); sent = []
+            channel = SimpleNamespace(readyState='open', bufferedAmount=16384, send=sent.append)
+            bridge._control_channel = channel
+            try:
+                self.assertFalse(bridge._send_control({'op': 'qsm_video_frame', 'rtp': 1, 'capture': 100}))
+                self.assertFalse(sent)
+                self.assertTrue(bridge._send_control({'op': 'qsm_input_policy'}))
+                channel.bufferedAmount = 0
+                self.assertTrue(bridge._send_control({'op': 'qsm_video_frame', 'rtp': 2, 'capture': 200}))
+                self.assertEqual(len(sent), 2)
+            finally:
+                await bridge.close()
+
     async def test_unresolved_mdns_offer_can_connect_by_authenticated_incoming_checks(self) -> None:
         with tempfile.TemporaryDirectory(prefix="qsm-browser-mdns.") as directory:
             browser = RTCPeerConnection()

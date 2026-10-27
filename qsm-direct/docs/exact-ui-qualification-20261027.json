@@ -1,0 +1,228 @@
+{
+  "date": "2026-10-27",
+  "package": "0.4.0+stock4.14~exp19",
+  "healthy_mixed_content_runtime": "0.4.0+stock4.14~exp18",
+  "difference_in_exp19": "Bound replaceable frame mapping metadata under SCTP backpressure; unit checked.",
+  "environment": {
+    "guest": "owned native Wayland LXC",
+    "browser": "Playwright Firefox 157, headless Linux",
+    "codec": "H.264/NVENC",
+    "surface": [
+      1280,
+      720
+    ],
+    "network": "real TURN/TCP; aggregate downlink shaped to 20 or 2 Mbit/s",
+    "targets_kbps": [
+      8000,
+      1500
+    ],
+    "adaptation": "disabled for deterministic comparison",
+    "bootstrap": "PVE bootstrap and launch API mocked; capture/encoding/WebRTC/input real"
+  },
+  "cases": [
+    {
+      "name": "fast_video_only",
+      "exact": false,
+      "overlapping_video": false,
+      "glyph_samples_ms": [
+        113,
+        113,
+        112,
+        97,
+        115,
+        114,
+        112,
+        115,
+        98,
+        114,
+        96,
+        114,
+        114,
+        99,
+        115
+      ],
+      "glyph_median_ms": 113,
+      "glyph_p95_ms": 115,
+      "guest_characters": 15,
+      "fixture_text_matches": true
+    },
+    {
+      "name": "fast_exact",
+      "exact": true,
+      "overlapping_video": false,
+      "glyph_samples_ms": [
+        48,
+        32,
+        21,
+        53,
+        33,
+        21,
+        50,
+        50,
+        50,
+        20,
+        53,
+        70,
+        36,
+        21,
+        52
+      ],
+      "glyph_median_ms": 48,
+      "glyph_p95_ms": 70,
+      "guest_characters": 15,
+      "fixture_text_matches": true
+    },
+    {
+      "name": "overlap_fast_video_only",
+      "exact": false,
+      "overlapping_video": true,
+      "glyph_samples_ms": [
+        161,
+        165,
+        150,
+        181,
+        168,
+        169,
+        148,
+        166,
+        150,
+        165,
+        149,
+        166,
+        149,
+        171,
+        148
+      ],
+      "glyph_median_ms": 165,
+      "glyph_p95_ms": 181,
+      "guest_characters": 15,
+      "fixture_text_matches": true
+    },
+    {
+      "name": "overlap_fast_exact",
+      "exact": true,
+      "overlapping_video": true,
+      "glyph_samples_ms": [
+        22,
+        50,
+        54,
+        32,
+        37,
+        53,
+        52,
+        55,
+        54,
+        53,
+        52,
+        54,
+        36,
+        54,
+        71
+      ],
+      "glyph_median_ms": 53,
+      "glyph_p95_ms": 71,
+      "guest_characters": 15,
+      "fixture_text_matches": true
+    },
+    {
+      "name": "overlap_2mbit_video_only",
+      "exact": false,
+      "overlapping_video": true,
+      "glyph_samples_ms": [
+        162,
+        203,
+        203,
+        201,
+        152,
+        152,
+        152,
+        154,
+        203,
+        169,
+        205,
+        205,
+        153,
+        186,
+        186
+      ],
+      "glyph_median_ms": 186,
+      "glyph_p95_ms": 205,
+      "guest_characters": 15,
+      "fixture_text_matches": true
+    },
+    {
+      "name": "overlap_2mbit_exact",
+      "exact": true,
+      "overlapping_video": true,
+      "glyph_samples_ms": [
+        77,
+        54,
+        54,
+        37,
+        69,
+        52,
+        56,
+        85,
+        107,
+        68,
+        88,
+        66,
+        49,
+        71,
+        37
+      ],
+      "glyph_median_ms": 66,
+      "glyph_p95_ms": 107,
+      "guest_characters": 15,
+      "fixture_text_matches": true
+    }
+  ],
+  "baseline_exp6_glyph_2mbit_median_ms": 216,
+  "rapid_overlapping_input": {
+    "characters": 15,
+    "fixture_text_matches": true,
+    "last_key_to_all_glyphs_ms": 98,
+    "verification_rpc_ms": 738.543335814029
+  },
+  "exact_pixels": {
+    "opaque": 65536,
+    "equal": 65536,
+    "samples": 65536
+  },
+  "visible_video_samples": 6,
+  "scroll": {
+    "before": 39,
+    "after": 42
+  },
+  "window_move_resurrections": 0,
+  "window_close_resurrections": 0,
+  "viewport_resize": {
+    "video": [
+      1024,
+      768
+    ],
+    "exact_canvas": [
+      1024,
+      768
+    ]
+  },
+  "command_counts": {
+    "cache_hits": 322,
+    "scroll_copies": 213,
+    "fills": 857
+  },
+  "video_queue_at_2mbit_case": {
+    "video_overflows": 5,
+    "video_drops": 208
+  },
+  "video_queue_after_close": {
+    "video_overflows": 5,
+    "video_drops": 208
+  },
+  "limits": [
+    "No measured RDP comparison",
+    "No equivalent live VM/HEVC/QSV/VA-API/Safari/Chromium mixed-content acceptance yet",
+    "UDP tested with a private local coturn relay and real remote bridge; no router NAT configuration changed",
+    "Crop gating across viewers unit checked; not a live multi-viewer soak test"
+  ]
+}

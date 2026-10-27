@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -22,22 +23,33 @@ public:
     static constexpr std::size_t max_payload = 6144;
     static constexpr std::uint64_t max_pixels = 3840U * 2160U;
     enum Op : std::uint8_t { hello = 0, reset = 1, patch = 2, clear = 3, heartbeat = 4 };
+    struct Region {
+        std::uint32_t x {}, y {}, width {}, height {};
+    };
+    [[nodiscard]] std::optional<Region> motion_region() const noexcept { return region_; }
+    void prioritize(std::optional<Region> region, Clock::time_point until) noexcept {
+        focus_ = region; focus_until_ = until;
+    }
     struct Stats {
         std::uint64_t patches {}, clears {}, bytes {}, resets {}, busy_tiles {};
     };
 
     void disable();
+    void capture(std::uint64_t timestamp) noexcept { capture_ = timestamp; }
     void resync() noexcept { reset_needed_ = true; }
     void update(Pixels pixels, std::uint32_t width, std::uint32_t height,
                 Clock::time_point now, std::uint32_t bitrate_kbps, const Send& send);
     [[nodiscard]] const Stats& stats() const noexcept { return stats_; }
-    [[nodiscard]] static std::vector<std::uint8_t> greeting();
+    [[nodiscard]] static std::vector<std::uint8_t> greeting(std::uint32_t capabilities = 0);
+    // Capture/mode changes wake us immediately. Only settling, bandwidth
+    // refill, failed local sends and the liveness lease need a timer.
+    [[nodiscard]] std::optional<Clock::time_point> next_wakeup() const noexcept { return next_wakeup_; }
 
 private:
     struct Tile {
         Clock::time_point changed {}, busy_until {};
         unsigned streak {};
-        bool active {}, incompressible {}, dirty {};
+        bool active {}, incompressible {}, dirty {}, urgent {};
         std::uint8_t encoding {};
         std::vector<std::uint8_t> pending;
     };
@@ -46,11 +58,15 @@ private:
               std::uint8_t encoding = 0);
     std::uint32_t width_ {}, height_ {}, epoch_ {}, sequence_ {};
     bool reset_needed_ {true};
+    std::uint64_t capture_ {};
     Pixels previous_;
     std::vector<Tile> tiles_;
     Clock::time_point credit_at_ {}, heartbeat_at_ {};
+    std::optional<Clock::time_point> next_wakeup_;
     double credit_ {};
     Stats stats_;
+    std::optional<Region> region_, focus_;
+    Clock::time_point focus_until_ {};
 };
 
 } // namespace qmdp

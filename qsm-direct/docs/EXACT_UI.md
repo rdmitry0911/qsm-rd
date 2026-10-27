@@ -1,135 +1,170 @@
-# Experimental exact UI layer
+# Experimental mixed-content desktop
 
-This prototype sends small, losslessly compressed pixel tiles over a separate
-WebRTC data channel, above the existing full-desktop video. Text, menus and
-other compressible, infrequently changing areas can arrive without waiting
-for the next encoded/decoded video picture. Motion stays in the existing
-H.264/HEVC path. No OCR, replacement fonts or application text extraction is
-used: the overlay contains the guest's actual rendered pixels.
+The exact UI layer sends the guest's actual pixels over a reliable WebRTC data
+channel. Text, menus and static backgrounds arrive independently of H.264/HEVC
+video. It uses neither OCR nor substituted fonts. Capture is shared by the VM
+and LXC backends; no additional guest package is required for these changes.
 
-The option is **off by default**. In a console built from this source, open
-**Console settings → Experimental exact UI**. The checkbox becomes available
-after both worker and bridge advertise support, and requires the browser's
-`DecompressionStream` API. The choice persists in this browser. Turning it off
-clears the canvas and, after the last subscriber leaves, stops tile processing
-in the shared worker. Stable stock4.13 does not contain this mode.
-
-An administrator can opt a test node into the default with a systemd drop-in
-for `qsm-pve-direct-terminal.service`:
+The option remains experimental and **off by default** in the package. Open
+**Console settings → Experimental exact UI** in a supported browser. An explicit
+browser choice persists. Administrators can choose the default in a terminal
+service drop-in:
 
 ```ini
 [Service]
 Environment=QSM_DIRECT_EXACT_UI_DEFAULT=1
 ```
 
-Reload systemd and restart that QSM service to apply it; existing QSM viewers
-must reconnect, while guests keep running. The browser enables the option only
-after worker capability is confirmed. An explicit checkbox choice overrides
-the node default and persists; false values saved implicitly by older versions
-do not block the administrator's new default. Removing the drop-in restores
-the off default for browsers with no explicit choice.
+Apply with `systemctl daemon-reload` and a restart of
+`qsm-pve-direct-terminal.service`; existing QSM consoles must reconnect. Guests
+continue running. Remove the environment setting to restore the package default.
+Stable stock4.13 does not implement this mode.
 
-## Scope and limits
+## Delivery and scheduling
 
-The worker uses the common captured BGRA surface, so the implementation covers
-both VM and LXC capture paths and does not depend on NVENC, QSV, VA-API or
-libx264. Live qualification so far covers a native Wayland LXC, H.264/NVENC and
-Firefox over TURN/TCP 8006. VM capture, HEVC and the other encoders have not yet
-received equivalent live mixed-content qualification.
+Capture damage, mode changes and SCTP buffer notifications wake the sender
+immediately. Timers cover bandwidth refill, motion settling and liveness;
+there is no 16 ms worker or 20 ms UI bridge polling interval.
 
-This is the first stage of a mixed-content transport. The video still encodes
-the full desktop: there is no separate cropped video stream, compositor window
-metadata, CopyRect/scroll command, or semantic text protocol. The existing
-guest package is sufficient. Later compositor hints may improve classification
-and avoid encoding the same UI twice.
+The common video/UI budget charges every source UI byte, including invalidations.
+Refinement normally receives 15% of the current target. Foreground updates and
+large snapshots can borrow up to 50%, with a 512 KiB/s ceiling and a 16 KiB burst.
+Video pays by admitting fewer raw pictures; the encoder's static-picture quality
+and predictive reference chain are retained. Pending foreground tiles preserve
+their priority across refills. Keyboard events temporarily prioritize a bounded
+area near the last guest click. This is an input-location hint, not guest focus
+or caret metadata; keyboard-only focus changes may fall back to video. Cached replay reserves producer capacity as well;
+several viewers share the maximum requested reservation rather than multiplying
+it. Old workers retain their original per-viewer 15%/128 KiB/s limit.
 
-At a narrow bandwidth target, refining a large newly opened text window can
-take several seconds. New input takes priority over that background work, but
-high-frequency changes fall back to video and refine after settling. The
-prototype does not guarantee immediate lossless updates for every application,
-nor RDP-equivalent latency. There has been no measured comparison with RDP.
+Each viewer keeps one latest pending operation per tile. Browser inflation is
+limited to eight concurrent jobs and coalesces queued tile history. Processing
+acknowledgements report received sequence and outstanding decode work. Bitmap
+references require a separate acknowledgement that the bitmap was decoded.
+These acknowledgements do not claim physical display or input completion.
 
-Tile and video presentation use independent clocks. Epochs and serials prevent
-old tile decodes from repainting after a clear/reset/resize. This is not a
-frame-synchronous video compositor: substantial video backlog, loss recovery,
-animated/translucent windows and rapid repeated occlusion still need wider
-qualification before enabling the feature by default.
+## Video/UI composition
 
-## Data path and bounds
+A monotonic capture identifier accompanies exact updates and the actual encoded
+picture. The bridge maps that identifier to the picture's RTP timestamp. Browsers
+that expose `requestVideoFrameCallback` RTP metadata release old overlay pixels
+only after an appropriate video picture is submitted to the browser compositor.
+A fresh text patch can still lead video. Same-size resets retain backing pixels
+until the matching presentation fence; late inflations cannot resurrect old tiles.
 
-* Tile edge: 64 pixels. Maximum surface: 8,294,400 pixels, with each dimension
-  at most 16,384. Larger surfaces continue through video with no exact overlay.
-* Payload: zlib-compressed opaque RGBA, or one exact sample per pixel for a
-  neutral grayscale tile. No quantization or chroma subsampling is applied.
-  Incompressible tiles stay in video. A payload is at most 6,144 bytes.
-* Three changes less than 75 ms apart classify a tile as motion. It remains in
-  video for 250 ms after the most recent busy change. This is a pixel-change
-  heuristic, not an application/window classifier.
-* The worker reserves at most 15% of the current video target for refinement,
-  capped at 128 KiB/s with a 16 KiB burst. UI bytes also debit the shared video
-  budget. Each viewer applies the same refinement rate limit to cached replay.
-  Small invalidations can borrow credit so an old tile does not conceal video.
-* One shared compressed cache is limited to 16 MiB. Every viewer keeps only the
-  latest pending update for each tile and a 16 KiB SCTP queue threshold.
-  Slow viewers do not accumulate a history of the desktop or block other peers.
-* The reliable ordered `qsm-exact-ui` channel carries only these bounded binary
-  records. Input retains its existing control/pointer channels. DTLS protects
-  the new channel; gateway deployments continue to use TCP 8006 without a new
-  public port.
-* Geometry, compressed input and inflated output are bounded on the bridge and
-  browser. A decode error disables the optional overlay. Worker record gaps or
-  missing heartbeats clear the shared cache and request a fresh snapshot.
+Browsers without usable RTP frame metadata negotiate the original tile protocol
+and retain full-desktop video. A callback API alone is not treated as evidence
+that its RTP metadata is available.
 
-## Private protocol and upgrades
+Protocol version 3 adds bounded opaque fills, acknowledged bitmap references,
+and vertical scroll copies. Scroll commands read an immutable cached bitmap and
+send only newly exposed rows. Copies that overlap therefore cannot read earlier
+writes. The per-viewer cache holds at most 256 bitmaps (at most 4 MiB of RGBA);
+it is discarded on an epoch change. An unconfirmed bitmap is never referenced.
 
-The existing authenticated local `SOCK_SEQPACKET` video tap carries records
-with flag `0x80`. A 28-byte network-order header has layout
-`!4sBBHIIHHHHHH`: magic `QUI1`, operation, encoding, zero reserved field,
-epoch, serial, surface width/height, tile x/y/width/height. Operations are
-HELLO=0, RESET=1, PATCH=2, CLEAR=3, HEARTBEAT=4. Encoding is zero for RGBA or
-one for grayscale PATCH only. A browser receives RESET/PATCH/CLEAR with its
-own epoch and serial; it never receives a worker HELLO.
+## Optional cropped video
 
-Private input opcode 10 uses one byte: off=0, on=1, resync=2, probe=3.
-A new worker emits no new media record until a bridge probes support. Old
-workers safely ignore that unknown opcode. This preserves video/input when
-old and new processes overlap during an upgrade; the new checkbox stays
-unavailable until the complete new path is present. The browser control
-message is `{"op":"qsm_ui_mode","enabled":true}` and is not forwarded as
-guest input.
+An additional, separately opt-in experiment is available in the same terminal
+service drop-in:
 
-## Build and checks
+```ini
+[Service]
+Environment=QSM_DIRECT_EXACT_UI_DEFAULT=1
+Environment=QSM_DIRECT_VIDEO_REGIONS=1
+```
 
-The added build dependency is `zlib1g-dev`; runtime uses `zlib1g`. Build the
-PVE packages on Debian 13 using the existing packaging scripts. For example:
+With version 4 viewers, the worker can encode one bounding region containing
+busy/incompressible tiles instead of the entire desktop. One encoder/session
+is retained. Static pixels outside the region use the exact layer and the last
+full desktop backing. Pointer coordinates, resize and zoom retain desktop
+coordinates. Clears outside a presented crop wait for coverage or a replacement
+exact patch.
+
+Cropping starts only when **every viewer** supports/enables the mode and has
+acknowledged a presented full desktop. A legacy viewer, disabled exact layer or
+new unready viewer restores full video. Invalid, large, empty or odd-sized crop
+candidates use full video. The region grows to retain coverage and does not shrink with per-frame tile
+classification; mode or desktop changes reset it. Changing crop dimensions
+requires a fresh encoder picture and can briefly reduce video cadence. Leave this experiment disabled
+for installations that have not qualified those transitions.
+
+This implementation uses pixels, not window or text semantics. In nested Plasma,
+the outer Sway sees the nested KWin surface; per-application focus, caret and
+window metadata would require KWin-side integration. That integration is not
+implemented here. The current generic path works without it.
+
+## Bounds and transport
+
+* Tiles are 64×64 pixels. Maximum surface is 8,294,400 pixels; each dimension
+  is at most 16,384. Larger desktops continue through video without an overlay.
+* Worker payloads are bounded zlib-compressed opaque RGBA or exact grayscale,
+  at most 6,144 bytes. There is no chroma subsampling or quantization in tiles.
+* Three dense changes less than 75 ms apart select video until 250 ms after the
+  latest busy change. Sparse changes (at most 1/8 of a tile) near the last clicked input location
+  keep the exact path during fast typing, including colored font antialiasing. Established motion retains video classification
+  until it settles, including during occasional sparse frames. This remains a pixel-damage heuristic.
+* The shared compressed cache is limited to 16 MiB. Per-viewer SCTP buffering is
+  bounded to 16 KiB. Slow viewers do not accumulate desktop history.
+* Gaps and missing worker heartbeats invalidate source caches. Decode errors
+  disable the optional layer. Geometry, compression, cache and copy bounds are
+  checked before drawing.
+* The `qsm-exact-ui` data channel uses SCTP/DTLS. Video/audio remain SRTP. Input
+  keeps its existing independent control and pointer channels.
+* TCP/8006 gateway operation needs no new port. An optional TURN/UDP listener
+  can be configured separately; see [README.gateway](../packaging/debian/README.gateway).
+
+## Protocol and upgrades
+
+Private `SOCK_SEQPACKET` UI records use flag `0x80` and header
+`!4sBBHIIHHHHHH`: `QUI1`, operation, encoding, extension length, epoch, serial,
+surface dimensions and tile rectangle. Operations 0–4 are HELLO, RESET, PATCH,
+CLEAR and HEARTBEAT. Encoding 0 is RGBA; 1 is grayscale PATCH.
+
+Private input opcode 10 uses off=0, on=1, resync=2, original probe=3 and
+capability probe=4. A new bridge first tries 4, then falls back to 3 if needed.
+An original probe receives the original 28-byte HELLO. Capability HELLO adds a
+four-byte bitmap: shared budget=1, capture stamps=2, cropped video=4. Workers
+emit no new UI records until probed. Opcode 11 reserves 0–50% UI capacity;
+opcode 12 disables cropping (0), primes full-frame region metadata (1) or
+permits cropping (2). Both are private server controls, never guest input.
+
+Stamped UI records have extension length 8 and a network-order capture u64
+before their payload. Timed video retains its timestamp prefix, adding capture
+u64 under flag `0x100`, and six u16 surface/region values under `0x200` after a
+new bridge explicitly primes that protocol. Encoder PTS associates metadata
+with the submitted picture; metadata is not sampled later from the latest frame.
+
+Browser negotiation retains `qsm_ui_mode`; new bridges advertise `max_version`.
+Old viewers receive their original unstamped RESET/PATCH/CLEAR records. Version
+2 adds capture stamps and processing feedback; 3 adds FILL=6, STORE=7,
+REFERENCE=8 and SCROLL=9; 4 adds region composition and full-frame acknowledgement.
+All cache resources are local to a peer and epoch. Video/input compatibility
+with old workers/bridges remains part of upgrade testing.
+
+## Build and qualification
+
+Build on Debian 13 with `zlib1g-dev` and the existing package dependencies:
 
 ```sh
-export QSM_DIRECT_DEB_VERSION='0.4.0+stock4.14~exp6'
+export QSM_DIRECT_DEB_VERSION='0.4.0+stock4.14~exp19'
 for profile in qsm-pve-direct qsm-pve-direct-standalone qsm-pve-direct-lxc qsm-pve-direct-gateway; do
     bash "packaging/debian/build-$profile-deb.sh"
 done
-```
-
-The source suite adds worker pixel fidelity, motion/settling, priority, gap
-recovery and resize checks; bounded decompression and multi-viewer bridge
-checks; and browser tests for delayed inflation versus clear/resize/disable.
-
-```sh
 cmake -S . -B build-exact-ui -G Ninja -DBUILD_TESTING=ON
 cmake --build build-exact-ui
 ctest --test-dir build-exact-ui --output-on-failure
 PYTHONPATH=. python3 -m unittest discover -s tests/browser_bridge -v
+PYTHONPATH=. python3 -m unittest discover -s tests/signal -v
+node tests/proxmox_pve9/test_exact_ui.mjs
 ```
 
-Mixed-content acceptance must include a **separate overlapping input window**,
-with the underlying clip visibly advancing. Compare feature off/on at the same
-network and video target. Verify typed content, source pixel fidelity, scroll,
-move, resize and close; sample the old window location to detect resurrected
-tiles. Repeat through a shaped link and both directions of an old/new worker
-and bridge combination. Preserve the original desktop output and guest state.
+Live qualification uses an owned native Wayland LXC, H.264/NVENC and Firefox,
+including a separate input window overlapping a playing clip. Check real glyph
+appearance, exact pixels, visible motion, scrolling, move/resize/close and old
+pixel resurrection. Compare identical shaped paths and video targets. VM,
+HEVC, QSV/VA-API and other browsers still need equivalent live mixed-content
+qualification; common capture code alone is not that evidence. There has been
+no measured comparison with Microsoft RDP.
 
-The [2026-10-27 qualification](../upstream/review-exact-ui-2026-10-27/qualification.md)
-records the experimental package version, measurements and coverage limits.
-The [exp6 deployment check](../upstream/review-exact-ui-2026-10-27/deployment.md)
-adds the per-node default and records its installation and real PVE/Firefox
-check on the requested node.
+The [2026-10-27 qualification report](EXACT_UI_QUALIFICATION.md) includes actual
+glyph samples, burst input, overlap checks, transport checks and coverage limits.

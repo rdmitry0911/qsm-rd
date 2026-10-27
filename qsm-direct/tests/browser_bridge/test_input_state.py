@@ -32,9 +32,32 @@ class InputStateTests(unittest.TestCase):
             self.assertEqual(len(packets), before)
             egress.probe_lossless_ui(); egress.probe_lossless_ui()
             self.assertEqual(len(packets), before + 1)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x04')
+            egress._ui_probe_at -= 2
+            egress.probe_lossless_ui()
             self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x03')
             with self.assertRaises(BridgeError):
                 egress.encode_browser_message('{"op":"qsm_ui_mode","enabled":true}')
+
+    def test_region_capture_requires_every_viewer_and_a_presented_full_frame(self):
+        with tempfile.TemporaryDirectory() as directory:
+            egress = UnixInputEgress(Path(directory)); packets = []
+            egress._send_packet = lambda p: packets.append(p) or True
+            a, b = object(), object()
+            egress.set_video_regions(a, False); egress.set_video_regions(b, False)
+            egress.set_video_regions(a, True)
+            self.assertEqual(packets[-1][-1], 1, "prime full-frame metadata without cropping")
+            egress.set_video_regions(a, True, True)
+            self.assertEqual(packets[-1][-1], 1, "legacy/disabled second viewer keeps full video")
+            egress.set_video_regions(b, True, True)
+            self.assertEqual(packets[-1][-1], 2)
+            egress.set_video_regions(b, False)
+            self.assertEqual(packets[-1][-1], 1)
+            egress.set_video_regions(b, False, remove=True)
+            self.assertEqual(packets[-1][-1], 2)
+            egress.set_video_regions(a, False, remove=True)
+            self.assertEqual(packets[-1][-1], 0)
+            self.assertTrue(all(p[5] == 12 for p in packets))
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()

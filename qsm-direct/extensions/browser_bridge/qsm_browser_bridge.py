@@ -67,6 +67,8 @@ PACKET_CONFIG = 0x00000010
 PACKET_CURSOR = 0x00000020
 PACKET_VIDEO_TIME = 0x00000040
 PACKET_UI = 0x00000080
+PACKET_CAPTURE_TIME = 0x00000100
+PACKET_REGION = 0x00000200
 CURSOR_HEADER = struct.Struct("!BBQQiiHHHH")
 CURSOR_VERSION = 1
 CURSOR_VISIBLE = 0x01
@@ -613,6 +615,8 @@ class EncodedUnit:
     keyframe: bool
     duration: int
     timestamp: int | None = None
+    capture: int | None = None
+    region: tuple[int, int, int, int, int, int] | None = None
 
 
 @dataclass(frozen=True)
@@ -652,6 +656,8 @@ class _VideoAssembler:
         self._parts: list[bytes] = []
         self._size = 0
         self._timed = False
+        self._captured = False
+        self._region = False
 
     def _reset(self) -> None:
         self._frame = None
@@ -660,6 +666,8 @@ class _VideoAssembler:
         self._parts = []
         self._size = 0
         self._timed = False
+        self._captured = False
+        self._region = False
 
     def add(self, frame: int, fragment: int, flags: int, data: bytes) -> EncodedUnit | None:
         if flags & (PACKET_AUDIO | PACKET_CONFIG):
@@ -670,10 +678,16 @@ class _VideoAssembler:
             self._reset()
             self._frame = frame
             self._timed = bool(flags & PACKET_VIDEO_TIME)
+            self._captured = bool(flags & PACKET_CAPTURE_TIME)
+            self._region = bool(flags & PACKET_REGION)
+            if self._captured and not self._timed:
+                raise BridgeError("capture metadata requires a timed picture")
         if self._frame is None:
             return None
         if (frame != self._frame or fragment != self._fragment or
-                bool(flags & PACKET_VIDEO_TIME) != self._timed):
+                bool(flags & PACKET_VIDEO_TIME) != self._timed or
+                bool(flags & PACKET_CAPTURE_TIME) != self._captured or
+                bool(flags & PACKET_REGION) != self._region):
             # The Unix sender intentionally drops rather than blocks a
             # local encoder. Do not emit a corrupt partial frame; wait
             # for the next FIRST boundary instead.
@@ -696,8 +710,25 @@ class _VideoAssembler:
                 raise BridgeError("timed video access unit has no picture")
             timestamp = struct.unpack_from("!Q", payload)[0]
             payload = payload[8:]
+        capture = None
+        if self._captured:
+            if len(payload) <= 8:
+                self._reset()
+                raise BridgeError("capture metadata has no picture")
+            capture = struct.unpack_from("!Q", payload)[0]
+            payload = payload[8:]
+        region = None
+        if self._region:
+            if not capture or len(payload) <= 12:
+                self._reset(); raise BridgeError("invalid video region metadata")
+            region = struct.unpack_from("!HHHHHH", payload)
+            sw, sh, x, y, w, h = region
+            if (not sw or not sh or sw > 16384 or sh > 16384 or sw * sh > exact_ui.MAX_PIXELS or
+                    not w or not h or x + w > sw or y + h > sh):
+                self._reset(); raise BridgeError("invalid video region geometry")
+            payload = payload[12:]
         result = EncodedUnit(data=payload, keyframe=self._keyframe,
-                             duration=self._nominal_duration, timestamp=timestamp)
+                             duration=self._nominal_duration, timestamp=timestamp, capture=capture, region=region)
         self._reset()
         return result
 
@@ -748,6 +779,8 @@ class _PacketTrack(MediaStreamTrack):
         self.dropped_units = 0
         self.overflows = 0
         self.delivered_units = 0
+        self.current_capture = 0
+        self.current_region = None
         self.recoveries = 0
 
     def _clear_queue(self) -> None:
@@ -817,6 +850,8 @@ class _PacketTrack(MediaStreamTrack):
         if item is None:
             raise MediaStreamError
         unit, pts = item
+        self.current_capture = unit.capture or 0
+        self.current_region = unit.region
         self.delivered_units += 1
         packet = av.Packet(unit.data)
         packet.pts = pts
@@ -1200,6 +1235,9 @@ class UnixInputEgress:
         self._button_owners: dict[int, set[object]] = {}
         self._ui_owners: set[object] = set()
         self._ui_probe_at = float("-inf")
+        self._ui_probe_attempts = 0
+        self._ui_budgets: dict[object, int] = {}
+        self._region_owners: dict[object, tuple[bool, bool]] = {}
 
     def start(self) -> None:
         UnixTapIngress._validate_runtime_directory(self._runtime_directory)
@@ -1481,6 +1519,7 @@ class UnixInputEgress:
                 self._ui_owners.add(owner)
             else:
                 self._ui_owners.discard(owner)
+                self.set_ui_budget(owner, 0)
             if before != bool(self._ui_owners):
                 self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_LOSSLESS_UI, 1) +
                                   bytes([int(bool(self._ui_owners))]))
@@ -1492,14 +1531,45 @@ class UnixInputEgress:
             if self._ui_owners:
                 self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_LOSSLESS_UI, 1) + b'\x02')
 
+    def set_video_regions(self, owner: object, enabled: bool, ready: bool = False, *, remove: bool = False) -> None:
+        def mode():
+            values = tuple(self._region_owners.values())
+            if values and all(enabled and ready for enabled, ready in values):
+                return 2
+            return 1 if any(enabled for enabled, _ in values) else 0
+        with self._input_state_lock:
+            before = mode()
+            if remove:
+                self._region_owners.pop(owner, None)
+            else:
+                self._region_owners[owner] = enabled, ready
+            after = mode()
+            if before != after:
+                self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, 12, 1) + bytes([after]))
+
+    def set_ui_budget(self, owner: object, percent: int) -> None:
+        if type(percent) is not int or not 0 <= percent <= 50:
+            raise BridgeError("invalid UI budget")
+        with self._input_state_lock:
+            before = max(self._ui_budgets.values(), default=0)
+            if percent and owner in self._ui_owners:
+                self._ui_budgets[owner] = percent
+            else:
+                self._ui_budgets.pop(owner, None)
+            after = max(self._ui_budgets.values(), default=0)
+            if before != after:
+                self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, 11, 1) + bytes([after]))
+
     def probe_lossless_ui(self) -> None:
         # Old workers ignore the unknown private opcode. Do not send any new
         # media records until a new bridge explicitly requests this greeting.
         with self._input_state_lock:
             now = time.monotonic()
             if now - self._ui_probe_at >= 1:
-                if self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_LOSSLESS_UI, 1) + b'\x03'):
+                if self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_LOSSLESS_UI, 1) +
+                                     bytes([4 if self._ui_probe_attempts == 0 else 3])):
                     self._ui_probe_at = now
+                    self._ui_probe_attempts += 1
 
     def _send_packet(self, packet: bytes) -> bool:
         with self._lock:
@@ -1842,10 +1912,14 @@ class BrowserWebRtcBridge:
         self.input = shared_input or UnixInputEgress(
             runtime_directory, expected_uid=expected_producer_uid)
         self._input_state = BrowserInputState(self.input, pointer_order=self._pointer_order)
+        self._region_full_frames: set[int] = set()
+        self._regions_eligible = self._regions_ready = False
+        self.input.set_video_regions(self, False)
         self._ui_peer = exact_ui.Peer(self._ui_source, self._send_control, self.input.request_ui_snapshot,
                                       self.input.probe_lossless_ui,
                                       lambda: self._video_rate.current_kbps,
-                                      default_enabled=os.environ.get("QSM_DIRECT_EXACT_UI_DEFAULT") == "1")
+                                      default_enabled=os.environ.get("QSM_DIRECT_EXACT_UI_DEFAULT") == "1",
+                                      demand=lambda percent: self.input.set_ui_budget(self, percent))
         self._input_watchdog: asyncio.Task[None] | None = None
         self._input_ended = False
         self._last_keyframe_request = float("-inf")
@@ -1961,6 +2035,10 @@ class BrowserWebRtcBridge:
         """Send a bounded, server-originated guest-side-channel event."""
         channel = self._control_channel
         if self._closed or channel is None or getattr(channel, "readyState", None) != "open":
+            return False
+        # Frame mappings are replaceable metadata. A stalled viewer must
+        # not accumulate an unbounded history behind control/clipboard data.
+        if payload.get("op") == "qsm_video_frame" and getattr(channel, "bufferedAmount", 0) >= exact_ui.MAX_BUFFERED:
             return False
         try:
             channel.send(json.dumps(payload, separators=(",", ":"), ensure_ascii=True))
@@ -2143,9 +2221,33 @@ class BrowserWebRtcBridge:
                     if isinstance(message, str) and len(message) <= MAX_CONTROL_MESSAGE_BYTES:
                         ui_request = json.loads(message)
                         if isinstance(ui_request, dict) and ui_request.get("op") == "qsm_ui_mode":
-                            if set(ui_request) != {"op", "enabled"} or type(ui_request["enabled"]) is not bool:
+                            if (set(ui_request) not in ({"op", "enabled"}, {"op", "enabled", "version"}) or
+                                    type(ui_request["enabled"]) is not bool or
+                                    type(ui_request.get("version", 1)) is not int or ui_request.get("version", 1) not in (1, 2, 3, 4)):
                                 raise BridgeError("invalid exact UI mode")
+                            self._ui_peer.version = ui_request.get("version", 1)
                             self._set_lossless_ui(ui_request["enabled"])
+                            return
+                        if isinstance(ui_request, dict) and ui_request.get("op") == "qsm_video_ack":
+                            if set(ui_request) != {"op", "rtp"} or type(ui_request["rtp"]) is not int:
+                                raise BridgeError("invalid video acknowledgement")
+                            if self._regions_eligible and ui_request["rtp"] in self._region_full_frames:
+                                self._regions_ready = True
+                                self.input.set_video_regions(self, True, True)
+                            return
+                        if isinstance(ui_request, dict) and ui_request.get("op") == "qsm_ui_ack":
+                            if (set(ui_request) not in ({"op", "epoch", "serial", "pending"}, {"op", "epoch", "serial", "pending", "cached"}) or
+                                    not isinstance(ui_request.get("cached", []), list) or
+                                    len(ui_request.get("cached", [])) > 32 or
+                                    any(type(i) is not int or not 1 <= i <= 0xffffffff for i in ui_request.get("cached", [])) or
+                                    any(type(ui_request[k]) is not int for k in ("epoch", "serial", "pending")) or
+                                    not 0 <= ui_request["pending"] <= 4096):
+                                raise BridgeError("invalid UI acknowledgement")
+                            if ui_request["epoch"] == self._ui_peer.epoch and 0 <= ui_request["serial"] <= self._ui_peer.serial:
+                                self._ui_peer.ack_serial = max(self._ui_peer.ack_serial, ui_request["serial"])
+                                self._ui_peer.ack_pending = ui_request["pending"]
+                                self._ui_peer.confirm_cache(ui_request.get("cached", []))
+                                self._ui_peer.wake()
                             return
                     guest = self._guest_request(message)
                     if guest is None:
@@ -2173,6 +2275,10 @@ class BrowserWebRtcBridge:
         except BridgeError:
             enabled = False
         self._ui_peer.enable(enabled)
+        self._regions_eligible = bool(enabled and self._ui_peer.version >= 4 and self._ui_source.features & 4 and
+                                      os.environ.get("QSM_DIRECT_VIDEO_REGIONS") == "1")
+        self._regions_ready = False
+        self.input.set_video_regions(self, self._regions_eligible)
 
     async def _watch_input(self) -> None:
         while not self._closed:
@@ -2259,6 +2365,7 @@ class BrowserWebRtcBridge:
         return "codec=none"
 
     def _video_rate_changed(self, bitrate_kbps: int) -> None:
+        self._ui_peer.wake()
         self._video_pacer.set_bitrate(bitrate_kbps)
         self._publish_video_rate()
 
@@ -2460,8 +2567,27 @@ class BrowserWebRtcBridge:
         transport = video_sender.transport
         send_rtp = transport._send_rtp
 
+        last_frame_rtp = None
+        async def send_with_frame(data: bytes) -> None:
+            nonlocal last_frame_rtp
+            if (len(data) >= 12 and data[0] >> 6 == 2 and not 192 <= data[1] <= 223 and
+                    struct.unpack_from("!I", data, 8)[0] == video_sender._ssrc):
+                rtp = struct.unpack_from("!I", data, 4)[0]
+                if rtp != last_frame_rtp:
+                    last_frame_rtp = rtp
+                    if self._ui_peer.version >= 2 and self.video_track.current_capture and (self._ui_peer.enabled or self.video_track.current_region):
+                        region = self.video_track.current_region
+                        if region and region[2:] == (0, 0, region[0], region[1]):
+                            self._region_full_frames.add(rtp)
+                            if len(self._region_full_frames) > 64:
+                                self._region_full_frames.clear(); self._region_full_frames.add(rtp)
+                        self._send_control({"op": "qsm_video_frame", "rtp": rtp,
+                                            "capture": self.video_track.current_capture,
+                                            **({"region": region} if region and self._ui_peer.version >= 4 else {})})
+            await send_rtp(data)
+
         async def send_paced(data: bytes) -> None:
-            await self._video_pacer.send(data, video_sender, send_rtp)
+            await self._video_pacer.send(data, video_sender, send_with_frame)
 
         transport._send_rtp = send_paced
         # Diagnose unresolved mDNS offers without exposing SDP or addresses.
@@ -2546,6 +2672,7 @@ class BrowserWebRtcBridge:
             return
         self._closed = True
         self._set_lossless_ui(False)
+        self.input.set_video_regions(self, False, remove=True)
         await self._ui_peer.close()
         # Release this browser's authority before any asynchronous teardown,
         # including when the shared producer stays alive for another viewer.

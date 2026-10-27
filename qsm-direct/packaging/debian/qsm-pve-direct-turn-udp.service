@@ -1,0 +1,27 @@
+[Unit]
+Description=QSM private authenticated TURN/UDP relay
+After=network.target
+ConditionPathExists=/var/lib/qsm-pve-direct-gateway/turn-udp.conf
+
+[Service]
+Type=notify
+StateDirectory=qsm-pve-direct-turn-udp
+StateDirectoryMode=0700
+User=qsm-turn
+Group=qsm-turn
+ExecStartPre=+/usr/sbin/qsm-pve-direct-gateway prepare
+ExecStart=/usr/bin/turnserver -c /var/lib/qsm-pve-direct-gateway/turn-udp.conf --pidfile=
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/run
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
