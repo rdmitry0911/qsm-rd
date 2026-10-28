@@ -30,6 +30,36 @@ OBJECT = '/org/qsm/DesktopMetadata'
 PLUGIN = 'qsm-desktop-metadata'
 
 
+def accessible_text_bounds(text, component, coordinate):
+    """Read geometry only and bound priority to the focused text component."""
+    clip = None
+    if component is not None:
+        box = component.get_extents(coordinate)
+        if box.width > 0 and box.height > 0:
+            clip = [box.x, box.y, box.width, box.height]
+    offset = text.get_caret_offset()
+    # Some providers expose no end-of-text box. A neighbouring character
+    # remains a useful priority hint; neither is a locally rendered caret.
+    for position in dict.fromkeys([offset, max(0, offset - 1)] if offset >= 0 else []):
+        box = text.get_character_extents(position, coordinate)
+        if box.height <= 0 or box.width < 0:
+            continue
+        rectangle = [box.x, box.y, max(1, box.width), box.height]
+        if clip is not None:
+            x, y = max(rectangle[0], clip[0]), max(rectangle[1], clip[1])
+            right = min(rectangle[0] + rectangle[2], clip[0] + clip[2])
+            bottom = min(rectangle[1] + rectangle[3], clip[1] + clip[3])
+            if right <= x or bottom <= y:
+                continue
+            rectangle = [x, y, right - x, bottom - y]
+        # If component bounds are unavailable, only the known character
+        # box can authorize leading edits, never its surrounding window.
+        return rectangle, clip if clip is not None else rectangle.copy()
+    # Empty controls and providers lacking character geometry can still
+    # identify their complete focused input. Keep its clip explicit too.
+    return (clip.copy(), clip) if clip is not None else None
+
+
 def register_metadata_object(bus, interface, callback):
     register = bus.register_object
     # Old GI maps this API to the original closure entry point, whose
@@ -374,32 +404,15 @@ def main(argv=None):
                     self.state.caret = None
                     self.schedule(True)
                     return
-                offset = text.get_caret_offset()
                 application = source.get_application()
+                component = source.get_component_iface()
                 wayland = os.environ.get('XDG_SESSION_TYPE') == 'wayland' or bool(os.environ.get('WAYLAND_DISPLAY'))
                 coordinates = [self.atspi.CoordType.WINDOW] if wayland else [self.atspi.CoordType.SCREEN]
                 for coordinate in coordinates:
-                    # Qt 5 returns an empty box at end-of-text. A neighbouring
-                    # character is a conservative priority area, not a local
-                    # rendering of the text caret or application text.
-                    for position in dict.fromkeys([offset, max(0, offset - 1)]):
-                        box = text.get_character_extents(position, coordinate)
-                        if box.height <= 0:
-                            continue
-                        self.state.set_caret(application.get_process_id(),
-                            [box.x, box.y, max(1, box.width), box.height],
-                            window_relative=coordinate == self.atspi.CoordType.WINDOW)
-                        self.schedule(True)
-                        return
-                # Empty controls have no character rectangle, but their
-                # focused text component still has useful bounded geometry.
-                component = source.get_component_iface()
-                if component is not None:
-                    coordinate = coordinates[0]
-                    box = component.get_extents(coordinate)
-                    if box.width > 0 and box.height > 0:
-                        self.state.set_caret(application.get_process_id(),
-                            [box.x, box.y, box.width, box.height],
+                    bounds = accessible_text_bounds(text, component, coordinate)
+                    if bounds is not None:
+                        rectangle, clip = bounds
+                        self.state.set_caret(application.get_process_id(), rectangle, clip=clip,
                             window_relative=coordinate == self.atspi.CoordType.WINDOW)
                         self.schedule(True)
                         return

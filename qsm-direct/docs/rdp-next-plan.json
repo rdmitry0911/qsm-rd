@@ -81,8 +81,8 @@
   ],
   "checkpoint": {
     "stage": "priority-ui",
-    "candidate": "0.4.0+stock4.14~exp67 (private, not release-qualified)",
-    "evidence_directory": "dist/rdp-hybrid/mode-switch-exp67",
+    "candidate": "0.4.0+stock4.14~exp68 (private, not release-qualified)",
+    "evidence_directory": "dist/rdp-hybrid/atspi-component-exp68",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -109,7 +109,8 @@
       "Generic Qt plugin instances have Qt as sole owner; aboutToQuit stops publishing and unregisters its service; package builds test full application destruction for Qt5/Qt6",
       "After the existing first healthy interval and post-congestion cooldown, fresh receipt-feedback viewers permit one bounded 25% upward probe per six seconds. Legacy, mixed or stale viewers keep ten-second spacing. All low-age, demand, shared-viewer and congestion guards remain.",
       "Ordinary capture-fenced exact tiles survive advisory metadata layout changes; early-leading tiles still retire and newer invalidations still cancel old work",
-      "Fresh drained receipts retire old flight-credit waits; insufficient recent sample pairs cannot reuse stale delivery rates; tiny receipt pairs cannot impose an immediate path-capacity ceiling"
+      "Fresh drained receipts retire old flight-credit waits; insufficient recent sample pairs cannot reuse stale delivery rates; tiny receipt pairs cannot impose an immediate path-capacity ceiling",
+      "AT-SPI text producers now publish v2 component clips; a character is intersected with its input, component-only fallbacks stay clipped, and missing component bounds permit only the known character box. Strict v1 snapshots retain ordinary-pixel fallback."
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -159,10 +160,11 @@
       "Exp67 full cropped component repeat passes22 exact pixel oracles, real line/plain input, scroll/occlusion/resize/move/close and repeated mode toggles. Working fast/narrow cadence54.20/46.25 source fps, maximum gap94/199ms; no target500 (minimum1170), desktop resize restores on the same connected worker. Narrow cold exact-layer restoration remains about4.1s.",
       "Exp67 actual receiver-ingress0.3% TCP loss with15ms/3ms delay/jitter drops142 kernel segments; all strict transition gates pass. Narrow/recovered cadence54.48/54.69fps, largest gap133ms, glyph peak160ms, all8217 static observations exact, target recovers8000. Other encoders/VM/Mac/RDP remain unqualified.",
       "Exp67 native GTK3.24.49 and GTK4.18.6 Wayland VM applications receive standard USB input through owned QMP; noneditable focus revokes hints and native agent/KWin PIDs remain243965/325054. GTK3 character bounds are precise within the field; GTK4 entry falls back unavailable and text view exposes component bounds. AT-SPI v2 component clipping remains to implement; this is not VM WebRTC performance acceptance.",
-      "Exp67 full-frame functional control passes22 pixel/layout/input oracles and desktop resize on the same worker, with no invalid source IDs. Narrow cadence11.63fps is explicitly not the cropped-mode performance qualification; matched fallback performance remains part of broader qualification."
+      "Exp67 full-frame functional control passes22 pixel/layout/input oracles and desktop resize on the same worker, with no invalid source IDs. Narrow cadence11.63fps is explicitly not the cropped-mode performance qualification; matched fallback performance remains part of broader qualification.",
+      "Installed exp68 native Debian13 VM: actual Gtk3.24.49 Entry/TextView and Gtk4.18.6 TextView publish input-bounded priority areas; GTK4 Entry retains explicit mode1 fallback with real input. Noneditable focus clears hints, close removes windows, strict v1 snapshots suppress clipped caret metadata. Qt5.15.15/Qt6.8.2 normal-profile styled-editor interop retains zero coordinate deltas after GTK; native agent243965/KWin325054 remain. Owned LXC helper respawns gracefully on the same agent3981095/KWin wrapper3829219; installed helper hashes match. Main host payload34entries is identical to media-qualified67."
     ],
     "pending": [
-      "Add bounded AT-SPI input-component clips and verify GTK3/GTK4 same-application text/video priority; distinguish GTK4 component bounds from a precise caret",
+      "Actual LXC GTK/native accessibility and broader browser/application mixed-content verification; native VM GTK input/metadata does not establish their WebRTC media performance",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
       "Broader application/toolkit coverage, including explicit unsupported/legacy behavior",
@@ -189,9 +191,10 @@
       "dist/rdp-hybrid/receive-feedback-exp63",
       "dist/rdp-hybrid/receipt-recovery-exp64",
       "dist/rdp-hybrid/component-layout-exp65",
-      "dist/rdp-hybrid/mode-switch-exp67"
+      "dist/rdp-hybrid/mode-switch-exp67",
+      "dist/rdp-hybrid/atspi-component-exp68"
     ],
-    "next_action": "Implement and verify AT-SPI/GTK input-component clipping, then hard-cut fidelity, matched full-frame fallback and remaining VM/LXC codec/long-session/Mac/RDP qualification before final release and rollout",
+    "next_action": "Verify native LXC GTK and broader application behavior, hard-cut fidelity and matched full-frame fallback, then remaining VM/LXC codec/long-session/Mac/RDP qualification and final matching release/rollout",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",

@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'extensions'))
 from direct_guest.qsm_desktop_metadata import (
     DesktopMetadataError, MAX_METADATA_BYTES, parse_metadata, read_metadata_file, validate_metadata)
+from direct_guest.qsm_desktop_priority import DesktopPriority, HINT
 spec = importlib.util.spec_from_file_location('qsm_metadata_bridge', ROOT / 'guest/qsm_desktop_metadata.py')
 bridge = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bridge)
@@ -133,6 +134,51 @@ class DesktopMetadataTest(unittest.TestCase):
             self.assertIsNone(read_metadata_file(alias))
             path.unlink(); os.mkfifo(path)
             self.assertIsNone(read_metadata_file(path))
+
+
+class AccessibilityGeometryTest(unittest.TestCase):
+    @staticmethod
+    def box(rectangle):
+        return SimpleNamespace(**dict(zip(('x', 'y', 'width', 'height'), rectangle)))
+
+    def text(self, offset, rectangles):
+        return SimpleNamespace(get_caret_offset=lambda: offset,
+            get_character_extents=lambda position, coordinate: self.box(rectangles.get(position, [0, 0, 0, 0])))
+
+    def component(self, rectangle):
+        return SimpleNamespace(get_extents=lambda coordinate: self.box(rectangle))
+
+    def test_accessible_field_clip_keeps_same_window_video_out_of_text_priority(self):
+        field = [32, 48, 180, 42]
+        bounds = bridge.accessible_text_bounds(self.text(3, {3: [65, 60, 1, 18]}), self.component(field), 1)
+        self.assertEqual(bounds, ([65, 60, 1, 18], field))
+        state = bridge.DesktopState()
+        state.caret_available = True
+        state.set_layout({'desktop': {'rect': [0, 0, 1280, 720], 'scale': 1},
+            'windows': [{'id': 'mixed', 'pid': 42, 'rect': [20, 30, 1000, 600],
+                         'client_rect': [20, 30, 1000, 600], 'visible': True, 'opacity': 1}],
+            'focus': 'mixed', 'available': True, 'locked': False})
+        state.set_caret(42, bounds[0], clip=bounds[1], window_relative=True)
+        self.assertEqual(list(HINT.unpack(DesktopPriority().update(state.snapshot(version=2)))[4:]),
+                         [52, 78, 180, 42], 'text priority must end at the field, before sibling video')
+        self.assertIsNone(state.snapshot()['caret'], 'legacy metadata uses ordinary pixels for the new clip')
+
+    def test_neighbouring_character_and_partly_visible_geometry_keep_the_component_clip(self):
+        field = [20, 30, 100, 40]
+        self.assertEqual(bridge.accessible_text_bounds(self.text(3, {2: [18, 38, 8, 18]}), self.component(field), 1),
+                         ([20, 38, 6, 18], field))
+
+    def test_component_fallback_cannot_expand_into_other_controls(self):
+        field = [20, 30, 100, 40]
+        for offset in (0, -1):
+            self.assertEqual(bridge.accessible_text_bounds(self.text(offset, {}), self.component(field), 1),
+                             (field, field))
+
+    def test_missing_component_permits_only_the_known_character_box(self):
+        rectangle = [20, 30, 0, 18]
+        self.assertEqual(bridge.accessible_text_bounds(self.text(0, {0: rectangle}), None, 1),
+                         ([20, 30, 1, 18], [20, 30, 1, 18]))
+        self.assertIsNone(bridge.accessible_text_bounds(self.text(0, {}), None, 1))
 
 
 class InvocationLifetimeTest(unittest.TestCase):

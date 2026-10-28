@@ -1,0 +1,335 @@
+{
+  "date": "2026-10-28",
+  "candidate": "0.4.0+stock4.14~exp68",
+  "status": "Private; live VM GTK component clips and Qt interoperability pass; full qualification remains incomplete",
+  "change": "The AT-SPI producer now publishes a version2 input-component clip, just as the existing Qt producer does. Character bounds are intersected with the component. If character geometry is missing, the component itself remains a bounded priority hint with the same explicit clip. Without component geometry only the known character box authorizes leading edits. No text is requested or forwarded.",
+  "regression": "In exp67 the AT-SPI priority hint could expand beyond the field into sibling content in the same application. Its character geometry (GTK3) or whole-component fallback (GTK4 text view) was valid, but its missing clip was too broad for independent text/video scheduling.",
+  "unit_checks": {
+    "direct_guest": "51/51 pass, including4 new component/character/viewport/legacy tests and real D-Bus invocation lifetime tests",
+    "browser_bridge": "122/122 pass in Debian package build",
+    "qt_sdk": "Qt5 and Qt6 full GUI/widget destruction tests pass"
+  },
+  "real_native_gtk_vm": {
+    "scope": "Owned Debian13/KWin6 VM, installed exp68 guest, real native Gtk3/Gtk4 applications and USB-keyboard input through QMP. This verifies metadata/fallback/input lifecycle, not WebRTC performance.",
+    "runs": [
+      {
+        "major": 3,
+        "version": "3.24.49",
+        "display": "GdkWaylandDisplay",
+        "pid": 328857,
+        "fields": [
+          {
+            "field": "entry",
+            "characters": 3,
+            "metadata": {
+              "available": true,
+              "rect": [
+                331,
+                241,
+                1,
+                18
+              ],
+              "clip": [
+                296,
+                229,
+                688,
+                42
+              ],
+              "component": [
+                296,
+                229,
+                688,
+                42
+              ],
+              "priority_area": [
+                296,
+                229,
+                548,
+                42
+              ],
+              "priority_mode": 3,
+              "legacy_v1_uses_pixel_fallback": true,
+              "geometry_kind": "character bounds"
+            }
+          },
+          {
+            "field": "plain",
+            "characters": 3,
+            "metadata": {
+              "available": true,
+              "rect": [
+                322,
+                283,
+                1,
+                18
+              ],
+              "clip": [
+                296,
+                283,
+                688,
+                268
+              ],
+              "component": [
+                296,
+                283,
+                688,
+                268
+              ],
+              "priority_area": [
+                296,
+                283,
+                539,
+                146
+              ],
+              "priority_mode": 3,
+              "legacy_v1_uses_pixel_fallback": true,
+              "geometry_kind": "character bounds"
+            }
+          }
+        ],
+        "noneditable_focus_revokes_caret": true,
+        "ordinary_input_recovers_after_noneditable_focus": true,
+        "closed_window_removed": true
+      },
+      {
+        "major": 4,
+        "version": "4.18.6",
+        "display": "GdkWaylandDisplay",
+        "pid": 329111,
+        "fields": [
+          {
+            "field": "entry",
+            "characters": 3,
+            "metadata": {
+              "available": false,
+              "conservative_fallback": true,
+              "priority_mode": 1
+            }
+          },
+          {
+            "field": "plain",
+            "characters": 3,
+            "metadata": {
+              "available": true,
+              "rect": [
+                296,
+                270,
+                688,
+                268
+              ],
+              "clip": [
+                296,
+                270,
+                688,
+                268
+              ],
+              "component": [
+                296,
+                270,
+                688,
+                268
+              ],
+              "priority_area": [
+                296,
+                270,
+                688,
+                268
+              ],
+              "priority_mode": 3,
+              "legacy_v1_uses_pixel_fallback": true,
+              "geometry_kind": "component bounds"
+            }
+          }
+        ],
+        "noneditable_focus_revokes_caret": true,
+        "ordinary_input_recovers_after_noneditable_focus": true,
+        "closed_window_removed": true
+      }
+    ],
+    "initial_agent_pid": "243965",
+    "initial_kwin_pid": "325054",
+    "status_after_close": {
+      "agent": "ready"
+    },
+    "final_agent_pid": "243965",
+    "final_kwin_pid": "325054",
+    "same_native_agent_and_desktop": true
+  },
+  "real_native_qt_interop_after_gtk": {
+    "scope": "Installed exp68 guest helper after native GTK3/GTK4 focus tests; normal Plasma Qt5/Qt6 profile, no per-app Qt environment override; metadata geometry/lifecycle, not WebRTC performance.",
+    "runs": [
+      {
+        "major": 5,
+        "version": "5.15.15",
+        "caret": {
+          "actual": [
+            315,
+            232,
+            1,
+            25
+          ],
+          "expected_position": [
+            315,
+            232
+          ],
+          "client": [
+            240,
+            163,
+            800,
+            500
+          ],
+          "delta": [
+            0,
+            0
+          ]
+        },
+        "styled_caret": {
+          "actual": [
+            324,
+            241,
+            1,
+            25
+          ],
+          "expected_position": [
+            324,
+            241
+          ],
+          "client": [
+            240,
+            163,
+            800,
+            500
+          ],
+          "delta": [
+            0,
+            0
+          ]
+        }
+      },
+      {
+        "major": 6,
+        "version": "6.8.2",
+        "caret": {
+          "actual": [
+            314,
+            231,
+            1,
+            25
+          ],
+          "expected_position": [
+            314,
+            231
+          ],
+          "client": [
+            240,
+            163,
+            800,
+            500
+          ],
+          "delta": [
+            0,
+            0
+          ]
+        },
+        "styled_caret": {
+          "actual": [
+            324,
+            241,
+            1,
+            25
+          ],
+          "expected_position": [
+            324,
+            241
+          ],
+          "client": [
+            240,
+            163,
+            800,
+            500
+          ],
+          "delta": [
+            0,
+            0
+          ]
+        }
+      }
+    ],
+    "agent_pid": "243965",
+    "kwin_pid": "325054",
+    "same_native_agent_and_desktop": true
+  },
+  "owned_lxc_helper_refresh": {
+    "owned_metadata_child_before": 2643470,
+    "owned_metadata_child_after": 3182524,
+    "same_agent_pid": 3981095,
+    "same_kwin_wrapper_pid": 3829219
+  },
+  "installed_source_and_production_state": {
+    "node20": {
+      "host_version": "0.4.0+stock4.14~exp35",
+      "production": {
+        "577033": {
+          "alive": true,
+          "start_ticks": "332808379"
+        },
+        "495374": {
+          "alive": true,
+          "start_ticks": "297084425"
+        }
+      },
+      "lxc_init_pid": 875731,
+      "lxc_metadata_sha256": "f75936dcde17bfa5a21291be36eacbe0ebfffcd4e6980efb750a70cc9743a3d5"
+    },
+    "owned_vm": {
+      "metadata_sha256": "f75936dcde17bfa5a21291be36eacbe0ebfffcd4e6980efb750a70cc9743a3d5"
+    }
+  },
+  "build": {
+    "all_seven_debs": true,
+    "source": {
+      "archive": "source-exp68.tar",
+      "sha256": "5f840397a50372cc9a2ca221df3044194aba03578067e0afdce95488a63e5027",
+      "qsm_direct_files_compared": 1312,
+      "worktree_differences_at_qualification": []
+    },
+    "payload": {
+      "versions": [
+        "exp67",
+        "exp68"
+      ],
+      "host_payload_entries": 34,
+      "host_differences": [],
+      "guest_packages": [
+        {
+          "package": "qsm-desktop-agent",
+          "entries": 13,
+          "differences": [
+            "usr/lib/qsm-desktop-agent/qsm_desktop_metadata.py"
+          ]
+        },
+        {
+          "package": "qsm-console-guest",
+          "entries": 29,
+          "differences": [
+            "usr/lib/qsm-console/qsm_desktop_metadata.py"
+          ]
+        },
+        {
+          "package": "qsm-qt-input-geometry",
+          "entries": 4,
+          "differences": []
+        }
+      ]
+    },
+    "media_scope": "All34 main host payload entries, including worker, bridge and viewer, are byte/mode/link-identical to exp67. The documented exp67 LXC NVENC/H264 component and real TCP-loss media evidence therefore applies to that unchanged host payload; no GTK WebRTC performance or other codec/browser performance is inferred."
+  },
+  "helper_reload": "Running Python helpers must reload to use new code. In the owned VM only qsm-desktop-metadata was restarted; in LXC only the owned nested helper was gracefully respawned by its unchanged agent. No guest desktop, native transport or production service was restarted. Include metadata-only reload/next-login guidance in the eventual upgrade instructions.",
+  "limits": [
+    "GTK4.18.6 Entry still does not expose usable text geometry here: real input works and metadata remains mode1, using ordinary pixels. Do not call this precise GTK4 caret support.",
+    "GTK4 TextView exposes component bounds, not a precise insertion point; its explicit clip now prevents expansion into sibling controls.",
+    "This GTK probe uses real USB input via owned QMP and receives actual QSF metadata; priority reduction is checked using the shipped host reducer. It is not VM WebRTC cadence/latency or exact-layer performance acceptance.",
+    "Actual LXC GTK/native accessibility and broader browser/application mixed-content checks remain.",
+    "Hard-cut fidelity, matched full-frame fallback, VM/LXC supported codec matrix, long encoded sessions, Firefox/macOS and matched RDP comparisons remain, followed by final matching source/debs/signatures/APT/docs, qualified rollout and discussion updates."
+  ]
+}
