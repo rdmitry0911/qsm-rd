@@ -484,5 +484,35 @@
     "Resolve adaptive target collapse and slow exact restoration after repeated off/on on a narrow channel; keep the existing 8-second oracle and full pixel coverage",
     "Complete desktop resize, unsupported/application coverage, video cuts and matrix/long-session/browser/RDP qualification",
     "No public source/package/APT or production rollout until qualification"
-  ]
+  ],
+  "additional_full_component_trace": {
+    "all_pixel_oracles": 22,
+    "source_id_invalid_observations": 0,
+    "desktop_resize_restore": true,
+    "same_connected_worker": true,
+    "working_phases": [
+      {
+        "name": "fast",
+        "source_fps": 53.82487011565181,
+        "max_source_gap_ms": 83,
+        "mode_switches": {
+          "source_fps": 43.17885724920901,
+          "max_source_gap_ms": 249,
+          "note": "Includes deliberate feature-off baseline periods and codec-format changes; not relabeled as working-mode performance"
+        }
+      },
+      {
+        "name": "narrow",
+        "source_fps": 49.15431280382467,
+        "max_source_gap_ms": 201,
+        "mode_switches": {
+          "source_fps": 41.85406149609913,
+          "max_source_gap_ms": 585,
+          "note": "Includes deliberate feature-off baseline periods and codec-format changes; not relabeled as working-mode performance"
+        }
+      }
+    ],
+    "adaptive_floor_still_observed": false,
+    "interpretation": "This repeat passes pixels, desktop resize and scoped working-mode cadence, but still cuts to500 after repeated narrow toggles. It does not invalidate the previous 8-second failure or establish a fix."
+  }
 }

@@ -1,0 +1,109 @@
+{
+  "scope": "Owned Debian13/KWin6 VM, installed exp67 guest, real native Gtk3/Gtk4 applications and USB-keyboard input through QMP. This verifies metadata/fallback/input lifecycle, not WebRTC performance.",
+  "runs": [
+    {
+      "major": 3,
+      "version": "3.24.49",
+      "display": "GdkWaylandDisplay",
+      "pid": 327828,
+      "fields": [
+        {
+          "field": "entry",
+          "characters": 3,
+          "metadata": {
+            "available": true,
+            "rect": [
+              331,
+              241,
+              1,
+              18
+            ],
+            "component": [
+              296,
+              229,
+              688,
+              42
+            ],
+            "classification": "character bounds inside the focused input"
+          }
+        },
+        {
+          "field": "plain",
+          "characters": 3,
+          "metadata": {
+            "available": true,
+            "rect": [
+              322,
+              283,
+              1,
+              18
+            ],
+            "component": [
+              296,
+              283,
+              688,
+              268
+            ],
+            "classification": "character bounds inside the focused input"
+          }
+        }
+      ],
+      "noneditable_focus_revokes_caret": true,
+      "ordinary_input_recovers_after_noneditable_focus": true,
+      "closed_window_removed": true
+    },
+    {
+      "major": 4,
+      "version": "4.18.6",
+      "display": "GdkWaylandDisplay",
+      "pid": 328060,
+      "fields": [
+        {
+          "field": "entry",
+          "characters": 3,
+          "metadata": {
+            "available": false,
+            "conservative_fallback": true
+          }
+        },
+        {
+          "field": "plain",
+          "characters": 3,
+          "metadata": {
+            "available": true,
+            "rect": [
+              296,
+              270,
+              688,
+              268
+            ],
+            "component": [
+              296,
+              270,
+              688,
+              268
+            ],
+            "classification": "component bounds, not a precise caret"
+          }
+        }
+      ],
+      "noneditable_focus_revokes_caret": true,
+      "ordinary_input_recovers_after_noneditable_focus": true,
+      "closed_window_removed": true
+    }
+  ],
+  "initial_agent_pid": "243965",
+  "initial_kwin_pid": "325054",
+  "status_after_close": {
+    "agent": "ready"
+  },
+  "final_agent_pid": "243965",
+  "final_kwin_pid": "325054",
+  "same_native_agent_and_desktop": true,
+  "status": "Native GTK metadata/input lifecycle verified in this scope; GTK4 entry uses unavailable fallback and text view reports component bounds rather than a precise caret",
+  "qualification_limits": [
+    "USB input here uses QMP directly; no VM WebRTC cadence/latency or exact-layer acceptance is claimed",
+    "The existing AT-SPI producer does not publish the v2 component clip used by the Qt producer. Add and verify that clip before claiming equivalent same-application text/video priority for GTK",
+    "Browser/Electron application coverage remains pending"
+  ]
+}

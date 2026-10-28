@@ -1,0 +1,354 @@
+{
+  "date": "2026-10-28",
+  "candidate": "0.4.0+stock4.14~exp67",
+  "status": "Private; cropped component/mode-switch and actual TCP-loss transitions pass; full qualification incomplete",
+  "scope": "Owned LXC108/nested KWin5, real NVENC/H264, Linux Firefox, installed matching exp67 guests and extracted exp67 host/viewer, TURN TCP8006. Application launch and ACL mocked.",
+  "fixes": [
+    {
+      "problem": "Accumulated sender credit waits could reduce the target after a fresh low-age receipt had proved the old queue drained. The deterministic before-fix regression drops8000 directly to500.",
+      "change": "A fresh low-age receipt retires old credit waits; blocked admission requires current excess age. Throughput is unavailable until a new recent pair exists after a source/format gap."
+    },
+    {
+      "problem": "Two tiny P-frames straddling a mode-switch/TCP burst could claim roughly100kbit/s capacity. Actual exp66 trace has2102bytes in a179.8ms arrival interval, despite only14.46ms between sender completions, and cuts1156 to500. The deterministic regression likewise drops8000 to500.",
+      "change": "Immediate short-interval queue/capacity inference requires8 RTP payloads worth of delivery (9200bytes). Sustained current-age admission backpressure still permits a bounded25% cut without pretending that a tiny pair measures path capacity; confirmed RTCP loss retains its own guards."
+    }
+  ],
+  "build": {
+    "all_seven_debs": true,
+    "bridge_tests": "122/122 pass in the Debian build namespace with real network/devices",
+    "qt_sdk": "Qt5/Qt6 full GUI/widget shutdown tests pass",
+    "source": {
+      "archive": "source-exp67.tar",
+      "sha256": "a4d1e5651bcb16e105490083734de082a7955c62f0461281c66f4cb67038c435",
+      "qsm_direct_files_compared": 1310,
+      "worktree_differences_at_qualification": []
+    },
+    "payload_delta_from65": {
+      "host_payload_entries": 34,
+      "host_differences": [
+        "usr/lib/qsm-pve-direct/browser_bridge/qsm_browser_bridge.py"
+      ],
+      "guest_packages": [
+        {
+          "package": "qsm-desktop-agent",
+          "entries": 13,
+          "differences": []
+        },
+        {
+          "package": "qsm-console-guest",
+          "entries": 29,
+          "differences": []
+        },
+        {
+          "package": "qsm-qt-input-geometry",
+          "entries": 4,
+          "differences": []
+        }
+      ]
+    },
+    "independent_clean_build_scope": "The clean exp64 host payload proof still covers the unchanged worker and remaining host files; new Python is packaged and exercised in the actual exp67 media runs. No new full bootstrap was needed for this Python-only runtime delta."
+  },
+  "component_acceptance": {
+    "pixel_oracles": 22,
+    "all_pixels_exact": true,
+    "no_source_id_errors": true,
+    "desktop_resize_restore": true,
+    "same_connected_worker": true,
+    "no_minimum_target_collapse_on_2mbit": true,
+    "minimum_target_kbps": 1170,
+    "phases": [
+      {
+        "name": "fast",
+        "working_source_fps": 54.203978128219354,
+        "working_max_gap_ms": 94,
+        "typing": [
+          {
+            "editor": "line",
+            "median_ms": 55,
+            "max_ms": 86,
+            "characters": 15
+          },
+          {
+            "editor": "plain",
+            "median_ms": 55,
+            "max_ms": 148,
+            "characters": 15
+          }
+        ],
+        "mode_switches": {
+          "source_fps": 44.106745737583395,
+          "max_source_gap_ms": 252,
+          "note": "Includes deliberate feature-off baseline periods and codec-format changes; not relabeled as working-mode performance"
+        },
+        "aggregate_source_fps": 53.22880870561283,
+        "aggregate_max_gap_ms": 252,
+        "pixel_oracles": 11,
+        "exact_layer_cold_restore_ms": [
+          728.3943477086723,
+          715.3463279828429
+        ],
+        "note": "Cold restoration is not instantaneous: about4.1s on2Mbit/s. Every pixel and8 stable exact observations must pass the unchanged8-second oracle. Raw toggle/full-desktop encoder gaps are retained separately."
+      },
+      {
+        "name": "narrow",
+        "working_source_fps": 46.24703608504194,
+        "working_max_gap_ms": 199,
+        "typing": [
+          {
+            "editor": "line",
+            "median_ms": 88,
+            "max_ms": 173,
+            "characters": 15
+          },
+          {
+            "editor": "plain",
+            "median_ms": 71,
+            "max_ms": 162,
+            "characters": 15
+          }
+        ],
+        "mode_switches": {
+          "source_fps": 39.22056384742952,
+          "max_source_gap_ms": 970,
+          "note": "Includes deliberate feature-off baseline periods and codec-format changes; not relabeled as working-mode performance"
+        },
+        "aggregate_source_fps": 44.88569730268125,
+        "aggregate_max_gap_ms": 970,
+        "pixel_oracles": 11,
+        "exact_layer_cold_restore_ms": [
+          4090.253578964621,
+          4077.1273905411363
+        ],
+        "note": "Cold restoration is not instantaneous: about4.1s on2Mbit/s. Every pixel and8 stable exact observations must pass the unchanged8-second oracle. Raw toggle/full-desktop encoder gaps are retained separately."
+      }
+    ]
+  },
+  "tcp_loss_acceptance": {
+    "profile": {
+      "receiver_ingress_tcp_loss_percent": 0.3,
+      "delay_ms": 15,
+      "jitter_ms": 3,
+      "seed": null
+    },
+    "kernel_tcp_drops": 142,
+    "queue_acceptance": {
+      "no_long_video_gap": true,
+      "narrow_source_fps_at_least_45": true,
+      "recovered_source_fps_at_least_50": true,
+      "full_rate_recovered": true,
+      "presentation_excess_at_most_400ms": true,
+      "glyph_peak_at_most_600ms": true,
+      "full_source_excess_from_fast_p95_at_most_400ms": true,
+      "no_observed_rtp_loss": true,
+      "narrowed": true,
+      "recovered_some": true,
+      "static_pixels_exact": true,
+      "input_delivered_once": true,
+      "same_connected_stream": true
+    },
+    "phases": [
+      {
+        "client_start_ms": 14498,
+        "client_end_ms": 29957,
+        "server_start": 3399389.555136473,
+        "server_end": 3399405.014192778,
+        "name": "fast",
+        "bandwidth": 20000000,
+        "duration_seconds": 15.49444503011182,
+        "initial_target": 4484,
+        "final_target": 4484,
+        "unique_frames": 876,
+        "unique_fps": 56.666019794294584,
+        "max_frame_gap_ms": 35,
+        "transport_kbps": 2833.508705607418,
+        "overflows_added": 0,
+        "feedback_delay_max_ms": 58.175896760076284,
+        "feedback_excess_max_ms": 35.691529512405396,
+        "feedback_delay_median_ms": 28.59130734577775,
+        "full_source_age_ms": {
+          "samples": 928,
+          "median": 164.52461673567686,
+          "p95": 166.6385045275085,
+          "max": 178.67844318971038,
+          "clock_uncertainty_max": 1.5,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 922,
+            "median": 103.7049035076052,
+            "p95": 107.21488064154983,
+            "max": 109.9170851521194
+          },
+          "capture_to_last_send_ms": {
+            "samples": 922,
+            "median": 16.672842437401414,
+            "p95": 23.964702151715755,
+            "max": 51.054611802101135
+          },
+          "capture_to_presentation_ms": {
+            "samples": 922,
+            "median": 120.29435764998198,
+            "p95": 128.2900208607316,
+            "max": 142.43505988270044
+          },
+          "last_send_to_receive_ms": {
+            "samples": 922,
+            "median": 26.28103387542069,
+            "p95": 43.363580480217934,
+            "max": 57.222869247198105
+          },
+          "browser_after_receive_ms": {
+            "samples": 922,
+            "median": 77.63000000000011,
+            "p95": 85.15999999999985,
+            "max": 91.45999999999913
+          }
+        }
+      },
+      {
+        "client_start_ms": 29994,
+        "client_end_ms": 75737,
+        "server_start": 3399405.052144419,
+        "server_end": 3399450.794063102,
+        "name": "narrow",
+        "bandwidth": 2000000,
+        "duration_seconds": 45.828729681205004,
+        "initial_target": 4484,
+        "final_target": 1608,
+        "unique_frames": 2492,
+        "unique_fps": 54.478280829853745,
+        "max_frame_gap_ms": 133,
+        "transport_kbps": 1728.0007671033761,
+        "overflows_added": 0,
+        "feedback_delay_max_ms": 198.84655391797423,
+        "feedback_excess_max_ms": 176.03257205337286,
+        "feedback_delay_median_ms": 40.21087195724249,
+        "full_source_age_ms": {
+          "samples": 2744,
+          "median": 182.1147933136693,
+          "p95": 200.19432734697773,
+          "max": 299.6274515365549,
+          "clock_uncertainty_max": 1.5,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 2623,
+            "median": 120.5647955648601,
+            "p95": 138.7503002770245,
+            "max": 203.8951087743044
+          },
+          "capture_to_last_send_ms": {
+            "samples": 2623,
+            "median": 16.065210103988647,
+            "p95": 29.771762900054455,
+            "max": 124.22559224069118
+          },
+          "capture_to_presentation_ms": {
+            "samples": 2623,
+            "median": 139.00512550026178,
+            "p95": 159.21148378401995,
+            "max": 258.8441949337721
+          },
+          "last_send_to_receive_ms": {
+            "samples": 2623,
+            "median": 35.07653111591935,
+            "p95": 92.96929370611906,
+            "max": 197.5551089271903
+          },
+          "browser_after_receive_ms": {
+            "samples": 2623,
+            "median": 87.72000000000116,
+            "p95": 110.80000000000291,
+            "max": 124
+          }
+        }
+      },
+      {
+        "client_start_ms": 75826,
+        "client_end_ms": 151291,
+        "server_start": 3399450.88359793,
+        "server_end": 3399526.347696271,
+        "name": "recovered",
+        "bandwidth": 20000000,
+        "duration_seconds": 75.60764828277752,
+        "initial_target": 1608,
+        "final_target": 8000,
+        "unique_frames": 4127,
+        "unique_fps": 54.68760352481283,
+        "max_frame_gap_ms": 116,
+        "transport_kbps": 2348.39923755069,
+        "overflows_added": 0,
+        "feedback_delay_max_ms": 85.34663263708353,
+        "feedback_excess_max_ms": 64.13235142827034,
+        "feedback_delay_median_ms": 27.827179990708828,
+        "full_source_age_ms": {
+          "samples": 4528,
+          "median": 149.29143898189068,
+          "p95": 166.66866503655342,
+          "max": 280.7754615632234,
+          "clock_uncertainty_max": 1.5,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 4348,
+            "median": 99.53854442574084,
+            "p95": 104.5834245160222,
+            "max": 106.67009931057692
+          },
+          "capture_to_last_send_ms": {
+            "samples": 4348,
+            "median": 15.389583073556423,
+            "p95": 25.450326036661863,
+            "max": 134.39037604257464
+          },
+          "capture_to_presentation_ms": {
+            "samples": 4348,
+            "median": 110.75324867852032,
+            "p95": 123.8953429274261,
+            "max": 196.60858111456037
+          },
+          "last_send_to_receive_ms": {
+            "samples": 4348,
+            "median": 24.796292185783386,
+            "p95": 43.49655890837312,
+            "max": 83.70245434343815
+          },
+          "browser_after_receive_ms": {
+            "samples": 4348,
+            "median": 68.60000000000582,
+            "p95": 84.32000000000698,
+            "max": 89.91999999999825
+          }
+        }
+      }
+    ],
+    "typed_characters": 15,
+    "glyph_peak_ms": 160,
+    "static_observations": {
+      "frames": 8217,
+      "wrong_static": 0,
+      "uncovered_static": 0,
+      "invalid_ids": 0,
+      "ids": null,
+      "observations": null,
+      "stop": true
+    },
+    "scope_note": "No observed RTP loss does not mean no network loss: the enclosing namespace record proves kernel TCP drops and transport retransmissions."
+  },
+  "remaining": [
+    "Broader application/component coverage including the observed GTK4 component-priority fallback",
+    "Hard-cut video fidelity, repeated profiles, VM/LXC hardware codec matrix and longer mixed encoded sessions",
+    "Firefox/macOS, matched RDP comparison, final source/debs/signatures/APT/docs and qualified rollout/discussion updates"
+  ],
+  "production": "192.168.64.20 host remains exp35; no production desktop/VM/worker restart; .17/.240 unchanged",
+  "full_frame_functional_control": {
+    "pixel_oracles": 22,
+    "desktop_resize_restore": true,
+    "same_connected_worker": true,
+    "source_id_invalid": 0,
+    "scope": "Full-frame functional control only; not cropped-mode video-performance acceptance"
+  }
+}

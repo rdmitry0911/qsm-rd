@@ -100,6 +100,10 @@ MAX_GUEST_CONTROL_MESSAGE_BYTES = 2 * 1024 * 1024
 # Payload budget leaves room for RTP extensions, SRTP authentication, RTX,
 # UDP and IPv6 even on a VPN path whose MTU is only 1280–1300 bytes.
 VIDEO_RTP_PAYLOAD_MAX = 1150
+# A few tiny P-frames straddling an SCTP/TCP burst measure interarrival
+# jitter, not path capacity. Require several packets' worth of delivery
+# before using that short interval to choose an immediate rate ceiling.
+VIDEO_DELIVERY_MIN_BYTES = VIDEO_RTP_PAYLOAD_MAX * 8
 # Default encoder ceiling is 8 Mbps. Allow RTP/SRTP/IP overhead and recovery,
 # but never flush a whole IDR at LAN speed into a routed VPN's small queue.
 VIDEO_PACING_BURST_BYTES = 2400
@@ -293,6 +297,7 @@ class _ReceiverFeedback:
     presented_delays: list[tuple[float, float]] = field(default_factory=list)
     presented_kbps: float = 0.
     presented_offered_kbps: float = 0.
+    presented_bytes: int = 0
     presented_queue_since: float | None = None
     presented_serial: int = 0
     reduced_presented_serial: int = 0
@@ -430,6 +435,7 @@ class AdaptiveVideoRate:
             state.credit_samples.clear()
             state.presented_queue_since = None
             state.presented_kbps = state.presented_offered_kbps = 0.
+            state.presented_bytes = 0
         if sent_at <= state.presented_sent_at or not 0 <= now - sent_at < 8:
             return
         if kind == 'received':
@@ -445,6 +451,10 @@ class AdaptiveVideoRate:
         # later healthy frame look queued and trigger a credit/IDR loop.
         delays = sorted(d for _, d in state.presented_delays)
         state.presented_base = delays[int((len(delays) - 1) * .1)]
+        if delay <= state.presented_base + .08:
+            # A fresh low-age frame proves the old flight drained. Credit
+            # waits from before that receipt cannot establish a new queue.
+            state.credit_samples.clear()
         # Receiver-side samples arrive before the playout cushion and can
         # measure a recent delivery interval. Retain the longer display-only
         # window for old clients and rendering-scheduling noise.
@@ -454,12 +464,14 @@ class AdaptiveVideoRate:
         samples.append((now, sent_at, total_bytes))
         if now - samples[0][0] >= minimum:
             arrived, sent, count = samples[0]
-            bits = max(0, total_bytes - count) * 8 / 1000
+            state.presented_bytes = max(0, total_bytes - count)
+            bits = state.presented_bytes * 8 / 1000
             state.presented_kbps = bits / (now - arrived)
             state.presented_offered_kbps = bits / max(.001, sent_at - sent)
             # A persistent age increase accompanied by slower delivery is a
             # queue. An isolated display/RTT spike or an idle frame is not.
-            queued = (delay > state.presented_base + max(.1, state.presented_base * .75)
+            queued = (state.presented_bytes >= VIDEO_DELIVERY_MIN_BYTES
+                      and delay > state.presented_base + max(.1, state.presented_base * .75)
                       and state.presented_kbps < state.presented_offered_kbps * .85
                       and state.presented_offered_kbps >= self.current_kbps * .4)
             if queued:
@@ -467,6 +479,12 @@ class AdaptiveVideoRate:
                     state.presented_queue_since = now
             else:
                 state.presented_queue_since = None
+        else:
+            # A format change or an idle source can leave no recent pair.
+            # Do not reuse the previous interval's throughput for this frame.
+            state.presented_kbps = state.presented_offered_kbps = 0.
+            state.presented_bytes = 0
+            state.presented_queue_since = None
         self._update(now)
 
     @staticmethod
@@ -484,12 +502,14 @@ class AdaptiveVideoRate:
 
     def _presentation_queued(self, state: _ReceiverFeedback, now: float) -> bool:
         credit = [(t, d) for t, d in state.credit_samples if now - t < .6]
-        blocked = (len(credit) >= 2 and credit[-1][0] - credit[0][0] >= .09
+        blocked = (state.presented_delay > state.presented_base + .1 and
+                   len(credit) >= 2 and credit[-1][0] - credit[0][0] >= .09
                    and sum(d for _, d in credit) >= .1)
         # A blocked frame plus independently slower delivery already confirms
         # the queue. Do not hold several frames merely to repeat the same age
         # evidence: that can overflow the raw FIFO before the rate is lowered.
-        delivering_slower = (bool(credit) and sum(d for _, d in credit) >= .02 and
+        delivering_slower = (state.presented_bytes >= VIDEO_DELIVERY_MIN_BYTES and
+                            bool(credit) and sum(d for _, d in credit) >= .02 and
                             state.presented_delay > state.presented_base + .1 and
                             state.presented_kbps < state.presented_offered_kbps * .85)
         return (self._presentation_fresh(state, now) and (blocked or delivering_slower or
@@ -530,7 +550,8 @@ class AdaptiveVideoRate:
             # not apply an old loss/RTT sample again while the path is draining.
             factor = .5 if max((s.loss for s in pending if now - s.loss_time < 6), default=0.) >= .12 else .75
             for state in fresh:
-                if state in pending and self._presentation_queued(state, now):
+                if (state in pending and self._presentation_queued(state, now) and
+                        state.presented_bytes >= VIDEO_DELIVERY_MIN_BYTES):
                     ceiling = min(ceiling, max(500, int(state.presented_kbps * .9)))
                 elif not self._presentation_fresh(state, now) and now - state.remb_time < 5:
                     ceiling = min(ceiling, max(500, int(state.remb * .8 / 1000) - 128))

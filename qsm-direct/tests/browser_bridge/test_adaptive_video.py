@@ -383,6 +383,60 @@ class RateTests(unittest.TestCase):
         self.assertGreaterEqual(self.rate.current_kbps, 500)
         self.assertLessEqual(self.rate.current_kbps, 3000)
 
+    def test_drained_receipt_does_not_reuse_old_credit_waits_to_collapse_rate(self):
+        self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
+        total = 0
+        for n in range(1, 13):
+            self.now = n * .05
+            total += 10000
+            self.rate.received_report('a', self.now - .02, total)
+        # The sender waited while an old frame was still in flight. Before
+        # the rate-change interval expires, a new receipt proves it drained.
+        self.now = .9
+        total += 10000
+        self.rate.received_report('a', .7, total)
+        for n in range(5):
+            self.now = .9 + n * .023
+            self.rate.presentation_backpressure('a', .025)
+        self.assertEqual(self.applied, [])
+        self.now = 1.01
+        total += 1000
+        self.rate.received_report('a', .99, total)
+        self.assertEqual(self.applied, [], 'old waits cannot turn a drained, app-limited interval into congestion')
+        self.assertEqual(self.rate.current_kbps, 8000)
+        self.assertEqual(self.rate._receivers['a'].credit_samples, [])
+
+    def test_first_receipt_after_gap_does_not_reuse_old_interval_throughput(self):
+        for n in range(1, 13):
+            self.now = n * .05
+            self.rate.received_report('a', self.now - .02, n * 10000)
+        state = self.rate._receivers['a']
+        self.assertGreater(state.presented_kbps, 0)
+        self.now = 1.
+        self.rate.received_report('a', .8, 121000)
+        self.assertEqual(state.presented_kbps, 0)
+        self.assertEqual(state.presented_offered_kbps, 0)
+        self.assertIsNone(state.presented_queue_since)
+
+    def test_tiny_receipt_pair_after_format_gap_does_not_measure_path_capacity(self):
+        self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
+        total = 0
+        for n in range(1, 13):
+            self.now = n * .05
+            total += 10000
+            self.rate.received_report('a', self.now - .02, total)
+        self.now = 1.
+        total += 1000
+        self.rate.received_report('a', .98, total)
+        # Two small P-frames straddle an exact-layer/TCP delivery burst. A
+        # 2KB interval cannot establish a 100kbit/s path from an 8Mbit/s one.
+        self.now = 1.17
+        total += 2102
+        self.rate.received_report('a', .994, total)
+        self.rate.presentation_backpressure('a', .025)
+        self.assertEqual(self.applied, [])
+        self.assertEqual(self.rate.current_kbps, 8000)
+
     def test_short_credit_wait_and_slower_delivery_act_before_raw_fifo_overflows(self):
         self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
         total = 0
