@@ -5,6 +5,7 @@
 #include "core/session.hpp"
 #include "core/unix_fd.hpp"
 #include "core/video_budget.hpp"
+#include "core/cropped_video_rate.hpp"
 #include "capture/cpu_framebuffer.hpp"
 #include "interfaces/media_adapter.hpp"
 #include "interfaces/qemu_display.hpp"
@@ -413,6 +414,78 @@ void test_video_budget_keeps_keyframe_debt_across_rate_changes() {
     CHECK(budget.ready(start + 900ms, 2000U));
 }
 
+void test_cropped_video_rate_preserves_desktop_quality_and_ignores_brief_loss() {
+    using namespace std::chrono_literals;
+    using Clock = qmdp::CroppedVideoRate::Clock;
+    const Clock::time_point start {};
+    qmdp::CroppedVideoRate rate;
+    CHECK(rate.update(start, false, 8000, 8000, true) == 8000U);
+    // The original no-crop desktop cannot change quality, even on a long
+    // constrained link. Its raw byte admission remains the fallback.
+    for (unsigned n = 1; n < 100; ++n) {
+        CHECK(rate.update(start + n * 1s, false, 500, 8000, false) == 8000U);
+    }
+    const auto cropped = rate.update(start + 100s, true, 8000, 8000, true);
+    CHECK(cropped < 8000U);
+    // A sub-second bad estimate must not change the codec or force an IDR.
+    CHECK(rate.update(start + 110s, true, 1500, 8000, false) == cropped);
+    CHECK(rate.update(start + 110500ms, true, 1500, 8000, false) == cropped);
+    CHECK(rate.update(start + 111s, true, 8000, 8000, false) == cropped);
+    CHECK(rate.update(start + 120s, true, 8000, 8000, false) == cropped);
+    // A new fullscreen picture restores the fixed-quality original rate.
+    CHECK(rate.update(start + 121s, false, 1500, 8000, false) == 8000U);
+}
+
+void test_cropped_video_rate_tracks_sustained_steps_without_chasing_jitter() {
+    using namespace std::chrono_literals;
+    using Clock = qmdp::CroppedVideoRate::Clock;
+    const Clock::time_point start {};
+    qmdp::CroppedVideoRate rate;
+    const auto high = rate.update(start, true, 8000, 8000, true);
+    // Allow steady jitter while a real link decrease persists. Requiring
+    // identical samples would leave the encoder permanently at the old rate.
+    for (unsigned n = 0; n < 15; ++n) {
+        CHECK(rate.update(start + 10s + n * 100ms, true, 1400 + n % 3 * 50, 8000, false) == high);
+    }
+    const auto low = rate.update(start + 11500ms, true, 1500, 8000, false);
+    CHECK(low < high / 2U);
+    CHECK(low * 112U <= 1500U * 80U);
+    // Small fluctuations cannot retune the codec, including after cooldown.
+    CHECK(rate.update(start + 20s, true, 1600, 8000, false) == low);
+    CHECK(rate.update(start + 30s, true, 1400, 8000, false) == low);
+    // A brief high estimate also cannot trigger a quality/IDR pulse.
+    CHECK(rate.update(start + 31s, true, 8000, 8000, false) == low);
+    CHECK(rate.update(start + 35s, true, 1500, 8000, false) == low);
+    CHECK(rate.update(start + 40s, true, 8000, 8000, false) == low);
+    CHECK(rate.update(start + 44999ms, true, 8000, 8000, false) == low);
+    CHECK(rate.update(start + 45s, true, 8000, 8000, false) == high);
+    // Codec floor still defers to byte admission rather than inventing an
+    // unsupported encoder rate below 500 kbit/s.
+    CHECK(rate.update(start + 50s, true, 500, 8000, true) == 500U);
+    CHECK(rate.update(start + 60s, true, 100000, 8000, true) <= 8000U);
+}
+
+void test_cropped_video_rate_fits_the_shared_wire_budget_at_full_cadence() {
+    using namespace std::chrono_literals;
+    const qmdp::VideoBudget::Clock::time_point start {};
+    qmdp::CroppedVideoRate rate;
+    qmdp::VideoBudget budget;
+    const auto codec = rate.update(start, true, 1500, 8000, true);
+    unsigned frames = 0;
+    // A video that saturates its codec target plus sustained 15% exact UI
+    // should fit through a 1.5 Mbit/s complete path, not self-throttle solely
+    // because RTP overhead and UI were omitted from the encoder target.
+    for (unsigned n = 0; n < 600; ++n) {
+        const auto now = start + n * 16667us;
+        budget.account_auxiliary(1500U * 1000U * 15U / 100U / 8U / 60U);
+        if (budget.ready(now, 1500)) {
+            budget.account(codec * 1000U / 8U / 60U);
+            ++frames;
+        }
+    }
+    CHECK(frames >= 595U);
+}
+
 }  // namespace
 
 int main() {
@@ -429,6 +502,9 @@ int main() {
     test_video_budget_keeps_keyframe_debt_across_rate_changes();
     test_ui_replay_reserves_capacity_without_double_charging_fresh_tiles();
     test_ui_burst_repays_bandwidth_without_a_long_video_admission_pause();
+    test_cropped_video_rate_preserves_desktop_quality_and_ignores_brief_loss();
+    test_cropped_video_rate_tracks_sustained_steps_without_chasing_jitter();
+    test_cropped_video_rate_fits_the_shared_wire_budget_at_full_cadence();
 
     if (failures == 0) {
         std::cout << "all qmdp core tests passed\n";

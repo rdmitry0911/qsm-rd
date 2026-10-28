@@ -112,3 +112,25 @@ checks after moving and closing the input window. A separate run with Qt
 accessibility disabled verifies ordinary fallback. Native Qt 5 accessibility
 and the broader mixed-content/media matrix remain in `rdp-next-plan.json`;
 these metadata tests alone do not prove completion of the plan.
+
+## Older GLib bindings and helper recovery
+
+The original Gio closure registration API transfers an invocation reference
+which older PyGObject versions fail to release. Frequent window damage exposed
+this as native memory growth in Ubuntu 24.04's metadata helper, eventually
+reaching the LXC memory limit. The compatibility registration releases that
+reference only when the actual callable is the old unwrapped
+`g_dbus_connection_register_object_with_closures` entry point. Existing Python
+overrides and the newer `closures2` API keep their own ownership handling.
+This follows the [upstream PyGObject fix](https://raw.githubusercontent.com/GNOME/pygobject/3.50.0/gi/overrides/Gio.py).
+
+The regression test uses a real private D-Bus connection and native RSS
+accounting; Python allocation accounting alone misses this leak. It also
+checks delayed replies with GLib critical errors made fatal. The older Ubuntu
+path and Debian 13's already corrected registration both pass. The LXC session
+agent now retries a failed metadata child after five seconds and cancels that
+retry on normal shutdown. Clipboard and media remain independent.
+
+Four minutes of the installed exp50 helper under live window damage consume
+approximately 19–20 MiB RSS. This removes the previous large native leak;
+longer-session resource qualification is still required.

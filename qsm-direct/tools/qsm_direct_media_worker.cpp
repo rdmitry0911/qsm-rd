@@ -20,6 +20,7 @@
 #include "core/pixel_format.hpp"
 #include "core/resize_coalescer.hpp"
 #include "core/video_budget.hpp"
+#include "core/cropped_video_rate.hpp"
 #include "core/lossless_ui.hpp"
 #include "interfaces/media_adapter.hpp"
 #include "pipeline/desktop_session.hpp"
@@ -1366,13 +1367,13 @@ private:
                 continue;
             }
 
-            // Adapt the number of fresh pictures, not the quality of every
-            // static block. FFmpeg resets NVENC and emits an IDR on a bitrate
-            // change; Intel codecs need reopening. At low rates those large
-            // refreshes also overrun the predictive-stream FIFO repeatedly.
-            // The latest raw scanout remains replaceable while budget drains.
+            // Always account complete access units before admitting another
+            // raw picture. Full-desktop video keeps fixed codec quality;
+            // only a cropped plane with exact UI may adjust its codec rate.
+            // The latest raw scanout stays replaceable while budget drains.
             const auto tick = std::chrono::steady_clock::now();
-            if (!video_budget_.ready(tick, requested_bitrate_kbps_.load(), ui_budget_.load())) {
+            const auto requested_bitrate = requested_bitrate_kbps_.load();
+            if (!video_budget_.ready(tick, requested_bitrate, ui_budget_.load())) {
                 next_frame = tick + repeat_interval;
                 continue;
             }
@@ -1429,22 +1430,32 @@ private:
             frame_changed_ = false;
             lock.unlock();
             try {
-                const bool force_idr = force_idr_.exchange(false);
+                bool force_idr = force_idr_.exchange(false);
+                const bool cropped = region_mode &&
+                    (region.width < region.surface_width || region.height < region.surface_height);
+                const bool opening = width_ != width || height_ != height;
+                const auto codec_bitrate = cropped_video_rate_.update(tick, cropped,
+                    requested_bitrate, video_bitrate_kbps_, opening);
+                const bool rate_changed = encoder_bitrate_kbps_ != codec_bitrate;
 #if defined(QMDP_HAS_LIBAVCODEC)
                 if (LibavVideoEncoder::supports(encoder_)) {
                     if (!libav_encoder_ || width_ != width || height_ != height) {
                         close_video_process();
-                        open_video_process(width, height);
+                        open_video_process(width, height, codec_bitrate);
+                    } else if (rate_changed) {
+                        libav_encoder_->set_bitrate(codec_bitrate);
+                        encoder_bitrate_kbps_ = codec_bitrate;
+                        force_idr = true;
                     }
                     for (auto &packet : libav_encoder_->encode(*bgra, force_idr, capture, region)) {
                         publish_video(packet.keyframe, packet.bytes, packet.capture, packet.region);
                     }
                 } else {
 #endif
-                const bool fresh_encoder = video_input_ < 0 || width_ != width || height_ != height || force_idr;
+                const bool fresh_encoder = video_input_ < 0 || width_ != width || height_ != height || force_idr || rate_changed;
                 if (fresh_encoder) {
                     close_video_process();
-                    open_video_process(width, height);
+                    open_video_process(width, height, codec_bitrate);
                 }
                 remember_video_capture(capture, region);
                 write_all(video_input_, *bgra);
@@ -1458,6 +1469,11 @@ private:
 #if defined(QMDP_HAS_LIBAVCODEC)
                 }
 #endif
+                if (rate_changed) {
+                    std::cerr << "QSM_DIRECT_MEDIA_CODEC_RATE encoder=" << encoder_
+                              << " cropped=" << cropped << " target_kbps=" << codec_bitrate
+                              << " path_kbps=" << requested_bitrate << '\n' << std::flush;
+                }
             } catch (...) {
                 // NVENC/VA-API/QSV can pass the startup probe but still
                 // disappear after QEMU replaces a GL scanout. Do not leave
@@ -1532,15 +1548,16 @@ private:
         video_stats_.luma_max = std::max(video_stats_.luma_max, luma_max);
     }
 
-    void open_video_process(std::uint32_t width, std::uint32_t height) {
+    void open_video_process(std::uint32_t width, std::uint32_t height, std::uint32_t bitrate_kbps) {
 #if defined(QMDP_HAS_LIBAVCODEC)
         if (LibavVideoEncoder::supports(encoder_)) {
             // Explicit I-frame requests go straight to libavcodec/NVENC.
             // Restarting an ffmpeg process for PLI pauses capture, emits a
             // bootstrap burst, and can trigger another bounded-queue overrun.
-            libav_encoder_ = std::make_unique<LibavVideoEncoder>(width, height, fps_, encoder_, video_bitrate_kbps_, vaapi_device_.value_or(""), encoder_device_);
+            libav_encoder_ = std::make_unique<LibavVideoEncoder>(width, height, fps_, encoder_, bitrate_kbps, vaapi_device_.value_or(""), encoder_device_);
             width_ = width;
             height_ = height;
+            encoder_bitrate_kbps_ = bitrate_kbps;
             return;
         }
 #endif
@@ -1577,9 +1594,9 @@ private:
                 "-filter_threads", "1", "-filter_complex_threads", "1", "-thread_queue_size", "1",
                 "-f", "rawvideo", "-pixel_format", "bgra", "-video_size", dimensions,
                 "-framerate", fps, "-i", "pipe:0", "-an", "-c:v", encoder_, "-flags", "low_delay",
-                "-b:v", std::to_string(video_bitrate_kbps_ * 1000U),
-                "-maxrate", std::to_string(video_bitrate_kbps_ * 1000U),
-                "-bufsize", std::to_string(video_bitrate_kbps_ * 1000U / fps_),
+                "-b:v", std::to_string(bitrate_kbps * 1000U),
+                "-maxrate", std::to_string(bitrate_kbps * 1000U),
+                "-bufsize", std::to_string(bitrate_kbps * 1000U / fps_),
             };
             const std::string colour_filter = "scale=in_range=pc:out_range=tv:out_color_matrix=bt601";
             if (std::string_view(encoder_).ends_with("_vaapi")) {
@@ -1650,6 +1667,7 @@ private:
         video_output_ = output[0];
         width_ = width;
         height_ = height;
+        encoder_bitrate_kbps_ = bitrate_kbps;
         video_reader_thread_ = std::thread(&DirectMediaAdapter::video_reader, this, video_output_);
     }
 
@@ -1847,8 +1865,10 @@ private:
     std::optional<std::string> vaapi_device_;
     std::uint32_t fps_ {};
     std::uint32_t video_bitrate_kbps_ {};
+    std::uint32_t encoder_bitrate_kbps_ {};
     std::atomic<std::uint32_t> requested_bitrate_kbps_ {};
     qmdp::VideoBudget video_budget_;
+    qmdp::CroppedVideoRate cropped_video_rate_;
     std::atomic<bool> ui_enabled_ {false};
     std::atomic<std::uint8_t> ui_probe_ {0};
     std::atomic<unsigned> ui_budget_ {0};

@@ -79,7 +79,7 @@
   ],
   "checkpoint": {
     "stage": "priority-ui",
-    "candidate": "0.4.0+stock4.14~exp48 (private candidate)",
+    "candidate": "0.4.0+stock4.14~exp50 (private candidate)",
     "evidence_directory": "dist/rdp-guest-metadata/exp37",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
@@ -87,7 +87,9 @@
       "Guest package payloads and graphical-session startup integration",
       "Metadata attached to the shared VM/LXC media transport; host derives an unoccluded text priority area",
       "Layout-aware sparse edits with worker/browser capture checks and legacy protocol downgrade",
-      "Bounded retention of an unserved sparse edit, verified under controlled byte pressure"
+      "Bounded retention of an unserved sparse edit, verified under controlled byte pressure",
+      "Cropped-plane encoder rate fits the shared path budget, with hysteresis and fixed-quality full-desktop fallback",
+      "Legacy Gio invocation ownership compatibility and LXC metadata child retry"
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -106,12 +108,16 @@
       "Real KWin6/Qt6 VM: native caret position lies in the reported character bounds before/after window move; stack/focus/hide/close and real ScreenSaver suppression pass",
       "Real VM reboot: metadata recovers in ~11.4 seconds on the same host stream; guest boot changes while host boot and QEMU PID stay unchanged",
       "Exp48 packaged host acceptance, with and without cropping: independent move/close pixels regain full exact coverage with zero mismatches; visible overlap typing medians 65/74 ms without cropping on fast/2 Mbit/s links; cropped-video cadence regression remains open",
-      "Real native LXC SDDM/PAM: package exp48 preserves outer display/SDDM PIDs; login starts metadata automatically, normal Plasma logout revokes hints and returns the greeter, login again creates a new metadata session on the same media worker/WebRTC/TCP8006 connection"
+      "Real native LXC SDDM/PAM: package exp48 preserves outer display/SDDM PIDs; login starts metadata automatically, normal Plasma logout revokes hints and returns the greeter, login again creates a new metadata session on the same media worker/WebRTC/TCP8006 connection",
+      "Exp50 LXC crop: all static pixel/move/close/input/resize checks pass; low-link visible cadence samples 34\u201339 fps versus exp48 crop ~14 fps; fast-link variation remains open",
+      "Persistent crop rate up/down/recovery uses 5600/1050 kbit/s codec targets; a 400 ms bad target does not retune; 2162 presented frames retain exact static pixels without gaps",
+      "Installed LXC metadata child crash: hints expire after ~3 seconds, new child restores layout after ~4.8 seconds on the same worker/WebRTC connection; 4-minute memory sample ~19\u201320 MiB",
+      "Native Gio ownership regression fails before fix (~37 MB RSS growth / 2200 calls), passes after (~0.1 MB); installed Debian13 VM exp50 passes same real-call/delayed-reply stress without native PID changes"
     ],
     "pending": [
+      "Qualify cropped-video fidelity and consistent fast-link cadence; real adaptive feedback/loss and longer resource runs remain required before default enablement",
       "Expanded mixed-content acceptance: normal accessibility defaults, cropped video, real loss and longer runs",
       "Resolve native Qt5 AT-SPI startup/registration failure on Ubuntu and Debian; ordinary pixel fallback is verified, but native Qt5 text priority is not qualified",
-      "Resolve cropped-video low-rate cadence regression before enabling it by default",
       "Accessibility under normal session defaults and explicit no-accessibility/old-agent fallback",
       "Complete priority UI qualification for typing over video and moving/resizing/scrolling/closing windows",
       "Remaining video queue, qualification, comparison and release stages"
@@ -125,9 +131,10 @@
       "dist/rdp-hybrid/kwin-candidate42",
       "dist/rdp-hybrid/vm-metadata-exp46",
       "dist/rdp-hybrid/priority-exp48",
-      "dist/rdp-hybrid/native-lxc-exp48"
+      "dist/rdp-hybrid/native-lxc-exp48",
+      "dist/rdp-hybrid/video-budget-exp50"
     ],
-    "next_action": "Resolve cropped-video shared encoder/network budget and cadence; continue native Qt5 accessibility diagnosis, then full VM/LXC/encoder/browser/loss/long-run/RDP qualification and release"
+    "next_action": "Measure moving-video fidelity and phase-matched cadence for the cropped rate policy; investigate remaining slow memory growth during longer mixed-content runs, then complete Qt5 accessibility and full VM/LXC/encoder/browser/loss/RDP/release stages"
   },
   "deployment_nodes": [
     "192.168.64.20",

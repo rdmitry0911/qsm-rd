@@ -6,10 +6,13 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'extensions'))
@@ -118,6 +121,78 @@ class DesktopMetadataTest(unittest.TestCase):
             self.assertIsNone(read_metadata_file(alias))
             path.unlink(); os.mkfifo(path)
             self.assertIsNone(read_metadata_file(path))
+
+
+class InvocationLifetimeTest(unittest.TestCase):
+    def test_already_fixed_bindings_are_not_unrefed_again(self):
+        for symbol in (None, 'g_dbus_connection_register_object_with_closures2'):
+            saved = []
+            def register(*args):
+                saved.append(args)
+                return 42
+            if symbol:
+                register.get_symbol = lambda: symbol
+            invocation = SimpleNamespace(_unref=lambda: self.fail('double unref'))
+            called = []
+            bus = SimpleNamespace(register_object=register)
+            self.assertEqual(bridge.register_metadata_object(bus, None, called.append), 42)
+            saved[0][2](invocation)
+            self.assertEqual(called, [invocation])
+
+    @unittest.skipUnless(shutil.which('dbus-run-session') and importlib.util.find_spec('gi') and
+                         Path('/proc/self/status').exists(), 'Gio and Linux private D-Bus required')
+    def test_actual_invocations_release_payloads_and_keep_delayed_replies_alive(self):
+        # This catches the old closure API's native leak, invisible to Python
+        # tracemalloc. A fake invocation cannot prove GLib ownership safety.
+        code = r'''
+import gc, importlib.util, json, os, sys, threading
+from pathlib import Path
+import gi
+gi.require_version('Gio', '2.0')
+from gi.repository import Gio, GLib
+spec = importlib.util.spec_from_file_location('qsm_metadata_bridge', sys.argv[1])
+bridge = importlib.util.module_from_spec(spec); spec.loader.exec_module(bridge)
+bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+xml = '<node><interface name="org.qsm.DesktopMetadata1"><method name="Echo"><arg type="s" direction="in"/><arg type="u" direction="out"/></method><method name="Delayed"><arg type="u" direction="out"/></method></interface></node>'
+interface = Gio.DBusNodeInfo.new_for_xml(xml).interfaces[0]
+def callback(connection, sender, path, interface, method, parameters, invocation):
+    if method == 'Delayed':
+        def reply():
+            invocation.return_value(GLib.Variant('(u)', (17,)))
+            return False
+        GLib.timeout_add(1, reply)
+    else:
+        invocation.return_value(GLib.Variant('(u)', (len(parameters.unpack()[0]),)))
+registration = bridge.register_metadata_object(bus, interface, callback)
+loop = GLib.MainLoop(); worker = threading.Thread(target=loop.run); worker.start()
+client = Gio.DBusConnection.new_for_address_sync(os.environ['DBUS_SESSION_BUS_ADDRESS'],
+    Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
+    None, None)
+def call(method, parameters=None):
+    return client.call_sync(bus.get_unique_name(), bridge.OBJECT, bridge.INTERFACE, method,
+        parameters, GLib.VariantType.new('(u)'), Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
+def rss():
+    gc.collect()
+    return int(next(l.split()[1] for l in Path('/proc/self/status').read_text().splitlines() if l.startswith('VmRSS:'))) * 1024
+payload = GLib.Variant('(s)', ('x' * 16384,))
+try:
+    for n in range(200): assert call('Echo', payload) == 16384
+    before = rss()
+    for n in range(2000): assert call('Echo', payload) == 16384
+    after = rss()
+    for n in range(20): assert call('Delayed') == 17
+    print(json.dumps({'rss_growth': after - before, 'calls': 2200, 'delayed': 20}))
+finally:
+    client.close_sync(None); bus.unregister_object(registration); loop.quit(); worker.join(2)
+assert after - before < 12 * 1024 * 1024, (before, after)
+'''
+        result = subprocess.run(['dbus-run-session', '--', sys.executable, '-c', code,
+            str(ROOT / 'guest/qsm_desktop_metadata.py')], capture_output=True, text=True,
+            timeout=15, env={**os.environ, 'G_DEBUG': 'fatal-criticals'})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        evidence = json.loads(result.stdout)
+        self.assertEqual(evidence['calls'], 2200)
+        self.assertEqual(evidence['delayed'], 20)
 
 
 if __name__ == '__main__': unittest.main(verbosity=2)

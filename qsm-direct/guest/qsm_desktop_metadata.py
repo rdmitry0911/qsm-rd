@@ -30,6 +30,25 @@ OBJECT = '/org/qsm/DesktopMetadata'
 PLUGIN = 'qsm-desktop-metadata'
 
 
+def register_metadata_object(bus, interface, callback):
+    register = bus.register_object
+    # Old GI maps this API to the original closure entry point, whose
+    # transferred invocation reference is otherwise leaked on every damage
+    # notification. PyGObject 3.50 wraps it; GLib 2.84 has a corrected
+    # closures2 entry point. Test the actual callable rather than distro
+    # versions, so backported overrides cannot cause a second unref.
+    # https://gitlab.gnome.org/GNOME/pygobject/-/merge_requests/219
+    if getattr(register, 'get_symbol', lambda: None)() == 'g_dbus_connection_register_object_with_closures':
+        method = callback
+        def owned_callback(*args):
+            try:
+                method(*args)
+            finally:
+                args[-1]._unref()
+        callback = owned_callback
+    return register(OBJECT, interface, callback, None, None)
+
+
 class DesktopState:
     """Pure state model shared by production callbacks and protocol tests."""
     def __init__(self):
@@ -141,7 +160,7 @@ def main(argv=None):
                 '<method name="GetSnapshot"><arg type="s" direction="out"/></method>' + \
                 '</interface></node>'
             iface = Gio.DBusNodeInfo.new_for_xml(xml).interfaces[0]
-            self.bus.register_object(OBJECT, iface, self.method, None, None)
+            register_metadata_object(self.bus, iface, self.method)
             self.bus.signal_subscribe('org.freedesktop.DBus', 'org.freedesktop.DBus', 'NameOwnerChanged',
                 '/org/freedesktop/DBus', 'org.kde.KWin', Gio.DBusSignalFlags.NONE, self.owner_changed)
             self.bus.signal_subscribe('org.freedesktop.ScreenSaver', 'org.freedesktop.ScreenSaver',

@@ -1,0 +1,202 @@
+{
+  "candidate": "0.4.0+stock4.14~exp50",
+  "scope": "LXC108/KWin5/NVENC/H264 and Firefox/Linux; real input/capture/encode/TURN TCP8006; PVE launch/ACL mocked",
+  "trials": [
+    {
+      "mode": "crop",
+      "package": "0.4.0+stock4.14~exp50",
+      "guest_package": "exp50",
+      "cases": [
+        {
+          "name": "fast_video_only",
+          "glyph_median_ms": 129,
+          "glyph_p95_ms": 137,
+          "visible_fps": 59.21490352628077
+        },
+        {
+          "name": "fast_exact",
+          "glyph_median_ms": 60,
+          "glyph_p95_ms": 86,
+          "visible_fps": 56.647784071976005
+        },
+        {
+          "name": "overlap_fast_video_only",
+          "glyph_median_ms": 165,
+          "glyph_p95_ms": 167,
+          "visible_fps": 59.52776854007316
+        },
+        {
+          "name": "overlap_fast_exact",
+          "glyph_median_ms": 65,
+          "glyph_p95_ms": 85,
+          "visible_fps": 59.09694555112882
+        },
+        {
+          "name": "overlap_2mbit_video_only",
+          "glyph_median_ms": 186,
+          "glyph_p95_ms": 228,
+          "visible_fps": 16.943521594684384
+        },
+        {
+          "name": "overlap_2mbit_exact",
+          "glyph_median_ms": 69,
+          "glyph_p95_ms": 104,
+          "visible_fps": 38.666666666666664
+        }
+      ],
+      "exact_pixels": {
+        "opaque": 65536,
+        "equal": 65536,
+        "samples": 65536
+      },
+      "move_pixels": {
+        "pixels": 6048,
+        "exact_coverage": 6048,
+        "mismatches": 0
+      },
+      "close_pixels": {
+        "pixels": 9408,
+        "exact_coverage": 9408,
+        "mismatches": 0
+      },
+      "page_errors": []
+    },
+    {
+      "mode": "rate-steps",
+      "package": "0.4.0+stock4.14~exp50",
+      "guest_package": "exp50",
+      "cases": [
+        {
+          "name": "fast_video_only",
+          "glyph_median_ms": 131,
+          "glyph_p95_ms": 145,
+          "visible_fps": 56.277056277056275
+        },
+        {
+          "name": "fast_exact",
+          "glyph_median_ms": 67,
+          "glyph_p95_ms": 83,
+          "visible_fps": 46.62004662004662
+        },
+        {
+          "name": "overlap_fast_video_only",
+          "glyph_median_ms": 166,
+          "glyph_p95_ms": 169,
+          "visible_fps": 60.11291929591498
+        },
+        {
+          "name": "overlap_fast_exact",
+          "glyph_median_ms": 60,
+          "glyph_p95_ms": 82,
+          "visible_fps": 51.98267244251916
+        },
+        {
+          "name": "overlap_2mbit_video_only",
+          "glyph_median_ms": 202,
+          "glyph_p95_ms": 237,
+          "visible_fps": 17.23566456745111
+        },
+        {
+          "name": "overlap_2mbit_exact",
+          "glyph_median_ms": 77,
+          "glyph_p95_ms": 117,
+          "visible_fps": 34.333333333333336
+        }
+      ],
+      "exact_pixels": {
+        "opaque": 65536,
+        "equal": 65536,
+        "samples": 65536
+      },
+      "move_pixels": {
+        "pixels": 6048,
+        "exact_coverage": 6048,
+        "mismatches": 0
+      },
+      "close_pixels": {
+        "pixels": 9408,
+        "exact_coverage": 9408,
+        "mismatches": 0
+      },
+      "page_errors": [],
+      "pixel_observer": {
+        "frames": 2162,
+        "wrong_frames": 0,
+        "wrong_pixels": 0,
+        "missing_exact_frames": 0,
+        "stop": true
+      },
+      "brief_rate_change": {
+        "duration_ms": 400,
+        "new_codec_events": []
+      },
+      "rate_steps": [
+        {
+          "name": "persistent_crop_up",
+          "path_kbps": 8000,
+          "bandwidth": 20000000,
+          "codec_events": [
+            "QSM_DIRECT_MEDIA_CODEC_RATE encoder=h264_nvenc cropped=1 target_kbps=5600 path_kbps=8000"
+          ]
+        },
+        {
+          "name": "persistent_crop_down",
+          "path_kbps": 1500,
+          "bandwidth": 2000000,
+          "codec_events": [
+            "QSM_DIRECT_MEDIA_CODEC_RATE encoder=h264_nvenc cropped=1 target_kbps=1050 path_kbps=1500"
+          ]
+        },
+        {
+          "name": "persistent_crop_recovery",
+          "path_kbps": 8000,
+          "bandwidth": 20000000,
+          "codec_events": [
+            "QSM_DIRECT_MEDIA_CODEC_RATE encoder=h264_nvenc cropped=1 target_kbps=5600 path_kbps=8000"
+          ]
+        },
+        {
+          "name": "restore_low_before_remaining_checks",
+          "path_kbps": 1500,
+          "bandwidth": 2000000,
+          "codec_events": [
+            "QSM_DIRECT_MEDIA_CODEC_RATE encoder=h264_nvenc cropped=1 target_kbps=1050 path_kbps=1500"
+          ]
+        }
+      ],
+      "metadata_child_recovery": {
+        "same_worker": 2127954,
+        "connected": "connected",
+        "expiry_ms": 3015,
+        "restored_ms": 4824
+      }
+    }
+  ],
+  "memory": {
+    "native_ownership_regression": {
+      "before": {
+        "exit": 1,
+        "output": "{\"rss_growth\": 36818944, \"calls\": 2200, \"delayed\": 20}",
+        "error": "Traceback (most recent call last):\n  File \"<string>\", line 43, in <module>\nAssertionError: (24059904, 60878848)"
+      },
+      "after": {
+        "exit": 0,
+        "output": "{\"rss_growth\": 106496, \"calls\": 2200, \"delayed\": 20}",
+        "error": ""
+      }
+    },
+    "installed_helper_seconds": 240.01267522014678,
+    "rss_first_kb": 19164,
+    "rss_last_kb": 20028,
+    "note": "Large native invocation leak removed; small RSS growth and allocator warmup still require a long-run check"
+  },
+  "vm": "Debian13/PyGObject3.50/GLib2.84 installed exp50; 2200 real calls plus 20 delayed replies with fatal GLib criticals pass; native agent and SDDM PIDs preserved",
+  "evidence": "dist/rdp-hybrid/video-budget-exp50",
+  "limits": [
+    "Cadence samples last three seconds; clip phases are not synchronized across runs",
+    "Fast-link samples vary 46\u201359 fps, so upper-rate cadence is not yet fully qualified",
+    "Moving-video fidelity is not yet quantitatively compared",
+    "Manual rate steps are not imposed packet loss or full adaptive-controller qualification",
+    "Native Qt5 caret issue, longer resource runs, VM mixed media, remaining encoder/browser matrix and RDP comparison remain open"
+  ]
+}

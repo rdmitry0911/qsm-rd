@@ -90,10 +90,16 @@ class Agent(QObject):
         self.desktop_poll = QTimer(self)
         self.desktop_poll.setInterval(500)
         self.desktop_poll.timeout.connect(self.publish_desktop)
+        self.desktop_stopping = False
+        self.desktop_restart = QTimer(self)
+        self.desktop_restart.setSingleShot(True)
+        self.desktop_restart.setInterval(5000)
+        self.desktop_restart.timeout.connect(self.start_metadata)
         self.desktop_process = QProcess(self)
         self.desktop_process.setProcessChannelMode(QProcess.ForwardedErrorChannel)
-        self.desktop_process.start(sys.executable, [str(Path(__file__).with_name('qsm_desktop_metadata.py')),
-            '--state-dir', str(self.desktop_dir)])
+        self.desktop_process.finished.connect(self.retry_metadata)
+        self.desktop_process.errorOccurred.connect(self.retry_metadata)
+        self.start_metadata()
         self.server = QLocalServer(self)
         self.server.setSocketOptions(QLocalServer.UserAccessOption)
         QLocalServer.removeServer(path)
@@ -210,7 +216,18 @@ class Agent(QObject):
             self.desktop_last = raw
             self.send('EVENT_DESKTOP ' + (base64.b64encode(raw).decode('ascii') if raw is not None else '-'))
 
+    def start_metadata(self) -> None:
+        if not self.desktop_stopping and self.desktop_process.state() == QProcess.NotRunning:
+            self.desktop_process.start(sys.executable, [str(Path(__file__).with_name('qsm_desktop_metadata.py')),
+                '--state-dir', str(self.desktop_dir)])
+
+    def retry_metadata(self, *_args) -> None:
+        if not self.desktop_stopping:
+            self.desktop_restart.start()
+
     def stop_metadata(self) -> None:
+        self.desktop_stopping = True
+        self.desktop_restart.stop()
         self.desktop_process.terminate()
         if not self.desktop_process.waitForFinished(1500):
             self.desktop_process.kill()
