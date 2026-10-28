@@ -1,4 +1,4 @@
-"""Private QSM guest clipboard channel for the browser console.
+"""Private QSM guest clipboard and advisory desktop channel for the console.
 
 The only peer is a QEMU ``socket`` chardev below a root-owned per-VM runtime
 directory.  This is intentionally not a network service: PVE has already
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import copy
 import socket
 import threading
 import time
@@ -16,12 +17,15 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Callable
 
+from .qsm_desktop_metadata import DesktopMetadataError, MAX_METADATA_BYTES, parse_metadata
+
 
 MAX_CLIPBOARD_BYTES = 1024 * 1024
 MAX_AGENT_LINE = 4 * 1024 * 1024
 # A missing optional in-guest package must not make a connected desktop
 # console appear frozen for half a minute after Copy or Paste.
 REQUEST_TIMEOUT_SECONDS = 5.0
+DESKTOP_LEASE_SECONDS = 3.0
 
 
 class GuestChannelError(RuntimeError):
@@ -88,6 +92,16 @@ class QsmGuestChannel:
         self._generation = 0
         self._responses: deque[str] = deque()
         self._listeners: set[Callable[[str], None]] = set()
+        self._desktop_listeners: set[Callable[[dict[str, Any] | None], None]] = set()
+        self._desktop_value: dict[str, Any] | None = None
+        self._desktop_received = 0.0
+        self._desktop_session = ''
+        self._desktop_sequence = 0
+        self._desktop_layout = 0
+        self._desktop_probe_generation = -1
+        self._desktop_enabled = False
+        self._keep_connection = keep_connected
+        self._keeper_wake = threading.Event()
         if keep_connected:
             # The peer comes and goes (a container session's clipboard agent
             # restarts with every login): reconnect in the background, so its
@@ -96,14 +110,39 @@ class QsmGuestChannel:
             self._keeper.start()
 
     def _keep_connected(self) -> None:
-        while not self._stopped.wait(2.0):
+        while not self._stopped.is_set():
             with self._condition:
-                connected = self._socket is not None
-            if not connected:
+                wanted = bool(self._desktop_listeners)
+                needed = self._keep_connection or wanted or self._desktop_enabled
+            if needed:
                 try:
-                    self._connect(time.monotonic() + 1.0)
+                    _, generation = self._connect(time.monotonic() + 1.0)
+                    with self._condition:
+                        probe = wanted and self._desktop_probe_generation != generation
+                        if probe:
+                            # Events may precede the subscription acknowledgement
+                            # in the same read. Mark the attempt before sending.
+                            self._desktop_probe_generation = generation
+                    if probe:
+                        try:
+                            self._request('DESKTOP_SUBSCRIBE 1', 'OK DESKTOP_SUBSCRIBE')
+                        except GuestChannelError:
+                            # Old agents reject this optional command. Never
+                            # probe again on this connection or disturb clipboard.
+                            pass
+                        else:
+                            with self._condition:
+                                self._desktop_enabled = self._generation == generation
+                    elif not wanted and self._desktop_enabled:
+                        self._request('DESKTOP_SUBSCRIBE 0', 'OK DESKTOP_SUBSCRIBE')
+                        with self._condition:
+                            self._desktop_enabled = False
+                            self._desktop_probe_generation = -1
                 except GuestChannelError:
                     pass
+            self._expire_desktop()
+            self._keeper_wake.wait(.25)
+            self._keeper_wake.clear()
 
     def connect_now(self, timeout: float = 1.0) -> None:
         """Connect at once, so guest clipboard events flow before any request."""
@@ -120,8 +159,78 @@ class QsmGuestChannel:
                 self._listeners.discard(listener)
         return remove
 
+    def add_desktop_listener(self, listener: Callable[[dict[str, Any] | None], None]) -> Callable[[], None]:
+        """Subscribe to bounded hints; None revokes them after loss/expiry.
+
+        Consumers must retain pixel fallback and must not treat geometry as
+        proof that a corresponding capture has reached the video decoder.
+        """
+        with self._condition:
+            if self._stopped.is_set():
+                raise GuestChannelError('guest side channel is closed')
+            self._desktop_listeners.add(listener)
+            if self._keeper is None:
+                self._keeper = threading.Thread(target=self._keep_connected, name='qsm-guest-keeper', daemon=True)
+                self._keeper.start()
+        self._keeper_wake.set()
+
+        def remove() -> None:
+            with self._condition:
+                self._desktop_listeners.discard(listener)
+            self._keeper_wake.set()
+        return remove
+
+    def _expire_desktop(self) -> None:
+        with self._condition:
+            if self._desktop_value is None or time.monotonic() - self._desktop_received <= DESKTOP_LEASE_SECONDS:
+                return
+            self._desktop_value = None
+            listeners = tuple(self._desktop_listeners)
+        self._notify_desktop(listeners, None)
+
+    def _invalidate_desktop(self, generation: int | None = None) -> None:
+        with self._condition:
+            if self._desktop_value is None or (generation is not None and generation != self._generation):
+                return
+            self._desktop_value = None
+            listeners = tuple(self._desktop_listeners)
+        self._notify_desktop(listeners, None)
+
+    @staticmethod
+    def _notify_desktop(listeners, value) -> None:
+        for listener in listeners:
+            try:
+                listener(copy.deepcopy(value))
+            except Exception:
+                pass
+
+    def _publish_desktop(self, encoded: str, generation: int) -> None:
+        with self._condition:
+            if self._generation != generation or self._desktop_probe_generation != generation or not self._desktop_listeners:
+                return
+        try:
+            value = parse_metadata(_decode_agent_b64(encoded, MAX_METADATA_BYTES, 'desktop'))
+        except (GuestChannelError, DesktopMetadataError):
+            self._invalidate_desktop(generation)
+            return
+        with self._condition:
+            if self._generation != generation or self._socket is None:
+                return
+            same = value['session'] == self._desktop_session
+            if same and (value['sequence'] <= self._desktop_sequence or value['generation'] < self._desktop_layout):
+                return  # Replays never renew the lease.
+            self._desktop_session = value['session']
+            self._desktop_sequence = value['sequence']
+            self._desktop_layout = value['generation']
+            self._desktop_value = value
+            self._desktop_received = time.monotonic()
+            listeners = tuple(self._desktop_listeners)
+        self._notify_desktop(listeners, value)
+
     def close(self) -> None:
         self._stopped.set()
+        self._keeper_wake.set()
+        self._invalidate_desktop()
         with self._condition:
             channel, reader = self._socket, self._reader
             self._socket = None
@@ -129,6 +238,7 @@ class QsmGuestChannel:
             self._generation += 1
             self._responses.clear()
             self._listeners.clear()
+            self._desktop_listeners.clear()
             self._condition.notify_all()
         if channel is not None:
             try:
@@ -138,6 +248,8 @@ class QsmGuestChannel:
             channel.close()
         if reader is not None and reader is not threading.current_thread():
             reader.join(timeout=1.0)
+        if self._keeper is not None and self._keeper is not threading.current_thread():
+            self._keeper.join(timeout=1.0)
 
     def _disconnect(self, channel: socket.socket, generation: int) -> None:
         with self._condition:
@@ -151,6 +263,8 @@ class QsmGuestChannel:
             channel.close()
         except OSError:
             pass
+        self._invalidate_desktop()
+        self._keeper_wake.set()
 
     def _publish_clipboard(self, encoded: str) -> None:
         try:
@@ -173,6 +287,7 @@ class QsmGuestChannel:
                 try:
                     block = channel.recv(65536)
                 except socket.timeout:
+                    self._expire_desktop()
                     continue
                 except OSError:
                     break
@@ -198,11 +313,16 @@ class QsmGuestChannel:
                         continue
                     if line.startswith("EVENT_CLIP "):
                         self._publish_clipboard(line[11:])
+                    elif line.startswith('EVENT_DESKTOP '):
+                        self._publish_desktop(line[14:], generation)
                     else:
                         with self._condition:
                             if self._socket is channel and self._generation == generation:
+                                if len(self._responses) >= 64:
+                                    return
                                 self._responses.append(line)
                                 self._condition.notify_all()
+                self._expire_desktop()
         finally:
             self._disconnect(channel, generation)
 
@@ -241,6 +361,10 @@ class QsmGuestChannel:
                 self._generation += 1
                 generation = self._generation
                 self._socket = candidate
+                self._desktop_enabled = False
+                self._desktop_session = ''
+                self._desktop_sequence = 0
+                self._desktop_layout = 0
                 self._responses.clear()
                 self._reader = threading.Thread(target=self._read_loop, args=(candidate, generation),
                                                 name="qsm-guest-channel", daemon=True)
@@ -272,6 +396,9 @@ class QsmGuestChannel:
                         raise GuestChannelError("guest channel was interrupted; retry")
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
+                        # QSF1 has no request IDs. A late acknowledgement must
+                        # not become an error for the next clipboard request.
+                        self._disconnect(channel, generation)
                         raise GuestChannelError("guest agent did not respond")
                     self._condition.wait(remaining)
         finally:

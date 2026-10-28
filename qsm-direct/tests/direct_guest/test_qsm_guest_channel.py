@@ -4,27 +4,29 @@
 from __future__ import annotations
 
 import base64
-import importlib.util
+import json
+import sys
 import socket
 import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULE = ROOT / "extensions" / "direct_guest" / "qsm_guest_channel.py"
-SPEC = importlib.util.spec_from_file_location("qsm_guest_channel_tested", MODULE)
-assert SPEC is not None and SPEC.loader is not None
-qsm = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(qsm)
+sys.path.insert(0, str(ROOT / 'extensions'))
+from direct_guest import qsm_guest_channel as qsm
 
 
 class GuestAgent:
     def __init__(self, path: Path, *, announce_ready: bool = True) -> None:
         self.clipboard = b""
         self.clipboard_applied = False
+        self.metadata_supported = False
+        self.metadata_initial = None
+        self.subscriptions = []
         self._listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._listener.bind(str(path))
         self._listener.listen(1)
@@ -36,6 +38,10 @@ class GuestAgent:
     def close(self) -> None:
         if self._connection is not None:
             self._connection.close()
+        try:
+            self._listener.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
         self._listener.close()
         self._thread.join(timeout=2)
 
@@ -46,6 +52,9 @@ class GuestAgent:
     def event_clipboard(self, data: bytes) -> None:
         assert self._connection is not None
         self._connection.sendall(("EVENT_CLIP " + self._wire(data) + "\n").encode("ascii"))
+
+    def event_desktop(self, value) -> None:
+        self._reply('EVENT_DESKTOP ' + self._wire(json.dumps(value).encode()))
 
     def _reply(self, value: str) -> None:
         assert self._connection is not None
@@ -69,6 +78,14 @@ class GuestAgent:
                     fields = raw.decode("ascii").split(" ")
                     if fields == ["PING"]:
                         self._reply("OK PONG")
+                    elif fields[0] == 'DESKTOP_SUBSCRIBE':
+                        self.subscriptions.append(fields[1])
+                        if not self.metadata_supported:
+                            self._reply('ERR UNKNOWN_COMMAND')
+                        else:
+                            if fields[1] == '1' and self.metadata_initial is not None:
+                                self.event_desktop(self.metadata_initial)
+                            self._reply('OK DESKTOP_SUBSCRIBE')
                     elif fields == ["CLIP_GET"]:
                         self._reply("CLIP " + self._wire(self.clipboard))
                     elif len(fields) == 2 and fields[0] == "CLIP_SET":
@@ -81,6 +98,20 @@ class GuestAgent:
 
 
 class DirectGuestChannelTest(unittest.TestCase):
+    @staticmethod
+    def metadata(sequence=1, generation=1):
+        return {'version': 1, 'session': 'test-session', 'sequence': sequence, 'generation': generation,
+            'available': True, 'locked': False, 'capabilities': ['windows', 'focus'],
+            'desktop': {'rect': [0, 0, 1280, 800], 'scale': 1},
+            'windows': [{'id': 'one', 'pid': 42, 'rect': [20, 30, 500, 400], 'client_rect': [20, 30, 500, 400], 'visible': True, 'opacity': 1}],
+            'focus': 'one', 'caret': None, 'damage': []}
+
+    def wait_for(self, condition):
+        deadline = time.monotonic() + 2
+        while not condition() and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertTrue(condition())
+
     def test_optional_guest_channel_uses_a_short_interaction_timeout(self) -> None:
         self.assertLessEqual(qsm.REQUEST_TIMEOUT_SECONDS, 5.0)
 
@@ -131,6 +162,61 @@ class DirectGuestChannelTest(unittest.TestCase):
             self.channel.dispatch({"op": "file_upload", "name": "client.bin", "data_b64": ""})
         with self.assertRaises(qsm.GuestChannelError):
             self.channel.dispatch({"op": "clipboard_set", "text_b64": self._b64(b"no\x00nul")})
+
+    def test_old_agent_is_probed_once_and_clipboard_remains_available(self):
+        received = []
+        self.channel.add_desktop_listener(received.append)
+        self.wait_for(lambda: self.agent.subscriptions == ['1'])
+        self.assertEqual(self.channel.dispatch({'op': 'status'}), {'agent': 'ready'})
+        self.assertEqual(self.channel.dispatch({'op': 'clipboard_get'}), {'text_b64': ''})
+        self.assertEqual(received, [])
+        self.assertEqual(self.agent.subscriptions, ['1'])
+
+    def test_metadata_can_precede_acknowledgement_and_unsubscribes(self):
+        self.agent.metadata_supported = True
+        self.agent.metadata_initial = self.metadata()
+        received = []
+        remove = self.channel.add_desktop_listener(received.append)
+        self.wait_for(lambda: len(received) == 1)
+        self.assertEqual(received[0]['focus'], 'one')
+        self.assertEqual(self.channel.dispatch({'op': 'status'}), {'agent': 'ready'})
+        remove()
+        self.wait_for(lambda: self.agent.subscriptions == ['1', '0'])
+
+    def test_replays_and_layout_regressions_do_not_renew_lease(self):
+        self.agent.metadata_supported = True
+        self.agent.metadata_initial = self.metadata(sequence=5, generation=3)
+        received = []
+        with mock.patch.object(qsm, 'DESKTOP_LEASE_SECONDS', .15):
+            self.channel.add_desktop_listener(received.append)
+            self.wait_for(lambda: bool(received))
+            self.agent.event_desktop(self.metadata(sequence=4, generation=3))
+            self.agent.event_desktop(self.metadata(sequence=6, generation=2))
+            self.wait_for(lambda: received[-1] is None)
+            self.assertEqual(len(received), 2)
+
+    def test_invalid_metadata_revokes_hints_and_later_valid_state_recovers(self):
+        self.agent.metadata_supported = True
+        self.agent.metadata_initial = self.metadata()
+        received = []
+        self.channel.add_desktop_listener(received.append)
+        self.wait_for(lambda: bool(received))
+        invalid = self.metadata(sequence=2)
+        invalid['windows'][0]['caption'] = 'not permitted'
+        self.agent.event_desktop(invalid)
+        self.wait_for(lambda: received[-1] is None)
+        self.agent.event_desktop(self.metadata(sequence=3))
+        self.wait_for(lambda: received[-1] is not None)
+        self.assertEqual(received[-1]['sequence'], 3)
+
+    def test_disconnect_revokes_metadata(self):
+        self.agent.metadata_supported = True
+        self.agent.metadata_initial = self.metadata()
+        received = []
+        self.channel.add_desktop_listener(received.append)
+        self.wait_for(lambda: bool(received))
+        self.agent._connection.shutdown(socket.SHUT_RDWR)
+        self.wait_for(lambda: received[-1] is None)
 
 
 if __name__ == "__main__":

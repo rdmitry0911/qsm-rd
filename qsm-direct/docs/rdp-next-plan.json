@@ -1,0 +1,110 @@
+{
+  "objective": "Finish the agreed RDP-like responsiveness plan without sacrificing video quality or TCP/8006-only operation",
+  "started": "2026-10-28",
+  "baseline": {
+    "package": "0.4.0+stock4.14~exp35",
+    "node": "192.168.64.20",
+    "user_result": "Mosaic practically disappeared; residual artifacts remain"
+  },
+  "requirements": [
+    {
+      "id": "baseline",
+      "status": "pending",
+      "deliverables": [
+        "Controlled exp35 mixed-content baseline",
+        "Actual typed-glyph latency, video motion cadence, bandwidth and visual-correctness samples",
+        "Overlapping input window move, resize, scroll and close; no old-pixel resurrection"
+      ]
+    },
+    {
+      "id": "guest-metadata",
+      "status": "in_progress",
+      "deliverables": [
+        "Bounded, versioned desktop metadata on existing guest transport with old-agent fallback",
+        "Plasma/KWin window geometry, stacking, visibility, focus and change notifications",
+        "Caret bounds from supported accessibility APIs with explicit unavailable fallback",
+        "VM and LXC guest packages and real session integration",
+        "Live KWin metadata verification on dedicated guests"
+      ]
+    },
+    {
+      "id": "priority-ui",
+      "status": "pending",
+      "deliverables": [
+        "Use metadata plus pixel changes to distinguish video and exact UI within one application",
+        "Prioritize typed-glyph display without waiting for an unrelated video backlog",
+        "Preserve capture/layout generations, occlusion correctness and conservative fallback"
+      ]
+    },
+    {
+      "id": "video-regions-and-queue",
+      "status": "pending",
+      "deliverables": [
+        "Qualify cropped video with overlapping text and moving/resizing windows",
+        "Bound playout/backlog during bandwidth changes without repeated static-quality changes",
+        "Maintain video/UI shared budget and independently responsive input"
+      ]
+    },
+    {
+      "id": "qualification",
+      "status": "pending",
+      "deliverables": [
+        "VM and LXC mixed-content runs",
+        "NVENC, QSV and VA-API with supported H264/HEVC paths",
+        "Firefox/macOS acceptance and longer session checks",
+        "Comparable QSM and RDP scenarios and network conditions; report limitations honestly"
+      ]
+    },
+    {
+      "id": "release",
+      "status": "pending",
+      "deliverables": [
+        "Complete published source matches tested binary payloads",
+        "Release debs, signed checksums and APT updates",
+        "Installation, upgrade and rollback documentation",
+        "Roll out qualified packages on the requested existing nodes",
+        "Prepare and deliver authorized discussion updates; retain evidence of delivery"
+      ]
+    }
+  ],
+  "invariants": [
+    "One forwarded TCP port 8006 remains sufficient",
+    "UDP remains optional",
+    "No production host or guest power/session restart without specific authorization",
+    "Develop guest integration on dedicated test guests",
+    "Guest metadata is untrusted, bounded and authenticated by the existing console/session transport",
+    "No app text or window titles needed for metadata",
+    "Do not mark the objective complete based on tests narrower than the requirements"
+  ],
+  "checkpoint": {
+    "stage": "guest-metadata",
+    "candidate": "0.4.0+stock4.14~exp37",
+    "evidence_directory": "dist/rdp-guest-metadata/exp37",
+    "implemented": [
+      "KWin geometry, real stack, visibility, focus, conservative caret areas",
+      "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
+      "Guest package payloads and graphical-session startup integration"
+    ],
+    "verified": [
+      "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
+      "D-Bus locking observer with simulated private locker",
+      "Actual C agent wire protocol over PTY",
+      "Installed LXC guest and matching extracted host package; writer pause, expiry and recovery",
+      "Final exp37 installed LXC payload and matching extracted host payload; private lock observer, stable recovery, and unchanged native/production PIDs"
+    ],
+    "pending": [
+      "Attach metadata to the production media transport and qualify scheduling against actual captures",
+      "Real VM virtio and login lifecycle",
+      "Live KWin6",
+      "Controlled mixed-content baseline and priority UI integration",
+      "Remaining video queue, qualification, comparison and release stages"
+    ],
+    "production_node_20": "Host remains exp35; no worker or user desktop restart",
+    "video_scheduling_changed": false
+  },
+  "deployment_nodes": [
+    "192.168.64.20",
+    "172.16.16.17",
+    "10.30.0.240"
+  ]
+}

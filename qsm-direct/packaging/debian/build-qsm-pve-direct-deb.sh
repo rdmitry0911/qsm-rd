@@ -29,6 +29,7 @@ for required in \
     "$ROOT_DIR/extensions/browser_bridge/qsm_browser_bridge.py" \
     "$ROOT_DIR/extensions/direct_guest/__init__.py" \
     "$ROOT_DIR/extensions/direct_guest/qsm_guest_channel.py" \
+    "$ROOT_DIR/extensions/direct_guest/qsm_desktop_metadata.py" \
     "$ROOT_DIR/extensions/direct_terminal/qsm_direct_encoder_probe.py" \
     "$ROOT_DIR/extensions/direct_terminal/qsm_direct_terminal.py" \
     "$ROOT_DIR/extensions/direct_terminal/qsm_shared_migration.py" \
@@ -93,6 +94,7 @@ install -m 0644 "$ROOT_DIR/extensions/signal/qsm_gateway.py" "$package_root/brow
 install -m 0644 "$ROOT_DIR/extensions/signal/qsm_gateway.py" "$package_root/signal_service/qsm_gateway.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/__init__.py" "$package_root/direct_guest/__init__.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_guest_channel.py" "$package_root/direct_guest/qsm_guest_channel.py"
+install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_desktop_metadata.py" "$package_root/direct_guest/qsm_desktop_metadata.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_terminal/qsm_direct_encoder_probe.py" "$package_root/direct_terminal/qsm_direct_encoder_probe.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_terminal/qsm_shared_migration.py" "$package_root/direct_terminal/qsm_shared_migration.py"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-migrate" "$stage_root/usr/sbin/qsm-pve-direct-migrate"

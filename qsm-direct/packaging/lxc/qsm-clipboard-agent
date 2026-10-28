@@ -31,6 +31,7 @@ import base64
 import binascii
 import fcntl
 import os
+from pathlib import Path
 import select
 import shutil
 import socket
@@ -39,9 +40,11 @@ import sys
 import threading
 import time
 
-from PyQt5.QtCore import QCoreApplication, QObject, QTimer, pyqtSlot
+from PyQt5.QtCore import QCoreApplication, QFileSystemWatcher, QObject, QProcess, QTimer, pyqtSlot
 from PyQt5.QtDBus import QDBusConnection, QDBusMessage
 from PyQt5.QtNetwork import QLocalServer, QLocalSocket
+
+from qsm_desktop_metadata_schema import read_metadata_file
 
 DEBUG = os.environ.get("QSM_CLIPBOARD_DEBUG") == "1"
 MAX_BYTES = 1024 * 1024
@@ -78,6 +81,19 @@ class Agent(QObject):
         self.buffer = bytearray()
         self.generation = 0
         self.last_text: str | None = None
+        self.desktop_subscribed = False
+        self.desktop_last: bytes | None = None
+        self.desktop_dir = Path(path).parent / 'desktop'
+        self.desktop_dir.mkdir(mode=0o700, exist_ok=True)
+        self.desktop_watch = QFileSystemWatcher([str(self.desktop_dir)], self)
+        self.desktop_watch.directoryChanged.connect(lambda _path: self.publish_desktop())
+        self.desktop_poll = QTimer(self)
+        self.desktop_poll.setInterval(500)
+        self.desktop_poll.timeout.connect(self.publish_desktop)
+        self.desktop_process = QProcess(self)
+        self.desktop_process.setProcessChannelMode(QProcess.ForwardedErrorChannel)
+        self.desktop_process.start(sys.executable, [str(Path(__file__).with_name('qsm_desktop_metadata.py')),
+            '--state-dir', str(self.desktop_dir)])
         self.server = QLocalServer(self)
         self.server.setSocketOptions(QLocalServer.UserAccessOption)
         QLocalServer.removeServer(path)
@@ -122,6 +138,8 @@ class Agent(QObject):
         if previous is not None:
             previous.disconnectFromServer()  # one host connection at a time
         self.buffer.clear()
+        self.desktop_subscribed = False
+        self.desktop_last = None
         socket.readyRead.connect(self.read)
         # Forget a socket before Qt deletes it: a later connection (the
         # console closed and reopened) must not touch the deleted object.
@@ -136,6 +154,8 @@ class Agent(QObject):
         if self.client is socket:
             self.client = None
             self.poll.stop()
+            self.desktop_subscribed = False
+            self.desktop_poll.stop()
         socket.deleteLater()
 
     @pyqtSlot()
@@ -155,6 +175,15 @@ class Agent(QObject):
         debug(f"command {line[:24]!r}")
         if line == "PING":
             self.send("OK PONG")
+        elif line in ('DESKTOP_SUBSCRIBE 0', 'DESKTOP_SUBSCRIBE 1'):
+            self.desktop_subscribed = line.endswith('1')
+            self.desktop_last = None
+            self.send('OK DESKTOP_SUBSCRIBE')
+            if self.desktop_subscribed:
+                self.publish_desktop(force=True)
+                self.desktop_poll.start()
+            else:
+                self.desktop_poll.stop()
         elif line == "CLIP_GET":
             text = self.current_text()
             self.send("ERR CLIPBOARD_UNAVAILABLE" if text is None else "CLIP " + encode(text))
@@ -172,6 +201,20 @@ class Agent(QObject):
             self.send(f"OK CLIP_SET {self.generation}")
         else:
             self.send("ERR UNKNOWN_COMMAND")
+
+    def publish_desktop(self, force=False) -> None:
+        if not self.desktop_subscribed or self.client is None or self.client.bytesToWrite() > 128 * 1024:
+            return
+        raw = read_metadata_file(self.desktop_dir / 'desktop-metadata.json')
+        if force or raw != self.desktop_last:
+            self.desktop_last = raw
+            self.send('EVENT_DESKTOP ' + (base64.b64encode(raw).decode('ascii') if raw is not None else '-'))
+
+    def stop_metadata(self) -> None:
+        self.desktop_process.terminate()
+        if not self.desktop_process.waitForFinished(1500):
+            self.desktop_process.kill()
+            self.desktop_process.waitForFinished(500)
 
     @pyqtSlot()
     def changed(self) -> None:
@@ -351,6 +394,7 @@ def main() -> int:
         return 2
     application = QCoreApplication(sys.argv)
     agent = Agent(path)  # referenced until the event loop returns
+    application.aboutToQuit.connect(agent.stop_metadata)
     Sound(os.path.dirname(path)).start()
     status = application.exec_()
     del agent

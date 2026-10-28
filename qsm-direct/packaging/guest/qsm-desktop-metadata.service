@@ -1,0 +1,16 @@
+[Unit]
+Description=QSM Desktop Agent window and caret metadata
+After=graphical-session-pre.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/lib/qsm-desktop-agent/qsm_desktop_metadata.py --state-dir %h/.local/share/qsm-desktop-agent
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=graphical-session.target

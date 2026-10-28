@@ -264,6 +264,14 @@ if(BUILD_TESTING)
                 -v
         )
         set_tests_properties(qsm_direct_guest_channel PROPERTIES TIMEOUT 20)
+        add_test(NAME qsm_desktop_metadata
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_qsm_desktop_metadata.py -v)
+        set_tests_properties(qsm_desktop_metadata PROPERTIES TIMEOUT 20)
+        add_test(NAME qsm_desktop_metadata_wire
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_qsm_desktop_wire.py -v)
+        set_tests_properties(qsm_desktop_metadata_wire PROPERTIES TIMEOUT 30)
 
         add_test(
             NAME qsm_direct_guest_package
@@ -304,6 +312,9 @@ if(BUILD_TESTING)
 
         find_program(QSM_DIRECT_NODE_EXECUTABLE node)
         if(QSM_DIRECT_NODE_EXECUTABLE)
+            add_test(NAME qsm_kwin_guest_metadata
+                COMMAND ${QSM_DIRECT_NODE_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_kwin_metadata.mjs)
             add_test(NAME qsm_signal_endpoint_browser
                 COMMAND ${QSM_DIRECT_NODE_EXECUTABLE}
                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_signal_endpoint.mjs)

@@ -25,9 +25,13 @@ install -d "$package_root" "$stage_root/usr/bin" "$stage_root/usr/lib/systemd/sy
 install -m 0755 "$build_root/qsm-desktop-agent" "$package_root/qsm-desktop-agent"
 install -m 0755 "$build_root/qsm-desktop-state-watcher" "$package_root/qsm-desktop-state-watcher"
 install -m 0755 "$ROOT_DIR/guest/qsf_wayland_clipboard_bridge.sh" "$package_root/qsm-desktop-clipboard-bridge"
+install -m 0644 "$ROOT_DIR/guest/qsm_desktop_metadata.py" "$package_root/qsm_desktop_metadata.py"
+install -m 0644 "$ROOT_DIR/guest/qsm_kwin_metadata.js" "$package_root/qsm_kwin_metadata.js"
+install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_desktop_metadata.py" "$package_root/qsm_desktop_metadata_schema.py"
 install -m 0755 "$ROOT_DIR/packaging/guest/qsm-desktop-agent-setup" "$stage_root/usr/bin/qsm-desktop-agent-setup"
 install -m 0644 "$ROOT_DIR/packaging/guest/qsm-desktop-agent@.service" "$stage_root/usr/lib/systemd/system/qsm-desktop-agent@.service"
 install -m 0644 "$ROOT_DIR/packaging/guest/qsm-desktop-clipboard.service" "$stage_root/usr/lib/systemd/user/qsm-desktop-clipboard.service"
+install -m 0644 "$ROOT_DIR/packaging/guest/qsm-desktop-metadata.service" "$stage_root/usr/lib/systemd/user/qsm-desktop-metadata.service"
 install -m 0644 "$ROOT_DIR/packaging/guest/99-qsm-desktop-agent.rules" "$stage_root/usr/lib/udev/rules.d/99-qsm-desktop-agent.rules"
 install -m 0644 "$ROOT_DIR/packaging/guest/README.qsm-desktop-agent" "$stage_root/usr/share/doc/qsm-desktop-agent/README.Debian"
 cat > "$stage_root/DEBIAN/control" <<EOF
@@ -37,11 +41,11 @@ Section: admin
 Priority: optional
 Architecture: amd64
 Maintainer: qsm contributors <qsm@users.noreply.github.com>
-Depends: libc6 (>= 2.34), systemd, udev
-Recommends: wl-clipboard
+Depends: libc6 (>= 2.34), systemd, udev, python3, python3-gi
+Recommends: wl-clipboard, gir1.2-atspi-2.0
 Conflicts: qsm-guest-agent
 Replaces: qsm-guest-agent
-Description: QSM Direct desktop clipboard companion
+Description: QSM Direct desktop clipboard and geometry companion
  QSM Desktop Agent is the optional in-VM desktop-session companion for
  qsm-pve-direct. It uses a private QEMU virtio-serial port and no network
  listener. It complements, rather than replaces, qemu-guest-agent.
@@ -87,6 +91,15 @@ if [ -f "$migration_users" ]; then
   done < "$migration_users"
   rm -f "$migration_users"
 fi
+# Enable the additional session bridge for already configured users without
+# restarting their desktop or the active virtio transport.
+for unit in /etc/systemd/system/multi-user.target.wants/qsm-desktop-agent@*.service; do
+  [ -L "$unit" ] || continue
+  user=${unit##*/qsm-desktop-agent@}
+  user=${user%.service}
+  case "$user" in ''|*[!A-Za-z0-9._-]*) continue ;; esac
+  /usr/bin/qsm-desktop-agent-setup "$user"
+done
 EOF
 chmod 0755 "$stage_root/DEBIAN/postinst"
 printf '%s\n' '#!/bin/sh' 'set -e' 'systemctl daemon-reload >/dev/null 2>&1 || true' > "$stage_root/DEBIAN/postrm"
@@ -95,10 +108,16 @@ chmod 0755 "$stage_root/DEBIAN/postrm"
 # Package naming must describe the delivered runtime, not merely the source
 # tree from which it was built.  Audit both payload and control archive before
 # producing a release artifact.
-legacy_transport_pattern="$(printf '\\163\\165\\156\\163\\150\\151\\156\\145')|$(printf '\\155\\157\\157\\156\\154\\151\\147\\150\\164')"
-if find "$stage_root" -type f -print0 | xargs -0 -r grep -I -n -E "$legacy_transport_pattern"; then
+legacy_transport_pattern="$(printf '\163\165\156\163\150\151\156\145')|$(printf '\155\157\157\156\154\151\147\150\164')"
+if grep -rI -n -E "$legacy_transport_pattern" "$stage_root"; then
     echo "qsm desktop package staging unexpectedly contains a legacy transport reference" >&2
     exit 1
+else
+    audit_status=$?
+    if [ "$audit_status" -ne 1 ]; then
+        echo "qsm desktop package staging audit could not run" >&2
+        exit "$audit_status"
+    fi
 fi
 artifact="$OUTPUT_DIR/qsm-desktop-agent_${VERSION}_amd64.deb"
 dpkg-deb --root-owner-group --build "$stage_root" "$artifact"

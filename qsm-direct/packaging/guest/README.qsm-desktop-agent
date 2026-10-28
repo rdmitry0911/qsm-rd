@@ -13,8 +13,9 @@ This package is installed **inside a Linux VM**, not on Proxmox.
    compositor when the VM is at SDDM, and becomes ready as soon as the desktop
    creates its Wayland socket. No second setup command is required.
 
-The Desktop Agent complements the standard `qemu-guest-agent`; it handles only
-the logged-in desktop's plain UTF-8 clipboard (up to 1 MiB). It never exposes
+The Desktop Agent complements the standard `qemu-guest-agent`; it handles
+the logged-in desktop's plain UTF-8 clipboard (up to 1 MiB) and optional
+desktop geometry. It never exposes
 the guest filesystem. `wl-clipboard` is required for the Wayland clipboard
 bridge; install it with `sudo apt install wl-clipboard`.
 
@@ -23,6 +24,15 @@ and inotify notifications. It does not poll the Wayland clipboard while idle,
 so no clipboard indicator or compositor repaint is generated without an
 actual copy/paste event. Other Wayland compositors retain the portable,
 low-frequency `wl-clipboard` fallback.
+
+The `qsm-desktop-metadata.service` user unit enables advisory KWin window
+geometry, stacking, visibility and focus over the same private virtio port.
+AT-SPI, when available, also provides a conservative region near the text
+caret. No window titles or application text are sent. Install
+`gir1.2-atspi-2.0` for the optional caret integration. Other desktops and
+older agents retain the pixel/video fallback. No additional network port is
+opened. The host explicitly subscribes before any geometry is transmitted;
+missing, stale or locked sessions cannot provide live hints.
 
 ## macOS guest
 

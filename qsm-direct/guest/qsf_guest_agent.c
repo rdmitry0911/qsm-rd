@@ -47,6 +47,7 @@ int qsm_macos_clipboard_write(const uint8_t *data, size_t size);
 
 enum {
   max_clipboard_bytes = 1024 * 1024,
+  max_desktop_bytes = 48 * 1024,
 #if !QSM_DESKTOP_CLIPBOARD_ONLY
   max_file_bytes = 2 * 1024 * 1024,
   /* The exchange folders are deliberately shallow.  Bounding both the
@@ -84,6 +85,10 @@ struct agent_state {
   char clipboard_generation_path[640];
   char clipboard_applied_path[640];
   char clipboard_ready_path[640];
+  char desktop_path[640];
+  struct timespec desktop_mtime;
+  bool desktop_stamp_valid;
+  bool desktop_subscribed;
 #if !QSM_DESKTOP_CLIPBOARD_ONLY
   char incoming_dir[640];
   char outgoing_dir[640];
@@ -761,6 +766,67 @@ static void poll_guest_clipboard(struct agent_state *state) {
 #endif
 }
 
+#if !defined(__APPLE__)
+static void emit_desktop(struct agent_state *state, bool force) {
+  if (!state->desktop_subscribed) {
+    return;
+  }
+  const int file = open(state->desktop_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+  struct stat info;
+  struct timespec now;
+  bool valid = file >= 0 && fstat(file, &info) == 0 && S_ISREG(info.st_mode) &&
+    info.st_uid == getuid() && (info.st_mode & 0077) == 0 && info.st_size > 0 &&
+    info.st_size <= max_desktop_bytes && clock_gettime(CLOCK_REALTIME, &now) == 0;
+  if (valid) {
+    const double age = (double) (now.tv_sec - info.st_mtim.tv_sec) +
+      (double) (now.tv_nsec - info.st_mtim.tv_nsec) / 1000000000.0;
+    valid = age >= -1.0 && age <= 3.0;
+  }
+  if (!valid) {
+    if (file >= 0) {
+      close(file);
+    }
+    if (force || state->desktop_stamp_valid) {
+      write_line(state->fd, "EVENT_DESKTOP ", "-");
+    }
+    state->desktop_stamp_valid = false;
+    return;
+  }
+  if (!force && state->desktop_stamp_valid &&
+      info.st_mtim.tv_sec == state->desktop_mtime.tv_sec &&
+      info.st_mtim.tv_nsec == state->desktop_mtime.tv_nsec) {
+    close(file);
+    return;
+  }
+  uint8_t data[max_desktop_bytes + 1U];
+  size_t size = 0;
+  while (size < sizeof(data)) {
+    const ssize_t amount = read(file, data + size, sizeof(data) - size);
+    if (amount < 0 && errno == EINTR) {
+      continue;
+    }
+    if (amount <= 0) {
+      valid = amount == 0;
+      break;
+    }
+    size += (size_t) amount;
+  }
+  close(file);
+  if (valid && size > 0U && size <= max_desktop_bytes && valid_clipboard_utf8(data, size)) {
+    char *encoded = base64_encode(data, size);
+    if (encoded != NULL) {
+      write_line(state->fd, "EVENT_DESKTOP ", encoded);
+      free(encoded);
+      state->desktop_mtime = info.st_mtim;
+      state->desktop_stamp_valid = true;
+      return;
+    }
+  }
+  write_line(state->fd, "EVENT_DESKTOP ", "-");
+  state->desktop_stamp_valid = false;
+}
+#endif
+
 static void handle_command(struct agent_state *state, char *line) {
   char *save = NULL;
   char *command = strtok_r(line, " ", &save);
@@ -769,6 +835,23 @@ static void handle_command(struct agent_state *state, char *line) {
   }
   if (strcmp(command, "PING") == 0 && strtok_r(NULL, " ", &save) == NULL) {
     write_line(state->fd, "OK ", "PONG");
+    return;
+  }
+  if (strcmp(command, "DESKTOP_SUBSCRIBE") == 0) {
+    const char *enabled = strtok_r(NULL, " ", &save);
+    if (enabled == NULL || (strcmp(enabled, "0") != 0 && strcmp(enabled, "1") != 0) ||
+        strtok_r(NULL, " ", &save) != NULL) {
+      write_line(state->fd, "ERR ", "BAD_DESKTOP_SUBSCRIBE");
+      return;
+    }
+#if defined(__APPLE__)
+    write_line(state->fd, "ERR ", "DESKTOP_UNSUPPORTED");
+#else
+    state->desktop_subscribed = strcmp(enabled, "1") == 0;
+    state->desktop_stamp_valid = false;
+    write_line(state->fd, "OK ", "DESKTOP_SUBSCRIBE");
+    emit_desktop(state, true);
+#endif
     return;
   }
   if (strcmp(command, "CLIP_GET") == 0 && strtok_r(NULL, " ", &save) == NULL) {
@@ -1117,6 +1200,7 @@ static int initialize_state(struct agent_state *state, const char *device, const
       snprintf(state->clipboard_generation_path, sizeof(state->clipboard_generation_path), "%s/qsf-clipboard-generation", state_dir) >= (int) sizeof(state->clipboard_generation_path) ||
       snprintf(state->clipboard_applied_path, sizeof(state->clipboard_applied_path), "%s/qsf-clipboard-applied", state_dir) >= (int) sizeof(state->clipboard_applied_path) ||
       snprintf(state->clipboard_ready_path, sizeof(state->clipboard_ready_path), "%s/wayland-clipboard-bridge.ready", state_dir) >= (int) sizeof(state->clipboard_ready_path)
+      || snprintf(state->desktop_path, sizeof(state->desktop_path), "%s/desktop-metadata.json", state_dir) >= (int) sizeof(state->desktop_path)
 #if !QSM_DESKTOP_CLIPBOARD_ONLY
       || snprintf(state->incoming_dir, sizeof(state->incoming_dir), "%s/incoming", state_dir) >= (int) sizeof(state->incoming_dir)
       || snprintf(state->outgoing_dir, sizeof(state->outgoing_dir), "%s/outgoing", state_dir) >= (int) sizeof(state->outgoing_dir)
@@ -1192,6 +1276,8 @@ static void reset_transport_state(struct agent_state *state) {
    * controller; the durable profile files remain available to the desktop
    * adapter, while this connection-local protocol state is discarded. */
   state->pending_profile_valid = false;
+  state->desktop_subscribed = false;
+  state->desktop_stamp_valid = false;
   state->pending_profile_committed = false;
   memset(&state->pending_profile, 0, sizeof(state->pending_profile));
   memset(state->pending_profile_codec, 0, sizeof(state->pending_profile_codec));
@@ -1214,16 +1300,28 @@ static bool serve_transport(struct agent_state *state) {
   if (line == NULL) {
     return false;
   }
+#if !defined(__APPLE__)
+  const int metadata_watch = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
+  if (metadata_watch >= 0) {
+    (void) inotify_add_watch(metadata_watch, state->state_dir,
+      IN_MOVED_TO | IN_CLOSE_WRITE | IN_DELETE | IN_DELETE_SELF | IN_MOVE_SELF);
+  }
+#else
+  const int metadata_watch = -1;
+#endif
   for (;;) {
-    const struct pollfd descriptor = {.fd = state->fd, .events = POLLIN, .revents = 0};
-    const int ready = poll((struct pollfd *) &descriptor, 1U, 250);
+    struct pollfd descriptors[2] = {
+      {.fd = state->fd, .events = POLLIN, .revents = 0},
+      {.fd = metadata_watch, .events = POLLIN, .revents = 0},
+    };
+    const int ready = poll(descriptors, 2U, 250);
     if (ready < 0 && errno == EINTR) {
       continue;
     }
-    if (ready < 0 || (descriptor.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
+    if (ready < 0 || (descriptors[0].revents & (POLLERR | POLLHUP | POLLNVAL)) != 0) {
       break;
     }
-    if (ready > 0 && (descriptor.revents & POLLIN) != 0) {
+    if (ready > 0 && (descriptors[0].revents & POLLIN) != 0) {
       char buffer[4096];
       const ssize_t amount = read(state->fd, buffer, sizeof(buffer));
       if (amount <= 0) {
@@ -1242,7 +1340,18 @@ static bool serve_transport(struct agent_state *state) {
         }
       }
     }
+#if !defined(__APPLE__)
+    if ((descriptors[1].revents & POLLIN) != 0) {
+      char events[4096];
+      while (read(metadata_watch, events, sizeof(events)) > 0) {
+      }
+    }
+    emit_desktop(state, false);
+#endif
     poll_guest_clipboard(state);
+  }
+  if (metadata_watch >= 0) {
+    close(metadata_watch);
   }
   free(line);
   return true;

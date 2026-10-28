@@ -30,6 +30,9 @@ for script in qsm-login qsm-greeter qsm-session-launch qsm-seat-keeper qsm-conso
     install -m 0755 "$LXC_DIR/$script" "$lib/$script"
 done
 install -m 0644 "$LXC_DIR/qsm_native_keyboard.py" "$lib/qsm_native_keyboard.py"
+install -m 0644 "$ROOT_DIR/guest/qsm_desktop_metadata.py" "$lib/qsm_desktop_metadata.py"
+install -m 0644 "$ROOT_DIR/guest/qsm_kwin_metadata.js" "$lib/qsm_kwin_metadata.js"
+install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_desktop_metadata.py" "$lib/qsm_desktop_metadata_schema.py"
 install -m 0644 "$LXC_DIR/qsm-display-sway.conf" "$stage/usr/share/qsm-console/sway.conf"
 for unit in qsm-display@.service qsm-seat-keeper@.service qsm-login@.service qsm-consoles.service \
             qsm-native-seat-udev.service qsm-native-seat-control@.service qsm-native-sddm.service; do
@@ -54,8 +57,8 @@ Section: x11
 Priority: optional
 Architecture: all
 Maintainer: Dmitry R <rdmitry0911@gmail.com>
-Depends: sway, xwayland, python3, python3-pyqt5, qtwayland5, acl, x11-xserver-utils, systemd, libpam-systemd, plasma-workspace, pulseaudio-utils
-Recommends: kwin-wayland, plasma-workspace-wayland, kwin-x11, pipewire-pulse, wireplumber
+Depends: sway, xwayland, python3, python3-gi, python3-pyqt5, qtwayland5, acl, x11-xserver-utils, systemd, libpam-systemd, plasma-workspace, pulseaudio-utils
+Recommends: kwin-wayland, plasma-workspace-wayland, kwin-x11, pipewire-pulse, wireplumber, gir1.2-atspi-2.0
 Description: QSM Direct graphical console inside an LXC container
  The container side of the QSM Direct LXC console for Proxmox VE: one headless
  display per tty with its own login screen, and each login a real logind

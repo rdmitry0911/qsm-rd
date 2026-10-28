@@ -83,10 +83,10 @@ Package: qsm-console-guest
 Architecture: all
 Section: contrib/x11
 Depends: ${python3:Depends}, ${misc:Depends},
- sway, xwayland, python3-pyqt5, qtwayland5, acl, x11-xserver-utils,
+ sway, xwayland, python3-gi, python3-pyqt5, qtwayland5, acl, x11-xserver-utils,
  systemd, libpam-systemd, plasma-workspace, pulseaudio-utils, passwd
 Recommends: kwin-wayland, plasma-workspace-wayland, kwin-x11,
- pipewire-pulse, wireplumber
+ pipewire-pulse, wireplumber, gir1.2-atspi-2.0
 Description: graphical console session inside an LXC container for QSM Direct
  Runs headless desktop sessions whose display and input are served through
  the host QSM media service. This package belongs inside a selected LXC

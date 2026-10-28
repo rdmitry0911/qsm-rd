@@ -28,7 +28,7 @@ def main(build, version):
     install(core, f"{build}/qsm-direct-media-worker", f"{lib}/bin/qsm-direct-media-worker", True)
     modules = {
         "browser_bridge": ("__init__.py", "qsm_browser_bridge.py", "qsm_lossless_ui.py"),
-        "direct_guest": ("__init__.py", "qsm_guest_channel.py"),
+        "direct_guest": ("__init__.py", "qsm_guest_channel.py", "qsm_desktop_metadata.py"),
         "direct_terminal": ("qsm_direct_terminal.py", "qsm_direct_encoder_probe.py", "qsm_shared_migration.py"),
         "signal": ("__init__.py", "qsm_direct_signal.py", "qsm_direct_endpoint.py", "qsm_direct_endpoint_cli.py", "qsm_gateway.py"),
     }
@@ -80,6 +80,9 @@ def main(build, version):
                  "qsm-display-start", "qsm-clipboard-agent", "qsm-native-seat", "qsm-native-session", "qsm-native-profile"):
         install(guest, f"packaging/lxc/{name}", f"usr/lib/qsm-console/{name}", True)
     install(guest, "packaging/lxc/qsm_native_keyboard.py", "usr/lib/qsm-console/qsm_native_keyboard.py")
+    install(guest, "guest/qsm_desktop_metadata.py", "usr/lib/qsm-console/qsm_desktop_metadata.py")
+    install(guest, "guest/qsm_kwin_metadata.js", "usr/lib/qsm-console/qsm_kwin_metadata.js")
+    install(guest, "extensions/direct_guest/qsm_desktop_metadata.py", "usr/lib/qsm-console/qsm_desktop_metadata_schema.py")
     install(guest, "packaging/lxc/qsm-display-sway.conf", "usr/share/qsm-console/sway.conf")
     for name in ("qsm-display@.service", "qsm-seat-keeper@.service", "qsm-login@.service", "qsm-consoles.service",
                  "qsm-native-seat-udev.service", "qsm-native-seat-control@.service", "qsm-native-sddm.service"):
