@@ -42,6 +42,13 @@ function harness(){
  w.emit({op:'ready'});h.feedback.allow(true);assert.equal(h.workers.length,1,'closed viewer cannot reactivate');
 }
 {
+ const h=harness();h.feedback.attach(h.receiver);h.feedback.allow(true);const w=h.workers[0];w.emit({op:'ready'});
+ for(let n=0;n<=64;n++){h.time(n);w.emit({op:'received',rtp:n});}
+ assert.deepEqual(h.messages.map(v=>v.rtp),[0,16,32,48,64],
+  'receipt reports must expose a path change within one60fps frame, with bounded frequency');
+ h.feedback.close();
+}
+{
  const h=harness();h.feedback.attach(h.receiver);h.feedback.allow(true);const old=h.workers[0];
  const staleTimer=[...h.timers.values()][0];h.feedback.allow(false);h.feedback.allow(true);const current=h.workers[1];
  old.emit({op:'ready'});old.onerror();staleTimer();current.emit({op:'ready'});
@@ -77,7 +84,12 @@ function harness(){
  assert.equal(posts.length,1,'at most one unconsumed report');assert.equal(frames[0],first);assert.equal(frames[1],second);
  self.onmessage({data:'next'});now=120;input.enqueue(frame(12));await wait(3);
  assert.equal(posts.length,2);assert.equal(posts.at(-1).rtp,12);
- self.onmessage({data:'next'});now=180;input.enqueue({getMetadata(){return{};},get data(){throw Error('payload was read');}});await wait(4);
+ for(let n=1;n<=64;n++){
+  self.onmessage({data:'next'});now=120+n;input.enqueue(frame(100+n));await wait(3+n);
+ }
+ assert.deepEqual(posts.slice(2).map(v=>v.rtp),[116,132,148,164],
+  'the actual worker reports at16ms intervals while forwarding every original frame');
+ self.onmessage({data:'next'});now=200;input.enqueue({getMetadata(){return{};},get data(){throw Error('payload was read');}});await wait(68);
  assert.equal(posts.at(-1).op,'unsupported');input.close();await done;
  h.feedback.close();
 }

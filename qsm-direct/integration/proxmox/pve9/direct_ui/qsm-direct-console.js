@@ -562,7 +562,7 @@
                     const t = event.transformer; let last = -Infinity;
                     t.readable.pipeThrough(new TransformStream({ transform(frame, controller) {
                         const now = performance.now();
-                        if (!pending && now - last >= 45) {
+                        if (!pending && now - last >= 16) {
                             try {
                                 const rtp = frame.getMetadata().rtpTimestamp;
                                 if (Number.isInteger(rtp) && rtp >= 0 && rtp <= 0xffffffff) {
@@ -606,7 +606,7 @@
                             const now = scope.performance.now(), rtp = value.rtp;
                             const channel = channelForFeedback();
                             if (transform && Number.isInteger(rtp) && rtp >= 0 && rtp <= 0xffffffff &&
-                                rtp !== previous && now - sentAt >= 45 && channel &&
+                                rtp !== previous && now - sentAt >= 16 && channel &&
                                 channel.readyState === 'open' && channel.bufferedAmount <= 1024) {
                                 channel.send(JSON.stringify({ op: 'qsm_video_received', rtp }));
                                 previous = rtp; sentAt = now; reports += 1;

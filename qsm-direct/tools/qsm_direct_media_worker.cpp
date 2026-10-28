@@ -119,6 +119,7 @@ constexpr std::uint8_t input_lossless_ui = 10U;
 constexpr std::uint8_t input_ui_budget = 11U;
 constexpr std::uint8_t input_video_regions = 12U;
 constexpr std::uint8_t input_desktop_hint = 13U;
+constexpr std::uint8_t input_video_backpressure = 14U;
 constexpr std::size_t packet_header_size = 20U;
 constexpr std::size_t input_header_size = 8U;
 constexpr std::size_t max_fragment_bytes = 256U * 1024U;
@@ -1188,6 +1189,10 @@ public:
         ui_budget_.store(std::min(percent, 50U));
     }
 
+    void video_backpressure(std::uint32_t milliseconds) {
+        video_budget_.backpressure(qmdp::VideoBudget::Clock::now(), milliseconds);
+    }
+
     void submit_audio(std::span<const float> interleaved_samples, std::uint32_t sample_rate,
                       std::uint16_t channels) override {
         if (!running_.load() || sample_rate != opus_sample_rate || channels != opus_channels || !opus_) {
@@ -2163,6 +2168,8 @@ private:
             media_.video_regions(payload[0]);
         } else if (op == input_desktop_hint && payload.size() == 36U) {
             media_.desktop_hint(payload);
+        } else if (op == input_video_backpressure && payload.size() == 1U && payload[0] <= 100U) {
+            media_.video_backpressure(payload[0]);
         }
     }
 

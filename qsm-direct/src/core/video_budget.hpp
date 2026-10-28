@@ -36,7 +36,17 @@ public:
         // Idle time must not accumulate a large burst. A rate change also
         // retains outstanding IDR debt instead of refilling the bucket.
         credit_ = std::min(credit_, rate * 0.020);
-        return credit_ >= 0.0;
+        return (!backpressure_until_ || now >= *backpressure_until_) && credit_ >= 0.0;
+    }
+
+    // Pause raw admission while the bridge waits for a completed frame's
+    // receipt. Keep the latest scanout replaceable and codec references
+    // intact instead of filling/dropping the small encoded-frame FIFO.
+    // A lost release or a dead bridge cannot leave capture paused forever.
+    void backpressure(Clock::time_point now, std::uint32_t milliseconds) {
+        std::lock_guard lock(mutex_);
+        if (!milliseconds) { backpressure_until_.reset(); }
+        else { backpressure_until_ = now + std::chrono::milliseconds(std::min(milliseconds, 100U)); }
     }
 
     void account(std::size_t bytes) {
@@ -55,6 +65,7 @@ public:
 private:
     std::mutex mutex_;
     std::optional<Clock::time_point> updated_;
+    std::optional<Clock::time_point> backpressure_until_;
     double credit_ {}, auxiliary_ {};
 };
 

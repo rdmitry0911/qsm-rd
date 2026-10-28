@@ -86,6 +86,7 @@ INPUT_VIDEO_BITRATE = 7
 INPUT_KEY_TAP = 8
 INPUT_MOUSE_ACTION = 9
 INPUT_LOSSLESS_UI = 10
+INPUT_VIDEO_BACKPRESSURE = 14
 MODIFIER_KEYS = frozenset({29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc})
 MAX_FRAGMENT_BYTES = 256 * 1024
 MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024
@@ -241,7 +242,9 @@ class _VideoPresentation:
         return sent_at, total_bytes
 
     async def wait_for_credit(self, bytes_sent: Callable[[], int],
-                              feedback: Callable[[], _ReceiverFeedback | None]) -> float:
+                              feedback: Callable[[], _ReceiverFeedback | None], *,
+                              bitrate_kbps: int | None = None,
+                              on_wait: Callable[[bool], None] | None = None) -> float:
         """Limit ordinary video in flight, without holding audio/UI or RTX.
 
         Admission is per complete frame: stopping a fragmented IDR halfway
@@ -249,25 +252,53 @@ class _VideoPresentation:
         and clients without presentation feedback continue to make progress.
         """
         state = feedback()
-        if (state is None or self._clock() - state.presented_time >= 1.5 or
-                state.presented_delay <= state.presented_base + .1 or
-                state.presented_kbps <= 0 or state.presented_offered_kbps <= 0):
+        now = self._clock()
+        if state is None or now - state.presented_time >= 1.5:
             return 0.
-        kbps = max(500, min(state.presented_kbps, state.presented_offered_kbps))
-        credit = kbps * 1000 / 8 * (state.presented_base + .12)
+        # Fast matched receipts permit admission before the last ACK already
+        # looks late. Otherwise a sudden path decrease can admit hundreds of
+        # kilobytes while that healthy ACK is still the newest observation.
+        # Use the actual path target, not an idle desktop's old delivery rate.
+        rapid = (getattr(state, 'feedback_kind', None) == 'received' and
+                 now - getattr(state, 'received_rapid_time', float('-inf')) < 1.5 and
+                 type(bitrate_kbps) is int and 500 <= bitrate_kbps <= 100000 and
+                 self._serial > self._acknowledged)
+        if rapid:
+            credit = bitrate_kbps * 1000 / 8 * (state.presented_base + .035)
+        else:
+            if (state.presented_delay <= state.presented_base + .1 or
+                    state.presented_kbps <= 0 or state.presented_offered_kbps <= 0):
+                return 0.
+            kbps = max(500, min(state.presented_kbps, state.presented_offered_kbps))
+            credit = kbps * 1000 / 8 * (state.presented_base + .12)
         if bytes_sent() - self._acknowledged_bytes <= credit:
             return 0.
         self.credit_waits += 1
-        # Healthy/app-limited estimates never impose a flight cap: a desktop
-        # must be able to start video after idle without a credit deadlock.
-        # One wait per frame, before the RTP/RTX pacing lock. The raw ingress
-        # retains its existing bounded FIFO and IDR recovery on overflow.
-        self._wake.clear()
         started = self._clock()
+        deadline = started + (.05 if rapid else .025)
         try:
-            await asyncio.wait_for(self._wake.wait(), .025)
-        except asyncio.TimeoutError:
-            pass
+            if on_wait is not None:
+                on_wait(True)
+            while True:
+                self._wake.clear()
+                if bytes_sent() - self._acknowledged_bytes <= credit:
+                    break
+                remaining = deadline - self._clock()
+                if remaining <= 0:
+                    break
+                try:
+                    await asyncio.wait_for(self._wake.wait(), remaining)
+                except asyncio.TimeoutError:
+                    break
+                # Legacy ACK cadence retains its single short wait. Fast clients
+                # may acknowledge an earlier frame without freeing enough credit;
+                # retain the same per-frame deadline, never a new timeout per ACK.
+                state = feedback()
+                if not rapid or state is None or self._clock() - state.presented_time >= 1.5:
+                    break
+        finally:
+            if on_wait is not None:
+                on_wait(False)
         return self._clock() - started
 
 
@@ -307,6 +338,7 @@ class _ReceiverFeedback:
     credit_samples: list[tuple[float, float]] = field(default_factory=list)
     feedback_kind: str = 'presented'
     received_time: float = float('-inf')
+    received_rapid_time: float = float('-inf')
 
 
 class AdaptiveVideoRate:
@@ -439,6 +471,7 @@ class AdaptiveVideoRate:
             state.presented_queue_since = None
             state.presented_kbps = state.presented_offered_kbps = 0.
             state.presented_bytes = 0
+            state.received_rapid_time = float('-inf')
         if sent_at <= state.presented_sent_at or not 0 <= now - sent_at < 8:
             return
         if kind == 'received':
@@ -465,6 +498,13 @@ class AdaptiveVideoRate:
         samples = state.presented_samples = [(t, s, b) for t, s, b in state.presented_samples
                                              if now - t < window][-127:]
         samples.append((now, sent_at, total_bytes))
+        if (kind == 'received' and len(samples) >= 4 and
+                .045 <= now - samples[0][0] <= .03 * (len(samples) - 1)):
+            # Infer cadence from matched server-history ACKs. Older45ms
+            # viewers keep their admission behavior; retain the last rapid
+            # observation across a short loss gap instead of disabling the
+            # flight bound precisely when acknowledgements become delayed.
+            state.received_rapid_time = now
         if now - samples[0][0] >= minimum:
             arrived, sent, count = samples[0]
             state.presented_bytes = max(0, total_bytes - count)
@@ -1014,6 +1054,7 @@ class _PacketTrack(MediaStreamTrack):
         self._waiting_for_keyframe = kind == "video"
         self._last_recovery_request = float("-inf")
         self.on_keyframe_required: Callable[[], bool | None] | None = None
+        self.on_queue_changed: Callable[[], None] | None = None
         self.dropped_units = 0
         self.overflows = 0
         self.delivered_units = 0
@@ -1029,6 +1070,8 @@ class _PacketTrack(MediaStreamTrack):
                     self.dropped_units += 1
             except asyncio.QueueEmpty:
                 break
+        if self.on_queue_changed is not None:
+            self.on_queue_changed()
 
     def _request_recovery(self) -> None:
         # A request may arrive before the worker connects, be throttled by a
@@ -1078,6 +1121,8 @@ class _PacketTrack(MediaStreamTrack):
             self._last_recovery_request = float("-inf")
             self.recoveries += 1
         self._queue.put_nowait((unit, pts))
+        if self.on_queue_changed is not None:
+            self.on_queue_changed()
 
     def end_nowait(self) -> None:
         if self._closed:
@@ -1085,10 +1130,13 @@ class _PacketTrack(MediaStreamTrack):
         self._closed = True
         self.on_keyframe_required = None
         self._clear_queue()
+        self.on_queue_changed = None
         self._queue.put_nowait(None)
 
     async def recv(self) -> av.Packet:
         item = await self._queue.get()
+        if self.on_queue_changed is not None:
+            self.on_queue_changed()
         if item is None:
             raise MediaStreamError
         unit, pts = item
@@ -1480,6 +1528,7 @@ class UnixInputEgress:
         self._ui_probe_attempts = 0
         self._ui_budgets: dict[object, int] = {}
         self._region_owners: dict[object, tuple[bool, bool]] = {}
+        self._video_backpressure: dict[object, float] = {}
 
     def start(self) -> None:
         UnixTapIngress._validate_runtime_directory(self._runtime_directory)
@@ -1753,6 +1802,20 @@ class UnixInputEgress:
             raise BridgeError("video bitrate must be 500..100000 kbit/s")
         self._send_packet(INPUT_HEADER.pack(
             INPUT_MAGIC, INPUT_VERSION, INPUT_VIDEO_BITRATE, 4) + struct.pack("!I", bitrate_kbps))
+
+    def set_video_backpressure(self, owner: object, milliseconds: int) -> None:
+        """Private, leased raw-admission pause; never pauses UI or guest input."""
+        if type(milliseconds) is not int or not 0 <= milliseconds <= 100:
+            raise BridgeError('invalid video backpressure lease')
+        with self._input_state_lock:
+            now = time.monotonic()
+            self._video_backpressure = {peer: until for peer, until in self._video_backpressure.items()
+                                        if until > now and peer is not owner}
+            if milliseconds:
+                self._video_backpressure[owner] = now + milliseconds / 1000
+            lease = max(0, min(100, round(1000 * (max(self._video_backpressure.values(), default=now) - now))))
+            self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_VIDEO_BACKPRESSURE, 1) +
+                              bytes([lease]))
 
     def set_lossless_ui(self, owner: object, enabled: bool) -> bool:
         with self._input_state_lock:
@@ -2186,6 +2249,9 @@ class BrowserWebRtcBridge:
         self._video_rate_sequence = 0
         self._video_rate.add(self, self._video_rate_changed)
         self.video_track.on_keyframe_required = self._request_video_keyframe
+        self._queue_pause_active = False
+        self._queue_pause_refreshed = float('-inf')
+        self.video_track.on_queue_changed = self._update_video_backpressure
         self._guest_dispatch = guest_dispatch
         # The terminal service owns the lifetime of the shared producer.  A
         # browser closing its tab used to leave this bridge subscribed until
@@ -2674,6 +2740,20 @@ class BrowserWebRtcBridge:
         else:
             self._send_control(payload)
 
+    def _update_video_backpressure(self) -> None:
+        # Start at two queued frames, before the four-frame prediction FIFO
+        # overflows. Receipt waits and queue occupancy have separate owners:
+        # draining one must not release the other's raw-admission pause.
+        if not self._closed and self.video_track._queue.qsize() >= 2:
+            now = time.monotonic()
+            if not self._queue_pause_active or now - self._queue_pause_refreshed >= .05:
+                self.input.set_video_backpressure(self.video_track, 100)
+                self._queue_pause_refreshed = now
+                self._queue_pause_active = True
+        elif self._queue_pause_active:
+            self.input.set_video_backpressure(self.video_track, 0)
+            self._queue_pause_active = False
+
     def _request_video_keyframe(self) -> bool:
         # Many losses can produce a PLI burst. Restarting an external encoder
         # for every report creates another freeze instead of repairing video.
@@ -2881,6 +2961,8 @@ class BrowserWebRtcBridge:
                                           self._video_pacer.sent_bytes + len(data) + 64)
 
         async def send_paced(data: bytes) -> None:
+            if self._queue_pause_active:
+                self._update_video_backpressure()
             if (len(data) >= 12 and data[0] >> 6 == 2 and not 192 <= data[1] <= 223 and
                     struct.unpack_from("!I", data, 8)[0] == video_sender._ssrc and
                     struct.unpack_from("!I", data, 4)[0] != last_frame_rtp):
@@ -2889,7 +2971,9 @@ class BrowserWebRtcBridge:
                            else self._video_presentation)
                 waited = await history.wait_for_credit(
                     lambda: self._video_pacer.sent_bytes,
-                    lambda: None if self._closed else self._video_rate._receivers.get(self))
+                    lambda: None if self._closed else self._video_rate._receivers.get(self),
+                    bitrate_kbps=self._video_rate.current_kbps,
+                    on_wait=lambda waiting: self.input.set_video_backpressure(self, 75 if waiting else 0))
                 self._video_rate.presentation_backpressure(self, waited)
             await self._video_pacer.send(data, video_sender, send_with_frame)
 
@@ -2994,6 +3078,7 @@ class BrowserWebRtcBridge:
         if self._closed:
             return
         self._closed = True
+        self._update_video_backpressure()
         self._set_lossless_ui(False)
         self.input.set_video_regions(self, False, remove=True)
         await self._ui_peer.close()

@@ -189,6 +189,17 @@ emit no new UI records until probed. Opcode 11 reserves 0–50% UI capacity;
 opcode 12 disables cropping (0), primes full-frame region metadata (1) or
 permits cropping (2). Both are private server controls, never guest input.
 
+Private input opcode 14 carries a one-byte raw-video backpressure lease of
+0–100 ms; zero releases it. The bridge uses a 75 ms lease around a frame-credit
+wait of at most 50 ms and releases it in `finally`, including cancellation.
+Several consoles retain independent leases. The worker keeps the newest raw
+scanout replaceable, continues UI/audio/input work and repays existing encoded
+byte debt while paused. The lease expires locally if the bridge disappears;
+old workers ignore the unknown opcode. Browser JSON cannot request a lease.
+Two queued encoded pictures also pause raw admission under a separate owner.
+Packet pacing refreshes that lease every 50 ms; draining below two pictures
+or closing the track releases it before the local input socket is closed.
+
 Stamped UI records have extension length 8 and a network-order capture u64
 before their payload. Timed video retains its timestamp prefix, adding capture
 u64 under flag `0x100`, and six u16 surface/region values under `0x200` after a

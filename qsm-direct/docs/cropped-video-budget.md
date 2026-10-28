@@ -63,6 +63,38 @@ the draining and wire-pacing corrections, and pass afterward.
 
 ## Qualification
 
+The newer private exp83 bundle adds early flight admission and leased raw
+backpressure; see `rdp-flight-admission-20261028.json`. Matched receipt reports
+now have a 16 ms minimum interval and one outstanding worker report. Rapid
+receipt clients bound flight using the current path target and baseline plus
+35 ms, with complete-frame admission and a 50 ms maximum wait. Legacy receipt
+cadence retains its previous admission path.
+
+Private input opcode 14 pauses raw admission, with a locally expiring lease
+of at most 100 ms. Receipt waits and a two-picture encoded FIFO have separate
+owners. Pacing refreshes the FIFO lease, while cancellation and track close
+release their owners. The latest raw scanout remains replaceable, UI/audio/input
+continue, and encoded byte debt and prediction references are preserved.
+
+Both retained exp83 hot-drop trials have zero phase overflows and pass the
+unchanged latency, exact-pixel and input gates: maximum composed source age
+568.86/562.30 ms and visible-glyph peak 110/138 ms. Neither passes every gate:
+the first recovers at 49.9894 fps against the unchanged 50 fps minimum; the
+repeat has 44.21 fps on the narrow phase and ends recovery at 7352 rather
+than 8000 kbit/s. A first receipt after a gap can still reuse preceding credit
+waits to lower the target without a fresh delivery pair. Controller confirmation,
+cadence/resource headroom and all broader qualification remain open.
+
+The exp83 hard-cut run passes all declared fidelity, pixel and cadence gates:
+51.27/50.81 source fps, 100/132 ms largest gaps, first-cut minimum RGB PSNR
+36.43/31.99 dB and 8x8-box luma SSIM 0.9851/0.9258. All seven matching packages
+are built; their main payload and install/control scripts equal the tested
+pilot. The installed portable VM agent and Qt5/Qt6 geometry interop pass on
+the owned KWin6 VM; its hardware media paths remain unqualified. Production
+192.168.64.20 retains exp35. There is no public release or rollout.
+
+### Earlier exp80 evidence
+
 The private exp80 bundle contains all seven matching packages. Its main payload
 and install/control files match the tested pilot; LXC guest and Qt payloads
 match exp68. The portable VM core/watch binaries are rebuilt in Debian 12 and

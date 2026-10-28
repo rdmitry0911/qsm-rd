@@ -347,6 +347,30 @@ void test_video_budget_limits_encoded_bytes_before_admitting_raw_frames() {
     CHECK(idle_frames == 600U);
 }
 
+void test_raw_backpressure_expires_and_preserves_encoded_byte_debt() {
+    using namespace std::chrono_literals;
+    const qmdp::VideoBudget::Clock::time_point start {};
+    qmdp::VideoBudget idle, indebted;
+    CHECK(idle.ready(start, 1000U));
+    CHECK(indebted.ready(start, 1000U));
+    indebted.account(10000U);
+    idle.backpressure(start, 75U);
+    indebted.backpressure(start, 75U);
+    CHECK(!idle.ready(start + 50ms, 1000U));
+    CHECK(idle.ready(start + 75ms, 1000U));
+    CHECK(!indebted.ready(start + 75ms, 1000U));
+    CHECK(indebted.ready(start + 100ms, 1000U));
+    // No release packet is needed after a bridge dies, and even an excessive
+    // caller lease cannot suppress new raw pictures beyond100ms.
+    idle.backpressure(start + 100ms, 5000U);
+    CHECK(!idle.ready(start + 199ms, 1000U));
+    CHECK(idle.ready(start + 200ms, 1000U));
+    idle.backpressure(start + 200ms, 75U);
+    CHECK(!idle.ready(start + 210ms, 1000U));
+    idle.backpressure(start + 210ms, 0U);
+    CHECK(idle.ready(start + 210ms, 1000U));
+}
+
 void test_ui_replay_reserves_capacity_without_double_charging_fresh_tiles() {
     using namespace std::chrono_literals;
     using Clock = qmdp::VideoBudget::Clock;
@@ -549,6 +573,7 @@ int main() {
     test_same_geometry_remap_does_not_request_an_idr();
     test_audio_is_converted_to_the_session_format();
     test_video_budget_limits_encoded_bytes_before_admitting_raw_frames();
+    test_raw_backpressure_expires_and_preserves_encoded_byte_debt();
     test_video_budget_keeps_keyframe_debt_across_rate_changes();
     test_ui_replay_reserves_capacity_without_double_charging_fresh_tiles();
     test_ui_burst_repays_bandwidth_without_a_long_video_admission_pause();

@@ -5,17 +5,18 @@ import json
 import socket
 import struct
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from aiortc.rtp import (RTCP_PSFB_APP, RtcpPsfbPacket, RtcpRrPacket,
                         RtcpReceiverInfo, pack_remb_fci)
 from extensions.browser_bridge.qsm_browser_bridge import (
     AdaptiveVideoRate, BrowserWebRtcBridge, BridgeError, UnixInputEgress,
     INPUT_HEADER, INPUT_MAGIC, INPUT_VERSION, INPUT_VIDEO_BITRATE, _VideoPacer,
-    _VideoPresentation)
+    _VideoPresentation, INPUT_VIDEO_BACKPRESSURE, EncodedUnit)
 
 
 class RateTests(unittest.TestCase):
@@ -532,6 +533,90 @@ class PresentationHistoryTests(unittest.TestCase):
 
 
 class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancelled_credit_wait_releases_raw_producer(self):
+        history = _VideoPresentation()
+        now = time.monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.02, presented_delay=.025,
+                                presented_kbps=8000, presented_offered_kbps=8000,
+                                feedback_kind='received', received_rapid_time=now)
+        history.sent(10, 100000)
+        holds = []
+        pending = asyncio.create_task(history.wait_for_credit(
+            lambda: 100000, lambda: state, bitrate_kbps=8000, on_wait=holds.append))
+        await asyncio.sleep(.005)
+        self.assertEqual(holds, [True])
+        pending.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await pending
+        self.assertEqual(holds, [True, False])
+
+    async def test_rapid_receipts_bound_flight_before_the_last_ack_looks_late(self):
+        history = _VideoPresentation()
+        now = time.monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.02, presented_delay=.025,
+                                presented_kbps=64, presented_offered_kbps=64,
+                                feedback_kind='received', received_rapid_time=now)
+        history.sent(10, 100000)
+        pending = asyncio.create_task(history.wait_for_credit(
+            lambda: 100000, lambda: state, bitrate_kbps=8000))
+        await asyncio.sleep(.01)
+        self.assertFalse(pending.done(), 'a healthy old ACK must not admit an unbounded burst')
+        history.acknowledge(10)
+        await asyncio.wait_for(pending, .05)
+        self.assertEqual(history.credit_waits, 1)
+        # An old app-limited delivery rate cannot cap new traffic after ACK.
+        await history.wait_for_credit(lambda: 110000, lambda: state, bitrate_kbps=8000)
+        self.assertEqual(history.credit_waits, 1)
+
+    async def test_rapid_receipt_loss_wait_is_bounded_and_old_cadence_is_unchanged(self):
+        history = _VideoPresentation()
+        now = time.monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.02, presented_delay=.025,
+                                presented_kbps=8000, presented_offered_kbps=8000,
+                                feedback_kind='received', received_rapid_time=now)
+        history.sent(10, 100000)
+        await asyncio.wait_for(history.wait_for_credit(
+            lambda: 100000, lambda: state, bitrate_kbps=8000), .09)
+        self.assertEqual(history.credit_waits, 1)
+        state.received_rapid_time = now - 2
+        await history.wait_for_credit(lambda: 100000, lambda: state, bitrate_kbps=8000)
+        self.assertEqual(history.credit_waits, 1)
+
+    async def test_partial_ack_does_not_restart_the_rapid_receipt_deadline(self):
+        history = _VideoPresentation()
+        now = time.monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.02, presented_delay=.025,
+                                presented_kbps=8000, presented_offered_kbps=8000,
+                                feedback_kind='received', received_rapid_time=now)
+        history.sent(10, 10000)
+        history.sent(11, 100000)
+        pending = asyncio.create_task(history.wait_for_credit(
+            lambda: 100000, lambda: state, bitrate_kbps=8000))
+        await asyncio.sleep(.01)
+        history.acknowledge(10)
+        await asyncio.sleep(.01)
+        self.assertFalse(pending.done(), 'an earlier ACK has not freed enough flight credit')
+        history.acknowledge(11)
+        await asyncio.wait_for(pending, .03)
+        self.assertEqual(history.credit_waits, 1)
+
+    async def test_only_matched_rapid_receipts_enable_early_admission(self):
+        now = [1.]
+        rate = AdaptiveVideoRate(8000, lambda _: None, clock=lambda: now[0])
+        for n in range(12):
+            now[0] = 1 + n * .05
+            rate.received_report('a', now[0] - .02, n * 10000)
+        state = rate._receivers['a']
+        self.assertEqual(state.received_rapid_time, float('-inf'))
+        for n in range(1, 13):
+            now[0] = 1.55 + n * .02
+            rate.received_report('a', now[0] - .02, (12 + n) * 10000)
+        self.assertEqual(state.received_rapid_time, now[0])
+        # Losing the optional transform restores the old feedback mode.
+        now[0] += 2
+        rate.presentation_report('a', now[0] - .1, 250000)
+        self.assertEqual(state.received_rapid_time, float('-inf'))
+
     async def test_ack_releases_frame_admission_and_absent_feedback_never_waits(self):
         history = _VideoPresentation()
         await history.wait_for_credit(lambda: 1000000, lambda: None)
@@ -581,6 +666,66 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_encoded_queue_pauses_raw_source_before_prediction_overflow(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            leases = []
+            bridge.input.set_video_backpressure = lambda owner, ms: leases.append((owner, ms))
+            track = bridge.video_track
+            try:
+                track.put_nowait(EncodedUnit(b'I', True, 1500))
+                self.assertEqual(leases, [])
+                track.put_nowait(EncodedUnit(b'P1', False, 1500))
+                self.assertEqual(leases, [(track, 100)])
+                self.assertEqual(bytes(await track.recv()), b'I')
+                self.assertEqual(leases[-1], (track, 0))
+                track.put_nowait(EncodedUnit(b'P2', False, 1500))
+                self.assertEqual(leases[-1], (track, 100))
+                # A long fragmented AU refreshes the same bounded lease
+                # without adding another raw or encoded frame to the queue.
+                with patch('extensions.browser_bridge.qsm_browser_bridge.time.monotonic',
+                           return_value=bridge._queue_pause_refreshed + .051):
+                    bridge._update_video_backpressure()
+                self.assertEqual(leases[-2:], [(track, 100), (track, 100)])
+                self.assertEqual(track.overflows, 0)
+                self.assertEqual(track.dropped_units, 0)
+            finally:
+                await bridge.close()
+            self.assertEqual(leases[-1], (track, 0), 'track teardown releases its queue lease')
+
+    async def test_private_raw_backpressure_has_bounded_per_peer_leases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            egress = UnixInputEgress(Path(directory))
+            a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+            egress._connection = a
+            owner, other = object(), object()
+            def lease():
+                packet = b.recv(100)
+                self.assertEqual(packet[:8], INPUT_HEADER.pack(
+                    INPUT_MAGIC, INPUT_VERSION, INPUT_VIDEO_BACKPRESSURE, 1))
+                return packet[8]
+            try:
+                with patch('extensions.browser_bridge.qsm_browser_bridge.time.monotonic', return_value=1.):
+                    egress.set_video_backpressure(owner, 75)
+                self.assertEqual(lease(), 75)
+                with patch('extensions.browser_bridge.qsm_browser_bridge.time.monotonic', return_value=1.01):
+                    egress.set_video_backpressure(other, 75)
+                self.assertEqual(lease(), 75)
+                with patch('extensions.browser_bridge.qsm_browser_bridge.time.monotonic', return_value=1.02):
+                    egress.set_video_backpressure(owner, 0)
+                self.assertEqual(lease(), 65, 'one viewer cannot release another active pause')
+                with patch('extensions.browser_bridge.qsm_browser_bridge.time.monotonic', return_value=1.2):
+                    egress.set_video_backpressure(owner, 0)
+                self.assertEqual(lease(), 0, 'expired viewers cannot retain a pause')
+                for value in (-1, 101, True, '75'):
+                    with self.assertRaises(BridgeError):
+                        egress.set_video_backpressure(owner, value)
+                with self.assertRaises(BridgeError):
+                    egress.encode_browser_message(json.dumps({'op': 'video_backpressure', 'milliseconds': 75}))
+            finally:
+                egress.close()
+                b.close()
+
     async def test_rate_status_uses_latest_state_channel_with_increasing_serial(self):
         with tempfile.TemporaryDirectory() as directory:
             bridge=BrowserWebRtcBridge(Path(directory))
