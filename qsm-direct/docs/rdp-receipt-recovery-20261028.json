@@ -779,7 +779,16 @@
       "second_failure": "Nested shell quotes broke the install/media smoke command; replaced with a quoted heredoc and environment arguments",
       "build_environment": "Read-only proc/sys mounts, service startup denied through policy-rc.d, temporary files and mounts cleaned",
       "resumed_smoke": "Actual clean-built packages install; real worker/fake-QEMU media/input smoke passes with120 frames,10 keyboard events,20 mouse events",
-      "full_fresh_run": "Pending; final independent debootstrap/build/install/media run still active"
+      "full_fresh_run": "pass: independent debootstrap/build/install/media smoke completed",
+      "proof": {
+        "scope": "Independent full debootstrap, dependency install, core/LXC/VM guest builds, package install and actual worker/fake-QEMU media/input smoke",
+        "source": "scripts/build-qsm-pve-direct-in-trixie.sh",
+        "acceptance": "pass",
+        "clean_root": "/var/tmp/qsm-direct-trixie.exp64-final.FkLFlz",
+        "host_payload_entries": 34,
+        "differences_from_previously_qualified_host": [],
+        "note": "Clean-build artifacts retained separately; previously qualified media artifacts are not silently replaced"
+      }
     },
     "feedback_fallback_reference": "Four actual exp63 missing-API/CSP/runtime-error/legacy-host cases remain recorded in rdp-receive-feedback-20261028.json. Exp64 changes only the active receipt-probe interval, retains legacy/mixed behavior, and adds deterministic guards; these actual fallback runs are not relabeled as exp64."
   },
@@ -789,7 +798,7 @@
     "Hard-cut video fidelity, repeated network profiles and broader real-loss/jitter coverage",
     "Supported VM/LXC NVENC/QSV/VAAPI H264/HEVC matrix, long encoded mixed sessions and resource checks",
     "Firefox/macOS acceptance and matched QSM/RDP network/content comparison",
-    "Complete clean Trixie top-level build/install/media smoke; publish matching final source/debs/signed sums/APT and installation/rollback docs; qualified rollout and discussion updates"
+    "Publish matching final source/debs/signed sums/APT and installation/rollback docs; qualified rollout and discussion updates"
   ],
   "production": {
     "node": "192.168.64.20",

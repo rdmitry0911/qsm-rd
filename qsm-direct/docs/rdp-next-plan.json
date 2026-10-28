@@ -151,7 +151,8 @@
       "Real TCP-loss exp63 run: receiver IFB netem 0.3% loss + 15ms/3ms jitter drops 168 segments, peer TCP retransmits 186. Narrow/recovered cadence 55.13/55.77 source fps, largest gap 135 ms, glyph peak 114 ms, all 8220 static observations exact. Full bitrate recovery fails the 75-second gate (7306 versus8000); the 10-second upward step interval is the immediate remaining recovery issue.",
       "Exp64 full host/viewer/guest repeat with receiver-ingress 0.3% TCP loss and 15ms/3ms delay/jitter: 170 kernel drops, full target recovery to 8000, narrow 53.71 and recovered 53.92 source fps, largest gap 132 ms, glyph peak 266 ms and all 8172 static observations exact. A separate no-imposed-loss repeat also passes every current transition gate: full 8000 recovery, glyph peak 146 ms, all 8217 static observations exact. These short NVENC/H264 LXC runs do not qualify other paths or a release.",
       "Private exp64 signed APT acceptance downloads all seven matching console/guest packages and a temporary keyring, verifies SHA256 and rejects modified signed metadata/debs; no public archive update.",
-      "Installed exp64 native Qt6 LXC profile: ordinary SDDM/PAM automatically loads the plugin, styled-editor caret coordinates match, and normal logout revokes metadata on the same media worker; outer Sway/SDDM preserved."
+      "Installed exp64 native Qt6 LXC profile: ordinary SDDM/PAM automatically loads the plugin, styled-editor caret coordinates match, and normal logout revokes metadata on the same media worker; outer Sway/SDDM preserved.",
+      "Independent fresh Debian13 bootstrap completes with the portable exp64 Qt guest package: core/LXC/VM guest builds, install checks and actual worker/fake-QEMU media/input pass. Missing zlib development dependency and smoke-shell quoting are fixed; build services are prevented from starting and read-only proc/sys mounts are cleaned. Clean artifacts retained separately."
     ],
     "pending": [
       "Broader application/toolkit coverage, including explicit unsupported/legacy behavior",
@@ -159,7 +160,7 @@
       "Hard-cut video fidelity, repeated network profiles and broader real-loss/jitter coverage",
       "Supported VM/LXC NVENC/QSV/VAAPI H264/HEVC matrix, long encoded mixed sessions and resource checks",
       "Firefox/macOS acceptance and matched QSM/RDP network/content comparison",
-      "Complete clean Trixie top-level build/install/media smoke; publish matching final source/debs/signed sums/APT and installation/rollback docs; qualified rollout and discussion updates"
+      "Publish matching final source/debs/signed sums/APT and installation/rollback docs; qualified rollout and discussion updates"
     ],
     "production_node_20": "Host remains exp35; no worker or user desktop restart",
     "video_scheduling_changed": true,
@@ -178,7 +179,7 @@
       "dist/rdp-hybrid/receive-feedback-exp63",
       "dist/rdp-hybrid/receipt-recovery-exp64"
     ],
-    "next_action": "Finish application/component overlap acceptance, hard-cut fidelity and codec/VM/long-session/browser/RDP qualification, then complete matching release and rollout; finish the currently running clean bootstrap smoke.",
+    "next_action": "Finish application/component overlap acceptance, hard-cut fidelity and codec/VM/long-session/browser/RDP qualification, then matching release and rollout",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -233,7 +234,7 @@
     },
     "next_steps": [
       {
-        "id": "guest-metadata",
+        "id": "qualification",
         "action": "Broader application/toolkit and unsupported/legacy coverage",
         "gate": "Actual application/session startup and focus/locking/logout/recovery; assert actual toolkit versions and preserve existing production sessions"
       },
@@ -254,7 +255,7 @@
       },
       {
         "id": "release",
-        "action": "Clean Trixie top-level build smoke; final matching source/debs, signed public checksums/APT, installation/rollback docs and qualified rollout/discussion updates",
+        "action": "Publish matching final source/debs/signed sums/APT and installation/rollback docs; qualified rollout and discussion updates",
         "gate": "Complete mixed-content qualification first, then matching source/binaries/signatures/APT/docs and qualified rollout while preserving TCP8006-only access and existing sessions"
       }
     ],
