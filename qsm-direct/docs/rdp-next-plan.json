@@ -79,8 +79,8 @@
   ],
   "checkpoint": {
     "stage": "video-regions-and-queue",
-    "candidate": "0.4.0+stock4.14~exp51 (private candidate)",
-    "evidence_directory": "dist/rdp-guest-metadata/exp37",
+    "candidate": "0.4.0+stock4.14~exp57 (private, not release-qualified)",
+    "evidence_directory": "dist/rdp-hybrid/video-feedback-exp57",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -90,7 +90,8 @@
       "Bounded retention of an unserved sparse edit, verified under controlled byte pressure",
       "Cropped-plane encoder rate fits the shared path budget, with hysteresis and fixed-quality full-desktop fallback",
       "Legacy Gio invocation ownership compatibility and LXC metadata child retry",
-      "Motion-adjacent minor updates outside text focus relinquish obsolete exact pixels; unchanged static UI and focused sparse edits keep their previous behavior"
+      "Motion-adjacent minor updates outside text focus relinquish obsolete exact pixels; unchanged static UI and focused sparse edits keep their previous behavior",
+      "Validated optional presentation acknowledgements, bounded history/credit, robust playout baseline and active recovery from application-limited REMB; idle, shared-viewer and legacy feedback guards retained"
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -110,17 +111,19 @@
       "Real VM reboot: metadata recovers in ~11.4 seconds on the same host stream; guest boot changes while host boot and QEMU PID stay unchanged",
       "Exp48 packaged host acceptance, with and without cropping: independent move/close pixels regain full exact coverage with zero mismatches; visible overlap typing medians 65/74 ms without cropping on fast/2 Mbit/s links; cropped-video cadence regression remains open",
       "Real native LXC SDDM/PAM: package exp48 preserves outer display/SDDM PIDs; login starts metadata automatically, normal Plasma logout revokes hints and returns the greeter, login again creates a new metadata session on the same media worker/WebRTC/TCP8006 connection",
-      "Exp50 LXC crop: all static pixel/move/close/input/resize checks pass; raster-change samples 34\u201339/s versus exp48 crop ~14/s; those counters are not source-frame cadence and are superseded by the frame-id oracle",
+      "Exp50 LXC crop: all static pixel/move/close/input/resize checks pass; raster-change samples 34–39/s versus exp48 crop ~14/s; those counters are not source-frame cadence and are superseded by the frame-id oracle",
       "Persistent crop rate up/down/recovery uses 5600/1050 kbit/s codec targets; a 400 ms bad target does not retune; 2162 presented frames retain exact static pixels without gaps",
-      "Installed LXC metadata child crash: hints expire after ~3 seconds, new child restores layout after ~4.8 seconds on the same worker/WebRTC connection; 4-minute memory sample ~19\u201320 MiB",
+      "Installed LXC metadata child crash: hints expire after ~3 seconds, new child restores layout after ~4.8 seconds on the same worker/WebRTC connection; 4-minute memory sample ~19–20 MiB",
       "Native Gio ownership regression fails before fix (~37 MB RSS growth / 2200 calls), passes after (~0.1 MB); installed Debian13 VM exp50 passes same real-call/delayed-reply stress without native PID changes",
       "Frame-ID oracle corrects the old raster-hash cadence metric; exp35 synthetic source-ID baseline and matching pixel references are frozen",
       "Exp51 transition regression: 14 invalid composite counter observations in exp50, valid raw video plus 1024 old exact pixels; the same real 30-to-60 fps transition has zero invalid observations after the focused-retention fix",
       "Public 60 fps animation excerpt over TCP8006 at a 2 Mbit/s downlink: exp35 ~15.6 versus exp51 ~54.1 unique source frames/s; median RGB PSNR ~31.0 versus ~32.3 dB; scene-cut minimum remains explicitly tracked",
       "Exp51 overlap typing: 65/70 ms median on fast/2 Mbit/s links, all 65536 exact pixel samples equal, move/close coverage complete with zero mismatches; no-metadata fallback also passes pixels/move/close/input",
-      "Installed metadata helper completes 30 minutes under continuous owned video damage on the same PID/session, 18\u201320 MiB RSS, no new OOM or metadata availability loss; this is not a 30-minute full end-to-end mixed-content soak"
+      "Installed metadata helper completes 30 minutes under continuous owned video damage on the same PID/session, 18–20 MiB RSS, no new OOM or metadata availability loss; this is not a 30-minute full end-to-end mixed-content soak",
+      "Exp57 real automatic 20-to-2-to-20 Mbit/s TURN/TCP8006 trial: ~55 source frames/s at 2 Mbit/s, full 8000 kbit/s target recovery, zero static-pixel/XOR mismatches in 8180 observations and exactly 15 guest characters; residual peak presentation 573 ms and glyph 712 ms fail the stricter transition gates"
     ],
     "pending": [
+      "Remove residual transition peaks (488 ms excess presentation age, 712 ms fallback glyph), measure clocked full source-to-composed-frame age and qualify early UI under the same real bandwidth transition; do not accept the passing weak pilot checks as completion",
       "Evaluate first-frame quality at hard video cuts, actual adaptive-feedback recovery and real packet loss before enabling the cropped plane by default",
       "Qualify cropped-video fidelity and consistent fast-link cadence; real adaptive feedback/loss and longer resource runs remain required before default enablement",
       "Expanded mixed-content acceptance: normal accessibility defaults, cropped video, real loss and longer runs",
@@ -131,7 +134,7 @@
     ],
     "production_node_20": "Host remains exp35; no worker or user desktop restart",
     "video_scheduling_changed": true,
-    "rollout_gate": "Keep the working production baseline until mixed-content acceptance confirms both text latency and video quality; unit checks alone are insufficient",
+    "rollout_gate": "Keep the working production baseline until automatic bandwidth transitions and mixed-content acceptance confirm bounded text/video latency, exact static pixels and video quality; weak pilot booleans and unit checks alone are insufficient",
     "evidence_directories": [
       "dist/rdp-guest-metadata/exp37",
       "dist/rdp-hybrid/baseline-exp35",
@@ -140,9 +143,164 @@
       "dist/rdp-hybrid/priority-exp48",
       "dist/rdp-hybrid/native-lxc-exp48",
       "dist/rdp-hybrid/video-budget-exp50",
-      "dist/rdp-hybrid/source-fidelity-exp51"
+      "dist/rdp-hybrid/source-fidelity-exp51",
+      "dist/rdp-hybrid/video-feedback-exp57"
     ],
-    "next_action": "Evaluate cut-frame quality and actual adaptive-controller rate drop/recovery with the source-frame oracle; then run the owned KWin6 VM on Intel QSV/VA-API using the preserved avcodec61 runtime, and finish native Qt5, browser/loss/long-run/RDP and release gates"
+    "next_action": "Measure full source-to-composed-frame age and reduce remaining transition peaks without FIFO/IDR stalls; finish native Qt5 caret/early-UI qualification, then Intel codecs, real loss/long mixed runs, browser/RDP comparison and release gates",
+    "adaptive_feedback_pilot": {
+      "candidate": "0.4.0+stock4.14~exp51",
+      "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
+      "acceptance": "failed",
+      "metadata_mode": "Window layout only (mode 1); this pilot does not qualify caret-priority delivery",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "duration_seconds": 15.694532213266939,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_frames": 898,
+          "unique_fps": 57.35453790636776,
+          "max_frame_gap_ms": 49,
+          "transport_kbps": 4572.634241730128,
+          "overflows_added": 0
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "duration_seconds": 45.52262194035575,
+          "initial_target": 8000,
+          "final_target": 500,
+          "unique_frames": 972,
+          "unique_fps": 21.36733347988569,
+          "max_frame_gap_ms": 10633,
+          "transport_kbps": 1422.6227835159705,
+          "overflows_added": 0
+        },
+        {
+          "name": "recovered",
+          "bandwidth": 20000000,
+          "duration_seconds": 75.46548075368628,
+          "initial_target": 500,
+          "final_target": 898,
+          "unique_frames": 2485,
+          "unique_fps": 32.967178752421134,
+          "max_frame_gap_ms": 219,
+          "transport_kbps": 706.1260788219478,
+          "overflows_added": 0
+        }
+      ],
+      "max_typed_glyph_latency_ms": 10103,
+      "exact_static_pixels": "No mismatches or uncovered samples in the observed static area",
+      "limitations": [
+        "The harness narrowed/recovered_some booleans are diagnostics, not acceptance gates",
+        "A connected stream and exact static pixels do not establish bounded latency",
+        "The observation does not isolate the cause of the native Qt5 accessibility gap"
+      ],
+      "evidence": "Private quality51-auto-feedback-pilot-source-oracle/result.json and backend.log; not a public release"
+    },
+    "next_steps": [
+      {
+        "id": "video-regions-and-queue",
+        "action": "Finish residual transition latency and qualify automatic control under sustained narrow bandwidth, hard cuts and real loss",
+        "gate": "Preserve the exp57 cadence/recovery/static-pixel gains while passing the remaining presentation/input peaks; include source-to-composed-frame age, not only last-RTP-to-callback age"
+      },
+      {
+        "id": "guest-metadata",
+        "action": "Finish normal-session window/focus/caret hints in VM and LXC, including native Qt5 accessibility and unavailable/old-agent fallback",
+        "gate": "Verify real application startup, focus, window movement, login/logout, locking and helper recovery without changing the user session"
+      },
+      {
+        "id": "priority-ui",
+        "action": "Finish independent exact UI scheduling with text input over playing video",
+        "gate": "Measure actual visible glyph latency during a congested stream; move, resize, scroll and close the overlapping window with no obsolete pixels or mosaic"
+      },
+      {
+        "id": "qualification",
+        "action": "Run VM/LXC, supported NVENC/QSV/VA-API codecs, real loss, long mixed sessions, Firefox/macOS and comparable RDP scenarios",
+        "gate": "Report latency, true source-frame cadence, pixel correctness, bandwidth and resource use; do not substitute unit tests for end-to-end acceptance"
+      },
+      {
+        "id": "release",
+        "action": "Publish matching source and binaries, signed checksums, APT and upgrade/rollback instructions; deploy qualified packages to the agreed nodes and prepare discussion updates",
+        "gate": "Pass mixed-content acceptance first; preserve TCP8006-only access and existing production sessions"
+      }
+    ],
+    "adaptive_feedback_candidate": {
+      "candidate": "0.4.0+stock4.14~exp57",
+      "acceptance": "incomplete",
+      "evidence": "docs/rdp-video-feedback-20261028.json",
+      "phases": [
+        {
+          "server_start": 3381369.692641874,
+          "server_end": 3381385.357976954,
+          "name": "fast",
+          "bandwidth": 20000000,
+          "duration_seconds": 15.699987440835685,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_frames": 888,
+          "unique_fps": 56.68688158314714,
+          "max_frame_gap_ms": 35,
+          "transport_kbps": 4550.966660729806,
+          "overflows_added": 0,
+          "presentation_delay_max_ms": 134.98006714507937,
+          "presentation_excess_max_ms": 68.01545945927501,
+          "presentation_delay_median_ms": 128.4255189821124
+        },
+        {
+          "server_start": 3381385.394325779,
+          "server_end": 3381430.530348522,
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "duration_seconds": 45.23849065462127,
+          "initial_target": 8000,
+          "final_target": 2533,
+          "unique_frames": 2483,
+          "unique_fps": 55.01152073732719,
+          "max_frame_gap_ms": 433,
+          "transport_kbps": 1626.9273418922978,
+          "overflows_added": 3,
+          "presentation_delay_max_ms": 572.660188190639,
+          "presentation_excess_max_ms": 488.4209712035954,
+          "presentation_delay_median_ms": 145.987952593714
+        },
+        {
+          "server_start": 3381430.637458669,
+          "server_end": 3381505.886643742,
+          "name": "recovered",
+          "bandwidth": 20000000,
+          "duration_seconds": 75.3848007149063,
+          "initial_target": 2533,
+          "final_target": 8000,
+          "unique_frames": 4186,
+          "unique_fps": 55.62716774527913,
+          "max_frame_gap_ms": 117,
+          "transport_kbps": 3132.8823783794064,
+          "overflows_added": 0,
+          "presentation_delay_max_ms": 150.979348924011,
+          "presentation_excess_max_ms": 22.84970972687006,
+          "presentation_delay_median_ms": 128.35721019655466
+        }
+      ],
+      "queue_acceptance": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": false,
+        "fallback_glyph_peak_at_most_600ms": false,
+        "no_network_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "max_visible_glyph_ms": 712,
+      "scope": "Private owned LXC108/KWin5, NVENC H264, Linux Firefox, actual packaged viewer and extracted host worker; TURN over one forwarded TCP8006",
+      "metadata": "Mode 1 (layout only); native Qt5 caret-priority gap remains. This is not an early-UI acceptance run."
+    }
   },
   "deployment_nodes": [
     "192.168.64.20",

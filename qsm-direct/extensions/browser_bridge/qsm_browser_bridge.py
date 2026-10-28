@@ -199,6 +199,71 @@ class _VideoPacer:
             self.sent_bytes += cost
 
 
+class _VideoPresentation:
+    """Match disposable browser acknowledgements to completed, sent frames.
+
+    Only the RTP timestamp comes from the browser. Age, ordering and byte
+    counts use this sender's bounded history and monotonic clock instead of
+    trusting a browser clock or a client-supplied bandwidth estimate.
+    """
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+        self._clock = clock
+        self._frames: dict[int, tuple[int, float, int]] = {}
+        self._serial = self._acknowledged = 0
+        self._acknowledged_bytes = 0
+        self._wake = asyncio.Event()
+        self.credit_waits = 0
+
+    def sent(self, rtp: int, total_bytes: int) -> None:
+        self._serial += 1
+        self._frames[rtp] = (self._serial, self._clock(), total_bytes)
+        while len(self._frames) > 512:
+            del self._frames[next(iter(self._frames))]
+
+    def acknowledge(self, rtp: int) -> tuple[float, int] | None:
+        frame = self._frames.get(rtp)
+        if frame is None:
+            return None
+        serial, sent_at, total_bytes = frame
+        if serial <= self._acknowledged or not 0 <= self._clock() - sent_at < 8:
+            return None
+        self._acknowledged = serial
+        self._acknowledged_bytes = total_bytes
+        self._wake.set()
+        return sent_at, total_bytes
+
+    async def wait_for_credit(self, bytes_sent: Callable[[], int],
+                              feedback: Callable[[], _ReceiverFeedback | None]) -> float:
+        """Limit ordinary video in flight, without holding audio/UI or RTX.
+
+        Admission is per complete frame: stopping a fragmented IDR halfway
+        would prevent its acknowledgement. A short timeout lets loss repair
+        and clients without presentation feedback continue to make progress.
+        """
+        state = feedback()
+        if (state is None or self._clock() - state.presented_time >= 1.5 or
+                state.presented_delay <= state.presented_base + .1 or
+                state.presented_kbps <= 0 or state.presented_offered_kbps <= 0):
+            return 0.
+        kbps = max(500, min(state.presented_kbps, state.presented_offered_kbps))
+        credit = kbps * 1000 / 8 * (state.presented_base + .12)
+        if bytes_sent() - self._acknowledged_bytes <= credit:
+            return 0.
+        self.credit_waits += 1
+        # Healthy/app-limited estimates never impose a flight cap: a desktop
+        # must be able to start video after idle without a credit deadlock.
+        # One wait per frame, before the RTP/RTX pacing lock. The raw ingress
+        # retains its existing bounded FIFO and IDR recovery on overflow.
+        self._wake.clear()
+        started = self._clock()
+        try:
+            await asyncio.wait_for(self._wake.wait(), .025)
+        except asyncio.TimeoutError:
+            pass
+        return self._clock() - started
+
+
 @dataclass
 class _ReceiverFeedback:
     updated: float
@@ -220,6 +285,18 @@ class _ReceiverFeedback:
     sent_bytes: int | None = None
     sent_time: float = 0.
     sending_kbps: float = 0.
+    presented_time: float = float("-inf")
+    presented_sent_at: float = float("-inf")
+    presented_delay: float = 0.
+    presented_base: float = float("inf")
+    presented_samples: list[tuple[float, float, int]] = field(default_factory=list)
+    presented_delays: list[tuple[float, float]] = field(default_factory=list)
+    presented_kbps: float = 0.
+    presented_offered_kbps: float = 0.
+    presented_queue_since: float | None = None
+    presented_serial: int = 0
+    reduced_presented_serial: int = 0
+    credit_samples: list[tuple[float, float]] = field(default_factory=list)
 
 
 class AdaptiveVideoRate:
@@ -245,6 +322,7 @@ class AdaptiveVideoRate:
         self._clock = clock
         self._changed = clock()
         self._healthy_since = clock()
+        self._probe_not_before = clock()
         self._receivers: dict[object, _ReceiverFeedback] = {}
         self._listeners: dict[object, Callable[[int], None]] = {}
 
@@ -325,41 +403,116 @@ class AdaptiveVideoRate:
         state.remb, state.remb_time, state.updated = bitrate_bps, now, now
         self._update(now)
 
+    def presentation_report(self, peer: object, sent_at: float, total_bytes: int) -> None:
+        """A frame was displayed; arguments were matched to server history."""
+        now = self._clock()
+        state = self._receivers.setdefault(peer, _ReceiverFeedback(now))
+        if sent_at <= state.presented_sent_at or not 0 <= now - sent_at < 8:
+            return
+        delay = now - sent_at
+        state.presented_time, state.presented_sent_at = now, sent_at
+        state.presented_delay = delay
+        state.presented_serial += 1
+        state.presented_delays = [(t, d) for t, d in state.presented_delays if now - t < 60][-599:]
+        state.presented_delays.append((now, delay))
+        # The first unbuffered picture can be much younger than the normal
+        # browser playout cadence. A single such minimum must not make every
+        # later healthy frame look queued and trigger a credit/IDR loop.
+        delays = sorted(d for _, d in state.presented_delays)
+        state.presented_base = delays[int((len(delays) - 1) * .1)]
+        samples = state.presented_samples = [(t, s, b) for t, s, b in state.presented_samples
+                                             if now - t < .6][-127:]
+        samples.append((now, sent_at, total_bytes))
+        if now - samples[0][0] >= .3:
+            arrived, sent, count = samples[0]
+            bits = max(0, total_bytes - count) * 8 / 1000
+            state.presented_kbps = bits / (now - arrived)
+            state.presented_offered_kbps = bits / max(.001, sent_at - sent)
+            # A persistent age increase accompanied by slower delivery is a
+            # queue. An isolated display/RTT spike or an idle frame is not.
+            queued = (delay > state.presented_base + max(.1, state.presented_base * .75)
+                      and state.presented_kbps < state.presented_offered_kbps * .85
+                      and state.presented_offered_kbps >= self.current_kbps * .4)
+            if queued:
+                if state.presented_queue_since is None:
+                    state.presented_queue_since = now
+            else:
+                state.presented_queue_since = None
+        self._update(now)
+
+    @staticmethod
+    def _presentation_fresh(state: _ReceiverFeedback, now: float) -> bool:
+        return now - state.presented_time < 1.5
+
+    def presentation_backpressure(self, peer: object, waited: float) -> None:
+        state = self._receivers.get(peer)
+        if state is None or waited < .002:
+            return
+        now = self._clock()
+        state.credit_samples = [(t, d) for t, d in state.credit_samples if now - t < .6][-31:]
+        state.credit_samples.append((now, min(.5, waited)))
+        self._update(now)
+
+    def _presentation_queued(self, state: _ReceiverFeedback, now: float) -> bool:
+        credit = [(t, d) for t, d in state.credit_samples if now - t < .6]
+        blocked = (len(credit) >= 2 and credit[-1][0] - credit[0][0] >= .09
+                   and sum(d for _, d in credit) >= .1)
+        # A blocked frame plus independently slower delivery already confirms
+        # the queue. Do not hold several frames merely to repeat the same age
+        # evidence: that can overflow the raw FIFO before the rate is lowered.
+        delivering_slower = (bool(credit) and sum(d for _, d in credit) >= .02 and
+                            state.presented_delay > state.presented_base + .1 and
+                            state.presented_kbps < state.presented_offered_kbps * .85)
+        return (self._presentation_fresh(state, now) and (blocked or delivering_slower or
+                (state.presented_queue_since is not None and now - state.presented_queue_since >= .3)))
+
     def _update(self, now: float) -> None:
         if not self.enabled:
             return
-        # REMB can be app-limited on an idle desktop. Require a fresh RR and
-        # actual sender demand; otherwise neither delay noise nor a low REMB
-        # should continually reconfigure NVENC (which forces an IDR in FFmpeg).
-        fresh = [s for s in self._receivers.values() if now - s.loss_time < 6]
-        bad = [s for s in fresh if s.loss >= .03 or
-               (s.queue_since is not None and now - s.queue_since >= 3 and
+        # REMB can be app-limited on an idle desktop. Require fresh receiver
+        # evidence and actual media demand; delay noise and idle estimates
+        # must not continually reconfigure an encoder.
+        fresh = [s for s in self._receivers.values() if now - s.loss_time < 6 or
+                 self._presentation_fresh(s, now)]
+        bad = [s for s in fresh if (now - s.loss_time < 6 and s.loss >= .03) or self._presentation_queued(s, now) or
+               (not self._presentation_fresh(s, now) and s.queue_since is not None and now - s.queue_since >= 3 and
                 s.sending_kbps >= self.current_kbps * .5)]
         if bad:
             self._healthy_since = now
-        pending = [s for s in bad if s.sequence != s.reduced_sequence]
+        pending = [s for s in bad if (s.sequence != s.reduced_sequence or
+                    (self._presentation_queued(s, now) and s.presented_serial != s.reduced_presented_serial))
+                   and (not self._presentation_fresh(s, now) or s.presented_sent_at >= self._changed + .5)]
         if not fresh or now - self._changed < (1 if pending else 10):
             return
         target = self.current_kbps
         ceiling = self.maximum_kbps
-        loss = max((s.loss for s in bad), default=0.)
-        queued = any(s.queue_since is not None and now - s.queue_since >= 3 for s in bad)
+        loss = max((s.loss for s in bad if now - s.loss_time < 6), default=0.)
+        queued = any(self._presentation_queued(s, now) or
+                     (s.queue_since is not None and now - s.queue_since >= 3) for s in bad)
         if pending:
             # Consume each congestion report once. Repeated REMB packets must
             # not apply an old loss/RTT sample again while the path is draining.
-            factor = .5 if max(s.loss for s in pending) >= .12 else .75
+            factor = .5 if max((s.loss for s in pending if now - s.loss_time < 6), default=0.) >= .12 else .75
             for state in fresh:
-                if now - state.remb_time < 5:
+                if state in pending and self._presentation_queued(state, now):
+                    ceiling = min(ceiling, max(500, int(state.presented_kbps * .9)))
+                elif not self._presentation_fresh(state, now) and now - state.remb_time < 5:
                     ceiling = min(ceiling, max(500, int(state.remb * .8 / 1000) - 128))
             target = min(ceiling, int(target * factor))
-        elif not bad and now - self._healthy_since >= 10 and any(
-                s.sending_kbps >= self.current_kbps * .7 for s in fresh):
-            # A drained queue does not mean that the old path capacity has
-            # returned. Blindly growing back to maximum repeatedly overloads
-            # a link that has settled at a lower rate. Fresh receiver estimates
-            # bound upward probes; an app-limited estimate never cuts quality.
+        elif (not bad and now >= self._probe_not_before and now - self._healthy_since >= 10
+              and all(not self._presentation_fresh(s, now) or s.presented_delay <= s.presented_base + .08
+                      for s in fresh) and any(
+                (now - s.loss_time < 6 and s.sending_kbps >= self.current_kbps * .7) or
+                (self._presentation_fresh(s, now) and s.presented_kbps >= self.current_kbps * .4
+                 and s.presented_delay <= s.presented_base + .08) for s in fresh)):
+            # Every reporting viewer must have drained before an active
+            # probe. Fresh legacy estimates still bound old clients; an
+            # app-limited estimate alone never cuts quality.
             for state in fresh:
-                if now - state.remb_time < 5:
+                # Fresh, low-age presentation permits a bounded active probe:
+                # REMB alone cannot distinguish a limited encoder from a
+                # limited path. Legacy viewers keep the previous ceiling.
+                if not self._presentation_fresh(state, now) and now - state.remb_time < 5:
                     ceiling = min(ceiling, max(500, int(state.remb * .9 / 1000)))
             target = max(target, min(ceiling, target + max(250, int(target * .25))))
         target = max(500, min(self.maximum_kbps, target))
@@ -372,6 +525,9 @@ class AdaptiveVideoRate:
         if target < self.current_kbps:
             for state in pending:
                 state.reduced_sequence = state.sequence
+                state.reduced_presented_serial = state.presented_serial
+            if any(self._presentation_queued(s, now) for s in pending):
+                self._probe_not_before = now + 30
         self.current_kbps, self._changed = target, now
         for listener in tuple(self._listeners.values()):
             listener(target)
@@ -1937,6 +2093,7 @@ class BrowserWebRtcBridge:
             runtime_directory, expected_uid=expected_producer_uid)
         self._input_state = BrowserInputState(self.input, pointer_order=self._pointer_order)
         self._region_full_frames: set[int] = set()
+        self._video_presentation = _VideoPresentation()
         self._regions_eligible = self._regions_ready = False
         self.input.set_video_regions(self, False)
         self._ui_peer = exact_ui.Peer(self._ui_source, self._send_control, self.input.request_ui_snapshot,
@@ -2639,8 +2796,19 @@ class BrowserWebRtcBridge:
                                             "capture": self.video_track.current_capture,
                                             **({"region": region} if region and self._ui_peer.version >= 4 else {})})
             await send_rtp(data)
+            if (len(data) >= 12 and data[0] >> 6 == 2 and not 192 <= data[1] <= 223 and
+                    data[1] & 0x80 and struct.unpack_from("!I", data, 8)[0] == video_sender._ssrc):
+                self._video_presentation.sent(struct.unpack_from("!I", data, 4)[0],
+                                              self._video_pacer.sent_bytes + len(data) + 64)
 
         async def send_paced(data: bytes) -> None:
+            if (len(data) >= 12 and data[0] >> 6 == 2 and not 192 <= data[1] <= 223 and
+                    struct.unpack_from("!I", data, 8)[0] == video_sender._ssrc and
+                    struct.unpack_from("!I", data, 4)[0] != last_frame_rtp):
+                waited = await self._video_presentation.wait_for_credit(
+                    lambda: self._video_pacer.sent_bytes,
+                    lambda: None if self._closed else self._video_rate._receivers.get(self))
+                self._video_rate.presentation_backpressure(self, waited)
             await self._video_pacer.send(data, video_sender, send_with_frame)
 
         transport._send_rtp = send_paced
@@ -2654,10 +2822,8 @@ class BrowserWebRtcBridge:
         print(f"qsm-direct-terminal: WebRTC offer candidates={len(candidate_lines)} "
               f"mdns={mdns_candidates} resolved={remote_candidates}",
               file=sys.stderr, flush=True)
-        # This is server-to-browser only. It is intentionally separate from
-        # qsm-control so pointer feedback remains latest-state data rather
-        # than sitting behind reliable keyboard traffic. The browser
-        # receives it through RTCPeerConnection.ondatachannel.
+        # Latest-state cursor/rate samples travel down; disposable presentation
+        # acknowledgements travel up. This channel cannot inject guest input.
         cursor_channel = self._pc.createDataChannel(
             "qsm-guest-cursor", ordered=False, maxRetransmits=0)
         self._cursor_channel = cursor_channel
@@ -2666,6 +2832,22 @@ class BrowserWebRtcBridge:
         def on_cursor_open() -> None:
             self._publish_cursor()
             self._publish_video_rate()
+
+        @cursor_channel.on("message")
+        def on_video_presented(message: object) -> None:
+            if self._closed or not isinstance(message, str) or len(message) > 128:
+                return
+            try:
+                value = json.loads(message)
+                if (not isinstance(value, dict) or set(value) != {"op", "rtp"} or
+                        value["op"] != "qsm_video_presented" or type(value["rtp"]) is not int or
+                        not 0 <= value["rtp"] <= 0xffffffff):
+                    return
+                frame = self._video_presentation.acknowledge(value["rtp"])
+                if frame is not None:
+                    self._video_rate.presentation_report(self, *frame)
+            except (ValueError, BridgeError):
+                pass  # Disposable diagnostics must not retire guest input.
 
         ui_channel = self._pc.createDataChannel("qsm-exact-ui", ordered=True)
 

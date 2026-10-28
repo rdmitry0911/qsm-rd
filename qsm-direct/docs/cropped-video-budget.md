@@ -68,3 +68,10 @@ qualify before enabling cropping by default. Results, source attribution,
 test limits and the cadence correction are in
 `rdp-source-fidelity-20261028.json`; the full scope remains in
 `rdp-next-plan.json`. Faster cadence alone is not acceptance of video quality.
+
+Automatic-feedback trials are recorded in `rdp-video-feedback-20261028.json`.
+The private exp57 candidate reaches about 55 unique source frames/s at a
+2 Mbit/s downlink and recovers its 8000 kbit/s target after capacity returns.
+Exact static pixels remain unchanged. Residual transition presentation and
+visible-input peaks still fail qualification; full capture-to-screen age,
+real loss and the wider matrix remain required.

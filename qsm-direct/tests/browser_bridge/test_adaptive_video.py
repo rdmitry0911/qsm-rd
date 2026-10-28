@@ -14,7 +14,8 @@ from aiortc.rtp import (RTCP_PSFB_APP, RtcpPsfbPacket, RtcpRrPacket,
                         RtcpReceiverInfo, pack_remb_fci)
 from extensions.browser_bridge.qsm_browser_bridge import (
     AdaptiveVideoRate, BrowserWebRtcBridge, BridgeError, UnixInputEgress,
-    INPUT_HEADER, INPUT_MAGIC, INPUT_VERSION, INPUT_VIDEO_BITRATE, _VideoPacer)
+    INPUT_HEADER, INPUT_MAGIC, INPUT_VERSION, INPUT_VIDEO_BITRATE, _VideoPacer,
+    _VideoPresentation)
 
 
 class RateTests(unittest.TestCase):
@@ -237,6 +238,192 @@ class RateTests(unittest.TestCase):
         self.assertEqual(gpu._rate, 2000 * 1000 / 8 * 1.25)
         gpu.set_bitrate(500)
         self.assertEqual(gpu._rate, 500 * 1000 / 8 * 1.25)
+
+    def test_presentation_detects_tcp_queue_while_rtcp_rtt_stays_low(self):
+        self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
+        total = 0
+        for n in range(1, 11):
+            self.now = n / 10
+            total += 50000
+            self.rr(rtt=.02, sending_kbps=4000)
+            self.rate.presentation_report('a', self.now - .06, total)
+        sent_at = self.now - .06
+        for n in range(11, 23):
+            self.now = n / 10
+            sent_at += .04
+            total += 25000
+            self.rr(rtt=.02, sending_kbps=4000)
+            self.rate.presentation_report('a', sent_at, total)
+        self.assertEqual(len(self.applied), 1)
+        self.assertGreaterEqual(self.rate.current_kbps, 1500)
+        self.assertLessEqual(self.rate.current_kbps, 3000)
+        self.assertIsNone(self.rate._receivers['a'].queue_since)
+
+    def test_active_low_age_presentation_recovers_despite_app_limited_remb(self):
+        self.rr()
+        self.now = 2
+        self.rr(loss=.2)
+        total = 0
+        for n in range(30, 700):
+            self.now = n / 10
+            current = self.rate.current_kbps
+            total += int(current * .55 * 1000 / 8 / 10)
+            self.rate.presentation_report('a', self.now - .06, total)
+            self.rate.receiver_estimate('a', int(current * .65 * 1000))
+            if n % 10 == 0:
+                self.rr(sending_kbps=current * .55)
+        self.assertEqual(self.rate.current_kbps, 20000)
+
+    def test_idle_presentation_and_short_display_stall_do_not_change_quality(self):
+        total = 0
+        for n in range(1, 1800):
+            self.now = n / 10
+            total += 800
+            # One delayed callback, then an ordinary fresh picture.
+            age = .35 if n == 205 else .06
+            self.rate.presentation_report('a', self.now - age, total)
+            if n % 10 == 0:
+                self.rr(sending_kbps=64)
+                self.rate.receiver_estimate('a', 200000)
+        self.assertEqual(self.applied, [])
+        state = self.rate._receivers['a']
+        self.assertLessEqual(len(state.presented_delays), 600)
+        self.assertLessEqual(len(state.presented_samples), 128)
+
+    def test_old_high_demand_rr_does_not_drive_idle_presentation_probes(self):
+        self.rr()
+        self.now = 2
+        self.rr(loss=.2)
+        for n in range(30, 1200):
+            self.now = n / 10
+            self.rate.presentation_report('a', self.now - .06, n * 800)
+        self.assertEqual(self.applied, [10000])
+
+    def test_credit_backpressure_reduces_even_when_pacing_hides_queue_growth(self):
+        self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
+        total = 0
+        for n in range(1, 11):
+            self.now = n / 10
+            total += 25000
+            self.rate.presentation_report('a', self.now - .06, total)
+        for n in range(11, 16):
+            self.now = n / 10
+            total += 25000
+            self.rate.presentation_report('a', self.now - .25, total)
+            self.rate.presentation_backpressure('a', .08)
+        self.assertEqual(len(self.applied), 1)
+        self.assertGreaterEqual(self.rate.current_kbps, 500)
+        self.assertLessEqual(self.rate.current_kbps, 3000)
+
+    def test_short_credit_wait_and_slower_delivery_act_before_raw_fifo_overflows(self):
+        self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
+        total = 0
+        for n in range(1, 11):
+            self.now = n / 10
+            total += 50000
+            self.rate.presentation_report('a', self.now - .06, total)
+        sent_at = self.now - .06
+        for n in range(11, 15):
+            self.now = n / 10
+            sent_at += .04
+            total += 25000
+            self.rate.presentation_report('a', sent_at, total)
+        state = self.rate._receivers['a']
+        self.assertLess(self.now - state.presented_queue_since, .3)
+        self.assertEqual(self.applied, [])
+        self.rate.presentation_backpressure('a', .025)
+        self.assertLess(self.rate.current_kbps, 8000)
+
+    def test_fast_presenting_viewer_cannot_probe_while_other_viewer_is_delayed(self):
+        self.rr()
+        self.now = 2
+        self.rr(loss=.2)
+        total = 0
+        for n in range(30, 500):
+            self.now = n / 10
+            total += int(self.rate.current_kbps * .55 * 1000 / 8 / 10)
+            self.rate.presentation_report('a', self.now - .06, total)
+            age = .06 if n < 100 else .4
+            self.rate.presentation_report('slow', self.now - age, total)
+        self.assertTrue(all(b <= a for a, b in zip(self.applied, self.applied[1:])))
+        held = self.rate.current_kbps
+        for n in range(500, 900):
+            self.now = n / 10
+            total += int(self.rate.current_kbps * .55 * 1000 / 8 / 10)
+            for peer in ('a', 'slow'):
+                self.rate.presentation_report(peer, self.now - .06, total)
+        self.assertGreater(self.rate.current_kbps, held)
+
+
+class PresentationHistoryTests(unittest.TestCase):
+    def test_known_completed_frames_only_with_wrap_duplicates_and_bounded_age(self):
+        now = [1.]
+        history = _VideoPresentation(lambda: now[0])
+        history.sent(0xffffffff, 10000)
+        now[0] = 1.05
+        history.sent(0, 12000)
+        now[0] = 1.1
+        self.assertEqual(history.acknowledge(0), (1.05, 12000))
+        self.assertIsNone(history.acknowledge(0xffffffff))
+        self.assertIsNone(history.acknowledge(0))
+        self.assertIsNone(history.acknowledge(123))
+        history.sent(1, 13000)
+        now[0] = 10
+        self.assertIsNone(history.acknowledge(1))
+        for rtp in range(2, 1002):
+            history.sent(rtp, 13000 + rtp)
+        self.assertEqual(len(history._frames), 512)
+        self.assertIsNone(history.acknowledge(2))
+        self.assertEqual(history.acknowledge(1001), (10, 14001))
+
+
+class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ack_releases_frame_admission_and_absent_feedback_never_waits(self):
+        history = _VideoPresentation()
+        await history.wait_for_credit(lambda: 1000000, lambda: None)
+        self.assertEqual(history.credit_waits, 0)
+        now = __import__('time').monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.08, presented_delay=.4,
+                                presented_kbps=2000, presented_offered_kbps=4000)
+        history.sent(10, 100000)
+        pending = asyncio.create_task(history.wait_for_credit(lambda: 100000, lambda: state))
+        await asyncio.sleep(.01)
+        self.assertFalse(pending.done())
+        self.assertEqual(history.credit_waits, 1)
+        history.acknowledge(10)
+        await asyncio.wait_for(pending, .05)
+        await history.wait_for_credit(lambda: 110000, lambda: state)
+        self.assertEqual(history.credit_waits, 1)
+
+    async def test_missing_ack_has_bounded_wait_for_loss_repair(self):
+        history = _VideoPresentation()
+        now = __import__('time').monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.08, presented_delay=.4,
+                                presented_kbps=2000, presented_offered_kbps=4000)
+        await asyncio.wait_for(history.wait_for_credit(lambda: 100000, lambda: state), .07)
+        self.assertEqual(history.credit_waits, 1)
+
+    async def test_starting_video_after_idle_is_not_capped_by_old_delivery_rate(self):
+        history = _VideoPresentation()
+        state = SimpleNamespace(presented_time=__import__('time').monotonic(),
+                                presented_base=.08, presented_delay=.1,
+                                presented_kbps=64, presented_offered_kbps=64)
+        await asyncio.wait_for(history.wait_for_credit(lambda: 1000000, lambda: state), .03)
+        self.assertEqual(history.credit_waits, 0)
+
+    async def test_one_low_startup_delay_does_not_turn_normal_playout_into_congestion(self):
+        now = [0.]
+        rate = AdaptiveVideoRate(8000, lambda _: None, clock=lambda: now[0])
+        history = _VideoPresentation(lambda: now[0])
+        rate.presentation_report('a', -.03, 0)
+        for n in range(1, 201):
+            now[0] = n / 10
+            age = .15 if n % 5 == 0 else .12
+            rate.presentation_report('a', now[0] - age, n * 50000)
+        state = rate._receivers['a']
+        self.assertGreater(state.presented_base, .11)
+        await asyncio.wait_for(history.wait_for_credit(lambda: 10000000, lambda: state), .03)
+        self.assertEqual(history.credit_waits, 0)
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):

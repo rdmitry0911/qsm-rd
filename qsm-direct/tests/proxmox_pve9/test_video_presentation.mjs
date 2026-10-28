@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+
+const source = fs.readFileSync(new URL('../../integration/proxmox/pve9/direct_ui/qsm-direct-console.js', import.meta.url), 'utf8');
+const begin = source.indexOf('    const createVideoPresentationFeedback =');
+const end = source.indexOf('    const applyReceiverPlayoutDelay =', begin);
+assert.ok(begin > 0 && end > begin);
+const context = vm.createContext({});
+vm.runInContext(source.slice(begin, end) + '\nglobalThis.create = createVideoPresentationFeedback;', context);
+const messages = [];
+let channel = { readyState: 'open', bufferedAmount: 0, send: data => messages.push(JSON.parse(data)) };
+const frame = context.create(() => channel);
+for (let n = 0; n < 60; n++) { frame(1000 + n, n * 1000 / 60); }
+assert.ok(messages.length >= 8 && messages.length <= 10, 'frame-rate callback must not flood SCTP');
+const before = messages.length;
+frame(messages.at(-1).rtp, 1100);
+frame(-1, 1200); frame(0x100000000, 1200); frame(1.5, 1200); frame(10, NaN);
+assert.equal(messages.length, before);
+channel.bufferedAmount = 2048; frame(2000, 1300);
+channel.bufferedAmount = 0; frame(2000, 1301);
+assert.deepEqual(messages.at(-1), { op: 'qsm_video_presented', rtp: 2000 });
+channel.readyState = 'closed'; frame(2001, 1500);
+channel = null; frame(2001, 1500);
+channel = { readyState: 'open', bufferedAmount: 0, send: () => { throw Error('closing'); } };
+frame(0xffffffff, 1600);
+channel.send = data => messages.push(JSON.parse(data));
+frame(0xffffffff, 1601); frame(0, 1701);
+assert.deepEqual(messages.slice(-2), [{ op: 'qsm_video_presented', rtp: 0xffffffff }, { op: 'qsm_video_presented', rtp: 0 }]);
+console.log('QSM_VIDEO_PRESENTATION_OK');

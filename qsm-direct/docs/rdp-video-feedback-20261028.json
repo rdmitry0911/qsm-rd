@@ -1,0 +1,726 @@
+{
+  "scope": "Private owned LXC108/KWin5, NVENC H264, Linux Firefox, actual packaged viewer and extracted host worker; TURN over one forwarded TCP8006",
+  "candidate": "0.4.0+stock4.14~exp57",
+  "acceptance": "incomplete; do not release or roll out",
+  "source": {
+    "url": "https://download.blender.org/demo/movies/BBB/bbb_sunflower_1080p_60fps_normal.mp4.zip",
+    "attribution": "(c) copyright 2008, Blender Foundation / www.bigbuckbunny.org",
+    "license": "https://peach.blender.org/about/",
+    "excerpt_seconds": [
+      40,
+      50
+    ],
+    "scaled_rgb_size": [
+      640,
+      360
+    ],
+    "source_fps": 60,
+    "rgb_sha256": "58d618b3351ab000ca62fc421b7c28026e2eb4758173a3f9d9e21bcec38fd905",
+    "rgb_bytes": 414720000,
+    "identity_check": "Current local and guest RGB sources have the same SHA256; raw harness source label retained in artifacts is a stale generic synthetic label"
+  },
+  "network": "20 Mbit/s for 15 s, 2 Mbit/s for 45 s, 20 Mbit/s for 75 s; no manual bitrate commands and no imposed packet loss",
+  "oracle": {
+    "cadence": "Unique same-paint source IDs, phase and XOR check byte; duplicate raster changes are not frames",
+    "static_pixels": "128x32 actual text area compared continuously with native RGBA; exact alpha coverage checked",
+    "input": "Actual visible glyph ink, 15 physical client key taps; count compared with owned guest fixture",
+    "presentation_age": "Sender-local last completed RTP packet to rVFC acknowledgement; excludes capture, encode and pre-transmission credit/FIFO time",
+    "full_capture_to_screen_latency": "not measured; clocked source-generation oracle remains required"
+  },
+  "metadata": "Mode 1 (layout only); native Qt5 caret-priority gap remains. This is not an early-UI acceptance run.",
+  "experiments": [
+    {
+      "candidate": "exp51",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "duration_seconds": 15.694532213266939,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_frames": 898,
+          "unique_fps": 57.35453790636776,
+          "max_frame_gap_ms": 49,
+          "transport_kbps": 4572.634241730128,
+          "overflows_added": 0
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "duration_seconds": 45.52262194035575,
+          "initial_target": 8000,
+          "final_target": 500,
+          "unique_frames": 972,
+          "unique_fps": 21.36733347988569,
+          "max_frame_gap_ms": 10633,
+          "transport_kbps": 1422.6227835159705,
+          "overflows_added": 0
+        },
+        {
+          "name": "recovered",
+          "bandwidth": 20000000,
+          "duration_seconds": 75.46548075368628,
+          "initial_target": 500,
+          "final_target": 898,
+          "unique_frames": 2485,
+          "unique_fps": 32.967178752421134,
+          "max_frame_gap_ms": 219,
+          "transport_kbps": 706.1260788219478,
+          "overflows_added": 0
+        }
+      ],
+      "visible_input": {
+        "count": 15,
+        "metadata_modes": [
+          1
+        ],
+        "by_phase": {
+          "fast": {
+            "count": 2,
+            "median_ms": 177.5,
+            "max_ms": 193
+          },
+          "narrow": {
+            "count": 5,
+            "median_ms": 1254,
+            "max_ms": 10103
+          },
+          "recovered": {
+            "count": 8,
+            "median_ms": 250.0,
+            "max_ms": 315
+          }
+        }
+      },
+      "static_observer": {
+        "frames": 8202,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "ids": null,
+        "stop": true
+      },
+      "weak_diagnostic_checks": {
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "queue_acceptance": null,
+      "disposition": "failed: multi-second stall and app-limited recovery"
+    },
+    {
+      "candidate": "exp52",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "duration_seconds": 15.648581339977682,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_frames": 858,
+          "unique_fps": 54.9366116019977,
+          "max_frame_gap_ms": 49,
+          "transport_kbps": 4579.253939328588,
+          "overflows_added": 0
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "duration_seconds": 45.36826548026875,
+          "initial_target": 8000,
+          "final_target": 2587,
+          "unique_frames": 2355,
+          "unique_fps": 52.03155034135348,
+          "max_frame_gap_ms": 182,
+          "transport_kbps": 1684.4660267461234,
+          "overflows_added": 0
+        },
+        {
+          "name": "recovered",
+          "bandwidth": 20000000,
+          "duration_seconds": 75.37428620317951,
+          "initial_target": 2587,
+          "final_target": 8000,
+          "unique_frames": 4244,
+          "unique_fps": 56.41066539064784,
+          "max_frame_gap_ms": 117,
+          "transport_kbps": 3202.321827618941,
+          "overflows_added": 0
+        }
+      ],
+      "visible_input": {
+        "count": 15,
+        "metadata_modes": [
+          1
+        ],
+        "by_phase": {
+          "fast": {
+            "count": 2,
+            "median_ms": 159.0,
+            "max_ms": 175
+          },
+          "narrow": {
+            "count": 6,
+            "median_ms": 203.0,
+            "max_ms": 1055
+          },
+          "recovered": {
+            "count": 7,
+            "median_ms": 165,
+            "max_ms": 178
+          }
+        }
+      },
+      "static_observer": {
+        "frames": 8184,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "ids": null,
+        "stop": true
+      },
+      "weak_diagnostic_checks": {
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "queue_acceptance": null,
+      "disposition": "partial improvement: full recovery, but sampled presentation peak ~1320 ms and visible input peak 1055 ms"
+    },
+    {
+      "candidate": "exp53",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "duration_seconds": 15.296100931242108,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_frames": 72,
+          "unique_fps": 4.708960104643558,
+          "max_frame_gap_ms": 1150,
+          "transport_kbps": 444.0031541679464,
+          "overflows_added": 16
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "duration_seconds": 45.127290978096426,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_frames": 142,
+          "unique_fps": 3.147163120567376,
+          "max_frame_gap_ms": 1135,
+          "transport_kbps": 313.33868639724386,
+          "overflows_added": 40
+        }
+      ],
+      "visible_input": {
+        "count": 12,
+        "metadata_modes": [
+          1
+        ],
+        "by_phase": {
+          "fast": {
+            "count": 2,
+            "median_ms": 393.5,
+            "max_ms": 408
+          },
+          "narrow": {
+            "count": 6,
+            "median_ms": 670.5,
+            "max_ms": 1163
+          },
+          "recovered": {
+            "count": 4,
+            "median_ms": 816.0,
+            "max_ms": 1213
+          }
+        }
+      },
+      "static_observer": null,
+      "weak_diagnostic_checks": null,
+      "queue_acceptance": null,
+      "disposition": "rejected; stopped after fast-link frame-rate collapse"
+    },
+    {
+      "candidate": "exp54",
+      "phases": [
+        {
+          "server_start": 3380502.740518194,
+          "server_end": 3380518.369372248,
+          "name": "fast",
+          "bandwidth": 20000000,
+          "duration_seconds": 15.660704696085304,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_frames": 854,
+          "unique_fps": 54.638515674984006,
+          "max_frame_gap_ms": 99,
+          "transport_kbps": 4517.692667533838,
+          "overflows_added": 2
+        },
+        {
+          "server_start": 3380518.403953403,
+          "server_end": 3380563.55516591,
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "duration_seconds": 45.16682079760358,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_frames": 358,
+          "unique_fps": 7.928949524927465,
+          "max_frame_gap_ms": 1133,
+          "transport_kbps": 646.778376995266,
+          "overflows_added": 49
+        }
+      ],
+      "visible_input": {
+        "count": 15,
+        "metadata_modes": [
+          1
+        ],
+        "by_phase": {
+          "fast": {
+            "count": 2,
+            "median_ms": 162.0,
+            "max_ms": 163
+          },
+          "narrow": {
+            "count": 6,
+            "median_ms": 809.5,
+            "max_ms": 1202
+          },
+          "recovered": {
+            "count": 7,
+            "median_ms": 106,
+            "max_ms": 130
+          }
+        }
+      },
+      "static_observer": null,
+      "weak_diagnostic_checks": null,
+      "queue_acceptance": null,
+      "disposition": "rejected; stopped after narrow-link frame-rate collapse"
+    },
+    {
+      "candidate": "exp55",
+      "phases": [
+        {
+          "server_start": 3380691.619148056,
+          "server_end": 3380707.282700578,
+          "name": "fast",
+          "bandwidth": 20000000,
+          "duration_seconds": 15.697445341851562,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_frames": 875,
+          "unique_fps": 55.86057201225741,
+          "max_frame_gap_ms": 100,
+          "transport_kbps": 4561.30970899829,
+          "overflows_added": 1
+        },
+        {
+          "server_start": 3380707.31947137,
+          "server_end": 3380752.528102118,
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "duration_seconds": 45.28759109927341,
+          "initial_target": 8000,
+          "final_target": 500,
+          "unique_frames": 2021,
+          "unique_fps": 44.702499447025,
+          "max_frame_gap_ms": 883,
+          "transport_kbps": 1183.0583808670046,
+          "overflows_added": 21
+        },
+        {
+          "server_start": 3380752.610987235,
+          "server_end": 3380828.231842394,
+          "name": "recovered",
+          "bandwidth": 20000000,
+          "duration_seconds": 75.67112879268825,
+          "initial_target": 500,
+          "final_target": 500,
+          "unique_frames": 1406,
+          "unique_fps": 18.592227232455734,
+          "max_frame_gap_ms": 1283,
+          "transport_kbps": 358.87371317595426,
+          "overflows_added": 122
+        }
+      ],
+      "visible_input": {
+        "count": 15,
+        "metadata_modes": [
+          1
+        ],
+        "by_phase": {
+          "fast": {
+            "count": 2,
+            "median_ms": 177.0,
+            "max_ms": 195
+          },
+          "narrow": {
+            "count": 6,
+            "median_ms": 208.5,
+            "max_ms": 758
+          },
+          "recovered": {
+            "count": 7,
+            "median_ms": 883,
+            "max_ms": 1296
+          }
+        }
+      },
+      "static_observer": {
+        "frames": 8201,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "ids": null,
+        "stop": true
+      },
+      "weak_diagnostic_checks": null,
+      "queue_acceptance": null,
+      "disposition": "rejected; false-congestion loop reaches 500 kbit/s; final trace RPC exceeded private harness line limit, corrected for later runs"
+    },
+    {
+      "candidate": "exp56",
+      "phases": [
+        {
+          "server_start": 3381008.852451263,
+          "server_end": 3381024.488546196,
+          "name": "fast",
+          "bandwidth": 20000000,
+          "duration_seconds": 15.671973275020719,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_frames": 873,
+          "unique_fps": 55.82912323335678,
+          "max_frame_gap_ms": 49,
+          "transport_kbps": 4596.953444688601,
+          "overflows_added": 0,
+          "presentation_delay_max_ms": 133.46559181809425,
+          "presentation_excess_max_ms": 71.59067876636982,
+          "presentation_delay_median_ms": 112.34496906399727
+        },
+        {
+          "server_start": 3381024.526290243,
+          "server_end": 3381069.971680413,
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "duration_seconds": 45.550054186955094,
+          "initial_target": 8000,
+          "final_target": 2553,
+          "unique_frames": 2400,
+          "unique_fps": 52.809928266514106,
+          "max_frame_gap_ms": 633,
+          "transport_kbps": 1620.4219384771066,
+          "overflows_added": 2,
+          "presentation_delay_max_ms": 628.5016117617488,
+          "presentation_excess_max_ms": 532.218252774328,
+          "presentation_delay_median_ms": 144.573416095227
+        },
+        {
+          "server_start": 3381070.081674688,
+          "server_end": 3381145.329574882,
+          "name": "recovered",
+          "bandwidth": 20000000,
+          "duration_seconds": 75.38091797800735,
+          "initial_target": 2553,
+          "final_target": 8000,
+          "unique_frames": 4142,
+          "unique_fps": 55.04318936877076,
+          "max_frame_gap_ms": 117,
+          "transport_kbps": 3284.93894352578,
+          "overflows_added": 0,
+          "presentation_delay_max_ms": 162.04639803618193,
+          "presentation_excess_max_ms": 50.22024177014828,
+          "presentation_delay_median_ms": 126.04073481634259
+        }
+      ],
+      "visible_input": {
+        "count": 15,
+        "metadata_modes": [
+          1
+        ],
+        "by_phase": {
+          "fast": {
+            "count": 2,
+            "median_ms": 167.0,
+            "max_ms": 177
+          },
+          "narrow": {
+            "count": 6,
+            "median_ms": 192.5,
+            "max_ms": 979
+          },
+          "recovered": {
+            "count": 7,
+            "median_ms": 172,
+            "max_ms": 190
+          }
+        }
+      },
+      "static_observer": {
+        "frames": 8195,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "ids": null,
+        "stop": true
+      },
+      "weak_diagnostic_checks": {
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "queue_acceptance": {
+        "no_long_video_gap": false,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": false,
+        "fallback_glyph_peak_at_most_600ms": false,
+        "no_network_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "disposition": "not release-qualified: transition presentation/gap/input gates fail"
+    },
+    {
+      "candidate": "exp57",
+      "phases": [
+        {
+          "server_start": 3381369.692641874,
+          "server_end": 3381385.357976954,
+          "name": "fast",
+          "bandwidth": 20000000,
+          "duration_seconds": 15.699987440835685,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_frames": 888,
+          "unique_fps": 56.68688158314714,
+          "max_frame_gap_ms": 35,
+          "transport_kbps": 4550.966660729806,
+          "overflows_added": 0,
+          "presentation_delay_max_ms": 134.98006714507937,
+          "presentation_excess_max_ms": 68.01545945927501,
+          "presentation_delay_median_ms": 128.4255189821124
+        },
+        {
+          "server_start": 3381385.394325779,
+          "server_end": 3381430.530348522,
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "duration_seconds": 45.23849065462127,
+          "initial_target": 8000,
+          "final_target": 2533,
+          "unique_frames": 2483,
+          "unique_fps": 55.01152073732719,
+          "max_frame_gap_ms": 433,
+          "transport_kbps": 1626.9273418922978,
+          "overflows_added": 3,
+          "presentation_delay_max_ms": 572.660188190639,
+          "presentation_excess_max_ms": 488.4209712035954,
+          "presentation_delay_median_ms": 145.987952593714
+        },
+        {
+          "server_start": 3381430.637458669,
+          "server_end": 3381505.886643742,
+          "name": "recovered",
+          "bandwidth": 20000000,
+          "duration_seconds": 75.3848007149063,
+          "initial_target": 2533,
+          "final_target": 8000,
+          "unique_frames": 4186,
+          "unique_fps": 55.62716774527913,
+          "max_frame_gap_ms": 117,
+          "transport_kbps": 3132.8823783794064,
+          "overflows_added": 0,
+          "presentation_delay_max_ms": 150.979348924011,
+          "presentation_excess_max_ms": 22.84970972687006,
+          "presentation_delay_median_ms": 128.35721019655466
+        }
+      ],
+      "visible_input": {
+        "count": 15,
+        "metadata_modes": [
+          1
+        ],
+        "by_phase": {
+          "fast": {
+            "count": 2,
+            "median_ms": 178.0,
+            "max_ms": 182
+          },
+          "narrow": {
+            "count": 6,
+            "median_ms": 192.0,
+            "max_ms": 712
+          },
+          "recovered": {
+            "count": 7,
+            "median_ms": 166,
+            "max_ms": 188
+          }
+        }
+      },
+      "static_observer": {
+        "frames": 8180,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "ids": null,
+        "stop": true
+      },
+      "weak_diagnostic_checks": {
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "queue_acceptance": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": false,
+        "fallback_glyph_peak_at_most_600ms": false,
+        "no_network_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "disposition": "not release-qualified: presentation excess and fallback input peak gates still fail"
+    }
+  ],
+  "latest": {
+    "phases": [
+      {
+        "server_start": 3381369.692641874,
+        "server_end": 3381385.357976954,
+        "name": "fast",
+        "bandwidth": 20000000,
+        "duration_seconds": 15.699987440835685,
+        "initial_target": 8000,
+        "final_target": 8000,
+        "unique_frames": 888,
+        "unique_fps": 56.68688158314714,
+        "max_frame_gap_ms": 35,
+        "transport_kbps": 4550.966660729806,
+        "overflows_added": 0,
+        "presentation_delay_max_ms": 134.98006714507937,
+        "presentation_excess_max_ms": 68.01545945927501,
+        "presentation_delay_median_ms": 128.4255189821124
+      },
+      {
+        "server_start": 3381385.394325779,
+        "server_end": 3381430.530348522,
+        "name": "narrow",
+        "bandwidth": 2000000,
+        "duration_seconds": 45.23849065462127,
+        "initial_target": 8000,
+        "final_target": 2533,
+        "unique_frames": 2483,
+        "unique_fps": 55.01152073732719,
+        "max_frame_gap_ms": 433,
+        "transport_kbps": 1626.9273418922978,
+        "overflows_added": 3,
+        "presentation_delay_max_ms": 572.660188190639,
+        "presentation_excess_max_ms": 488.4209712035954,
+        "presentation_delay_median_ms": 145.987952593714
+      },
+      {
+        "server_start": 3381430.637458669,
+        "server_end": 3381505.886643742,
+        "name": "recovered",
+        "bandwidth": 20000000,
+        "duration_seconds": 75.3848007149063,
+        "initial_target": 2533,
+        "final_target": 8000,
+        "unique_frames": 4186,
+        "unique_fps": 55.62716774527913,
+        "max_frame_gap_ms": 117,
+        "transport_kbps": 3132.8823783794064,
+        "overflows_added": 0,
+        "presentation_delay_max_ms": 150.979348924011,
+        "presentation_excess_max_ms": 22.84970972687006,
+        "presentation_delay_median_ms": 128.35721019655466
+      }
+    ],
+    "queue_acceptance": {
+      "no_long_video_gap": true,
+      "narrow_source_fps_at_least_45": true,
+      "recovered_source_fps_at_least_50": true,
+      "full_rate_recovered": true,
+      "presentation_excess_at_most_400ms": false,
+      "fallback_glyph_peak_at_most_600ms": false,
+      "no_network_loss": true,
+      "narrowed": true,
+      "recovered_some": true,
+      "static_pixels_exact": true,
+      "input_delivered_once": true,
+      "same_connected_stream": true
+    },
+    "max_visible_glyph_ms": 712,
+    "static_observer": {
+      "frames": 8180,
+      "wrong_static": 0,
+      "uncovered_static": 0,
+      "invalid_ids": 0,
+      "ids": null,
+      "stop": true
+    },
+    "presentation_samples": 1307,
+    "credit_waits": 20
+  },
+  "tests": {
+    "ctest": "32 groups pass; includes browser protocol checks",
+    "debian_browser_bridge": "114 cases pass; includes controller, history, pacing and existing exact/input tests",
+    "regression": "Three targeted tests fail on the archived exp55 implementation and pass after the fixes; counts overlap the suites"
+  },
+  "provenance": {
+    "runtime_build_test_source_files_compared": 203,
+    "source_snapshot_differences": [],
+    "packaged_bridge_matches_current_source": true,
+    "packaged_viewer_matches_current_source": true,
+    "tested_viewer_sha256": "388299b36efcc6ecbdf786660517ae8c6bb4a7b3e37e14051c1d3948edecb18f",
+    "tested_bridge_sha256": "cdbba6043773388710530bae242bcd223d6fc3340847bfa96d8940a0cc65cad7",
+    "vm_guest_libraries": "All 10 usr/lib files are byte-identical to the exp50 guest package; guest is not upgraded in this trial",
+    "archives": "source-exp57.tar is the actual pre-build snapshot; final qualification documentation is recorded separately"
+  },
+  "production": {
+    "node": "192.168.64.20",
+    "package": "0.4.0+stock4.14~exp35",
+    "terminal_pid": 577033,
+    "native_lab_display_pids": [
+      444366,
+      444367
+    ],
+    "native_sddm_pid": 444390,
+    "owned_kwin_pid": 3829219,
+    "owned_agent_pid": 3880789,
+    "state": "Verified active after the runs; VM103 remains running; no production guest or host restart"
+  },
+  "remaining": [
+    "Reduce residual transition presentation and fallback glyph peaks without new IDR/FIFO stalls",
+    "Measure full source-generation-to-composed-frame age, including repeated frames during a freeze",
+    "Qualify native Qt5 text hints and independent early UI during a bandwidth drop",
+    "Hard cuts, sustained narrow path, real packet loss, long mixed runs, VM and hardware/browser/RDP matrix",
+    "Full public source/deb/APT/installation/rollback release and qualified deployment"
+  ],
+  "evidence": "dist/rdp-hybrid/video-feedback-exp57"
+}

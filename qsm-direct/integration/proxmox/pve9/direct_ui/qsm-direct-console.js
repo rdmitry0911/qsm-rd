@@ -517,6 +517,21 @@
         exactUi: false,
         exactUiPreferenceSet: false,
     });
+    // Disposable, bounded uplink samples identify frames the browser painted.
+    const createVideoPresentationFeedback = channelForFeedback => {
+        let previous = null, sentAt = -Infinity;
+        return (rtp, now) => {
+            if (!Number.isInteger(rtp) || rtp < 0 || rtp > 0xffffffff ||
+                !Number.isFinite(now) || rtp === previous || now - sentAt < 100) { return; }
+            const channel = channelForFeedback();
+            if (!channel || channel.readyState !== 'open' || channel.bufferedAmount > 1024) { return; }
+            try {
+                channel.send(JSON.stringify({ op: 'qsm_video_presented', rtp }));
+                previous = rtp; sentAt = now;
+            } catch (_error) { /* A newer painted frame replaces this sample. */ }
+        };
+    };
+
     // Standard receiver target is in milliseconds; the older Chromium hint
     // uses seconds. This is a target: the browser can enforce a larger floor.
     const applyReceiverPlayoutDelay = (receiver, milliseconds) => {
@@ -1551,6 +1566,8 @@
         // setup safe too.
         let releaseHeldInput = () => undefined;
         const video = document.createElement('video');
+        let videoFeedbackChannel = null;
+        const reportVideoPresented = createVideoPresentationFeedback(() => videoFeedbackChannel);
         video.autoplay = true;
         video.playsInline = true;
         // Mobile engines (Android Chrome, Samsung Internet) honour the HTML
@@ -1642,6 +1659,7 @@
                 }
                 if (frameSupport) {
                     videoRegions.frame(metadata.rtpTimestamp);
+                    if (!document.hidden) { reportVideoPresented(metadata.rtpTimestamp, _now); }
                 }
                 if (exactRenderer.enabled) { exactCompositor.capture(); }
                 if (frameSupport) {
@@ -3894,6 +3912,7 @@
                 }
                 if (!channel || channel.label !== 'qsm-guest-cursor' ||
                     channel.ordered !== false || channel.maxRetransmits !== 0) { return; }
+                videoFeedbackChannel = channel;
                 channel.addEventListener('message', (cursorEvent) => {
                     if (typeof cursorEvent.data !== 'string') { return; }
                     try {
