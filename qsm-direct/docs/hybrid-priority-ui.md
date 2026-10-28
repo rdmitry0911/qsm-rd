@@ -72,6 +72,15 @@ the oldest unserved edit, rather than from the old image's publication time.
 Continuous new edits cannot renew that lease indefinitely. This avoids an
 immediate blur/clear when a small edit waits briefly for byte credit.
 
+That grace is inappropriate for minor changes in or beside the previous
+movie envelope unless they lie in the current text focus. A slowly changing
+counter can touch only a few pixels, yet its older exact tile can combine
+with newer video into a picture that never existed in the guest. Such tiles
+now relinquish their old image immediately using the ordinary capture-fenced
+clear. Unchanged static tiles and focused sparse edits keep their behavior.
+The viewer still defers clears outside a painted crop until replacement
+coverage exists, preserving the retained desktop there.
+
 ## Qualification status
 
 The exp35 baseline is in `rdp-baseline-20261028.json`. Private KWin5/NVENC
@@ -83,3 +92,10 @@ fallback. Results and limits are in `rdp-hybrid-20261028.json`. Cropped video,
 real loss, longer runs, real-VM, other-backend, Mac and RDP comparisons remain
 tracked in `rdp-next-plan.json`. Unit checks alone do not prove those broader
 requirements.
+
+The exp51 follow-up in `rdp-source-fidelity-20261028.json` verifies the
+motion-adjacent retention fix and repeats typed-glyph, move/close and exact
+pixel checks with and without guest hints. It also replaces the old
+changed-raster cadence proxy with source-frame IDs and exact source RGB
+comparisons. Movie source-frame cadence and typed-glyph latency are separate
+measurements; the earlier raster-hash rates must not be called source FPS.

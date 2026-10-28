@@ -31,20 +31,40 @@ capture/layout checks remain in force across that boundary.
 
 ## Qualification
 
-Exp50 is a private candidate. The LXC108/KWin5/NVENC/H264 run over TURN/TCP8006
+Exp51 is a private candidate. The LXC108/KWin5/NVENC/H264 run over TURN/TCP8006
 passes overlap typing, exact pixels, move/close, scroll, burst input and
-viewport resizing. Its short 2 Mbit/s cadence sample improves from exp48's
-approximately 14 to approximately 39 visible frames/s, while overlap glyph
-latency is 69 ms median / 104 ms p95. These are short samples of one fixture.
+viewport resizing. Overlap glyph latency is 70 ms median / 101 ms p95 at a
+2 Mbit/s downlink. The live no-metadata fallback also passes pixel/input checks.
+
+Earlier raster-hash counts are not unique source-frame cadence: the original
+clip was 30 fps and compression changes of a repeated picture can inflate
+that counter. A new oracle paints a phase, source-frame number and an 8-bit
+XOR checksum in the same Qt paint as the source image. It counts source IDs
+over a fixed ten-second source interval, then separately compares displayed
+unoccluded pixels to those exact RGB frames. Diagnostic PNG sampling is not
+included in cadence timing.
+
+The corrected synthetic comparison at a 2 Mbit/s downlink gives about
+17.8 versus 29.6 unique frames/s for the 30 fps source, and 18.4 versus 45.5
+for the 60 fps source (exp35 full video versus exp50 cropped video). Exp51
+also removes a real source-rate-transition defect: 14 invalid composite
+counter observations caused by an old exact overlay become zero.
+
+A 60 fps animation excerpt gives about 15.6 versus 54.1 unique frames/s for
+exp35 versus exp51 at the constrained rate; median RGB PSNR improves from
+31.0 to 32.3 dB. The candidate also samples a lower-quality first frame at a
+hard clip-loop cut absent from the baseline's sampled frames. Its minimum is 28.48 dB;
+cut-frame quality remains a qualification item. These are selected short
+clips, not a claim of universal quality improvement.
 
 A further persistent-crop run covers sustained low/high/low rate changes and
 recovery without toggling exact UI. A 400 ms bad target does not retune the
 codec. All 2162 observed presentations retain the original static pixels and
 complete exact coverage, including an independently restarted metadata child.
 
-Moving-video fidelity, consistent fast-link cadence, real adaptive feedback
-and packet loss, longer mixed-content runs, other codecs/hardware and the
-complete VM/browser matrix must still qualify before enabling cropping by
-default. Fast-link samples vary between 46 and 59 fps across these short
-unsynchronized clip phases. See `rdp-video-budget-20261028.json` and
-`rdp-next-plan.json`; faster cadence alone is not acceptance of video quality.
+Cut handling, real adaptive feedback and packet loss, longer mixed-content
+runs, other codecs/hardware and the complete VM/browser matrix must still
+qualify before enabling cropping by default. Results, source attribution,
+test limits and the cadence correction are in
+`rdp-source-fidelity-20261028.json`; the full scope remains in
+`rdp-next-plan.json`. Faster cadence alone is not acceptance of video quality.

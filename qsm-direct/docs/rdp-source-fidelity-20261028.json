@@ -1,0 +1,530 @@
+{
+  "scope": "Private LXC108/KWin5/NVENC/H264 and Firefox/Linux. Actual capture/input/encoding/RTC/TURN TCP8006; launch/ACL mocked. Source-frame IDs and an 8-bit XOR check byte are painted with the source image; PSNR/box SSIM compare the displayed unoccluded pixels to that exact source frame.",
+  "candidate": "0.4.0+stock4.14~exp51",
+  "baseline": "0.4.0+stock4.14~exp35",
+  "cadence_correction": "Prior raster-hash rates are not unique source-frame rates. The old test movie was 30 fps. Glyph latency and exact-pixel evidence remain valid separately.",
+  "synthetic_source_frames": {
+    "30fps": {
+      "frames": 300,
+      "unique_rgb_frames": 300
+    },
+    "60fps": {
+      "frames": 600,
+      "unique_rgb_frames": 600
+    }
+  },
+  "synthetic_baseline35": [
+    {
+      "name": "30fps-open-8000kbps",
+      "source_fps": 30,
+      "unique_fps": 29.8,
+      "unique_frames": 298,
+      "measurement_ms": 10000,
+      "max_interval_ms": 67,
+      "quality": {
+        "rgb_psnr": {
+          "median": 33.67919896934499,
+          "minimum": 33.38888950545506
+        },
+        "y_psnr": {
+          "median": 37.1221943358066,
+          "minimum": 36.65745209672396
+        },
+        "ssim_8x8_box": {
+          "median": 0.9785158645091618,
+          "minimum": 0.9749095485196483
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    },
+    {
+      "name": "30fps-overlap-8000kbps",
+      "source_fps": 30,
+      "unique_fps": 29.553195752354238,
+      "unique_frames": 295,
+      "measurement_ms": 9982,
+      "max_interval_ms": 84,
+      "quality": {
+        "rgb_psnr": {
+          "median": 32.76780362841875,
+          "minimum": 32.14181795805624
+        },
+        "y_psnr": {
+          "median": 36.4689885888211,
+          "minimum": 35.45911145120926
+        },
+        "ssim_8x8_box": {
+          "median": 0.9734676859132585,
+          "minimum": 0.9669454632275613
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    },
+    {
+      "name": "30fps-overlap-1500kbps",
+      "source_fps": 30,
+      "unique_fps": 17.769791354697016,
+      "unique_frames": 178,
+      "measurement_ms": 10017,
+      "max_interval_ms": 84,
+      "quality": {
+        "rgb_psnr": {
+          "median": 32.79122704119288,
+          "minimum": 32.19157730751092
+        },
+        "y_psnr": {
+          "median": 36.32291614094595,
+          "minimum": 35.63685467775422
+        },
+        "ssim_8x8_box": {
+          "median": 0.9733526794753821,
+          "minimum": 0.9666946853714399
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    },
+    {
+      "name": "60fps-overlap-8000kbps",
+      "source_fps": 60,
+      "unique_fps": 56.6,
+      "unique_frames": 566,
+      "measurement_ms": 10000,
+      "max_interval_ms": 50,
+      "quality": {
+        "rgb_psnr": {
+          "median": 32.91069370479058,
+          "minimum": 30.89135031584487
+        },
+        "y_psnr": {
+          "median": 36.550107831403494,
+          "minimum": 34.543391127666794
+        },
+        "ssim_8x8_box": {
+          "median": 0.9741967049654323,
+          "minimum": 0.9669089806156598
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    },
+    {
+      "name": "60fps-overlap-1500kbps",
+      "source_fps": 60,
+      "unique_fps": 18.378700576197097,
+      "unique_frames": 185,
+      "measurement_ms": 10066,
+      "max_interval_ms": 102,
+      "quality": {
+        "rgb_psnr": {
+          "median": 32.77898364164765,
+          "minimum": 31.627851977421834
+        },
+        "y_psnr": {
+          "median": 36.37649466968532,
+          "minimum": 35.673463882054946
+        },
+        "ssim_8x8_box": {
+          "median": 0.9745713344147999,
+          "minimum": 0.9677826559564314
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    }
+  ],
+  "synthetic_candidate50": [
+    {
+      "name": "30fps-open-8000kbps",
+      "source_fps": 30,
+      "unique_fps": 29.897010298970102,
+      "unique_frames": 299,
+      "measurement_ms": 10001,
+      "max_interval_ms": 69,
+      "quality": {
+        "rgb_psnr": {
+          "median": 41.015770081714074,
+          "minimum": 40.74407180772866
+        },
+        "y_psnr": {
+          "median": 46.01271320001843,
+          "minimum": 45.73583372730177
+        },
+        "ssim_8x8_box": {
+          "median": 0.9944313362449699,
+          "minimum": 0.9937202840749318
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    },
+    {
+      "name": "30fps-overlap-8000kbps",
+      "source_fps": 30,
+      "unique_fps": 29.8,
+      "unique_frames": 298,
+      "measurement_ms": 10000,
+      "max_interval_ms": 67,
+      "quality": {
+        "rgb_psnr": {
+          "median": 35.71959648358905,
+          "minimum": 35.108317421709636
+        },
+        "y_psnr": {
+          "median": 39.63692022287192,
+          "minimum": 38.84547526056943
+        },
+        "ssim_8x8_box": {
+          "median": 0.9812023071852651,
+          "minimum": 0.9769455300110002
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    },
+    {
+      "name": "30fps-overlap-1500kbps",
+      "source_fps": 30,
+      "unique_fps": 29.649595687331537,
+      "unique_frames": 297,
+      "measurement_ms": 10017,
+      "max_interval_ms": 67,
+      "quality": {
+        "rgb_psnr": {
+          "median": 35.69932636433496,
+          "minimum": 34.152531619675436
+        },
+        "y_psnr": {
+          "median": 39.682980666687754,
+          "minimum": 38.546379773691164
+        },
+        "ssim_8x8_box": {
+          "median": 0.9815215792256364,
+          "minimum": 0.9742914796523352
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    },
+    {
+      "name": "60fps-overlap-8000kbps",
+      "source_fps": 60,
+      "unique_fps": 56.184276414621934,
+      "unique_frames": 561,
+      "measurement_ms": 9985,
+      "max_interval_ms": 35,
+      "quality": {
+        "rgb_psnr": {
+          "median": 35.60260473547913,
+          "minimum": 34.65896541379194
+        },
+        "y_psnr": {
+          "median": 39.48275851370361,
+          "minimum": 39.073928974010485
+        },
+        "ssim_8x8_box": {
+          "median": 0.981806978622859,
+          "minimum": 0.9776412141896405
+        }
+      },
+      "checksum_invalid_including_warmup": 16
+    },
+    {
+      "name": "60fps-overlap-1500kbps",
+      "source_fps": 60,
+      "unique_fps": 45.52261156034741,
+      "unique_frames": 456,
+      "measurement_ms": 10017,
+      "max_interval_ms": 51,
+      "quality": {
+        "rgb_psnr": {
+          "median": 35.12675589489167,
+          "minimum": 32.69777197145727
+        },
+        "y_psnr": {
+          "median": 39.274550848209415,
+          "minimum": 37.19758709555472
+        },
+        "ssim_8x8_box": {
+          "median": 0.9806875561653015,
+          "minimum": 0.9740042243046876
+        }
+      },
+      "checksum_invalid_including_warmup": 15
+    }
+  ],
+  "synthetic_candidate51_transition": [
+    {
+      "name": "30fps-overlap-1500kbps",
+      "source_fps": 30,
+      "unique_fps": 29.702970297029704,
+      "unique_frames": 297,
+      "measurement_ms": 9999,
+      "max_interval_ms": 67,
+      "quality": {
+        "rgb_psnr": {
+          "median": 35.56368878586464,
+          "minimum": 34.16459243417643
+        },
+        "y_psnr": {
+          "median": 39.530179592867505,
+          "minimum": 38.490218428483296
+        },
+        "ssim_8x8_box": {
+          "median": 0.9811082067804588,
+          "minimum": 0.9750591573582637
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    },
+    {
+      "name": "60fps-overlap-8000kbps",
+      "source_fps": 60,
+      "unique_fps": 56.4,
+      "unique_frames": 564,
+      "measurement_ms": 10000,
+      "max_interval_ms": 35,
+      "quality": {
+        "rgb_psnr": {
+          "median": 35.816111788082424,
+          "minimum": 35.19572001606163
+        },
+        "y_psnr": {
+          "median": 39.71810135080929,
+          "minimum": 38.97168846661857
+        },
+        "ssim_8x8_box": {
+          "median": 0.9832492393422247,
+          "minimum": 0.9764790478203876
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    }
+  ],
+  "transition_regression": {
+    "exp50_invalid_marker_observations": 14,
+    "raw_video_markers_valid_during_bad_composites": true,
+    "exact_overlay_pixels_during_bad_composites": [
+      1024
+    ],
+    "bad_observations_before_steady_window": true,
+    "exp51_invalid_marker_observations": 0,
+    "fix": "Minor changes near the previous movie envelope cannot retain obsolete exact bitmaps unless they are in the current text focus; unchanged static tiles and focused sparse edits retain their path."
+  },
+  "bbb_source": {
+    "url": "https://download.blender.org/demo/movies/BBB/bbb_sunflower_1080p_60fps_normal.mp4.zip",
+    "attribution": "(c) copyright 2008, Blender Foundation / www.bigbuckbunny.org",
+    "license": "https://peach.blender.org/about/",
+    "excerpt_seconds": [
+      40,
+      50
+    ],
+    "scaled_rgb_size": [
+      640,
+      360
+    ],
+    "source_fps": 60
+  },
+  "bbb_baseline35": [
+    {
+      "name": "60fps-overlap-8000kbps",
+      "source_fps": 60,
+      "unique_fps": 56.70567056705671,
+      "unique_frames": 567,
+      "measurement_ms": 9999,
+      "max_interval_ms": 50,
+      "quality": {
+        "rgb_psnr": {
+          "median": 31.38778075123011,
+          "minimum": 30.63620177798583
+        },
+        "y_psnr": {
+          "median": 31.75270719667948,
+          "minimum": 31.166616272331304
+        },
+        "ssim_8x8_box": {
+          "median": 0.9386627172868043,
+          "minimum": 0.9284171023340918
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    },
+    {
+      "name": "60fps-overlap-1500kbps",
+      "source_fps": 60,
+      "unique_fps": 15.571970453184269,
+      "unique_frames": 156,
+      "measurement_ms": 10018,
+      "max_interval_ms": 151,
+      "quality": {
+        "rgb_psnr": {
+          "median": 31.047668886370634,
+          "minimum": 30.630042851762603
+        },
+        "y_psnr": {
+          "median": 31.50585399537021,
+          "minimum": 31.200230236550148
+        },
+        "ssim_8x8_box": {
+          "median": 0.9333298568257682,
+          "minimum": 0.9277770955400527
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    }
+  ],
+  "bbb_candidate51": [
+    {
+      "name": "60fps-overlap-8000kbps",
+      "source_fps": 60,
+      "unique_fps": 57.2,
+      "unique_frames": 572,
+      "measurement_ms": 10000,
+      "max_interval_ms": 35,
+      "quality": {
+        "rgb_psnr": {
+          "median": 33.61329188548052,
+          "minimum": 32.29928591686986
+        },
+        "y_psnr": {
+          "median": 34.47513066180507,
+          "minimum": 33.353039766776895
+        },
+        "ssim_8x8_box": {
+          "median": 0.958182981570381,
+          "minimum": 0.9499297211650575
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    },
+    {
+      "name": "60fps-overlap-1500kbps",
+      "source_fps": 60,
+      "unique_fps": 54.105410541054106,
+      "unique_frames": 541,
+      "measurement_ms": 9999,
+      "max_interval_ms": 84,
+      "quality": {
+        "rgb_psnr": {
+          "median": 32.33143010285103,
+          "minimum": 28.480928267621124
+        },
+        "y_psnr": {
+          "median": 33.42792327319245,
+          "minimum": 29.220629663418393
+        },
+        "ssim_8x8_box": {
+          "median": 0.937834462537687,
+          "minimum": 0.8651370030851953
+        }
+      },
+      "checksum_invalid_including_warmup": 0
+    }
+  ],
+  "input_trials": [
+    {
+      "metadata": true,
+      "glyph_cases": [
+        {
+          "name": "fast_exact",
+          "median_ms": 67,
+          "p95_ms": 86
+        },
+        {
+          "name": "overlap_fast_exact",
+          "median_ms": 65,
+          "p95_ms": 83
+        },
+        {
+          "name": "overlap_2mbit_exact",
+          "median_ms": 70,
+          "p95_ms": 101
+        }
+      ],
+      "exact_pixels": {
+        "opaque": 65536,
+        "equal": 65536,
+        "samples": 65536
+      },
+      "move_pixels": {
+        "pixels": 6048,
+        "exact_coverage": 6048,
+        "mismatches": 0
+      },
+      "close_pixels": {
+        "pixels": 9408,
+        "exact_coverage": 9408,
+        "mismatches": 0
+      },
+      "burst": {
+        "characters": 15,
+        "fixture_text_matches": true,
+        "last_key_to_all_glyphs_ms": 266,
+        "verification_rpc_ms": 758.8446927256882,
+        "within_500ms_lab_budget": true
+      },
+      "page_errors": []
+    },
+    {
+      "metadata": false,
+      "glyph_cases": [
+        {
+          "name": "fast_exact",
+          "median_ms": 106,
+          "p95_ms": 344
+        },
+        {
+          "name": "overlap_fast_exact",
+          "median_ms": 182,
+          "p95_ms": 316
+        },
+        {
+          "name": "overlap_2mbit_exact",
+          "median_ms": 186,
+          "p95_ms": 215
+        }
+      ],
+      "exact_pixels": {
+        "opaque": 65536,
+        "equal": 65536,
+        "samples": 65536
+      },
+      "move_pixels": {
+        "pixels": 6048,
+        "exact_coverage": 6048,
+        "mismatches": 0
+      },
+      "close_pixels": {
+        "pixels": 9408,
+        "exact_coverage": 9408,
+        "mismatches": 0
+      },
+      "burst": {
+        "characters": 15,
+        "fixture_text_matches": true,
+        "last_key_to_all_glyphs_ms": 298,
+        "verification_rpc_ms": 743.976776022464,
+        "within_500ms_lab_budget": true
+      },
+      "page_errors": []
+    }
+  ],
+  "metadata_memory": {
+    "duration_seconds": 1800.069483968895,
+    "samples": 121,
+    "same_metadata_pid": 2133000,
+    "rss_first_kb": 19832,
+    "rss_last_kb": 20560,
+    "rss_min_kb": 18436,
+    "rss_max_kb": 20560,
+    "new_oom_events": false,
+    "all_metadata_available": true,
+    "scope": "Metadata under continuous owned Qt video damage; includes private LXC source-oracle media runs; not a 30-minute end-to-end encoded mixed-content session"
+  },
+  "tests": {
+    "ctest": 31,
+    "bridge_unit_cases": 102,
+    "movie_edge_regression": "fails before, passes after"
+  },
+  "limits": [
+    "Ten seconds of source-ID cadence per case, plus 24 quality samples; selected short clips only",
+    "The low-rate candidate samples the first frame after a hard clip-loop cut that is absent from the baseline quality samples. Candidate worst sampled RGB PSNR is 28.48 dB there, despite improved median and cadence; cut handling still needs evaluation",
+    "Manual path targets are not real adaptive-controller recovery or imposed packet loss",
+    "VM mixed media, remaining hardware/codecs/browsers, native Qt5 accessibility, long end-to-end mixed-content runs, RDP comparison and release remain pending"
+  ],
+  "evidence": "dist/rdp-hybrid/source-fidelity-exp51"
+}

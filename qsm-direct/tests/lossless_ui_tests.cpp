@@ -334,6 +334,33 @@ int main() {
         refill.update(std::make_shared<const Bytes>(budget_noise),128,64,now+std::chrono::milliseconds(ms),0,sink);
     }
     assert(refill.stats().clears>cleared_before);
+    // A few changing pixels next to an active movie may be its counter or
+    // an edge, not text input. Do not retain that old exact bitmap while
+    // newer video advances the other half of the same picture. Unchanged
+    // text and explicitly focused input must keep their exact images.
+    UI movie_edge;auto edge_pixels=pixels(192,64);sent.clear();
+    publish_stable(movie_edge,std::make_shared<const Bytes>(edge_pixels),192,64,now,8000,sink);
+    for(unsigned frame=1;frame<=3;++frame) {
+        for(unsigned y=0;y<64;++y)for(unsigned x=128;x<192;++x) {
+            edge_pixels[(y*192+x)*4]=static_cast<std::uint8_t>(frame);
+        }
+        movie_edge.update(std::make_shared<const Bytes>(edge_pixels),192,64,
+            now+std::chrono::milliseconds(frame*20),8000,sink);
+    }
+    assert(movie_edge.motion_region());sent.clear();edge_pixels[64*4]^=1;
+    movie_edge.update(std::make_shared<const Bytes>(edge_pixels),192,64,
+        now+std::chrono::milliseconds(80),8000,sink);
+    assert(std::any_of(sent.begin(),sent.end(),[](const auto& p){return p[4]==UI::clear&&u16(p,20)==64;}));
+    assert(std::none_of(sent.begin(),sent.end(),[](const auto& p){return (p[4]==UI::patch||p[4]==UI::clear)&&u16(p,20)==0;}));
+    assert(std::none_of(sent.begin(),sent.end(),[](const auto& p){return p[4]==UI::patch&&u16(p,20)==64;}));
+    movie_edge.prioritize(UI::Region{64,0,64,64},now+std::chrono::seconds(2));
+    movie_edge.update(std::make_shared<const Bytes>(edge_pixels),192,64,
+        now+std::chrono::milliseconds(250),8000,sink);
+    sent.clear();edge_pixels[64*4]^=1;
+    movie_edge.update(std::make_shared<const Bytes>(edge_pixels),192,64,
+        now+std::chrono::milliseconds(270),8000,sink);
+    assert(std::any_of(sent.begin(),sent.end(),[](const auto& p){return p[4]==UI::patch&&u16(p,20)==64;}));
+    assert(std::none_of(sent.begin(),sent.end(),[](const auto& p){return p[4]==UI::clear&&u16(p,20)==64;}));
     // A layout boundary retires early images in the viewer. Even unchanged
     // pixels need a new fenced image; normal neighbouring tiles stay cached.
     UI layout_refresh; Bytes stable_pair(128U*64U*4U,255);

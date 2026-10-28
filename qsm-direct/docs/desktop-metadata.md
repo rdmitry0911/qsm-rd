@@ -131,6 +131,8 @@ path and Debian 13's already corrected registration both pass. The LXC session
 agent now retries a failed metadata child after five seconds and cancels that
 retry on normal shutdown. Clipboard and media remain independent.
 
-Four minutes of the installed exp50 helper under live window damage consume
-approximately 19–20 MiB RSS. This removes the previous large native leak;
-longer-session resource qualification is still required.
+Thirty minutes of the installed exp50 helper under continuous owned video
+damage use approximately 18–20 MiB RSS on the same process/session, without
+new OOM events or metadata availability loss. This removes the previous
+large native leak. It is a metadata resource check, not a thirty-minute
+end-to-end encoded mixed-content soak; broader session checks remain open.

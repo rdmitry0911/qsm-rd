@@ -93,6 +93,13 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
         const auto y = static_cast<std::uint32_t>(i / cols) * tile_edge;
         const auto w = std::min<std::uint32_t>(tile_edge, width - x);
         const auto h = std::min<std::uint32_t>(tile_edge, height - y);
+        // A sparse counter/edge can share the movie's timing even when it
+        // changes too slowly to become a busy tile itself. Do not keep an
+        // obsolete bitmap over newer video there. Explicit text focus still
+        // retains its small-edit path; unrelated quiet UI is unaffected.
+        const bool near_motion = region_ && x < region_->x + region_->width + tile_edge &&
+            region_->x < x + w + tile_edge && y < region_->y + region_->height + tile_edge &&
+            region_->y < y + h + tile_edge;
         bool changed = !previous_;
         bool outside_focus = false;
         std::uint32_t damage = 0;
@@ -123,7 +130,7 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
                 ? t.streak + 1U : 1U;
             t.urgent = static_cast<bool>(previous_);
             t.sparse_dirty = previous_ && damage <= sparse_limit &&
-                (damage <= minor_limit || in_focus(x, y, w, h));
+                ((damage <= minor_limit && !near_motion) || in_focus(x, y, w, h));
             t.focus_confined = previous_ && damage <= sparse_limit && !outside_focus;
             if (previous_ && damage > minor_limit && !sparse) {
                 t.dense_streak = t.dense_changed != Clock::time_point {} &&

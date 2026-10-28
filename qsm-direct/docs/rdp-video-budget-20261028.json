@@ -198,5 +198,6 @@
     "Moving-video fidelity is not yet quantitatively compared",
     "Manual rate steps are not imposed packet loss or full adaptive-controller qualification",
     "Native Qt5 caret issue, longer resource runs, VM mixed media, remaining encoder/browser matrix and RDP comparison remain open"
-  ]
+  ],
+  "cadence_measurement_correction": "Earlier motion.visible_fps/visible_fps values count changed raster hashes, not unique source frames. The original clip is 30 fps, so encoding changes of a repeated source frame can inflate that metric. Use the source-frame-id oracle for actual cadence; typed-glyph latency and exact-pixel checks remain separate valid measurements."
 }

@@ -265,5 +265,6 @@
     "Adaptation disabled, cropped video disabled; deterministic 8 Mbit/s or 1.5 Mbit/s encoder targets",
     "PVE bootstrap mocked; this is not a live production launch/ACL test",
     "Firefox/Linux controller; Mac/VM/other encoder qualification remains pending"
-  ]
+  ],
+  "cadence_measurement_correction": "Earlier motion.visible_fps/visible_fps values count changed raster hashes, not unique source frames. The original clip is 30 fps, so encoding changes of a repeated source frame can inflate that metric. Use the source-frame-id oracle for actual cadence; typed-glyph latency and exact-pixel checks remain separate valid measurements."
 }

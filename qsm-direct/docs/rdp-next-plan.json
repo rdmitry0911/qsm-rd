@@ -15,7 +15,7 @@
         "Actual typed-glyph latency, video motion cadence, bandwidth and visual-correctness samples",
         "Overlapping input window move, resize, scroll and close; no old-pixel resurrection"
       ],
-      "evidence": "docs/rdp-baseline-20261028.json and dist/rdp-hybrid/baseline-exp35"
+      "evidence": "docs/rdp-baseline-20261028.json; corrected source-ID cadence and fidelity in docs/rdp-source-fidelity-20261028.json"
     },
     {
       "id": "guest-metadata",
@@ -78,8 +78,8 @@
     "Do not mark the objective complete based on tests narrower than the requirements"
   ],
   "checkpoint": {
-    "stage": "priority-ui",
-    "candidate": "0.4.0+stock4.14~exp50 (private candidate)",
+    "stage": "video-regions-and-queue",
+    "candidate": "0.4.0+stock4.14~exp51 (private candidate)",
     "evidence_directory": "dist/rdp-guest-metadata/exp37",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
@@ -89,7 +89,8 @@
       "Layout-aware sparse edits with worker/browser capture checks and legacy protocol downgrade",
       "Bounded retention of an unserved sparse edit, verified under controlled byte pressure",
       "Cropped-plane encoder rate fits the shared path budget, with hysteresis and fixed-quality full-desktop fallback",
-      "Legacy Gio invocation ownership compatibility and LXC metadata child retry"
+      "Legacy Gio invocation ownership compatibility and LXC metadata child retry",
+      "Motion-adjacent minor updates outside text focus relinquish obsolete exact pixels; unchanged static UI and focused sparse edits keep their previous behavior"
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -109,12 +110,18 @@
       "Real VM reboot: metadata recovers in ~11.4 seconds on the same host stream; guest boot changes while host boot and QEMU PID stay unchanged",
       "Exp48 packaged host acceptance, with and without cropping: independent move/close pixels regain full exact coverage with zero mismatches; visible overlap typing medians 65/74 ms without cropping on fast/2 Mbit/s links; cropped-video cadence regression remains open",
       "Real native LXC SDDM/PAM: package exp48 preserves outer display/SDDM PIDs; login starts metadata automatically, normal Plasma logout revokes hints and returns the greeter, login again creates a new metadata session on the same media worker/WebRTC/TCP8006 connection",
-      "Exp50 LXC crop: all static pixel/move/close/input/resize checks pass; low-link visible cadence samples 34\u201339 fps versus exp48 crop ~14 fps; fast-link variation remains open",
+      "Exp50 LXC crop: all static pixel/move/close/input/resize checks pass; raster-change samples 34\u201339/s versus exp48 crop ~14/s; those counters are not source-frame cadence and are superseded by the frame-id oracle",
       "Persistent crop rate up/down/recovery uses 5600/1050 kbit/s codec targets; a 400 ms bad target does not retune; 2162 presented frames retain exact static pixels without gaps",
       "Installed LXC metadata child crash: hints expire after ~3 seconds, new child restores layout after ~4.8 seconds on the same worker/WebRTC connection; 4-minute memory sample ~19\u201320 MiB",
-      "Native Gio ownership regression fails before fix (~37 MB RSS growth / 2200 calls), passes after (~0.1 MB); installed Debian13 VM exp50 passes same real-call/delayed-reply stress without native PID changes"
+      "Native Gio ownership regression fails before fix (~37 MB RSS growth / 2200 calls), passes after (~0.1 MB); installed Debian13 VM exp50 passes same real-call/delayed-reply stress without native PID changes",
+      "Frame-ID oracle corrects the old raster-hash cadence metric; exp35 synthetic source-ID baseline and matching pixel references are frozen",
+      "Exp51 transition regression: 14 invalid composite counter observations in exp50, valid raw video plus 1024 old exact pixels; the same real 30-to-60 fps transition has zero invalid observations after the focused-retention fix",
+      "Public 60 fps animation excerpt over TCP8006 at a 2 Mbit/s downlink: exp35 ~15.6 versus exp51 ~54.1 unique source frames/s; median RGB PSNR ~31.0 versus ~32.3 dB; scene-cut minimum remains explicitly tracked",
+      "Exp51 overlap typing: 65/70 ms median on fast/2 Mbit/s links, all 65536 exact pixel samples equal, move/close coverage complete with zero mismatches; no-metadata fallback also passes pixels/move/close/input",
+      "Installed metadata helper completes 30 minutes under continuous owned video damage on the same PID/session, 18\u201320 MiB RSS, no new OOM or metadata availability loss; this is not a 30-minute full end-to-end mixed-content soak"
     ],
     "pending": [
+      "Evaluate first-frame quality at hard video cuts, actual adaptive-feedback recovery and real packet loss before enabling the cropped plane by default",
       "Qualify cropped-video fidelity and consistent fast-link cadence; real adaptive feedback/loss and longer resource runs remain required before default enablement",
       "Expanded mixed-content acceptance: normal accessibility defaults, cropped video, real loss and longer runs",
       "Resolve native Qt5 AT-SPI startup/registration failure on Ubuntu and Debian; ordinary pixel fallback is verified, but native Qt5 text priority is not qualified",
@@ -132,9 +139,10 @@
       "dist/rdp-hybrid/vm-metadata-exp46",
       "dist/rdp-hybrid/priority-exp48",
       "dist/rdp-hybrid/native-lxc-exp48",
-      "dist/rdp-hybrid/video-budget-exp50"
+      "dist/rdp-hybrid/video-budget-exp50",
+      "dist/rdp-hybrid/source-fidelity-exp51"
     ],
-    "next_action": "Measure moving-video fidelity and phase-matched cadence for the cropped rate policy; investigate remaining slow memory growth during longer mixed-content runs, then complete Qt5 accessibility and full VM/LXC/encoder/browser/loss/RDP/release stages"
+    "next_action": "Evaluate cut-frame quality and actual adaptive-controller rate drop/recovery with the source-frame oracle; then run the owned KWin6 VM on Intel QSV/VA-API using the preserved avcodec61 runtime, and finish native Qt5, browser/loss/long-run/RDP and release gates"
   },
   "deployment_nodes": [
     "192.168.64.20",
