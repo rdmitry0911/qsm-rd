@@ -511,7 +511,14 @@ class AdaptiveVideoRate:
         pending = [s for s in bad if (s.sequence != s.reduced_sequence or
                     (self._presentation_queued(s, now) and s.presented_serial != s.reduced_presented_serial))
                    and (not self._presentation_fresh(s, now) or s.presented_sent_at >= self._changed + .5)]
-        if not fresh or now - self._changed < (1 if pending else 10):
+        # Recent pre-decoder receipts resolve active delivery sooner than
+        # display callbacks. Keep the existing first healthy interval and
+        # post-congestion cooldown, then recover in bounded six-second steps.
+        # A legacy, mixed or stale viewer retains the ten-second spacing.
+        probe_interval = 6 if fresh and all(
+            s.feedback_kind == 'received' and self._presentation_fresh(s, now)
+            for s in fresh) else 10
+        if not fresh or now - self._changed < (1 if pending else probe_interval):
             return
         target = self.current_kbps
         ceiling = self.maximum_kbps

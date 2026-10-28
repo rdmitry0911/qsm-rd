@@ -312,6 +312,36 @@ class RateTests(unittest.TestCase):
         self.assertGreaterEqual(self.rate.current_kbps,1000)
         self.assertLess(self.now-1.,.25,'avoid averaging the pre-drop fast path into the first cut')
 
+    def receipt_recovery(self, mixed=False, idle=False):
+        self.rr()
+        self.now = 2
+        self.rr(loss=.2)
+        changes = []
+        self.rate._apply = lambda value: changes.append((self.now, value))
+        total = 0
+        for n in range(30, 500):
+            self.now = n / 10
+            total += int((64 if idle else self.rate.current_kbps * .55) * 1000 / 8 / 10)
+            self.rate.received_report('a', self.now - .02, total)
+            if mixed:
+                self.rate.presentation_report('legacy', self.now - .12, total)
+            if n % 10 == 0:
+                self.rr(sending_kbps=64 if idle else self.rate.current_kbps * .55)
+        return changes
+
+    def test_receipts_recover_faster_after_first_healthy_interval(self):
+        changes = self.receipt_recovery()
+        self.assertEqual(self.rate.current_kbps, 20000)
+        self.assertGreaterEqual(changes[0][0], 12)
+        self.assertTrue(all(6 <= b[0] - a[0] < 7 for a, b in zip(changes, changes[1:])), changes)
+
+    def test_mixed_legacy_viewer_retains_ten_second_probe_spacing(self):
+        changes = self.receipt_recovery(mixed=True)
+        self.assertTrue(all(b[0] - a[0] >= 10 for a, b in zip(changes, changes[1:])), changes)
+
+    def test_idle_receipt_feedback_does_not_start_probing(self):
+        self.assertEqual(self.receipt_recovery(idle=True), [])
+
     def test_idle_presentation_and_short_display_stall_do_not_change_quality(self):
         total = 0
         for n in range(1, 1800):
