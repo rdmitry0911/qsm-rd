@@ -1,0 +1,815 @@
+{
+  "date": "2026-10-28",
+  "candidate": "0.4.0+stock4.14~exp68",
+  "status": "Private; real LXC GTK input/metadata/visible glyph/exact-pixel/video-cadence checks pass in the stated scope; full-plan qualification remains incomplete",
+  "scope": "Owned Ubuntu24.04 LXC108/nested KWin5, actual GTK3/GTK4 Wayland apps, installed exp68 guest and extracted exp68 host/viewer; real NVENC H264 and Firefox/Linux over TURN/TCP8006. Launch/ACL mocked. Native reference is independent grim screencopy, not decoded video.",
+  "applications": [
+    {
+      "major": 3,
+      "version": "3.24.41",
+      "pid": 4105195,
+      "display": "GdkWaylandDisplay"
+    },
+    {
+      "major": 4,
+      "version": "4.14.5",
+      "pid": 4105563,
+      "display": "GdkWaylandDisplay"
+    }
+  ],
+  "reference": "Independent native grim screencopy of the actual focused field; pixel-grid coordinates derive from the real compositor client rectangle, including server-side decoration offsets. Glyph templates collapse selection before capture and use primitive numeric coordinates in browser observations. No source/encoder/viewer behavior is patched by the oracle.",
+  "cases": [
+    {
+      "name": "gtk3-fast-entry",
+      "major": 3,
+      "field": "entry",
+      "phase": "fast",
+      "bandwidth": 20000000,
+      "glyph_median_ms": 53,
+      "glyph_peak_ms": 149,
+      "characters": 15,
+      "metadata": {
+        "mode": 3,
+        "caret": {
+          "window": "{e1088f03-2d46-4512-8fdf-cf9d221a3340}",
+          "rect": [
+            670,
+            242,
+            1,
+            22
+          ],
+          "clip": [
+            496,
+            232,
+            608,
+            42
+          ]
+        },
+        "field": [
+          496,
+          232,
+          608,
+          42
+        ],
+        "host_area": [
+          496,
+          232,
+          608,
+          42
+        ]
+      },
+      "exact_pixels": {
+        "rect": [
+          502,
+          241,
+          171,
+          26
+        ],
+        "pixels": 4446,
+        "first_exact_ms": 7.6287128031253815,
+        "stable_observations": 8,
+        "trace": [
+          {
+            "ms": 7.6287128031253815,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 90.19037103280425,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 173.25788596644998,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 255.50071988254786,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 338.4597599506378,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 421.3218060322106,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 505.2576269954443,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 588.6210729368031,
+            "wrong": 0,
+            "covered": 4446
+          }
+        ]
+      },
+      "source_fps": 56.689951638903814,
+      "max_source_gap_ms": 35
+    },
+    {
+      "name": "gtk3-fast-plain",
+      "major": 3,
+      "field": "plain",
+      "phase": "fast",
+      "bandwidth": 20000000,
+      "glyph_median_ms": 55,
+      "glyph_peak_ms": 149,
+      "characters": 15,
+      "metadata": {
+        "mode": 3,
+        "caret": {
+          "window": "{e1088f03-2d46-4512-8fdf-cf9d221a3340}",
+          "rect": [
+            661,
+            286,
+            1,
+            22
+          ],
+          "clip": [
+            496,
+            286,
+            608,
+            228
+          ]
+        },
+        "field": [
+          496,
+          286,
+          608,
+          228
+        ],
+        "host_area": [
+          496,
+          286,
+          608,
+          150
+        ]
+      },
+      "exact_pixels": {
+        "rect": [
+          496,
+          286,
+          168,
+          25
+        ],
+        "pixels": 4200,
+        "first_exact_ms": 6.37831399217248,
+        "stable_observations": 8,
+        "trace": [
+          {
+            "ms": 6.37831399217248,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 88.67059089243412,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 170.49266677349806,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 252.0199348218739,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 333.36847368627787,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 416.7518178001046,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 500.72718411684036,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 583.923663944006,
+            "wrong": 0,
+            "covered": 4200
+          }
+        ]
+      },
+      "source_fps": 55.64648117839607,
+      "max_source_gap_ms": 48
+    },
+    {
+      "name": "gtk3-narrow-entry",
+      "major": 3,
+      "field": "entry",
+      "phase": "narrow",
+      "bandwidth": 2000000,
+      "glyph_median_ms": 69,
+      "glyph_peak_ms": 214,
+      "characters": 15,
+      "metadata": {
+        "mode": 3,
+        "caret": {
+          "window": "{e1088f03-2d46-4512-8fdf-cf9d221a3340}",
+          "rect": [
+            670,
+            242,
+            1,
+            22
+          ],
+          "clip": [
+            496,
+            232,
+            608,
+            42
+          ]
+        },
+        "field": [
+          496,
+          232,
+          608,
+          42
+        ],
+        "host_area": [
+          496,
+          232,
+          608,
+          42
+        ]
+      },
+      "exact_pixels": {
+        "rect": [
+          502,
+          241,
+          171,
+          26
+        ],
+        "pixels": 4446,
+        "first_exact_ms": 6.475137080997229,
+        "stable_observations": 8,
+        "trace": [
+          {
+            "ms": 6.475137080997229,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 88.2745711132884,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 170.23492930456996,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 252.02442333102226,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 333.67806021124125,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 415.4199040494859,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 496.29192100837827,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 577.7669693343341,
+            "wrong": 0,
+            "covered": 4446
+          }
+        ]
+      },
+      "source_fps": 49.52282692803714,
+      "max_source_gap_ms": 100
+    },
+    {
+      "name": "gtk3-narrow-plain",
+      "major": 3,
+      "field": "plain",
+      "phase": "narrow",
+      "bandwidth": 2000000,
+      "glyph_median_ms": 66,
+      "glyph_peak_ms": 135,
+      "characters": 15,
+      "metadata": {
+        "mode": 3,
+        "caret": {
+          "window": "{e1088f03-2d46-4512-8fdf-cf9d221a3340}",
+          "rect": [
+            661,
+            286,
+            1,
+            22
+          ],
+          "clip": [
+            496,
+            286,
+            608,
+            228
+          ]
+        },
+        "field": [
+          496,
+          286,
+          608,
+          228
+        ],
+        "host_area": [
+          496,
+          286,
+          608,
+          150
+        ]
+      },
+      "exact_pixels": {
+        "rect": [
+          496,
+          286,
+          168,
+          25
+        ],
+        "pixels": 4200,
+        "first_exact_ms": 6.35194405913353,
+        "stable_observations": 8,
+        "trace": [
+          {
+            "ms": 6.35194405913353,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 86.48078329861164,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 168.21847902610898,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 251.07665825635195,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 336.2439819611609,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 421.2867501191795,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 506.50514010339975,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 592.3899342305958,
+            "wrong": 0,
+            "covered": 4200
+          }
+        ]
+      },
+      "source_fps": 48.277732573908324,
+      "max_source_gap_ms": 51
+    },
+    {
+      "name": "gtk4-fast-entry",
+      "major": 4,
+      "field": "entry",
+      "phase": "fast",
+      "bandwidth": 20000000,
+      "glyph_median_ms": 149,
+      "glyph_peak_ms": 221,
+      "characters": 15,
+      "metadata": {
+        "mode": 1,
+        "caret": null,
+        "field": [
+          496,
+          232,
+          608,
+          42
+        ],
+        "host_area": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "exact_pixels": {
+        "rect": [
+          502,
+          241,
+          171,
+          26
+        ],
+        "pixels": 4446,
+        "first_exact_ms": 358.28992910683155,
+        "stable_observations": 8,
+        "trace": [
+          {
+            "ms": 10.992376133799553,
+            "wrong": 275,
+            "covered": 3951
+          },
+          {
+            "ms": 97.23561815917492,
+            "wrong": 275,
+            "covered": 3951
+          },
+          {
+            "ms": 181.9395641796291,
+            "wrong": 275,
+            "covered": 3951
+          },
+          {
+            "ms": 272.8308429941535,
+            "wrong": 275,
+            "covered": 3951
+          },
+          {
+            "ms": 358.28992910683155,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 443.5330769047141,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 529.4594191946089,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 615.1948692277074,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 700.145673006773,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 787.0744131505489,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 872.3975731991231,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 959.1510919854045,
+            "wrong": 0,
+            "covered": 4446
+          }
+        ]
+      },
+      "source_fps": 55.02347417840375,
+      "max_source_gap_ms": 84
+    },
+    {
+      "name": "gtk4-fast-plain",
+      "major": 4,
+      "field": "plain",
+      "phase": "fast",
+      "bandwidth": 20000000,
+      "glyph_median_ms": 150,
+      "glyph_peak_ms": 155,
+      "characters": 15,
+      "metadata": {
+        "mode": 1,
+        "caret": null,
+        "field": [
+          496,
+          286,
+          608,
+          228
+        ],
+        "host_area": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "exact_pixels": {
+        "rect": [
+          496,
+          286,
+          168,
+          25
+        ],
+        "pixels": 4200,
+        "first_exact_ms": 339.9390419945121,
+        "stable_observations": 8,
+        "trace": [
+          {
+            "ms": 7.658710237592459,
+            "wrong": 378,
+            "covered": 3600
+          },
+          {
+            "ms": 90.82789812237024,
+            "wrong": 378,
+            "covered": 3600
+          },
+          {
+            "ms": 173.77814138308167,
+            "wrong": 378,
+            "covered": 3600
+          },
+          {
+            "ms": 258.2042012363672,
+            "wrong": 378,
+            "covered": 3600
+          },
+          {
+            "ms": 339.9390419945121,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 424.1556441411376,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 507.2508933953941,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 589.8828632198274,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 673.3347470872104,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 756.2255579978228,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 839.543498121202,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 923.6901681870222,
+            "wrong": 0,
+            "covered": 4200
+          }
+        ]
+      },
+      "source_fps": 57.07196029776675,
+      "max_source_gap_ms": 50
+    },
+    {
+      "name": "gtk4-narrow-entry",
+      "major": 4,
+      "field": "entry",
+      "phase": "narrow",
+      "bandwidth": 2000000,
+      "glyph_median_ms": 154,
+      "glyph_peak_ms": 297,
+      "characters": 15,
+      "metadata": {
+        "mode": 1,
+        "caret": null,
+        "field": [
+          496,
+          232,
+          608,
+          42
+        ],
+        "host_area": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "exact_pixels": {
+        "rect": [
+          502,
+          241,
+          171,
+          26
+        ],
+        "pixels": 4446,
+        "first_exact_ms": 338.6050648987293,
+        "stable_observations": 8,
+        "trace": [
+          {
+            "ms": 7.754722144454718,
+            "wrong": 391,
+            "covered": 3951
+          },
+          {
+            "ms": 91.96710586547852,
+            "wrong": 385,
+            "covered": 3951
+          },
+          {
+            "ms": 174.56786800175905,
+            "wrong": 385,
+            "covered": 3951
+          },
+          {
+            "ms": 257.4143847450614,
+            "wrong": 385,
+            "covered": 3951
+          },
+          {
+            "ms": 338.6050648987293,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 421.63401702418923,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 503.9923000149429,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 586.8845428340137,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 669.084504712373,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 752.1230857819319,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 834.3819500878453,
+            "wrong": 0,
+            "covered": 4446
+          },
+          {
+            "ms": 915.4544761404395,
+            "wrong": 0,
+            "covered": 4446
+          }
+        ]
+      },
+      "source_fps": 45.56962025316456,
+      "max_source_gap_ms": 116
+    },
+    {
+      "name": "gtk4-narrow-plain",
+      "major": 4,
+      "field": "plain",
+      "phase": "narrow",
+      "bandwidth": 2000000,
+      "glyph_median_ms": 155,
+      "glyph_peak_ms": 171,
+      "characters": 15,
+      "metadata": {
+        "mode": 1,
+        "caret": null,
+        "field": [
+          496,
+          286,
+          608,
+          228
+        ],
+        "host_area": [
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "exact_pixels": {
+        "rect": [
+          496,
+          286,
+          168,
+          25
+        ],
+        "pixels": 4200,
+        "first_exact_ms": 255.63720799982548,
+        "stable_observations": 8,
+        "trace": [
+          {
+            "ms": 7.333102636039257,
+            "wrong": 305,
+            "covered": 3600
+          },
+          {
+            "ms": 90.13217967003584,
+            "wrong": 305,
+            "covered": 3600
+          },
+          {
+            "ms": 173.14346879720688,
+            "wrong": 305,
+            "covered": 3600
+          },
+          {
+            "ms": 255.63720799982548,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 338.8399197719991,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 420.26597587391734,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 503.660851623863,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 586.577741894871,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 669.7072950191796,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 752.377106808126,
+            "wrong": 0,
+            "covered": 4200
+          },
+          {
+            "ms": 835.5518756434321,
+            "wrong": 0,
+            "covered": 4200
+          }
+        ]
+      },
+      "source_fps": 56.57577443887961,
+      "max_source_gap_ms": 66
+    }
+  ],
+  "input_characters": 120,
+  "source_id_invalid_observations": 0,
+  "exposed_video_after_closing_each_app": "No exact overlay remains on the sampled64x64 moving-video region after either GTK app closes",
+  "transport": {
+    "type": "relay",
+    "protocol": "tcp"
+  },
+  "limits": [
+    "This is the owned nested KWin5 Wayland session, not a new SDDM/PAM lifecycle qualification. Normal LXC login/logout was separately qualified in the earlier native-session records.",
+    "GTK3.24.41 Entry/TextView use mode3 with explicit input clips; GTK4.14.5 Entry/TextView provide no usable caret geometry in this configuration and use mode1 ordinary-pixel fallback. Do not infer universal GTK4 accessibility support.",
+    "Each short case includes15 real WebRTC keyboard events, an independent native snapshot and8 stable full-coverage exact-pixel observations. Cadence includes those diagnostic captures; this is not a long encoded soak or a cross-platform/codec benchmark.",
+    "Hard-cut fidelity, supported VM/LXC codec matrix, longer sessions, Firefox/macOS and matched RDP comparison remain; final release/rollout/discussion updates are pending."
+  ]
+}
