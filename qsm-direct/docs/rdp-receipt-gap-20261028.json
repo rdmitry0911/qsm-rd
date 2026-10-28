@@ -1,0 +1,742 @@
+{
+  "date": "2026-10-28",
+  "candidate": "0.4.0+stock4.14~exp84",
+  "status": "Private. Both retained LXC hot-loss repeats and hard-cut quality pass in the stated scope. Native VM coverage remains incomplete.",
+  "source_base_commit": "c15439b67a1325361350659c19b33e72009d54a5",
+  "source_archive": "source-exp84.tar",
+  "source_archive_sha256": "4b750f89a49fced6d4962bb7fd8e5c461ba43c8c2aac9198a73a8fc5c1eb262c",
+  "changed_source_matches_frozen_archive": [
+    {
+      "path": "qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py",
+      "sha256": "3d475edd6e23fc77809873699843a462bf49839b2e4911cc40ae8d906070515b"
+    },
+    {
+      "path": "qsm-direct/tests/browser_bridge/test_adaptive_video.py",
+      "sha256": "8091b1b2424219d6bd650fa86833258ce2d9a4707da9aecbef5d15095f3fd8f4"
+    }
+  ],
+  "payload": {
+    "candidate": "0.4.0+stock4.14~exp84",
+    "guest_package": "0.4.0+stock4.14~exp68",
+    "scope": "Host-only private pilot; complete payload changes from80 enumerated; leased raw-admission worker rebuilt; guest unchanged",
+    "deb_sha256": "93d2edc8034a5f17c119e513d9f90984f0d05567821c2e2df86f5e2ee10ea6a0",
+    "payload_entries": 34,
+    "changed_from80": [
+      "usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker",
+      "usr/lib/qsm-pve-direct/browser_bridge/qsm_browser_bridge.py",
+      "usr/share/pve-manager/js/qsm-pve-direct-console.js",
+      "usr/share/pve-webrtc-console/qsm-direct-console.js"
+    ],
+    "worker_sha256": "9df74513871b58c815779534327918c341fd7e0eb693b4eee15ec7c0131b121e"
+  },
+  "payload_delta_from83": {
+    "from": "exp83",
+    "to": "exp84",
+    "changed_payload_paths": [
+      "usr/lib/qsm-pve-direct/browser_bridge/qsm_browser_bridge.py"
+    ],
+    "all_other_payload_bytes_modes_links_equal": true
+  },
+  "fix": "The first received frame after a gap cannot reuse preceding credit waits as a capacity decrease without enough bytes in a fresh matched delivery pair. Legacy display-only feedback and sustained measured congestion/RTCP loss retain their paths.",
+  "regression": {
+    "before": "Saved regression lowers8000->6000 on a lone delayed receipt, without a fresh pair; expected failure retained.",
+    "after": "The delayed receipt does not reduce. A subsequent sustained slower-delivery interval still reduces to2057.",
+    "target_sdk": "All133 bridge tests pass."
+  },
+  "controlled_hot_loss_scope": "Owned LXC108/KWin5, NVENC H264, actual packaged Firefox/Linux viewer, TURN over one forwarded TCP8006. Healthy8000 start; actual0.3% receiver-ingress TCP loss plus15ms/3ms delay/jitter enabled at2M drop and retained through20M recovery. Launch/ACL mocked.",
+  "controlled_hot_loss": [
+    {
+      "evidence": "quality61-auto-tcp-loss0p3-delay15-jitter3-candidate84-hot-loss-hardcuts-source-oracle/result.json",
+      "gates": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "accepted": true,
+      "tcp_drops": 165,
+      "phases": [
+        {
+          "name": "fast",
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_fps": 53.85659791814832,
+          "max_frame_gap_ms": 68,
+          "overflows_added": 0,
+          "full_source_age_ms": {
+            "samples": 928,
+            "median": 171.33787791244615,
+            "p95": 185.33787783235312,
+            "max": 218.70984258130122,
+            "clock_uncertainty_max": 1.0,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "initial_target": 8000,
+          "final_target": 1715,
+          "unique_fps": 47.31220375264848,
+          "max_frame_gap_ms": 216,
+          "overflows_added": 0,
+          "full_source_age_ms": {
+            "samples": 2747,
+            "median": 205.2937197499034,
+            "p95": 268.72317825133507,
+            "max": 469.6464409741275,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "initial_target": 1715,
+          "final_target": 8000,
+          "unique_fps": 52.61972577333245,
+          "max_frame_gap_ms": 133,
+          "overflows_added": 0,
+          "full_source_age_ms": {
+            "samples": 4529,
+            "median": 156.1465113423708,
+            "p95": 206.71366419021808,
+            "max": 337.36216962958565,
+            "clock_uncertainty_max": 2.0,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "static": {
+        "frames": 8218,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0
+      },
+      "glyph_peak_ms": 173,
+      "input_characters": 15
+    },
+    {
+      "evidence": "quality61-auto-tcp-loss0p3-delay15-jitter3-candidate84-hot-loss-hardcuts-repeat-source-oracle/result.json",
+      "gates": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "accepted": true,
+      "tcp_drops": 114,
+      "phases": [
+        {
+          "name": "fast",
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_fps": 53.629188769569154,
+          "max_frame_gap_ms": 68,
+          "overflows_added": 0,
+          "full_source_age_ms": {
+            "samples": 927,
+            "median": 152.44681158413442,
+            "p95": 169.85728942478673,
+            "max": 200.39048632606793,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "initial_target": 8000,
+          "final_target": 1610,
+          "unique_fps": 49.69704923770151,
+          "max_frame_gap_ms": 166,
+          "overflows_added": 0,
+          "full_source_age_ms": {
+            "samples": 2743,
+            "median": 182.9159650951624,
+            "p95": 249.19796415294115,
+            "max": 550.0311297054097,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "initial_target": 1610,
+          "final_target": 8000,
+          "unique_fps": 52.005195218278686,
+          "max_frame_gap_ms": 118,
+          "overflows_added": 0,
+          "full_source_age_ms": {
+            "samples": 4527,
+            "median": 169.0715850330946,
+            "p95": 200.79733130211253,
+            "max": 333.52287812158465,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "static": {
+        "frames": 8214,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0
+      },
+      "glyph_peak_ms": 124,
+      "input_characters": 15
+    }
+  ],
+  "controlled_hot_loss_accepted": true,
+  "hardcut": {
+    "evidence": "quality61-auto-hardcut84-snapshots-source-oracle/result.json",
+    "gates": {
+      "rgb_psnr_minimum": 26,
+      "ssim_8x8_box_minimum": 0.9,
+      "strong_stale_exact_matches_at_most": 15,
+      "static_ui_wrong_observations": 0,
+      "source_id_errors": 0,
+      "fast_source_fps_minimum": 50,
+      "narrow_source_fps_minimum": 45,
+      "max_source_gap_ms": 500
+    },
+    "checks": {
+      "quality_rgb": true,
+      "quality_ssim": true,
+      "no_visible_stale_exact_tiles": true,
+      "static_ui_exact": true,
+      "source_ids_valid": true,
+      "snapshot_ids_match": true,
+      "cadence": true,
+      "no_long_gap": true
+    },
+    "phases": [
+      {
+        "name": "fast",
+        "bandwidth": 20000000,
+        "initial_target": 8000,
+        "final_target": 8000,
+        "unique_source_fps": 51.47426286856572,
+        "max_gap_ms": 84,
+        "first_cut_min_rgb_psnr": 36.438321778371176,
+        "first_cut_min_ssim_8x8_box": 0.9848844765461673,
+        "max_strong_stale_exact_matches": 0
+      },
+      {
+        "name": "narrow",
+        "bandwidth": 2000000,
+        "initial_target": 1760,
+        "final_target": 2750,
+        "unique_source_fps": 51.014627969744424,
+        "max_gap_ms": 149,
+        "first_cut_min_rgb_psnr": 31.32028427070996,
+        "first_cut_min_ssim_8x8_box": 0.9079105471900567,
+        "max_strong_stale_exact_matches": 0
+      }
+    ]
+  },
+  "native_vm_trials": [
+    {
+      "evidence": "intel84-native-vm-h264_qsv/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU2746656 VM, installed guest83, bridge/worker/viewer84; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "status": "cadence gate failed; remaining declared checks pass",
+      "checks": {
+        "source_cadence": false,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "glyph_ms": 240,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 38.05162364696086,
+          "max_gap_ms": 84,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 37.58120939530235,
+          "max_gap_ms": 116,
+          "invalid_ids": 0
+        }
+      ],
+      "geometry": {
+        "base_client": [
+          0,
+          40,
+          1280,
+          720
+        ],
+        "input_window_client": [
+          320,
+          220,
+          640,
+          360
+        ]
+      },
+      "full_qualification": false
+    },
+    {
+      "evidence": "intel84-native-vm-h264_qsv-warm/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU2746656 VM, installed guest83, bridge/worker/viewer84; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "status": "cadence gate failed; remaining declared checks pass",
+      "checks": {
+        "source_cadence": false,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "glyph_ms": 226,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 39.716902581182346,
+          "max_gap_ms": 67,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 37.59436084587312,
+          "max_gap_ms": 101,
+          "invalid_ids": 0
+        }
+      ],
+      "geometry": {
+        "base_client": [
+          0,
+          40,
+          1280,
+          720
+        ],
+        "input_window_client": [
+          320,
+          220,
+          640,
+          360
+        ]
+      },
+      "full_qualification": false
+    },
+    {
+      "evidence": "intel84-native-vm-h264_qsv-mode60/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU2746656 VM, installed guest83, bridge/worker/viewer84; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "status": "setup failed before measurement",
+      "checks": null,
+      "glyph_ms": null,
+      "phases": [],
+      "geometry": null,
+      "full_qualification": false
+    },
+    {
+      "evidence": "intel84-native-vm-h264_qsv-mode60-repeat/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU2746656 VM, installed guest83, bridge/worker/viewer84; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "status": "cadence gate failed; remaining declared checks pass",
+      "checks": {
+        "source_cadence": false,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "glyph_ms": 240,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 35.0453675185216,
+          "max_gap_ms": 67,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 35.5286827903258,
+          "max_gap_ms": 84,
+          "invalid_ids": 0
+        }
+      ],
+      "geometry": {
+        "base_client": [
+          0,
+          40,
+          1280,
+          720
+        ],
+        "input_window_client": [
+          320,
+          204,
+          640,
+          360
+        ]
+      },
+      "full_qualification": false
+    },
+    {
+      "evidence": "intel84-native-vm-h264_qsv-virgl/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer84; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "status": "setup failed before measurement",
+      "checks": null,
+      "glyph_ms": null,
+      "phases": [],
+      "geometry": null,
+      "full_qualification": false
+    },
+    {
+      "evidence": "intel84-native-vm-h264_qsv-virgl-mesa/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer84; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "status": "Private runtime missing libEGL dispatch; zero frames before measurement",
+      "checks": null,
+      "glyph_ms": null,
+      "phases": [],
+      "geometry": null,
+      "full_qualification": false
+    },
+    {
+      "evidence": "intel84-native-vm-h264_qsv-virgl-egl/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer84; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "status": "Complete private Mesa/EGL runtime; zero frames, eglCreateImageKHR fails on default renderD128 while QEMU renders on Intel renderD129",
+      "checks": null,
+      "glyph_ms": null,
+      "phases": [],
+      "geometry": null,
+      "full_qualification": false
+    },
+    {
+      "evidence": "intel84-native-vm-h264_qsv-virgl-node129-diagnostic/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer84; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Private node129-on-node128 mount alias isolates GPU import selection; diagnostic only, not product acceptance. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "status": "Private per-worker mount alias proves render-node mismatch; actual media/input work, but cadence gate remains failed. Diagnostic only, not product acceptance",
+      "checks": {
+        "source_cadence": false,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "glyph_ms": 228,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 43.5325453637423,
+          "max_gap_ms": 52,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 41.045895410458954,
+          "max_gap_ms": 67,
+          "invalid_ids": 0
+        }
+      ],
+      "geometry": {
+        "base_client": [
+          0,
+          40,
+          1280,
+          720
+        ],
+        "input_window_client": [
+          320,
+          204,
+          640,
+          360
+        ]
+      },
+      "full_qualification": false
+    }
+  ],
+  "native_vm_findings": {
+    "software_capture": "Real QSV H264 media, valid source IDs and visible typed glyphs work. Warm75Hz source cadence39.72/37.59fps and60Hz cadence35.05/35.53fps fail45fps. A direct current QemuDbusDisplay callback without encoder/UI/network captures178 unique valid source IDs over5.009host seconds:35.54fps. This is evidence of an upstream fixture/capture limitation, not proof that the encoder is responsible.",
+    "raw_capture": {
+      "method": "Current QemuDbusDisplay direct callback; no encoder/UI/network; source CRC marker only",
+      "frames": 178,
+      "unique_source_frames": 178,
+      "invalid_ids": 0,
+      "seconds": 5.00898,
+      "source_fps": 35.5362,
+      "max_gap_ms": 40.5712,
+      "inline_updates": 0,
+      "mapped_updates": 0,
+      "error_empty": true,
+      "marker": [
+        1132,
+        136
+      ]
+    },
+    "clock_audit": {
+      "guest_seconds": 3.0001182760024676,
+      "same_phase": true,
+      "painted": 179,
+      "tick_delta": 179,
+      "host_roundtrip_seconds": 3.3219457799568772,
+      "guest_elapsed_over_host_roundtrip": 0.9031207836394647
+    },
+    "virgl": "Only the owned metadata VM was shut down normally and restarted with virtio-vga-gl and Intel renderD129; disk/RAM/vCPUs/quota/network retained. Guest KWin reports actual virgl Intel OpenGL. Guest83 remains installed.",
+    "reconfigure": {
+      "scope": "Only owned qsm-metadata-qualification VM; normal guest shutdown, same disk/RAM/vCPUs/quota/network/agent configuration; graphics device and D-Bus GL/rendernode change only.",
+      "old_qemu_pid": 2746656,
+      "original_args": [
+        "/usr/bin/qemu-system-x86_64",
+        "-name",
+        "qsm-metadata-qualification-20261028",
+        "-machine",
+        "q35,accel=kvm,i8042=off",
+        "-cpu",
+        "host",
+        "-smp",
+        "3",
+        "-m",
+        "3072",
+        "-nodefaults",
+        "-device",
+        "virtio-vga",
+        "-display",
+        "dbus,addr=unix:path=/var/tmp/qsm-metadata-vm-20261028/run/display.bus,gl=off",
+        "-device",
+        "qemu-xhci",
+        "-device",
+        "usb-kbd,id=qsm-metadata-kbd",
+        "-device",
+        "usb-tablet",
+        "-drive",
+        "file=/var/tmp/qsm-metadata-vm-20261028/root.qcow2,if=virtio,format=qcow2,cache=none",
+        "-drive",
+        "file=/var/tmp/qsm-metadata-vm-20261028/seed.iso,if=virtio,format=raw,media=cdrom,readonly=on",
+        "-netdev",
+        "user,id=net0,hostfwd=tcp:127.0.0.1:12226-:22",
+        "-device",
+        "e1000e,netdev=net0,mac=52:54:00:28:48:22",
+        "-device",
+        "virtio-serial-pci,id=qsm-serial",
+        "-chardev",
+        "socket,id=qsm-agent,path=/var/tmp/qsm-metadata-vm-20261028/run/agent.sock,server=on,wait=off",
+        "-device",
+        "virtserialport,chardev=qsm-agent,name=org.qsm.direct.agent",
+        "-serial",
+        "file:/var/tmp/qsm-metadata-vm-20261028/serial.log",
+        "-qmp",
+        "unix:/var/tmp/qsm-metadata-vm-20261028/run/qmp.sock,server=on,wait=off",
+        "-monitor",
+        "none",
+        "-pidfile",
+        "/var/tmp/qsm-metadata-vm-20261028/vm.pid"
+      ],
+      "virgl_args": [
+        "/usr/bin/qemu-system-x86_64",
+        "-name",
+        "qsm-metadata-qualification-20261028",
+        "-machine",
+        "q35,accel=kvm,i8042=off",
+        "-cpu",
+        "host",
+        "-smp",
+        "3",
+        "-m",
+        "3072",
+        "-nodefaults",
+        "-device",
+        "virtio-vga-gl",
+        "-display",
+        "dbus,addr=unix:path=/var/tmp/qsm-metadata-vm-20261028/run/display.bus,gl=on,rendernode=/dev/dri/renderD129",
+        "-device",
+        "qemu-xhci",
+        "-device",
+        "usb-kbd,id=qsm-metadata-kbd",
+        "-device",
+        "usb-tablet",
+        "-drive",
+        "file=/var/tmp/qsm-metadata-vm-20261028/root.qcow2,if=virtio,format=qcow2,cache=none",
+        "-drive",
+        "file=/var/tmp/qsm-metadata-vm-20261028/seed.iso,if=virtio,format=raw,media=cdrom,readonly=on",
+        "-netdev",
+        "user,id=net0,hostfwd=tcp:127.0.0.1:12226-:22",
+        "-device",
+        "e1000e,netdev=net0,mac=52:54:00:28:48:22",
+        "-device",
+        "virtio-serial-pci,id=qsm-serial",
+        "-chardev",
+        "socket,id=qsm-agent,path=/var/tmp/qsm-metadata-vm-20261028/run/agent.sock,server=on,wait=off",
+        "-device",
+        "virtserialport,chardev=qsm-agent,name=org.qsm.direct.agent",
+        "-serial",
+        "file:/var/tmp/qsm-metadata-vm-20261028/serial.log",
+        "-qmp",
+        "unix:/var/tmp/qsm-metadata-vm-20261028/run/qmp.sock,server=on,wait=off",
+        "-monitor",
+        "none",
+        "-pidfile",
+        "/var/tmp/qsm-metadata-vm-20261028/vm.pid"
+      ],
+      "phase": "virgl_guest_and_fixture_ready",
+      "preflight": {
+        "scope": "Separate paused diskless128MiB owned VM and private D-Bus; existing metadata VM and production VMs untouched",
+        "rendernode": "/dev/dri/renderD129",
+        "alive_after_three_seconds": true,
+        "returncode": null,
+        "dbus_vm_name": {
+          "exit": 0,
+          "value": "s \"qsm-virgl-preflight84\""
+        },
+        "log": "qemu-system-x86_64: warning: host doesn't support requested feature: CPUID.80000001H:ECX.svm [bit 2]\n",
+        "metadata_vm_pid_unchanged": true
+      },
+      "new_qemu_pid": 3079308,
+      "guest_packages": "qsm-desktop-agent 0.4.0+stock4.14~exp83\nqsm-qt-input-geometry 0.4.0+stock4.14~exp83\n",
+      "kwin_pid": "828",
+      "sddm_pid": "710",
+      "agent_pid": "675",
+      "fixture_pid": 957
+    },
+    "renderer": {
+      "renderer_lines": [
+        "what OpenGL driver and which effects are running.",
+        "Compositing is active",
+        "Compositing Type: OpenGL",
+        "OpenGL vendor string: Mesa",
+        "OpenGL renderer string: virgl (Mesa Intel(R) Iris(R) Xe Graphics (RPL-P))",
+        "OpenGL version string: 4.3 (Core Profile) Mesa 25.0.7-2+deb13u1",
+        "OpenGL platform interface: EGL",
+        "OpenGL shading language version string: 4.30",
+        "OpenGL version: 4.3",
+        "GLSL version: 4.30",
+        "OpenGL 2 Shaders are used"
+      ]
+    },
+    "gbm_environment": {
+      "host": {
+        "nodes": [
+          {
+            "node": "/dev/dri/renderD128",
+            "opened": true,
+            "gbm_created": true,
+            "errno": 0
+          },
+          {
+            "node": "/dev/dri/renderD129",
+            "opened": true,
+            "gbm_created": true,
+            "errno": 2
+          }
+        ],
+        "stderr": ""
+      },
+      "private_runtime": {
+        "nodes": [
+          {
+            "node": "/dev/dri/renderD128",
+            "opened": true,
+            "gbm_created": false,
+            "errno": 2
+          },
+          {
+            "node": "/dev/dri/renderD129",
+            "opened": true,
+            "gbm_created": false,
+            "errno": 2
+          }
+        ],
+        "stderr": "MESA-LOADER: failed to open dri: /usr/lib/x86_64-linux-gnu/gbm/dri_gbm.so: cannot open shared object file: No such file or directory (search paths /usr/lib/x86_64-linux-gnu/gbm, suffix _gbm)\nMESA-LOADER: failed to open dri: /usr/lib/x86_64-linux-gnu/gbm/dri_gbm.so: cannot open shared object file: No such file or directory (search paths /usr/lib/x86_64-linux-gnu/gbm, suffix _gbm)\n"
+      }
+    },
+    "diagnosis": "After completing the private Mesa GBM and GLVND EGL resources, capture still fails at EGL image import: product defaults to renderD128 (NVIDIA), QEMU uses renderD129 (Intel). An isolated per-worker node alias restores actual media and zero display errors, establishing a render-node selection defect; the diagnostic does not qualify the product. Its43.53/41.05fps still fails45fps. Pass the configured QEMU capture GPU separately from encoder selection, then retest the actual packaged path and continue cadence investigation.",
+    "invalid_diagnostics": "The early screen probes using xcb/offscreen do not establish the actual mode; only the later native Wayland kscreen result does. The first mode60 setup has an escaped-regex harness error before measurement; the corrected repeat is retained separately.",
+    "native_vm_media_accepted": false,
+    "private_runtime_repairs": {
+      "mesa": "intel84-mesa-applied.json",
+      "egl": "intel84-egl-applied.json",
+      "scope": "Only private extracted runtime; actual host packages/services and production consoles unchanged",
+      "gbm_both_nodes_work_after": true
+    }
+  },
+  "external_sources": [
+    "https://www.qemu.org/docs/master/interop/dbus-display",
+    "https://github.com/qemu/qemu/blob/v8.2.2/qapi/ui.json"
+  ],
+  "matching_full_bundle": {
+    "evidence": "full84-bundle-proof.json",
+    "package_count": 7,
+    "main_payload_and_install_entries_equal_pilot": true,
+    "source_archive": "source-full-exp84.tar",
+    "source_archive_sha256": "630be34fb311b87e5b109480da35c28cf4ab5bb1519b279b23089789b8938c89",
+    "full_target_bridge_tests": 133,
+    "portable_qt5_qt6_build_and_lifetime_checks": "portable84-build.log",
+    "guest83_payload_equals84": "guest83-84-equivalence.json",
+    "signatures_private_apt_publication_and_rollout_pending": true
+  },
+  "production_state": {
+    "production_node20": {
+      "package": "0.4.0+stock4.14~exp35",
+      "processes": {
+        "577033": {
+          "alive": true,
+          "start_ticks": 332808379
+        },
+        "495374": {
+          "alive": true,
+          "start_ticks": 297084425
+        }
+      }
+    },
+    "owned_lxc_namespace": {
+      "processes": {
+        "3829219": {
+          "alive": true,
+          "start_ticks": 336885308
+        },
+        "3981095": {
+          "alive": true,
+          "start_ticks": 338753534
+        },
+        "444366": {
+          "alive": true,
+          "start_ticks": 241353958
+        },
+        "444367": {
+          "alive": true,
+          "start_ticks": 241353959
+        },
+        "444390": {
+          "alive": true,
+          "start_ticks": 241353968
+        }
+      },
+      "guest_versions": "qsm-console-guest 0.4.0+stock4.14~exp68\nqsm-qt-input-geometry 0.4.0+stock4.14~exp68\n",
+      "metadata_sha256": "f75936dcde17bfa5a21291be36eacbe0ebfffcd4e6980efb750a70cc9743a3d5"
+    },
+    "production_rollout_performed": false,
+    "owned_vm83_install": "vm83-install-proof.json"
+  },
+  "release_qualified": false,
+  "full_plan_complete": false,
+  "remaining": [
+    "Pass the configured QEMU capture render node independently of the encoder GPU; repeat native VirGL VM capture/media and resolve remaining source cadence gate, then the supported NVENC/QSV/VAAPI H264/HEVC matrix. Retain all failed tests.",
+    "Final component/GTK/mode-toggle/full-desktop and old-agent fallback/cold-restoration repetitions",
+    "Long mixed sessions, resolutions and resource/load checks",
+    "Firefox/macOS acceptance and matched QSM/RDP comparison",
+    "Matching source/debs/signatures/private-APT acceptance, published release/APT/docs/rollback, qualified rollout and authorized discussion updates"
+  ],
+  "evidence_directory": "dist/rdp-hybrid/receipt-gap-exp84"
+}

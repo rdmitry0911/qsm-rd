@@ -557,7 +557,13 @@ class AdaptiveVideoRate:
                     state.presented_delay <= samples[0][0] - samples[0][1] - .005)
         blocked = (state.presented_delay > state.presented_base + .1 and
                    len(credit) >= 2 and credit[-1][0] - credit[0][0] >= .09
-                   and sum(d for _, d in credit) >= .1)
+                   and sum(d for _, d in credit) >= .1 and
+                   (state.feedback_kind != 'received' or
+                    (len(samples) >= 2 and state.presented_bytes >= VIDEO_DELIVERY_MIN_BYTES)))
+        # The first receipt after TCP repair has no recent delivery pair.
+        # Its age plus waits from before that receipt cannot establish a
+        # smaller path. Raw/FIFO backpressure already bounds admission while
+        # waiting for new matched bytes; legacy display feedback is unchanged.
         # A blocked frame plus independently slower delivery already confirms
         # the queue. Do not hold several frames merely to repeat the same age
         # evidence: that can overflow the raw FIFO before the rate is lowered.

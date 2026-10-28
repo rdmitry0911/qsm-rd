@@ -451,6 +451,36 @@ class RateTests(unittest.TestCase):
         self.assertEqual(state.presented_offered_kbps, 0)
         self.assertIsNone(state.presented_queue_since)
 
+    def test_first_receipt_after_loss_cannot_reuse_waits_as_capacity_evidence(self):
+        self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
+        total = 0
+        for n in range(1, 21):
+            self.now = n * .05
+            total += 10000
+            self.rate.received_report('a', self.now - .02, total)
+        # A TCP repair delays receipts. Waits while the last known frame was
+        # healthy do not measure how much capacity remains after the repair.
+        for now in (1.05, 1.11, 1.17):
+            self.now = now
+            self.rate.presentation_backpressure('a', .05)
+        self.now = 1.29
+        total += 15000
+        self.rate.received_report('a', 1.02, total)
+        self.assertEqual(self.rate._receivers['a'].presented_bytes, 0)
+        self.assertEqual(self.applied, [], 'the first delayed receipt has no fresh delivery pair')
+        self.now = 1.31
+        total += 15000
+        self.rate.received_report('a', 1.28, total)
+        self.assertEqual(self.applied, [], 'the following low-age frame proves that flight drained')
+        # A subsequent real capacity decrease still acts on sufficient new
+        # bytes and independently slower delivery, rather than waiting forever.
+        for now, sent in ((1.50, 1.30), (1.57, 1.33), (1.64, 1.35)):
+            self.now = now
+            total += 20000
+            self.rate.received_report('a', sent, total)
+            self.rate.presentation_backpressure('a', .05)
+        self.assertLess(self.rate.current_kbps, 8000)
+
     def test_tiny_receipt_pair_after_format_gap_does_not_measure_path_capacity(self):
         self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
         total = 0
