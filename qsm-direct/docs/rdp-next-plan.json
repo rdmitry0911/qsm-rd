@@ -105,11 +105,12 @@
       "Real virtio agent restart reproduced lost subscription on an open QEMU socket; revised READY handling restores metadata on the same socket and preserves clipboard/status requests",
       "Real KWin6/Qt6 VM: native caret position lies in the reported character bounds before/after window move; stack/focus/hide/close and real ScreenSaver suppression pass",
       "Real VM reboot: metadata recovers in ~11.4 seconds on the same host stream; guest boot changes while host boot and QEMU PID stay unchanged",
-      "Exp48 packaged host acceptance, with and without cropping: independent move/close pixels regain full exact coverage with zero mismatches; visible overlap typing medians 65/74 ms without cropping on fast/2 Mbit/s links; cropped-video cadence regression remains open"
+      "Exp48 packaged host acceptance, with and without cropping: independent move/close pixels regain full exact coverage with zero mismatches; visible overlap typing medians 65/74 ms without cropping on fast/2 Mbit/s links; cropped-video cadence regression remains open",
+      "Real native LXC SDDM/PAM: package exp48 preserves outer display/SDDM PIDs; login starts metadata automatically, normal Plasma logout revokes hints and returns the greeter, login again creates a new metadata session on the same media worker/WebRTC/TCP8006 connection"
     ],
     "pending": [
       "Expanded mixed-content acceptance: normal accessibility defaults, cropped video, real loss and longer runs",
-      "Native LXC graphical-login integration and Debian Qt5 native AT-SPI availability; VM mixed-content capture remains in broader qualification",
+      "Resolve native Qt5 AT-SPI startup/registration failure on Ubuntu and Debian; ordinary pixel fallback is verified, but native Qt5 text priority is not qualified",
       "Resolve cropped-video low-rate cadence regression before enabling it by default",
       "Accessibility under normal session defaults and explicit no-accessibility/old-agent fallback",
       "Complete priority UI qualification for typing over video and moving/resizing/scrolling/closing windows",
@@ -123,9 +124,10 @@
       "dist/rdp-hybrid/baseline-exp35",
       "dist/rdp-hybrid/kwin-candidate42",
       "dist/rdp-hybrid/vm-metadata-exp46",
-      "dist/rdp-hybrid/priority-exp48"
+      "dist/rdp-hybrid/priority-exp48",
+      "dist/rdp-hybrid/native-lxc-exp48"
     ],
-    "next_action": "Verify real LXC native SDDM login/logout and metadata attachment, then resolve cropped-video cadence/shared-budget behavior before the full codec/browser/RDP matrix and release"
+    "next_action": "Resolve cropped-video shared encoder/network budget and cadence; continue native Qt5 accessibility diagnosis, then full VM/LXC/encoder/browser/loss/long-run/RDP qualification and release"
   },
   "deployment_nodes": [
     "192.168.64.20",

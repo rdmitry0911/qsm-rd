@@ -58,10 +58,11 @@ contents are never read or included in the protocol.
 The application must expose its accessibility interface. On Qt 5 desktops
 with AT-SPI disabled, registering the QSM listener alone may leave it
 unavailable: the live default-settings test retains window geometry but
-reports `caret: null` and uses ordinary pixel scheduling. To enable the
-interface for a particular Qt application, launch it with
-`QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`. Applying that variable only to the
-metadata helper does not activate it in other applications. Qt documents
+reports `caret: null` and uses ordinary pixel scheduling. A supported Qt
+backend can request accessibility with `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`.
+That override is not a guarantee of successful AT-SPI registration: the
+native Qt 5 cases below still fail with it. Applying the variable only to
+the metadata helper does not activate it in other applications. Qt documents
 the environment override and AT-SPI status properties in its
 [accessibility API reference](https://doc.qt.io/qt-6/qaccessible.html).
 
@@ -92,14 +93,22 @@ guest reboot are covered in `rdp-vm-metadata-20261028.json`. Installation also
 checks an already existing port's permissions, failed-service recovery and
 preservation of an active agent's PID during repeat installation.
 
-The Debian Qt 5 native Wayland fixture did not appear in the AT-SPI registry
-even with its accessibility environment override; that platform combination
-retains fallback and its cause remains open. This differs from the supported
-Qt 5 path in the isolated Ubuntu/KWin 5 lab.
+Native Ubuntu 24.04 / KWin 5 also exercises the real SDDM/PAM login path.
+Login starts metadata automatically; ordinary Plasma logout revokes it and
+returns the greeter; logging in again creates a new metadata session on the
+same media worker and WebRTC connection. Outer Sway and SDDM retain their
+PIDs. Evidence and limitations are in `rdp-native-lxc-20261028.json`.
+
+The Ubuntu and Debian Qt 5 native Wayland fixtures did not appear in the
+AT-SPI registry even with the accessibility override. Qt 5 reports a
+disconnected registry connection, while a separate Qt D-Bus probe can reach
+that same registry. The failure is still under investigation; ordinary
+pixel scheduling remains available. This differs from the supported Qt 5
+path in the isolated Ubuntu/KWin 5 lab.
 
 Private exp42 trials of the priority UI path in `hybrid-priority-ui.md` cover
 visible typing over video, low-rate byte pressure and independent pixel
 checks after moving and closing the input window. A separate run with Qt
-accessibility disabled verifies ordinary fallback. Native LXC login and the
-broader mixed-content/media matrix remain in `rdp-next-plan.json`; these
-metadata tests alone do not prove completion of the plan.
+accessibility disabled verifies ordinary fallback. Native Qt 5 accessibility
+and the broader mixed-content/media matrix remain in `rdp-next-plan.json`;
+these metadata tests alone do not prove completion of the plan.

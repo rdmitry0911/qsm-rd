@@ -1,0 +1,34 @@
+{
+  "scope": "Actual native SDDM/PAM login, normal Plasma logout and login again; same WebRTC/TURN TCP8006 connection; launch/ACL mocked",
+  "guest": 108,
+  "package": "0.4.0+stock4.14~exp48",
+  "user": "qsm-rdp-meta",
+  "first_session": "651e01c479534bcf8c6b5399a5f5de24",
+  "second_session": "6a79917ecd024a7185339ccc67786064",
+  "media_worker_pid": 1996863,
+  "login_automatically_started_metadata": true,
+  "normal_logout_revoked_metadata": true,
+  "greeter_returned": true,
+  "limits": [
+    "Native Qt5 AT-SPI startup failure remains open; geometry and ordinary pixel fallback work",
+    "Short native desktop/login check, not mixed-content hardware/browser/loss qualification",
+    "30-minute session included mostly idle desktop and short typing; it is not a 30-minute mixed-video soak"
+  ],
+  "control_window_minutes": 30,
+  "normal_logout_same_media_worker": true,
+  "relogin_new_metadata_session": true,
+  "one_webrtc_connection_observed": true,
+  "caret_diagnostics": {
+    "native_qt5": "Not registered in the AT-SPI registry; reports registry connection not connected",
+    "control_probe": "Qt5 QCoreApplication can connect to that same AT-SPI bus and list its registry",
+    "attempts_without_resolution": [
+      "enable AT-SPI status properties and relaunch",
+      "QT_LINUX_ACCESSIBILITY_ALWAYS_ON",
+      "unset QT_ACCESSIBILITY or explicitly set it to zero",
+      "generic platform theme",
+      "unset DISPLAY",
+      "minimal application environment"
+    ],
+    "root_cause": "Not isolated; startup-order/bridge initialization is a hypothesis, not a verified diagnosis"
+  }
+}
