@@ -9,6 +9,15 @@ MIRROR="${QSM_DIRECT_DEBOOTSTRAP_MIRROR:-https://deb.debian.org/debian}"
 CHROOT_DIR="${QSM_DIRECT_TRIXIE_CHROOT:-$(mktemp -d /var/tmp/qsm-direct-trixie.XXXXXX)}"
 SOURCE_ARCHIVE="$(mktemp /var/tmp/qsm-direct-trixie-source.XXXXXX.tar)"
 PVE_KEY="$(mktemp /var/tmp/qsm-direct-pve-key.XXXXXX)"
+POLICY_RC_D="$(mktemp /var/tmp/qsm-direct-policy-rc.XXXXXX)"
+PROC_MOUNTED=0
+SYS_MOUNTED=0
+cleanup() {
+    if [[ "$SYS_MOUNTED" == 1 ]]; then sudo -n umount "$CHROOT_DIR/sys" || sudo -n umount -l "$CHROOT_DIR/sys"; fi
+    if [[ "$PROC_MOUNTED" == 1 ]]; then sudo -n umount "$CHROOT_DIR/proc" || sudo -n umount -l "$CHROOT_DIR/proc"; fi
+    rm -f -- "$SOURCE_ARCHIVE" "$PVE_KEY" "$POLICY_RC_D"
+}
+trap cleanup EXIT
 BUILD_JOBS="${QSM_DIRECT_DEB_JOBS:-4}"
 readonly PVE_KEY_URL='https://enterprise.proxmox.com/debian/proxmox-release-trixie.gpg'
 readonly PVE_KEY_SHA256='1bcd2d5bab556076c9ea756a84fe2b7445b13f4ef6e97b2e412b68778377ba6d'
@@ -41,6 +50,13 @@ qt_geometry="${QSM_QT_GEOMETRY_DEB:-$OUTPUT_DIR/qsm-qt-input-geometry_${version}
    "$(dpkg-deb -f "$qt_geometry" Architecture)" = amd64 ]] || die "Qt guest package does not match this build"
 
 sudo debootstrap --variant=minbase --arch=amd64 trixie "$CHROOT_DIR" "$MIRROR"
+sudo mount -t proc -o ro,nosuid,nodev,noexec proc "$CHROOT_DIR/proc"
+PROC_MOUNTED=1
+sudo mount -t sysfs -o ro,nosuid,nodev,noexec sysfs "$CHROOT_DIR/sys"
+SYS_MOUNTED=1
+# Build dependencies must not start Proxmox services in the build environment.
+printf '#!/bin/sh\nexit 101\n' > "$POLICY_RC_D"
+sudo install -D -m 0755 "$POLICY_RC_D" "$CHROOT_DIR/usr/sbin/policy-rc.d"
 sudo install -d -m 0755 "$CHROOT_DIR/work/source" "$CHROOT_DIR/work/out" "$CHROOT_DIR/work/build"
 sudo install -m 0644 "$qt_geometry" "$CHROOT_DIR/work/out/qsm-qt-input-geometry_${version}_amd64.deb"
 curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --output "$PVE_KEY" "$PVE_KEY_URL"
@@ -61,7 +77,7 @@ sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive /bin/bash 
   apt-get update
   apt-get install -y --no-install-recommends \
     build-essential ca-certificates cmake dbus dpkg-dev ffmpeg libdrm-dev libepoxy-dev libgbm-dev \
-    libavcodec-dev libavutil-dev libswscale-dev libopus-dev libsystemd-dev libwayland-dev libxkbcommon-dev ninja-build pkg-config python3 python3-aiortc python3-av \
+    libavcodec-dev libavutil-dev libswscale-dev libopus-dev libsystemd-dev libwayland-dev libxkbcommon-dev zlib1g-dev ninja-build pkg-config python3 python3-aiortc python3-av \
     pve-manager qemu-server
 '
 sudo chroot "$CHROOT_DIR" /usr/bin/env \
@@ -89,19 +105,31 @@ for built in "$CHROOT_DIR"/work/out/qsm-pve-direct_"$version"_amd64.deb \
     sudo install -m 0644 "$built" "$OUTPUT_DIR/$(basename "$built")"
     sudo chown "$(id -u):$(id -g)" "$OUTPUT_DIR/$(basename "$built")"
 done
-sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive /bin/bash -ec \
-    "apt-get -o Dpkg::Use-Pty=0 install -y --no-install-recommends '$artifact_in_chroot' '$lxc_in_chroot' && \\
-     test -x /usr/sbin/qsm-pve-direct-lxc && test -f /usr/share/qsm-pve-direct-lxc/qsm-console-guest.deb && \\
-     test -f /usr/share/qsm-pve-direct-lxc/qsm-qt-input-geometry.deb && \\
-     test -f /usr/share/pve-webrtc-console/index.html.tpl && \\
-     test -x /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker && \\
-     test -x /usr/bin/qsm-pve-direct-terminal && \\
-     ! find /usr/lib/qsm-pve-direct -type f -print0 | xargs -0 grep -I -q -E "$(printf '\\163\\165\\156\\163\\150\\151\\156\\145')|$(printf '\\155\\157\\157\\156\\154\\151\\147\\150\\164')" && \\
-     cmake -S /work/source -B /work/e2e -G Ninja -DCMAKE_BUILD_TYPE=Release \\
-       -DQMDP_BUILD_DBUS=ON -DQMDP_BUILD_TOOLS=ON -DBUILD_TESTING=OFF && \\
-     cmake --build /work/e2e --target qmdp-fake-qemu --parallel '$BUILD_JOBS' && \\
-     python3 /work/source/lab/proxmox9/qualify-qsm-direct-worker-media-e2e.py \\
-       --worker /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker --fake-qemu /work/e2e/qmdp-fake-qemu"
+sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive \
+    QSM_SMOKE_HOST_DEB="$artifact_in_chroot" QSM_SMOKE_LXC_DEB="$lxc_in_chroot" \
+    QSM_SMOKE_JOBS="$BUILD_JOBS" /bin/bash -se <<'SMOKE'
+set -Eeuo pipefail
+apt-get -o Dpkg::Use-Pty=0 install -y --no-install-recommends "$QSM_SMOKE_HOST_DEB" "$QSM_SMOKE_LXC_DEB"
+test -x /usr/sbin/qsm-pve-direct-lxc
+test -f /usr/share/qsm-pve-direct-lxc/qsm-console-guest.deb
+test -f /usr/share/qsm-pve-direct-lxc/qsm-qt-input-geometry.deb
+test -f /usr/share/pve-webrtc-console/index.html.tpl
+test -x /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker
+test -x /usr/bin/qsm-pve-direct-terminal
+legacy_pattern="$(printf '\163\165\156\163\150\151\156\145')|$(printf '\155\157\157\156\154\151\147\150\164')"
+if grep -r -I -q -E "$legacy_pattern" /usr/lib/qsm-pve-direct; then
+    echo 'unexpected legacy runtime reference' >&2
+    exit 1
+else
+    result=$?
+    [[ "$result" == 1 ]] || exit "$result"
+fi
+cmake -S /work/source -B /work/e2e -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DQMDP_BUILD_DBUS=ON -DQMDP_BUILD_TOOLS=ON -DBUILD_TESTING=OFF
+cmake --build /work/e2e --target qmdp-fake-qemu --parallel "$QSM_SMOKE_JOBS"
+python3 /work/source/lab/proxmox9/qualify-qsm-direct-worker-media-e2e.py \
+    --worker /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker --fake-qemu /work/e2e/qmdp-fake-qemu
+SMOKE
 name="$(basename "${artifacts[0]}")"
 (cd "$OUTPUT_DIR" && sha256sum "$name" "qsm-pve-direct-lxc_${version}_amd64.deb" \
     "qsm-console-guest_${version}_all.deb" "qsm-desktop-agent_${version}_amd64.deb" \

@@ -19,14 +19,16 @@
     },
     {
       "id": "guest-metadata",
-      "status": "in_progress",
+      "status": "complete",
       "deliverables": [
         "Bounded, versioned desktop metadata on existing guest transport with old-agent fallback",
         "Plasma/KWin window geometry, stacking, visibility, focus and change notifications",
         "Caret bounds from supported accessibility APIs with explicit unavailable fallback",
         "VM and LXC guest packages and real session integration",
         "Live KWin metadata verification on dedicated guests"
-      ]
+      ],
+      "evidence": "docs/rdp-vm-metadata-20261028.json; docs/rdp-native-lxc-20261028.json; docs/rdp-receive-feedback-20261028.json; docs/rdp-receipt-recovery-20261028.json",
+      "scope": "Implemented optional metadata interface and supported KWin/Qt producers, real VM/LXC transports, login/logout/focus/locking/recovery and conservative unavailable fallback are verified. Expanded application/media performance remains in priority-ui and qualification; it is not waived."
     },
     {
       "id": "priority-ui",
@@ -79,8 +81,8 @@
   ],
   "checkpoint": {
     "stage": "priority-ui",
-    "candidate": "0.4.0+stock4.14~exp63 (private, not release-qualified)",
-    "evidence_directory": "dist/rdp-hybrid/receive-feedback-exp63",
+    "candidate": "0.4.0+stock4.14~exp64 (private, not release-qualified)",
+    "evidence_directory": "dist/rdp-hybrid/receipt-recovery-exp64",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -104,7 +106,8 @@
       "Server clears rate/baseline/credit windows when switching between receipt and display feedback; presentation feedback resumes after receipt expiry",
       "Existing UI/video synchronization acknowledgements remain independent",
       "Qt QPlainTextEdit/QTextEdit geometry uses public viewport-relative cursor bounds including style/frame offsets",
-      "Generic Qt plugin instances have Qt as sole owner; aboutToQuit stops publishing and unregisters its service; package builds test full application destruction for Qt5/Qt6"
+      "Generic Qt plugin instances have Qt as sole owner; aboutToQuit stops publishing and unregisters its service; package builds test full application destruction for Qt5/Qt6",
+      "After the existing first healthy interval and post-congestion cooldown, fresh receipt-feedback viewers permit one bounded 25% upward probe per six seconds. Legacy, mixed or stale viewers keep ten-second spacing. All low-age, demand, shared-viewer and congestion guards remain."
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -145,15 +148,18 @@
       "Real Firefox/TURN/TCP8006 fallback runs cover missing transform API, actual CSP worker denial, deliberate worker runtime failure after receipt messages, and an actual exp60 host without advertisement. All retain roughly 57 source fps, valid source IDs, detached transforms and presentation-feedback fallback.",
       "Full exp63 host/viewer/guest-package repeat also passes the automatic 20-to-2-to-20 Mbit/s transition: narrow 54.33 source fps, gap 134 ms, full source age peak 508.12 ms, visible glyph peak 275 ms; 8180 static observations have zero mismatches/uncovered/XOR samples, all 15 input characters once, target returns to 8000. Two short no-loss runs still leave real loss/jitter and broader qualification open.",
       "Exp63 normal Plasma6 VM logout revokes metadata; owned SDDM restart invokes its configured PAM autologin. Both Qt5.15.15 and Qt6.8.2 applications inherit the generic plugin exactly once without per-app overrides, with normal QT_ACCESSIBILITY=1 and exact styled-editor caret coordinates. Native agent PID243965 and QEMU PID2746656 stay unchanged; owned desktop KWin PID changes 779 -> 325054.",
-      "Real TCP-loss exp63 run: receiver IFB netem 0.3% loss + 15ms/3ms jitter drops 168 segments, peer TCP retransmits186. Narrow/recovered cadence55.13/55.77 source fps, largest gap135ms, glyph peak114ms, all8220 static observations exact. Full bitrate recovery fails the75-second gate (7306 versus8000); the10-second upward step interval is the immediate remaining recovery issue."
+      "Real TCP-loss exp63 run: receiver IFB netem 0.3% loss + 15ms/3ms jitter drops 168 segments, peer TCP retransmits 186. Narrow/recovered cadence 55.13/55.77 source fps, largest gap 135 ms, glyph peak 114 ms, all 8220 static observations exact. Full bitrate recovery fails the 75-second gate (7306 versus8000); the 10-second upward step interval is the immediate remaining recovery issue.",
+      "Exp64 full host/viewer/guest repeat with receiver-ingress 0.3% TCP loss and 15ms/3ms delay/jitter: 170 kernel drops, full target recovery to 8000, narrow 53.71 and recovered 53.92 source fps, largest gap 132 ms, glyph peak 266 ms and all 8172 static observations exact. A separate no-imposed-loss repeat also passes every current transition gate: full 8000 recovery, glyph peak 146 ms, all 8217 static observations exact. These short NVENC/H264 LXC runs do not qualify other paths or a release.",
+      "Private exp64 signed APT acceptance downloads all seven matching console/guest packages and a temporary keyring, verifies SHA256 and rejects modified signed metadata/debs; no public archive update.",
+      "Installed exp64 native Qt6 LXC profile: ordinary SDDM/PAM automatically loads the plugin, styled-editor caret coordinates match, and normal logout revokes metadata on the same media worker; outer Sway/SDDM preserved."
     ],
     "pending": [
-      "Qt6 native LXC application coverage; additional applications/toolkits and unsupported/legacy fallback",
+      "Broader application/toolkit coverage, including explicit unsupported/legacy behavior",
       "Complete component-aware text-over-video move/resize/scroll/close, occlusion and lifecycle acceptance",
-      "Speed up confirmed active-path bitrate recovery while retaining idle/shared-viewer/cooldown guards; repeat actual loss/jitter and no-loss transitions, hard-cut fidelity",
+      "Hard-cut video fidelity, repeated network profiles and broader real-loss/jitter coverage",
       "Supported VM/LXC NVENC/QSV/VAAPI H264/HEVC matrix, long encoded mixed sessions and resource checks",
       "Firefox/macOS acceptance and matched QSM/RDP network/content comparison",
-      "Clean Trixie top-level build smoke; final matching source/debs, signed public checksums/APT, installation/rollback docs and qualified rollout/discussion updates"
+      "Complete clean Trixie top-level build/install/media smoke; publish matching final source/debs/signed sums/APT and installation/rollback docs; qualified rollout and discussion updates"
     ],
     "production_node_20": "Host remains exp35; no worker or user desktop restart",
     "video_scheduling_changed": true,
@@ -169,9 +175,10 @@
       "dist/rdp-hybrid/source-fidelity-exp51",
       "dist/rdp-hybrid/video-feedback-exp57",
       "dist/rdp-hybrid/input-geometry-exp60",
-      "dist/rdp-hybrid/receive-feedback-exp63"
+      "dist/rdp-hybrid/receive-feedback-exp63",
+      "dist/rdp-hybrid/receipt-recovery-exp64"
     ],
-    "next_action": "Qualify faster upward probing only with recent active receipt feedback; retain existing legacy/idle/shared-viewer/congestion cooldown behavior. Finish component/application acceptance and the complete codec/soak/browser/RDP/release scope.",
+    "next_action": "Finish application/component overlap acceptance, hard-cut fidelity and codec/VM/long-session/browser/RDP qualification, then complete matching release and rollout; finish the currently running clean bootstrap smoke.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -227,7 +234,7 @@
     "next_steps": [
       {
         "id": "guest-metadata",
-        "action": "Qt6 native LXC application coverage; additional applications/toolkits and unsupported/legacy fallback",
+        "action": "Broader application/toolkit and unsupported/legacy coverage",
         "gate": "Actual application/session startup and focus/locking/logout/recovery; assert actual toolkit versions and preserve existing production sessions"
       },
       {
@@ -237,7 +244,7 @@
       },
       {
         "id": "video-regions-and-queue",
-        "action": "Speed up confirmed active-path bitrate recovery while retaining idle/shared-viewer/cooldown guards; repeat actual loss/jitter and no-loss transitions, hard-cut fidelity",
+        "action": "Hard-cut video fidelity, repeated network profiles and broader real-loss/jitter coverage",
         "gate": "Keep measured source-to-composed age, native presentation and input bounds; static pixels exact, true source cadence and video fidelity acceptable"
       },
       {
@@ -328,9 +335,9 @@
     },
     "qt_input_geometry": "docs/rdp-qt-input-geometry-20261028.json",
     "adaptive_receipt_candidate": {
-      "candidate": "0.4.0+stock4.14~exp63",
-      "acceptance": "Controlled automatic transition and optional feedback fallback pass; full qualification incomplete",
-      "evidence": "docs/rdp-receive-feedback-20261028.json"
+      "candidate": "0.4.0+stock4.14~exp64",
+      "acceptance": "Controlled no-loss and actual TCP-loss transitions and receipt fallback pass in the documented scope; full qualification incomplete",
+      "evidence": "docs/rdp-receipt-recovery-20261028.json"
     }
   },
   "deployment_nodes": [

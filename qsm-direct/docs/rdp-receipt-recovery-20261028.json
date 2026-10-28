@@ -1,0 +1,988 @@
+{
+  "candidate": "0.4.0+stock4.14~exp64",
+  "source_commit": "d5b2527b92db230f736e4c01c736f208a45d12c2",
+  "status": "Private; controlled no-loss and actual TCP-loss transitions pass; whole-plan qualification remains incomplete",
+  "artifacts": "dist/rdp-hybrid/receipt-recovery-exp64",
+  "change": "After the existing first healthy interval and post-congestion cooldown, fresh receipt-feedback viewers permit one bounded 25% upward probe per six seconds. Legacy, mixed or stale viewers keep ten-second spacing. All low-age, demand, shared-viewer and congestion guards remain.",
+  "previous_failure": "Exp63 with 168 actual TCP drops retained exact static pixels and bounded latency, but its ten-second upward interval recovered only to 7306 of 8000 kbit/s within the 75-second recovery phase. The existing full-recovery gate is unchanged.",
+  "source_proof": {
+    "archive": "source-exp64.tar",
+    "sha256": "492fc5d0ab791e75403526ad46e522e01b44117328012479f1927642cc8915b1",
+    "qsm_direct_files_compared": 1308,
+    "worktree_differences_at_qualification": []
+  },
+  "prototype_to_package_proof": {
+    "private_prototype": "exp63+private-receipt-probe6",
+    "packaged_candidate": "exp64",
+    "adaptive_update_ast_identical": true
+  },
+  "guest_payload_proof": [
+    {
+      "package": "qsm-desktop-agent",
+      "versions": [
+        "exp63",
+        "exp64"
+      ],
+      "entries": 13,
+      "differences": []
+    },
+    {
+      "package": "qsm-console-guest",
+      "versions": [
+        "exp63",
+        "exp64"
+      ],
+      "entries": 29,
+      "differences": []
+    },
+    {
+      "package": "qsm-qt-input-geometry",
+      "versions": [
+        "exp63",
+        "exp64"
+      ],
+      "entries": 4,
+      "differences": []
+    }
+  ],
+  "actual_tcp_loss": {
+    "package": "exp64",
+    "guest_package": "exp64",
+    "scope": "real LXC108/KWin5 capture, NVENC/H264, Firefox/Linux, TURN TCP8006; launch/ACL mocked",
+    "source": "Big Buck Bunny public animation 60 fps excerpt 40-50s; 640x360 RGB; embedded frame-id/XOR oracle",
+    "phases": [
+      {
+        "client_start_ms": 14357,
+        "client_end_ms": 29820,
+        "server_start": 3393619.691270977,
+        "server_end": 3393635.154908668,
+        "name": "fast",
+        "bandwidth": 20000000,
+        "duration_seconds": 15.496141732204705,
+        "initial_target": 8000,
+        "final_target": 8000,
+        "unique_frames": 866,
+        "unique_fps": 56.00465627627239,
+        "max_frame_gap_ms": 50,
+        "transport_kbps": 4577.971989934914,
+        "overflows_added": 0,
+        "feedback_delay_max_ms": 69.43792384117842,
+        "feedback_excess_max_ms": 45.77638627961278,
+        "feedback_delay_median_ms": 30.80202592536807,
+        "full_source_age_ms": {
+          "samples": 927,
+          "median": 157.1944715765632,
+          "p95": 174.1867381148037,
+          "max": 175.4503445389375,
+          "clock_uncertainty_max": 1.5,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 911,
+            "median": 106.83979094028473,
+            "p95": 110.90678628534079,
+            "max": 113.48769767209888
+          },
+          "capture_to_last_send_ms": {
+            "samples": 911,
+            "median": 17.027453985065222,
+            "p95": 24.8935678973794,
+            "max": 41.7546215467155
+          },
+          "capture_to_presentation_ms": {
+            "samples": 911,
+            "median": 123.86019295081496,
+            "p95": 131.99139386415482,
+            "max": 151.8480135127902
+          },
+          "last_send_to_receive_ms": {
+            "samples": 911,
+            "median": 29.283687472343445,
+            "p95": 48.27748890966177,
+            "max": 69.30881598964334
+          },
+          "browser_after_receive_ms": {
+            "samples": 911,
+            "median": 77.52000000000044,
+            "p95": 86.56000000000131,
+            "max": 95.21999999999935
+          }
+        }
+      },
+      {
+        "client_start_ms": 29856,
+        "client_end_ms": 74860,
+        "server_start": 3393635.190166275,
+        "server_end": 3393680.194138252,
+        "name": "narrow",
+        "bandwidth": 2000000,
+        "duration_seconds": 45.097181246615946,
+        "initial_target": 8000,
+        "final_target": 2553,
+        "unique_frames": 2417,
+        "unique_fps": 53.706337214469826,
+        "max_frame_gap_ms": 117,
+        "transport_kbps": 1559.7320404864338,
+        "overflows_added": 1,
+        "feedback_delay_max_ms": 327.81936088576913,
+        "feedback_excess_max_ms": 304.40606409683824,
+        "feedback_delay_median_ms": 35.62032384797931,
+        "full_source_age_ms": {
+          "samples": 2700,
+          "median": 190.32454855429748,
+          "p95": 223.8488261898368,
+          "max": 537.2422179517641,
+          "clock_uncertainty_max": 1.5,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 2528,
+            "median": 138.8663377147168,
+            "p95": 157.41305192932487,
+            "max": 357.01958229765296
+          },
+          "capture_to_last_send_ms": {
+            "samples": 2528,
+            "median": 14.429420931264758,
+            "p95": 27.53114327788353,
+            "max": 242.7372159436345
+          },
+          "capture_to_presentation_ms": {
+            "samples": 2528,
+            "median": 155.1001521293074,
+            "p95": 175.82633439451456,
+            "max": 464.07996537163854
+          },
+          "last_send_to_receive_ms": {
+            "samples": 2528,
+            "median": 31.63203550502658,
+            "p95": 52.48702224344015,
+            "max": 342.13958214968443
+          },
+          "browser_after_receive_ms": {
+            "samples": 2528,
+            "median": 105.38999999999942,
+            "p95": 132.08000000000175,
+            "max": 147.88000000000466
+          }
+        }
+      },
+      {
+        "client_start_ms": 74955,
+        "client_end_ms": 150432,
+        "server_start": 3393680.289914866,
+        "server_end": 3393755.766227856,
+        "name": "recovered",
+        "bandwidth": 20000000,
+        "duration_seconds": 75.61576680187136,
+        "initial_target": 2553,
+        "final_target": 8000,
+        "unique_frames": 4070,
+        "unique_fps": 53.92371185924189,
+        "max_frame_gap_ms": 132,
+        "transport_kbps": 3683.3411170337877,
+        "overflows_added": 0,
+        "feedback_delay_max_ms": 68.54580296203494,
+        "feedback_excess_max_ms": 45.398789923638105,
+        "feedback_delay_median_ms": 29.279260896146297,
+        "full_source_age_ms": {
+          "samples": 4528,
+          "median": 156.42669882314664,
+          "p95": 204.99806323398673,
+          "max": 304.279971929887,
+          "clock_uncertainty_max": 1.5,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 4257,
+            "median": 101.29828425124288,
+            "p95": 140.84463194012642,
+            "max": 158.08140020817518
+          },
+          "capture_to_last_send_ms": {
+            "samples": 4257,
+            "median": 16.07998041436076,
+            "p95": 24.417014326900244,
+            "max": 128.54731734842062
+          },
+          "capture_to_presentation_ms": {
+            "samples": 4257,
+            "median": 115.97787588834763,
+            "p95": 160.78000143170357,
+            "max": 195.37835521623492
+          },
+          "last_send_to_receive_ms": {
+            "samples": 4257,
+            "median": 27.057481929659843,
+            "p95": 45.121029019355774,
+            "max": 68.02086904644966
+          },
+          "browser_after_receive_ms": {
+            "samples": 4257,
+            "median": 70.86000000000058,
+            "p95": 118.05999999999767,
+            "max": 141.38000000000466
+          }
+        }
+      }
+    ],
+    "glyph_latency_ms": [
+      73,
+      64,
+      266,
+      76,
+      75,
+      79,
+      88,
+      86,
+      91,
+      78,
+      55,
+      90,
+      60,
+      82,
+      58
+    ],
+    "all_glyphs_use_caret_priority": true,
+    "static_observer": {
+      "frames": 8172,
+      "wrong_static": 0,
+      "uncovered_static": 0,
+      "invalid_ids": 0,
+      "ids": null,
+      "observations": null,
+      "stop": true
+    },
+    "checks": {
+      "no_long_video_gap": true,
+      "narrow_source_fps_at_least_45": true,
+      "recovered_source_fps_at_least_50": true,
+      "full_rate_recovered": true,
+      "presentation_excess_at_most_400ms": true,
+      "glyph_peak_at_most_600ms": true,
+      "full_source_excess_from_fast_p95_at_most_400ms": true,
+      "narrowed": true,
+      "recovered_some": true,
+      "static_pixels_exact": true,
+      "input_delivered_once": true,
+      "same_connected_stream": true,
+      "no_observed_rtp_loss": true
+    },
+    "limits": [
+      "Actual receiver-ingress TCP loss/jitter through shaped TURN/TCP8006; kernel drops and retransmissions recorded independently. RTP can remain loss-free because TCP retransmits.",
+      "Full source-generation-to-composed-canvas age includes repeated frames, with sampled clock brackets and a 16.7 ms source tick; not a physical monitor photon measurement",
+      "Source-ID cadence and exact pixels are checked; native presentation gates use completed-sender timestamps and rVFC, independently of received feedback; other encoders, VM, Mac and RDP remain separate gates"
+    ],
+    "network": {
+      "configured": {
+        "delay_ms": 15,
+        "jitter_ms": 3,
+        "loss_percent": 0.3,
+        "seed": null,
+        "seed_note": "Installed iproute2 does not support netem seed; retain actual packet/drop counters"
+      },
+      "observed_kernel_drops": 170,
+      "peer_tcp_retransmissions": 199,
+      "method": "Two private namespaces; receiver IFB netem; actual TCP/8006 segments dropped, TCP retransmission retained",
+      "global_network_configuration_changed": false
+    }
+  },
+  "no_imposed_loss": {
+    "package": "exp64",
+    "guest_package": "exp64",
+    "scope": "real LXC108/KWin5 capture, NVENC/H264, Firefox/Linux, TURN TCP8006; launch/ACL mocked",
+    "source": "Big Buck Bunny public animation 60 fps excerpt 40-50s; 640x360 RGB; embedded frame-id/XOR oracle",
+    "phases": [
+      {
+        "client_start_ms": 13883,
+        "client_end_ms": 29339,
+        "server_start": 3393817.405933674,
+        "server_end": 3393832.861706555,
+        "name": "fast",
+        "bandwidth": 20000000,
+        "duration_seconds": 15.484295808710158,
+        "initial_target": 8000,
+        "final_target": 8000,
+        "unique_frames": 844,
+        "unique_fps": 54.60662525879917,
+        "max_frame_gap_ms": 51,
+        "transport_kbps": 4601.847181393416,
+        "overflows_added": 0,
+        "feedback_delay_max_ms": 43.13233634456992,
+        "feedback_excess_max_ms": 29.63202865794301,
+        "feedback_delay_median_ms": 33.40677567757666,
+        "full_source_age_ms": {
+          "samples": 927,
+          "median": 158.48031636948434,
+          "p95": 175.6357647168141,
+          "max": 191.91702629128926,
+          "clock_uncertainty_max": 1.5,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 884,
+            "median": 104.10907119512558,
+            "p95": 120.61521364375949,
+            "max": 126.51669373735785
+          },
+          "capture_to_last_send_ms": {
+            "samples": 884,
+            "median": 16.623863019049168,
+            "p95": 24.483148474246264,
+            "max": 39.12865463644266
+          },
+          "capture_to_presentation_ms": {
+            "samples": 884,
+            "median": 122.004478238523,
+            "p95": 141.2091413512826,
+            "max": 157.91358519345522
+          },
+          "last_send_to_receive_ms": {
+            "samples": 884,
+            "median": 19.063072511926293,
+            "p95": 38.821248803287745,
+            "max": 40.896509774029255
+          },
+          "browser_after_receive_ms": {
+            "samples": 884,
+            "median": 88.09999999999854,
+            "p95": 107,
+            "max": 122.06000000000131
+          }
+        }
+      },
+      {
+        "client_start_ms": 29369,
+        "client_end_ms": 75126,
+        "server_start": 3393832.891773428,
+        "server_end": 3393878.648089763,
+        "name": "narrow",
+        "bandwidth": 2000000,
+        "duration_seconds": 45.84398580994457,
+        "initial_target": 8000,
+        "final_target": 2206,
+        "unique_frames": 2292,
+        "unique_fps": 50.09069650545272,
+        "max_frame_gap_ms": 117,
+        "transport_kbps": 1436.3742897254388,
+        "overflows_added": 0,
+        "feedback_delay_max_ms": 279.78396601974964,
+        "feedback_excess_max_ms": 264.772716909647,
+        "feedback_delay_median_ms": 25.38294903934002,
+        "full_source_age_ms": {
+          "samples": 2745,
+          "median": 192.52871650581227,
+          "p95": 225.74153169989586,
+          "max": 456.301303890843,
+          "clock_uncertainty_max": 2.0,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 2395,
+            "median": 137.0110879652202,
+            "p95": 162.4690778553486,
+            "max": 276.0647186078131
+          },
+          "capture_to_last_send_ms": {
+            "samples": 2395,
+            "median": 15.007298439741135,
+            "p95": 28.833191376179457,
+            "max": 210.0917915813625
+          },
+          "capture_to_presentation_ms": {
+            "samples": 2395,
+            "median": 154.21956265345216,
+            "p95": 180.40898768231273,
+            "max": 394.6067523211241
+          },
+          "last_send_to_receive_ms": {
+            "samples": 2395,
+            "median": 20.91734716668725,
+            "p95": 38.06639974936843,
+            "max": 267.18471851199865
+          },
+          "browser_after_receive_ms": {
+            "samples": 2395,
+            "median": 118.72000000000116,
+            "p95": 147.58000000000175,
+            "max": 162.77999999999884
+          }
+        }
+      },
+      {
+        "client_start_ms": 75217,
+        "client_end_ms": 150678,
+        "server_start": 3393878.741467332,
+        "server_end": 3393954.20074563,
+        "name": "recovered",
+        "bandwidth": 20000000,
+        "duration_seconds": 75.61663623014465,
+        "initial_target": 2206,
+        "final_target": 8000,
+        "unique_frames": 4147,
+        "unique_fps": 54.9555399477876,
+        "max_frame_gap_ms": 149,
+        "transport_kbps": 3283.107843408059,
+        "overflows_added": 0,
+        "feedback_delay_max_ms": 44.07359007745981,
+        "feedback_excess_max_ms": 31.591180711984634,
+        "feedback_delay_median_ms": 32.26774279028177,
+        "full_source_age_ms": {
+          "samples": 4527,
+          "median": 175.6525058299303,
+          "p95": 208.4699553747953,
+          "max": 338.4227089583902,
+          "clock_uncertainty_max": 2.0,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 4350,
+            "median": 118.8875453080982,
+            "p95": 143.8411078415811,
+            "max": 163.731396663934
+          },
+          "capture_to_last_send_ms": {
+            "samples": 4350,
+            "median": 15.570436837151647,
+            "p95": 23.554206360131502,
+            "max": 126.55487796291709
+          },
+          "capture_to_presentation_ms": {
+            "samples": 4350,
+            "median": 138.344090199098,
+            "p95": 164.25762558355927,
+            "max": 195.81105932593346
+          },
+          "last_send_to_receive_ms": {
+            "samples": 4350,
+            "median": 18.57086061500013,
+            "p95": 38.85204717516899,
+            "max": 42.059481143951416
+          },
+          "browser_after_receive_ms": {
+            "samples": 4350,
+            "median": 106.68999999999505,
+            "p95": 134.10000000000582,
+            "max": 161.25999999999476
+          }
+        }
+      }
+    ],
+    "glyph_latency_ms": [
+      58,
+      57,
+      146,
+      64,
+      95,
+      88,
+      76,
+      95,
+      62,
+      47,
+      60,
+      62,
+      63,
+      48,
+      66
+    ],
+    "all_glyphs_use_caret_priority": true,
+    "static_observer": {
+      "frames": 8217,
+      "wrong_static": 0,
+      "uncovered_static": 0,
+      "invalid_ids": 0,
+      "ids": null,
+      "observations": null,
+      "stop": true
+    },
+    "checks": {
+      "no_long_video_gap": true,
+      "narrow_source_fps_at_least_45": true,
+      "recovered_source_fps_at_least_50": true,
+      "full_rate_recovered": true,
+      "presentation_excess_at_most_400ms": true,
+      "glyph_peak_at_most_600ms": true,
+      "full_source_excess_from_fast_p95_at_most_400ms": true,
+      "narrowed": true,
+      "recovered_some": true,
+      "static_pixels_exact": true,
+      "input_delivered_once": true,
+      "same_connected_stream": true,
+      "no_observed_rtp_loss": true
+    },
+    "limits": [
+      "One real-adaptation pilot through shaped TURN/TCP8006; no imposed packet loss",
+      "Full source-generation-to-composed-canvas age includes repeated frames, with sampled clock brackets and a 16.7 ms source tick; not a physical monitor photon measurement",
+      "Source-ID cadence and exact pixels are checked; native presentation gates use completed-sender timestamps and rVFC, independently of received feedback; other encoders, VM, Mac and RDP remain separate gates"
+    ]
+  },
+  "prototype_loss": {
+    "package": "exp63+private-receipt-probe6",
+    "guest_package": "exp63",
+    "scope": "real LXC108/KWin5 capture, NVENC/H264, Firefox/Linux, TURN TCP8006; launch/ACL mocked",
+    "source": "Big Buck Bunny public animation 60 fps excerpt 40-50s; 640x360 RGB; embedded frame-id/XOR oracle",
+    "phases": [
+      {
+        "client_start_ms": 14162,
+        "client_end_ms": 29609,
+        "server_start": 3393385.473635987,
+        "server_end": 3393400.920346508,
+        "name": "fast",
+        "bandwidth": 20000000,
+        "duration_seconds": 15.480420317035168,
+        "initial_target": 8000,
+        "final_target": 8000,
+        "unique_frames": 881,
+        "unique_fps": 57.033728232019165,
+        "max_frame_gap_ms": 35,
+        "transport_kbps": 4601.737725312999,
+        "overflows_added": 0,
+        "feedback_delay_max_ms": 77.041189186275,
+        "feedback_excess_max_ms": 53.88975702226162,
+        "feedback_delay_median_ms": 29.78334086947143,
+        "full_source_age_ms": {
+          "samples": 927,
+          "median": 162.4707036651678,
+          "p95": 179.0644572737321,
+          "max": 180.59311776111642,
+          "clock_uncertainty_max": 1.5,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 924,
+            "median": 105.8752853423357,
+            "p95": 109.34527684003115,
+            "max": 112.63891542330384
+          },
+          "capture_to_last_send_ms": {
+            "samples": 924,
+            "median": 17.26602832786739,
+            "p95": 24.915292859077454,
+            "max": 36.06592258438468
+          },
+          "capture_to_presentation_ms": {
+            "samples": 924,
+            "median": 123.1385653372854,
+            "p95": 130.75425568968058,
+            "max": 146.28766430541873
+          },
+          "last_send_to_receive_ms": {
+            "samples": 924,
+            "median": 27.902196859940886,
+            "p95": 45.66775541752577,
+            "max": 74.22401336953044
+          },
+          "browser_after_receive_ms": {
+            "samples": 924,
+            "median": 77.96999999999935,
+            "p95": 86.15999999999985,
+            "max": 94.81999999999971
+          }
+        }
+      },
+      {
+        "client_start_ms": 29644,
+        "client_end_ms": 75400,
+        "server_start": 3393400.956785915,
+        "server_end": 3393446.711395265,
+        "name": "narrow",
+        "bandwidth": 2000000,
+        "duration_seconds": 45.850400953087956,
+        "initial_target": 8000,
+        "final_target": 2487,
+        "unique_frames": 2452,
+        "unique_fps": 53.58860040213305,
+        "max_frame_gap_ms": 150,
+        "transport_kbps": 1538.826280324691,
+        "overflows_added": 1,
+        "feedback_delay_max_ms": 297.1923779696226,
+        "feedback_excess_max_ms": 274.00157088413835,
+        "feedback_delay_median_ms": 35.93699471093714,
+        "full_source_age_ms": {
+          "samples": 2745,
+          "median": 196.6444860833363,
+          "p95": 229.96088862419128,
+          "max": 542.6152471452958,
+          "clock_uncertainty_max": 2.0,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 2570,
+            "median": 151.88979962840676,
+            "p95": 170.77378556132317,
+            "max": 322.8382468223572
+          },
+          "capture_to_last_send_ms": {
+            "samples": 2570,
+            "median": 14.920390443876386,
+            "p95": 26.908858213573694,
+            "max": 288.77598280087113
+          },
+          "capture_to_presentation_ms": {
+            "samples": 2570,
+            "median": 164.33150158263743,
+            "p95": 188.35193570703268,
+            "max": 436.24044163152575
+          },
+          "last_send_to_receive_ms": {
+            "samples": 2570,
+            "median": 32.08098467439413,
+            "p95": 50.11635785922408,
+            "max": 307.9782468266785
+          },
+          "browser_after_receive_ms": {
+            "samples": 2570,
+            "median": 115.93999999999869,
+            "p95": 141.10000000000582,
+            "max": 156.38000000000466
+          }
+        }
+      },
+      {
+        "client_start_ms": 75498,
+        "client_end_ms": 150992,
+        "server_start": 3393446.811915777,
+        "server_end": 3393522.303498434,
+        "name": "recovered",
+        "bandwidth": 20000000,
+        "duration_seconds": 75.63751366175711,
+        "initial_target": 2487,
+        "final_target": 8000,
+        "unique_frames": 4197,
+        "unique_fps": 55.593822025591436,
+        "max_frame_gap_ms": 167,
+        "transport_kbps": 3579.137873733151,
+        "overflows_added": 0,
+        "feedback_delay_max_ms": 245.8217740058899,
+        "feedback_excess_max_ms": 222.6615659892559,
+        "feedback_delay_median_ms": 29.758299235254526,
+        "full_source_age_ms": {
+          "samples": 4530,
+          "median": 162.00423821186405,
+          "p95": 196.61749346802537,
+          "max": 326.2751082889679,
+          "clock_uncertainty_max": 1.5,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 4414,
+            "median": 100.59711243957281,
+            "p95": 135.87729260325432,
+            "max": 204.7281051054597
+          },
+          "capture_to_last_send_ms": {
+            "samples": 4414,
+            "median": 15.90328011661768,
+            "p95": 24.49192153289914,
+            "max": 127.84302653744817
+          },
+          "capture_to_presentation_ms": {
+            "samples": 4414,
+            "median": 118.07063315063715,
+            "p95": 155.93221131712198,
+            "max": 236.47151421755552
+          },
+          "last_send_to_receive_ms": {
+            "samples": 4414,
+            "median": 27.301345486193895,
+            "p95": 45.88226228952408,
+            "max": 202.72810524329543
+          },
+          "browser_after_receive_ms": {
+            "samples": 4414,
+            "median": 73.94000000000233,
+            "p95": 113.61999999999534,
+            "max": 155.1600000000035
+          }
+        }
+      }
+    ],
+    "glyph_latency_ms": [
+      64,
+      54,
+      229,
+      77,
+      75,
+      78,
+      73,
+      70,
+      64,
+      92,
+      71,
+      71,
+      60,
+      73,
+      89
+    ],
+    "all_glyphs_use_caret_priority": true,
+    "static_observer": {
+      "frames": 8218,
+      "wrong_static": 0,
+      "uncovered_static": 0,
+      "invalid_ids": 0,
+      "ids": null,
+      "observations": null,
+      "stop": true
+    },
+    "checks": {
+      "no_long_video_gap": true,
+      "narrow_source_fps_at_least_45": true,
+      "recovered_source_fps_at_least_50": true,
+      "full_rate_recovered": true,
+      "presentation_excess_at_most_400ms": true,
+      "glyph_peak_at_most_600ms": true,
+      "full_source_excess_from_fast_p95_at_most_400ms": true,
+      "narrowed": true,
+      "recovered_some": true,
+      "static_pixels_exact": true,
+      "input_delivered_once": true,
+      "same_connected_stream": true,
+      "no_observed_rtp_loss": true
+    },
+    "limits": [
+      "Actual receiver-ingress TCP loss/jitter through shaped TURN/TCP8006; kernel drops and retransmissions recorded independently. RTP can remain loss-free because TCP retransmits.",
+      "Full source-generation-to-composed-canvas age includes repeated frames, with sampled clock brackets and a 16.7 ms source tick; not a physical monitor photon measurement",
+      "Source-ID cadence and exact pixels are checked; native presentation gates use completed-sender timestamps and rVFC, independently of received feedback; other encoders, VM, Mac and RDP remain separate gates"
+    ],
+    "network": {
+      "configured": {
+        "delay_ms": 15,
+        "jitter_ms": 3,
+        "loss_percent": 0.3,
+        "seed": null,
+        "seed_note": "Installed iproute2 does not support netem seed; retain actual packet/drop counters"
+      },
+      "observed_kernel_drops": 171,
+      "peer_tcp_retransmissions": 198,
+      "method": "Two private namespaces; receiver IFB netem; actual TCP/8006 segments dropped, TCP retransmission retained",
+      "global_network_configuration_changed": false
+    }
+  },
+  "verification": {
+    "bridge_tests": "119 tests pass in the exact Debian exp64 build; 36 focused controller/history/channel tests pass locally",
+    "qt_sdk": "Qt5/Qt6 GUI/widget full-destruction tests pass in the portable Debian12 package build",
+    "private_apt": "All seven exp64 console/guest packages plus a temporary test keyring: signed APT update and real download/SHA verification of all eight packages pass; tampered InRelease and debs are rejected",
+    "private_apt_limits": "Unpublished temporary acceptance key; no public signing-key/APT/production changes",
+    "native_sessions": "Exp63 normal LXC Qt5 and VM Qt5/Qt6 profile/lifecycle checks apply to byte/mode/link-identical exp64 guest payloads; explicit proof retained",
+    "media_limits": "Owned CT108/KWin5, NVENC/H264, Linux Firefox, 135-second shaped TURN/TCP8006 profiles; launch/ACL mocked. Other encoder/codec paths, VM media, macOS, long sessions and RDP comparison remain separate gates.",
+    "clean_trixie": {
+      "first_failure": "Fresh SDK lacked zlib1g-dev; explicit dependency added",
+      "second_failure": "Nested shell quotes broke the install/media smoke command; replaced with a quoted heredoc and environment arguments",
+      "build_environment": "Read-only proc/sys mounts, service startup denied through policy-rc.d, temporary files and mounts cleaned",
+      "resumed_smoke": "Actual clean-built packages install; real worker/fake-QEMU media/input smoke passes with120 frames,10 keyboard events,20 mouse events",
+      "full_fresh_run": "Pending; final independent debootstrap/build/install/media run still active"
+    },
+    "feedback_fallback_reference": "Four actual exp63 missing-API/CSP/runtime-error/legacy-host cases remain recorded in rdp-receive-feedback-20261028.json. Exp64 changes only the active receipt-probe interval, retains legacy/mixed behavior, and adds deterministic guards; these actual fallback runs are not relabeled as exp64."
+  },
+  "remaining": [
+    "Broader application/toolkit coverage, including explicit unsupported/legacy behavior",
+    "Complete component-aware text-over-video move/resize/scroll/close, occlusion and lifecycle acceptance",
+    "Hard-cut video fidelity, repeated network profiles and broader real-loss/jitter coverage",
+    "Supported VM/LXC NVENC/QSV/VAAPI H264/HEVC matrix, long encoded mixed sessions and resource checks",
+    "Firefox/macOS acceptance and matched QSM/RDP network/content comparison",
+    "Complete clean Trixie top-level build/install/media smoke; publish matching final source/debs/signed sums/APT and installation/rollback docs; qualified rollout and discussion updates"
+  ],
+  "production": {
+    "node": "192.168.64.20",
+    "host_package": "0.4.0+stock4.14~exp35",
+    "terminal_pid": 577033,
+    "vm103_pid": 495374,
+    "extra_forwarded_ports": 0,
+    "nodes_17_240": "Unchanged",
+    "public_release": "None"
+  },
+  "native_qt6_lxc": {
+    "scope": "Owned LXC108 native SDDM/PAM login, installed exp64 guest/plugin and extracted exp64 host, no Qt environment override on application launch",
+    "initial_stats": {
+      "worker": 2905113,
+      "worker_alive": true,
+      "state": "connected",
+      "target": 8000,
+      "ui_available": true,
+      "ui_enabled": false,
+      "ui_tiles": 0,
+      "ui_gaps": 0,
+      "ui_patches": 0,
+      "ui_bytes": 0,
+      "video_overflows": 3,
+      "video_drops": 134,
+      "ui_version": 5,
+      "ack_pending": 0,
+      "cache_hits": 0,
+      "scroll_copies": 0,
+      "fills": 0,
+      "regions_ready": false,
+      "region": null,
+      "source_features": 15,
+      "metadata": {
+        "callbacks": 0,
+        "mode": 0,
+        "layout": 0
+      },
+      "source_layout": 0
+    },
+    "login_started_metadata": "14b499f6352d42d4b4b2bbcb4776d66c",
+    "automatic_qt_plugin": {
+      "qt": "6.4.2",
+      "platform": "wayland",
+      "generic_plugins": "qsm-input-geometry",
+      "pid": 4042260,
+      "caret": [
+        277,
+        171,
+        1,
+        25
+      ],
+      "clip": [
+        273,
+        167,
+        598,
+        98
+      ],
+      "expected_insertion_point": [
+        277,
+        171
+      ]
+    },
+    "styled_editors": [
+      {
+        "operation": "border",
+        "field_class": "QPlainTextEdit",
+        "actual": [
+          286,
+          180,
+          1,
+          25
+        ],
+        "expected": [
+          286,
+          180
+        ],
+        "clip": [
+          282,
+          176,
+          580,
+          80
+        ]
+      },
+      {
+        "operation": "rich",
+        "field_class": "QTextEdit",
+        "actual": [
+          277,
+          171,
+          1,
+          25
+        ],
+        "expected": [
+          277,
+          171
+        ],
+        "clip": [
+          273,
+          167,
+          598,
+          98
+        ]
+      },
+      {
+        "operation": "border",
+        "field_class": "QTextEdit",
+        "actual": [
+          286,
+          180,
+          1,
+          25
+        ],
+        "expected": [
+          286,
+          180
+        ],
+        "clip": [
+          282,
+          176,
+          580,
+          80
+        ]
+      }
+    ],
+    "final_stats": {
+      "worker": 2905113,
+      "worker_alive": true,
+      "state": "connected",
+      "target": 8000,
+      "ui_available": true,
+      "ui_enabled": true,
+      "ui_tiles": 150,
+      "ui_gaps": 0,
+      "ui_patches": 150,
+      "ui_bytes": 93491,
+      "video_overflows": 3,
+      "video_drops": 134,
+      "ui_version": 5,
+      "ack_pending": 0,
+      "cache_hits": 10,
+      "scroll_copies": 0,
+      "fills": 61,
+      "regions_ready": false,
+      "region": null,
+      "source_features": 15,
+      "metadata": {
+        "callbacks": 247,
+        "mode": 3,
+        "layout": 818070741832,
+        "area": [
+          282,
+          176,
+          517,
+          80
+        ]
+      },
+      "source_layout": 0
+    },
+    "same_media_worker": true,
+    "normal_logout_revokes_metadata": true,
+    "final_seat": {
+      "ok": true,
+      "user": null,
+      "keyboard_sync": true
+    },
+    "platform_dependency": "The lab initially lacked qt6-wayland and used Xwayland, where the mismatched compositor/client size conservatively suppressed caret hints. After adding the standard Qt6 Wayland platform, the same normal-session app reports platform=wayland and passes; no per-app Qt environment override."
+  },
+  "qt6_xwayland_fallback": {
+    "scope": "Owned native LXC Qt6 app with missing Qt6 Wayland platform initially fell back to Xwayland",
+    "qt": "6.4.2",
+    "native_cursor_before": [
+      37,
+      69,
+      1,
+      25
+    ],
+    "native_cursor_after_real_viewer_input": [
+      50,
+      69,
+      1,
+      25
+    ],
+    "compositor_client_size": [
+      800,
+      528
+    ],
+    "application_client_size": [
+      800,
+      500
+    ],
+    "caret_hint": null,
+    "ordinary_input_remains_working": true,
+    "limit": "This proves conservative missing-hint/input fallback; not exact UI text-priority acceptance for Xwayland"
+  }
+}

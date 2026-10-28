@@ -191,6 +191,12 @@ configured SDDM PAM autologin after restarting only the owned display manager.
 Qt 5.15.15 and Qt 6.8.2 applications inherit the provider once, with normal
 accessibility defaults and no per-application Qt overrides. The guest agent
 and QEMU remain running throughout that desktop-session change.
+The native LXC Qt 6.4.2 probe also asserts `platformName() == "wayland"`,
+automatic profile inheritance and normal logout on the same media worker.
+The distribution's `qt6-wayland` platform package is needed for that path.
+Without it, the lab app used Xwayland; its compositor/client sizes differed,
+so the provider correctly withheld caret priority while ordinary input kept
+working. That case does not qualify exact text priority for Xwayland.
 
 Qt owns the object returned by a generic plugin. The provider leaves that
 object parentless to avoid a second deletion during application shutdown,
