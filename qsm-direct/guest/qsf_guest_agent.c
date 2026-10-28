@@ -86,9 +86,11 @@ struct agent_state {
   char clipboard_applied_path[640];
   char clipboard_ready_path[640];
   char desktop_path[640];
+  char desktop_path_v2[640];
   struct timespec desktop_mtime;
   bool desktop_stamp_valid;
   bool desktop_subscribed;
+  unsigned desktop_version;
 #if !QSM_DESKTOP_CLIPBOARD_ONLY
   char incoming_dir[640];
   char outgoing_dir[640];
@@ -771,7 +773,8 @@ static void emit_desktop(struct agent_state *state, bool force) {
   if (!state->desktop_subscribed) {
     return;
   }
-  const int file = open(state->desktop_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
+  const char *path = state->desktop_version == 2 ? state->desktop_path_v2 : state->desktop_path;
+  const int file = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
   struct stat info;
   struct timespec now;
   bool valid = file >= 0 && fstat(file, &info) == 0 && S_ISREG(info.st_mode) &&
@@ -839,7 +842,7 @@ static void handle_command(struct agent_state *state, char *line) {
   }
   if (strcmp(command, "DESKTOP_SUBSCRIBE") == 0) {
     const char *enabled = strtok_r(NULL, " ", &save);
-    if (enabled == NULL || (strcmp(enabled, "0") != 0 && strcmp(enabled, "1") != 0) ||
+    if (enabled == NULL || (strcmp(enabled, "0") != 0 && strcmp(enabled, "1") != 0 && strcmp(enabled, "2") != 0) ||
         strtok_r(NULL, " ", &save) != NULL) {
       write_line(state->fd, "ERR ", "BAD_DESKTOP_SUBSCRIBE");
       return;
@@ -847,7 +850,8 @@ static void handle_command(struct agent_state *state, char *line) {
 #if defined(__APPLE__)
     write_line(state->fd, "ERR ", "DESKTOP_UNSUPPORTED");
 #else
-    state->desktop_subscribed = strcmp(enabled, "1") == 0;
+    state->desktop_subscribed = strcmp(enabled, "0") != 0;
+    state->desktop_version = strcmp(enabled, "2") == 0 ? 2U : 1U;
     state->desktop_stamp_valid = false;
     write_line(state->fd, "OK ", "DESKTOP_SUBSCRIBE");
     emit_desktop(state, true);
@@ -1201,6 +1205,7 @@ static int initialize_state(struct agent_state *state, const char *device, const
       snprintf(state->clipboard_applied_path, sizeof(state->clipboard_applied_path), "%s/qsf-clipboard-applied", state_dir) >= (int) sizeof(state->clipboard_applied_path) ||
       snprintf(state->clipboard_ready_path, sizeof(state->clipboard_ready_path), "%s/wayland-clipboard-bridge.ready", state_dir) >= (int) sizeof(state->clipboard_ready_path)
       || snprintf(state->desktop_path, sizeof(state->desktop_path), "%s/desktop-metadata.json", state_dir) >= (int) sizeof(state->desktop_path)
+      || snprintf(state->desktop_path_v2, sizeof(state->desktop_path_v2), "%s/desktop-metadata-v2.json", state_dir) >= (int) sizeof(state->desktop_path_v2)
 #if !QSM_DESKTOP_CLIPBOARD_ONLY
       || snprintf(state->incoming_dir, sizeof(state->incoming_dir), "%s/incoming", state_dir) >= (int) sizeof(state->incoming_dir)
       || snprintf(state->outgoing_dir, sizeof(state->outgoing_dir), "%s/outgoing", state_dir) >= (int) sizeof(state->outgoing_dir)
@@ -1277,6 +1282,7 @@ static void reset_transport_state(struct agent_state *state) {
    * adapter, while this connection-local protocol state is discarded. */
   state->pending_profile_valid = false;
   state->desktop_subscribed = false;
+  state->desktop_version = 0;
   state->desktop_stamp_valid = false;
   state->pending_profile_committed = false;
   memset(&state->pending_profile, 0, sizeof(state->pending_profile));

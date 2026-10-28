@@ -56,15 +56,16 @@ class DesktopWireTest(unittest.TestCase):
 
     def command(self, value): os.write(self.master, (value + '\n').encode())
 
-    def publish(self, sequence=1):
-        value = {'version': 1, 'session': 'serial-test', 'sequence': sequence, 'generation': 1,
+    def publish(self, sequence=1, version=1):
+        value = {'version': version, 'session': 'serial-test', 'sequence': sequence, 'generation': 1,
             'available': True, 'locked': False, 'capabilities': ['windows'],
             'desktop': {'rect': [0, 0, 1280, 800], 'scale': 1},
             'windows': [], 'focus': None, 'damage': [], 'caret': None}
         temporary = self.directory / 'next'
         fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w') as target: json.dump(value, target)
-        os.replace(temporary, self.directory / 'desktop-metadata.json')
+        name = 'desktop-metadata-v2.json' if version == 2 else 'desktop-metadata.json'
+        os.replace(temporary, self.directory / name)
         return value
 
     def event(self):
@@ -94,6 +95,17 @@ class DesktopWireTest(unittest.TestCase):
         self.assertIsNone(self.event())
         self.publish(2); self.assertIsNotNone(self.event())
         path.chmod(0o644)
+        self.assertIsNone(self.event())
+
+    def test_v2_subscription_selects_only_the_v2_file_and_can_downgrade(self):
+        first = self.publish()
+        second = self.publish(2, version=2)
+        self.command('DESKTOP_SUBSCRIBE 2'); self.assertEqual(self.line(),'OK DESKTOP_SUBSCRIBE')
+        self.assertEqual(self.event(),second)
+        self.command('DESKTOP_SUBSCRIBE 1'); self.assertEqual(self.line(),'OK DESKTOP_SUBSCRIBE')
+        self.assertEqual(self.event(),first)
+        (self.directory/'desktop-metadata-v2.json').unlink()
+        self.command('DESKTOP_SUBSCRIBE 2'); self.assertEqual(self.line(),'OK DESKTOP_SUBSCRIBE')
         self.assertIsNone(self.event())
 
     def test_symlink_is_never_followed(self):

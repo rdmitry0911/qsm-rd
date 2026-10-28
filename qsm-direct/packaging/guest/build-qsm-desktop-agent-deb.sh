@@ -26,6 +26,7 @@ install -m 0755 "$build_root/qsm-desktop-agent" "$package_root/qsm-desktop-agent
 install -m 0755 "$build_root/qsm-desktop-state-watcher" "$package_root/qsm-desktop-state-watcher"
 install -m 0755 "$ROOT_DIR/guest/qsf_wayland_clipboard_bridge.sh" "$package_root/qsm-desktop-clipboard-bridge"
 install -m 0644 "$ROOT_DIR/guest/qsm_desktop_metadata.py" "$package_root/qsm_desktop_metadata.py"
+install -m 0644 "$ROOT_DIR/guest/qsm_qt_input_geometry.py" "$package_root/qsm_qt_input_geometry.py"
 install -m 0644 "$ROOT_DIR/guest/qsm_kwin_metadata.js" "$package_root/qsm_kwin_metadata.js"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_desktop_metadata.py" "$package_root/qsm_desktop_metadata_schema.py"
 install -m 0755 "$ROOT_DIR/packaging/guest/qsm-desktop-agent-setup" "$stage_root/usr/bin/qsm-desktop-agent-setup"
@@ -42,7 +43,7 @@ Priority: optional
 Architecture: amd64
 Maintainer: qsm contributors <qsm@users.noreply.github.com>
 Depends: libc6 (>= 2.34), systemd, udev, python3, python3-gi
-Recommends: wl-clipboard, gir1.2-atspi-2.0
+Recommends: wl-clipboard, gir1.2-atspi-2.0, qsm-qt-input-geometry (= $VERSION)
 Conflicts: qsm-guest-agent
 Replaces: qsm-guest-agent
 Description: QSM Direct desktop clipboard and geometry companion

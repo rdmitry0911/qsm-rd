@@ -8,10 +8,12 @@ and pixel fallback remain necessary.
 ## Transport and compatibility
 
 The existing QSF1 stream carries both clipboard and optional metadata. A
-new host sends `DESKTOP_SUBSCRIBE 1`; a new agent replies
+new host first sends `DESKTOP_SUBSCRIBE 2`, falling back to
+`DESKTOP_SUBSCRIBE 1` if the agent rejects version 2. A new agent replies
 `OK DESKTOP_SUBSCRIBE`, then emits `EVENT_DESKTOP <base64-json>` as state
 changes. `DESKTOP_SUBSCRIBE 0` stops those events. `-` revokes unavailable
-state. Nothing is sent without subscription. Older agents can return
+state. Version 2 adds bounded input-component clipping; version 1 retains its
+original strict schema. Nothing is sent without subscription. Older agents can return
 `ERR UNKNOWN_COMMAND`; the host tries once per agent incarnation and keeps
 clipboard working. `READY QSF1` revokes old hints and rearms subscription:
 QEMU can retain the same host socket across a guest-agent restart. A greeting
@@ -102,16 +104,83 @@ PIDs. Evidence and limitations are in `rdp-native-lxc-20261028.json`.
 The Ubuntu and Debian Qt 5 native Wayland fixtures did not appear in the
 AT-SPI registry even with the accessibility override. Qt 5 reports a
 disconnected registry connection, while a separate Qt D-Bus probe can reach
-that same registry. The failure is still under investigation; ordinary
-pixel scheduling remains available. This differs from the supported Qt 5
-path in the isolated Ubuntu/KWin 5 lab.
+that same registry. This does not establish an upstream cause. The optional
+Qt input-method provider below supplies an independent source of geometry;
+ordinary pixel scheduling remains available.
 
 Private exp42 trials of the priority UI path in `hybrid-priority-ui.md` cover
 visible typing over video, low-rate byte pressure and independent pixel
 checks after moving and closing the input window. A separate run with Qt
-accessibility disabled verifies ordinary fallback. Native Qt 5 accessibility
-and the broader mixed-content/media matrix remain in `rdp-next-plan.json`;
+accessibility disabled verifies ordinary fallback. Native Qt input geometry
+and the broader mixed-content/media matrix are tracked in `rdp-next-plan.json`;
 these metadata tests alone do not prove completion of the plan.
+
+## Optional Qt input geometry
+
+`qsm-qt-input-geometry` contains separate Qt 5 and Qt 6 generic plugins. They
+query input enablement and the public
+[window-relative cursor rectangle](https://doc.qt.io/archives/qt-5.15/qinputmethod.html)
+without requesting surrounding text, window titles or input-event contents.
+The local D-Bus service exposes only an opaque per-window token, sequence,
+enablement, client size, cursor bounds and the input item's clipping rectangle.
+The host restricts text priority to that component, so video in the same
+application cannot acquire text retention merely by being near the caret.
+Tile retention also requires the actual changed pixels to lie inside that
+area; a tile centre alone cannot prove that a change belongs to text.
+
+The helper atomically writes both `desktop-metadata-v2.json` and the original
+version-1 file. Agents select the file requested by their host. Legacy views
+omit component-bounded caret hints which an older host could otherwise expand
+over unrelated video; window geometry and ordinary pixel scheduling remain
+available. AT-SPI caret hints without a component retain their original schema.
+
+The metadata helper resolves the service to its unique D-Bus owner, verifies
+that owner's process and user credentials against the focused KWin client,
+and requires an exact client-size match. A well-known service name alone is
+insufficient authentication. Layout changes cancel outstanding queries;
+responses from an older generation cannot restore a caret. A 2.5-second lease
+rejects stopped publishers. Locking, window closure and disabled input revoke
+the hint. Live Qt geometry takes precedence over asynchronous AT-SPI events.
+
+Plasma sources `/etc/xdg/plasma-workspace/env/qsm-qt-input-geometry.sh` during
+the next graphical login. It preserves existing generic plugins and adds
+`qsm-input-geometry` once. To exercise an owned application in an existing
+session, set `QT_QPA_GENERIC_PLUGINS=qsm-input-geometry` when starting that
+application. Existing processes do not load the new plugin retroactively;
+package installation does not restart applications or the desktop.
+
+Build the plugin in a guest SDK with both `qtbase5-dev`, `qt6-base-dev`, CMake,
+a C++ compiler and `dpkg-dev`. The tested portable build uses Debian 12's
+Qt 5.15 and Qt 6.4, then runs on Ubuntu 24.04 and Debian 13. Use one explicit
+version for the plugin, VM agent and LXC packages:
+
+```sh
+export QSM_DIRECT_DEB_VERSION=YOUR_VERSION
+export QSM_DESKTOP_DEB_VERSION="$QSM_DIRECT_DEB_VERSION"
+bash packaging/guest/build-qsm-qt-input-geometry-deb.sh
+bash packaging/guest/build-qsm-desktop-agent-deb.sh
+bash packaging/debian/build-qsm-pve-direct-lxc-deb.sh
+```
+
+The LXC host builder requires the matching Qt deb in its output directory
+(or `QSM_QT_GEOMETRY_DEB`). It bundles that deb with the container agent and
+the installer explicitly installs both inside the container. Since it now
+contains an architecture-specific payload, the LXC host package uses that
+architecture rather than `all`. The PVE host does not load the Qt plugins.
+
+The clean Trixie driver also requires that prebuilt portable Qt deb via
+`QSM_QT_GEOMETRY_DEB` (or its output directory). It builds the VM agent and
+LXC payloads with the same explicit version and retains the Qt deb for guest
+installation. Building the Qt plugins against Trixie's newer Qt minor version
+is not the Ubuntu 24.04 portability check described here.
+
+Installed-package VM checks cover Qt 5 and Qt 6 with accessibility disabled:
+native cursor bounds, movement, resize, a second noneditable window in the
+same process, publisher stop/resume and metadata-helper restart over the same
+virtio connection. The LXC bandwidth-transition run uses the Qt provider and
+observes actual glyph pixels. Remaining queue peaks and the full application,
+codec and browser matrix are separate gates; these checks do not qualify a
+public release.
 
 ## Older GLib bindings and helper recovery
 

@@ -25,6 +25,7 @@ class GuestAgent:
         self.clipboard = b""
         self.clipboard_applied = False
         self.metadata_supported = False
+        self.metadata_version = 1
         self.metadata_initial = None
         self.ready_before_subscription_ack = False
         self.subscriptions = []
@@ -83,11 +84,13 @@ class GuestAgent:
                         self.subscriptions.append(fields[1])
                         if not self.metadata_supported:
                             self._reply('ERR UNKNOWN_COMMAND')
+                        elif fields[1] == '2' and self.metadata_version < 2:
+                            self._reply('ERR BAD_DESKTOP_SUBSCRIBE')
                         else:
                             if self.ready_before_subscription_ack:
                                 self.ready_before_subscription_ack = False
                                 self._reply('READY QSF1')
-                            if fields[1] == '1' and self.metadata_initial is not None:
+                            if fields[1] in ('1','2') and self.metadata_initial is not None:
                                 self.event_desktop(self.metadata_initial)
                             self._reply('OK DESKTOP_SUBSCRIBE')
                     elif fields == ["CLIP_GET"]:
@@ -167,14 +170,28 @@ class DirectGuestChannelTest(unittest.TestCase):
         with self.assertRaises(qsm.GuestChannelError):
             self.channel.dispatch({"op": "clipboard_set", "text_b64": self._b64(b"no\x00nul")})
 
+    def test_v2_input_clip_is_negotiated_without_a_legacy_subscription(self):
+        self.agent.metadata_supported = True
+        self.agent.metadata_version = 2
+        value = self.metadata()
+        value['version'] = 2
+        value['capabilities'].append('caret')
+        value['caret'] = {'window':'one','rect':[35,50,1,18],'clip':[20,30,500,400]}
+        self.agent.metadata_initial = value
+        received = []
+        self.channel.add_desktop_listener(received.append)
+        self.wait_for(lambda: bool(received))
+        self.assertEqual(self.agent.subscriptions, ['2'])
+        self.assertEqual(received[-1]['caret']['clip'], [20,30,500,400])
+
     def test_old_agent_is_probed_once_and_clipboard_remains_available(self):
         received = []
         self.channel.add_desktop_listener(received.append)
-        self.wait_for(lambda: self.agent.subscriptions == ['1'])
+        self.wait_for(lambda: self.agent.subscriptions == ['2','1'])
         self.assertEqual(self.channel.dispatch({'op': 'status'}), {'agent': 'ready'})
         self.assertEqual(self.channel.dispatch({'op': 'clipboard_get'}), {'text_b64': ''})
         self.assertEqual(received, [])
-        self.assertEqual(self.agent.subscriptions, ['1'])
+        self.assertEqual(self.agent.subscriptions, ['2','1'])
 
     def test_metadata_can_precede_acknowledgement_and_unsubscribes(self):
         self.agent.metadata_supported = True
@@ -185,7 +202,7 @@ class DirectGuestChannelTest(unittest.TestCase):
         self.assertEqual(received[0]['focus'], 'one')
         self.assertEqual(self.channel.dispatch({'op': 'status'}), {'agent': 'ready'})
         remove()
-        self.wait_for(lambda: self.agent.subscriptions == ['1', '0'])
+        self.wait_for(lambda: self.agent.subscriptions == ['2','1','0'])
 
     def test_replays_and_layout_regressions_do_not_renew_lease(self):
         self.agent.metadata_supported = True
@@ -235,7 +252,7 @@ class DirectGuestChannelTest(unittest.TestCase):
         self.wait_for(lambda: len(received) >= 3)
         self.assertIsNone(received[1])
         self.assertEqual(received[-1]['sequence'], 2)
-        self.assertEqual(self.agent.subscriptions, ['1', '1'])
+        self.assertEqual(self.agent.subscriptions, ['2','1','2','1'])
         self.assertEqual(self.channel._generation, generation)
         self.assertEqual(self.channel.dispatch({'op': 'status'}), {'agent': 'ready'})
         self.assertEqual(self.channel.dispatch({'op': 'clipboard_get'}), {'text_b64': ''})
@@ -254,13 +271,13 @@ class DirectGuestChannelTest(unittest.TestCase):
     def test_upgraded_agent_is_reprobed_after_ready_on_existing_socket(self):
         received = []
         self.channel.add_desktop_listener(received.append)
-        self.wait_for(lambda: self.agent.subscriptions == ['1'])
+        self.wait_for(lambda: self.agent.subscriptions == ['2','1'])
         self.channel.dispatch({'op': 'status'})
         self.agent.metadata_supported = True
         self.agent.metadata_initial = self.metadata()
         self.agent._reply('READY QSF1')
         self.wait_for(lambda: bool(received))
-        self.assertEqual(self.agent.subscriptions, ['1', '1'])
+        self.assertEqual(self.agent.subscriptions, ['2','1','2','1'])
         self.assertEqual(received[-1]['focus'], 'one')
 
 

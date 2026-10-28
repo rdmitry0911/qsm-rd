@@ -55,7 +55,7 @@ key and limit this hostname to the six listed QSM packages:
     EOF
 
     cat > /etc/apt/preferences.d/qsm-direct.pref <<'EOF'
-    Package: qsm-archive-keyring qsm-pve-direct qsm-pve-direct-standalone qsm-pve-direct-gateway qsm-pve-direct-lxc qsm-console-guest
+    Package: qsm-archive-keyring qsm-pve-direct qsm-pve-direct-standalone qsm-pve-direct-gateway qsm-pve-direct-lxc qsm-console-guest qsm-desktop-agent qsm-qt-input-geometry
     Pin: origin "rdmitry0911.github.io"
     Pin-Priority: 100
 
@@ -123,7 +123,7 @@ removing the console itself; guest display configurations need planned cleanup.
 ## Archive maintenance
 
 The approved release and SHA256 values are committed in releases.json. Only the
-five allowlisted QSM packages and qsm-archive-keyring enter the archive; every
+allowlisted QSM host/guest packages and qsm-archive-keyring enter the archive; every
 download is checked before its package metadata is read. Keep older releases in
 the manifest so clients can still download previously indexed package versions.
 Source, corresponding release archives and validation evidence are public at:

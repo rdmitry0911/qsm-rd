@@ -49,6 +49,7 @@ POLICY_DIR = Path("/etc/qsm-pve-direct/containers.d")
 SLOT_STATE = Path("/run/qsm-pve-direct-terminal/sessions/lxc-slots.json")
 LXC_CONF_DIR = Path("/etc/pve/lxc")
 GUEST_PACKAGE = Path("/usr/share/qsm-pve-direct-lxc/qsm-console-guest.deb")
+QT_GEOMETRY_PACKAGE = Path("/usr/share/qsm-pve-direct-lxc/qsm-qt-input-geometry.deb")
 GPU_MARKER = "# qsm-direct-gpu-passthrough"
 NVIDIA_NODES = ("nvidia0", "nvidiactl", "nvidia-modeset", "nvidia-uvm", "nvidia-uvm-tools")
 
@@ -277,13 +278,16 @@ def remove_legacy_session(vmid: int, uid: int) -> None:
 def install_guest_package(vmid: int, session: str) -> None:
     if not GUEST_PACKAGE.is_file():
         raise SetupError(f"{GUEST_PACKAGE} is missing (is qsm-pve-direct-lxc installed?)")
+    if not QT_GEOMETRY_PACKAGE.is_file():
+        raise SetupError(f"{QT_GEOMETRY_PACKAGE} is missing (reinstall the matching qsm-pve-direct-lxc package)")
     info(f"installing the container console package into CT {vmid}")
     run(["pct", "push", str(vmid), str(GUEST_PACKAGE), "/root/qsm-console-guest.deb", "--perms", "0644"])
+    run(["pct", "push", str(vmid), str(QT_GEOMETRY_PACKAGE), "/root/qsm-qt-input-geometry.deb", "--perms", "0644"])
     ct(vmid, "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && "
              "apt-get install -y -qq --reinstall --no-install-recommends -o Dpkg::Use-Pty=0 "
              "-o Dpkg::Options::=--force-confmiss "
-             "/root/qsm-console-guest.deb kwin-wayland plasma-workspace-wayland; "
-             "rc=$?; rm -f /root/qsm-console-guest.deb; exit $rc", timeout=1800)
+             "/root/qsm-console-guest.deb /root/qsm-qt-input-geometry.deb kwin-wayland plasma-workspace-wayland; "
+             "rc=$?; rm -f /root/qsm-console-guest.deb /root/qsm-qt-input-geometry.deb; exit $rc", timeout=1800)
     push(vmid, session + "\n", "/etc/qsm-direct/session-type")
     # start the consoles this container has (idempotent; running ones stay)
     ct(vmid, "systemctl start qsm-consoles.service; /usr/lib/qsm-console/qsm-consoles", check=False)

@@ -78,9 +78,9 @@
     "Do not mark the objective complete based on tests narrower than the requirements"
   ],
   "checkpoint": {
-    "stage": "video-regions-and-queue",
-    "candidate": "0.4.0+stock4.14~exp57 (private, not release-qualified)",
-    "evidence_directory": "dist/rdp-hybrid/video-feedback-exp57",
+    "stage": "priority-ui",
+    "candidate": "0.4.0+stock4.14~exp60 (private, not release-qualified)",
+    "evidence_directory": "dist/rdp-hybrid/input-geometry-exp60",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -91,7 +91,13 @@
       "Cropped-plane encoder rate fits the shared path budget, with hysteresis and fixed-quality full-desktop fallback",
       "Legacy Gio invocation ownership compatibility and LXC metadata child retry",
       "Motion-adjacent minor updates outside text focus relinquish obsolete exact pixels; unchanged static UI and focused sparse edits keep their previous behavior",
-      "Validated optional presentation acknowledgements, bounded history/credit, robust playout baseline and active recovery from application-limited REMB; idle, shared-viewer and legacy feedback guards retained"
+      "Validated optional presentation acknowledgements, bounded history/credit, robust playout baseline and active recovery from application-limited REMB; idle, shared-viewer and legacy feedback guards retained",
+      "Optional Qt5/Qt6 input-method geometry plugin; no text, titles or input-event contents",
+      "Focused compositor PID/user credentials authenticate the local D-Bus publisher; bounded 1024-byte geometry, sequence, token, size and a 2.5-second lease",
+      "Negotiated version-2 desktop metadata adds a bounded input-component clip; a strict v1 state file and explicit old-agent fallback remain",
+      "Text-priority bounds intersect the input component; actual changed pixels must be confined to it, rather than relying on the tile centre",
+      "Component geometry changes retire old leading layouts; insertion-point changes inside one component retain the layout",
+      "Portable Debian12 Qt5.15/Qt6.4 plugin builds; matching VM/LXC guest packages; architecture-specific Qt deb embedded in the architecture-specific LXC host helper"
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -120,14 +126,18 @@
       "Public 60 fps animation excerpt over TCP8006 at a 2 Mbit/s downlink: exp35 ~15.6 versus exp51 ~54.1 unique source frames/s; median RGB PSNR ~31.0 versus ~32.3 dB; scene-cut minimum remains explicitly tracked",
       "Exp51 overlap typing: 65/70 ms median on fast/2 Mbit/s links, all 65536 exact pixel samples equal, move/close coverage complete with zero mismatches; no-metadata fallback also passes pixels/move/close/input",
       "Installed metadata helper completes 30 minutes under continuous owned video damage on the same PID/session, 18–20 MiB RSS, no new OOM or metadata availability loss; this is not a 30-minute full end-to-end mixed-content soak",
-      "Exp57 real automatic 20-to-2-to-20 Mbit/s TURN/TCP8006 trial: ~55 source frames/s at 2 Mbit/s, full 8000 kbit/s target recovery, zero static-pixel/XOR mismatches in 8180 observations and exactly 15 guest characters; residual peak presentation 573 ms and glyph 712 ms fail the stricter transition gates"
+      "Exp57 real automatic 20-to-2-to-20 Mbit/s TURN/TCP8006 trial: ~55 source frames/s at 2 Mbit/s, full 8000 kbit/s target recovery, zero static-pixel/XOR mismatches in 8180 observations and exactly 15 guest characters; residual peak presentation 573 ms and glyph 712 ms fail the stricter transition gates",
+      "Installed Qt5 and Qt6 component geometry with accessibility disabled on the real Debian13/KWin6 VM: move, resize, same-process noneditable window, lease expiry/resume and metadata-helper restart over the same virtio connection; guest payloads are byte-identical between exp59 and exp60",
+      "Same-application edge reproducer: exp58 has 86 invalid composed marker observations at 30 fps with valid raw video; exp60 has zero at 30/60 fps, retires the layout when the field moves, preserves it for caret-only movement, and removes all old-field overlays from exposed video",
+      "Exp60 real 20-to-2-to-20 Mbit/s TURN/TCP8006 run: all 15 glyphs in metadata mode 3, median 75 ms / peak 547 ms, 8192 static observations with zero mismatches/uncovered pixels/XOR errors; residual video gap 566 ms and source age 1168 ms remain unqualified",
+      "Private signed archive accepts all seven guest-enabled packages; real APT downloads eight packages including a temporary test keyring and rejects modified signed metadata and debs; historical release-manifest compatibility tests pass"
     ],
     "pending": [
-      "Remove residual transition peaks (488 ms excess presentation age, 712 ms fallback glyph), measure clocked full source-to-composed-frame age and qualify early UI under the same real bandwidth transition; do not accept the passing weak pilot checks as completion",
+      "Remove residual automatic-transition peaks: exp60 566 ms video gap, 1168 ms full source age, 547 ms priority glyph; retain strict latency/pixel/fidelity gates",
+      "Qualify automatic native Plasma login/environment inheritance of the new Qt5/Qt6 provider, additional applications and full component-aware overlap/lifecycle scenarios",
       "Evaluate first-frame quality at hard video cuts, actual adaptive-feedback recovery and real packet loss before enabling the cropped plane by default",
       "Qualify cropped-video fidelity and consistent fast-link cadence; real adaptive feedback/loss and longer resource runs remain required before default enablement",
       "Expanded mixed-content acceptance: normal accessibility defaults, cropped video, real loss and longer runs",
-      "Resolve native Qt5 AT-SPI startup/registration failure on Ubuntu and Debian; ordinary pixel fallback is verified, but native Qt5 text priority is not qualified",
       "Accessibility under normal session defaults and explicit no-accessibility/old-agent fallback",
       "Complete priority UI qualification for typing over video and moving/resizing/scrolling/closing windows",
       "Remaining video queue, qualification, comparison and release stages"
@@ -144,9 +154,10 @@
       "dist/rdp-hybrid/native-lxc-exp48",
       "dist/rdp-hybrid/video-budget-exp50",
       "dist/rdp-hybrid/source-fidelity-exp51",
-      "dist/rdp-hybrid/video-feedback-exp57"
+      "dist/rdp-hybrid/video-feedback-exp57",
+      "dist/rdp-hybrid/input-geometry-exp60"
     ],
-    "next_action": "Measure full source-to-composed-frame age and reduce remaining transition peaks without FIFO/IDR stalls; finish native Qt5 caret/early-UI qualification, then Intel codecs, real loss/long mixed runs, browser/RDP comparison and release gates",
+    "next_action": "Reduce actual bandwidth-transition output backlog using the clocked decomposition, qualify automatic Qt provider startup and full component-aware overlap scenarios, then complete codec/loss/soak/browser/RDP and release gates",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -202,12 +213,12 @@
     "next_steps": [
       {
         "id": "video-regions-and-queue",
-        "action": "Finish residual transition latency and qualify automatic control under sustained narrow bandwidth, hard cuts and real loss",
+        "action": "Bound full source-to-composed age during automatic bandwidth changes; investigate earlier receiver feedback without weakening quality or latency gates",
         "gate": "Preserve the exp57 cadence/recovery/static-pixel gains while passing the remaining presentation/input peaks; include source-to-composed-frame age, not only last-RTP-to-callback age"
       },
       {
         "id": "guest-metadata",
-        "action": "Finish normal-session window/focus/caret hints in VM and LXC, including native Qt5 accessibility and unavailable/old-agent fallback",
+        "action": "Qualify automatic normal-session Qt input-component geometry in VM/LXC and supported accessibility/fallback applications",
         "gate": "Verify real application startup, focus, window movement, login/logout, locking and helper recovery without changing the user session"
       },
       {
@@ -300,7 +311,8 @@
       "max_visible_glyph_ms": 712,
       "scope": "Private owned LXC108/KWin5, NVENC H264, Linux Firefox, actual packaged viewer and extracted host worker; TURN over one forwarded TCP8006",
       "metadata": "Mode 1 (layout only); native Qt5 caret-priority gap remains. This is not an early-UI acceptance run."
-    }
+    },
+    "qt_input_geometry": "docs/rdp-qt-input-geometry-20261028.json"
   },
   "deployment_nodes": [
     "192.168.64.20",

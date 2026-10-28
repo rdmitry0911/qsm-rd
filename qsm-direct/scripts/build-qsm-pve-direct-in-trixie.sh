@@ -15,7 +15,7 @@ readonly PVE_KEY_SHA256='1bcd2d5bab556076c9ea756a84fe2b7445b13f4ef6e97b2e412b687
 
 die() { echo "qsm direct Trixie driver: $*" >&2; exit 1; }
 [[ "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] || die "QSM_DIRECT_DEB_JOBS must be positive"
-for command in sudo debootstrap tar mktemp curl sha256sum install find; do
+for command in sudo debootstrap tar mktemp curl sha256sum install find dpkg-deb; do
     command -v "$command" >/dev/null 2>&1 || die "missing command: $command"
 done
 sudo -n true || die "passwordless sudo is required"
@@ -34,9 +34,15 @@ project_version="$(sed -n 's/^project(qsm_direct VERSION \([^ ]*\).*/\1/p' "$ROO
 build_number="$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || printf 0)"
 version="${QSM_DIRECT_DEB_VERSION:-${project_version}+git${build_number}.direct}"
 dpkg --validate-version "$version" >/dev/null 2>&1 || die "invalid Debian version"
+qt_geometry="${QSM_QT_GEOMETRY_DEB:-$OUTPUT_DIR/qsm-qt-input-geometry_${version}_amd64.deb}"
+[[ -f "$qt_geometry" ]] || die "build the portable Qt guest package first and set QSM_QT_GEOMETRY_DEB (see docs/desktop-metadata.md)"
+[[ "$(dpkg-deb -f "$qt_geometry" Package)" = qsm-qt-input-geometry &&
+   "$(dpkg-deb -f "$qt_geometry" Version)" = "$version" &&
+   "$(dpkg-deb -f "$qt_geometry" Architecture)" = amd64 ]] || die "Qt guest package does not match this build"
 
 sudo debootstrap --variant=minbase --arch=amd64 trixie "$CHROOT_DIR" "$MIRROR"
 sudo install -d -m 0755 "$CHROOT_DIR/work/source" "$CHROOT_DIR/work/out" "$CHROOT_DIR/work/build"
+sudo install -m 0644 "$qt_geometry" "$CHROOT_DIR/work/out/qsm-qt-input-geometry_${version}_amd64.deb"
 curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --output "$PVE_KEY" "$PVE_KEY_URL"
 [[ "$(sha256sum "$PVE_KEY" | awk '{print $1}')" == "$PVE_KEY_SHA256" ]] || die "PVE release key digest mismatch"
 sudo install -D -m 0644 "$PVE_KEY" "$CHROOT_DIR/usr/share/keyrings/proxmox-release-trixie.gpg"
@@ -44,7 +50,7 @@ sudo install -D -m 0644 "$ROOT_DIR/scripts/proxmox-pve9-no-subscription.sources"
     "$CHROOT_DIR/etc/apt/sources.list.d/qsm-direct-pve9.sources"
 
 tar --create --file "$SOURCE_ARCHIVE" --exclude-vcs --directory "$ROOT_DIR" \
-    CMakeLists.txt LICENSE src tools protocols packaging/debian packaging/lxc packaging/webrtc-viewer extensions/browser_bridge extensions/direct_guest extensions/direct_terminal extensions/signal \
+    CMakeLists.txt LICENSE src tools protocols guest packaging/guest packaging/debian packaging/lxc packaging/webrtc-viewer extensions/browser_bridge extensions/direct_guest extensions/direct_terminal extensions/signal \
     integration/proxmox/pve9/direct_ui \
     lab/proxmox9/qualify-qsm-direct-worker-media-e2e.py \
     scripts/proxmox-pve9-no-subscription.sources
@@ -60,20 +66,24 @@ sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive /bin/bash 
 '
 sudo chroot "$CHROOT_DIR" /usr/bin/env \
     QSM_DIRECT_DEB_OUTPUT_DIR=/work/out QSM_DIRECT_DEB_WORK_ROOT=/work/build QSM_DIRECT_DEB_JOBS="$BUILD_JOBS" \
-    QSM_DIRECT_DEB_VERSION="$version" /bin/bash -ec '
+    QSM_DIRECT_DEB_VERSION="$version" QSM_DESKTOP_DEB_VERSION="$version" \
+    QSM_DESKTOP_DEB_OUTPUT_DIR=/work/out /bin/bash -ec '
       cd /work/source
       ./packaging/debian/build-qsm-pve-direct-deb.sh
       bash ./packaging/debian/build-qsm-pve-direct-lxc-deb.sh
+      bash ./packaging/guest/build-qsm-desktop-agent-deb.sh
     '
 
 mapfile -t artifacts < <(find "$CHROOT_DIR/work/out" -maxdepth 1 -type f -name 'qsm-pve-direct_*_amd64.deb' -print | sort)
 [[ "${#artifacts[@]}" -eq 1 ]] || die "expected one direct package artifact"
 artifact_in_chroot="${artifacts[0]#"$CHROOT_DIR"}"
-lxc_in_chroot="/work/out/qsm-pve-direct-lxc_${version}_all.deb"
+lxc_in_chroot="/work/out/qsm-pve-direct-lxc_${version}_amd64.deb"
 # Keep the artifacts before the smoke test, so a failing test still leaves them.
 mkdir -p "$OUTPUT_DIR"
 for built in "$CHROOT_DIR"/work/out/qsm-pve-direct_"$version"_amd64.deb \
-             "$CHROOT_DIR"/work/out/qsm-pve-direct-lxc_"$version"_all.deb \
+             "$CHROOT_DIR"/work/out/qsm-pve-direct-lxc_"$version"_amd64.deb \
+             "$CHROOT_DIR"/work/out/qsm-desktop-agent_"$version"_amd64.deb \
+             "$CHROOT_DIR"/work/out/qsm-qt-input-geometry_"$version"_amd64.deb \
              "$CHROOT_DIR"/work/out/qsm-console-guest_"$version"_all.deb; do
     [[ -f "$built" ]] || die "missing artifact: $built"
     sudo install -m 0644 "$built" "$OUTPUT_DIR/$(basename "$built")"
@@ -82,6 +92,7 @@ done
 sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive /bin/bash -ec \
     "apt-get -o Dpkg::Use-Pty=0 install -y --no-install-recommends '$artifact_in_chroot' '$lxc_in_chroot' && \\
      test -x /usr/sbin/qsm-pve-direct-lxc && test -f /usr/share/qsm-pve-direct-lxc/qsm-console-guest.deb && \\
+     test -f /usr/share/qsm-pve-direct-lxc/qsm-qt-input-geometry.deb && \\
      test -f /usr/share/pve-webrtc-console/index.html.tpl && \\
      test -x /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker && \\
      test -x /usr/bin/qsm-pve-direct-terminal && \\
@@ -92,6 +103,7 @@ sudo chroot "$CHROOT_DIR" /usr/bin/env DEBIAN_FRONTEND=noninteractive /bin/bash 
      python3 /work/source/lab/proxmox9/qualify-qsm-direct-worker-media-e2e.py \\
        --worker /usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker --fake-qemu /work/e2e/qmdp-fake-qemu"
 name="$(basename "${artifacts[0]}")"
-(cd "$OUTPUT_DIR" && sha256sum "$name" "qsm-pve-direct-lxc_${version}_all.deb" \
-    "qsm-console-guest_${version}_all.deb" | tee "$name.sha256")
+(cd "$OUTPUT_DIR" && sha256sum "$name" "qsm-pve-direct-lxc_${version}_amd64.deb" \
+    "qsm-console-guest_${version}_all.deb" "qsm-desktop-agent_${version}_amd64.deb" \
+    "qsm-qt-input-geometry_${version}_amd64.deb" | tee "$name.sha256")
 echo "QSM_DIRECT_TRIXIE_BUILD_AND_INSTALL_OK artifact=$OUTPUT_DIR/$name chroot=$CHROOT_DIR"

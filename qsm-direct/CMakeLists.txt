@@ -268,6 +268,18 @@ if(BUILD_TESTING)
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_qsm_desktop_metadata.py -v)
         set_tests_properties(qsm_desktop_metadata PROPERTIES TIMEOUT 20)
+        add_test(NAME qsm_qt_input_geometry
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_qt_input_geometry.py -v)
+        set_tests_properties(qsm_qt_input_geometry PROPERTIES TIMEOUT 20)
+        add_test(NAME qsm_lxc_guest_packages
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_lxc_guest_packages.py -v)
+        set_tests_properties(qsm_lxc_guest_packages PROPERTIES TIMEOUT 20)
+        add_test(NAME qsm_apt_guest_manifest
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_apt_guest_manifest.py)
+        set_tests_properties(qsm_apt_guest_manifest PROPERTIES TIMEOUT 20)
         add_test(NAME qsm_desktop_priority
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_qsm_desktop_priority.py -v)

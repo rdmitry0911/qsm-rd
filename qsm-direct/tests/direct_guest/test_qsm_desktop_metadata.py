@@ -79,6 +79,18 @@ class DesktopMetadataTest(unittest.TestCase):
         self.assertGreater(after['generation'], before['generation'])
         self.assertIsNone(after['caret'])
 
+    def test_input_clip_is_bounded_and_legacy_snapshots_use_pixel_fallback(self):
+        self.state.caret_available = True
+        self.state.set_caret(42, [35,50,1,18], clip=[30,40,200,60])
+        value = self.state.snapshot(version=2)
+        self.assertEqual(value['caret']['clip'], [30,40,200,60])
+        self.assertIsNone(self.state.snapshot()['caret'])
+        for clip in ([36,40,200,60], [30,40,500,60], [30,40,0,60]):
+            invalid = copy.deepcopy(value); invalid['caret']['clip'] = clip
+            with self.assertRaises(DesktopMetadataError): validate_metadata(invalid)
+        invalid = copy.deepcopy(value); invalid['version'] = 1
+        with self.assertRaises(DesktopMetadataError): validate_metadata(invalid)
+
     def test_wayland_caret_coordinates_follow_the_window_client_origin(self):
         changed = copy.deepcopy(self.layout)
         changed['windows'][0]['client_rect'] = [22, 66, 496, 362]

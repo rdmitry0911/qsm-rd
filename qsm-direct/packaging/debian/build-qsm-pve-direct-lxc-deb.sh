@@ -15,10 +15,16 @@ project_version="$(sed -n 's/^project(qsm_direct VERSION \([^ ]*\).*/\1/p' "$ROO
 git_build_number="$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || printf 0)"
 package_version="${QSM_DIRECT_DEB_VERSION:-${project_version}+git${git_build_number}.direct}"
 export QSM_DIRECT_DEB_VERSION="$package_version" QSM_DIRECT_DEB_OUTPUT_DIR="$OUTPUT_DIR"
+architecture="$(dpkg --print-architecture)"
 
 bash "$ROOT_DIR/packaging/lxc/build-qsm-console-guest-deb.sh" >/dev/null
 guest="$OUTPUT_DIR/qsm-console-guest_${package_version}_all.deb"
 [[ -f "$guest" ]] || die "the container package was not built"
+qt_geometry="${QSM_QT_GEOMETRY_DEB:-$OUTPUT_DIR/qsm-qt-input-geometry_${package_version}_${architecture}.deb}"
+[[ -f "$qt_geometry" ]] || die "build the matching qsm-qt-input-geometry guest package first (or set QSM_QT_GEOMETRY_DEB)"
+[[ "$(dpkg-deb -f "$qt_geometry" Package)" = qsm-qt-input-geometry &&
+   "$(dpkg-deb -f "$qt_geometry" Version)" = "$package_version" &&
+   "$(dpkg-deb -f "$qt_geometry" Architecture)" = "$architecture" ]] || die "Qt geometry guest package does not match this build"
 
 package=qsm-pve-direct-lxc
 stage="$(mktemp -d)"
@@ -28,6 +34,7 @@ install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-lxc" "$stage/usr/sbin/qsm-pve-direc
 install -m 0755 "$PACKAGE_DIR/qsm-native-vkms" "$stage/usr/lib/qsm-pve-direct/qsm-native-vkms"
 install -m 0644 "$PACKAGE_DIR/qsm-native-vkms.service" "$stage/usr/lib/systemd/system/qsm-native-vkms.service"
 install -m 0644 "$guest" "$stage/usr/share/$package/qsm-console-guest.deb"
+install -m 0644 "$qt_geometry" "$stage/usr/share/$package/qsm-qt-input-geometry.deb"
 install -m 0644 "$ROOT_DIR/packaging/lxc/guest/README" "$stage/usr/share/doc/$package/README.guest"
 
 install -m 0644 "$ROOT_DIR/packaging/lxc/README.native-sddm" "$stage/usr/share/doc/$package/README.native-sddm"
@@ -53,7 +60,7 @@ Package: $package
 Version: $package_version
 Section: admin
 Priority: optional
-Architecture: all
+Architecture: $architecture
 Maintainer: Dmitry R <rdmitry0911@gmail.com>
 Depends: qsm-pve-direct (= $package_version), pve-container (>= 6.1.13), python3
 Breaks: qsm-pve-direct (<< $package_version)
@@ -66,6 +73,6 @@ Description: QSM Direct graphical console for LXC containers on Proxmox VE
  The container's Console button then offers "QSM Direct".
 EOF
 ( cd "$stage" && find usr -type f -print0 | sort -z | xargs -0 -r md5sum ) > "$stage/DEBIAN/md5sums"
-artifact="$OUTPUT_DIR/${package}_${package_version}_all.deb"
+artifact="$OUTPUT_DIR/${package}_${package_version}_${architecture}.deb"
 dpkg-deb --root-owner-group --build "$stage" "$artifact" >/dev/null
 echo "QSM_PVE_DIRECT_LXC_DEB_BUILD_OK artifact=$artifact guest=$guest"

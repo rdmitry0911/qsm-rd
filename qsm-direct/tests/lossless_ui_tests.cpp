@@ -361,6 +361,22 @@ int main() {
         now+std::chrono::milliseconds(270),8000,sink);
     assert(std::any_of(sent.begin(),sent.end(),[](const auto& p){return p[4]==UI::patch&&u16(p,20)==64;}));
     assert(std::none_of(sent.begin(),sent.end(),[](const auto& p){return p[4]==UI::clear&&u16(p,20)==64;}));
+    // The tile centre can be inside an input clip while its changing video
+    // edge is outside. That edge must relinquish its obsolete exact image.
+    movie_edge.prioritize(UI::Region{64,0,40,64},now+std::chrono::seconds(2));
+    sent.clear();edge_pixels[112*4]^=1;
+    movie_edge.update(std::make_shared<const Bytes>(edge_pixels),192,64,
+        now+std::chrono::milliseconds(280),8000,sink);
+    assert(std::any_of(sent.begin(),sent.end(),[](const auto& p){return p[4]==UI::clear&&u16(p,20)==64;}));
+    // A narrow field may occupy only the edge of a tile. Its actual changed
+    // pixels, rather than the tile centre, establish text priority.
+    UI thin;auto thin_pixels=pixels(64,64);sent.clear();
+    thin.advanced(true);thin.layout(9,true);thin.capture(100);
+    publish_stable(thin,std::make_shared<const Bytes>(thin_pixels),64,64,now,8000,sink);
+    thin.prioritize(UI::Region{0,0,4,64},now+std::chrono::seconds(2));
+    thin_pixels[0]^=1;sent.clear();thin.capture(200);
+    thin.update(std::make_shared<const Bytes>(thin_pixels),64,64,now+std::chrono::milliseconds(20),8000,sink);
+    assert(std::any_of(sent.begin(),sent.end(),[](const auto& p){return p[4]==UI::patch&&(p[5]&2U);}));
     // A layout boundary retires early images in the viewer. Even unchanged
     // pixels need a new fenced image; normal neighbouring tiles stay cached.
     UI layout_refresh; Bytes stable_pair(128U*64U*4U,255);

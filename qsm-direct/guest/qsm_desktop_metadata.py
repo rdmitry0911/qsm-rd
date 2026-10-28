@@ -61,19 +61,25 @@ class DesktopState:
         self.caret = None
         self.caret_available = False
         self.screen_locked = False
+        self.on_layout_changed = None
 
-    def snapshot(self):
+    def snapshot(self, version=1):
         self.sequence += 1
         locked = self.screen_locked or self.layout['locked']
         active = self.layout['available'] and not locked
         caps = ['windows', 'focus', 'window-damage']
         if self.caret_available:
             caps.append('caret')
-        return validate_metadata({'version': 1, 'session': self.session, 'sequence': self.sequence,
+        caret = None
+        if self.caret is not None and active and (version == 2 or self.caret.get('clip') is None):
+            caret = {k: self.caret[k] for k in ('window', 'rect')}
+            if version == 2:
+                caret['clip'] = self.caret.get('clip')
+        return validate_metadata({'version': version, 'session': self.session, 'sequence': self.sequence,
             'generation': self.generation, 'available': self.layout['available'], 'locked': locked,
             'capabilities': caps, 'desktop': self.layout['desktop'],
             'windows': self.layout['windows'] if active else [], 'focus': self.layout['focus'] if active else None,
-            'damage': sorted(self.damage)[:64] if active else [], 'caret': self.caret if active else None})
+            'damage': sorted(self.damage)[:64] if active else [], 'caret': caret})
 
     def set_layout(self, value):
         if not isinstance(value, dict) or set(value) != {'desktop', 'windows', 'focus', 'available', 'locked'}:
@@ -88,6 +94,8 @@ class DesktopState:
         self.generation += 1
         self.damage.clear()
         self.caret = None
+        if self.on_layout_changed is not None:
+            self.on_layout_changed()
         return True
 
     def invalidate(self):
@@ -100,8 +108,10 @@ class DesktopState:
             self.generation += 1
             self.damage.clear()
             self.caret = None
+            if self.on_layout_changed is not None:
+                self.on_layout_changed()
 
-    def set_caret(self, pid, rectangle, *, window_relative=False):
+    def set_caret(self, pid, rectangle, *, window_relative=False, clip=None):
         focus = next((w for w in self.layout['windows'] if w['id'] == self.layout['focus'] and w['visible']), None)
         self.caret = None
         if focus is None or focus['pid'] != pid or self.layout['locked'] or self.screen_locked or not self.layout['available']:
@@ -114,9 +124,12 @@ class DesktopState:
             if cx < 0 or cy < 0 or cx + cw > width or cy + ch > height:
                 raise DesktopMetadataError('caret outside client coordinates')
             rectangle = [x + cx, y + cy, cw, ch]
-        candidate = self.snapshot()
+            if clip is not None:
+                ix, iy, iw, ih = clip
+                clip = [x+ix, y+iy, iw, ih]
+        candidate = self.snapshot(version=2)
         candidate['capabilities'] = sorted(set(candidate['capabilities']) | {'caret'})
-        candidate['caret'] = {'window': focus['id'], 'rect': rectangle}
+        candidate['caret'] = {'window': focus['id'], 'rect': rectangle, 'clip': clip}
         self.caret = validate_metadata(candidate)['caret']
 
 
@@ -128,6 +141,7 @@ def main(argv=None):
     import gi
     gi.require_version('Gio', '2.0')
     from gi.repository import Gio, GLib
+    from qsm_qt_input_geometry import QtInputGeometry
 
     class Bridge:
         def __init__(self):
@@ -177,23 +191,33 @@ def main(argv=None):
             GLib.idle_add(self.install)
             GLib.timeout_add_seconds(1, self.heartbeat)
             self.setup_accessibility()
+            self.qt_geometry = QtInputGeometry(self.bus, self.state, self.schedule)
             self.read_lock()
             self.write()
 
         def write(self):
             self.pending = 0
-            raw = json.dumps(self.state.snapshot(), separators=(',', ':'), ensure_ascii=True).encode()
-            if len(raw) > MAX_METADATA_BYTES:
-                self.state.invalidate()
-                raw = json.dumps(self.state.snapshot(), separators=(',', ':')).encode()
-            fd, filename = tempfile.mkstemp(prefix='.desktop-metadata-', dir=self.directory)
-            temporary = Path(filename)
-            try:
-                with os.fdopen(fd, 'wb') as f:
-                    f.write(raw)
-                os.replace(temporary, self.directory / 'desktop-metadata.json')
-            finally:
-                temporary.unlink(missing_ok=True)
+            # Retain a strict v1 file for already-running/older agents. A v2
+            # subscription selects the additional input-component bounds.
+            value = self.state.snapshot(version=2)
+            for version, name in ((2, 'desktop-metadata-v2.json'), (1, 'desktop-metadata.json')):
+                if version == 1:
+                    value = dict(value, version=1)
+                    if value['caret'] is not None:
+                        value['caret'] = (None if value['caret']['clip'] is not None else
+                            {k:value['caret'][k] for k in ('window','rect')})
+                raw = json.dumps(value, separators=(',', ':'), ensure_ascii=True).encode()
+                if len(raw) > MAX_METADATA_BYTES:
+                    self.state.invalidate()
+                    raw = json.dumps(self.state.snapshot(version=version), separators=(',', ':')).encode()
+                fd, filename = tempfile.mkstemp(prefix='.desktop-metadata-', dir=self.directory)
+                temporary = Path(filename)
+                try:
+                    with os.fdopen(fd, 'wb') as f:
+                        f.write(raw)
+                    os.replace(temporary, self.directory / name)
+                finally:
+                    temporary.unlink(missing_ok=True)
             self.state.damage.clear()
             return False
 
@@ -334,6 +358,9 @@ def main(argv=None):
                 self.atspi = None
 
         def caret_event(self, event, user_data=None):
+            qt_geometry = getattr(self, 'qt_geometry', None)
+            if qt_geometry is not None and qt_geometry.prefer():
+                return
             try:
                 source = event.source
                 if 'state-changed:focused' in event.type and not event.detail1:
@@ -382,6 +409,7 @@ def main(argv=None):
                 self.schedule(True)
 
         def stop(self):
+            self.qt_geometry.close()
             if self.pending:
                 GLib.source_remove(self.pending)
                 self.pending = 0

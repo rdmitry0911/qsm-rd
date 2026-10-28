@@ -122,16 +122,17 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
                 }
             }
         }
-        const bool sparse = previous_ && changed && damage <= sparse_limit &&
-            (now >= t.busy_until || now - t.dense_changed >= settle_delay) && in_focus(x, y, w, h);
+        const bool focused_change = previous_ && changed && damage <= sparse_limit && !outside_focus;
+        const bool sparse = focused_change &&
+            (now >= t.busy_until || now - t.dense_changed >= settle_delay);
         if (changed) {
             if (!t.dirty) { t.dirty_since = now; }
             t.streak = t.changed != Clock::time_point {} && now - t.changed < std::chrono::milliseconds(75)
                 ? t.streak + 1U : 1U;
             t.urgent = static_cast<bool>(previous_);
             t.sparse_dirty = previous_ && damage <= sparse_limit &&
-                ((damage <= minor_limit && !near_motion) || in_focus(x, y, w, h));
-            t.focus_confined = previous_ && damage <= sparse_limit && !outside_focus;
+                ((damage <= minor_limit && !near_motion) || focused_change);
+            t.focus_confined = focused_change;
             if (previous_ && damage > minor_limit && !sparse) {
                 t.dense_streak = t.dense_changed != Clock::time_point {} &&
                     now - t.dense_changed < motion_hold ? t.dense_streak + 1U : 1U;
@@ -166,14 +167,15 @@ void LosslessUi::update(Pixels pixels, std::uint32_t width, std::uint32_t height
             // Refine only a quiet background, never the first two pictures
             // of a moving region. Sparse foreground text/caret changes can
             // replace an existing exact bitmap without a blur/clear cycle.
-            const bool foreground = in_focus(x, y, w, h) && (!previous_ || t.sparse_dirty);
+            const bool foreground = (!previous_ && in_focus(x, y, w, h)) ||
+                (t.sparse_dirty && t.focus_confined);
             if (!foreground && !(t.active && t.sparse_dirty) && now < t.changed + settle_delay) {
                 wake_by(t.changed + settle_delay);
                 continue;
             }
             // A newly typed character has priority over an unfinished idle
             // snapshot, even near the bottom of a large desktop.
-            (in_focus(x, y, w, h) ? interactive : t.urgent ? urgent : background).push_back(i);
+            (foreground ? interactive : t.urgent ? urgent : background).push_back(i);
         }
     }
     region_.reset();

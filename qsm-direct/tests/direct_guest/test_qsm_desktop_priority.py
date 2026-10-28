@@ -44,6 +44,20 @@ class DesktopPriorityTests(unittest.TestCase):
         self.assertEqual(hint[0],3)
         self.assertIsNone(intersection(list(hint[4:]),upper['rect']))
 
+    def test_same_application_video_cannot_enter_the_input_clip(self):
+        self.value['version'] = 2
+        self.value['caret']['clip'] = [390,290,30,40]
+        hint = self.read(self.value)
+        self.assertEqual(hint[0],3)
+        self.assertEqual(list(hint[4:]),[390,290,30,40])
+        self.assertIsNone(intersection(list(hint[4:]),[420,290,400,300]))
+        # Moving the insertion point within one field keeps its scene, while
+        # switching/resizing the input component retires old leading images.
+        self.value['caret']['rect'][0] += 1
+        self.assertEqual(self.read(self.value)[1],hint[1])
+        self.value['caret']['clip'][2] += 1
+        self.assertNotEqual(self.read(self.value)[1],hint[1])
+
     def test_transparency_unknown_client_and_missing_caret_retain_pixel_fallback(self):
         for mutation in ['opacity','client_rect','caret']:
             value=copy.deepcopy(self.value)

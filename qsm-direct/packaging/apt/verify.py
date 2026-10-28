@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import tempfile
 
-from publish import HERE, PACKAGES
+from publish import HERE, validate_manifest
 
 
 def apt_environment(root, uri, key, preferences=""):
@@ -49,6 +49,7 @@ def command(env, *args, cwd=None, must_pass=True):
 
 def main(site, url):
     manifest = json.loads((site / "approved-releases.json").read_text())
+    validate_manifest(manifest)
     key = (site / "qsm-archive-keyring.gpg").resolve()
     release = email.parser.Parser().parsestr((site / "dists/trixie/Release").read_text())
     expires = email.utils.parsedate_to_datetime(release["Valid-Until"])
@@ -77,9 +78,10 @@ def main(site, url):
             raise RuntimeError("missing package download")
         print(f"PASS: real APT download and SHA256 verification of all {len(expected) + 1} packages")
         names = command(env, "apt-cache", "pkgnames").stdout.splitlines()
-        if set(names) != set(PACKAGES) | {"qsm-archive-keyring"}:
+        allowed = {asset['package'] for item in manifest['releases'] for asset in item['assets']}
+        if set(names) != allowed | {"qsm-archive-keyring"}:
             raise RuntimeError(f"unexpected archive packages: {names}")
-        print("PASS: only six allowlisted QSM packages, no Proxmox replacements")
+        print(f"PASS: only {len(allowed)+1} allowlisted QSM packages, no Proxmox replacements")
 
         changed = root / "changed"
         shutil.copytree(site, changed)

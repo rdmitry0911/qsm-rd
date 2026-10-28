@@ -51,7 +51,8 @@ def _rect(value: Any) -> list[int]:
 def validate_metadata(value: Any) -> dict[str, Any]:
     fields = {"version", "session", "sequence", "generation", "available", "locked",
               "capabilities", "desktop", "windows", "focus", "damage", "caret"}
-    if not isinstance(value, dict) or set(value) != fields or value["version"] != 1 or type(value["version"]) is not int:
+    if (not isinstance(value, dict) or set(value) != fields or
+            type(value["version"]) is not int or value["version"] not in (1, 2)):
         raise DesktopMetadataError("unsupported desktop metadata")
     session = _identity(value["session"])
     sequence = _integer(value["sequence"], 1, MAX_SEQUENCE)
@@ -101,20 +102,27 @@ def validate_metadata(value: Any) -> dict[str, Any]:
         raise DesktopMetadataError("invalid desktop damage")
     caret = value["caret"]
     if caret is not None:
-        if not isinstance(caret, dict) or set(caret) != {"window", "rect"} or caret["window"] != focus or focus is None:
+        caret_fields = {"window", "rect", "clip"} if value['version'] == 2 else {"window", "rect"}
+        if not isinstance(caret, dict) or set(caret) != caret_fields or caret["window"] != focus or focus is None:
             raise DesktopMetadataError("invalid desktop caret")
-        caret = {"window": focus, "rect": _rect(caret["rect"])}
+        caret = {"window": focus, "rect": _rect(caret["rect"]),
+                 **({'clip': None if caret['clip'] is None else _rect(caret['clip'])} if value['version'] == 2 else {})}
         win = next(w for w in parsed if w["id"] == focus)
         x, y, width, height = win['client_rect'] or win['rect']
         cx, cy, cw, ch = caret["rect"]
         if not win["visible"] or cx < x or cy < y or cx + cw > x + width or cy + ch > y + height:
             raise DesktopMetadataError("caret outside focused window")
+        if value['version'] == 2 and caret['clip'] is not None:
+            ix, iy, iw, ih = caret['clip']
+            if (not iw or not ih or ix < x or iy < y or ix+iw > x+width or iy+ih > y+height or
+                    cx < ix or cy < iy or cx+cw > ix+iw or cy+ch > iy+ih):
+                raise DesktopMetadataError('caret outside input clip')
     if not value["available"] or value["locked"]:
         if parsed or focus is not None or damage or caret is not None:
             raise DesktopMetadataError("inactive desktop exposes live state")
     if caret is not None and "caret" not in caps:
         raise DesktopMetadataError("unadvertised caret metadata")
-    return {"version": 1, "session": session, "sequence": sequence, "generation": generation,
+    return {"version": value['version'], "session": session, "sequence": sequence, "generation": generation,
             "available": value["available"], "locked": value["locked"], "capabilities": sorted(caps),
             "desktop": output, "windows": parsed, "focus": focus, "damage": damage, "caret": caret}
 

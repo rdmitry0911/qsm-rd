@@ -23,12 +23,15 @@ from urllib.request import urlopen
 
 HERE = Path(__file__).resolve().parent
 PACKAGES = {
-    "qsm-pve-direct": "amd64",
-    "qsm-pve-direct-standalone": "all",
-    "qsm-pve-direct-gateway": "all",
-    "qsm-pve-direct-lxc": "all",
-    "qsm-console-guest": "all",
+    "qsm-pve-direct": ("amd64",),
+    "qsm-pve-direct-standalone": ("all",),
+    "qsm-pve-direct-gateway": ("all",),
+    "qsm-pve-direct-lxc": ("all", "amd64"),
+    "qsm-console-guest": ("all",),
+    "qsm-desktop-agent": ("amd64",),
+    "qsm-qt-input-geometry": ("amd64",),
 }
+LEGACY_PACKAGES = set(PACKAGES) - {"qsm-desktop-agent", "qsm-qt-input-geometry"}
 
 
 def run(*args, **kwargs):
@@ -52,16 +55,19 @@ def validate_manifest(manifest):
             raise ValueError("unsafe release tag")
         if not re.fullmatch(r"[0-9a-f]{40}", release["source_commit"]):
             raise ValueError("invalid source commit")
-        if {a["package"] for a in release["assets"]} != set(PACKAGES):
-            raise ValueError("a release must contain exactly the five QSM packages")
-        if len(release["assets"]) != len(PACKAGES):
+        names = {a["package"] for a in release["assets"]}
+        if names != LEGACY_PACKAGES and names != set(PACKAGES):
+            raise ValueError("a release must contain the legacy packages or the complete guest-enabled set")
+        if len(release["assets"]) != len(names):
             raise ValueError("duplicate package")
         if len({a["version"] for a in release["assets"]}) != 1:
             raise ValueError("QSM packages must have matching versions")
         for asset in release["assets"]:
             name, version, arch = (asset[k] for k in ("package", "version", "architecture"))
-            if arch != PACKAGES[name] or not re.fullmatch(r"[0-9][0-9A-Za-z.+~:-]*", version):
+            if arch not in PACKAGES[name] or not re.fullmatch(r"[0-9][0-9A-Za-z.+~:-]*", version):
                 raise ValueError("unexpected architecture or version")
+            if names == set(PACKAGES) and name == 'qsm-pve-direct-lxc' and arch != 'amd64':
+                raise ValueError('guest-enabled LXC helper contains architecture-specific payloads')
             if asset["filename"] != f"{name}_{version}_{arch}.deb" or ":" in version:
                 raise ValueError("unsafe package filename")
             if asset["filename"] in seen:

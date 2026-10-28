@@ -36,7 +36,8 @@ class DesktopPriority:
             return self.update(None)
         identity = (value['session'], value['generation'], tuple(desktop), value['desktop']['scale'], value['focus'],
                     tuple((w['id'], w['pid'], tuple(w['rect']), tuple(w['client_rect']) if w['client_rect'] else None,
-                           w['visible'], w['opacity']) for w in value['windows']))
+                           w['visible'], w['opacity']) for w in value['windows']),
+                    tuple(value['caret']['clip']) if value['caret'] and value['caret'].get('clip') is not None else None)
         if identity != self._identity:
             self._layout += 1
             self._identity = identity
@@ -50,6 +51,8 @@ class DesktopPriority:
             if focus['visible'] and focus['opacity'] == 1 and focus['client_rect'] is not None:
                 x, y, w, h = caret['rect']
                 area = intersection([x - 256, y - 128, w + 768, h + 256], focus['client_rect'])
+                if area and caret.get('clip') is not None:
+                    area = intersection(area, caret['clip'])
                 area = intersection(area, desktop) if area else None
                 for upper in windows[index + 1:]:
                     if area is None:

@@ -127,7 +127,12 @@ class QsmGuestChannel:
                             agent_revision = self._agent_revision
                     if probe:
                         try:
-                            self._request('DESKTOP_SUBSCRIBE 1', 'OK DESKTOP_SUBSCRIBE')
+                            try:
+                                self._request('DESKTOP_SUBSCRIBE 2', 'OK DESKTOP_SUBSCRIBE')
+                            except GuestChannelError as error:
+                                if str(error) != 'guest agent rejected the operation':
+                                    raise
+                                self._request('DESKTOP_SUBSCRIBE 1', 'OK DESKTOP_SUBSCRIBE')
                         except GuestChannelError:
                             # Old agents reject this optional command. Retry
                             # only after reconnect/READY, preserving clipboard.

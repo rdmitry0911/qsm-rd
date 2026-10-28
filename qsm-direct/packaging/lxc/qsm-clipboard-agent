@@ -82,6 +82,7 @@ class Agent(QObject):
         self.generation = 0
         self.last_text: str | None = None
         self.desktop_subscribed = False
+        self.desktop_version = 1
         self.desktop_last: bytes | None = None
         self.desktop_dir = Path(path).parent / 'desktop'
         self.desktop_dir.mkdir(mode=0o700, exist_ok=True)
@@ -181,8 +182,9 @@ class Agent(QObject):
         debug(f"command {line[:24]!r}")
         if line == "PING":
             self.send("OK PONG")
-        elif line in ('DESKTOP_SUBSCRIBE 0', 'DESKTOP_SUBSCRIBE 1'):
-            self.desktop_subscribed = line.endswith('1')
+        elif line in ('DESKTOP_SUBSCRIBE 0', 'DESKTOP_SUBSCRIBE 1', 'DESKTOP_SUBSCRIBE 2'):
+            self.desktop_version = int(line[-1])
+            self.desktop_subscribed = self.desktop_version != 0
             self.desktop_last = None
             self.send('OK DESKTOP_SUBSCRIBE')
             if self.desktop_subscribed:
@@ -211,7 +213,8 @@ class Agent(QObject):
     def publish_desktop(self, force=False) -> None:
         if not self.desktop_subscribed or self.client is None or self.client.bytesToWrite() > 128 * 1024:
             return
-        raw = read_metadata_file(self.desktop_dir / 'desktop-metadata.json')
+        name = 'desktop-metadata-v2.json' if self.desktop_version == 2 else 'desktop-metadata.json'
+        raw = read_metadata_file(self.desktop_dir / name)
         if force or raw != self.desktop_last:
             self.desktop_last = raw
             self.send('EVENT_DESKTOP ' + (base64.b64encode(raw).decode('ascii') if raw is not None else '-'))
