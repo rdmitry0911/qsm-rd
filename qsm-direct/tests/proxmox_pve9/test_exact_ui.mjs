@@ -10,15 +10,17 @@ assert.ok(begin > 0 && end > begin);
 const sandbox = vm.createContext({ ArrayBuffer, DataView, Uint8Array, Map, Error, Number, queueMicrotask });
 const regionBegin = source.indexOf('    class VideoRegionRenderer {');
 vm.runInContext(source.slice(regionBegin, end) + '\nglobalThis.Renderer = ExactUiRenderer; globalThis.Region = VideoRegionRenderer; globalThis.Compositor = ExactUiCompositor;', sandbox);
-const record = (op, { epoch = 1, serial = 1, width = 64, height = 64, x = 0, y = 0, w = 0, h = 0, pixels, encoding = 0, capture = 0 } = {}) => {
+const record = (op, { epoch = 1, serial = 1, width = 64, height = 64, x = 0, y = 0, w = 0, h = 0, pixels, encoding = 0, capture = 0, layout = null, early = false } = {}) => {
     const data = pixels ? zlib.deflateSync(pixels) : new Uint8Array();
-    const buffer = new ArrayBuffer(28 + (capture ? 8 : 0) + data.length), view = new DataView(buffer);
+    const stamp = layout !== null ? 16 : capture ? 8 : 0;
+    const buffer = new ArrayBuffer(28 + stamp + data.length), view = new DataView(buffer);
     view.setUint32(0, 0x51554931); view.setUint8(4, op);
-    view.setUint8(5, encoding);
-    if (capture) { view.setUint16(6, 8); view.setUint32(28, Math.floor(capture / 4294967296)); view.setUint32(32, capture >>> 0); }
+    view.setUint8(5, encoding | (early ? 2 : 0));
+    if (stamp) { view.setUint16(6, stamp); view.setUint32(28, Math.floor(capture / 4294967296)); view.setUint32(32, capture >>> 0); }
+    if (layout !== null) { view.setUint32(36,Math.floor(layout / 4294967296));view.setUint32(40,layout >>> 0); }
     view.setUint32(8, epoch); view.setUint32(12, serial);
     for (const [i, value] of [width, height, x, y, w, h].entries()) { view.setUint16(16 + 2 * i, value); }
-    new Uint8Array(buffer, 28 + (capture ? 8 : 0)).set(data); return buffer;
+    new Uint8Array(buffer, 28 + stamp).set(data); return buffer;
 };
 const regionDraws = [], regionAcks = [];
 const regionCanvas = { width: 0, height: 0, style: {}, getContext: () => ({ drawImage: (...args) => regionDraws.push(args.slice(1)) }) };
@@ -260,3 +262,42 @@ r.configure(true); await r.receive(record(1, { width: 16384, height: 16384 }));
 assert.equal(r.enabled, false); assert.equal(errors.length, 1);
 assert.equal(clears.length, 1);
 console.log('QSM_EXACT_UI_RENDERER_OK');
+
+// A small edit inside an established layout can lead a delayed video. A
+// fresh tile, dense repaint or changed layout must still wait for its base.
+const priorityPaints=[], priorityClears=[], priorityErrors=[];
+const priorityCanvas={width:0,height:0,style:{},getContext:()=>({
+ createImageData:(w,h)=>({data:new Uint8Array(w*h*4)}),
+ putImageData:image=>priorityPaints.push(new Uint8Array(image.data)),
+ clearRect:(...a)=>priorityClears.push(a)})};
+const priority=new sandbox.Renderer(priorityCanvas,data=>Promise.resolve(zlib.inflateSync(data)),e=>priorityErrors.push(e));
+priority.configure(true);
+const white=new Uint8Array(64*64*4).fill(255), one=new Uint8Array(white);one[0]=0;
+await priority.receive(record(1,{capture:100,layout:7}));
+await priority.receive(record(2,{serial:2,w:64,h:64,pixels:white,capture:100,layout:7,early:true}));
+assert.equal(priorityPaints.length,0,'new tiles never lead video');
+priority.mapVideoFrame(1,100);priority.videoFrame(1);
+assert.equal(priorityPaints.length,1);
+await priority.receive(record(2,{serial:3,w:64,h:64,pixels:one,capture:200,layout:7,early:true}));
+assert.equal(priority.videoCapture,100);assert.equal(priorityPaints.length,2,'small edit paints before unrelated future video');
+const dense=new Uint8Array(white);dense.fill(20);
+for(let i=3;i<dense.length;i+=4)dense[i]=255;
+await priority.receive(record(2,{serial:4,w:64,h:64,pixels:dense,capture:300,layout:7,early:true}));
+assert.equal(priorityPaints.length,2,'dense repaint remains capture-fenced even if producer marks it early');
+await priority.receive(record(5,{serial:5,capture:300,layout:8}));
+assert.equal(priorityClears.length,0,'old early tile is retained until a corresponding base exists');
+priority.mapVideoFrame(2,300);priority.videoFrame(2);
+assert.equal(priorityClears.length,1,'changed layout retires old early pixels at its capture boundary');
+assert.equal(priorityPaints.length,2,'queued old-layout image cannot resurrect after the new base');
+await priority.receive(record(2,{serial:6,w:64,h:64,pixels:white,capture:400,layout:8,early:true}));
+assert.equal(priorityPaints.length,2,'first image in a new layout waits for video');
+priority.mapVideoFrame(3,400);priority.videoFrame(3);
+await priority.receive(record(2,{serial:7,w:64,h:64,pixels:one,capture:500,layout:8,early:true}));
+assert.equal(priorityPaints.length,4);
+await priority.receive(record(5,{serial:8,capture:500,layout:0}));
+const two=new Uint8Array(one);two[4]=0;
+await priority.receive(record(2,{serial:9,w:64,h:64,pixels:two,capture:600,layout:8,early:true}));
+assert.equal(priorityPaints.length,4,'revoked metadata cannot authorize another early patch');
+priority.mapVideoFrame(4,500);priority.videoFrame(4);
+assert.equal(priorityClears.length,2);
+assert.deepEqual(priorityErrors,[]);

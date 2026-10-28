@@ -287,6 +287,74 @@ int main() {
         if (n >= 2) { assert(slow_scroll.motion_region()); }
     }
     assert(slow_scroll.stats().patches == 2); // initial and the first quiet interval only
+    // Advanced peers may receive a small edit early, but first snapshots,
+    // unknown layouts and dense motion retain ordinary capture fences.
+    UI advanced; auto text = pixels(64,64); sent.clear();
+    advanced.advanced(true); advanced.layout(42,true); advanced.capture(100);
+    advanced.prioritize(UI::Region{0,0,64,64},now+std::chrono::seconds(10));
+    publish_stable(advanced,std::make_shared<const Bytes>(text),64,64,now,8000,sink);
+    assert(sent.front()[7]==16);
+    for(const auto& p:sent) { assert(!(p[5]&2U)); }
+    text[0]=33; sent.clear(); advanced.capture(200);
+    advanced.update(std::make_shared<const Bytes>(text),64,64,now+std::chrono::milliseconds(20),8000,sink);
+    assert(sent.size()==1 && sent[0][4]==UI::patch && (sent[0][5]&2U));
+    advanced.prioritize(UI::Region{16,0,48,64},now+std::chrono::seconds(10));
+    text[32*4]=55; sent.clear(); advanced.capture(210);
+    advanced.update(std::make_shared<const Bytes>(text),64,64,now+std::chrono::milliseconds(25),8000,sink);
+    assert(sent.size()==1 && (sent[0][5]&2U)); // unchanged pixels may be outside the focus
+    text[4]=56; sent.clear(); advanced.capture(220);
+    advanced.update(std::make_shared<const Bytes>(text),64,64,now+std::chrono::milliseconds(30),8000,sink);
+    assert(sent.size()==1 && !(sent[0][5]&2U)); // a changed pixel outside it cannot lead video
+    advanced.layout(0,false); advanced.capture(300); text[4]=34; sent.clear();
+    advanced.update(std::make_shared<const Bytes>(text),64,64,now+std::chrono::milliseconds(40),8000,sink);
+    assert(sent.front()[4]==UI::scene && sent.front()[7]==16);
+    for(const auto& p:sent) { assert(!(p[5]&2U)); }
+    // An old displayed tile gets a fresh, bounded grace period for a new
+    // small edit. Its publication age must not cause an immediate clear
+    // merely because background refinement spent the current byte credit.
+    UI refill; Bytes budget_noise(128U*64U*4U,255); std::mt19937 budget_random(41);
+    for(std::size_t i=0;i<budget_noise.size();i+=4) {
+        const auto g=static_cast<std::uint8_t>(budget_random());budget_noise[i]=budget_noise[i+1]=budget_noise[i+2]=g;
+    }
+    refill.advanced(true);refill.layout(11,true);refill.capture(100);sent.clear();
+    publish_stable(refill,std::make_shared<const Bytes>(budget_noise),128,64,now,500,sink);
+    assert(refill.stats().patches==1);
+    refill.update(std::make_shared<const Bytes>(budget_noise),128,64,now+std::chrono::seconds(1),500,sink);
+    assert(refill.stats().patches==2);
+    refill.prioritize(UI::Region{0,0,64,64},now+std::chrono::seconds(10));
+    budget_noise[0]^=1;budget_noise[1]=budget_noise[2]=budget_noise[0];sent.clear();refill.capture(200);
+    refill.update(std::make_shared<const Bytes>(budget_noise),128,64,now+std::chrono::milliseconds(1001),500,sink);
+    assert(std::none_of(sent.begin(),sent.end(),[](const auto& p){return p[4]==UI::clear;}));
+    sent.clear();refill.update(std::make_shared<const Bytes>(budget_noise),128,64,now+std::chrono::milliseconds(1100),500,sink);
+    assert(std::any_of(sent.begin(),sent.end(),[](const auto& p){return p[4]==UI::patch&&(p[5]&2U);}));
+    // Continuous new edits cannot renew an unserved tile forever.
+    const auto cleared_before=refill.stats().clears;
+    for(unsigned ms=1101;ms<=1250;++ms) {
+        budget_noise[0]^=1;budget_noise[1]=budget_noise[2]=budget_noise[0];
+        refill.update(std::make_shared<const Bytes>(budget_noise),128,64,now+std::chrono::milliseconds(ms),0,sink);
+    }
+    assert(refill.stats().clears>cleared_before);
+    // A layout boundary retires early images in the viewer. Even unchanged
+    // pixels need a new fenced image; normal neighbouring tiles stay cached.
+    UI layout_refresh; Bytes stable_pair(128U*64U*4U,255);
+    layout_refresh.advanced(true);layout_refresh.layout(101,true);layout_refresh.capture(100);
+    sent.clear();publish_stable(layout_refresh,std::make_shared<const Bytes>(stable_pair),128,64,now,8000,sink);
+    layout_refresh.prioritize(UI::Region{0,0,64,64},now+std::chrono::seconds(10));
+    stable_pair[0]=55;sent.clear();layout_refresh.capture(200);
+    layout_refresh.update(std::make_shared<const Bytes>(stable_pair),128,64,now+std::chrono::milliseconds(20),8000,sink);
+    assert(sent.size()==1 && sent[0][4]==UI::patch && (sent[0][5]&2U));
+    // A later ordinary image may still be waiting for video while the
+    // browser displays the earlier leading image in this same tile.
+    layout_refresh.layout(101,false);stable_pair[4]=73;sent.clear();layout_refresh.capture(250);
+    layout_refresh.update(std::make_shared<const Bytes>(stable_pair),128,64,now+std::chrono::milliseconds(25),8000,sink);
+    assert(sent.size()==1 && sent[0][4]==UI::patch && !(sent[0][5]&2U));
+    sent.clear();layout_refresh.layout(102,false);layout_refresh.capture(300);
+    layout_refresh.update(std::make_shared<const Bytes>(stable_pair),128,64,now+std::chrono::milliseconds(40),8000,sink);
+    assert(sent.front()[4]==UI::scene);
+    sent.clear();layout_refresh.capture(400);
+    layout_refresh.update(std::make_shared<const Bytes>(stable_pair),128,64,now+std::chrono::milliseconds(150),8000,sink);
+    assert(std::count_if(sent.begin(),sent.end(),[](const auto& p){return p[4]==UI::patch;})==1);
+    for(const auto& p:sent) { assert(!(p[5]&2U)); }
     assert(UI::greeting().size() == 28 && UI::greeting(7).size() == 32);
     std::cout << "QSM_LOSSLESS_UI_CORE_OK\n";
 }

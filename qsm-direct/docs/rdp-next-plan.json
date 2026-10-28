@@ -9,12 +9,13 @@
   "requirements": [
     {
       "id": "baseline",
-      "status": "pending",
+      "status": "complete",
       "deliverables": [
         "Controlled exp35 mixed-content baseline",
         "Actual typed-glyph latency, video motion cadence, bandwidth and visual-correctness samples",
         "Overlapping input window move, resize, scroll and close; no old-pixel resurrection"
-      ]
+      ],
+      "evidence": "docs/rdp-baseline-20261028.json and dist/rdp-hybrid/baseline-exp35"
     },
     {
       "id": "guest-metadata",
@@ -29,7 +30,7 @@
     },
     {
       "id": "priority-ui",
-      "status": "pending",
+      "status": "in_progress",
       "deliverables": [
         "Use metadata plus pixel changes to distinguish video and exact UI within one application",
         "Prioritize typed-glyph display without waiting for an unrelated video backlog",
@@ -38,7 +39,7 @@
     },
     {
       "id": "video-regions-and-queue",
-      "status": "pending",
+      "status": "in_progress",
       "deliverables": [
         "Qualify cropped video with overlapping text and moving/resizing windows",
         "Bound playout/backlog during bandwidth changes without repeated static-quality changes",
@@ -77,30 +78,54 @@
     "Do not mark the objective complete based on tests narrower than the requirements"
   ],
   "checkpoint": {
-    "stage": "guest-metadata",
-    "candidate": "0.4.0+stock4.14~exp37",
+    "stage": "priority-ui",
+    "candidate": "0.4.0+stock4.14~exp48 (private candidate)",
     "evidence_directory": "dist/rdp-guest-metadata/exp37",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
-      "Guest package payloads and graphical-session startup integration"
+      "Guest package payloads and graphical-session startup integration",
+      "Metadata attached to the shared VM/LXC media transport; host derives an unoccluded text priority area",
+      "Layout-aware sparse edits with worker/browser capture checks and legacy protocol downgrade",
+      "Bounded retention of an unserved sparse edit, verified under controlled byte pressure"
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
       "D-Bus locking observer with simulated private locker",
       "Actual C agent wire protocol over PTY",
       "Installed LXC guest and matching extracted host package; writer pause, expiry and recovery",
-      "Final exp37 installed LXC payload and matching extracted host payload; private lock observer, stable recovery, and unchanged native/production PIDs"
+      "Final exp37 installed LXC payload and matching extracted host payload; private lock observer, stable recovery, and unchanged native/production PIDs",
+      "Controlled exp35 baseline: visible glyph latency, real video cadence, traffic, overlap, move/resize/scroll/close",
+      "Private KWin5/NVENC prototype: fast-link overlap typing improves, with independent visible-pixel checks after moving and closing the input window",
+      "Private exp42 low-rate run: 80 ms median / 98 ms p95 visible glyph latency over TCP/8006 versus 176 ms / 193 ms without the exact layer in the same run; pixel and move/close checks pass; short-run scope only",
+      "Separate exp42 low-rate wire trace: all 15 typed glyph updates use early flags without clearing their text tiles; median 78 ms, p95 110 ms",
+      "No-accessibility KWin5 run keeps ordinary input/video, exact pixels and move/close correctness",
+      "Cropped-video KWin5 runs pass pixel/move/close checks, but low-rate visible cadence regresses (~14 vs ~18 fps); optimization remains open",
+      "Real Debian13/KWin6 VM: native virtio channel and graphical-session metadata startup; guest install permission recovery and repeat-install PID preservation verified",
+      "Real virtio agent restart reproduced lost subscription on an open QEMU socket; revised READY handling restores metadata on the same socket and preserves clipboard/status requests",
+      "Real KWin6/Qt6 VM: native caret position lies in the reported character bounds before/after window move; stack/focus/hide/close and real ScreenSaver suppression pass",
+      "Real VM reboot: metadata recovers in ~11.4 seconds on the same host stream; guest boot changes while host boot and QEMU PID stay unchanged",
+      "Exp48 packaged host acceptance, with and without cropping: independent move/close pixels regain full exact coverage with zero mismatches; visible overlap typing medians 65/74 ms without cropping on fast/2 Mbit/s links; cropped-video cadence regression remains open"
     ],
     "pending": [
-      "Attach metadata to the production media transport and qualify scheduling against actual captures",
-      "Real VM virtio and login lifecycle",
-      "Live KWin6",
-      "Controlled mixed-content baseline and priority UI integration",
+      "Expanded mixed-content acceptance: normal accessibility defaults, cropped video, real loss and longer runs",
+      "Native LXC graphical-login integration and Debian Qt5 native AT-SPI availability; VM mixed-content capture remains in broader qualification",
+      "Resolve cropped-video low-rate cadence regression before enabling it by default",
+      "Accessibility under normal session defaults and explicit no-accessibility/old-agent fallback",
+      "Complete priority UI qualification for typing over video and moving/resizing/scrolling/closing windows",
       "Remaining video queue, qualification, comparison and release stages"
     ],
     "production_node_20": "Host remains exp35; no worker or user desktop restart",
-    "video_scheduling_changed": false
+    "video_scheduling_changed": true,
+    "rollout_gate": "Keep the working production baseline until mixed-content acceptance confirms both text latency and video quality; unit checks alone are insufficient",
+    "evidence_directories": [
+      "dist/rdp-guest-metadata/exp37",
+      "dist/rdp-hybrid/baseline-exp35",
+      "dist/rdp-hybrid/kwin-candidate42",
+      "dist/rdp-hybrid/vm-metadata-exp46",
+      "dist/rdp-hybrid/priority-exp48"
+    ],
+    "next_action": "Verify real LXC native SDDM login/logout and metadata attachment, then resolve cropped-video cadence/shared-budget behavior before the full codec/browser/RDP matrix and release"
   },
   "deployment_nodes": [
     "192.168.64.20",

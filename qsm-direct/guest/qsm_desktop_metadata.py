@@ -345,6 +345,18 @@ def main(argv=None):
                             window_relative=coordinate == self.atspi.CoordType.WINDOW)
                         self.schedule(True)
                         return
+                # Empty controls have no character rectangle, but their
+                # focused text component still has useful bounded geometry.
+                component = source.get_component_iface()
+                if component is not None:
+                    coordinate = coordinates[0]
+                    box = component.get_extents(coordinate)
+                    if box.width > 0 and box.height > 0:
+                        self.state.set_caret(application.get_process_id(),
+                            [box.x, box.y, box.width, box.height],
+                            window_relative=coordinate == self.atspi.CoordType.WINDOW)
+                        self.schedule(True)
+                        return
                 raise ValueError('caret geometry unavailable')
             except (AttributeError, ValueError, GLib.Error):
                 self.state.caret = None

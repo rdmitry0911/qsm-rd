@@ -17,7 +17,8 @@ import zlib
 
 HEADER = struct.Struct("!4sBBHIIHHHHHH")
 MAGIC = b"QUI1"
-HELLO, RESET, PATCH, CLEAR, HEARTBEAT, GAP = range(6)
+HELLO, RESET, PATCH, CLEAR, HEARTBEAT, SCENE = range(6)
+GAP = -1  # Internal invalidation, never a wire opcode.
 EDGE = 64
 MAX_PAYLOAD = 6144
 MAX_PIXELS = 3840 * 2160
@@ -40,22 +41,32 @@ class Update:
     encoding: int = 0
     priority: bool = False
     capture: int = 0
+    layout: int = 0
+    early: bool = False
 
-    def wire(self, epoch: int, serial: int, *, stamped: bool = True) -> bytes:
+    def wire(self, epoch: int, serial: int, *, stamped: bool = True, advanced: bool = False) -> bytes:
         capture = struct.pack("!Q", self.capture) if stamped and self.capture else b""
-        return HEADER.pack(MAGIC, self.op, self.encoding, len(capture), epoch, serial,
+        if advanced and capture:
+            capture += struct.pack('!Q', self.layout)
+        flags = self.encoding | (2 if advanced and self.early else 0)
+        return HEADER.pack(MAGIC, self.op, flags, len(capture), epoch, serial,
                            self.width, self.height, self.x, self.y, self.w, self.h) + capture + self.payload
 
 
 def decode(raw: bytes) -> Update:
-    if not isinstance(raw, bytes) or not HEADER.size <= len(raw) <= HEADER.size + 8 + MAX_PAYLOAD:
+    if not isinstance(raw, bytes) or not HEADER.size <= len(raw) <= HEADER.size + 16 + MAX_PAYLOAD:
         raise ValueError("invalid exact UI record size")
     magic, op, flags, reserved, epoch, serial, width, height, x, y, w, h = HEADER.unpack_from(raw)
-    if magic != MAGIC or flags & ~1 or (flags and op != PATCH) or reserved not in (0, 8) or op not in range(5):
+    if magic != MAGIC or flags & ~3 or (flags and op != PATCH) or reserved not in (0, 8, 16) or op not in range(6):
         raise ValueError("unsupported exact UI record")
     if len(raw) < HEADER.size + reserved or (reserved and op == HELLO):
         raise ValueError("invalid exact UI timestamp")
     capture = struct.unpack_from("!Q", raw, HEADER.size)[0] if reserved else 0
+    layout = struct.unpack_from('!Q', raw, HEADER.size + 8)[0] if reserved == 16 else 0
+    early = bool(flags & 2)
+    if layout >= 1 << 53 or (early and (reserved != 16 or not layout or not capture)) or (op == SCENE and reserved != 16):
+        raise ValueError('invalid exact UI layout')
+    encoding = flags & 1
     payload = raw[HEADER.size + reserved:]
     if op == HELLO:
         if any((epoch, serial, width, height, x, y, w, h)) or len(payload) not in (0, 4):
@@ -63,7 +74,7 @@ def decode(raw: bytes) -> Update:
     else:
         if not epoch or not width or not height or width > 16384 or height > 16384 or width * height > MAX_PIXELS:
             raise ValueError("invalid exact UI geometry")
-        if op in (RESET, HEARTBEAT):
+        if op in (RESET, HEARTBEAT, SCENE):
             if any((x, y, w, h)) or payload:
                 raise ValueError("invalid exact UI state")
         else:
@@ -73,7 +84,7 @@ def decode(raw: bytes) -> Update:
             if op == CLEAR and payload:
                 raise ValueError("invalid exact UI clear")
             if op == PATCH:
-                size = w * h * (1 if flags else 4)
+                size = w * h * (1 if encoding else 4)
                 try:
                     inflater = zlib.decompressobj()
                     pixels = inflater.decompress(payload, size + 1)
@@ -81,9 +92,9 @@ def decode(raw: bytes) -> Update:
                     raise ValueError("invalid exact UI compression") from None
                 if len(pixels) != size or not inflater.eof or inflater.unused_data or inflater.unconsumed_tail:
                     raise ValueError("invalid exact UI pixel count")
-                if not flags and any(a != 255 for a in pixels[3::4]):
+                if not encoding and any(a != 255 for a in pixels[3::4]):
                     raise ValueError("exact UI tiles must be opaque")
-    return Update(op, epoch, serial, width, height, x, y, w, h, payload, flags, capture=capture)
+    return Update(op, epoch, serial, width, height, x, y, w, h, payload, encoding, capture=capture, layout=layout, early=early)
 
 
 class Source:
@@ -91,6 +102,7 @@ class Source:
         self.available = False
         self.features = 0
         self.capture = 0
+        self.layout = 0
         self.seen: set[tuple[int, int]] = set()
         self.geometry: tuple[int, int] | None = None
         self.epoch = 0
@@ -137,6 +149,7 @@ class Source:
         self.last_record = time.monotonic()
         self.capture = max(self.capture, update.capture)
         if update.op == HELLO:
+            self.layout = 0
             self.features = int.from_bytes(update.payload, "big")
             self.available = True
             self.geometry = None
@@ -148,7 +161,10 @@ class Source:
             return
         if not self.available:
             self.fail(); return
+        if (update.layout or update.early or update.op == SCENE) and not self.features & 8:
+            self.fail(); return
         if update.op == RESET:
+            self.layout = update.layout
             self.epoch, self.serial = update.epoch, update.serial
             self.geometry = update.width, update.height
             self.tiles.clear(); self.bytes = 0
@@ -162,6 +178,10 @@ class Source:
                 self.serial is None or update.serial != (self.serial + 1) & 0xffff_ffff):
             self.fail(); return
         self.serial = update.serial
+        if update.op == SCENE:
+            self.layout = update.layout
+            self._notify(update)
+            return
         if update.op in (PATCH, CLEAR):
             key = update.x, update.y
             update = replace(update, priority=key in self.seen)
@@ -214,6 +234,7 @@ class Peer:
         self.pending: OrderedDict[tuple[int, int], Update] = OrderedDict()
         self.invalidations: OrderedDict[tuple[int, int], Update] = OrderedDict()
         self.snapshot = True
+        self.scene: Update | None = None
         self.epoch = self.serial = 0
         self.sent_patches = self.sent_bytes = 0
         self._closed = False
@@ -228,7 +249,7 @@ class Peer:
     def announce(self) -> None:
         self.policy({"op": "qsm_ui_policy", "version": 1,
                      "available": self.source.available, "enabled": self.enabled,
-                     "features": self.source.features, "max_version": 4,
+                     "features": self.source.features, "max_version": 5,
                      "default_enabled": self.default_enabled,
                      "patches": self.sent_patches, "bytes": self.sent_bytes,
                      "tiles": len(self.source.tiles), "gaps": self.source.gaps,
@@ -247,8 +268,11 @@ class Peer:
             self._request_reset()
         elif update.op in (RESET, GAP):
             self.pending.clear(); self.invalidations.clear(); self.snapshot = True
+            self.scene = None
             if update.op == GAP:
                 self._request_reset()
+        elif self.enabled and update.op == SCENE:
+            self.scene = update
         elif self.enabled:
             key = update.x, update.y
             self.pending.pop(key, None)
@@ -262,6 +286,7 @@ class Peer:
     def enable(self, enabled: bool) -> None:
         self.enabled = enabled and self.source.available
         self.pending.clear(); self.invalidations.clear(); self.snapshot = True
+        self.scene = None
         self.announce()
         self.wake()
 
@@ -341,7 +366,7 @@ class Peer:
     def _burst(self) -> float:
         # Bound low-rate SCTP bursts to about 20 ms of the complete path,
         # while allowing one maximum tile/cache command to make progress.
-        return min(MAX_BUFFERED, max(HEADER.size + 8 + MAX_PAYLOAD + 10,
+        return min(MAX_BUFFERED, max(HEADER.size + 16 + MAX_PAYLOAD + 10,
                                      max(0, self.bitrate()) * 125 * .02))
 
     def _reservation(self) -> None:
@@ -357,7 +382,7 @@ class Peer:
             self.reserved = percent
             self.demand(percent)
         if channel is not None:
-            channel.bufferedAmountLowThreshold = MAX_BUFFERED // 2 if self.pending or self.invalidations else 0
+            channel.bufferedAmountLowThreshold = MAX_BUFFERED // 2 if self.pending or self.invalidations or self.scene else 0
 
     def _delay(self, now: float, announced: float) -> float | None:
         deadlines = []
@@ -378,15 +403,17 @@ class Peer:
                 credit = min(self._burst(), self.credit + max(0, now - self.credit_at) * rate)
                 if self.invalidations and buffered + HEADER.size + 8 <= MAX_BUFFERED:
                     deadlines.append(now)
-                for update in self.pending.values():
+                if self.scene is not None and buffered + HEADER.size + 16 <= MAX_BUFFERED:
+                    deadlines.append(now)
+                for update in sorted(self.pending.values(), key=lambda u: not u.early):
                     # Do not inflate/scan bitmap caches for work which cannot
                     # enter the browser's decode window. Waiting is passive.
-                    if self.version >= 2 and self.ack_pending >= 32:
+                    if self.version >= 2 and self.ack_pending >= (32 if update.early and self.version >= 5 else 24 if self.version >= 5 else 32):
                         break
                     if buffered >= MAX_BUFFERED // 2:
                         break
                     command, _ = self._command(update)
-                    size = HEADER.size + (8 if self.version >= 2 and update.capture else 0) + len(command.payload)
+                    size = HEADER.size + (16 if self.version >= 5 and update.capture else 8 if self.version >= 2 and update.capture else 0) + len(command.payload)
                     if buffered + size > MAX_BUFFERED:
                         continue  # bufferedamountlow wakes the sender.
                     if update.op != PATCH or credit >= size:
@@ -416,21 +443,31 @@ class Peer:
             self.ack_pending = self.ack_serial = 0
             self.cache.clear(); self.cache_keys.clear(); self.cache_next = 0
             width, height = self.source.geometry
-            record = Update(RESET, width=width, height=height, capture=self.source.capture).wire(
-                self.epoch, self.serial, stamped=self.version >= 2)
+            record = Update(RESET, width=width, height=height, capture=self.source.capture, layout=self.source.layout).wire(
+                self.epoch, self.serial, stamped=self.version >= 2, advanced=self.version >= 5)
             channel.send(record)
             self.account(len(record))
             self.credit -= HEADER.size
             self.pending = OrderedDict(self.source.tiles)
             self.invalidations.clear()
             self.snapshot = False
+        if self.scene is not None:
+            if self.version >= 5:
+                record = self.scene.wire(self.epoch, (self.serial + 1) & 0xffff_ffff,
+                                         stamped=True, advanced=True)
+                if getattr(channel, 'bufferedAmount', 0) + len(record) > MAX_BUFFERED:
+                    return
+                channel.send(record)
+                self.serial = (self.serial + 1) & 0xffff_ffff
+                self.account(len(record)); self.credit -= len(record); self.sent_bytes += len(record)
+            self.scene = None
         sent = 0
         # A replacement patch must never coalesce away the invalidation of
         # an older visible tile. Send bounded, cheap clears before preparing
         # any replacement, even when pixel inflation is backpressured.
         for key, update in tuple(self.invalidations.items())[:32]:
             record = update.wire(self.epoch, (self.serial + 1) & 0xffff_ffff,
-                                 stamped=self.version >= 2)
+                                 stamped=self.version >= 2, advanced=self.version >= 5)
             if getattr(channel, "bufferedAmount", 0) + len(record) > MAX_BUFFERED:
                 return
             channel.send(record)
@@ -442,15 +479,15 @@ class Peer:
             sent += len(record)
         if self.invalidations:
             return
-        for key, update in tuple(self.pending.items()):
+        for key, update in sorted(self.pending.items(), key=lambda item: not item[1].early):
             if sent >= MAX_BUFFERED:
                 break
-            if self.version >= 2 and self.ack_pending >= 32:
+            if self.version >= 2 and self.ack_pending >= (32 if update.early and self.version >= 5 else 24 if self.version >= 5 else 32):
                 break
             if getattr(channel, "bufferedAmount", 0) >= MAX_BUFFERED // 2:
                 break
             command, entry = self._command(update)
-            size = HEADER.size + (8 if self.version >= 2 and update.capture else 0) + len(command.payload)
+            size = HEADER.size + (16 if self.version >= 5 and update.capture else 8 if self.version >= 2 and update.capture else 0) + len(command.payload)
             if getattr(channel, "bufferedAmount", 0) + size > MAX_BUFFERED:
                 break
             if update.op == PATCH and self.credit < size:
@@ -459,7 +496,7 @@ class Peer:
             # even when a cached snapshot has exhausted its refinement share.
             self.pending.pop(key)
             self.serial = (self.serial + 1) & 0xffff_ffff
-            channel.send(command.wire(self.epoch, self.serial, stamped=self.version >= 2))
+            channel.send(command.wire(self.epoch, self.serial, stamped=self.version >= 2, advanced=self.version >= 5))
             self.account(size)
             self._remember(entry)
             self.cache_hits += command.op == 8

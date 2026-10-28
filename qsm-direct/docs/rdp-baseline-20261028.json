@@ -1,0 +1,269 @@
+{
+  "candidate": "0.4.0+stock4.14~exp35",
+  "viewer_sha256": "e63728230087b53a8bccd5ab57b2430c4b6ceafc7f8463a1f670d098670b1d03",
+  "worker_sha256": "8cea2e93849757b3b266c8d7677080a36efffae4c8f9f8690fc7e888f1d8c23d",
+  "scope": "mock PVE API; real input, capture, NVENC, WebRTC and TURN/TCP8006",
+  "capture": "native Wayland LXC 108",
+  "cases": [
+    {
+      "name": "fast_video_only",
+      "glyph_samples_ms": [
+        111,
+        96,
+        114,
+        114,
+        113,
+        113,
+        112,
+        113,
+        113,
+        113,
+        113,
+        97,
+        114,
+        112,
+        117
+      ],
+      "glyph_median_ms": 113,
+      "glyph_p95_ms": 117,
+      "motion": {
+        "duration_ms": 3014,
+        "changed_frames": 180,
+        "raf_callbacks": 181,
+        "visible_fps": 59.72130059721301,
+        "p95_interval_ms": 18,
+        "max_interval_ms": 34
+      },
+      "transport_bytes": 4208448,
+      "duration_seconds": 6.98436099011451
+    },
+    {
+      "name": "fast_exact",
+      "glyph_samples_ms": [
+        91,
+        117,
+        102,
+        85,
+        99,
+        99,
+        99,
+        99,
+        100,
+        99,
+        99,
+        97,
+        99,
+        83,
+        98
+      ],
+      "glyph_median_ms": 99,
+      "glyph_p95_ms": 117,
+      "motion": {
+        "duration_ms": 3004,
+        "changed_frames": 180,
+        "raf_callbacks": 181,
+        "visible_fps": 59.92010652463382,
+        "p95_interval_ms": 18,
+        "max_interval_ms": 35
+      },
+      "transport_bytes": 4350416,
+      "duration_seconds": 6.746854783967137
+    },
+    {
+      "name": "overlap_fast_video_only",
+      "glyph_samples_ms": [
+        148,
+        147,
+        144,
+        147,
+        145,
+        129,
+        146,
+        148,
+        148,
+        148,
+        147,
+        146,
+        145,
+        146,
+        146
+      ],
+      "glyph_median_ms": 146,
+      "glyph_p95_ms": 148,
+      "motion": {
+        "duration_ms": 3016,
+        "changed_frames": 181,
+        "raf_callbacks": 181,
+        "visible_fps": 60.0132625994695,
+        "p95_interval_ms": 18,
+        "max_interval_ms": 18
+      },
+      "transport_bytes": 3658036,
+      "duration_seconds": 7.502491669263691
+    },
+    {
+      "name": "overlap_fast_exact",
+      "glyph_samples_ms": [
+        150,
+        149,
+        151,
+        149,
+        150,
+        150,
+        131,
+        153,
+        154,
+        170,
+        149,
+        172,
+        165,
+        166,
+        167
+      ],
+      "glyph_median_ms": 151,
+      "glyph_p95_ms": 172,
+      "motion": {
+        "duration_ms": 3006,
+        "changed_frames": 158,
+        "raf_callbacks": 181,
+        "visible_fps": 52.56154357950765,
+        "p95_interval_ms": 33,
+        "max_interval_ms": 34
+      },
+      "transport_bytes": 3907704,
+      "duration_seconds": 7.603927801828831
+    },
+    {
+      "name": "overlap_2mbit_video_only",
+      "glyph_samples_ms": [
+        206,
+        160,
+        191,
+        161,
+        142,
+        209,
+        179,
+        147,
+        193,
+        170,
+        162,
+        170,
+        174,
+        175,
+        175
+      ],
+      "glyph_median_ms": 174,
+      "glyph_p95_ms": 209,
+      "motion": {
+        "duration_ms": 3007,
+        "changed_frames": 54,
+        "raf_callbacks": 182,
+        "visible_fps": 17.958097771865646,
+        "p95_interval_ms": 68,
+        "max_interval_ms": 84
+      },
+      "transport_bytes": 1529732,
+      "duration_seconds": 7.947639525867999
+    },
+    {
+      "name": "overlap_2mbit_exact",
+      "glyph_samples_ms": [
+        227,
+        153,
+        203,
+        168,
+        186,
+        202,
+        168,
+        170,
+        185,
+        187,
+        171,
+        186,
+        204,
+        151,
+        167
+      ],
+      "glyph_median_ms": 185,
+      "glyph_p95_ms": 227,
+      "motion": {
+        "duration_ms": 3012,
+        "changed_frames": 61,
+        "raf_callbacks": 182,
+        "visible_fps": 20.252324037184597,
+        "p95_interval_ms": 67,
+        "max_interval_ms": 68
+      },
+      "transport_bytes": 1629848,
+      "duration_seconds": 7.981976434122771
+    }
+  ],
+  "burst": {
+    "characters": 15,
+    "fixture_text_matches": true,
+    "last_key_to_all_glyphs_ms": 201,
+    "verification_rpc_ms": 751.5021408908069,
+    "server": {
+      "worker": 1743205,
+      "state": "connected",
+      "target": 1500,
+      "ui_available": true,
+      "ui_enabled": true,
+      "ui_tiles": 207,
+      "ui_gaps": 0,
+      "ui_patches": 1549,
+      "ui_bytes": 817311,
+      "video_overflows": 5,
+      "video_drops": 267,
+      "ui_version": 4,
+      "ack_pending": 2,
+      "cache_hits": 212,
+      "scroll_copies": 43,
+      "fills": 402,
+      "regions_ready": false,
+      "region": null
+    },
+    "within_500ms_lab_budget": true
+  },
+  "exact_backing_pixels": {
+    "opaque": 65536,
+    "equal": 65536,
+    "samples": 65536
+  },
+  "scroll": {
+    "before": 3,
+    "after": 6
+  },
+  "window_move": {
+    "old_marker_initially_visible": true,
+    "old_marker_finally_gone": true,
+    "reappeared_samples": 0
+  },
+  "window_close": {
+    "old_marker_initially_visible": true,
+    "old_marker_finally_gone": true,
+    "reappeared_samples": 0
+  },
+  "surface_resize": {
+    "video": [
+      1024,
+      768
+    ],
+    "exact_canvas": [
+      1024,
+      768
+    ]
+  },
+  "ice": {
+    "type": "relay",
+    "protocol": "tcp",
+    "url": null
+  },
+  "limits": [
+    "15 individual characters per case plus a 15-character burst; no statistical confidence claim",
+    "3-second visible-motion samples; no long-session or real-loss qualification",
+    "Adaptation disabled, cropped video disabled; deterministic 8 Mbit/s or 1.5 Mbit/s encoder targets",
+    "PVE bootstrap mocked; this is not a live production launch/ACL test",
+    "Firefox/Linux controller; Mac/VM/other encoder qualification remains pending"
+  ]
+}

@@ -182,6 +182,7 @@
             this.videoFrames = new Map();
             this.videoCapture = 0;
             this.presentedRtp = null;
+            this.scene = null; this.baseLayout = 0;
             this.ackQueued = false;
             this.enabled = false;
             this.epoch = null;
@@ -202,6 +203,7 @@
         }
         clear() {
             this.generation += 1;
+            this.scene = null; this.baseLayout = 0;
             this.epoch = this.serial = null;
             this.wanted.clear();
             this.active.clear(); this.clears.clear();
@@ -244,6 +246,8 @@
             // merely because the video element reported a frame callback.
             if (!this.canPresent(rtp, region)) { return; }
             this.videoCapture = Math.max(this.videoCapture, capture);
+            if (this.scene && capture >= this.scene.capture) { this.baseLayout = this.scene.layout; }
+            this.retireEarlyLayout();
             this.videoRegion = region;
             let changed = false;
             for (const [key, job] of this.clears) {
@@ -268,15 +272,46 @@
             if (!this.enabled) { return; }
             let changed = false;
             for (const [key, job] of this.ready) {
-                if (job.capture > this.videoCapture) { continue; }
+                if (this.scene && job.layout !== this.scene.layout && this.videoCapture >= this.scene.capture &&
+                    job.capture <= this.scene.capture) { this.ready.delete(key); changed = true; continue; }
+                if (job.capture > this.videoCapture && !this.canPresentEarly(key, job)) { continue; }
                 this.ready.delete(key); changed = true;
                 if (job.generation !== this.generation || this.wanted.get(key) !== job.serial) { continue; }
                 this.context.putImageData(job.image, job.x, job.y);
-                const { epoch, serial, x, y, w, h, capture } = job;
-                this.active.set(key, { epoch, serial, x, y, w, h, capture }); this.clears.delete(key);
+                const { epoch, serial, x, y, w, h, capture, layout, image } = job;
+                this.active.set(key, { epoch, serial, x, y, w, h, capture, layout, image,
+                    earlyPainted: capture > this.videoCapture }); this.clears.delete(key);
                 this.patches += 1; this.bytes += job.bytes;
             }
             if (changed) { this.report(); this.painted(); }
+        }
+        retireEarlyLayout() {
+            if (!this.scene || this.videoCapture < this.scene.capture) { return; }
+            let changed = false;
+            for (const [key, tile] of this.active) {
+                if (!tile.earlyPainted || tile.layout === this.scene.layout) { continue; }
+                this.context.clearRect(tile.x, tile.y, tile.w, tile.h);
+                this.active.delete(key); changed = true;
+            }
+            if (changed) { this.report(); this.painted(); }
+        }
+        canPresentEarly(key, job) {
+            const old = this.active.get(key);
+            if (!job.early || !job.layout || job.layout !== this.baseLayout || job.layout !== this.scene?.layout ||
+                this.scene.capture > this.videoCapture || !old?.image || old.epoch !== job.epoch || old.layout !== job.layout) {
+                return false;
+            }
+            // Geometry is advisory. Independently verify that the new image
+            // changes only a small part of an already displayed exact tile.
+            // Dense repaints and new/relocated tiles retain capture fences.
+            const a = old.image.data, b = job.image.data;
+            if (a.length !== b.length) { return false; }
+            const limit = Math.floor(job.w * job.h / 8);
+            let changed = 0;
+            for (let i = 0; i < a.length; i += 4) {
+                if ((a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]) && ++changed > limit) { return false; }
+            }
+            return true;
         }
         erase(key, job) {
             const r = this.videoRegion;
@@ -290,19 +325,21 @@
             if (!this.enabled) { return; }
             const operationGeneration = this.generation;
             try {
-                if (!(data instanceof ArrayBuffer) || data.byteLength < 28 || data.byteLength > 6184) {
+                if (!(data instanceof ArrayBuffer) || data.byteLength < 28 || data.byteLength > 6200) {
                     throw Error('Invalid exact UI record');
                 }
                 const v = new DataView(data);
-                const encoding = v.getUint8(5);
+                const flags = v.getUint8(5), encoding = flags & 1, early = !!(flags & 2);
                 const stampSize = v.getUint16(6);
-                if (v.getUint32(0) !== 0x51554931 || (encoding & ~1) ||
-                    ![0, 8].includes(stampSize) || data.byteLength < 28 + stampSize) {
+                if (v.getUint32(0) !== 0x51554931 || (flags & ~3) ||
+                    ![0, 8, 16].includes(stampSize) || data.byteLength < 28 + stampSize) {
                     throw Error('Unsupported exact UI record');
                 }
                 const payloadAt = 28 + stampSize;
                 const capture = stampSize ? v.getUint32(28) * 4294967296 + v.getUint32(32) : 0;
-                if (!Number.isSafeInteger(capture)) { throw Error('Invalid capture timestamp'); }
+                const layout = stampSize === 16 ? v.getUint32(36) * 4294967296 + v.getUint32(40) : 0;
+                if (!Number.isSafeInteger(capture) || !Number.isSafeInteger(layout) ||
+                    (early && (stampSize !== 16 || !layout || !capture))) { throw Error('Invalid capture/layout timestamp'); }
                 const op = v.getUint8(4), epoch = v.getUint32(8), serial = v.getUint32(12);
                 const width = v.getUint16(16), height = v.getUint16(18);
                 const x = v.getUint16(20), y = v.getUint16(22), w = v.getUint16(24), h = v.getUint16(26);
@@ -310,7 +347,7 @@
                     throw Error('Invalid exact UI geometry');
                 }
                 if (op === 1) {
-                    if (encoding || data.byteLength !== payloadAt || x || y || w || h) { throw Error('Invalid exact UI reset'); }
+                    if (flags || data.byteLength !== payloadAt || x || y || w || h) { throw Error('Invalid exact UI reset'); }
                     if (epoch === this.epoch && (serial === this.serial ||
                         ((serial - this.serial) >>> 0) >= 0x80000000)) { return; }
                     if (this.epoch !== null && epoch !== this.epoch &&
@@ -331,14 +368,24 @@
                         this.width = this.canvas.width = width; this.height = this.canvas.height = height;
                         this.context = this.canvas.getContext('2d', { alpha: true, colorSpace: 'srgb' });
                     }
+                    this.scene = { layout, capture };
+                    this.baseLayout = capture <= this.videoCapture ? layout : 0;
                     this.epoch = epoch; this.serial = serial; this.report();
                     return;
                 }
                 if (epoch !== this.epoch || width !== this.width || height !== this.height) { return; }
                 if (serial === this.serial || ((serial - this.serial) >>> 0) >= 0x80000000) { return; }
+                if (op === 5) {
+                    if (flags || stampSize !== 16 || data.byteLength !== payloadAt || x || y || w || h) {
+                        throw Error('Invalid UI layout boundary');
+                    }
+                    this.serial = serial; this.scene = { layout, capture };
+                    this.baseLayout = capture <= this.videoCapture ? layout : 0;
+                    this.retireEarlyLayout(); this.presentReady(); this.report(); return;
+                }
                 if (![2, 3, 6, 7, 8, 9].includes(op) || x >= width || y >= height || x % 64 || y % 64 ||
                     w !== Math.min(64, width - x) || h !== Math.min(64, height - y) ||
-                    (op === 3 && (encoding || data.byteLength !== payloadAt))) { throw Error('Invalid exact UI tile'); }
+                    (op === 3 && (flags || data.byteLength !== payloadAt))) { throw Error('Invalid exact UI tile'); }
                 this.serial = serial;
                 const key = `${x}:${y}`;
                 this.wanted.set(key, serial);
@@ -373,7 +420,7 @@
                 // inflations instead of disabling the layer on a short burst.
                 await new Promise(done => {
                     this.pending.set(key, { key, serial, generation: this.generation,
-                        data, op, cacheId, reference, shift, encoding, payloadAt, capture, x, y, w, h, done });
+                        data, op, cacheId, reference, shift, encoding, payloadAt, capture, layout, early, x, y, w, h, done });
                     this.pump();
                 });
             } catch (error) {
@@ -396,7 +443,7 @@
         }
         async decode(job) {
             const { key, serial, generation, data, op, cacheId, reference, shift,
-                encoding, payloadAt, capture, x, y, w, h } = job;
+                encoding, payloadAt, capture, layout, early, x, y, w, h } = job;
             const image = this.context.createImageData(w, h);
             if (op === 6) {
                 const color = new Uint8Array(data, payloadAt, 4);
@@ -448,7 +495,7 @@
             // otherwise turn fades and pointer-triggered transitions into
             // old/new 64-pixel squares. One latest bitmap per tile is retained;
             // the ACK decode window includes these presentation waiters.
-            this.ready.set(key, { epoch: this.epoch, serial, generation, capture, x, y, w, h,
+            this.ready.set(key, { epoch: this.epoch, serial, generation, capture, layout, early, x, y, w, h,
                 image, bytes: data.byteLength });
             this.presentReady();
         }
@@ -1627,7 +1674,7 @@
             exactUiInput.checked = settings.exactUi;
             exactUiInput.disabled = !supported || !exactUiPolicy.available;
             const wanted = supported && exactUiPolicy.available && settings.exactUi;
-            const version = exactFrameSupport ? Math.min(4, exactUiPolicy.max_version || 1) : 1;
+            const version = exactFrameSupport ? Math.min(exactUiPolicy.features & 8 ? 5 : 4, exactUiPolicy.max_version || 1) : 1;
             exactRenderer.configure(wanted);
             syncExactGeometry();
             if (control && control.readyState === 'open' && (exactUiRequested !== wanted || exactUiVersionRequested !== version) &&

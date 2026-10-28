@@ -100,6 +100,7 @@ class QsmGuestChannel:
         self._desktop_layout = 0
         self._desktop_probe_generation = -1
         self._desktop_enabled = False
+        self._agent_revision = 0
         self._keep_connection = keep_connected
         self._keeper_wake = threading.Event()
         if keep_connected:
@@ -123,16 +124,18 @@ class QsmGuestChannel:
                             # Events may precede the subscription acknowledgement
                             # in the same read. Mark the attempt before sending.
                             self._desktop_probe_generation = generation
+                            agent_revision = self._agent_revision
                     if probe:
                         try:
                             self._request('DESKTOP_SUBSCRIBE 1', 'OK DESKTOP_SUBSCRIBE')
                         except GuestChannelError:
-                            # Old agents reject this optional command. Never
-                            # probe again on this connection or disturb clipboard.
+                            # Old agents reject this optional command. Retry
+                            # only after reconnect/READY, preserving clipboard.
                             pass
                         else:
                             with self._condition:
-                                self._desktop_enabled = self._generation == generation
+                                self._desktop_enabled = (self._generation == generation and
+                                                         self._agent_revision == agent_revision)
                     elif not wanted and self._desktop_enabled:
                         self._request('DESKTOP_SUBSCRIBE 0', 'OK DESKTOP_SUBSCRIBE')
                         with self._condition:
@@ -304,12 +307,21 @@ class QsmGuestChannel:
                     except UnicodeDecodeError:
                         continue
                     if line == "READY QSF1":
-                        # A QEMU socket chardev can discard the guest's one-off
-                        # greeting when its host-side controller is not yet
-                        # connected.  It is informational only: a response to
-                        # the actual bounded request below is the liveness
-                        # proof, so an early/lost READY must not disable guest
-                        # clipboard synchronization for this VM lifetime.
+                        # QEMU keeps the host socket open across an agent or
+                        # guest restart. The new process has no subscription,
+                        # even while PING works on this same stream. Revoke
+                        # hints and resubscribe without replaying user actions.
+                        # A greeting may also arrive during the first probe;
+                        # its revision prevents that old acknowledgement from
+                        # permanently suppressing the replacement subscription.
+                        with self._condition:
+                            if self._socket is not channel or self._generation != generation:
+                                continue
+                            self._agent_revision += 1
+                            self._desktop_probe_generation = -1
+                            self._desktop_enabled = False
+                        self._invalidate_desktop(generation)
+                        self._keeper_wake.set()
                         continue
                     if line.startswith("EVENT_CLIP "):
                         self._publish_clipboard(line[11:])

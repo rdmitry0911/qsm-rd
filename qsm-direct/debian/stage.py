@@ -28,7 +28,7 @@ def main(build, version):
     install(core, f"{build}/qsm-direct-media-worker", f"{lib}/bin/qsm-direct-media-worker", True)
     modules = {
         "browser_bridge": ("__init__.py", "qsm_browser_bridge.py", "qsm_lossless_ui.py"),
-        "direct_guest": ("__init__.py", "qsm_guest_channel.py", "qsm_desktop_metadata.py"),
+        "direct_guest": ("__init__.py", "qsm_guest_channel.py", "qsm_desktop_metadata.py", "qsm_desktop_priority.py"),
         "direct_terminal": ("qsm_direct_terminal.py", "qsm_direct_encoder_probe.py", "qsm_shared_migration.py"),
         "signal": ("__init__.py", "qsm_direct_signal.py", "qsm_direct_endpoint.py", "qsm_direct_endpoint_cli.py", "qsm_gateway.py"),
     }

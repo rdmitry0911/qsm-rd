@@ -81,6 +81,12 @@ set -e
 
 getent group qsm-desktop >/dev/null || groupadd --system qsm-desktop
 udevadm control --reload-rules >/dev/null 2>&1 || true
+# Display1 is normally enabled before this package is installed. Reapply
+# only our virtio port's rule: reloading rules alone leaves an existing
+# root:root 0600 device inaccessible to the unprivileged desktop agent.
+udevadm trigger --action=change --subsystem-match=virtio-ports \
+    --attr-match=name=org.qsm.direct.agent >/dev/null 2>&1 || true
+udevadm settle --timeout=5 >/dev/null 2>&1 || true
 systemctl daemon-reload >/dev/null 2>&1 || true
 
 migration_users=/var/lib/qsm-desktop-agent/legacy-users

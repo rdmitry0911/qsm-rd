@@ -71,5 +71,9 @@ systemctl daemon-reload
 # instance now; a missing port merely leaves the unit condition inactive until
 # Display1 is saved and the VM is restarted.
 systemctl enable "qsm-desktop-agent@${user}.service"
+# A prior missing-port permission failure may have exhausted the service's
+# start limit. Clearing that failure lets a corrected installation recover;
+# starting an already active instance leaves its virtio connection intact.
+systemctl reset-failed "qsm-desktop-agent@${user}.service" 2>/dev/null || true
 systemctl start "qsm-desktop-agent@${user}.service" 2>/dev/null || true
 echo "QSM Desktop Agent and Wayland clipboard bridge enabled for $user. The bridge becomes ready when that user logs into a Wayland desktop."

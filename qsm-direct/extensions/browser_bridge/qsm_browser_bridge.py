@@ -1538,6 +1538,12 @@ class UnixInputEgress:
                 return True
             return False
 
+    def set_desktop_hint(self, payload: bytes) -> None:
+        """Server-owned geometry only; no browser JSON route to this opcode."""
+        if not isinstance(payload, bytes) or len(payload) != 36 or payload[0] not in (0, 1, 3) or any(payload[1:4]):
+            raise BridgeError('invalid desktop priority hint')
+        self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, 13, len(payload)) + payload)
+
     def request_ui_snapshot(self) -> None:
         with self._input_state_lock:
             if self._ui_owners:
@@ -1579,7 +1585,7 @@ class UnixInputEgress:
             now = time.monotonic()
             if now - self._ui_probe_at >= 1:
                 if self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_LOSSLESS_UI, 1) +
-                                     bytes([4 if self._ui_probe_attempts == 0 else 3])):
+                                     bytes([5 if self._ui_probe_attempts == 0 else 4 if self._ui_probe_attempts == 1 else 3])):
                     self._ui_probe_at = now
                     self._ui_probe_attempts += 1
 
@@ -2268,7 +2274,7 @@ class BrowserWebRtcBridge:
                         if isinstance(ui_request, dict) and ui_request.get("op") == "qsm_ui_mode":
                             if (set(ui_request) not in ({"op", "enabled"}, {"op", "enabled", "version"}) or
                                     type(ui_request["enabled"]) is not bool or
-                                    type(ui_request.get("version", 1)) is not int or ui_request.get("version", 1) not in (1, 2, 3, 4)):
+                                    type(ui_request.get("version", 1)) is not int or ui_request.get("version", 1) not in (1, 2, 3, 4, 5)):
                                 raise BridgeError("invalid exact UI mode")
                             self._ui_peer.version = ui_request.get("version", 1)
                             self._set_lossless_ui(ui_request["enabled"])

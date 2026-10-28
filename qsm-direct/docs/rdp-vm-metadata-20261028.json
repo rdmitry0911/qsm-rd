@@ -1,0 +1,188 @@
+{
+  "scope": "Dedicated Debian13 / KWin6 VM on Intel host; real virtio serial and standard graphical-session units; no production VM restarted",
+  "guest_package": "0.4.0+stock4.14~exp46",
+  "host_source": "working guest-channel source with READY re-subscription fix",
+  "native_window_checks": {
+    "ping": {
+      "agent": "ready"
+    },
+    "base": {
+      "id": "{6b837663-e1d5-4a36-85c1-6fa88c0d04ad}",
+      "pid": 13326,
+      "rect": [
+        239,
+        135,
+        802,
+        529
+      ],
+      "client_rect": [
+        240,
+        163,
+        800,
+        500
+      ],
+      "visible": true,
+      "opacity": 1
+    },
+    "native_caret": {
+      "actual": [
+        313,
+        227,
+        13,
+        25
+      ],
+      "expected_position": [
+        314,
+        231
+      ],
+      "client": [
+        240,
+        163,
+        800,
+        500
+      ],
+      "delta": [
+        -1,
+        -4
+      ]
+    },
+    "moved_caret": {
+      "actual": [
+        374,
+        259,
+        13,
+        25
+      ],
+      "expected_position": [
+        375,
+        263
+      ],
+      "client": [
+        288,
+        195,
+        800,
+        500
+      ],
+      "delta": [
+        -1,
+        -4
+      ]
+    },
+    "focused_upper_window": "{93805eb1-f2b9-4007-ab01-ee886f7455a2}",
+    "hidden_window_removed_from_visible_stack": true,
+    "closed_windows_removed": true,
+    "real_screen_lock": {
+      "version": 1,
+      "session": "28d4b105a9fa4436a698c29cad8042fe",
+      "sequence": 1025,
+      "generation": 18,
+      "available": false,
+      "locked": true,
+      "capabilities": [
+        "caret",
+        "focus",
+        "window-damage",
+        "windows"
+      ],
+      "desktop": {
+        "rect": [
+          0,
+          0,
+          1280,
+          800
+        ],
+        "scale": 1
+      },
+      "windows": [],
+      "focus": null,
+      "damage": [],
+      "caret": null
+    },
+    "new_login_recovers_without_virtio_restart": true,
+    "final_ping": {
+      "agent": "ready"
+    }
+  },
+  "reboot": {
+    "initial_ping": {
+      "agent": "ready"
+    },
+    "recovery_seconds": 11.397876153001562,
+    "guest_boot_changed": true,
+    "host_boot_unchanged": true,
+    "qemu_pid_preserved": true,
+    "host_stream_generation": 1,
+    "hints_revoked": true,
+    "final_ping": {
+      "agent": "ready"
+    },
+    "new_metadata_session": "117f95fadf0f4443b839e3469da34366"
+  },
+  "installer_recovery": {
+    "code": 0,
+    "out": "{\"pre_install_failed_state\": \"MainPID=0\\nResult=exit-code\\nActiveState=failed\\nSubState=failed\\n\", \"after_install_state\": \"MainPID=11172\\nResult=success\\nActiveState=active\\nSubState=running\\n\", \"repeat_install_preserved_active_pid\": 11172, \"permission\": \"0o660\", \"package\": \"0.4.0+stock4.14~exp45\"}\n",
+    "err": ""
+  },
+  "agent_restart": {
+    "ping": {
+      "agent": "ready"
+    },
+    "new_available_events": 89,
+    "last": {
+      "version": 1,
+      "session": "28d4b105a9fa4436a698c29cad8042fe",
+      "sequence": 94,
+      "generation": 3,
+      "available": true,
+      "locked": false,
+      "capabilities": [
+        "caret",
+        "focus",
+        "window-damage",
+        "windows"
+      ],
+      "desktop": {
+        "rect": [
+          0,
+          0,
+          1280,
+          800
+        ],
+        "scale": 1
+      },
+      "windows": [
+        {
+          "id": "{c2d6c777-818f-4ac8-9b0d-c4e130f49a97}",
+          "pid": 12120,
+          "rect": [
+            0,
+            0,
+            1280,
+            800
+          ],
+          "client_rect": [
+            0,
+            0,
+            1280,
+            800
+          ],
+          "visible": true,
+          "opacity": 1
+        }
+      ],
+      "focus": "{c2d6c777-818f-4ac8-9b0d-c4e130f49a97}",
+      "damage": [
+        "{c2d6c777-818f-4ac8-9b0d-c4e130f49a97}"
+      ],
+      "caret": null
+    },
+    "same_host_stream_generation": 1,
+    "seconds": 5.194087298121303
+  },
+  "limits": [
+    "Window and caret fixture uses Qt6 with its accessibility interface enabled",
+    "Debian Qt5 native Wayland fixture does not appear in the AT-SPI registry even with accessibility environment variables; keep fallback; cause remains open",
+    "This verifies real metadata/session/virtio lifecycle, not full VM mixed-content media performance or hardware codec matrix"
+  ],
+  "evidence": "dist/rdp-hybrid/vm-metadata-exp46"
+}

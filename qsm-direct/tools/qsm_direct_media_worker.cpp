@@ -117,6 +117,7 @@ constexpr std::uint8_t input_mouse_action = 9U;
 constexpr std::uint8_t input_lossless_ui = 10U;
 constexpr std::uint8_t input_ui_budget = 11U;
 constexpr std::uint8_t input_video_regions = 12U;
+constexpr std::uint8_t input_desktop_hint = 13U;
 constexpr std::size_t packet_header_size = 20U;
 constexpr std::size_t input_header_size = 8U;
 constexpr std::size_t max_fragment_bytes = 256U * 1024U;
@@ -1110,7 +1111,11 @@ public:
     void request_lossless_ui(std::uint8_t mode) noexcept {
         {
             std::lock_guard lock(video_mutex_);
-            if (mode >= 3) { ui_probe_.store(mode); if (mode >= 4) { ui_v2_.store(true); } }
+            if (mode >= 3) {
+                ui_probe_.store(mode);
+                if (mode >= 4) { ui_v2_.store(true); }
+                if (mode >= 5) { ui_v3_.store(true); }
+            }
             else {
                 const bool was_enabled = ui_enabled_.exchange(mode != 0);
                 if (mode == 2 || (mode == 1 && !was_enabled)) { ui_resync_.store(true); }
@@ -1132,6 +1137,39 @@ public:
             ui_focus_ = qmdp::LosslessUi::Region {left, top,
                 std::min(768U, latest_width_ - left), std::min(128U, latest_height_ - top)};
             ui_focus_until_ = std::chrono::steady_clock::now() + 1s;
+            ++ui_revision_;
+        }
+        ui_cv_.notify_one();
+    }
+
+    void keyboard_activity() noexcept {
+        {
+            std::lock_guard lock(video_mutex_);
+            ui_interactive_until_ = std::chrono::steady_clock::now() + 1s;
+            ++ui_revision_;
+        }
+        ui_cv_.notify_one();
+    }
+
+    void desktop_hint(std::span<const std::uint8_t> p) noexcept {
+        if (p.size() != 36U || (p[0] != 0U && p[0] != 1U && p[0] != 3U) || p[1] || p[2] || p[3]) { return; }
+        const auto layout = (static_cast<std::uint64_t>(read_u32(p, 4)) << 32U) | read_u32(p, 8);
+        const auto sw = read_u32(p, 12), sh = read_u32(p, 16);
+        const qmdp::LosslessUi::Region area {read_u32(p, 20), read_u32(p, 24), read_u32(p, 28), read_u32(p, 32)};
+        if (p[0] && (!layout || layout > ((1ULL << 53U) - 1U) || !sw || !sh || sw > 65536U || sh > 65536U)) { return; }
+        if (p[0] == 3U && (!area.width || !area.height ||
+            static_cast<std::uint64_t>(area.x) + area.width > sw ||
+            static_cast<std::uint64_t>(area.y) + area.height > sh)) { return; }
+        {
+            std::lock_guard lock(video_mutex_);
+            const auto now = std::chrono::steady_clock::now();
+            if (layout != desktop_layout_ || sw != desktop_width_ || sh != desktop_height_) {
+                desktop_changed_ = now;
+                desktop_after_capture_ = latest_capture_;
+            }
+            desktop_mode_ = p[0]; desktop_layout_ = p[0] ? layout : 0;
+            desktop_width_ = sw; desktop_height_ = sh; desktop_area_ = area;
+            desktop_received_ = now;
             ++ui_revision_;
         }
         ui_cv_.notify_one();
@@ -1214,6 +1252,30 @@ private:
             const auto capture = latest_capture_;
             const auto focus = ui_focus_;
             const auto focus_until = ui_focus_until_;
+            const auto now = std::chrono::steady_clock::now();
+            const bool desktop_fresh = desktop_mode_ && now - desktop_received_ < 3s;
+            const bool desktop_stable = desktop_fresh && now - desktop_changed_ >= 120ms &&
+                capture > desktop_after_capture_ && width && height &&
+                static_cast<std::uint64_t>(width) * desktop_height_ == static_cast<std::uint64_t>(height) * desktop_width_;
+            const auto layout = desktop_stable ? desktop_layout_ : 0;
+            std::optional<qmdp::LosslessUi::Region> text_focus;
+            const bool interactive = now < ui_interactive_until_;
+            if (desktop_stable && desktop_mode_ == 3U) {
+                const auto& a = desktop_area_;
+                const auto left = (static_cast<std::uint64_t>(a.x) * width + desktop_width_ - 1U) / desktop_width_;
+                const auto top = (static_cast<std::uint64_t>(a.y) * height + desktop_height_ - 1U) / desktop_height_;
+                const auto right = static_cast<std::uint64_t>(a.x + a.width) * width / desktop_width_;
+                const auto bottom = static_cast<std::uint64_t>(a.y + a.height) * height / desktop_height_;
+                if (right > left && bottom > top) {
+                    text_focus = qmdp::LosslessUi::Region {static_cast<std::uint32_t>(left), static_cast<std::uint32_t>(top),
+                        static_cast<std::uint32_t>(right - left), static_cast<std::uint32_t>(bottom - top)};
+                }
+            }
+            std::optional<std::chrono::steady_clock::time_point> hint_deadline;
+            if (desktop_fresh) {
+                hint_deadline = desktop_received_ + 3s;
+                if (now < desktop_changed_ + 120ms) { hint_deadline = desktop_changed_ + 120ms; }
+            }
             const bool enabled = ui_enabled_.load();
             const bool resync = ui_resync_.exchange(false);
             const auto probe = ui_probe_.exchange(0);
@@ -1221,7 +1283,10 @@ private:
             lock.unlock();
             // Older bridge processes never probe opcode 10 and must keep
             // receiving the original media protocol after a package upgrade.
-            const bool retry_probe = probe && !sink_.send_ui(qmdp::LosslessUi::greeting(probe >= 4 ? 7U : 0U));
+            // A delayed reply can overlap a lower-version fallback probe.
+            // Advertise the format already enabled for this connection.
+            const bool retry_probe = probe && !sink_.send_ui(qmdp::LosslessUi::greeting(
+                ui_v3_.load() ? 15U : ui_v2_.load() ? 7U : 0U));
             bool retry_update = false;
             if (retry_probe) { ui_probe_.store(probe); }
             if (!enabled) {
@@ -1230,7 +1295,9 @@ private:
                 if (resync) { ui.resync(); }
                 try {
                     ui.capture(ui_v2_.load() ? capture : 0);
-                    ui.prioritize(focus, focus_until);
+                    ui.advanced(ui_v3_.load());
+                    ui.layout(layout, static_cast<bool>(text_focus) && interactive);
+                    ui.prioritize(text_focus ? text_focus : focus, text_focus ? now + 1s : focus_until, interactive);
                     ui.update(std::move(pixels), width, height, std::chrono::steady_clock::now(),
                         bitrate, [this](std::span<const std::uint8_t> record) {
                             const bool sent = sink_.send_ui(record);
@@ -1244,6 +1311,7 @@ private:
                 }
             }
             deadline = ui.next_wakeup();
+            if (hint_deadline && (!deadline || *hint_deadline < *deadline)) { deadline = hint_deadline; }
             if (retry_update) { deadline = std::chrono::steady_clock::now() + 10ms; }
             if (retry_probe) {
                 const auto retry = std::chrono::steady_clock::now() + 10ms;
@@ -1785,6 +1853,7 @@ private:
     std::atomic<std::uint8_t> ui_probe_ {0};
     std::atomic<unsigned> ui_budget_ {0};
     std::atomic<bool> ui_v2_ {false};
+    std::atomic<bool> ui_v3_ {false};
     std::uint64_t latest_capture_ {};
     std::mutex video_capture_mutex_;
     std::deque<CapturedVideo> video_captures_;
@@ -1795,6 +1864,11 @@ private:
     std::uint32_t crop_surface_width_ {}, crop_surface_height_ {};
     std::optional<qmdp::LosslessUi::Region> ui_focus_;
     std::chrono::steady_clock::time_point ui_focus_until_ {};
+    std::chrono::steady_clock::time_point ui_interactive_until_ {}, desktop_received_ {}, desktop_changed_ {};
+    std::uint64_t desktop_layout_ {}, desktop_after_capture_ {};
+    std::uint32_t desktop_width_ {}, desktop_height_ {};
+    std::uint8_t desktop_mode_ {};
+    qmdp::LosslessUi::Region desktop_area_ {};
     std::atomic<bool> ui_resync_ {false};
     std::condition_variable ui_cv_;
     std::uint64_t ui_revision_ {};
@@ -1878,6 +1952,7 @@ private:
     }
 
     void prioritize_keyboard() noexcept {
+        media_.keyboard_activity();
         const auto& point = ui_focus_pointer_ ? ui_focus_pointer_ : ui_pointer_;
         if (point) { media_.keyboard_focus((*point)[0], (*point)[1], (*point)[2], (*point)[3]); }
     }
@@ -2055,12 +2130,14 @@ private:
             media_.request_idr();
         } else if (op == input_video_bitrate && payload.size() == 4U) {
             media_.request_bitrate(read_u32(payload, 0U));
-        } else if (op == input_lossless_ui && payload.size() == 1U && payload[0] <= 4U) {
+        } else if (op == input_lossless_ui && payload.size() == 1U && payload[0] <= 5U) {
             media_.request_lossless_ui(payload[0]);
         } else if (op == input_ui_budget && payload.size() == 1U && payload[0] <= 50U) {
             media_.reserve_ui_budget(payload[0]);
         } else if (op == input_video_regions && payload.size() == 1U && payload[0] <= 2U) {
             media_.video_regions(payload[0]);
+        } else if (op == input_desktop_hint && payload.size() == 36U) {
+            media_.desktop_hint(payload);
         }
     }
 

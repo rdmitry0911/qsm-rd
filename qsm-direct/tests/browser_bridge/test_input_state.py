@@ -32,6 +32,9 @@ class InputStateTests(unittest.TestCase):
             self.assertEqual(len(packets), before)
             egress.probe_lossless_ui(); egress.probe_lossless_ui()
             self.assertEqual(len(packets), before + 1)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x05')
+            egress._ui_probe_at -= 2
+            egress.probe_lossless_ui()
             self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x04')
             egress._ui_probe_at -= 2
             egress.probe_lossless_ui()

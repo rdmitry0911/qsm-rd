@@ -38,6 +38,7 @@ if str(PACKAGE_DIRECTORY) not in sys.path:
 from browser_bridge.qsm_browser_bridge import (BrowserWebRtcBridge, BridgeError,
                                                 AdaptiveVideoRate, SharedMediaIngress, UnixInputEgress)  # noqa: E402
 from direct_guest.qsm_guest_channel import GuestChannelError, QsmGuestChannel  # noqa: E402
+from direct_guest.qsm_desktop_priority import DesktopPriority  # noqa: E402
 from direct_terminal.qsm_direct_encoder_probe import (DirectEncoderProbeError,
                                                        DirectEncoderSelection,
                                                        select_auto_h264_encoder,
@@ -965,6 +966,7 @@ class DirectVmTransport:
     pcm: PcmLink | None = None
     microphone: MicrophoneRoute | None = None
     audio_relay: ContainerAudioRelay | None = None
+    remove_desktop_listener: Callable[[], None] | None = None
 
 
 class DirectSessionManager:
@@ -1555,6 +1557,7 @@ class DirectSessionManager:
             directory, self._loop, fps=fps, expected_producer_uid=os.geteuid())
         input_egress = UnixInputEgress(directory, expected_uid=os.geteuid())
         worker: subprocess.Popen[bytes] | None = None
+        guest: QsmGuestChannel | None = None
         clipboard_ours: socket.socket | None = None
         pcm_ours, pcm_theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         try:
@@ -1662,6 +1665,7 @@ class DirectSessionManager:
                 hardware=encoder != "libx264", guest=guest,
                 attached_by_pve=display_fd is not None or shared_profile is not None, pcm=pcm,
                 microphone=MicrophoneRoute(lambda data: pcm.send(PCM_MICROPHONE, data)))
+            self._attach_desktop_metadata(transport)
             self._transports[vmid] = transport
             print(
                 f"qsm-direct-terminal: VM media transport started vmid={vmid} codec={codec} encoder={encoder} pid={worker.pid}",
@@ -1670,6 +1674,8 @@ class DirectSessionManager:
             )
             return transport
         except BaseException:
+            if guest is not None:
+                guest.close()
             if worker is not None:
                 self._terminate_worker(worker)
             if clipboard_ours is not None:
@@ -1720,6 +1726,7 @@ class DirectSessionManager:
             directory, self._loop, fps=fps, expected_producer_uid=os.geteuid())
         input_egress = UnixInputEgress(directory, expected_uid=os.geteuid())
         worker: subprocess.Popen[bytes] | None = None
+        guest: QsmGuestChannel | None = None
         pcm_ours, pcm_theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         try:
             media.start()
@@ -1786,6 +1793,7 @@ class DirectSessionManager:
                 hardware=encoder != "libx264", guest=guest, kind="lxc", pcm=pcm,
                 audio_relay=relay,
                 microphone=MicrophoneRoute(relay.microphone) if relay is not None else None)
+            self._attach_desktop_metadata(transport)
             self._transports[key] = transport
             print(
                 f"qsm-direct-terminal: container media transport started vmid={vmid} "
@@ -1796,6 +1804,8 @@ class DirectSessionManager:
             )
             return transport
         except BaseException:
+            if guest is not None:
+                guest.close()
             if worker is not None:
                 self._terminate_worker(worker)
             pcm_ours.close()
@@ -1804,6 +1814,13 @@ class DirectSessionManager:
             input_egress.close()
             self._remove_directory(directory)
             raise
+
+    @staticmethod
+    def _attach_desktop_metadata(transport: DirectVmTransport) -> None:
+        if transport.guest is not None:
+            priority = DesktopPriority()
+            transport.remove_desktop_listener = transport.guest.add_desktop_listener(
+                lambda state: transport.input.set_desktop_hint(priority.update(state)))
 
     @staticmethod
     def _terminate_worker(worker: subprocess.Popen[bytes]) -> None:
@@ -1850,6 +1867,8 @@ class DirectSessionManager:
         transport = self._transports.pop(key, None)
         if transport is None:
             return
+        if transport.remove_desktop_listener is not None:
+            transport.remove_desktop_listener()
         self._terminate_worker(transport.worker)
         transport.media.close()
         transport.input.close()

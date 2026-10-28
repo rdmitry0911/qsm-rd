@@ -268,6 +268,10 @@ if(BUILD_TESTING)
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_qsm_desktop_metadata.py -v)
         set_tests_properties(qsm_desktop_metadata PROPERTIES TIMEOUT 20)
+        add_test(NAME qsm_desktop_priority
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_qsm_desktop_priority.py -v)
+        set_tests_properties(qsm_desktop_priority PROPERTIES TIMEOUT 20)
         add_test(NAME qsm_desktop_metadata_wire
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_qsm_desktop_wire.py -v)

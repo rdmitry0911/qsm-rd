@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch as mock_patch
 import zlib
 from extensions.browser_bridge.qsm_lossless_ui import (
-    CLEAR, GAP, HEADER, HELLO, MAGIC, MAX_BUFFERED, PATCH, RESET,
+    CLEAR, GAP, HEADER, HELLO, MAGIC, MAX_BUFFERED, PATCH, RESET, SCENE,
     Peer, Source, Update, decode,
 )
 
@@ -323,5 +323,55 @@ class ExactUiTests(unittest.TestCase):
             self.assertEqual(decode(p.channel.sent[-1]).x, 64)
             self.assertEqual(len(p.channel.sent), 3)
 
+
+class LayoutProtocolTests(unittest.TestCase):
+    @staticmethod
+    def advanced_source():
+        s=Source();s.feed(Update(HELLO,payload=struct.pack('!I',15)).wire(0,0))
+        s.feed(Update(RESET,width=128,height=64,capture=100,layout=7).wire(1,1,advanced=True))
+        return s
+
+    def test_layout_and_early_flag_roundtrip_and_legacy_downgrade(self):
+        p=patch();p=Update(**{**p.__dict__,'capture':200,'layout':7,'early':True})
+        new=decode(p.wire(1,2,advanced=True))
+        self.assertEqual((new.layout,new.early,new.capture),(7,True,200))
+        old=decode(p.wire(1,2))
+        self.assertEqual((old.layout,old.early,old.capture),(0,False,200))
+        with self.assertRaises(ValueError):
+            decode(Update(**{**p.__dict__,'layout':0}).wire(1,2,advanced=True))
+
+    def test_scene_requires_negotiated_capability_and_bounded_layout(self):
+        s=source()
+        s.feed(Update(SCENE,width=128,height=64,capture=200,layout=7).wire(1,2,advanced=True))
+        self.assertTrue(s.awaiting_reset)
+        with self.assertRaises(ValueError):
+            decode(Update(SCENE,width=128,height=64,capture=200,layout=1<<53).wire(1,2,advanced=True))
+
+    def test_old_peer_receives_no_scene_or_early_flags(self):
+        s=self.advanced_source();p=Peer(s,lambda _:None,lambda:None);p.version=2;p.channel=Channel();p.enable(True);p.drain()
+        self.assertEqual(decode(p.channel.sent[0]).layout,0)
+        s.feed(Update(SCENE,width=128,height=64,capture=200,layout=8).wire(1,2,advanced=True));p.drain()
+        self.assertEqual(len(p.channel.sent),1)
+        candidate=patch(serial=3)
+        candidate=Update(**{**candidate.__dict__,'capture':300,'layout':8,'early':True})
+        s.feed(candidate.wire(1,3,advanced=True));p.drain()
+        self.assertFalse(decode(p.channel.sent[-1]).early)
+        s.unsubscribe(p.receive)
+
+    def test_scene_precedes_early_updates_and_background_cannot_take_reserved_slots(self):
+        s=self.advanced_source();p=Peer(s,lambda _:None,lambda:None);p.version=5;p.channel=Channel();p.enable(True);p.drain()
+        p.channel.sent.clear();p.ack_pending=24
+        s.feed(Update(SCENE,width=128,height=64,capture=200,layout=8).wire(1,2,advanced=True))
+        for serial,x,early in [(3,0,True),(4,64,False)]:
+            candidate=patch(serial=serial,x=x)
+            candidate=Update(**{**candidate.__dict__,'capture':300,'layout':8,'early':early})
+            s.feed(candidate.wire(1,serial,advanced=True))
+        p.channel.bufferedAmount=MAX_BUFFERED+1;p.drain();self.assertEqual(p.channel.sent,[])
+        p.channel.bufferedAmount=0;p.drain()
+        self.assertEqual([HEADER.unpack_from(r)[1] for r in p.channel.sent],[SCENE,6])
+        self.assertEqual(HEADER.unpack_from(p.channel.sent[-1])[2]&2,2)
+        self.assertEqual(len(p.pending),1)
+        self.assertEqual(HEADER.unpack_from(p.channel.sent[0])[3],16)
+        s.unsubscribe(p.receive)
 
 if __name__ == '__main__': unittest.main()

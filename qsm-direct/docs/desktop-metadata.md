@@ -12,8 +12,11 @@ new host sends `DESKTOP_SUBSCRIBE 1`; a new agent replies
 `OK DESKTOP_SUBSCRIBE`, then emits `EVENT_DESKTOP <base64-json>` as state
 changes. `DESKTOP_SUBSCRIBE 0` stops those events. `-` revokes unavailable
 state. Nothing is sent without subscription. Older agents can return
-`ERR UNKNOWN_COMMAND`; the host tries once per connection and keeps
-clipboard working.
+`ERR UNKNOWN_COMMAND`; the host tries once per agent incarnation and keeps
+clipboard working. `READY QSF1` revokes old hints and rearms subscription:
+QEMU can retain the same host socket across a guest-agent restart. A greeting
+which arrives during the first subscription cannot suppress the next probe.
+Clipboard user actions are not replayed.
 
 VMs use the existing `org.qsm.direct.agent` virtio-serial port. LXC uses the
 existing session `agent.sock`. No additional listener or forwarded port is
@@ -48,8 +51,19 @@ character's bounds. KWin 5 uses a contained surface buffer to establish the
 client origin; an ambiguous origin, such as an external client-side shadow,
 leaves relative caret geometry unavailable. This box is a scheduling hint,
 not a local text renderer.
+An empty focused text control can supply its bounded component rectangle.
 Unsupported accessibility APIs leave `caret` null. Window titles and text
 contents are never read or included in the protocol.
+
+The application must expose its accessibility interface. On Qt 5 desktops
+with AT-SPI disabled, registering the QSM listener alone may leave it
+unavailable: the live default-settings test retains window geometry but
+reports `caret: null` and uses ordinary pixel scheduling. To enable the
+interface for a particular Qt application, launch it with
+`QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`. Applying that variable only to the
+metadata helper does not activate it in other applications. Qt documents
+the environment override and AT-SPI status properties in its
+[accessibility API reference](https://doc.qt.io/qt-6/qaccessible.html).
 
 The session bridge writes `desktop-metadata.json` atomically, privately, and
 with a one-second heartbeat. The VM agent watches the directory with
@@ -70,7 +84,22 @@ script loss/recovery, and the actual LXC-agent-to-host channel. The C VM
 agent's subscription, change events, safety bounds and legacy-host behavior
 are exercised over a Linux PTY with the actual compiled binary.
 
-The work is not yet qualified on a real VM virtio port or KWin 6. It is not
-yet connected to an early-paint UI path. Those checks and mixed text/video
-benchmarks remain in `rdp-next-plan.json`; the metadata tests alone do not
-prove a latency improvement or completion of the plan.
+A dedicated Debian 13 / KWin 6 VM exercises the real virtio serial port and
+standard graphical-session units. Its Qt 6 character bounds contain the
+independent native insertion point before and after moving the window. Stack,
+focus, hide/close, real screen locking, new graphical login, agent restart and
+guest reboot are covered in `rdp-vm-metadata-20261028.json`. Installation also
+checks an already existing port's permissions, failed-service recovery and
+preservation of an active agent's PID during repeat installation.
+
+The Debian Qt 5 native Wayland fixture did not appear in the AT-SPI registry
+even with its accessibility environment override; that platform combination
+retains fallback and its cause remains open. This differs from the supported
+Qt 5 path in the isolated Ubuntu/KWin 5 lab.
+
+Private exp42 trials of the priority UI path in `hybrid-priority-ui.md` cover
+visible typing over video, low-rate byte pressure and independent pixel
+checks after moving and closing the input window. A separate run with Qt
+accessibility disabled verifies ordinary fallback. Native LXC login and the
+broader mixed-content/media matrix remain in `rdp-next-plan.json`; these
+metadata tests alone do not prove completion of the plan.

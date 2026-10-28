@@ -1,0 +1,591 @@
+{
+  "candidate": "0.4.0+stock4.14~exp42",
+  "guest_candidate": "exp42",
+  "viewer_sha256": "373ad956c31e3739aab981f0c057a6fa2357f2eb5e10415190dec172bdde3e70",
+  "scope": "mock PVE API; real input, capture, NVENC, WebRTC and TURN/TCP8006",
+  "capture": "nested KWin5 on native Wayland LXC108",
+  "baseline_package": "0.4.0+stock4.14~exp35",
+  "baseline_cases": [
+    {
+      "name": "fast_video_only",
+      "glyph_median_ms": 112,
+      "glyph_p95_ms": 145,
+      "motion": {
+        "duration_ms": 3015,
+        "changed_frames": 181,
+        "raf_callbacks": 181,
+        "visible_fps": 60.033167495854066,
+        "p95_interval_ms": 18,
+        "max_interval_ms": 19
+      },
+      "transport_bytes": 4216528,
+      "duration_seconds": 7.101635392289609
+    },
+    {
+      "name": "fast_exact",
+      "glyph_median_ms": 116,
+      "glyph_p95_ms": 148,
+      "motion": {
+        "duration_ms": 3012,
+        "changed_frames": 181,
+        "raf_callbacks": 181,
+        "visible_fps": 60.092961487383796,
+        "p95_interval_ms": 18,
+        "max_interval_ms": 19
+      },
+      "transport_bytes": 4649008,
+      "duration_seconds": 7.107260789722204
+    },
+    {
+      "name": "overlap_fast_video_only",
+      "glyph_median_ms": 164,
+      "glyph_p95_ms": 182,
+      "motion": {
+        "duration_ms": 3003,
+        "changed_frames": 164,
+        "raf_callbacks": 181,
+        "visible_fps": 54.612054612054614,
+        "p95_interval_ms": 20,
+        "max_interval_ms": 183
+      },
+      "transport_bytes": 3603760,
+      "duration_seconds": 7.830872765742242
+    },
+    {
+      "name": "overlap_fast_exact",
+      "glyph_median_ms": 165,
+      "glyph_p95_ms": 182,
+      "motion": {
+        "duration_ms": 3008,
+        "changed_frames": 181,
+        "raf_callbacks": 181,
+        "visible_fps": 60.172872340425535,
+        "p95_interval_ms": 18,
+        "max_interval_ms": 19
+      },
+      "transport_bytes": 3803316,
+      "duration_seconds": 7.765414000023156
+    },
+    {
+      "name": "overlap_2mbit_video_only",
+      "glyph_median_ms": 158,
+      "glyph_p95_ms": 193,
+      "motion": {
+        "duration_ms": 3003,
+        "changed_frames": 52,
+        "raf_callbacks": 182,
+        "visible_fps": 17.316017316017316,
+        "p95_interval_ms": 84,
+        "max_interval_ms": 84
+      },
+      "transport_bytes": 1495060,
+      "duration_seconds": 7.748053540010005
+    },
+    {
+      "name": "overlap_2mbit_exact",
+      "glyph_median_ms": 170,
+      "glyph_p95_ms": 220,
+      "motion": {
+        "duration_ms": 3016,
+        "changed_frames": 50,
+        "raf_callbacks": 182,
+        "visible_fps": 16.578249336870027,
+        "p95_interval_ms": 84,
+        "max_interval_ms": 85
+      },
+      "transport_bytes": 1591204,
+      "duration_seconds": 7.779102633707225
+    }
+  ],
+  "candidate_cases": [
+    {
+      "name": "fast_video_only",
+      "glyph_median_ms": 133,
+      "glyph_p95_ms": 151,
+      "motion": {
+        "duration_ms": 3014,
+        "changed_frames": 165,
+        "raf_callbacks": 181,
+        "visible_fps": 54.74452554744526,
+        "p95_interval_ms": 33,
+        "max_interval_ms": 51
+      },
+      "transport_bytes": 4375100,
+      "duration_seconds": 7.32962902309373
+    },
+    {
+      "name": "fast_exact",
+      "glyph_median_ms": 63,
+      "glyph_p95_ms": 98,
+      "motion": {
+        "duration_ms": 3005,
+        "changed_frames": 180,
+        "raf_callbacks": 181,
+        "visible_fps": 59.90016638935108,
+        "p95_interval_ms": 18,
+        "max_interval_ms": 33
+      },
+      "transport_bytes": 4559144,
+      "duration_seconds": 7.04645513324067
+    },
+    {
+      "name": "overlap_fast_video_only",
+      "glyph_median_ms": 164,
+      "glyph_p95_ms": 182,
+      "motion": {
+        "duration_ms": 3006,
+        "changed_frames": 157,
+        "raf_callbacks": 181,
+        "visible_fps": 52.228875582168996,
+        "p95_interval_ms": 33,
+        "max_interval_ms": 35
+      },
+      "transport_bytes": 3716700,
+      "duration_seconds": 7.794699290301651
+    },
+    {
+      "name": "overlap_fast_exact",
+      "glyph_median_ms": 64,
+      "glyph_p95_ms": 81,
+      "motion": {
+        "duration_ms": 3004,
+        "changed_frames": 168,
+        "raf_callbacks": 181,
+        "visible_fps": 55.9254327563249,
+        "p95_interval_ms": 33,
+        "max_interval_ms": 35
+      },
+      "transport_bytes": 3934624,
+      "duration_seconds": 7.816673872061074
+    },
+    {
+      "name": "overlap_2mbit_video_only",
+      "glyph_median_ms": 176,
+      "glyph_p95_ms": 193,
+      "motion": {
+        "duration_ms": 3014,
+        "changed_frames": 60,
+        "raf_callbacks": 182,
+        "visible_fps": 19.907100199071003,
+        "p95_interval_ms": 68,
+        "max_interval_ms": 78
+      },
+      "transport_bytes": 1535728,
+      "duration_seconds": 7.979081944562495
+    },
+    {
+      "name": "overlap_2mbit_exact",
+      "glyph_median_ms": 80,
+      "glyph_p95_ms": 98,
+      "motion": {
+        "duration_ms": 3007,
+        "changed_frames": 53,
+        "raf_callbacks": 181,
+        "visible_fps": 17.62554040571999,
+        "p95_interval_ms": 68,
+        "max_interval_ms": 83
+      },
+      "transport_bytes": 1604708,
+      "duration_seconds": 7.949196173809469
+    }
+  ],
+  "exact_pixels": {
+    "opaque": 65536,
+    "equal": 65536,
+    "samples": 65536
+  },
+  "old_input_pixels_after_move": {
+    "pixels": 6048,
+    "exact_coverage": 6048,
+    "mismatches": 0
+  },
+  "old_input_pixels_after_close": {
+    "pixels": 9408,
+    "exact_coverage": 9408,
+    "mismatches": 0
+  },
+  "burst": {
+    "characters": 15,
+    "fixture_text_matches": true,
+    "last_key_to_all_glyphs_ms": 229,
+    "verification_rpc_ms": 760.6872720643878,
+    "server": {
+      "worker": 1864506,
+      "worker_alive": true,
+      "state": "connected",
+      "target": 1500,
+      "ui_available": true,
+      "ui_enabled": true,
+      "ui_tiles": 210,
+      "ui_gaps": 0,
+      "ui_patches": 1899,
+      "ui_bytes": 1178248,
+      "video_overflows": 4,
+      "video_drops": 202,
+      "ui_version": 5,
+      "ack_pending": 0,
+      "cache_hits": 295,
+      "scroll_copies": 78,
+      "fills": 374,
+      "regions_ready": false,
+      "region": null,
+      "source_features": 15,
+      "metadata": {
+        "callbacks": 1276,
+        "mode": 3,
+        "layout": 882984507590,
+        "area": [
+          480,
+          180,
+          640,
+          201
+        ]
+      },
+      "source_layout": 882984507590
+    },
+    "within_500ms_lab_budget": true
+  },
+  "ice": {
+    "type": "relay",
+    "protocol": "tcp",
+    "url": null
+  },
+  "page_errors": [],
+  "diagnostic": {
+    "glyph_median_ms": 78,
+    "glyph_p95_ms": 110,
+    "characters": 15
+  },
+  "limits": [
+    "15 single-key samples per case; three seconds of visible cadence per case",
+    "Controlled bandwidth, no imposed packet loss or long-session qualification",
+    "PVE launch and ACL bootstrap mocked; real guest input/capture/encode/transport/viewer",
+    "KWin5/LXC108, NVENC/H264 and Firefox/Linux only",
+    "Cropped video passes functional checks but regresses visible cadence at 2 Mbit/s; adaptation/loss/long-run, VM mixed content, other encoders, Mac and RDP comparisons remain pending"
+  ],
+  "evidence": "dist/rdp-hybrid/kwin-candidate42",
+  "additional_trials": {
+    "default_accessibility_fallback": {
+      "cases": [
+        {
+          "name": "fast_video_only",
+          "glyph_median_ms": 130,
+          "glyph_p95_ms": 137,
+          "visible_fps": 51.94805194805195,
+          "metadata_mode": 1,
+          "regions_ready": false
+        },
+        {
+          "name": "fast_exact",
+          "glyph_median_ms": 116,
+          "glyph_p95_ms": 131,
+          "visible_fps": 60,
+          "metadata_mode": 1,
+          "regions_ready": false
+        },
+        {
+          "name": "overlap_fast_video_only",
+          "glyph_median_ms": 147,
+          "glyph_p95_ms": 148,
+          "visible_fps": 59.428950863213814,
+          "metadata_mode": 1,
+          "regions_ready": false
+        },
+        {
+          "name": "overlap_fast_exact",
+          "glyph_median_ms": 149,
+          "glyph_p95_ms": 165,
+          "visible_fps": 53.92809587217044,
+          "metadata_mode": 1,
+          "regions_ready": false
+        },
+        {
+          "name": "overlap_2mbit_video_only",
+          "glyph_median_ms": 159,
+          "glyph_p95_ms": 223,
+          "visible_fps": 17.643142476697736,
+          "metadata_mode": 1,
+          "regions_ready": false
+        },
+        {
+          "name": "overlap_2mbit_exact",
+          "glyph_median_ms": 170,
+          "glyph_p95_ms": 200,
+          "visible_fps": 18.27849783981389,
+          "metadata_mode": 1,
+          "regions_ready": false
+        }
+      ],
+      "old_input_pixels_after_move": {
+        "pixels": 6048,
+        "exact_coverage": 6048,
+        "mismatches": 0
+      },
+      "old_input_pixels_after_close": {
+        "pixels": 9408,
+        "exact_coverage": 9408,
+        "mismatches": 0
+      },
+      "page_errors": []
+    },
+    "cropped_without_caret": {
+      "cases": [
+        {
+          "name": "fast_video_only",
+          "glyph_median_ms": 114,
+          "glyph_p95_ms": 130,
+          "visible_fps": 60.1328903654485,
+          "metadata_mode": 1,
+          "regions_ready": false
+        },
+        {
+          "name": "fast_exact",
+          "glyph_median_ms": 100,
+          "glyph_p95_ms": 327,
+          "visible_fps": 55.72139303482587,
+          "metadata_mode": 1,
+          "regions_ready": true
+        },
+        {
+          "name": "overlap_fast_video_only",
+          "glyph_median_ms": 167,
+          "glyph_p95_ms": 183,
+          "visible_fps": 59.880239520958085,
+          "metadata_mode": 1,
+          "regions_ready": false
+        },
+        {
+          "name": "overlap_fast_exact",
+          "glyph_median_ms": 170,
+          "glyph_p95_ms": 199,
+          "visible_fps": 53,
+          "metadata_mode": 1,
+          "regions_ready": true
+        },
+        {
+          "name": "overlap_2mbit_video_only",
+          "glyph_median_ms": 202,
+          "glyph_p95_ms": 236,
+          "visible_fps": 17.934241115908335,
+          "metadata_mode": 1,
+          "regions_ready": false
+        },
+        {
+          "name": "overlap_2mbit_exact",
+          "glyph_median_ms": 237,
+          "glyph_p95_ms": 286,
+          "visible_fps": 13.616738625041515,
+          "metadata_mode": 1,
+          "regions_ready": true
+        }
+      ],
+      "old_input_pixels_after_move": {
+        "pixels": 6048,
+        "exact_coverage": 6048,
+        "mismatches": 0
+      },
+      "old_input_pixels_after_close": {
+        "pixels": 9408,
+        "exact_coverage": 9408,
+        "mismatches": 0
+      },
+      "page_errors": []
+    },
+    "cropped_with_caret": {
+      "cases": [
+        {
+          "name": "fast_video_only",
+          "glyph_median_ms": 114,
+          "glyph_p95_ms": 131,
+          "visible_fps": 59.72130059721301,
+          "metadata_mode": 3,
+          "regions_ready": false
+        },
+        {
+          "name": "fast_exact",
+          "glyph_median_ms": 62,
+          "glyph_p95_ms": 83,
+          "visible_fps": 53.559547571523616,
+          "metadata_mode": 3,
+          "regions_ready": true
+        },
+        {
+          "name": "overlap_fast_video_only",
+          "glyph_median_ms": 166,
+          "glyph_p95_ms": 183,
+          "visible_fps": 57.5324243431992,
+          "metadata_mode": 3,
+          "regions_ready": false
+        },
+        {
+          "name": "overlap_fast_exact",
+          "glyph_median_ms": 68,
+          "glyph_p95_ms": 99,
+          "visible_fps": 54.87196541403392,
+          "metadata_mode": 3,
+          "regions_ready": true
+        },
+        {
+          "name": "overlap_2mbit_video_only",
+          "glyph_median_ms": 185,
+          "glyph_p95_ms": 219,
+          "visible_fps": 17.3217854763491,
+          "metadata_mode": 3,
+          "regions_ready": false
+        },
+        {
+          "name": "overlap_2mbit_exact",
+          "glyph_median_ms": 67,
+          "glyph_p95_ms": 86,
+          "visible_fps": 13.662112629123625,
+          "metadata_mode": 3,
+          "regions_ready": true
+        }
+      ],
+      "old_input_pixels_after_move": {
+        "pixels": 6048,
+        "exact_coverage": 6048,
+        "mismatches": 0
+      },
+      "old_input_pixels_after_close": {
+        "pixels": 9408,
+        "exact_coverage": 9408,
+        "mismatches": 0
+      },
+      "page_errors": []
+    }
+  },
+  "latest_candidate": "0.4.0+stock4.14~exp48",
+  "candidate48": [
+    {
+      "mode": "no-crop",
+      "package": "0.4.0+stock4.14~exp48",
+      "viewer_sha256": "373ad956c31e3739aab981f0c057a6fa2357f2eb5e10415190dec172bdde3e70",
+      "cases": [
+        {
+          "name": "fast_video_only",
+          "glyph_median_ms": 113,
+          "glyph_p95_ms": 131,
+          "visible_fps": 59.40922668436774,
+          "runtime_regions": false
+        },
+        {
+          "name": "fast_exact",
+          "glyph_median_ms": 50,
+          "glyph_p95_ms": 83,
+          "visible_fps": 59.993370898243285,
+          "runtime_regions": false
+        },
+        {
+          "name": "overlap_fast_video_only",
+          "glyph_median_ms": 163,
+          "glyph_p95_ms": 167,
+          "visible_fps": 57.333333333333336,
+          "runtime_regions": false
+        },
+        {
+          "name": "overlap_fast_exact",
+          "glyph_median_ms": 65,
+          "glyph_p95_ms": 82,
+          "visible_fps": 59.880239520958085,
+          "runtime_regions": false
+        },
+        {
+          "name": "overlap_2mbit_video_only",
+          "glyph_median_ms": 163,
+          "glyph_p95_ms": 193,
+          "visible_fps": 17.66077974008664,
+          "runtime_regions": false
+        },
+        {
+          "name": "overlap_2mbit_exact",
+          "glyph_median_ms": 74,
+          "glyph_p95_ms": 100,
+          "visible_fps": 15.661446184605131,
+          "runtime_regions": false
+        }
+      ],
+      "move_pixels": {
+        "pixels": 6048,
+        "exact_coverage": 6048,
+        "mismatches": 0
+      },
+      "close_pixels": {
+        "pixels": 9408,
+        "exact_coverage": 9408,
+        "mismatches": 0
+      },
+      "ice": {
+        "type": "relay",
+        "protocol": "tcp",
+        "url": null
+      },
+      "page_errors": []
+    },
+    {
+      "mode": "crop",
+      "package": "0.4.0+stock4.14~exp48",
+      "viewer_sha256": "373ad956c31e3739aab981f0c057a6fa2357f2eb5e10415190dec172bdde3e70",
+      "cases": [
+        {
+          "name": "fast_video_only",
+          "glyph_median_ms": 126,
+          "glyph_p95_ms": 131,
+          "visible_fps": 60.07301692665118,
+          "runtime_regions": false
+        },
+        {
+          "name": "fast_exact",
+          "glyph_median_ms": 54,
+          "glyph_p95_ms": 70,
+          "visible_fps": 50.19946808510638,
+          "runtime_regions": true
+        },
+        {
+          "name": "overlap_fast_video_only",
+          "glyph_median_ms": 181,
+          "glyph_p95_ms": 188,
+          "visible_fps": 59.860325906218826,
+          "runtime_regions": false
+        },
+        {
+          "name": "overlap_fast_exact",
+          "glyph_median_ms": 60,
+          "glyph_p95_ms": 87,
+          "visible_fps": 54.333333333333336,
+          "runtime_regions": true
+        },
+        {
+          "name": "overlap_2mbit_video_only",
+          "glyph_median_ms": 202,
+          "glyph_p95_ms": 220,
+          "visible_fps": 17.60797342192691,
+          "runtime_regions": false
+        },
+        {
+          "name": "overlap_2mbit_exact",
+          "glyph_median_ms": 84,
+          "glyph_p95_ms": 105,
+          "visible_fps": 13.612217795484728,
+          "runtime_regions": true
+        }
+      ],
+      "move_pixels": {
+        "pixels": 6048,
+        "exact_coverage": 6048,
+        "mismatches": 0
+      },
+      "close_pixels": {
+        "pixels": 9408,
+        "exact_coverage": 9408,
+        "mismatches": 0
+      },
+      "ice": {
+        "type": "relay",
+        "protocol": "tcp",
+        "url": null
+      },
+      "page_errors": []
+    }
+  ]
+}

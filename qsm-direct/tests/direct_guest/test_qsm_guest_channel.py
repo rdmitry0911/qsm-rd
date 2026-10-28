@@ -26,6 +26,7 @@ class GuestAgent:
         self.clipboard_applied = False
         self.metadata_supported = False
         self.metadata_initial = None
+        self.ready_before_subscription_ack = False
         self.subscriptions = []
         self._listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._listener.bind(str(path))
@@ -83,6 +84,9 @@ class GuestAgent:
                         if not self.metadata_supported:
                             self._reply('ERR UNKNOWN_COMMAND')
                         else:
+                            if self.ready_before_subscription_ack:
+                                self.ready_before_subscription_ack = False
+                                self._reply('READY QSF1')
                             if fields[1] == '1' and self.metadata_initial is not None:
                                 self.event_desktop(self.metadata_initial)
                             self._reply('OK DESKTOP_SUBSCRIBE')
@@ -217,6 +221,47 @@ class DirectGuestChannelTest(unittest.TestCase):
         self.wait_for(lambda: bool(received))
         self.agent._connection.shutdown(socket.SHUT_RDWR)
         self.wait_for(lambda: received[-1] is None)
+
+    def test_agent_restart_on_same_qemu_socket_revokes_and_resubscribes(self):
+        self.agent.metadata_supported = True
+        self.agent.metadata_initial = self.metadata()
+        received = []
+        self.channel.add_desktop_listener(received.append)
+        self.wait_for(lambda: bool(received))
+        self.channel.dispatch({'op': 'status'})
+        generation = self.channel._generation
+        self.agent.metadata_initial = self.metadata(sequence=2)
+        self.agent._reply('READY QSF1')
+        self.wait_for(lambda: len(received) >= 3)
+        self.assertIsNone(received[1])
+        self.assertEqual(received[-1]['sequence'], 2)
+        self.assertEqual(self.agent.subscriptions, ['1', '1'])
+        self.assertEqual(self.channel._generation, generation)
+        self.assertEqual(self.channel.dispatch({'op': 'status'}), {'agent': 'ready'})
+        self.assertEqual(self.channel.dispatch({'op': 'clipboard_get'}), {'text_b64': ''})
+
+    def test_ready_during_subscription_cannot_leave_events_permanently_disabled(self):
+        self.agent.metadata_supported = True
+        self.agent.metadata_initial = self.metadata()
+        self.agent.ready_before_subscription_ack = True
+        received = []
+        self.channel.add_desktop_listener(received.append)
+        self.wait_for(lambda: bool(received) and received[-1] is not None)
+        self.assertEqual(received[-1]['sequence'], 1)
+        self.agent.event_desktop(self.metadata(sequence=2))
+        self.wait_for(lambda: received[-1]['sequence'] == 2)
+
+    def test_upgraded_agent_is_reprobed_after_ready_on_existing_socket(self):
+        received = []
+        self.channel.add_desktop_listener(received.append)
+        self.wait_for(lambda: self.agent.subscriptions == ['1'])
+        self.channel.dispatch({'op': 'status'})
+        self.agent.metadata_supported = True
+        self.agent.metadata_initial = self.metadata()
+        self.agent._reply('READY QSF1')
+        self.wait_for(lambda: bool(received))
+        self.assertEqual(self.agent.subscriptions, ['1', '1'])
+        self.assertEqual(received[-1]['focus'], 'one')
 
 
 if __name__ == "__main__":

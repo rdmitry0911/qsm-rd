@@ -34,6 +34,13 @@ older agents retain the pixel/video fallback. No additional network port is
 opened. The host explicitly subscribes before any geometry is transmitted;
 missing, stale or locked sessions cannot provide live hints.
 
+Qt applications also need an active accessibility interface for caret hints.
+On a Qt 5 session where AT-SPI is disabled, window geometry remains available
+and the console retains ordinary pixel scheduling. A particular application
+can enable its interface by starting with
+`QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 APPLICATION`. Setting this variable only
+on the QSM metadata service does not enable accessibility in the application.
+
 ## macOS guest
 
 The same agent and QSF1 wire protocol build for a macOS guest with
