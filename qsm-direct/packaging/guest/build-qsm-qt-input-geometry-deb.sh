@@ -4,7 +4,7 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 WORK_ROOT="${QSM_QT_GEOMETRY_DEB_WORK_ROOT:-$ROOT_DIR/.packaging-build/qsm-qt-input-geometry}"
 OUTPUT_DIR="${QSM_QT_GEOMETRY_DEB_OUTPUT_DIR:-$ROOT_DIR/dist}"
-for command in cmake dpkg dpkg-deb dpkg-shlibdeps dpkg-architecture install find md5sum; do
+for command in cmake ctest dpkg dpkg-deb dpkg-shlibdeps dpkg-architecture install find md5sum; do
     command -v "$command" >/dev/null || { echo "Qt geometry build needs $command" >&2; exit 1; }
 done
 project_version="$(sed -n 's/^project(qsm_direct VERSION \([^ ]*\).*/\1/p' "$ROOT_DIR/CMakeLists.txt" | head -n1)"
@@ -23,6 +23,7 @@ for major in 5 6; do
     cmake -S "$ROOT_DIR/guest/qt-input-geometry" -B "$build_root/qt$major" \
         -DQSM_QT_MAJOR="$major" -DCMAKE_BUILD_TYPE=Release
     cmake --build "$build_root/qt$major" --parallel "${QSM_QT_GEOMETRY_DEB_JOBS:-2}"
+    ctest --test-dir "$build_root/qt$major" --output-on-failure
     destination="$stage_root/usr/lib/$multiarch/qt$major/plugins/generic"
     install -d "$destination"
     install -m 0644 "$build_root/qt$major/generic/libqsm-input-geometry.so" "$destination/"

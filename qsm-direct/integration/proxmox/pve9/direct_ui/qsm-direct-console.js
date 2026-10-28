@@ -532,6 +532,99 @@
         };
     };
 
+    // Optional encoded-frame arrival feedback. Frames pass through unchanged;
+    // this does not acknowledge presentation or authorize an exact-UI paint.
+    const createVideoReceiveFeedback = (scope, channelForFeedback) => {
+        let permitted = false, closed = false, failed = false;
+        let receiver = null, worker = null, transform = null, timer = null, url = null;
+        let previous = null, sentAt = -Infinity, reports = 0;
+        const end = () => {
+            if (timer !== null) { scope.clearTimeout(timer); timer = null; }
+            if (url !== null) { scope.URL.revokeObjectURL(url); url = null; }
+            if (receiver && transform && receiver.transform === transform) {
+                try { receiver.transform = null; } catch (_error) { /* Closing receiver. */ }
+            }
+            if (worker) { worker.terminate(); worker = null; }
+            transform = null; previous = null; sentAt = -Infinity;
+        };
+        const disable = () => { failed = true; end(); };
+        const start = () => {
+            if (!permitted || closed || failed || worker || !receiver ||
+                typeof scope.Worker !== 'function' || typeof scope.RTCRtpScriptTransform !== 'function' ||
+                !('transform' in receiver) || receiver.transform !== null) { return; }
+            const source = `
+                let pending = false, unsupported = false;
+                self.onmessage = event => { if (event.data === 'next') pending = false; };
+                self.onrtctransform = event => {
+                    const t = event.transformer; let last = -Infinity;
+                    t.readable.pipeThrough(new TransformStream({ transform(frame, controller) {
+                        const now = performance.now();
+                        if (!pending && now - last >= 45) {
+                            try {
+                                const rtp = frame.getMetadata().rtpTimestamp;
+                                if (Number.isInteger(rtp) && rtp >= 0 && rtp <= 0xffffffff) {
+                                    pending = true; last = now;
+                                    self.postMessage({ op: 'received', rtp });
+                                } else if (!unsupported) {
+                                    unsupported = true; self.postMessage({ op: 'unsupported' });
+                                }
+                            } catch (_error) {
+                                if (!unsupported) { unsupported = true; self.postMessage({ op: 'unsupported' }); }
+                            }
+                        }
+                        controller.enqueue(frame);
+                    }})).pipeTo(t.writable).catch(() => self.postMessage({ op: 'failed' }));
+                };
+                self.postMessage({ op: 'ready' });
+            `;
+            try {
+                url = scope.URL.createObjectURL(new scope.Blob([source], { type: 'application/javascript' }));
+                const target = receiver, candidate = new scope.Worker(url);
+                worker = candidate;
+                timer = scope.setTimeout(() => { if (worker === candidate) { disable(); } }, 1500);
+                candidate.onerror = () => { if (worker === candidate) { disable(); } };
+                candidate.onmessage = event => {
+                    if (closed || worker !== candidate || receiver !== target) { return; }
+                    const value = event.data;
+                    if (!value || typeof value !== 'object') { return; }
+                    if (value.op === 'ready') {
+                        if (timer !== null) { scope.clearTimeout(timer); timer = null; }
+                        if (url !== null) { scope.URL.revokeObjectURL(url); url = null; }
+                        if (transform) { return; }
+                        try {
+                            if (receiver.transform !== null) { disable(); return; }
+                            transform = new scope.RTCRtpScriptTransform(candidate);
+                            receiver.transform = transform;
+                        } catch (_error) { disable(); }
+                    } else if (value.op === 'unsupported' || value.op === 'failed') {
+                        disable();
+                    } else if (value.op === 'received') {
+                        try {
+                            const now = scope.performance.now(), rtp = value.rtp;
+                            const channel = channelForFeedback();
+                            if (transform && Number.isInteger(rtp) && rtp >= 0 && rtp <= 0xffffffff &&
+                                rtp !== previous && now - sentAt >= 45 && channel &&
+                                channel.readyState === 'open' && channel.bufferedAmount <= 1024) {
+                                channel.send(JSON.stringify({ op: 'qsm_video_received', rtp }));
+                                previous = rtp; sentAt = now; reports += 1;
+                            }
+                        } catch (_error) { /* Newer receipt replaces a dropped sample. */ }
+                        // One outstanding worker report bounds the queue even
+                        // when the main thread stalls; media never waits here.
+                        if (worker === candidate) { candidate.postMessage('next'); }
+                    }
+                };
+            } catch (_error) { disable(); }
+        };
+        return {
+            allow(value) { permitted = value === true; if (!permitted) { end(); } else { start(); } },
+            attach(value) { if (receiver !== value) { end(); receiver = value; } start(); },
+            close() { closed = true; end(); },
+            get active() { return transform !== null; },
+            get reports() { return reports; },
+        };
+    };
+
     // Standard receiver target is in milliseconds; the older Chromium hint
     // uses seconds. This is a target: the browser can enforce a larger floor.
     const applyReceiverPlayoutDelay = (receiver, milliseconds) => {
@@ -1568,6 +1661,7 @@
         const video = document.createElement('video');
         let videoFeedbackChannel = null;
         const reportVideoPresented = createVideoPresentationFeedback(() => videoFeedbackChannel);
+        const receiveFeedback = createVideoReceiveFeedback(popup, () => videoFeedbackChannel);
         video.autoplay = true;
         video.playsInline = true;
         // Mobile engines (Android Chrome, Samsung Internet) honour the HTML
@@ -1938,6 +2032,7 @@
                 !Number.isInteger(message.bitrate) || !Number.isInteger(message.maximum) ||
                 message.bitrate < 500 || message.maximum > 100000 || message.bitrate > message.maximum) { return; }
             videoRateSequence = message.sequence;
+            receiveFeedback.allow(message.receive_feedback === 1);
             adaptiveRateStatus.textContent = (message.adaptive === true ? gettext('Adaptive video') :
                 gettext('Fixed video — adaptive control is unavailable for this encoder')) + ': ' +
                 (message.bitrate / 1000).toFixed(2) + ' / ' +
@@ -3712,6 +3807,7 @@
         const close = () => {
             exactRenderer.configure(false);
             if (closed) { return; }
+            receiveFeedback.close();
             releaseHeldInput();
             closed = true;
             releaseGuestKeyboardLock();
@@ -3949,6 +4045,7 @@
                 // rather than making an older browser unable to connect.
                 if (event.track.kind === 'video' && event.receiver) {
                     videoReceiver = event.receiver;
+                    receiveFeedback.attach(videoReceiver);
                     applyReceiverPlayoutDelay(videoReceiver, settings.playoutDelayMs);
                 }
                 let stream = event.streams && event.streams[0];

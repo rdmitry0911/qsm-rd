@@ -11,10 +11,9 @@
     "Portable Debian12 Qt5.15/Qt6.4 plugin builds; matching VM/LXC guest packages; architecture-specific Qt deb embedded in the architecture-specific LXC host helper"
   ],
   "guest_acceptance": {
-    "scope": "Installed exp59 guest and Qt packages; real KWin6/virtio, owned Qt5/Qt6 applications, accessibility disabled",
+    "scope": "Installed exp59 guest and Qt packages; real KWin6/virtio, two PyQt6 applications; requested Qt5 loop was mislabeled by the old fixture",
     "runs": [
       {
-        "qt_major": 5,
         "pid": 244372,
         "initial_caret": {
           "actual": [
@@ -112,10 +111,11 @@
         "publisher_lease_expiry_seconds": 2.709966419963166,
         "same_sequence_heartbeat_recovers": true,
         "helper_restart_same_virtio_connection": true,
-        "closed_publisher_clears_caret": true
+        "closed_publisher_clears_caret": true,
+        "requested_qt_major": 5,
+        "actual_qt_major": 6
       },
       {
-        "qt_major": 6,
         "pid": 244771,
         "initial_caret": {
           "actual": [
@@ -213,7 +213,9 @@
         "publisher_lease_expiry_seconds": 2.5075627989135683,
         "same_sequence_heartbeat_recovers": true,
         "helper_restart_same_virtio_connection": true,
-        "closed_publisher_clears_caret": true
+        "closed_publisher_clears_caret": true,
+        "requested_qt_major": 6,
+        "actual_qt_major": 6
       }
     ],
     "same_native_vm_agent_and_kwin_during_each_probe": true,
@@ -237,7 +239,8 @@
         "mismatches": []
       }
     ],
-    "owned_guest_changes": "LXC108 and dedicated Intel-hosted VM only; owned agents refreshed once for protocol v2; no production host/guest restart"
+    "owned_guest_changes": "LXC108 and dedicated Intel-hosted VM only; owned agents refreshed once for protocol v2; no production host/guest restart",
+    "correction": "Both loops imported PyQt6. This report does not qualify Qt5. Actual-major-asserting exp63 Qt5/Qt6 evidence supersedes this claim in rdp-receive-feedback-20261028.json."
   },
   "same_application": {
     "fixture": "Narrow text field [1088,70,40,42] beside the unoccluded embedded frame-ID/XOR marker at [1132,96,136,16] in the same Qt window",

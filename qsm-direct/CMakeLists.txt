@@ -340,7 +340,7 @@ if(BUILD_TESTING)
                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_direct_console_overlay.mjs
             )
             set_tests_properties(qsm_direct_pve_console_overlay PROPERTIES TIMEOUT 20)
-            foreach(browser_test exact_ui local_cursor receiver_playout video_presentation pointer_pacing touch_gestures keyboard_state keyboard_capture mouse_state host_shortcuts)
+            foreach(browser_test exact_ui local_cursor receiver_playout video_presentation video_received pointer_pacing touch_gestures keyboard_state keyboard_capture mouse_state host_shortcuts)
                 add_test(NAME qsm_${browser_test}
                     COMMAND ${QSM_DIRECT_NODE_EXECUTABLE}
                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_${browser_test}.mjs)

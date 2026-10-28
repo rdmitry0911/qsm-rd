@@ -803,11 +803,11 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
             browser.addTransceiver("audio", direction="recvonly")
             browser.createDataChannel("qsm-control", ordered=True)
             browser.createDataChannel("qsm-pointer", ordered=False, maxRetransmits=0)
-            server_channels: list[str] = []
+            server_channels: dict[str, object] = {}
 
             @browser.on("datachannel")
             def on_datachannel(channel: object) -> None:
-                server_channels.append(str(getattr(channel, "label", "")))
+                server_channels[str(getattr(channel, "label", ""))] = channel
             try:
                 offer = await browser.createOffer()
                 await browser.setLocalDescription(offer)
@@ -827,6 +827,25 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                 while "qsm-guest-cursor" not in server_channels and time.monotonic() < deadline:
                     await asyncio.sleep(0.01)
                 self.assertIn("qsm-guest-cursor", server_channels)
+                # Receipt diagnostics use a separate authenticated history;
+                # a later display ACK cannot replace its network-age baseline.
+                bridge._video_received.sent(123,10000)
+                bridge._video_presentation.sent(123,10000)
+                channel = server_channels['qsm-guest-cursor']
+                channel.send(json.dumps({'op':'qsm_video_received','rtp':123}))
+                deadline = time.monotonic()+2
+                while bridge not in bridge._video_rate._receivers and time.monotonic()<deadline:
+                    await asyncio.sleep(.01)
+                state = bridge._video_rate._receivers[bridge]
+                self.assertEqual(state.feedback_kind,'received')
+                serial = state.presented_serial
+                channel.send(json.dumps({'op':'qsm_video_presented','rtp':123}))
+                channel.send(json.dumps({'op':'qsm_video_received','rtp':124}))
+                channel.send(json.dumps({'op':'qsm_video_received','rtp':True}))
+                channel.send(json.dumps({'op':'qsm_video_received','rtp':123,'key':42}))
+                await asyncio.sleep(.05)
+                self.assertEqual(state.presented_serial,serial)
+                self.assertEqual(state.feedback_kind,'received')
                 with self.assertRaisesRegex(BridgeError, "already consumed"):
                     await bridge.answer_offer(browser.localDescription.sdp)
                 await bridge.close()

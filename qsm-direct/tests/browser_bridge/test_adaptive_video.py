@@ -274,6 +274,44 @@ class RateTests(unittest.TestCase):
                 self.rr(sending_kbps=current * .55)
         self.assertEqual(self.rate.current_kbps, 20000)
 
+    def test_received_feedback_ignores_display_delay_and_falls_back_with_a_fresh_baseline(self):
+        self.now = 1.
+        self.rate.received_report('a', .98, 1000)
+        state = self.rate._receivers['a']
+        self.rate.presentation_report('a', .6, 800)
+        self.assertEqual(state.feedback_kind,'received')
+        self.assertAlmostEqual(state.presented_delay,.02)
+        self.assertEqual(len(state.presented_samples),1)
+        self.now = 3.
+        self.rate.presentation_report('a',2.88,2000)
+        self.assertEqual(state.feedback_kind,'presented')
+        self.assertAlmostEqual(state.presented_base,.12)
+        self.assertEqual(len(state.presented_samples),1)
+        self.rate.received_report('a',2.97,2200)
+        self.assertEqual(state.feedback_kind,'received')
+        self.assertAlmostEqual(state.presented_base,.03)
+        self.assertEqual(len(state.presented_samples),1)
+        received_at = state.received_time
+        self.now += .1
+        self.rate.received_report('a',2.97,2200)
+        self.assertEqual(state.received_time,received_at,'replay cannot renew receipt preference')
+
+    def test_recent_received_delivery_limits_the_first_congestion_reduction(self):
+        self.rate = AdaptiveVideoRate(8000,self.applied.append,clock=lambda:self.now)
+        total = 0
+        for n in range(1,21):
+            self.now = n*.05;total += 30000
+            self.rate.received_report('a',self.now-.03,total)
+        sent_at = self.now-.03
+        for n in range(1,5):
+            self.now = 1.+n*.05;sent_at += 1/60;total += 10000
+            self.rate.received_report('a',sent_at,total)
+            self.rate.presentation_backpressure('a',.025)
+        self.assertEqual(len(self.applied),1)
+        self.assertLessEqual(self.rate.current_kbps,2000)
+        self.assertGreaterEqual(self.rate.current_kbps,1000)
+        self.assertLess(self.now-1.,.25,'avoid averaging the pre-drop fast path into the first cut')
+
     def test_idle_presentation_and_short_display_stall_do_not_change_quality(self):
         total = 0
         for n in range(1, 1800):

@@ -297,6 +297,8 @@ class _ReceiverFeedback:
     presented_serial: int = 0
     reduced_presented_serial: int = 0
     credit_samples: list[tuple[float, float]] = field(default_factory=list)
+    feedback_kind: str = 'presented'
+    received_time: float = float('-inf')
 
 
 class AdaptiveVideoRate:
@@ -405,10 +407,33 @@ class AdaptiveVideoRate:
 
     def presentation_report(self, peer: object, sent_at: float, total_bytes: int) -> None:
         """A frame was displayed; arguments were matched to server history."""
+        state = self._receivers.get(peer)
+        if state is not None and self._clock() - state.received_time < 1.5:
+            return
+        self._delivery_report(peer, sent_at, total_bytes, 'presented')
+
+    def received_report(self, peer: object, sent_at: float, total_bytes: int) -> None:
+        """A complete encoded frame arrived, before optional decoder playout."""
+        self._delivery_report(peer, sent_at, total_bytes, 'received')
+
+    def _delivery_report(self, peer: object, sent_at: float, total_bytes: int, kind: str) -> None:
         now = self._clock()
         state = self._receivers.setdefault(peer, _ReceiverFeedback(now))
+        if state.feedback_kind != kind:
+            # Arrival and display have different baseline delays. Mixing their
+            # windows can manufacture congestion or conceal a real queue.
+            state.feedback_kind = kind
+            state.presented_sent_at = float('-inf')
+            state.presented_base = float('inf')
+            state.presented_samples.clear()
+            state.presented_delays.clear()
+            state.credit_samples.clear()
+            state.presented_queue_since = None
+            state.presented_kbps = state.presented_offered_kbps = 0.
         if sent_at <= state.presented_sent_at or not 0 <= now - sent_at < 8:
             return
+        if kind == 'received':
+            state.received_time = now
         delay = now - sent_at
         state.presented_time, state.presented_sent_at = now, sent_at
         state.presented_delay = delay
@@ -420,10 +445,14 @@ class AdaptiveVideoRate:
         # later healthy frame look queued and trigger a credit/IDR loop.
         delays = sorted(d for _, d in state.presented_delays)
         state.presented_base = delays[int((len(delays) - 1) * .1)]
+        # Receiver-side samples arrive before the playout cushion and can
+        # measure a recent delivery interval. Retain the longer display-only
+        # window for old clients and rendering-scheduling noise.
+        window, minimum = (.18, .10) if kind == 'received' else (.6, .3)
         samples = state.presented_samples = [(t, s, b) for t, s, b in state.presented_samples
-                                             if now - t < .6][-127:]
+                                             if now - t < window][-127:]
         samples.append((now, sent_at, total_bytes))
-        if now - samples[0][0] >= .3:
+        if now - samples[0][0] >= minimum:
             arrived, sent, count = samples[0]
             bits = max(0, total_bytes - count) * 8 / 1000
             state.presented_kbps = bits / (now - arrived)
@@ -2094,6 +2123,7 @@ class BrowserWebRtcBridge:
         self._input_state = BrowserInputState(self.input, pointer_order=self._pointer_order)
         self._region_full_frames: set[int] = set()
         self._video_presentation = _VideoPresentation()
+        self._video_received = _VideoPresentation()
         self._regions_eligible = self._regions_ready = False
         self.input.set_video_regions(self, False)
         self._ui_peer = exact_ui.Peer(self._ui_source, self._send_control, self.input.request_ui_snapshot,
@@ -2586,7 +2616,8 @@ class BrowserWebRtcBridge:
         payload = {"op": "qsm_video_rate", "sequence": self._video_rate_sequence,
                    "adaptive": self._video_rate.enabled,
                    "bitrate": self._video_rate.current_kbps,
-                   "maximum": self._video_rate.maximum_kbps}
+                   "maximum": self._video_rate.maximum_kbps,
+                   "receive_feedback": 1}
         channel = self._cursor_channel
         if channel is not None and getattr(channel, "readyState", None) == "open":
             try:
@@ -2800,12 +2831,17 @@ class BrowserWebRtcBridge:
                     data[1] & 0x80 and struct.unpack_from("!I", data, 8)[0] == video_sender._ssrc):
                 self._video_presentation.sent(struct.unpack_from("!I", data, 4)[0],
                                               self._video_pacer.sent_bytes + len(data) + 64)
+                self._video_received.sent(struct.unpack_from("!I", data, 4)[0],
+                                          self._video_pacer.sent_bytes + len(data) + 64)
 
         async def send_paced(data: bytes) -> None:
             if (len(data) >= 12 and data[0] >> 6 == 2 and not 192 <= data[1] <= 223 and
                     struct.unpack_from("!I", data, 8)[0] == video_sender._ssrc and
                     struct.unpack_from("!I", data, 4)[0] != last_frame_rtp):
-                waited = await self._video_presentation.wait_for_credit(
+                state = self._video_rate._receivers.get(self)
+                history = (self._video_received if state is not None and state.feedback_kind == 'received'
+                           else self._video_presentation)
+                waited = await history.wait_for_credit(
                     lambda: self._video_pacer.sent_bytes,
                     lambda: None if self._closed else self._video_rate._receivers.get(self))
                 self._video_rate.presentation_backpressure(self, waited)
@@ -2840,12 +2876,17 @@ class BrowserWebRtcBridge:
             try:
                 value = json.loads(message)
                 if (not isinstance(value, dict) or set(value) != {"op", "rtp"} or
-                        value["op"] != "qsm_video_presented" or type(value["rtp"]) is not int or
+                        value["op"] not in {"qsm_video_presented", "qsm_video_received"} or type(value["rtp"]) is not int or
                         not 0 <= value["rtp"] <= 0xffffffff):
                     return
-                frame = self._video_presentation.acknowledge(value["rtp"])
+                received = value['op'] == 'qsm_video_received'
+                history = self._video_received if received else self._video_presentation
+                frame = history.acknowledge(value["rtp"])
                 if frame is not None:
-                    self._video_rate.presentation_report(self, *frame)
+                    if received:
+                        self._video_rate.received_report(self, *frame)
+                    else:
+                        self._video_rate.presentation_report(self, *frame)
             except (ValueError, BridgeError):
                 pass  # Disposable diagnostics must not retire guest input.
 

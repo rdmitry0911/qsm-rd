@@ -127,6 +127,9 @@ The host restricts text priority to that component, so video in the same
 application cannot acquire text retention merely by being near the caret.
 Tile retention also requires the actual changed pixels to lie inside that
 area; a tile centre alone cannot prove that a change belongs to text.
+For `QPlainTextEdit` and `QTextEdit`, the provider maps the public
+viewport-relative `cursorRect()` into the window and clips to the viewport.
+This includes style borders and padding; a fixed frame offset is incorrect.
 
 The helper atomically writes both `desktop-metadata-v2.json` and the original
 version-1 file. Agents select the file requested by their host. Legacy views
@@ -177,10 +180,25 @@ is not the Ubuntu 24.04 portability check described here.
 Installed-package VM checks cover Qt 5 and Qt 6 with accessibility disabled:
 native cursor bounds, movement, resize, a second noneditable window in the
 same process, publisher stop/resume and metadata-helper restart over the same
-virtio connection. The LXC bandwidth-transition run uses the Qt provider and
-observes actual glyph pixels. Remaining queue peaks and the full application,
-codec and browser matrix are separate gates; these checks do not qualify a
-public release.
+virtio connection. The exp63 probe asserts actual Qt versions 5.15.15 and
+6.8.2 and checks styled plain/rich editors. The earlier exp59 fixture's two
+requested-major labels both ran Qt 6; its historical report is corrected.
+Normal native LXC SDDM/PAM login also verifies automatic Plasma profile
+inheritance with Qt 5.15.13, exact styled-editor caret coordinates, ordinary
+logout and metadata revocation on the same media connection.
+
+Qt owns the object returned by a generic plugin. The provider leaves that
+object parentless to avoid a second deletion during application shutdown,
+and stops publishing on `aboutToQuit`. Each Qt package build exercises full
+GUI/widget application destruction; installed Qt 5/6 applications also
+complete normal shutdown. These lifecycle checks are separate from the
+remaining application, codec and browser qualification.
+
+The LXC bandwidth-transition run uses the Qt provider and observes actual
+glyph pixels. Shipped early frame-receipt feedback passes the short controlled
+automatic transition gates; loss, jitter, longer sessions and the full media
+matrix remain open. Measured scope and current limits are recorded in
+`rdp-receive-feedback-20261028.json`; these checks do not qualify a public release.
 
 ## Older GLib bindings and helper recovery
 

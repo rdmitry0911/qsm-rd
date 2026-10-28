@@ -79,8 +79,8 @@
   ],
   "checkpoint": {
     "stage": "priority-ui",
-    "candidate": "0.4.0+stock4.14~exp60 (private, not release-qualified)",
-    "evidence_directory": "dist/rdp-hybrid/input-geometry-exp60",
+    "candidate": "0.4.0+stock4.14~exp63 (private, not release-qualified)",
+    "evidence_directory": "dist/rdp-hybrid/receive-feedback-exp63",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -97,7 +97,14 @@
       "Negotiated version-2 desktop metadata adds a bounded input-component clip; a strict v1 state file and explicit old-agent fallback remain",
       "Text-priority bounds intersect the input component; actual changed pixels must be confined to it, rather than relying on the tile centre",
       "Component geometry changes retire old leading layouts; insertion-point changes inside one component retain the layout",
-      "Portable Debian12 Qt5.15/Qt6.4 plugin builds; matching VM/LXC guest packages; architecture-specific Qt deb embedded in the architecture-specific LXC host helper"
+      "Portable Debian12 Qt5.15/Qt6.4 plugin builds; matching VM/LXC guest packages; architecture-specific Qt deb embedded in the architecture-specific LXC host helper",
+      "Negotiated optional qsm_video_received feedback over the existing unordered cursor channel; exact op/RTP schema and independent bounded server history",
+      "A ready-checked receiver RTCRtpScriptTransform forwards the original encoded frame unchanged and reports its RTP timestamp before decoder playout; at most one worker report is outstanding",
+      "Receipt feedback uses a recent 180 ms delivery window, minimum 100 ms; legacy presentation feedback retains its longer noise-tolerant window",
+      "Server clears rate/baseline/credit windows when switching between receipt and display feedback; presentation feedback resumes after receipt expiry",
+      "Existing UI/video synchronization acknowledgements remain independent",
+      "Qt QPlainTextEdit/QTextEdit geometry uses public viewport-relative cursor bounds including style/frame offsets",
+      "Generic Qt plugin instances have Qt as sole owner; aboutToQuit stops publishing and unregisters its service; package builds test full application destruction for Qt5/Qt6"
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -117,30 +124,34 @@
       "Real VM reboot: metadata recovers in ~11.4 seconds on the same host stream; guest boot changes while host boot and QEMU PID stay unchanged",
       "Exp48 packaged host acceptance, with and without cropping: independent move/close pixels regain full exact coverage with zero mismatches; visible overlap typing medians 65/74 ms without cropping on fast/2 Mbit/s links; cropped-video cadence regression remains open",
       "Real native LXC SDDM/PAM: package exp48 preserves outer display/SDDM PIDs; login starts metadata automatically, normal Plasma logout revokes hints and returns the greeter, login again creates a new metadata session on the same media worker/WebRTC/TCP8006 connection",
-      "Exp50 LXC crop: all static pixel/move/close/input/resize checks pass; raster-change samples 34–39/s versus exp48 crop ~14/s; those counters are not source-frame cadence and are superseded by the frame-id oracle",
+      "Exp50 LXC crop: all static pixel/move/close/input/resize checks pass; raster-change samples 34\u201339/s versus exp48 crop ~14/s; those counters are not source-frame cadence and are superseded by the frame-id oracle",
       "Persistent crop rate up/down/recovery uses 5600/1050 kbit/s codec targets; a 400 ms bad target does not retune; 2162 presented frames retain exact static pixels without gaps",
-      "Installed LXC metadata child crash: hints expire after ~3 seconds, new child restores layout after ~4.8 seconds on the same worker/WebRTC connection; 4-minute memory sample ~19–20 MiB",
+      "Installed LXC metadata child crash: hints expire after ~3 seconds, new child restores layout after ~4.8 seconds on the same worker/WebRTC connection; 4-minute memory sample ~19\u201320 MiB",
       "Native Gio ownership regression fails before fix (~37 MB RSS growth / 2200 calls), passes after (~0.1 MB); installed Debian13 VM exp50 passes same real-call/delayed-reply stress without native PID changes",
       "Frame-ID oracle corrects the old raster-hash cadence metric; exp35 synthetic source-ID baseline and matching pixel references are frozen",
       "Exp51 transition regression: 14 invalid composite counter observations in exp50, valid raw video plus 1024 old exact pixels; the same real 30-to-60 fps transition has zero invalid observations after the focused-retention fix",
       "Public 60 fps animation excerpt over TCP8006 at a 2 Mbit/s downlink: exp35 ~15.6 versus exp51 ~54.1 unique source frames/s; median RGB PSNR ~31.0 versus ~32.3 dB; scene-cut minimum remains explicitly tracked",
       "Exp51 overlap typing: 65/70 ms median on fast/2 Mbit/s links, all 65536 exact pixel samples equal, move/close coverage complete with zero mismatches; no-metadata fallback also passes pixels/move/close/input",
-      "Installed metadata helper completes 30 minutes under continuous owned video damage on the same PID/session, 18–20 MiB RSS, no new OOM or metadata availability loss; this is not a 30-minute full end-to-end mixed-content soak",
+      "Installed metadata helper completes 30 minutes under continuous owned video damage on the same PID/session, 18\u201320 MiB RSS, no new OOM or metadata availability loss; this is not a 30-minute full end-to-end mixed-content soak",
       "Exp57 real automatic 20-to-2-to-20 Mbit/s TURN/TCP8006 trial: ~55 source frames/s at 2 Mbit/s, full 8000 kbit/s target recovery, zero static-pixel/XOR mismatches in 8180 observations and exactly 15 guest characters; residual peak presentation 573 ms and glyph 712 ms fail the stricter transition gates",
-      "Installed Qt5 and Qt6 component geometry with accessibility disabled on the real Debian13/KWin6 VM: move, resize, same-process noneditable window, lease expiry/resume and metadata-helper restart over the same virtio connection; guest payloads are byte-identical between exp59 and exp60",
+      "Historical exp59 VM geometry loops both ran PyQt6 despite their requested-major labels; raw evidence retained and canonical report corrected. Separate actual-major-asserting exp63 verification covers both Qt5 and Qt6.",
       "Same-application edge reproducer: exp58 has 86 invalid composed marker observations at 30 fps with valid raw video; exp60 has zero at 30/60 fps, retires the layout when the field moves, preserves it for caret-only movement, and removes all old-field overlays from exposed video",
       "Exp60 real 20-to-2-to-20 Mbit/s TURN/TCP8006 run: all 15 glyphs in metadata mode 3, median 75 ms / peak 547 ms, 8192 static observations with zero mismatches/uncovered pixels/XOR errors; residual video gap 566 ms and source age 1168 ms remain unqualified",
-      "Private signed archive accepts all seven guest-enabled packages; real APT downloads eight packages including a temporary test keyring and rejects modified signed metadata and debs; historical release-manifest compatibility tests pass"
+      "Private signed archive accepts all seven guest-enabled packages; real APT downloads eight packages including a temporary test keyring and rejects modified signed metadata and debs; historical release-manifest compatibility tests pass",
+      "Exp61 shipped receipt feedback, with host payload byte/mode/link-identical to exp63: real automatic 20-to-2-to-20 Mbit/s TURN/TCP8006 transition passes all current queue gates; narrow source cadence 54.89 fps, maximum gap 117 ms, full source age peak 471.98 ms and visible glyph peak 236 ms; 8216 static observations have zero wrong/uncovered/XOR samples and all 15 input characters arrive once. One short no-loss run does not establish the full qualification.",
+      "Installed exp63 VM Qt5.15.15 and Qt6.8.2, actual-major asserted: native caret deltas are zero across move/resize/styled QPlainTextEdit/QTextEdit, noneditable focus, publisher expiry/recovery and helper restart on the same virtio connection; agent/KWin PIDs preserved.",
+      "Installed exp63 native LXC SDDM/PAM: Plasma profile automatically loads the Qt5.15.13 provider once without per-app Qt overrides; styled-editor caret coordinates match; normal logout revokes metadata and returns the greeter on the same connected media worker; outer Sway/SDDM PIDs preserved.",
+      "Exp63 fixes a normal-shutdown double deletion in the new Qt generic plugin; real installed PyQt5/PyQt6 GUI/widget applications all exit 0, and each SDK major passes GUI/widget full-destruction tests.",
+      "Real Firefox/TURN/TCP8006 fallback runs cover missing transform API, actual CSP worker denial, deliberate worker runtime failure after receipt messages, and an actual exp60 host without advertisement. All retain roughly 57 source fps, valid source IDs, detached transforms and presentation-feedback fallback.",
+      "Full exp63 host/viewer/guest-package repeat also passes the automatic 20-to-2-to-20 Mbit/s transition: narrow 54.33 source fps, gap 134 ms, full source age peak 508.12 ms, visible glyph peak 275 ms; 8180 static observations have zero mismatches/uncovered/XOR samples, all 15 input characters once, target returns to 8000. Two short no-loss runs still leave real loss/jitter and broader qualification open."
     ],
     "pending": [
-      "Remove residual automatic-transition peaks: exp60 566 ms video gap, 1168 ms full source age, 547 ms priority glyph; retain strict latency/pixel/fidelity gates",
-      "Qualify automatic native Plasma login/environment inheritance of the new Qt5/Qt6 provider, additional applications and full component-aware overlap/lifecycle scenarios",
-      "Evaluate first-frame quality at hard video cuts, actual adaptive-feedback recovery and real packet loss before enabling the cropped plane by default",
-      "Qualify cropped-video fidelity and consistent fast-link cadence; real adaptive feedback/loss and longer resource runs remain required before default enablement",
-      "Expanded mixed-content acceptance: normal accessibility defaults, cropped video, real loss and longer runs",
-      "Accessibility under normal session defaults and explicit no-accessibility/old-agent fallback",
-      "Complete priority UI qualification for typing over video and moving/resizing/scrolling/closing windows",
-      "Remaining video queue, qualification, comparison and release stages"
+      "Normal-session Qt provider startup in the VM and Qt6 LXC applications; additional application/toolkit coverage and unsupported/legacy fallback",
+      "Complete component-aware text-over-video move/resize/scroll/close, occlusion and lifecycle acceptance",
+      "Actual packet loss and jitter, repeated automatic bandwidth transitions and hard-cut fidelity",
+      "Supported VM/LXC NVENC/QSV/VAAPI H264/HEVC matrix, long encoded mixed sessions and resource checks",
+      "Firefox/macOS acceptance and matched QSM/RDP network/content comparison",
+      "Clean Trixie top-level build smoke; final matching source/debs, signed public checksums/APT, installation/rollback docs and qualified rollout/discussion updates"
     ],
     "production_node_20": "Host remains exp35; no worker or user desktop restart",
     "video_scheduling_changed": true,
@@ -155,9 +166,10 @@
       "dist/rdp-hybrid/video-budget-exp50",
       "dist/rdp-hybrid/source-fidelity-exp51",
       "dist/rdp-hybrid/video-feedback-exp57",
-      "dist/rdp-hybrid/input-geometry-exp60"
+      "dist/rdp-hybrid/input-geometry-exp60",
+      "dist/rdp-hybrid/receive-feedback-exp63"
     ],
-    "next_action": "Reduce actual bandwidth-transition output backlog using the clocked decomposition, qualify automatic Qt provider startup and full component-aware overlap scenarios, then complete codec/loss/soak/browser/RDP and release gates",
+    "next_action": "Finish normal-session/application coverage and component-aware overlap/lifecycle acceptance, then actual loss/jitter/transition/fidelity, codec/soak/browser/RDP and full release gates",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -212,29 +224,29 @@
     },
     "next_steps": [
       {
-        "id": "video-regions-and-queue",
-        "action": "Bound full source-to-composed age during automatic bandwidth changes; investigate earlier receiver feedback without weakening quality or latency gates",
-        "gate": "Preserve the exp57 cadence/recovery/static-pixel gains while passing the remaining presentation/input peaks; include source-to-composed-frame age, not only last-RTP-to-callback age"
-      },
-      {
         "id": "guest-metadata",
-        "action": "Qualify automatic normal-session Qt input-component geometry in VM/LXC and supported accessibility/fallback applications",
-        "gate": "Verify real application startup, focus, window movement, login/logout, locking and helper recovery without changing the user session"
+        "action": "Normal-session Qt provider startup in the VM and Qt6 LXC applications; additional application/toolkit coverage and unsupported/legacy fallback",
+        "gate": "Actual application/session startup and focus/locking/logout/recovery; assert actual toolkit versions and preserve existing production sessions"
       },
       {
         "id": "priority-ui",
-        "action": "Finish independent exact UI scheduling with text input over playing video",
-        "gate": "Measure actual visible glyph latency during a congested stream; move, resize, scroll and close the overlapping window with no obsolete pixels or mosaic"
+        "action": "Complete component-aware text-over-video move/resize/scroll/close, occlusion and lifecycle acceptance",
+        "gate": "Actual visible glyph latency under video congestion plus independent exact pixels and no stale overlays after every layout operation"
+      },
+      {
+        "id": "video-regions-and-queue",
+        "action": "Actual packet loss and jitter, repeated automatic bandwidth transitions and hard-cut fidelity",
+        "gate": "Keep measured source-to-composed age, native presentation and input bounds; static pixels exact, true source cadence and video fidelity acceptable"
       },
       {
         "id": "qualification",
-        "action": "Run VM/LXC, supported NVENC/QSV/VA-API codecs, real loss, long mixed sessions, Firefox/macOS and comparable RDP scenarios",
-        "gate": "Report latency, true source-frame cadence, pixel correctness, bandwidth and resource use; do not substitute unit tests for end-to-end acceptance"
+        "action": "Supported VM/LXC NVENC/QSV/VAAPI H264/HEVC matrix, long encoded mixed sessions and resource checks; Firefox/macOS acceptance and matched QSM/RDP network/content comparison",
+        "gate": "Scope-matched latency/cadence/fidelity/bandwidth/resource evidence for each supported path; no broad claim from a short single-encoder run"
       },
       {
         "id": "release",
-        "action": "Publish matching source and binaries, signed checksums, APT and upgrade/rollback instructions; deploy qualified packages to the agreed nodes and prepare discussion updates",
-        "gate": "Pass mixed-content acceptance first; preserve TCP8006-only access and existing production sessions"
+        "action": "Clean Trixie top-level build smoke; final matching source/debs, signed public checksums/APT, installation/rollback docs and qualified rollout/discussion updates",
+        "gate": "Complete mixed-content qualification first, then matching source/binaries/signatures/APT/docs and qualified rollout while preserving TCP8006-only access and existing sessions"
       }
     ],
     "adaptive_feedback_candidate": {
@@ -312,7 +324,12 @@
       "scope": "Private owned LXC108/KWin5, NVENC H264, Linux Firefox, actual packaged viewer and extracted host worker; TURN over one forwarded TCP8006",
       "metadata": "Mode 1 (layout only); native Qt5 caret-priority gap remains. This is not an early-UI acceptance run."
     },
-    "qt_input_geometry": "docs/rdp-qt-input-geometry-20261028.json"
+    "qt_input_geometry": "docs/rdp-qt-input-geometry-20261028.json",
+    "adaptive_receipt_candidate": {
+      "candidate": "0.4.0+stock4.14~exp63",
+      "acceptance": "Controlled automatic transition and optional feedback fallback pass; full qualification incomplete",
+      "evidence": "docs/rdp-receive-feedback-20261028.json"
+    }
   },
   "deployment_nodes": [
     "192.168.64.20",
