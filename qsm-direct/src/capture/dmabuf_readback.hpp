@@ -43,16 +43,16 @@ public:
 
     void reset() noexcept;
     [[nodiscard]] bool active() const noexcept { return static_cast<bool>(backing_fd_); }
+    static void validate_scanout(std::uint32_t width,
+                                 std::uint32_t height,
+                                 std::uint32_t stride,
+                                 std::uint32_t drm_fourcc);
 
 private:
     struct EglReadback;
 
     [[nodiscard]] static std::uint32_t pixman_format_for_fourcc(
         std::uint32_t drm_fourcc);
-    void validate_scanout(std::uint32_t width,
-                          std::uint32_t height,
-                          std::uint32_t stride,
-                          std::uint32_t drm_fourcc) const;
     [[nodiscard]] FrameToken copy_scanout_gbm(CpuFramebuffer& framebuffer);
     [[nodiscard]] FrameToken copy_scanout_egl(CpuFramebuffer& framebuffer);
     [[nodiscard]] FrameToken copy_update_gbm(CpuFramebuffer& framebuffer,

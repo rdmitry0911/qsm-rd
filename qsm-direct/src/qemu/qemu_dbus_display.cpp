@@ -645,6 +645,7 @@ void QemuDbusDisplay::stop() noexcept {
     peer_filter_slot_.reset();
 
 #ifdef QMDP_HAS_GBM
+    pending_dmabuf_.reset();
     dmabuf_readback_.reset();
 #endif
     shutdown_listener_transport(audio_transport_shutdown_fd_);
@@ -959,6 +960,7 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
                                       listener_interface.data(),
                                       "Scanout")) {
 #ifdef QMDP_HAS_GBM
+        pending_dmabuf_.reset();
         if (dmabuf_readback_) {
             dmabuf_readback_->reset();
         }
@@ -1050,6 +1052,7 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
                                       map_interface.data(),
                                       "ScanoutMap")) {
 #ifdef QMDP_HAS_GBM
+        pending_dmabuf_.reset();
         if (dmabuf_readback_) {
             dmabuf_readback_->reset();
         }
@@ -1139,19 +1142,16 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
                                         &modifier,
                                         &y0_top),
                     "read Listener.ScanoutDMABUF");
-        const auto readback_started = std::chrono::steady_clock::now();
         try {
-            if (!dmabuf_readback_) {
-                dmabuf_readback_ = std::make_unique<DmaBufReadback>(options_.capture_render_node);
-            }
-            publish(dmabuf_readback_->scanout(framebuffer_,
-                                               duplicate_cloexec(fd),
-                                               width,
-                                               height,
-                                               stride,
-                                               fourcc,
-                                               modifier,
-                                               y0_top != 0));
+            DmaBufReadback::validate_scanout(width, height, stride, fourcc);
+            // QEMU follows a buffer replacement with UpdateDMABUF and holds
+            // its GL producer until that update is acknowledged. Read the
+            // replacement once at that boundary, rather than once per call.
+            // A five-ms deadline also starts readback without a damage call.
+            const auto deadline = pending_dmabuf_ ? pending_dmabuf_->deadline
+                : std::chrono::steady_clock::now() + 5ms;
+            pending_dmabuf_ = PendingDmaBuf {duplicate_cloexec(fd), width, height,
+                stride, fourcc, modifier, y0_top != 0, deadline};
         } catch (...) {
             std::lock_guard lock(stats_mutex_);
             ++dmabuf_readback_failures_;
@@ -1160,12 +1160,6 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
         {
             std::lock_guard lock(stats_mutex_);
             ++dmabuf_scanouts_;
-            const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now() - readback_started).count();
-            ++dmabuf_readback_samples_;
-            dmabuf_readback_total_microseconds_ += static_cast<std::uint64_t>(elapsed);
-            dmabuf_readback_max_microseconds_ = std::max(
-                dmabuf_readback_max_microseconds_, static_cast<std::uint64_t>(elapsed));
         }
         dbus::check(sd_bus_reply_method_return(message, ""),
                     "reply ScanoutDMABUF");
@@ -1181,6 +1175,28 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
         std::int32_t height = 0;
         dbus::check(sd_bus_message_read(message, "iiii", &x, &y, &width, &height),
                     "read Listener.UpdateDMABUF");
+        if (pending_dmabuf_) {
+            if (x < 0 || y < 0 || width <= 0 || height <= 0) {
+                throw std::invalid_argument("DMA-BUF damage geometry is invalid");
+            }
+            if (static_cast<std::uint64_t>(x) + static_cast<std::uint64_t>(width) > pending_dmabuf_->width ||
+                static_cast<std::uint64_t>(y) + static_cast<std::uint64_t>(height) > pending_dmabuf_->height) {
+                {
+                    std::lock_guard lock(stats_mutex_);
+                    ++stale_geometry_update_drops_;
+                }
+                dbus::check(sd_bus_reply_method_return(message, ""), "reply stale pending UpdateDMABUF");
+                return 1;
+            }
+            flush_dmabuf_scanout();
+            {
+                std::lock_guard lock(stats_mutex_);
+                ++dmabuf_updates_;
+                ++dmabuf_coalesced_scanouts_;
+            }
+            dbus::check(sd_bus_reply_method_return(message, ""), "reply coalesced UpdateDMABUF");
+            return 1;
+        }
         const auto compatibility = framebuffer_.damage_compatibility(x, y, width, height);
         if (compatibility == CpuFramebuffer::DamageCompatibility::awaiting_scanout ||
             compatibility == CpuFramebuffer::DamageCompatibility::out_of_bounds) {
@@ -1223,6 +1239,7 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
                                       listener_interface.data(),
                                       "Disable")) {
 #ifdef QMDP_HAS_GBM
+        pending_dmabuf_.reset();
         if (dmabuf_readback_) {
             dmabuf_readback_->reset();
         }
@@ -1903,6 +1920,36 @@ int QemuDbusDisplay::handle_microphone_message(sd_bus_message *message) {
     return 0;
 }
 
+#ifdef QMDP_HAS_GBM
+void QemuDbusDisplay::flush_dmabuf_scanout() {
+    if (!pending_dmabuf_) {
+        return;
+    }
+    auto pending = std::move(*pending_dmabuf_);
+    pending_dmabuf_.reset();
+    const auto started = std::chrono::steady_clock::now();
+    try {
+        if (!dmabuf_readback_) {
+            dmabuf_readback_ = std::make_unique<DmaBufReadback>(options_.capture_render_node);
+        }
+        publish(dmabuf_readback_->scanout(framebuffer_, std::move(pending.fd),
+            pending.width, pending.height, pending.stride, pending.fourcc,
+            pending.modifier, pending.y0_top));
+    } catch (...) {
+        std::lock_guard lock(stats_mutex_);
+        ++dmabuf_readback_failures_;
+        throw;
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - started).count();
+    std::lock_guard lock(stats_mutex_);
+    ++dmabuf_readback_samples_;
+    dmabuf_readback_total_microseconds_ += static_cast<std::uint64_t>(elapsed);
+    dmabuf_readback_max_microseconds_ = std::max(
+        dmabuf_readback_max_microseconds_, static_cast<std::uint64_t>(elapsed));
+}
+#endif
+
 void QemuDbusDisplay::publish(FrameToken frame) {
     if (callbacks_.on_frame) {
         callbacks_.on_frame(std::move(frame));
@@ -1923,7 +1970,24 @@ void QemuDbusDisplay::peer_loop() noexcept {
         const auto interval = std::chrono::duration_cast<std::chrono::microseconds>(
             options_.pump_interval);
         while (!stopping_.load()) {
-            if (!peer_bus_.pump_once(interval)) {
+            if (!peer_bus_.process_pending()) {
+                if (!stopping_.load() && !display_disabled_.load()) {
+                    report_error("QEMU display listener connection closed unexpectedly");
+                }
+                break;
+            }
+            auto timeout = interval;
+#ifdef QMDP_HAS_GBM
+            if (pending_dmabuf_ && pending_dmabuf_->deadline <= std::chrono::steady_clock::now()) {
+                flush_dmabuf_scanout();
+            }
+            if (pending_dmabuf_) {
+                timeout = std::min(timeout, std::chrono::ceil<std::chrono::microseconds>(
+                    pending_dmabuf_->deadline - std::chrono::steady_clock::now()));
+                timeout = std::max(timeout, std::chrono::microseconds::zero());
+            }
+#endif
+            if (!peer_bus_.wait(timeout)) {
                 if (!stopping_.load() && !display_disabled_.load()) {
                     report_error("QEMU display listener connection closed unexpectedly");
                 }
@@ -1954,6 +2018,7 @@ QemuDbusDisplay::Stats QemuDbusDisplay::stats() const {
         .cursor_moves = cursor_moves_,
         .dmabuf_scanouts = dmabuf_scanouts_,
         .dmabuf_updates = dmabuf_updates_,
+        .dmabuf_coalesced_scanouts = dmabuf_coalesced_scanouts_,
         .dmabuf_readback_failures = dmabuf_readback_failures_,
         .dmabuf_readback_samples = dmabuf_readback_samples_,
         .dmabuf_readback_total_microseconds = dmabuf_readback_total_microseconds_,

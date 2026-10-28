@@ -6,6 +6,7 @@
 #include "core/unix_fd.hpp"
 #include "core/video_budget.hpp"
 #include "core/cropped_video_rate.hpp"
+#include "core/capture_frame_queue.hpp"
 #include "capture/cpu_framebuffer.hpp"
 #include "interfaces/media_adapter.hpp"
 #include "interfaces/qemu_display.hpp"
@@ -560,6 +561,64 @@ void test_severe_crop_decrease_has_a_short_confirmed_boundary_only() {
 }
 
 
+void test_capture_bursts_keep_both_fresh_images_in_order() {
+    using namespace std::chrono_literals;
+    qmdp::CaptureFrameQueue queue;
+    const qmdp::CaptureFrameQueue::Clock::time_point start {};
+    auto pixels = std::make_shared<const std::vector<std::uint8_t>>(16U, 0U);
+    // Two captures arrive between encode ticks. The old latest-only slot
+    // discarded the first even though both fit the next two media ticks.
+    queue.push({pixels, 10, 2, 2, start + 1ms});
+    queue.push({pixels, 11, 2, 2, start + 13ms});
+    CHECK(queue.size() == 2 && queue.bytes() == 32);
+    auto first = queue.pop(start + 16ms, 33ms);
+    auto second = queue.pop(start + 32ms, 33ms);
+    CHECK(first && first->capture == 10);
+    CHECK(second && second->capture == 11);
+    CHECK(queue.size() == 0 && queue.bytes() == 0);
+}
+
+void test_capture_history_expires_and_is_cleared_for_modes_and_recovery() {
+    using namespace std::chrono_literals;
+    qmdp::CaptureFrameQueue queue;
+    const qmdp::CaptureFrameQueue::Clock::time_point start {};
+    auto pixels = std::make_shared<const std::vector<std::uint8_t>>(16U, 0U);
+    queue.push({pixels, 1, 2, 2, start});
+    queue.push({pixels, 2, 2, 2, start + 1ms});
+    queue.push({pixels, 3, 2, 2, start + 2ms});
+    auto retained = queue.pop(start + 10ms, 33ms);
+    CHECK(retained && retained->capture == 2);
+    CHECK(!queue.pop(start + 40ms, 33ms));
+    CHECK(queue.size() == 0 && queue.bytes() == 0);
+    queue.push({pixels, 4, 2, 2, start + 50ms});
+    queue.push({pixels, 5, 4, 1, start + 51ms});
+    auto resized = queue.pop(start + 52ms, 33ms);
+    CHECK(resized && resized->capture == 5 && resized->width == 4);
+    queue.push({pixels, 6, 4, 1, start + 53ms});
+    queue.clear();  // Caller discards history for backpressure/IDR/layout.
+    CHECK(!queue.pop(start + 54ms, 33ms));
+    CHECK(queue.bytes() == 0);
+}
+
+void test_capture_history_has_a_byte_bound_as_well_as_a_frame_bound() {
+    using namespace std::chrono_literals;
+    qmdp::CaptureFrameQueue queue;
+    const qmdp::CaptureFrameQueue::Clock::time_point start {};
+    auto large = std::make_shared<const std::vector<std::uint8_t>>(4096U * 2049U * 4U, 0U);
+    queue.push({large, 1, 4096, 2049, start});
+    queue.push({large, 2, 4096, 2049, start + 1ms});
+    CHECK(queue.size() == 1 && queue.bytes() == large->size());
+    auto latest = queue.pop(start + 2ms, 33ms);
+    CHECK(latest && latest->capture == 2);
+    latest.reset();
+    queue.push({large, 3, 4096, 2049, start + 3ms});
+    auto oversized = std::make_shared<const std::vector<std::uint8_t>>(4096U * 4097U * 4U, 0U);
+    queue.push({oversized, 4, 4096, 4097, start + 4ms});
+    CHECK(queue.size() == 0 && queue.bytes() == 0);
+    CHECK(!queue.pop(start + 5ms, 33ms));  // Caller uses its latest image.
+    CHECK(large.use_count() == 1 && oversized.use_count() == 1);
+}
+
 }  // namespace
 
 int main() {
@@ -582,6 +641,9 @@ int main() {
     test_cropped_video_rate_fits_the_shared_wire_budget_at_full_cadence();
     test_cropped_scene_burst_is_bounded_and_paid_before_another_capture();
     test_severe_crop_decrease_has_a_short_confirmed_boundary_only();
+    test_capture_bursts_keep_both_fresh_images_in_order();
+    test_capture_history_expires_and_is_cleared_for_modes_and_recovery();
+    test_capture_history_has_a_byte_bound_as_well_as_a_frame_bound();
 
     if (failures == 0) {
         std::cout << "all qmdp core tests passed\n";

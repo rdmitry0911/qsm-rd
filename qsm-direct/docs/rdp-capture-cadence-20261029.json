@@ -1,0 +1,729 @@
+{
+  "date": "2026-10-29",
+  "candidate": "0.4.0+stock4.14~exp90",
+  "status": "Private seven-package candidate. Basic native VM H264/QSV/VAAPI/NVENC and hard-cut quality pass. One of two retained LXC loss repeats fails source-age excess by12.93ms; release is not qualified.",
+  "source_base_commit": "18ae61db6856f144ade030017c71ad7350447698",
+  "source_archive": {
+    "file": "source-full-exp90.tar",
+    "sha256": "521714c8bd046055049717f3ff5902fc8804b544e309eec4e8f34c1e726e8e18"
+  },
+  "changed_runtime_and_regression_sources_match_frozen_archive": [
+    {
+      "path": "qsm-direct/src/core/capture_frame_queue.hpp",
+      "sha256": "e22d3b132eee865d8ff26ec4fd2711873a7664c53115e0538a2598f144270313"
+    },
+    {
+      "path": "qsm-direct/src/capture/dmabuf_readback.cpp",
+      "sha256": "ece3daebaecd4b7b28b499746d86acb542ebdde2a83511eb9fe775ff35ab8feb"
+    },
+    {
+      "path": "qsm-direct/src/capture/dmabuf_readback.hpp",
+      "sha256": "c44370cca53a472c124a0376e28c11da9c9c908a220c97c72874805a2db7c3cd"
+    },
+    {
+      "path": "qsm-direct/src/dbus/sd_bus.cpp",
+      "sha256": "a4d0d765921c6d7013200966816ce77bb0c7dbb053c8fe1b951162617cc4a29f"
+    },
+    {
+      "path": "qsm-direct/src/dbus/sd_bus.hpp",
+      "sha256": "cef3082855ebaee6fe9a341ddb2f9154ae6a71dfc1b47daa0e8397079dde637e"
+    },
+    {
+      "path": "qsm-direct/src/qemu/qemu_dbus_display.cpp",
+      "sha256": "152ca5cadc4924d6dfe8430a10144014cb0b925ef37e9497aecf5da56a0df62e"
+    },
+    {
+      "path": "qsm-direct/src/qemu/qemu_dbus_display.hpp",
+      "sha256": "3bb8f2255f52fd7dba7ca7026cc96ea3f38b2f5078b8da6ee5e1c14a4655cb67"
+    },
+    {
+      "path": "qsm-direct/tools/qsm_direct_media_worker.cpp",
+      "sha256": "4823159530f79e5df6fca01d6c5a858ddb26580ffda6783e55524094b73a0f81"
+    },
+    {
+      "path": "qsm-direct/tests/core_tests.cpp",
+      "sha256": "ff0d5c54cc84b62598eb850a23b782ef55dd067e5bb321103e3da6a32e71a0ef"
+    }
+  ],
+  "findings": {
+    "stage_trace": "trace86-stage-proof.json: in the same real run F/C contain51\u201352 unique sourcefps, E43\u201345; no source/capture association mismatch. Most skipped source images live less than an encode tick. The trace is diagnostic and not release acceptance.",
+    "coalescing_only": "Exp88 halves GPU readbacks and removes mailbox losses, but43.58/42.34fps still fails45fps.",
+    "short_history": "Exp89 preserves at most two fresh captures and passes46.80/47.03fps. Exp90 adds the64MiB history bound and a tested queue helper; preserves order, expiry and explicit clearing.",
+    "implementation": [
+      "Coalesce the QEMU buffer announcement and following damage into one GPU readback; a5ms deadline handles scanout without damage. Replacement retains the deadline; Disable/inline/map changes cancel the pending FD.",
+      "Keep at most two captures and64MiB for up to two negotiated frame periods. Clear history for rate/backpressure pauses, keyframe recovery, layout/size changes and UI/video-mode changes; the latest UI source stays independent. Video retains the selected capture stamp."
+    ]
+  },
+  "native_trials": [
+    {
+      "evidence": "intel86-native-vm-h264_qsv-virgl-stage-trace86/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/viewer86 and passive worker86 trace build; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Diagnostic records unchanged encoded AUs before RTP; one extra IDR at each phase start. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "candidate": "exp86-trace",
+      "encoder": "h264_qsv",
+      "checks": {
+        "source_cadence": false,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "accepted_in_declared_basic_scope": false,
+      "glyph_ms": 236,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 43.416666666666664,
+          "max_gap_ms": 83,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 41.287613715885236,
+          "max_gap_ms": 99,
+          "invalid_ids": 0
+        }
+      ],
+      "full_native_qualification": false
+    },
+    {
+      "evidence": "intel88-native-vm-h264_qsv-virgl-capture-gpu/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer88; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "candidate": "exp88",
+      "encoder": "h264_qsv",
+      "checks": {
+        "source_cadence": false,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "accepted_in_declared_basic_scope": false,
+      "glyph_ms": 237,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 43.579701691525706,
+          "max_gap_ms": 67,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 42.33518268605988,
+          "max_gap_ms": 83,
+          "invalid_ids": 0
+        }
+      ],
+      "full_native_qualification": false
+    },
+    {
+      "evidence": "intel89-native-vm-h264_qsv-virgl-capture-gpu/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer89; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "candidate": "exp89",
+      "encoder": "h264_qsv",
+      "checks": {
+        "source_cadence": true,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "accepted_in_declared_basic_scope": true,
+      "glyph_ms": 247,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 46.79823465734033,
+          "max_gap_ms": 84,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 47.033538261608435,
+          "max_gap_ms": 83,
+          "invalid_ids": 0
+        }
+      ],
+      "full_native_qualification": false
+    },
+    {
+      "evidence": "intel90-native-vm-h264_qsv-virgl-capture-gpu/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer90; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "candidate": "exp90",
+      "encoder": "h264_qsv",
+      "checks": {
+        "source_cadence": true,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "accepted_in_declared_basic_scope": true,
+      "glyph_ms": 225,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 46.98825293676581,
+          "max_gap_ms": 67,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 46.867192964924556,
+          "max_gap_ms": 98,
+          "invalid_ids": 0
+        }
+      ],
+      "full_native_qualification": false
+    },
+    {
+      "evidence": "intel90-native-vm-h264_vaapi-virgl-capture-gpu/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer90; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "candidate": "exp90",
+      "encoder": "h264_vaapi",
+      "checks": {
+        "source_cadence": true,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "accepted_in_declared_basic_scope": true,
+      "glyph_ms": 221,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 49.01797603195739,
+          "max_gap_ms": 67,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 47.219307450157395,
+          "max_gap_ms": 83,
+          "invalid_ids": 0
+        }
+      ],
+      "full_native_qualification": false
+    },
+    {
+      "evidence": "intel90-native-vm-h264_nvenc-virgl-capture-gpu/result.json",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer90; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "candidate": "exp90",
+      "encoder": "h264_nvenc",
+      "checks": {
+        "source_cadence": true,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "accepted_in_declared_basic_scope": true,
+      "glyph_ms": 222,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 52.5,
+          "max_gap_ms": 51,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 49.375312343828085,
+          "max_gap_ms": 101,
+          "invalid_ids": 0
+        }
+      ],
+      "full_native_qualification": false
+    }
+  ],
+  "native_scope_limit": "Owned Debian13/KWin6 VM and real QEMU/Intel DMA-BUF capture, real H264 hardware encoders, real packaged Firefox/Linux viewer and TURN over one forwarded SSH TCP socket; PVE launch/ACL mocked.12s healthy and20s2M measurements after settling; glyph measured before narrowing. Full transition loss/recovery, source-fidelity/occlusion and input-under-congestion acceptance remain.",
+  "native_basic_h264_paths_pass": true,
+  "native_full_matrix_qualified": false,
+  "gpu_protocol": {
+    "evidence": "dmabuf-protocol90-result.json",
+    "unchanged_production_display_core_libraries": true,
+    "real_intel_linear_gbm_exports": true,
+    "cases": [
+      {
+        "scenario": "scanout_only",
+        "passed": true,
+        "frames": 1,
+        "readbacks": 1,
+        "coalesced": 0
+      },
+      {
+        "scenario": "pair",
+        "passed": true,
+        "frames": 1,
+        "readbacks": 1,
+        "coalesced": 1
+      },
+      {
+        "scenario": "delayed_update",
+        "passed": true,
+        "frames": 2,
+        "readbacks": 2,
+        "coalesced": 0
+      },
+      {
+        "scenario": "disable",
+        "passed": true,
+        "frames": 0,
+        "readbacks": 0,
+        "coalesced": 0
+      },
+      {
+        "scenario": "replace",
+        "passed": true,
+        "frames": 1,
+        "readbacks": 1,
+        "coalesced": 1
+      },
+      {
+        "scenario": "inline",
+        "passed": true,
+        "frames": 1,
+        "readbacks": 0,
+        "coalesced": 0
+      },
+      {
+        "scenario": "stale_damage",
+        "passed": true,
+        "frames": 1,
+        "readbacks": 1,
+        "coalesced": 0
+      },
+      {
+        "scenario": "malformed_scanout",
+        "passed": true,
+        "frames": 0,
+        "readbacks": 0,
+        "coalesced": 0
+      }
+    ],
+    "initial_harness_failures": [
+      "Initial producer used an unexposed PyGObject factory name; corrected to the official Gio.Socket method.",
+      "Second producer built a larger inline variant after sending the DMA-BUF announcement, allowing the legitimate5ms fallback first. Corrected producer prebuilds it before sending; original raw result retained."
+    ]
+  },
+  "lxc_controlled_loss": [
+    {
+      "evidence": "quality61-auto-tcp-loss0p3-delay15-jitter3-candidate90-hot-loss-hardcuts-source-oracle/result.json",
+      "gates": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "accepted": true,
+      "tcp_drops": 108,
+      "phases": [
+        {
+          "name": "fast",
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_fps": 54.567789487295535,
+          "max_frame_gap_ms": 83,
+          "overflows_added": 0,
+          "full_source_age_ms": {
+            "samples": 928,
+            "median": 159.9272742867477,
+            "p95": 174.68134149288161,
+            "max": 240.92727433890104,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "initial_target": 8000,
+          "final_target": 1679,
+          "unique_fps": 48.48471606179125,
+          "max_frame_gap_ms": 217,
+          "overflows_added": 0,
+          "full_source_age_ms": {
+            "samples": 2746,
+            "median": 193.1953730372058,
+            "p95": 274.4670641918958,
+            "max": 573.3882377545036,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "initial_target": 1679,
+          "final_target": 8000,
+          "unique_fps": 54.36785113122772,
+          "max_frame_gap_ms": 117,
+          "overflows_added": 0,
+          "full_source_age_ms": {
+            "samples": 4527,
+            "median": 161.3936881534812,
+            "p95": 206.7946135687322,
+            "max": 358.6656781844795,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "fast_source_age_p95_ms": 174.68134149288161,
+      "maximum_source_age_ms": 573.3882377545036,
+      "maximum_source_age_excess_ms": 398.706896261622,
+      "glyph_peak_ms": 131,
+      "guest_characters": 15,
+      "static": {
+        "frames": 8218,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0
+      }
+    },
+    {
+      "evidence": "quality61-auto-tcp-loss0p3-delay15-jitter3-candidate90-hot-loss-hardcuts-repeat-source-oracle/result.json",
+      "gates": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "accepted": false,
+      "tcp_drops": 118,
+      "phases": [
+        {
+          "name": "fast",
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_fps": 54.567789487295535,
+          "max_frame_gap_ms": 84,
+          "overflows_added": 0,
+          "full_source_age_ms": {
+            "samples": 928,
+            "median": 154.7392252677433,
+            "p95": 172.1369835237656,
+            "max": 236.47031653672457,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "initial_target": 8000,
+          "final_target": 1529,
+          "unique_fps": 47.04837993786063,
+          "max_frame_gap_ms": 232,
+          "overflows_added": 0,
+          "full_source_age_ms": {
+            "samples": 2704,
+            "median": 188.42767047074815,
+            "p95": 253.06303380057216,
+            "max": 585.0691920456796,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "initial_target": 1529,
+          "final_target": 8000,
+          "unique_fps": 53.235465578462026,
+          "max_frame_gap_ms": 117,
+          "overflows_added": 0,
+          "full_source_age_ms": {
+            "samples": 4528,
+            "median": 171.71521106114085,
+            "p95": 206.23107027883236,
+            "max": 386.20222732424736,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "fast_source_age_p95_ms": 172.1369835237656,
+      "maximum_source_age_ms": 585.0691920456796,
+      "maximum_source_age_excess_ms": 412.93220852191405,
+      "glyph_peak_ms": 147,
+      "guest_characters": 15,
+      "static": {
+        "frames": 8177,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0
+      }
+    }
+  ],
+  "controlled_loss_repeats_accepted": false,
+  "outstanding_source_age": {
+    "peak_source_observation": {
+      "ms": 70408,
+      "tick": 3841,
+      "phase": 30,
+      "clock_uncertainty_ms": 1.0,
+      "source_age_ms": 585.0691920456796
+    },
+    "native_presentations_near_peak": [
+      {
+        "rtp": 3470011288,
+        "ms": 70207.62,
+        "delay_ms": 56.260461919009686,
+        "clock_uncertainty_ms": 1.0,
+        "capture_to_last_send_ms": 290.5661999247968,
+        "capture_to_presentation_ms": 346.8266618438065,
+        "last_send_to_receive_ms": 50.64046196639538,
+        "browser_after_receive_ms": 5.619999999995343
+      },
+      {
+        "rtp": 3470036861,
+        "ms": 70424.7,
+        "delay_ms": 63.32559511065483,
+        "clock_uncertainty_ms": 1.0,
+        "capture_to_last_send_ms": 225.71439994499087,
+        "capture_to_presentation_ms": 289.0399950556457,
+        "last_send_to_receive_ms": 51.625595428049564,
+        "browser_after_receive_ms": 11.69999999999709
+      },
+      {
+        "rtp": 3470051906,
+        "ms": 70457.9,
+        "delay_ms": 45.99078092724085,
+        "clock_uncertainty_ms": 1.0,
+        "capture_to_last_send_ms": 96.37143649160862,
+        "capture_to_presentation_ms": 142.36221741884947,
+        "last_send_to_receive_ms": 19.09078098833561,
+        "browser_after_receive_ms": 26.89999999999418
+      },
+      {
+        "rtp": 3470053396,
+        "ms": 70475,
+        "delay_ms": 59.27155539393425,
+        "clock_uncertainty_ms": 1.0,
+        "capture_to_last_send_ms": 83.09066202491522,
+        "capture_to_presentation_ms": 142.36221741884947,
+        "last_send_to_receive_ms": 29.27155513316393,
+        "browser_after_receive_ms": 30
+      }
+    ],
+    "finding": "The last displayed source image ages across a217ms presentation gap. Its capture-to-last-send was290.57ms; the following IDR was225.71ms. Nearby produced AUs include a47101-byte P and28993-byte IDR. The data points to complete-frame transmission/recovery bursts; raw-history causation is not established.",
+    "next_action": "Reduce that transmission/recovery spike while preserving exact static UI, scene-cut quality, the45fps native gate and every existing LXC queue gate. Retain both raw repeats; do not relabel the failed repeat as accepted."
+  },
+  "hardcut": {
+    "evidence": "quality61-auto-hardcut90-snapshots-source-oracle/result.json",
+    "checks": {
+      "quality_rgb": true,
+      "quality_ssim": true,
+      "no_visible_stale_exact_tiles": true,
+      "static_ui_exact": true,
+      "source_ids_valid": true,
+      "snapshot_ids_match": true,
+      "cadence": true,
+      "no_long_gap": true
+    },
+    "gates": {
+      "rgb_psnr_minimum": 26,
+      "ssim_8x8_box_minimum": 0.9,
+      "strong_stale_exact_matches_at_most": 15,
+      "static_ui_wrong_observations": 0,
+      "source_id_errors": 0,
+      "fast_source_fps_minimum": 50,
+      "narrow_source_fps_minimum": 45,
+      "max_source_gap_ms": 500
+    },
+    "phases": [
+      {
+        "name": "fast",
+        "unique_source_fps": 52.184344696591026,
+        "max_gap_ms": 101,
+        "first_cut_min_rgb_psnr": 36.430034748088225,
+        "first_cut_min_ssim_8x8_box": 0.985107445373332
+      },
+      {
+        "name": "narrow",
+        "unique_source_fps": 51.61268825803012,
+        "max_gap_ms": 151,
+        "first_cut_min_rgb_psnr": 31.28472311817415,
+        "first_cut_min_ssim_8x8_box": 0.9071871687282672
+      }
+    ]
+  },
+  "tests": {
+    "target_sdk_bridge": 133,
+    "cpp_suites": 3,
+    "new_core_cases": [
+      "capture bursts preserve both frames",
+      "bounded age/history and mode/recovery clearing",
+      "byte bound, oversize fallback and released references"
+    ],
+    "portable_guest_builds": "Qt5/Qt6 GUI/widget lifetime checks pass",
+    "client_setup": "Full LXC oracle requires Python3.12 for system NumPy1.26.4 and isolated Pillow; two initial import failures occurred before network setup. Native basic controller used Python3.14 without NumPy."
+  },
+  "matching_full_bundle": {
+    "version": "0.4.0+stock4.14~exp90",
+    "package_count": 7,
+    "packages": [
+      {
+        "file": "qsm-console-guest_0.4.0+stock4.14~exp90_all.deb",
+        "sha256": "ebce60164c9af184b77a99d26507253a6bc587665bec5b257ba0e20096dc8969"
+      },
+      {
+        "file": "qsm-desktop-agent_0.4.0+stock4.14~exp90_amd64.deb",
+        "sha256": "2b7539ea9d27e4740444793f823982f5de320c9042464f78e2b60271e3ba799e"
+      },
+      {
+        "file": "qsm-pve-direct-gateway_0.4.0+stock4.14~exp90_all.deb",
+        "sha256": "88557ed9b34a052d6cb3e7984559a123db4480bc31d9e1fa6514f2bbe7ff7312"
+      },
+      {
+        "file": "qsm-pve-direct-lxc_0.4.0+stock4.14~exp90_amd64.deb",
+        "sha256": "db6080300b02c1c0d9105f20df4c034d119f8c9430f7d415ce005d1630cbe3ca"
+      },
+      {
+        "file": "qsm-pve-direct-standalone_0.4.0+stock4.14~exp90_all.deb",
+        "sha256": "e6c4f2244eafac3e207706e4e226617eba93646510b0c710a2234375f0f46693"
+      },
+      {
+        "file": "qsm-pve-direct_0.4.0+stock4.14~exp90_amd64.deb",
+        "sha256": "6a989b16165d8a069b03a57eba3eac93e1cdc846bc08332db52370fffaa058b1"
+      },
+      {
+        "file": "qsm-qt-input-geometry_0.4.0+stock4.14~exp90_amd64.deb",
+        "sha256": "fe7c05414f7a4fb94c6f9f74e0bc9e11767e9c54416c8cf2a9b1ee4c958694e9"
+      }
+    ],
+    "main_pilot_vs_full": {
+      "payload_entries": 34,
+      "payload_differences": [],
+      "control_entries": 6,
+      "control_differences": []
+    },
+    "guests": [
+      {
+        "package": "qsm-console-guest",
+        "payload_entries": 29,
+        "differences_from68": []
+      },
+      {
+        "package": "qsm-qt-input-geometry",
+        "payload_entries": 4,
+        "differences_from68": []
+      },
+      {
+        "package": "qsm-desktop-agent",
+        "payload_entries": 13,
+        "differences_from68": [
+          "usr/lib/qsm-desktop-agent/qsm-desktop-agent",
+          "usr/lib/qsm-desktop-agent/qsm-desktop-state-watcher"
+        ]
+      }
+    ],
+    "source_archive": {
+      "file": "source-full-exp90.tar",
+      "sha256": "521714c8bd046055049717f3ff5902fc8804b544e309eec4e8f34c1e726e8e18"
+    }
+  },
+  "guest_code_equivalence": "guest83-90-equivalence.json; native installed83 and LXC68 payloads are equivalent in their documented component scope; labels not upgraded in these trials.",
+  "production_state": {
+    "production_node20": {
+      "package": "0.4.0+stock4.14~exp35",
+      "processes": {
+        "577033": {
+          "alive": true,
+          "start_ticks": 332808379
+        },
+        "495374": {
+          "alive": true,
+          "start_ticks": 297084425
+        }
+      }
+    },
+    "owned_lxc_namespace": {
+      "processes": {
+        "3829219": {
+          "alive": true,
+          "start_ticks": 336885308
+        },
+        "3981095": {
+          "alive": true,
+          "start_ticks": 338753534
+        },
+        "444366": {
+          "alive": true,
+          "start_ticks": 241353958
+        },
+        "444367": {
+          "alive": true,
+          "start_ticks": 241353959
+        },
+        "444390": {
+          "alive": true,
+          "start_ticks": 241353968
+        }
+      },
+      "guest_versions": "qsm-console-guest 0.4.0+stock4.14~exp68\nqsm-qt-input-geometry 0.4.0+stock4.14~exp68\n",
+      "metadata_sha256": "f75936dcde17bfa5a21291be36eacbe0ebfffcd4e6980efb750a70cc9743a3d5"
+    },
+    "production_rollout_performed": false,
+    "owned_vm83_install": "vm83-install-proof.json"
+  },
+  "release_qualified": false,
+  "full_plan_complete": false,
+  "remaining": [
+    "Resolve the retained LXC source-age failure without weakening existing gates or scene-cut fidelity.",
+    "Complete supported VM/LXC H264/HEVC media, full native mixed-content loss/clock/occlusion/fallback and input-under-congestion acceptance.",
+    "Final Qt/GTK/component/mode-toggle/old-agent/cold-restoration checks; long/resource/resolution tests.",
+    "Firefox/macOS and matched QSM/RDP tests.",
+    "Final matching source/debs/signatures/private-APT, publication/APT/docs/rollback, qualified rollout and authorized discussion updates."
+  ],
+  "evidence_directory": "dist/rdp-hybrid/capture-cadence-exp90",
+  "native_post_state": {
+    "owned_qemu_pid": 3079308,
+    "guest": {
+      "processes": {
+        "828": {
+          "start_ticks": 712
+        },
+        "710": {
+          "start_ticks": 607
+        },
+        "675": {
+          "start_ticks": 601
+        },
+        "957": {
+          "start_ticks": 821
+        }
+      },
+      "packages": "qsm-desktop-agent 0.4.0+stock4.14~exp83\nqsm-qt-input-geometry 0.4.0+stock4.14~exp83\n"
+    },
+    "candidate_workers_remaining": [],
+    "production_gateway_absent": true
+  }
+}

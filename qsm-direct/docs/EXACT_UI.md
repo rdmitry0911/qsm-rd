@@ -56,6 +56,19 @@ Large clipboard/result transfers are outside this small-control accounting.
 Repeated identical VM cursor notifications are suppressed; the bridge refreshes
 the final unreliable cursor position at most four times/s to repair loss.
 
+For VirGL capture, a pending `ScanoutDMABUF` and its following `UpdateDMABUF`
+share one GPU readback. A five-ms deadline starts readback if no damage call
+follows. Replacement scanouts retain that deadline; disabling the display or
+switching to an inline/mapped scanout cancels the pending buffer.
+
+Before encoding, VM and LXC retain at most two fresh captures, bounded to
+64 MiB and two negotiated frame intervals. This preserves short capture
+bursts that a single latest-image slot could discard between encode ticks.
+Backpressure, keyframe recovery, layout/size changes and mode switches discard
+that history; the latest image remains available independently. Exact UI still
+uses the latest capture, while video carries the selected image's own capture
+stamp. This small queue does not accumulate a congestion backlog.
+
 Each viewer keeps one latest pending pixel update and one latest mandatory
 invalidation per tile. A replacement cannot erase the unsent invalidation of
 an older visible bitmap. Cheap clears are sent first in bounded batches.

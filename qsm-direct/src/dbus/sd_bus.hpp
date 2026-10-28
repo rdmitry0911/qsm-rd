@@ -95,6 +95,9 @@ public:
     // Process everything currently queued, then wait up to timeout for more.
     // Returns false when the connection has gone away.
     bool pump_once(std::chrono::microseconds timeout);
+    // Separate processing from waiting when a consumer has its own deadline.
+    bool process_pending();
+    bool wait(std::chrono::microseconds timeout);
 
 private:
     explicit Bus(sd_bus *bus, UniqueFd transport_fd = {}) noexcept

@@ -444,7 +444,7 @@ std::uint32_t DmaBufReadback::pixman_format_for_fourcc(
 void DmaBufReadback::validate_scanout(std::uint32_t width,
                                       std::uint32_t height,
                                       std::uint32_t stride,
-                                      std::uint32_t drm_fourcc) const {
+                                      std::uint32_t drm_fourcc) {
     if (width == 0U || height == 0U || width > max_dimension ||
         height > max_dimension) {
         throw std::invalid_argument("DMA-BUF dimensions are outside limits");

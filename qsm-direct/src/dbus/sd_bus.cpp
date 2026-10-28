@@ -209,6 +209,10 @@ void Bus::close() noexcept {
 }
 
 bool Bus::pump_once(std::chrono::microseconds timeout) {
+    return process_pending() && wait(timeout);
+}
+
+bool Bus::process_pending() {
     if (bus_ == nullptr) {
         return false;
     }
@@ -222,8 +226,14 @@ bool Bus::pump_once(std::chrono::microseconds timeout) {
             throw_sd_bus_error(processed, "sd_bus_process");
         }
         if (processed == 0) {
-            break;
+            return true;
         }
+    }
+}
+
+bool Bus::wait(std::chrono::microseconds timeout) {
+    if (bus_ == nullptr) {
+        return false;
     }
     const int waited = sd_bus_wait(bus_, to_usec(timeout));
     if (waited < 0) {

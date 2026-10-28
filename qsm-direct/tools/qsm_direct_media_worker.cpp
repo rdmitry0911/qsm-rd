@@ -21,6 +21,7 @@
 #include "core/resize_coalescer.hpp"
 #include "core/video_budget.hpp"
 #include "core/cropped_video_rate.hpp"
+#include "core/capture_frame_queue.hpp"
 #include "core/lossless_ui.hpp"
 #include "interfaces/media_adapter.hpp"
 #include "pipeline/desktop_session.hpp"
@@ -1071,6 +1072,7 @@ public:
 #endif
         opus_.reset();
         audio_pending_.clear();
+        pending_raw_video_.clear();
     }
 
     void submit_frame(const qmdp::FrameToken &frame) override {
@@ -1094,6 +1096,8 @@ public:
             latest_capture_ = std::max(latest_capture_ + 1, capture_clock());
             latest_width_ = frame.surface->width;
             latest_height_ = frame.surface->height;
+            pending_raw_video_.push({latest_bgra_, latest_capture_, latest_width_, latest_height_,
+                                     std::chrono::steady_clock::now()});
             frame_changed_ = true;
             if (ui_enabled_.load()) { ++ui_revision_; }
         }
@@ -1137,6 +1141,7 @@ public:
             }
             else {
                 const bool was_enabled = ui_enabled_.exchange(mode != 0);
+                if (mode == 2 || was_enabled != (mode != 0)) { pending_raw_video_.clear(); }
                 if (mode == 2 || (mode == 1 && !was_enabled)) { ui_resync_.store(true); }
             }
             ++ui_revision_;
@@ -1185,6 +1190,7 @@ public:
             if (layout != desktop_layout_ || sw != desktop_width_ || sh != desktop_height_) {
                 desktop_changed_ = now;
                 desktop_after_capture_ = latest_capture_;
+                pending_raw_video_.clear();
             }
             desktop_mode_ = p[0]; desktop_layout_ = p[0] ? layout : 0;
             desktop_width_ = sw; desktop_height_ = sh; desktop_area_ = area;
@@ -1196,7 +1202,10 @@ public:
 
     void video_regions(std::uint8_t mode) noexcept {
         region_protocol_.store(true);
-        regions_enabled_.store(mode == 2);
+        if (regions_enabled_.exchange(mode == 2) != (mode == 2)) {
+            std::lock_guard lock(video_mutex_);
+            pending_raw_video_.clear();
+        }
     }
 
     void reserve_ui_budget(unsigned percent) noexcept {
@@ -1368,6 +1377,7 @@ private:
         // monotonic timestamps preserve presentation time across those gaps.
         const auto repeat_interval = std::chrono::microseconds(1'000'000U / fps_);
         auto next_frame = std::chrono::steady_clock::now();
+        bool was_backpressured = false;
         std::unique_lock lock(video_mutex_);
         while (running_.load()) {
             if (!latest_bgra_) {
@@ -1396,13 +1406,24 @@ private:
             const auto tick = std::chrono::steady_clock::now();
             const auto requested_bitrate = requested_bitrate_kbps_.load();
             if (!video_budget_.ready(tick, requested_bitrate, ui_budget_.load())) {
+                pending_raw_video_.clear();
+                was_backpressured = true;
                 next_frame = tick + repeat_interval;
                 continue;
             }
 
-            auto bgra = latest_bgra_;
-            const auto capture = latest_capture_;
-            auto width = latest_width_, height = latest_height_;
+            // Capture jitter can place two different pictures between
+            // encode ticks even when the guest is slower than our FPS cap.
+            // Preserve at most two fresh pictures; congestion, recovery,
+            // layout changes or a two-tick age discard that short history.
+            if (was_backpressured || force_idr_.load()) { pending_raw_video_.clear(); }
+            was_backpressured = false;
+            auto queued = pending_raw_video_.pop(tick, 2 * repeat_interval);
+            auto source = queued ? std::move(*queued) : qmdp::CaptureFrameQueue::Frame {
+                latest_bgra_, latest_capture_, latest_width_, latest_height_, tick};
+            auto bgra = std::move(source.pixels);
+            const auto capture = source.capture;
+            auto width = source.width, height = source.height;
             VideoRegion region {static_cast<std::uint16_t>(width), static_cast<std::uint16_t>(height),
                                 0, 0, static_cast<std::uint16_t>(width), static_cast<std::uint16_t>(height)};
             if (width > 16384 || height > 16384 || static_cast<std::uint64_t>(width) * height > qmdp::LosslessUi::max_pixels) {
@@ -1926,6 +1947,7 @@ private:
     std::shared_ptr<const std::vector<std::uint8_t>> latest_bgra_;
     std::uint32_t latest_width_ {};
     std::uint32_t latest_height_ {};
+    qmdp::CaptureFrameQueue pending_raw_video_;
     bool frame_changed_ {false};
 #if defined(QMDP_HAS_LIBAVCODEC)
     std::unique_ptr<LibavVideoEncoder> libav_encoder_;
@@ -2257,6 +2279,9 @@ void write_session_diagnostic(std::string_view event,
               << " latest_frame_consumed=" << stats.mailbox.consumed
               << " latest_frame_dropped=" << stats.mailbox.dropped
               << " dmabuf_readback_samples=" << display.dmabuf_readback_samples
+              << " dmabuf_scanouts=" << display.dmabuf_scanouts
+              << " dmabuf_updates=" << display.dmabuf_updates
+              << " dmabuf_coalesced_scanouts=" << display.dmabuf_coalesced_scanouts
               << " dmabuf_readback_mean_us=" << dmabuf_readback_mean
               << " dmabuf_readback_max_us=" << display.dmabuf_readback_max_microseconds
               << " cursor_definitions=" << display.cursor_definitions

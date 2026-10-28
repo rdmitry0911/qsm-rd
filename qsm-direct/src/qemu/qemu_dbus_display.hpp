@@ -10,6 +10,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -89,6 +90,7 @@ public:
         std::uint64_t cursor_moves {};
         std::uint64_t dmabuf_scanouts {};
         std::uint64_t dmabuf_updates {};
+        std::uint64_t dmabuf_coalesced_scanouts {};
         std::uint64_t dmabuf_readback_failures {};
         // Wall time spent importing and reading completed DMA-BUF frames.
         // This is an operator diagnostic for the headless VirGL path: GPU
@@ -221,6 +223,15 @@ private:
     dbus::Slot peer_filter_slot_;
     std::thread peer_thread_;
 #ifdef QMDP_HAS_GBM
+    struct PendingDmaBuf {
+        UniqueFd fd;
+        std::uint32_t width, height, stride, fourcc;
+        std::uint64_t modifier;
+        bool y0_top;
+        std::chrono::steady_clock::time_point deadline;
+    };
+    void flush_dmabuf_scanout();
+    std::optional<PendingDmaBuf> pending_dmabuf_;
     std::unique_ptr<DmaBufReadback> dmabuf_readback_;
 #endif
     dbus::Bus audio_bus_;
@@ -267,6 +278,7 @@ private:
     std::uint64_t cursor_moves_ {};
     std::uint64_t dmabuf_scanouts_ {};
     std::uint64_t dmabuf_updates_ {};
+    std::uint64_t dmabuf_coalesced_scanouts_ {};
     std::uint64_t dmabuf_readback_failures_ {};
     std::uint64_t dmabuf_readback_samples_ {};
     std::uint64_t dmabuf_readback_total_microseconds_ {};
