@@ -194,10 +194,11 @@
       "All seven84 packages are assembled; main34 payload entries and6 install/control entries equal the tested pilot. Full target-SDK133 bridge tests pass; portable Qt5/Qt6 GUI/widget lifetime checks pass. Installed guest83 payloads equal84. Signatures/private APT/publication/rollout remain pending.",
       "Private Intel Mesa GBM/EGL runtime completed without host package changes. Actual default renderD128 capture fails importing Intel renderD129 QEMU buffers; an isolated per-worker mount alias restores media and zero display errors. Its43.53/41.05 sourcefps still fails45fps, so this is diagnostic evidence only, not native product acceptance.",
       "Exp85/86 actual Intel VirGL VM QSV/VAAPI capture works without device aliases; raw import errors are gone, visible glyph233ms in QSV, input exactly once/mode3. Worker85 equals86; full133 bridge tests,3 C++ suites and19+16 terminal checks pass. Launch failure closes its clipboard pair explicitly. Native cadence still fails: QSV42.98/41.23fps and VAAPI44.30/43.52fps.",
-      "Independent offline decode of actual85 QSV AUs before RTP finds45.32/44.49 unique sourcefps among58.39/57.00 encodedfps;158/252 repeated images. Browser raw video and composed source observations are about41\u201343fps with no RTP loss. Samples and original failed gates retained; this does not establish a final scheduler cause."
+      "Independent offline decode of actual85 QSV AUs before RTP finds45.32/44.49 unique sourcefps among58.39/57.00 encodedfps;158/252 repeated images. Browser raw video and composed source observations are about41\u201343fps with no RTP loss. Samples and original failed gates retained; this does not establish a final scheduler cause.",
+      "Rejected exp87 fresh-image wait experiment: unchanged full raw images wait for capture or100ms keepalive. Wide-link traffic falls to5.04Mbit/s but unique source cadence42.08/41.03fps still fails45fps. Code restored exactly to frozen86 worker source; raw result, patch, source and deb retained. No release qualification claimed."
     ],
     "pending": [
-      "Native unique-source cadence remains below45fps despite correct capture GPU. Isolate capture/submission/admission timing, then test waiting for a fresh image instead of encoding stale repeats, while preserving keyframe recovery, UI fences, byte debt and keepalive behavior; repeat supported hardware paths.",
+      "Native unique-source cadence remains below45fps. Identical-image encode suppression87 did not fix it and was reverted. Instrument source IDs at capture/submission/admission during the same phase, then compare pre-RTP decode and browser observations to locate the loss.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -232,9 +233,10 @@
       "dist/rdp-hybrid/scene-recovery-exp80",
       "dist/rdp-hybrid/flight-admission-exp83",
       "dist/rdp-hybrid/receipt-gap-exp84",
-      "dist/rdp-hybrid/capture-gpu-exp86"
+      "dist/rdp-hybrid/capture-gpu-exp86",
+      "dist/rdp-hybrid/fresh-image-exp87"
     ],
-    "next_action": "Use retained86 control and pre-RTP source-ID evidence to isolate/remove stale-image encode ticks; qualify actual VM QSV/VAAPI/NVENC and LXC, then remaining component/fallback/resource/Mac/RDP/release scope.",
+    "next_action": "Instrument actual source IDs at capture/submission and encoder admission in one phase, and compare with pre-RTP offline decode and browser observations. Locate where unique source frames disappear before changing the common scheduler further. Then complete supported VM/LXC codecs, component/fallback/resource/Mac/RDP checks and final release/rollout/discussion scope.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -397,7 +399,8 @@
     },
     "flight_admission": "docs/rdp-flight-admission-20261028.json",
     "receipt_gap": "docs/rdp-receipt-gap-20261028.json",
-    "capture_gpu": "docs/rdp-capture-gpu-20261029.json"
+    "capture_gpu": "docs/rdp-capture-gpu-20261029.json",
+    "fresh_image_experiment": "docs/rdp-fresh-image-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",

@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-29",
+  "candidate": "0.4.0+stock4.14~exp87",
+  "status": "Rejected as a solution to the native source-cadence deficit; candidate source restored to committed exp86. Installed production baseline remains exp35. No rollout/publication.",
+  "experiment": "At an encode tick, compare the latest complete raw image with the preceding encoded source; if identical, wait for capture change or100ms keepalive. Keyframe requests bypass this wait; byte budget and existing tick remain.",
+  "test_scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer87; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+  "evidence": "intel87-native-vm-h264_qsv-virgl-capture-gpu/result.json",
+  "gates_unchanged": {
+    "source_fps_minimum": 45,
+    "source_gap_maximum_ms": 500,
+    "source_id_errors": 0,
+    "visible_glyph_maximum_ms": 600,
+    "guest_characters": 1
+  },
+  "checks": {
+    "source_cadence": false,
+    "no_long_gap": true,
+    "valid_source_ids": true,
+    "visible_glyph": true,
+    "input_once": true,
+    "metadata_mode3": true,
+    "same_connected_stream": true
+  },
+  "glyph_ms": 229,
+  "phases": [
+    {
+      "name": "fast",
+      "source_fps": 42.07982668110991,
+      "max_gap_ms": 66,
+      "invalid_ids": 0,
+      "transport_kbps": 5038.724106324473
+    },
+    {
+      "name": "narrow",
+      "source_fps": 41.02538476913852,
+      "max_gap_ms": 84,
+      "invalid_ids": 0,
+      "transport_kbps": 1296.5788526883869
+    }
+  ],
+  "finding": "Wide-link bandwidth drops from the retained86 control about6Mbit/s to5.04Mbit/s, but unique cadence42.08/41.03fps still fails45fps. Suppressing identical encode ticks alone does not fix the deficit. No claim of cadence improvement or final cause.",
+  "source_restored": {
+    "version": "exp86",
+    "worker_source_sha256": "9ab36043f6bff84ef0805093c403d16b8cc149d7df9518b59dce3419618f5cb8",
+    "matches_frozen86_archive": true
+  },
+  "next_action": "Instrument actual source IDs at capture/submission and encoder admission in one phase, and compare with pre-RTP offline decode and browser observations. Locate where unique source frames disappear before changing the common scheduler further.",
+  "release_qualified": false,
+  "full_plan_complete": false,
+  "evidence_directory": "dist/rdp-hybrid/fresh-image-exp87"
+}
