@@ -1,0 +1,2179 @@
+{
+  "date": "2026-10-28",
+  "candidate": "0.4.0+stock4.14~exp80; all seven matching packages built privately",
+  "status": "Private; controlled LXC NVENC H264 cut-quality and two continuous-loss profiles pass. The stricter simultaneous8000-target drop plus new loss fails source-age/glyph/full-recovery gates. No release.",
+  "scope": "Real owned Ubuntu24.04 LXC108, nested KWin5, NVENC H264, Firefox/Linux, TURN/TCP8006; launch/ACL mocked. No VM/other-codec/Mac/RDP qualification claim.",
+  "source": {
+    "source": "Big Buck Bunny: first existing40-50s RGB excerpt, second270-280s excerpt decoded from the same original public source; alternate two-second segments",
+    "frames": 600,
+    "rate": 60,
+    "size": [
+      640,
+      360
+    ],
+    "cuts": [
+      {
+        "source_frame": 120,
+        "mean_abs_rgb_change": 61.33042679398148,
+        "adjacent_source_psnr": 10.472894979204652
+      },
+      {
+        "source_frame": 240,
+        "mean_abs_rgb_change": 65.73519820601852,
+        "adjacent_source_psnr": 9.893716841479062
+      },
+      {
+        "source_frame": 360,
+        "mean_abs_rgb_change": 62.81845630787037,
+        "adjacent_source_psnr": 9.786341261760022
+      },
+      {
+        "source_frame": 480,
+        "mean_abs_rgb_change": 55.19593171296296,
+        "adjacent_source_psnr": 10.784852172867607
+      }
+    ],
+    "assets": {
+      "original60": {
+        "relative_path": "quality60.rgb",
+        "bytes": 414720000,
+        "sha256": "58d618b3351ab000ca62fc421b7c28026e2eb4758173a3f9d9e21bcec38fd905"
+      },
+      "second60": {
+        "relative_path": "hardcut68/second60.rgb",
+        "bytes": 414720000,
+        "sha256": "413e35429d80adb48b8ed385e63687c3fe5b6907e6c41db474c8767174345a6a"
+      },
+      "hard60": {
+        "relative_path": "hardcut68/quality60.rgb",
+        "bytes": 414720000,
+        "sha256": "1a063574ef752a5d0c0ffa855d5dded6fc361f68a771b523e8ff0cf23b6f5886"
+      },
+      "hard30": {
+        "relative_path": "hardcut68/quality30.rgb",
+        "bytes": 207360000,
+        "sha256": "921155b3626b1af18c0f533abc2b8b85cd82f77bc0c8b85c3607aa9af30d3399"
+      }
+    },
+    "original_source_sha256": "58d618b3351ab000ca62fc421b7c28026e2eb4758173a3f9d9e21bcec38fd905"
+  },
+  "method": [
+    "Per-frame136x16 source marker and128x32 static UI ROI; source-frame phase/tick/XOR parsed independently of video transport callbacks",
+    "At every first observed scene cut, next observed frame and1Hz, clone immutable visible canvases. Full-frame export and RGB/8x8-box-luma-SSIM scoring run after every timed phase ends; scoring uses an executor thread so it cannot block the TCP proxy",
+    "Every saved snapshot repeats the marker match; lossless UI coverage and exact static RGB are checked during playback",
+    "Strong stale-overlay criterion counts active exact pixels differing from the correct raw source by more than16 RGB levels and still visible unchanged in the composition. This is not a claim that lossy video itself is exact."
+  ],
+  "discarded_instrumentation": [
+    "Original68-full-readback observer read640x360 and encoded RGBA during measured playback; it caused main-thread overhead and apparent8000->500 collapse. Retained as diagnostics, not acceptance.",
+    "First marker-only observer still exported and scored full-frame arrays inline between phases. Synchronous NumPy starved the same event loop as the TCP proxy; its narrow phase began at500 and its traffic calculation incorrectly included scoring time. Retained as diagnostics, not acceptance.",
+    "The valid early snapshot reports retain a legacy top-level synthetic-source label; their hardcut scope, verified natural RGB manifest and source-counter images identify the actual source. Latest75/77 reports explicitly name the natural source."
+  ],
+  "post_measurement_note": "Backend logs continue during diagnostic full-frame export. Acceptance uses phase-ending stats and rate history captured before export; subsequent debugger-induced stalls are outside the timed media phases.",
+  "implementation": [
+    "Cropped video permits a bounded450ms codec VBV, capped2MiB; existing raw byte admission and RTP pacing pay for all encoded bytes. No future-frame queue or playout cushion is introduced.",
+    "Full-desktop fallback retains its original codec rate, one-frame VBV and NVENC P1. Cropped NVENC uses P4 with no B-frames or lookahead; QSV/VAAPI retain their existing presets and require separate qualification.",
+    "HEVC QSV keeps its existing VBR selector and at-least-two-frame VBV; cropped max-frame-size follows the bounded burst capacity. No claim that this path has passed the new media tests.",
+    "Fresh matched delivery with sufficient byte volume, at least5% faster than offered load and age falling at least5ms identifies draining flight. Old credit waits cannot alone lower the target again. Re-growing queues and RTCP loss remain effective.",
+    "RTP/RTX packet costs already include protocol overhead; the pacer now refills at the shared path target, without the former25% multiplier. Audio/UI remain independent and video repays their credit.",
+    "The sampled forced-scene-IDR experiment was rejected: it reduced the narrow target further and worsened fidelity; that detector is absent from the candidate.",
+    "Severe codec decreases confirmed600ms use1s quiet; ordinary changes retain the original dwell and quiet. The400/500ms transient checks remain.",
+    "Recovery requests rejected by the existing250ms PLI guard no longer consume the one-second retry lease. Only actual dispatch consumes it; legacy void callbacks retain their prior behavior."
+  ],
+  "upstream_reference": {
+    "url": "https://raw.githubusercontent.com/FFmpeg/FFmpeg/n7.1.1/libavcodec/nvenc.c",
+    "notes": "Confirms live average/max/VBV reconfiguration, and that CQ clears average bitrate and VBV. Candidate retains bounded VBR rather than CQ."
+  },
+  "runs": [
+    {
+      "id": "exp35_control",
+      "variant": "Exact UI off, fixed8000/1500 path targets; original full-desktop codec",
+      "scope": "Owned LXC108/KWin5, NVENC H264, Firefox/Linux, TURN TCP8006; identical frozen alternating natural clips and shaped downlink. Candidate automatic with exact UI; exp35 control exact UI off, fixed8000/1500kbit/s path targets and maximum-quality full-frame codec. No identical-internal-target claim.",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "begin_ms": 16047,
+          "end_ms": 36054,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "transport_kbps": 5723.044934273004,
+          "unique_source_fps": 56.48023191882841,
+          "max_gap_ms": 67,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 28.18426231654559,
+          "first_cut_min_ssim_8x8_box": 0.9029689183404189,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 3.0,
+          "observer_work_max_ms": 8
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "begin_ms": 43118,
+          "end_ms": 73121,
+          "initial_target": 1500,
+          "final_target": 1500,
+          "transport_kbps": 1535.0475619104757,
+          "unique_source_fps": 15.865080158650802,
+          "max_gap_ms": 182,
+          "first_cut_frames": 12,
+          "first_cut_min_rgb_psnr": 26.540846854483064,
+          "first_cut_min_ssim_8x8_box": 0.8476182190620969,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 3.0,
+          "observer_work_max_ms": 8
+        }
+      ],
+      "checks": {
+        "quality_rgb": true,
+        "quality_ssim": false,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": false,
+        "no_long_gap": true
+      },
+      "page_errors": [],
+      "monitor": {
+        "invalid": 0,
+        "static_observations": 0,
+        "static_wrong": 0,
+        "static_uncovered": 0,
+        "sample_mismatch": 0
+      }
+    },
+    {
+      "id": "exp68_original",
+      "variant": "Original cropped one-frame VBV, automatic target",
+      "scope": "Owned LXC108/KWin5, NVENC H264, Firefox/Linux, TURN TCP8006; identical frozen alternating natural clips and shaped downlink. Candidate automatic with exact UI; exp35 control exact UI off, fixed8000/1500kbit/s path targets and maximum-quality full-frame codec. No identical-internal-target claim.",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "begin_ms": 17186,
+          "end_ms": 37195,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "transport_kbps": 5035.430056474586,
+          "unique_source_fps": 51.87665550502274,
+          "max_gap_ms": 51,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 24.04460119641105,
+          "first_cut_min_ssim_8x8_box": 0.7306176589924769,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 6
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "begin_ms": 44262,
+          "end_ms": 74267,
+          "initial_target": 1584,
+          "final_target": 1980,
+          "transport_kbps": 1530.314547575404,
+          "unique_source_fps": 56.623896017330445,
+          "max_gap_ms": 83,
+          "first_cut_frames": 12,
+          "first_cut_min_rgb_psnr": 23.70093588489652,
+          "first_cut_min_ssim_8x8_box": 0.6832202809846462,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 5
+        }
+      ],
+      "checks": {
+        "quality_rgb": false,
+        "quality_ssim": false,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": true,
+        "no_long_gap": true
+      },
+      "page_errors": [],
+      "monitor": {
+        "invalid": 0,
+        "static_observations": 3000,
+        "static_wrong": 0,
+        "static_uncovered": 0,
+        "sample_mismatch": 0
+      }
+    },
+    {
+      "id": "exp69_vbv150",
+      "variant": "Cropped150ms VBV",
+      "scope": "Owned LXC108/KWin5, NVENC H264, Firefox/Linux, TURN TCP8006; identical frozen alternating natural clips and shaped downlink. Candidate automatic with exact UI; exp35 control exact UI off, fixed8000/1500kbit/s path targets and maximum-quality full-frame codec. No identical-internal-target claim.",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "begin_ms": 17325,
+          "end_ms": 37333,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "transport_kbps": 6041.079568172731,
+          "unique_source_fps": 54.37824870051979,
+          "max_gap_ms": 67,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 34.42126581459903,
+          "first_cut_min_ssim_8x8_box": 0.9598734756194058,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2,
+          "observer_work_max_ms": 5
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "begin_ms": 44397,
+          "end_ms": 74403,
+          "initial_target": 1283,
+          "final_target": 1603,
+          "transport_kbps": 1173.6383389988669,
+          "unique_source_fps": 53.65593547957075,
+          "max_gap_ms": 117,
+          "first_cut_frames": 12,
+          "first_cut_min_rgb_psnr": 24.032786830593317,
+          "first_cut_min_ssim_8x8_box": 0.7094245900061615,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 5
+        }
+      ],
+      "checks": {
+        "quality_rgb": false,
+        "quality_ssim": false,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": true,
+        "no_long_gap": true
+      },
+      "page_errors": [],
+      "monitor": {
+        "invalid": 0,
+        "static_observations": 3001,
+        "static_wrong": 0,
+        "static_uncovered": 0,
+        "sample_mismatch": 0
+      }
+    },
+    {
+      "id": "exp70_vbv300",
+      "variant": "Cropped300ms VBV",
+      "scope": "Owned LXC108/KWin5, NVENC H264, Firefox/Linux, TURN TCP8006; identical frozen alternating natural clips and shaped downlink. Candidate automatic with exact UI; exp35 control exact UI off, fixed8000/1500kbit/s path targets and maximum-quality full-frame codec. No identical-internal-target claim.",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "begin_ms": 17334,
+          "end_ms": 37343,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "transport_kbps": 6064.291868659104,
+          "unique_source_fps": 51.12699285321605,
+          "max_gap_ms": 85,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 35.891619374824344,
+          "first_cut_min_ssim_8x8_box": 0.9846783710056513,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 6
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "begin_ms": 44406,
+          "end_ms": 74411,
+          "initial_target": 1295,
+          "final_target": 1618,
+          "transport_kbps": 1203.1050824862523,
+          "unique_source_fps": 53.79103482752875,
+          "max_gap_ms": 134,
+          "first_cut_frames": 12,
+          "first_cut_min_rgb_psnr": 27.6951853048751,
+          "first_cut_min_ssim_8x8_box": 0.8290769469221422,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 7
+        }
+      ],
+      "checks": {
+        "quality_rgb": true,
+        "quality_ssim": false,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": true,
+        "no_long_gap": true
+      },
+      "page_errors": [],
+      "monitor": {
+        "invalid": 0,
+        "static_observations": 3000,
+        "static_wrong": 0,
+        "static_uncovered": 0,
+        "sample_mismatch": 0
+      }
+    },
+    {
+      "id": "exp71_vbv450",
+      "variant": "Cropped450ms VBV",
+      "scope": "Owned LXC108/KWin5, NVENC H264, Firefox/Linux, TURN TCP8006; identical frozen alternating natural clips and shaped downlink. Candidate automatic with exact UI; exp35 control exact UI off, fixed8000/1500kbit/s path targets and maximum-quality full-frame codec. No identical-internal-target claim.",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "begin_ms": 17139,
+          "end_ms": 37146,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "transport_kbps": 5960.341080621783,
+          "unique_source_fps": 53.03143899635128,
+          "max_gap_ms": 84,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 35.98770814570439,
+          "first_cut_min_ssim_8x8_box": 0.9842579907534404,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 5
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "begin_ms": 44211,
+          "end_ms": 74217,
+          "initial_target": 1380,
+          "final_target": 1725,
+          "transport_kbps": 1244.4572418849564,
+          "unique_source_fps": 52.02292874758382,
+          "max_gap_ms": 185,
+          "first_cut_frames": 12,
+          "first_cut_min_rgb_psnr": 29.386900899708476,
+          "first_cut_min_ssim_8x8_box": 0.8753351379853823,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 5
+        }
+      ],
+      "checks": {
+        "quality_rgb": true,
+        "quality_ssim": false,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": true,
+        "no_long_gap": true
+      },
+      "page_errors": [],
+      "monitor": {
+        "invalid": 0,
+        "static_observations": 3000,
+        "static_wrong": 0,
+        "static_uncovered": 0,
+        "sample_mismatch": 0
+      }
+    },
+    {
+      "id": "exp74_forced_idrs",
+      "variant": "450ms VBV and sampled scene-change IDRs; rejected",
+      "scope": "Owned LXC108/KWin5, NVENC H264, Firefox/Linux, TURN TCP8006; identical frozen alternating natural clips and shaped downlink. Candidate automatic with exact UI; exp35 control exact UI off, fixed8000/1500kbit/s path targets and maximum-quality full-frame codec. No identical-internal-target claim.",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "begin_ms": 17229,
+          "end_ms": 37238,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "transport_kbps": 6010.885501524314,
+          "unique_source_fps": 53.72582337947924,
+          "max_gap_ms": 68,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 35.76762303737789,
+          "first_cut_min_ssim_8x8_box": 0.9748881052205074,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 5
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "begin_ms": 44306,
+          "end_ms": 74311,
+          "initial_target": 1057,
+          "final_target": 1321,
+          "transport_kbps": 983.3358440259957,
+          "unique_source_fps": 52.49125145809032,
+          "max_gap_ms": 151,
+          "first_cut_frames": 12,
+          "first_cut_min_rgb_psnr": 27.947256551805815,
+          "first_cut_min_ssim_8x8_box": 0.7941048460310601,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 9
+        }
+      ],
+      "checks": {
+        "quality_rgb": true,
+        "quality_ssim": false,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": true,
+        "no_long_gap": true
+      },
+      "page_errors": [],
+      "monitor": {
+        "invalid": 0,
+        "static_observations": 3000,
+        "static_wrong": 0,
+        "static_uncovered": 0,
+        "sample_mismatch": 0
+      }
+    },
+    {
+      "id": "exp75_p4",
+      "variant": "450ms VBV and P4 for cropped NVENC",
+      "scope": "Owned LXC108/KWin5, NVENC H264, Firefox/Linux, TURN TCP8006; identical frozen alternating natural clips and shaped downlink. Candidate automatic with exact UI; exp35 control exact UI off, fixed8000/1500kbit/s path targets and maximum-quality full-frame codec. No identical-internal-target claim.",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "begin_ms": 17310,
+          "end_ms": 37321,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "transport_kbps": 5994.829243915846,
+          "unique_source_fps": 52.92089350857029,
+          "max_gap_ms": 99,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 36.43281106650015,
+          "first_cut_min_ssim_8x8_box": 0.9862824821271915,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2,
+          "observer_work_max_ms": 6
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "begin_ms": 44387,
+          "end_ms": 74395,
+          "initial_target": 1143,
+          "final_target": 1428,
+          "transport_kbps": 1067.406025059984,
+          "unique_source_fps": 50.51986137030125,
+          "max_gap_ms": 200,
+          "first_cut_frames": 12,
+          "first_cut_min_rgb_psnr": 29.343642397366846,
+          "first_cut_min_ssim_8x8_box": 0.872350129244426,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 5
+        }
+      ],
+      "checks": {
+        "quality_rgb": true,
+        "quality_ssim": false,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": true,
+        "no_long_gap": true
+      },
+      "page_errors": [],
+      "monitor": {
+        "invalid": 0,
+        "static_observations": 3001,
+        "static_wrong": 0,
+        "static_uncovered": 0,
+        "sample_mismatch": 0
+      }
+    },
+    {
+      "id": "exp77_draining_guard",
+      "variant": "450ms/2MiB capped VBV, cropped P4, shrinking-queue guard",
+      "scope": "Owned LXC108/KWin5, NVENC H264, Firefox/Linux, TURN TCP8006; identical frozen alternating natural clips and shaped downlink. Candidate automatic with exact UI; exp35 control exact UI off, fixed8000/1500kbit/s path targets and maximum-quality full-frame codec. No identical-internal-target claim.",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "begin_ms": 17355,
+          "end_ms": 37363,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "transport_kbps": 5988.1119552179125,
+          "unique_source_fps": 53.57856857257097,
+          "max_gap_ms": 100,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 36.44217174622255,
+          "first_cut_min_ssim_8x8_box": 0.9851237896884258,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 5
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "begin_ms": 44426,
+          "end_ms": 74434,
+          "initial_target": 1482,
+          "final_target": 1852,
+          "transport_kbps": 1306.2042122100772,
+          "unique_source_fps": 53.419088243135164,
+          "max_gap_ms": 167,
+          "first_cut_frames": 12,
+          "first_cut_min_rgb_psnr": 30.61451894731993,
+          "first_cut_min_ssim_8x8_box": 0.878953423370503,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2,
+          "observer_work_max_ms": 5
+        }
+      ],
+      "checks": {
+        "quality_rgb": true,
+        "quality_ssim": false,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": true,
+        "no_long_gap": true
+      },
+      "page_errors": [],
+      "monitor": {
+        "invalid": 0,
+        "static_observations": 3001,
+        "static_wrong": 0,
+        "static_uncovered": 0,
+        "sample_mismatch": 0
+      }
+    },
+    {
+      "id": "exp78_wire_pacing",
+      "variant": "Same as77; RTP wire pacing exactly follows the shared target",
+      "scope": "Owned LXC108/KWin5, NVENC H264, Firefox/Linux, TURN TCP8006; identical frozen alternating natural clips and shaped downlink. Candidate automatic with exact UI; exp35 control exact UI off, fixed8000/1500kbit/s path targets and maximum-quality full-frame codec. No identical-internal-target claim.",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "begin_ms": 17311,
+          "end_ms": 37320,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "transport_kbps": 6007.463041631266,
+          "unique_source_fps": 53.12609325803388,
+          "max_gap_ms": 117,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 36.4346323138128,
+          "first_cut_min_ssim_8x8_box": 0.9862948095046832,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2,
+          "observer_work_max_ms": 7
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "begin_ms": 44383,
+          "end_ms": 74388,
+          "initial_target": 1701,
+          "final_target": 2657,
+          "transport_kbps": 1489.6226628895183,
+          "unique_source_fps": 53.757707048825196,
+          "max_gap_ms": 166,
+          "first_cut_frames": 12,
+          "first_cut_min_rgb_psnr": 31.295213387135,
+          "first_cut_min_ssim_8x8_box": 0.9068868531494565,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 7
+        }
+      ],
+      "checks": {
+        "quality_rgb": true,
+        "quality_ssim": true,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": true,
+        "no_long_gap": true
+      },
+      "page_errors": [],
+      "monitor": {
+        "invalid": 0,
+        "static_observations": 3001,
+        "static_wrong": 0,
+        "static_uncovered": 0,
+        "sample_mismatch": 0
+      }
+    },
+    {
+      "id": "exp79_severe_decrease",
+      "variant": "600ms severe decrease and1s quiet",
+      "scope": "Owned LXC108/KWin5, NVENC H264, Firefox/Linux, TURN TCP8006; identical frozen alternating natural clips and shaped downlink. Candidate automatic with exact UI; exp35 control exact UI off, fixed8000/1500kbit/s path targets and maximum-quality full-frame codec. No identical-internal-target claim.",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "begin_ms": 17247,
+          "end_ms": 37254,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "transport_kbps": 6016.572599590143,
+          "unique_source_fps": 53.38131653921128,
+          "max_gap_ms": 101,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 36.437994443581545,
+          "first_cut_min_ssim_8x8_box": 0.9862891250183575,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2,
+          "observer_work_max_ms": 5
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "begin_ms": 44317,
+          "end_ms": 74323,
+          "initial_target": 2072,
+          "final_target": 2590,
+          "transport_kbps": 1766.3677931080451,
+          "unique_source_fps": 52.45617543158035,
+          "max_gap_ms": 134,
+          "first_cut_frames": 12,
+          "first_cut_min_rgb_psnr": 31.96602226909998,
+          "first_cut_min_ssim_8x8_box": 0.9316491517040598,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 5
+        }
+      ],
+      "checks": {
+        "quality_rgb": true,
+        "quality_ssim": true,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": true,
+        "no_long_gap": true
+      },
+      "page_errors": [],
+      "monitor": {
+        "invalid": 0,
+        "static_observations": 3001,
+        "static_wrong": 0,
+        "static_uncovered": 0,
+        "sample_mismatch": 0
+      }
+    },
+    {
+      "id": "exp80_concurrent_build",
+      "variant": "First exp80 run, overlapping portable compilation; fails fast cadence49.885 versus50. Cause of variation not isolated.",
+      "scope": "Owned LXC108/KWin5, NVENC H264, Firefox/Linux, TURN TCP8006; identical frozen alternating natural clips and shaped downlink. Candidate automatic with exact UI; exp35 control exact UI off, fixed8000/1500kbit/s path targets and maximum-quality full-frame codec. No identical-internal-target claim.",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "begin_ms": 23028,
+          "end_ms": 43034,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "transport_kbps": 6007.679296211137,
+          "unique_source_fps": 49.8850344896531,
+          "max_gap_ms": 102,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 36.43341691980125,
+          "first_cut_min_ssim_8x8_box": 0.986289630108024,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 5
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "begin_ms": 50090,
+          "end_ms": 80104,
+          "initial_target": 1591,
+          "final_target": 1988,
+          "transport_kbps": 1416.908909175718,
+          "unique_source_fps": 53.075231558605985,
+          "max_gap_ms": 166,
+          "first_cut_frames": 12,
+          "first_cut_min_rgb_psnr": 30.641229630814614,
+          "first_cut_min_ssim_8x8_box": 0.9065826097731938,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2,
+          "observer_work_max_ms": 5
+        }
+      ],
+      "checks": {
+        "quality_rgb": true,
+        "quality_ssim": true,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": false,
+        "no_long_gap": true
+      },
+      "page_errors": [],
+      "monitor": {
+        "invalid": 0,
+        "static_observations": 3001,
+        "static_wrong": 0,
+        "static_uncovered": 0,
+        "sample_mismatch": 0
+      }
+    },
+    {
+      "id": "exp80_controlled_repeat",
+      "variant": "Same payload after owned builds finished; no rate overrides; actual8000 target established before measurement",
+      "scope": "Owned LXC108/KWin5, NVENC H264, Firefox/Linux, TURN TCP8006; identical frozen alternating natural clips and shaped downlink. Candidate automatic with exact UI; exp35 control exact UI off, fixed8000/1500kbit/s path targets and maximum-quality full-frame codec. No identical-internal-target claim.",
+      "phases": [
+        {
+          "name": "fast",
+          "bandwidth": 20000000,
+          "begin_ms": 23039,
+          "end_ms": 43052,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "transport_kbps": 6028.1616948983165,
+          "unique_source_fps": 53.91495527906861,
+          "max_gap_ms": 84,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 36.428632466325624,
+          "first_cut_min_ssim_8x8_box": 0.9857286645588708,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 6
+        },
+        {
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "begin_ms": 50111,
+          "end_ms": 80116,
+          "initial_target": 1897,
+          "final_target": 2371,
+          "transport_kbps": 1614.8924512581236,
+          "unique_source_fps": 52.124645892351275,
+          "max_gap_ms": 134,
+          "first_cut_frames": 12,
+          "first_cut_min_rgb_psnr": 31.485678533298653,
+          "first_cut_min_ssim_8x8_box": 0.9162823157725705,
+          "max_strong_stale_exact_matches": 0,
+          "observer_work_median_ms": 2.0,
+          "observer_work_max_ms": 5
+        }
+      ],
+      "checks": {
+        "quality_rgb": true,
+        "quality_ssim": true,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": true,
+        "no_long_gap": true
+      },
+      "page_errors": [],
+      "monitor": {
+        "invalid": 0,
+        "static_observations": 3000,
+        "static_wrong": 0,
+        "static_uncovered": 0,
+        "sample_mismatch": 0
+      }
+    }
+  ],
+  "accepted_in_scope": true,
+  "tests": {
+    "cpp_core": "Passed current core tests including full-desktop VBV invariance,2MiB/450ms bounds and repayment of a scene-sized access unit before the next raw capture",
+    "bridge": "125/125 bridge tests pass in the full Debian13 SDK bundle build",
+    "regression": "New shrinking-queue case fails on old code2034->1525, passes with the guard and still reduces upon renewed queue growth; before/after logs retained",
+    "recovery_regression": "Fails before: recent PLI suppresses a request and prevents retry at300ms; passes after, retaining backoff for actual requests and accepting the fresh IDR."
+  },
+  "intel_vm_progress": {
+    "guest": "Owned Debian13/KWin6 VM, QEMU2746656; native agent243965 and KWin325054 retained",
+    "fixture": "Actual Qt6.8.2 Wayland source330268; locally and inside guest FFV1 decode matches the original414720000-byte RGB SHA256",
+    "qsv_preflight": "Actual native QEMU Display1 capture and h264_qsv initialization on Intel renderD129 succeed with exp68. No browser offer was made; this is not media/input qualification. Owned worker stopped normally.",
+    "audio_limit": "The owned VM exposes no QEMU Display1 Audio object; no audio acceptance claim.",
+    "preparation": "Two guest libkscreen utility packages added with zero upgrades/removals; authenticated private TURN listens on127.0.0.1:13486 only. No host firewall or production gateway changes."
+  },
+  "remaining": [
+    "Reduce admitted/in-flight backlog for the retained hot-loss profile: peak source age1206.05ms, peak glyph637ms and final target3018 versus8000. Keep every existing acceptance threshold.",
+    "Complete final component/GTK/mode-switch/full-desktop fallback repeat and cold-restoration coverage",
+    "Supported genuine VM/LXC NVENC/QSV/VAAPI H264/HEVC matrix; install and run matching portable VM guest binaries",
+    "Long encoded mixed sessions, larger/resolution/application profiles and resource/load checks, including the retained49.885fps run under concurrent compilation",
+    "Firefox/macOS acceptance and matched RDP comparison",
+    "Final matching source/debs/signatures/private-APT acceptance, published release/APT/docs/rollback, qualified node rollout and discussion updates"
+  ],
+  "production": "Host192.168.64.20 remains exp35; production terminal/QEMU PIDs/start times preserved. No public release, APT update or production-node rollout.",
+  "loss_transition_exp78": {
+    "accepted": false,
+    "checks": {
+      "no_long_video_gap": true,
+      "narrow_source_fps_at_least_45": true,
+      "recovered_source_fps_at_least_50": true,
+      "full_rate_recovered": true,
+      "presentation_excess_at_most_400ms": true,
+      "glyph_peak_at_most_600ms": true,
+      "full_source_excess_from_fast_p95_at_most_400ms": false,
+      "no_observed_rtp_loss": true,
+      "narrowed": true,
+      "recovered_some": true,
+      "static_pixels_exact": true,
+      "input_delivered_once": true,
+      "same_connected_stream": true
+    },
+    "observed_kernel_drops": 136,
+    "phases": [
+      {
+        "client_start_ms": 14023,
+        "client_end_ms": 29508,
+        "server_start": 3407013.422459225,
+        "server_end": 3407028.907588947,
+        "name": "fast",
+        "bandwidth": 20000000,
+        "duration_seconds": 15.520633476320654,
+        "initial_target": 8000,
+        "final_target": 8000,
+        "unique_frames": 844,
+        "unique_fps": 54.50435905715208,
+        "max_frame_gap_ms": 51,
+        "transport_kbps": 5181.268839082014,
+        "overflows_added": 0,
+        "feedback_delay_max_ms": 75.01763384789228,
+        "feedback_excess_max_ms": 52.67534637823701,
+        "feedback_delay_median_ms": 30.128896003589034,
+        "full_source_age_ms": {
+          "samples": 929,
+          "median": 153.8325777898226,
+          "p95": 170.8325775961086,
+          "max": 199.87750379368663,
+          "clock_uncertainty_max": 1.5,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 885,
+            "median": 99.02873542159796,
+            "p95": 119.8032726533711,
+            "max": 123.01602168008685
+          },
+          "capture_to_last_send_ms": {
+            "samples": 885,
+            "median": 20.197071600705385,
+            "p95": 32.09141595289111,
+            "max": 81.46957866847515
+          },
+          "capture_to_presentation_ms": {
+            "samples": 885,
+            "median": 119.8708713054657,
+            "p95": 137.95108115300536,
+            "max": 155.72219202294946
+          },
+          "last_send_to_receive_ms": {
+            "samples": 885,
+            "median": 28.390230610966682,
+            "p95": 53.02110081538558,
+            "max": 75.17173094674945
+          },
+          "browser_after_receive_ms": {
+            "samples": 885,
+            "median": 71.61999999999898,
+            "p95": 90.22000000000116,
+            "max": 101.21999999999935
+          }
+        }
+      },
+      {
+        "client_start_ms": 29545,
+        "client_end_ms": 75250,
+        "server_start": 3407028.945658051,
+        "server_end": 3407074.648587034,
+        "name": "narrow",
+        "bandwidth": 2000000,
+        "duration_seconds": 45.787506429012865,
+        "initial_target": 8000,
+        "final_target": 1712,
+        "unique_frames": 2304,
+        "unique_fps": 50.41023957991467,
+        "max_frame_gap_ms": 400,
+        "transport_kbps": 1385.0141982353987,
+        "overflows_added": 2,
+        "feedback_delay_max_ms": 237.68784198909998,
+        "feedback_excess_max_ms": 215.22593591362238,
+        "feedback_delay_median_ms": 34.92176136933267,
+        "full_source_age_ms": {
+          "samples": 2742,
+          "median": 186.822711055477,
+          "p95": 282.8778778202832,
+          "max": 766.7853803063416,
+          "clock_uncertainty_max": 1.5,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 2411,
+            "median": 139.1030251979828,
+            "p95": 161.4341433160007,
+            "max": 250.24394411593676
+          },
+          "capture_to_last_send_ms": {
+            "samples": 2411,
+            "median": 14.672539196908474,
+            "p95": 37.901530507951975,
+            "max": 539.3855860456824
+          },
+          "capture_to_presentation_ms": {
+            "samples": 2411,
+            "median": 152.6428903453052,
+            "p95": 176.72733450308442,
+            "max": 601.7325627617538
+          },
+          "last_send_to_receive_ms": {
+            "samples": 2411,
+            "median": 30.597076751291752,
+            "p95": 64.60632802918553,
+            "max": 235.9439437277615
+          },
+          "browser_after_receive_ms": {
+            "samples": 2411,
+            "median": 104,
+            "p95": 129.77999999999884,
+            "max": 148.82000000000698
+          }
+        }
+      },
+      {
+        "client_start_ms": 75338,
+        "client_end_ms": 150793,
+        "server_start": 3407074.738800849,
+        "server_end": 3407150.192434165,
+        "name": "recovered",
+        "bandwidth": 20000000,
+        "duration_seconds": 75.58916153106838,
+        "initial_target": 1712,
+        "final_target": 8000,
+        "unique_frames": 3987,
+        "unique_fps": 52.83944072626068,
+        "max_frame_gap_ms": 117,
+        "transport_kbps": 2381.8246718440364,
+        "overflows_added": 0,
+        "feedback_delay_max_ms": 66.13815203309059,
+        "feedback_excess_max_ms": 44.76528987288475,
+        "feedback_delay_median_ms": 29.404217842966318,
+        "full_source_age_ms": {
+          "samples": 4527,
+          "median": 169.73721937586106,
+          "p95": 203.56691852211384,
+          "max": 350.6999034434557,
+          "clock_uncertainty_max": 1.5,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 4187,
+            "median": 112.96101892367005,
+            "p95": 141.14663796499372,
+            "max": 158.74289628118277
+          },
+          "capture_to_last_send_ms": {
+            "samples": 4187,
+            "median": 16.66679559275508,
+            "p95": 33.3067188039422,
+            "max": 196.1637088097632
+          },
+          "capture_to_presentation_ms": {
+            "samples": 4187,
+            "median": 130.58204762637615,
+            "p95": 158.22023060172796,
+            "max": 255.4264534264803
+          },
+          "last_send_to_receive_ms": {
+            "samples": 4187,
+            "median": 25.72407526895404,
+            "p95": 44.993204064667225,
+            "max": 73.1722922064364
+          },
+          "browser_after_receive_ms": {
+            "samples": 4187,
+            "median": 84.36000000000058,
+            "p95": 119.9600000000064,
+            "max": 134.67999999999302
+          }
+        }
+      }
+    ],
+    "glyph_peak_ms": 128,
+    "guest_characters": 15,
+    "independent_exact_input_check": {
+      "text_matches": true,
+      "event_lengths": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "characters": 15
+    },
+    "static_observer": {
+      "frames": 8213,
+      "wrong_static": 0,
+      "uncovered_static": 0,
+      "invalid_ids": 0,
+      "ids": null,
+      "observations": null,
+      "stop": true
+    },
+    "failure": "Full source age766.79ms minus fast-phase p95170.83ms exceeds the predeclared400ms excess limit; native presentation/input/cadence/recovery gates pass. Exp79 tests a600ms confirmed severe-codec decrease with1s quiet period, preserving the400/500ms transient guards; not qualified yet."
+  },
+  "full_plan_complete": false,
+  "tested_at_utc": "2026-10-28T19:49:11.342031+00:00",
+  "loss_runs": [
+    {
+      "id": "exp79_failure",
+      "classification": "Failed1033ms gap/1289ms full source age before dispatch-aware recovery",
+      "accepted": false,
+      "actual_first_target": 8000,
+      "actual_drop_target": 8000,
+      "checks": {
+        "no_long_video_gap": false,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "observed_kernel_drops": 157,
+      "phases": [
+        {
+          "client_start_ms": 14197,
+          "client_end_ms": 29704,
+          "server_start": 3407605.789111535,
+          "server_end": 3407621.295113341,
+          "name": "fast",
+          "bandwidth": 20000000,
+          "duration_seconds": 15.541483517270535,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_frames": 867,
+          "unique_fps": 55.9102340878313,
+          "max_frame_gap_ms": 52,
+          "transport_kbps": 5149.510943948045,
+          "overflows_added": 0,
+          "feedback_delay_max_ms": 68.4990850277245,
+          "feedback_excess_max_ms": 45.62674183398485,
+          "feedback_delay_median_ms": 30.118701979517937,
+          "full_source_age_ms": {
+            "samples": 931,
+            "median": 157.95638443281135,
+            "p95": 175.2085523990292,
+            "max": 206.20485488325357,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 905,
+              "median": 97.22251584753394,
+              "p95": 118.64179139956832,
+              "max": 121.44049489870667
+            },
+            "capture_to_last_send_ms": {
+              "samples": 905,
+              "median": 20.00535512343049,
+              "p95": 30.988654121756554,
+              "max": 88.35898619145155
+            },
+            "capture_to_presentation_ms": {
+              "samples": 905,
+              "median": 118.48796950653195,
+              "p95": 136.98500441387296,
+              "max": 169.5248414762318
+            },
+            "last_send_to_receive_ms": {
+              "samples": 905,
+              "median": 28.158673085272312,
+              "p95": 49.32805756106973,
+              "max": 69.51963994652033
+            },
+            "browser_after_receive_ms": {
+              "samples": 905,
+              "median": 69.5,
+              "p95": 89.84000000000015,
+              "max": 103.63999999999942
+            }
+          }
+        },
+        {
+          "client_start_ms": 29741,
+          "client_end_ms": 75481,
+          "server_start": 3407621.332556489,
+          "server_end": 3407667.073078242,
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "duration_seconds": 45.821585283149034,
+          "initial_target": 8000,
+          "final_target": 1547,
+          "unique_frames": 2279,
+          "unique_fps": 49.825098382160036,
+          "max_frame_gap_ms": 1033,
+          "transport_kbps": 1444.6835738051773,
+          "overflows_added": 2,
+          "feedback_delay_max_ms": 256.46381406113505,
+          "feedback_excess_max_ms": 233.83625503629446,
+          "feedback_delay_median_ms": 36.794720217585564,
+          "full_source_age_ms": {
+            "samples": 2744,
+            "median": 192.05618379638167,
+            "p95": 288.3952190168202,
+            "max": 1289.198760005334,
+            "clock_uncertainty_max": 2.0,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 2386,
+              "median": 142.10785157047212,
+              "p95": 163.5930249467492,
+              "max": 269.1150247119367
+            },
+            "capture_to_last_send_ms": {
+              "samples": 2386,
+              "median": 15.667604049667716,
+              "p95": 59.41262189298868,
+              "max": 337.1178135275841
+            },
+            "capture_to_presentation_ms": {
+              "samples": 2386,
+              "median": 156.45481483079493,
+              "p95": 179.33441698551178,
+              "max": 395.6639380194247
+            },
+            "last_send_to_receive_ms": {
+              "samples": 2386,
+              "median": 32.07723796367645,
+              "p95": 65.6079719774425,
+              "max": 262.7950245514512
+            },
+            "browser_after_receive_ms": {
+              "samples": 2386,
+              "median": 105.72000000000116,
+              "p95": 132.1999999999971,
+              "max": 148.72000000000116
+            }
+          }
+        },
+        {
+          "client_start_ms": 75564,
+          "client_end_ms": 151046,
+          "server_start": 3407667.156506612,
+          "server_end": 3407742.637431232,
+          "name": "recovered",
+          "bandwidth": 20000000,
+          "duration_seconds": 75.62066852301359,
+          "initial_target": 1547,
+          "final_target": 8000,
+          "unique_frames": 4040,
+          "unique_fps": 53.52269415224822,
+          "max_frame_gap_ms": 150,
+          "transport_kbps": 2341.2609026094906,
+          "overflows_added": 0,
+          "feedback_delay_max_ms": 101.6091238707304,
+          "feedback_excess_max_ms": 79.54951096326113,
+          "feedback_delay_median_ms": 29.78193387389183,
+          "full_source_age_ms": {
+            "samples": 4529,
+            "median": 174.5410347046885,
+            "p95": 208.83457986637666,
+            "max": 388.7170637026429,
+            "clock_uncertainty_max": 2.0,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 4236,
+              "median": 116.46862421184778,
+              "p95": 153.16783217713237,
+              "max": 161.70705063268542
+            },
+            "capture_to_last_send_ms": {
+              "samples": 4236,
+              "median": 16.05159998871386,
+              "p95": 30.60088213533163,
+              "max": 202.25106365978718
+            },
+            "capture_to_presentation_ms": {
+              "samples": 4236,
+              "median": 131.80698221549392,
+              "p95": 168.7708692625165,
+              "max": 251.0526217520237
+            },
+            "last_send_to_receive_ms": {
+              "samples": 4236,
+              "median": 26.053490350022912,
+              "p95": 46.769212000072,
+              "max": 88.43946596607566
+            },
+            "browser_after_receive_ms": {
+              "samples": 4236,
+              "median": 89.44000000000233,
+              "p95": 126.19999999999709,
+              "max": 145.67999999999302
+            }
+          }
+        }
+      ],
+      "glyph_peak_ms": 163,
+      "guest_characters": 15,
+      "exact_input_gate": true,
+      "metadata_modes": [
+        3
+      ],
+      "static": {
+        "frames": 8218,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "ids": null,
+        "observations": null,
+        "stop": true
+      },
+      "warmup": null
+    },
+    {
+      "id": "exp80_cold",
+      "classification": "All gates pass; starts at3550, so does not prove an8000-target capacity drop",
+      "accepted": true,
+      "actual_first_target": 3550,
+      "actual_drop_target": 3550,
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "observed_kernel_drops": 141,
+      "phases": [
+        {
+          "client_start_ms": 13905,
+          "client_end_ms": 29399,
+          "server_start": 3407926.855820776,
+          "server_end": 3407942.348801092,
+          "name": "fast",
+          "bandwidth": 20000000,
+          "duration_seconds": 15.52099474100396,
+          "initial_target": 3550,
+          "final_target": 3550,
+          "unique_frames": 811,
+          "unique_fps": 52.34284239060281,
+          "max_frame_gap_ms": 101,
+          "transport_kbps": 2685.4071922443413,
+          "overflows_added": 0,
+          "feedback_delay_max_ms": 61.75908539444208,
+          "feedback_excess_max_ms": 40.58112297207117,
+          "feedback_delay_median_ms": 29.78606102988124,
+          "full_source_age_ms": {
+            "samples": 930,
+            "median": 178.15779121592712,
+            "p95": 195.3792734071609,
+            "max": 276.4604929834604,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 853,
+              "median": 122.94999323785305,
+              "p95": 131.27996399998665,
+              "max": 133.44142399728298
+            },
+            "capture_to_last_send_ms": {
+              "samples": 853,
+              "median": 18.83059646934271,
+              "p95": 30.405272729694843,
+              "max": 134.82350576668978
+            },
+            "capture_to_presentation_ms": {
+              "samples": 853,
+              "median": 141.01200504228473,
+              "p95": 151.0159932076931,
+              "max": 180.72104640305042
+            },
+            "last_send_to_receive_ms": {
+              "samples": 853,
+              "median": 26.30261518061161,
+              "p95": 46.694150660187006,
+              "max": 58.82470542564988
+            },
+            "browser_after_receive_ms": {
+              "samples": 853,
+              "median": 94.29999999999927,
+              "p95": 109.41999999999825,
+              "max": 116.84000000000015
+            }
+          }
+        },
+        {
+          "client_start_ms": 29429,
+          "client_end_ms": 75149,
+          "server_start": 3407942.378626007,
+          "server_end": 3407988.099129444,
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "duration_seconds": 45.807525714859366,
+          "initial_target": 3550,
+          "final_target": 1705,
+          "unique_frames": 2340,
+          "unique_fps": 51.181102362204726,
+          "max_frame_gap_ms": 200,
+          "transport_kbps": 1444.6064883689965,
+          "overflows_added": 3,
+          "feedback_delay_max_ms": 240.05150981247425,
+          "feedback_excess_max_ms": 218.8690989278257,
+          "feedback_delay_median_ms": 36.45444009453058,
+          "full_source_age_ms": {
+            "samples": 2744,
+            "median": 194.2461809609064,
+            "p95": 241.81054169311977,
+            "max": 476.4772085162505,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 2455,
+              "median": 137.26867362856865,
+              "p95": 143.7277840450406,
+              "max": 253.0034128576517
+            },
+            "capture_to_last_send_ms": {
+              "samples": 2455,
+              "median": 15.49151400104165,
+              "p95": 43.08702051639557,
+              "max": 188.79802711308002
+            },
+            "capture_to_presentation_ms": {
+              "samples": 2455,
+              "median": 150.72173671796918,
+              "p95": 164.11873698234558,
+              "max": 351.47139243781567
+            },
+            "last_send_to_receive_ms": {
+              "samples": 2455,
+              "median": 32.04831900075078,
+              "p95": 61.90979806706309,
+              "max": 239.32341299951077
+            },
+            "browser_after_receive_ms": {
+              "samples": 2455,
+              "median": 103.19999999999709,
+              "p95": 120.58000000000175,
+              "max": 129.45999999999913
+            }
+          }
+        },
+        {
+          "client_start_ms": 75238,
+          "client_end_ms": 150738,
+          "server_start": 3407988.190155999,
+          "server_end": 3408063.68766498,
+          "name": "recovered",
+          "bandwidth": 20000000,
+          "duration_seconds": 75.63442028686404,
+          "initial_target": 1705,
+          "final_target": 8000,
+          "unique_frames": 3873,
+          "unique_fps": 51.29801324503311,
+          "max_frame_gap_ms": 117,
+          "transport_kbps": 2368.833482791658,
+          "overflows_added": 0,
+          "feedback_delay_max_ms": 132.2842901572585,
+          "feedback_excess_max_ms": 109.62621308863163,
+          "feedback_delay_median_ms": 29.274793108925223,
+          "full_source_age_ms": {
+            "samples": 4530,
+            "median": 161.38031723288293,
+            "p95": 194.8499051543564,
+            "max": 342.2403475269675,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 4068,
+              "median": 107.86038683727384,
+              "p95": 132.53660965710878,
+              "max": 139.09552106633782
+            },
+            "capture_to_last_send_ms": {
+              "samples": 4068,
+              "median": 16.752562252804637,
+              "p95": 33.07793568819761,
+              "max": 188.8667019084096
+            },
+            "capture_to_presentation_ms": {
+              "samples": 4068,
+              "median": 123.91096237115562,
+              "p95": 148.30423658713698,
+              "max": 244.61673852056265
+            },
+            "last_send_to_receive_ms": {
+              "samples": 4068,
+              "median": 25.89391265064478,
+              "p95": 44.72155496478081,
+              "max": 131.57552108168602
+            },
+            "browser_after_receive_ms": {
+              "samples": 4068,
+              "median": 80.38999999999942,
+              "p95": 109.0399999999936,
+              "max": 119.0399999999936
+            }
+          }
+        }
+      ],
+      "glyph_peak_ms": 141,
+      "guest_characters": 15,
+      "exact_input_gate": true,
+      "metadata_modes": [
+        3
+      ],
+      "static": {
+        "frames": 8218,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "ids": null,
+        "observations": null,
+        "stop": true
+      },
+      "warmup": null
+    },
+    {
+      "id": "exp80_continuous_loss",
+      "classification": "All gates pass; actual8000 start, but TCP loss reduces it during fast phase before shaping",
+      "accepted": true,
+      "actual_first_target": 8000,
+      "actual_drop_target": 2940,
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "observed_kernel_drops": 204,
+      "phases": [
+        {
+          "client_start_ms": 20083,
+          "client_end_ms": 35569,
+          "server_start": 3408158.328019593,
+          "server_end": 3408173.81388129,
+          "name": "fast",
+          "bandwidth": 20000000,
+          "duration_seconds": 15.522555865813047,
+          "initial_target": 8000,
+          "final_target": 2940,
+          "unique_frames": 815,
+          "unique_fps": 52.62818029187653,
+          "max_frame_gap_ms": 233,
+          "transport_kbps": 3348.106043260274,
+          "overflows_added": 1,
+          "feedback_delay_max_ms": 237.8127290867269,
+          "feedback_excess_max_ms": 214.2944918014109,
+          "feedback_delay_median_ms": 30.944795813411474,
+          "full_source_age_ms": {
+            "samples": 929,
+            "median": 169.8271077436715,
+            "p95": 235.58097615217122,
+            "max": 518.9143097649023,
+            "clock_uncertainty_max": 2.0,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 859,
+              "median": 105.22629925981164,
+              "p95": 123.7434009090066,
+              "max": 251.03237200528383
+            },
+            "capture_to_last_send_ms": {
+              "samples": 859,
+              "median": 19.825654104351997,
+              "p95": 36.4557639695704,
+              "max": 216.5162181481719
+            },
+            "capture_to_presentation_ms": {
+              "samples": 859,
+              "median": 124.55842364579439,
+              "p95": 143.91776407137513,
+              "max": 286.41507821157575
+            },
+            "last_send_to_receive_ms": {
+              "samples": 859,
+              "median": 26.608322747051716,
+              "p95": 50.39402702823281,
+              "max": 237.4467528425157
+            },
+            "browser_after_receive_ms": {
+              "samples": 859,
+              "median": 78.45999999999913,
+              "p95": 92.26000000000204,
+              "max": 111.84000000000015
+            }
+          }
+        },
+        {
+          "client_start_ms": 35608,
+          "client_end_ms": 81343,
+          "server_start": 3408173.852947202,
+          "server_end": 3408219.587859489,
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "duration_seconds": 45.824679295066744,
+          "initial_target": 2940,
+          "final_target": 2735,
+          "unique_frames": 2363,
+          "unique_fps": 51.66721329397617,
+          "max_frame_gap_ms": 217,
+          "transport_kbps": 1337.0820375512412,
+          "overflows_added": 1,
+          "feedback_delay_max_ms": 170.2706473879516,
+          "feedback_excess_max_ms": 147.60374324396253,
+          "feedback_delay_median_ms": 35.11141100898385,
+          "full_source_age_ms": {
+            "samples": 2744,
+            "median": 200.8946936732787,
+            "p95": 234.59140776346032,
+            "max": 434.30167467643696,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 2474,
+              "median": 139.72854847088456,
+              "p95": 154.67177098616958,
+              "max": 185.94174040481448
+            },
+            "capture_to_last_send_ms": {
+              "samples": 2474,
+              "median": 14.855883782729506,
+              "p95": 35.547534469515085,
+              "max": 208.03084364160895
+            },
+            "capture_to_presentation_ms": {
+              "samples": 2474,
+              "median": 157.29898633435369,
+              "p95": 172.70544730126858,
+              "max": 290.09797936305404
+            },
+            "last_send_to_receive_ms": {
+              "samples": 2474,
+              "median": 30.42272594757378,
+              "p95": 62.99405312165618,
+              "max": 182.58174043148756
+            },
+            "browser_after_receive_ms": {
+              "samples": 2474,
+              "median": 108.9900000000016,
+              "p95": 130.88000000000466,
+              "max": 142.5199999999968
+            }
+          }
+        },
+        {
+          "client_start_ms": 81435,
+          "client_end_ms": 156938,
+          "server_start": 3408219.680969541,
+          "server_end": 3408295.181954982,
+          "name": "recovered",
+          "bandwidth": 20000000,
+          "duration_seconds": 75.63469961006194,
+          "initial_target": 2735,
+          "final_target": 8000,
+          "unique_frames": 4042,
+          "unique_fps": 53.53429665046422,
+          "max_frame_gap_ms": 101,
+          "transport_kbps": 3953.358349159333,
+          "overflows_added": 0,
+          "feedback_delay_max_ms": 109.03429100289941,
+          "feedback_excess_max_ms": 86.51590812951326,
+          "feedback_delay_median_ms": 30.816612765192986,
+          "full_source_age_ms": {
+            "samples": 4530,
+            "median": 154.42877180564096,
+            "p95": 187.08897074684216,
+            "max": 300.82419589162157,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 4239,
+              "median": 106.19830805808306,
+              "p95": 129.15233988314867,
+              "max": 134.60408011451364
+            },
+            "capture_to_last_send_ms": {
+              "samples": 4239,
+              "median": 18.032137770205736,
+              "p95": 29.83797574415803,
+              "max": 153.64422323182225
+            },
+            "capture_to_presentation_ms": {
+              "samples": 4239,
+              "median": 122.11620761081576,
+              "p95": 145.7319618202746,
+              "max": 205.9331382624805
+            },
+            "last_send_to_receive_ms": {
+              "samples": 4239,
+              "median": 27.860018890351057,
+              "p95": 51.73164512962103,
+              "max": 115.85239134728909
+            },
+            "browser_after_receive_ms": {
+              "samples": 4239,
+              "median": 73.72000000000116,
+              "p95": 102.55999999999767,
+              "max": 118.41999999999825
+            }
+          }
+        }
+      ],
+      "glyph_peak_ms": 144,
+      "guest_characters": 15,
+      "exact_input_gate": true,
+      "metadata_modes": [
+        3
+      ],
+      "static": {
+        "frames": 8220,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "ids": null,
+        "observations": null,
+        "stop": true
+      },
+      "warmup": {
+        "reached": true,
+        "elapsed_seconds": 6.024025751277804,
+        "stable_ceiling_seconds": 6.02362505113706,
+        "samples": [
+          {
+            "elapsed_seconds": 0.0004007001407444477,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 0.5017902990803123,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 1.00365554029122,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 1.5058561661280692,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 2.007688123267144,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 2.50962124299258,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 3.01164736924693,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 3.5139573123306036,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 4.016099667176604,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 4.518070477992296,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 5.020154183264822,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 5.522089275997132,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 6.024025751277804,
+            "target": 8000,
+            "state": "connected"
+          }
+        ]
+      }
+    },
+    {
+      "id": "exp80_hot_loss",
+      "classification": "Healthy full8000 baseline; enable actual0.3% TCP loss at the2M drop; retain through20M recovery",
+      "accepted": false,
+      "actual_first_target": 8000,
+      "actual_drop_target": 8000,
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": false,
+        "presentation_excess_at_most_400ms": false,
+        "glyph_peak_at_most_600ms": false,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "observed_kernel_drops": 97,
+      "phases": [
+        {
+          "client_start_ms": 19958,
+          "client_end_ms": 35415,
+          "server_start": 3408694.913841663,
+          "server_end": 3408710.370532384,
+          "name": "fast",
+          "bandwidth": 20000000,
+          "duration_seconds": 15.49505275906995,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "unique_frames": 862,
+          "unique_fps": 55.76761337905156,
+          "max_frame_gap_ms": 51,
+          "transport_kbps": 5104.105553652611,
+          "overflows_added": 0,
+          "feedback_delay_max_ms": 60.011854860931635,
+          "feedback_excess_max_ms": 37.591537926346064,
+          "feedback_delay_median_ms": 29.629154363647103,
+          "full_source_age_ms": {
+            "samples": 928,
+            "median": 157.3641075442236,
+            "p95": 174.42356108998246,
+            "max": 206.42321137711406,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 903,
+              "median": 94.1082090139389,
+              "p95": 102.29811631143093,
+              "max": 116.7948730289936
+            },
+            "capture_to_last_send_ms": {
+              "samples": 903,
+              "median": 19.882621243596077,
+              "p95": 31.549171078950167,
+              "max": 87.61756494641304
+            },
+            "capture_to_presentation_ms": {
+              "samples": 903,
+              "median": 113.97933168336749,
+              "p95": 129.18058736249804,
+              "max": 154.3548097833991
+            },
+            "last_send_to_receive_ms": {
+              "samples": 903,
+              "median": 27.305206283926964,
+              "p95": 42.21692495048046,
+              "max": 58.506953064352274
+            },
+            "browser_after_receive_ms": {
+              "samples": 903,
+              "median": 66.91999999999825,
+              "p95": 81.02000000000044,
+              "max": 98.58000000000175
+            }
+          }
+        },
+        {
+          "client_start_ms": 35462,
+          "client_end_ms": 80883,
+          "server_start": 3408710.41838871,
+          "server_end": 3408755.838493948,
+          "name": "narrow",
+          "bandwidth": 2000000,
+          "duration_seconds": 45.49739880487323,
+          "initial_target": 8000,
+          "final_target": 1535,
+          "unique_frames": 2253,
+          "unique_fps": 49.602606723762136,
+          "max_frame_gap_ms": 334,
+          "transport_kbps": 1552.2116352611033,
+          "overflows_added": 3,
+          "feedback_delay_max_ms": 697.122375946492,
+          "feedback_excess_max_ms": 674.7020590119064,
+          "feedback_delay_median_ms": 38.00421115010977,
+          "full_source_age_ms": {
+            "samples": 2726,
+            "median": 191.10499909147194,
+            "p95": 322.99016462638974,
+            "max": 1206.0486465692506,
+            "clock_uncertainty_max": 2.0,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 2362,
+              "median": 133.38067708536983,
+              "p95": 144.4352874532342,
+              "max": 700.0223575159907
+            },
+            "capture_to_last_send_ms": {
+              "samples": 2362,
+              "median": 15.841035638004541,
+              "p95": 45.79739924520254,
+              "max": 333.93895206972957
+            },
+            "capture_to_presentation_ms": {
+              "samples": 2362,
+              "median": 148.76140002161264,
+              "p95": 171.15876963362098,
+              "max": 928.6156226880848
+            },
+            "last_send_to_receive_ms": {
+              "samples": 2362,
+              "median": 33.58580032363534,
+              "p95": 72.85810401663184,
+              "max": 695.4823574051261
+            },
+            "browser_after_receive_ms": {
+              "samples": 2362,
+              "median": 95.33999999999651,
+              "p95": 120.55999999999767,
+              "max": 133.55999999999767
+            }
+          }
+        },
+        {
+          "client_start_ms": 80961,
+          "client_end_ms": 156391,
+          "server_start": 3408755.919595048,
+          "server_end": 3408831.346364613,
+          "name": "recovered",
+          "bandwidth": 20000000,
+          "duration_seconds": 75.56691220216453,
+          "initial_target": 1535,
+          "final_target": 3018,
+          "unique_frames": 3910,
+          "unique_fps": 51.836139467055546,
+          "max_frame_gap_ms": 149,
+          "transport_kbps": 2121.1312633946886,
+          "overflows_added": 1,
+          "feedback_delay_max_ms": 142.46310386806726,
+          "feedback_excess_max_ms": 121.21325498446822,
+          "feedback_delay_median_ms": 29.24346807412803,
+          "full_source_age_ms": {
+            "samples": 4525,
+            "median": 174.469569884252,
+            "p95": 206.25541908665923,
+            "max": 388.9727125254865,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 4102,
+              "median": 111.5648034028709,
+              "p95": 136.95664564147592,
+              "max": 151.49601083248854
+            },
+            "capture_to_last_send_ms": {
+              "samples": 4102,
+              "median": 16.233843052759767,
+              "p95": 34.716975409537554,
+              "max": 228.09887677431107
+            },
+            "capture_to_presentation_ms": {
+              "samples": 4102,
+              "median": 135.7168301474303,
+              "p95": 158.90815574675798,
+              "max": 265.4781797900796
+            },
+            "last_send_to_receive_ms": {
+              "samples": 4102,
+              "median": 25.50139627419412,
+              "p95": 46.04036174714565,
+              "max": 141.33701100945473
+            },
+            "browser_after_receive_ms": {
+              "samples": 4102,
+              "median": 87.20999999999913,
+              "p95": 116.36000000000058,
+              "max": 135.61999999999534
+            }
+          }
+        }
+      ],
+      "glyph_peak_ms": 637,
+      "guest_characters": 15,
+      "exact_input_gate": true,
+      "metadata_modes": [
+        3
+      ],
+      "static": {
+        "frames": 8194,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "ids": null,
+        "observations": null,
+        "stop": true
+      },
+      "warmup": {
+        "reached": true,
+        "elapsed_seconds": 6.022678207140416,
+        "stable_ceiling_seconds": 6.022238203790039,
+        "samples": [
+          {
+            "elapsed_seconds": 0.0004400033503770828,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 0.5023293299600482,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 1.0045465570874512,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 1.5056274719536304,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 2.0074011590331793,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 2.509267742279917,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 3.011389357969165,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 3.513774503953755,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 4.014959495980293,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 4.516038357280195,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 5.01819205423817,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 5.520270728971809,
+            "target": 8000,
+            "state": "connected"
+          },
+          {
+            "elapsed_seconds": 6.022678207140416,
+            "target": 8000,
+            "state": "connected"
+          }
+        ]
+      }
+    }
+  ],
+  "hot_loss_accepted": false,
+  "bundle": {
+    "version": "0.4.0+stock4.14~exp80",
+    "package_count": 7,
+    "packages": [
+      {
+        "file": "qsm-console-guest_0.4.0+stock4.14~exp80_all.deb",
+        "sha256": "00f2ba4888776f477963bef5e740d0b26988096195e575559291eb6790b6dae7"
+      },
+      {
+        "file": "qsm-desktop-agent_0.4.0+stock4.14~exp80_amd64.deb",
+        "sha256": "e1f4895467d65ba7dfca357a819589fce3ea2526e7b8e86d2f63ad224e89ed96"
+      },
+      {
+        "file": "qsm-pve-direct-gateway_0.4.0+stock4.14~exp80_all.deb",
+        "sha256": "5e538dcc00e497f8cf1de8f5a5cb6de2d7c60feb08681720cde7ab169cb1d0ee"
+      },
+      {
+        "file": "qsm-pve-direct-lxc_0.4.0+stock4.14~exp80_amd64.deb",
+        "sha256": "7aec7f57c2b49c857a5987fb5b434b3b16767b06bd5ba5941ca0b8edcc1e6ce1"
+      },
+      {
+        "file": "qsm-pve-direct-standalone_0.4.0+stock4.14~exp80_all.deb",
+        "sha256": "cdc17435628b21cda6d8546af2b1f18f3ca880ab1c43ef1ceaaff3f9470daf23"
+      },
+      {
+        "file": "qsm-pve-direct_0.4.0+stock4.14~exp80_amd64.deb",
+        "sha256": "fcb74eeefa57f4a2639db6233a636e4ffb45fd6d820a5e3c39313a2e41cce628"
+      },
+      {
+        "file": "qsm-qt-input-geometry_0.4.0+stock4.14~exp80_amd64.deb",
+        "sha256": "3f01bb39077ac151a3edb57904d974f3d53e69ea7e8c5aceea954f4b491d681f"
+      }
+    ],
+    "main_pilot_vs_full": {
+      "payload_entries": 34,
+      "payload_differences": [],
+      "control_entries": 6,
+      "control_differences": []
+    },
+    "guests": [
+      {
+        "package": "qsm-console-guest",
+        "payload_entries": 29,
+        "differences_from68": []
+      },
+      {
+        "package": "qsm-qt-input-geometry",
+        "payload_entries": 4,
+        "differences_from68": []
+      },
+      {
+        "package": "qsm-desktop-agent",
+        "payload_entries": 13,
+        "differences_from68": [
+          "usr/lib/qsm-desktop-agent/qsm-desktop-agent",
+          "usr/lib/qsm-desktop-agent/qsm-desktop-state-watcher"
+        ]
+      }
+    ],
+    "source_archive": {
+      "file": "source-full-exp80.tar",
+      "sha256": "e612cddd5acade435a3a10cd2fa2b0abd749faa4c9785293546fbbdca8da1798"
+    },
+    "scope": "Full package payload/control matches the tested main pilot. LXC guest and Qt payloads equal68; portable VM core/watch binaries are rebuilt in Debian12 and require installed-runtime refresh/qualification."
+  },
+  "release_qualified": false,
+  "accepted_in_scope_name": "Controlled hard-cut LXC NVENC H264 scope only; hot-loss and full-plan qualification remain incomplete",
+  "post_test_state": {
+    "production_node20": {
+      "package": "0.4.0+stock4.14~exp35",
+      "processes": {
+        "577033": {
+          "alive": true,
+          "start_ticks": 332808379
+        },
+        "495374": {
+          "alive": true,
+          "start_ticks": 297084425
+        }
+      }
+    },
+    "owned_lxc_namespace": {
+      "processes": {
+        "3829219": {
+          "alive": true,
+          "start_ticks": 336885308
+        },
+        "3981095": {
+          "alive": true,
+          "start_ticks": 338753534
+        },
+        "444366": {
+          "alive": true,
+          "start_ticks": 241353958
+        },
+        "444367": {
+          "alive": true,
+          "start_ticks": 241353959
+        },
+        "444390": {
+          "alive": true,
+          "start_ticks": 241353968
+        }
+      },
+      "guest_versions": "qsm-console-guest 0.4.0+stock4.14~exp68\nqsm-qt-input-geometry 0.4.0+stock4.14~exp68\n",
+      "metadata_sha256": "f75936dcde17bfa5a21291be36eacbe0ebfffcd4e6980efb750a70cc9743a3d5"
+    },
+    "production_rollout_performed": false
+  },
+  "next_focus": "Use stored encoded-unit/sender/native-receive timing to locate the hot-step backlog; investigate earlier bounded flight admission and whether codec-target observation waits behind raw-byte debt. Keep the retained hot-loss profile and every threshold. Consider transport changes only from evidence."
+}

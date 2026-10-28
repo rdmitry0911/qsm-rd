@@ -444,10 +444,10 @@ void test_cropped_video_rate_tracks_sustained_steps_without_chasing_jitter() {
     const auto high = rate.update(start, true, 8000, 8000, true);
     // Allow steady jitter while a real link decrease persists. Requiring
     // identical samples would leave the encoder permanently at the old rate.
-    for (unsigned n = 0; n < 15; ++n) {
+    for (unsigned n = 0; n < 6; ++n) {
         CHECK(rate.update(start + 10s + n * 100ms, true, 1400 + n % 3 * 50, 8000, false) == high);
     }
-    const auto low = rate.update(start + 11500ms, true, 1500, 8000, false);
+    const auto low = rate.update(start + 10600ms, true, 1500, 8000, false);
     CHECK(low < high / 2U);
     CHECK(low * 112U <= 1500U * 80U);
     // Small fluctuations cannot retune the codec, including after cooldown.
@@ -486,6 +486,56 @@ void test_cropped_video_rate_fits_the_shared_wire_budget_at_full_cadence() {
     CHECK(frames >= 595U);
 }
 
+void test_cropped_scene_burst_is_bounded_and_paid_before_another_capture() {
+    using namespace std::chrono_literals;
+    for (const auto fps : {10U, 60U, 240U}) {
+        for (const auto bitrate : {500U, 1050U, 5600U, 100'000U}) {
+            const auto bits = static_cast<std::uint64_t>(bitrate) * 1000U;
+            CHECK(qmdp::CroppedVideoRate::buffer_bits(bitrate, fps, false) == bits / fps);
+            const auto burst = qmdp::CroppedVideoRate::buffer_bits(bitrate, fps, true);
+            CHECK(burst >= bits / fps);
+            CHECK(burst <= bits * 450U / 1000U);
+            CHECK(burst <= 2U * 1024U * 1024U * 8U);
+        }
+    }
+    // Enlarging the codec VBV cannot give the next capture free byte credit,
+    // including on a constrained link with an active exact-UI reservation.
+    qmdp::VideoBudget budget;
+    const qmdp::VideoBudget::Clock::time_point start {};
+    CHECK(budget.ready(start, 1500U, 15U));
+    budget.account(qmdp::CroppedVideoRate::buffer_bits(1050U, 60U, true) / 8U);
+    CHECK(!budget.ready(start + 50ms, 1500U, 15U));
+    CHECK(!budget.ready(start + 100ms, 1500U, 15U));
+    CHECK(!budget.ready(start + 150ms, 1500U, 15U));
+    CHECK(!budget.ready(start + 300ms, 1500U, 15U));
+    CHECK(budget.ready(start + 450ms, 1500U, 15U));
+}
+
+void test_severe_crop_decrease_has_a_short_confirmed_boundary_only() {
+    using namespace std::chrono_literals;
+    const qmdp::CroppedVideoRate::Clock::time_point start {};
+    qmdp::CroppedVideoRate rate;
+    const auto high = rate.update(start, true, 8000U, 8000U, true);
+    CHECK(rate.update(start + 100ms, true, 1500U, 8000U, false) == high);
+    CHECK(rate.update(start + 500ms, true, 1500U, 8000U, false) == high);
+    // A 400ms bad estimate cannot change the codec, even a severe one.
+    CHECK(rate.update(start + 550ms, true, 8000U, 8000U, false) == high);
+    CHECK(rate.update(start + 2s, true, 1500U, 8000U, false) == high);
+    CHECK(rate.update(start + 2500ms, true, 1500U, 8000U, false) == high);
+    CHECK(rate.update(start + 2600ms, true, 1500U, 8000U, false) < high / 2U);
+    qmdp::CroppedVideoRate recent;
+    CHECK(recent.update(start, true, 8000U, 8000U, true) == high);
+    CHECK(recent.update(start + 100ms, true, 1500U, 8000U, false) == high);
+    CHECK(recent.update(start + 700ms, true, 1500U, 8000U, false) == high);
+    CHECK(recent.update(start + 1s, true, 1500U, 8000U, false) < high / 2U);
+    qmdp::CroppedVideoRate ordinary;
+    CHECK(ordinary.update(start, true, 8000U, 8000U, true) == high);
+    CHECK(ordinary.update(start + 1s, true, 6000U, 8000U, false) == high);
+    CHECK(ordinary.update(start + 3s, true, 6000U, 8000U, false) == high);
+    CHECK(ordinary.update(start + 5s, true, 6000U, 8000U, false) < high);
+}
+
+
 }  // namespace
 
 int main() {
@@ -505,6 +555,8 @@ int main() {
     test_cropped_video_rate_preserves_desktop_quality_and_ignores_brief_loss();
     test_cropped_video_rate_tracks_sustained_steps_without_chasing_jitter();
     test_cropped_video_rate_fits_the_shared_wire_budget_at_full_cadence();
+    test_cropped_scene_burst_is_bounded_and_paid_before_another_capture();
+    test_severe_crop_decrease_has_a_short_confirmed_boundary_only();
 
     if (failures == 0) {
         std::cout << "all qmdp core tests passed\n";

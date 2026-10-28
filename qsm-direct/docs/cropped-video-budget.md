@@ -24,14 +24,74 @@ There is a five-second minimum quiet period between changes. Smaller changes
 and brief bad estimates do not reconfigure the codec. Returning to a full
 desktop restores its original codec target.
 
+A sustained decrease of at least half the current codec target uses a 600 ms
+confirmation period and a one-second minimum quiet period. Raw admission and
+pacing already react immediately; this faster severe-decrease boundary keeps
+the old codec from producing another large scene picture while they drain.
+The tested 400/500 ms transient estimates still do not retune the codec.
+Ordinary decreases and all increases retain the periods above.
+
 All codec access remains on the video thread. The existing live NVENC/x264
 rate update and QSV/VA-API context-reopen paths are used, with a recovery IDR.
 The exact cache is not reset for a bitrate change. Source timestamps and
 capture/layout checks remain in force across that boundary.
 
+## Scene cuts and wire pacing
+
+A one-frame VBV can crush the first picture after a cut even when average
+video traffic fits. A cropped plane now permits up to 450 ms of codec burst
+capacity, capped at 2 MiB. Each emitted access unit is still paid by raw
+admission and packet pacing before another capture is admitted. This adds
+no queued future frames or decoder playout delay. The full-desktop fallback
+keeps its original codec buffer, including the existing HEVC QSV minimum.
+Cropped NVENC uses P4 without lookahead or B-frames; full-desktop NVENC keeps
+P1. Other encoders retain their existing presets and need separate tests.
+
+The RTP/RTX pacer charges protocol overhead in every packet's cost. Its refill
+rate now follows the shared path target directly. The former 1.25 multiplier
+could create a routed TCP queue during a large picture even when average
+raw admission fitted. This pacing correction also applies to full-desktop
+streams. Exact UI and audio remain independently delivered; video repays
+their transmission credit.
+
+Credit waits can persist while an older queue drains after a rate decrease.
+With sufficient recent byte volume, delivery at least 5% faster than offered
+load and a falling frame age of at least 5 ms establish that progress. Those
+waits alone cannot trigger another rate decrease. New growing queues and
+confirmed RTCP loss remain effective. Deterministic regressions fail before
+the draining and wire-pacing corrections, and pass afterward.
+
 ## Qualification
 
-Exp51 is a private candidate. The LXC108/KWin5/NVENC/H264 run over TURN/TCP8006
+The private exp80 bundle contains all seven matching packages. Its main payload
+and install/control files match the tested pilot; LXC guest and Qt payloads
+match exp68. The portable VM core/watch binaries are rebuilt in Debian 12 and
+still need installed-runtime qualification. All 125 bridge tests and the
+Qt 5/6 GUI/widget shutdown checks pass.
+
+Controlled LXC108/KWin5/NVENC H264 and Firefox/Linux over TURN/TCP8006 passes
+all declared hard-cut gates: 53.91/52.12 source frames/s on 20/2 Mbit/s links,
+first-cut minimum RGB PSNR 36.43/31.49 dB and explicit 8x8-box luma SSIM
+0.986/0.916. Largest gaps are 84/134 ms. A preceding run during portable
+compilation narrowly fails the fast cadence gate (49.885 versus 50); its
+cause is not isolated and it remains in the resource-qualification evidence.
+
+Two continuous 0.3% TCP-loss profiles with 15/3 ms delay/jitter pass all their
+queue/input/recovery gates. Their starting targets differ: one starts at
+3550; the other starts at 8000 but reduces during the impaired fast phase.
+They do not establish the stricter simultaneous full-8000-target capacity
+drop plus new loss. That retained test still fails: full source age reaches
+1206 ms, one visible glyph takes 637 ms, and the final target is 3018 rather
+than 8000. Exact static pixels and all 15 actual input characters remain
+correct. No threshold is waived and this bundle is not release-qualified.
+
+Remaining work includes that admission/flight backlog, final component and
+full-desktop fallback repeats, broader applications/resolutions, the supported
+VM/LXC encoder/codec matrix, long sessions/resource checks, Mac and matched
+RDP comparison. Evidence and rejected experiments are in
+`rdp-scene-cuts-20261028.json`; the full plan stays in `rdp-next-plan.json`.
+
+The historical exp51 LXC108/KWin5/NVENC/H264 run over TURN/TCP8006
 passes overlap typing, exact pixels, move/close, scroll, burst input and
 viewport resizing. Overlap glyph latency is 70 ms median / 101 ms p95 at a
 2 Mbit/s downlink. The live no-metadata fallback also passes pixel/input checks.

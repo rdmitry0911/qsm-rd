@@ -156,7 +156,10 @@ class _VideoPacer:
         # The worker pays encoder overshoot by skipping raw pictures. Adding
         # extra hardware credit here can send a large IDR faster than a narrow
         # path can carry it, repeatedly losing that same recovery picture.
-        self._rate = video_bitrate_kbps * 1000 / 8 * 1.25
+        # send() already charges RTP/IP/SRTP overhead. Refilling25% above
+        # the shared path target turns a scene-sized access unit into a
+        # downstream TCP queue, followed by unnecessary adaptive cuts.
+        self._rate = video_bitrate_kbps * 1000 / 8
         # Retain two-packet pacing at the default; at higher rates permit
         # two milliseconds of credit so timer granularity does not cap LAN use.
         self._burst = max(VIDEO_PACING_BURST_BYTES, int(self._rate * .002))
@@ -502,6 +505,16 @@ class AdaptiveVideoRate:
 
     def _presentation_queued(self, state: _ReceiverFeedback, now: float) -> bool:
         credit = [(t, d) for t, d in state.credit_samples if now - t < .6]
+        # After a path decrease, old flight can still be much older than
+        # baseline while the already reduced target is draining it. Matched
+        # recent frames must show both faster delivery than offered load and
+        # a falling age, with enough bytes to exclude tiny-frame/ACK jitter.
+        # Credit waits alone must not repeatedly cut that recovering target.
+        samples = state.presented_samples
+        draining = (state.presented_bytes >= VIDEO_DELIVERY_MIN_BYTES and len(samples) >= 2 and
+                    state.presented_offered_kbps > 0 and
+                    state.presented_kbps >= state.presented_offered_kbps * 1.05 and
+                    state.presented_delay <= samples[0][0] - samples[0][1] - .005)
         blocked = (state.presented_delay > state.presented_base + .1 and
                    len(credit) >= 2 and credit[-1][0] - credit[0][0] >= .09
                    and sum(d for _, d in credit) >= .1)
@@ -512,7 +525,7 @@ class AdaptiveVideoRate:
                             bool(credit) and sum(d for _, d in credit) >= .02 and
                             state.presented_delay > state.presented_base + .1 and
                             state.presented_kbps < state.presented_offered_kbps * .85)
-        return (self._presentation_fresh(state, now) and (blocked or delivering_slower or
+        return (self._presentation_fresh(state, now) and not draining and (blocked or delivering_slower or
                 (state.presented_queue_since is not None and now - state.presented_queue_since >= .3)))
 
     def _update(self, now: float) -> None:
@@ -1000,7 +1013,7 @@ class _PacketTrack(MediaStreamTrack):
         self._closed = False
         self._waiting_for_keyframe = kind == "video"
         self._last_recovery_request = float("-inf")
-        self.on_keyframe_required: Callable[[], None] | None = None
+        self.on_keyframe_required: Callable[[], bool | None] | None = None
         self.dropped_units = 0
         self.overflows = 0
         self.delivered_units = 0
@@ -1023,8 +1036,12 @@ class _PacketTrack(MediaStreamTrack):
         # Retry only while waiting: recovery must not rely on periodic IDRs.
         now = time.monotonic()
         if self.on_keyframe_required is not None and now - self._last_recovery_request >= 1.0:
-            self.on_keyframe_required()
-            self._last_recovery_request = now
+            # A recent RTCP PLI can throttle this callback. That is not an
+            # actual recovery request: retry on the next dependent frame
+            # instead of manufacturing a one-second blackout. Legacy void
+            # callbacks retain their existing successful-dispatch behavior.
+            if self.on_keyframe_required() is not False:
+                self._last_recovery_request = now
 
     def put_nowait(self, unit: EncodedUnit) -> None:
         if self._closed:
@@ -2657,17 +2674,18 @@ class BrowserWebRtcBridge:
         else:
             self._send_control(payload)
 
-    def _request_video_keyframe(self) -> None:
+    def _request_video_keyframe(self) -> bool:
         # Many losses can produce a PLI burst. Restarting an external encoder
         # for every report creates another freeze instead of repairing video.
         now = time.monotonic()
         if now - self._last_keyframe_request < 0.25:
-            return
+            return False
         try:
             self.input.request_keyframe()
             self._last_keyframe_request = now
+            return True
         except BridgeError:
-            pass  # The producer may already be retiring.
+            return False  # The producer may already be retiring.
 
     def _attach_video_recovery(self, sender: object) -> None:
         """Bridge RTCP PLI to the external Display1 encoder.

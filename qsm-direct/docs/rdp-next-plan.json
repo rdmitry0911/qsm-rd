@@ -80,9 +80,9 @@
     "Do not mark the objective complete based on tests narrower than the requirements"
   ],
   "checkpoint": {
-    "stage": "priority-ui",
-    "candidate": "0.4.0+stock4.14~exp68 (private, not release-qualified)",
-    "evidence_directory": "dist/rdp-hybrid/gtk-media-exp68",
+    "stage": "video-regions-and-queue",
+    "candidate": "0.4.0+stock4.14~exp80 full seven-package private bundle, not release-qualified; LXC/Qt payloads identical to68; portable VM binaries need runtime refresh",
+    "evidence_directory": "dist/rdp-hybrid/scene-recovery-exp80",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -110,7 +110,12 @@
       "After the existing first healthy interval and post-congestion cooldown, fresh receipt-feedback viewers permit one bounded 25% upward probe per six seconds. Legacy, mixed or stale viewers keep ten-second spacing. All low-age, demand, shared-viewer and congestion guards remain.",
       "Ordinary capture-fenced exact tiles survive advisory metadata layout changes; early-leading tiles still retire and newer invalidations still cancel old work",
       "Fresh drained receipts retire old flight-credit waits; insufficient recent sample pairs cannot reuse stale delivery rates; tiny receipt pairs cannot impose an immediate path-capacity ceiling",
-      "AT-SPI text producers now publish v2 component clips; a character is intersected with its input, component-only fallbacks stay clipped, and missing component bounds permit only the known character box. Strict v1 snapshots retain ordinary-pixel fallback."
+      "AT-SPI text producers now publish v2 component clips; a character is intersected with its input, component-only fallbacks stay clipped, and missing component bounds permit only the known character box. Strict v1 snapshots retain ordinary-pixel fallback.",
+      "Cropped video codec VBV permits a450ms burst capped2MiB; existing raw-byte and RTP budgets repay actual access units. Full-desktop codec VBV/quality remains unchanged; cropped NVENC uses P4 without B-frames or lookahead.",
+      "Matched recent delivery with sufficient byte volume,5% faster arrival than offered load and age falling5ms prevents another credit-only reduction while old flight drains; growing queues and RTCP loss remain effective.",
+      "RTP/RTX pacing now refills at the complete path target without an extra25% multiplier: per-packet accounting already includes protocol overhead. Audio/UI stay independently delivered and video repays their credit.",
+      "A sustained codec-target decrease of at least50% uses600ms confirmation and1s minimum quiet period; ordinary decreases/increases retain1.5/5s dwell and5s quiet. Tested400/500ms transient targets still cannot retune; full-desktop codec remains fixed.",
+      "Recovery callbacks report actual dispatch; a request rejected by the existing250ms PLI guard cannot consume the one-second retry lease. Legacy void callbacks retain their successful-dispatch behavior."
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -130,15 +135,15 @@
       "Real VM reboot: metadata recovers in ~11.4 seconds on the same host stream; guest boot changes while host boot and QEMU PID stay unchanged",
       "Exp48 packaged host acceptance, with and without cropping: independent move/close pixels regain full exact coverage with zero mismatches; visible overlap typing medians 65/74 ms without cropping on fast/2 Mbit/s links; cropped-video cadence regression remains open",
       "Real native LXC SDDM/PAM: package exp48 preserves outer display/SDDM PIDs; login starts metadata automatically, normal Plasma logout revokes hints and returns the greeter, login again creates a new metadata session on the same media worker/WebRTC/TCP8006 connection",
-      "Exp50 LXC crop: all static pixel/move/close/input/resize checks pass; raster-change samples 34\u201339/s versus exp48 crop ~14/s; those counters are not source-frame cadence and are superseded by the frame-id oracle",
+      "Exp50 LXC crop: all static pixel/move/close/input/resize checks pass; raster-change samples 34–39/s versus exp48 crop ~14/s; those counters are not source-frame cadence and are superseded by the frame-id oracle",
       "Persistent crop rate up/down/recovery uses 5600/1050 kbit/s codec targets; a 400 ms bad target does not retune; 2162 presented frames retain exact static pixels without gaps",
-      "Installed LXC metadata child crash: hints expire after ~3 seconds, new child restores layout after ~4.8 seconds on the same worker/WebRTC connection; 4-minute memory sample ~19\u201320 MiB",
+      "Installed LXC metadata child crash: hints expire after ~3 seconds, new child restores layout after ~4.8 seconds on the same worker/WebRTC connection; 4-minute memory sample ~19–20 MiB",
       "Native Gio ownership regression fails before fix (~37 MB RSS growth / 2200 calls), passes after (~0.1 MB); installed Debian13 VM exp50 passes same real-call/delayed-reply stress without native PID changes",
       "Frame-ID oracle corrects the old raster-hash cadence metric; exp35 synthetic source-ID baseline and matching pixel references are frozen",
       "Exp51 transition regression: 14 invalid composite counter observations in exp50, valid raw video plus 1024 old exact pixels; the same real 30-to-60 fps transition has zero invalid observations after the focused-retention fix",
       "Public 60 fps animation excerpt over TCP8006 at a 2 Mbit/s downlink: exp35 ~15.6 versus exp51 ~54.1 unique source frames/s; median RGB PSNR ~31.0 versus ~32.3 dB; scene-cut minimum remains explicitly tracked",
       "Exp51 overlap typing: 65/70 ms median on fast/2 Mbit/s links, all 65536 exact pixel samples equal, move/close coverage complete with zero mismatches; no-metadata fallback also passes pixels/move/close/input",
-      "Installed metadata helper completes 30 minutes under continuous owned video damage on the same PID/session, 18\u201320 MiB RSS, no new OOM or metadata availability loss; this is not a 30-minute full end-to-end mixed-content soak",
+      "Installed metadata helper completes 30 minutes under continuous owned video damage on the same PID/session, 18–20 MiB RSS, no new OOM or metadata availability loss; this is not a 30-minute full end-to-end mixed-content soak",
       "Exp57 real automatic 20-to-2-to-20 Mbit/s TURN/TCP8006 trial: ~55 source frames/s at 2 Mbit/s, full 8000 kbit/s target recovery, zero static-pixel/XOR mismatches in 8180 observations and exactly 15 guest characters; residual peak presentation 573 ms and glyph 712 ms fail the stricter transition gates",
       "Historical exp59 VM geometry loops both ran PyQt6 despite their requested-major labels; raw evidence retained and canonical report corrected. Separate actual-major-asserting exp63 verification covers both Qt5 and Qt6.",
       "Same-application edge reproducer: exp58 has 86 invalid composed marker observations at 30 fps with valid raw video; exp60 has zero at 30/60 fps, retires the layout when the field moves, preserves it for caret-only movement, and removes all old-field overlays from exposed video",
@@ -162,9 +167,18 @@
       "Exp67 native GTK3.24.49 and GTK4.18.6 Wayland VM applications receive standard USB input through owned QMP; noneditable focus revokes hints and native agent/KWin PIDs remain243965/325054. GTK3 character bounds are precise within the field; GTK4 entry falls back unavailable and text view exposes component bounds. AT-SPI v2 component clipping remains to implement; this is not VM WebRTC performance acceptance.",
       "Exp67 full-frame functional control passes22 pixel/layout/input oracles and desktop resize on the same worker, with no invalid source IDs. Narrow cadence11.63fps is explicitly not the cropped-mode performance qualification; matched fallback performance remains part of broader qualification.",
       "Installed exp68 native Debian13 VM: actual Gtk3.24.49 Entry/TextView and Gtk4.18.6 TextView publish input-bounded priority areas; GTK4 Entry retains explicit mode1 fallback with real input. Noneditable focus clears hints, close removes windows, strict v1 snapshots suppress clipped caret metadata. Qt5.15.15/Qt6.8.2 normal-profile styled-editor interop retains zero coordinate deltas after GTK; native agent243965/KWin325054 remain. Owned LXC helper respawns gracefully on the same agent3981095/KWin wrapper3829219; installed helper hashes match. Main host payload34entries is identical to media-qualified67.",
-      "Exp68 real Ubuntu24.04 LXC108/KWin5/Firefox/TURN TCP8006 GTK acceptance: actual Gtk3.24.41 and Gtk4.14.5 native Wayland Entry/TextView,8 fast/2Mbit/s cases,120 input characters exactly once, each glyph peak<=297ms, every typed-glyph ROI has complete exact alpha coverage and zero RGB errors in8 stable observations. Source cadence45.57-57.07fps, largest gap116ms and zero source-ID/XOR errors. GTK3 uses component-clipped mode3; GTK4 retains explicit mode1 fallback here. Closing each GTK app clears its old overlay from exposed video."
+      "Exp68 real Ubuntu24.04 LXC108/KWin5/Firefox/TURN TCP8006 GTK acceptance: actual Gtk3.24.41 and Gtk4.14.5 native Wayland Entry/TextView,8 fast/2Mbit/s cases,120 input characters exactly once, each glyph peak<=297ms, every typed-glyph ROI has complete exact alpha coverage and zero RGB errors in8 stable observations. Source cadence45.57-57.07fps, largest gap116ms and zero source-ID/XOR errors. GTK3 uses component-clipped mode3; GTK4 retains explicit mode1 fallback here. Closing each GTK app clears its old overlay from exposed video.",
+      "Exp78 hard-cut LXC108/KWin5/NVENC H264/Firefox Linux/TURN TCP8006: all predeclared gates pass across20 natural scene cuts. Fast/narrow cadence53.13/53.76fps, maxgap117/166ms, first-cut RGB minimum36.43/31.30dB and explicit8x8-box luma SSIM0.986/0.907; all3001 static observations exact with full alpha, zero source/snapshot ID errors and no strong stale exact matches. Host-only pilot with compatible unchanged exp68 guests; full-plan qualification remains incomplete.",
+      "New deterministic shrinking-queue regression fails before the guard on an unnecessary2034->1525 decrease, passes afterward and still cuts renewed growing queues. Wire-pacing regression independently fails the old25% overspeed and passes at the actual shared target. All124 bridge tests and current C++ core tests pass.",
+      "Owned Intel Debian13/KWin6 VM source is actual Qt6.8.2 Wayland; independent local/guest FFV1 decode matches414720000-byte original RGB. Actual QEMU Display1 capture and h264_qsv device/codec startup on renderD129 pass with exp68, without restarting native agent243965 or KWin325054. This preflight has no browser offer and does not qualify VM media/input or the latest exp78 codec policy.",
+      "Exp80 controlled hard-cut repeat passes all predeclared gates:53.91/52.12 source fps, largest gaps84/134ms, first-cut minimum RGB36.43/31.49dB and8x8-box luma SSIM0.986/0.916, exact static coverage and valid source/snapshot IDs. The earlier concurrent-build run49.885fps fails its50fps gate and remains an open resource-profile observation.",
+      "Exp80 two continuous receiver-ingress0.3% TCP loss +15/3ms delay/jitter profiles pass all current queue/input/recovery gates, with141/204 actual kernel drops, glyph peaks141/144ms and full-source peaks476.48/518.91ms; all8218/8220 static observations exact and15 actual characters once. The first starts at3550; the second starts8000 but drops during fast phase. Neither waives the stricter hot-step failure.",
+      "All seven matching exp80 debs built privately. Full main payload34 entries and all6 install/control entries equal the tested pilot; LXC guest29 entries and Qt4 entries equal68. Portable VM C agent/watch binaries rebuilt in Debian12 differ and need installed-runtime validation. Portable Qt5/6 pass2+2 lifecycle tests; all125 bridge tests and current C++ core checks pass.",
+      "Recovery regression fails before because a recently throttled PLI suppresses retry at300ms; passes after, preserving backoff for real dispatch and accepting a fresh IDR."
     ],
     "pending": [
+      "Exp80 stricter hot step holds8000 through the healthy fast phase, enables actual0.3% TCP loss when dropping to2M and retains impairment through20M recovery. It fails full-source age1206.05ms, glyph637ms, presentation excess and final-target3018-versus8000 gates. Keep this profile and every existing threshold; diagnose outstanding encoded/transport bytes before changing architecture.",
+      "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
       "Broader application/toolkit coverage, including explicit unsupported/legacy behavior",
@@ -193,9 +207,11 @@
       "dist/rdp-hybrid/component-layout-exp65",
       "dist/rdp-hybrid/mode-switch-exp67",
       "dist/rdp-hybrid/atspi-component-exp68",
-      "dist/rdp-hybrid/gtk-media-exp68"
+      "dist/rdp-hybrid/gtk-media-exp68",
+      "dist/rdp-hybrid/hardcuts-exp78",
+      "dist/rdp-hybrid/scene-recovery-exp80"
     ],
-    "next_action": "Qualify hard-cut video fidelity and the remaining native VM/LXC encoder paths, longer encoded sessions and browser/RDP comparison; retain explicit unsupported fallbacks and complete final matching release/rollout only after the full gates pass",
+    "next_action": "Measure and bound admission/in-flight/TCP backlog in the retained full8000->2M plus new-loss profile without weakening its gates; then complete final component/fallback/resource repeats, genuine VM/LXC encoder matrix, Mac/RDP comparison and qualified release/rollout",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",

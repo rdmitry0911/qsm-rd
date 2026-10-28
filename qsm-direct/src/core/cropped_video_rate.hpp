@@ -16,6 +16,23 @@ class CroppedVideoRate {
 public:
     using Clock = std::chrono::steady_clock;
 
+    // A one-frame VBV crushes a scene cut even when the average movie fits
+    // the path. A cropped plane may borrow at most 450 ms for a complex
+    // picture; VideoBudget and the RTP pacer still pay every emitted byte
+    // before admitting another picture. This is codec burst capacity, not
+    // permission to queue future frames. The full-desktop fallback retains
+    // its original one-frame codec budget.
+    static std::uint32_t buffer_bits(std::uint32_t bitrate_kbps,
+                                     std::uint32_t fps, bool cropped) {
+        const auto bits = static_cast<std::uint64_t>(std::clamp(bitrate_kbps, 500U, 100'000U)) * 1000U;
+        const auto frame = bits / std::max(1U, fps);
+        // Leave room below the transport's 4 MiB access-unit ceiling even
+        // when a user selects a 100 Mbit/s encoder ceiling.
+        constexpr std::uint64_t max_burst_bits = 2U * 1024U * 1024U * 8U;
+        const auto burst = std::min(bits * 450U / 1000U, max_burst_bits);
+        return static_cast<std::uint32_t>(cropped ? std::max(frame, burst) : frame);
+    }
+
     std::uint32_t update(Clock::time_point now, bool cropped,
                          std::uint32_t requested, std::uint32_t maximum,
                          bool opening) {
@@ -44,9 +61,16 @@ public:
             pending_ = now;
             direction_ = direction;
         }
-        const auto dwell = direction < 0 ? std::chrono::milliseconds(1500)
+        // Raw admission and pacing react immediately, but an old high-rate
+        // codec can still produce a scene-sized AU before its normal dwell
+        // expires. A sustained halving needs a faster downward boundary.
+        // Keep brief estimates and all ordinary retunes hysteretic.
+        const bool urgent = direction < 0 && desired * 2U <= current_;
+        const auto dwell = urgent ? std::chrono::milliseconds(600)
+            : direction < 0 ? std::chrono::milliseconds(1500)
                                          : std::chrono::milliseconds(5000);
-        if (now - *pending_ >= dwell && now - changed_ >= std::chrono::seconds(5)) {
+        const auto quiet = urgent ? std::chrono::seconds(1) : std::chrono::seconds(5);
+        if (now - *pending_ >= dwell && now - changed_ >= quiet) {
             current_ = desired;
             changed_ = now;
             pending_.reset();

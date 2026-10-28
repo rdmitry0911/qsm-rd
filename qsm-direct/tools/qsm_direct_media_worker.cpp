@@ -696,10 +696,11 @@ public:
 
     LibavVideoEncoder(std::uint32_t width, std::uint32_t height, std::uint32_t fps,
                      const std::string &encoder, std::uint32_t bitrate_kbps = 8000U,
-                     const std::string &device = {}, AVBufferRef *shared_device = nullptr)
+                     const std::string &device = {}, AVBufferRef *shared_device = nullptr,
+                     bool cropped = false)
         : width_(width), height_(height), fps_(fps), encoder_(encoder),
           vaapi_(std::string_view(encoder).ends_with("_vaapi")),
-          qsv_(std::string_view(encoder).ends_with("_qsv")) {
+          qsv_(std::string_view(encoder).ends_with("_qsv")), cropped_(cropped) {
         if (width == 0U || height == 0U || width > static_cast<std::uint32_t>(INT_MAX) ||
             height > static_cast<std::uint32_t>(INT_MAX) || fps == 0U ||
             fps > static_cast<std::uint32_t>(INT_MAX) || !supports(encoder)) {
@@ -804,7 +805,7 @@ public:
         } else {
             context_->bit_rate = bits;
             context_->rc_max_rate = bits;
-            context_->rc_buffer_size = static_cast<int>(bits / fps_);
+            context_->rc_buffer_size = static_cast<int>(qmdp::CroppedVideoRate::buffer_bits(bitrate_kbps, fps_, cropped_));
         }
     }
 
@@ -874,14 +875,15 @@ private:
         context_->max_b_frames = 0;
         context_->bit_rate = static_cast<std::int64_t>(bitrate_kbps) * 1000;
         context_->rc_max_rate = context_->bit_rate;
-        context_->rc_buffer_size = static_cast<int>(context_->bit_rate / fps_);
+        context_->rc_buffer_size = static_cast<int>(qmdp::CroppedVideoRate::buffer_bits(bitrate_kbps, fps_, cropped_));
         if (encoder_ == "hevc_qsv") {
             // Intel HEVC CBR can exhaust FFmpeg's output buffer on static
             // pictures. VBR enables LowDelayBRC/MaxFrameSize; one extra kbit/s
-            // selects it without materially raising the target. A two-frame
-            // VBV leaves room for headers and small frame-size overshoots.
+            // selects it without materially raising the target. At least a
+            // two-frame VBV leaves room for headers and small overshoots.
             context_->rc_max_rate += 1000;
-            context_->rc_buffer_size *= 2;
+            context_->rc_buffer_size = std::max(context_->rc_buffer_size,
+                static_cast<int>(context_->bit_rate / fps_ * 2));
         }
         context_->flags |= AV_CODEC_FLAG_LOW_DELAY;
         context_->thread_type = FF_THREAD_SLICE;
@@ -903,7 +905,7 @@ private:
         // escapes an inserted AUD's Annex B start code a second time.
         (void) av_dict_set(&options, "aud", encoder_ == "hevc_vaapi" ? "0" : "1", 0);
         if (encoder_ == "h264_nvenc" || encoder_ == "hevc_nvenc") {
-            (void) av_dict_set(&options, "preset", "p1", 0);
+            (void) av_dict_set(&options, "preset", cropped_ ? "p4" : "p1", 0);
             (void) av_dict_set(&options, "tune", "ll", 0);
             (void) av_dict_set(&options, "forced-idr", "1", 0);
             (void) av_dict_set(&options, "zerolatency", "1", 0);
@@ -917,7 +919,8 @@ private:
             (void) av_dict_set(&options, "forced_idr", "1", 0);
             if (encoder_ == "hevc_qsv") {
                 (void) av_dict_set(&options, "low_delay_brc", "1", 0);
-                (void) av_dict_set_int(&options, "max_frame_size", context_->bit_rate / fps_ / 8, 0);
+                (void) av_dict_set_int(&options, "max_frame_size", cropped_
+                    ? context_->rc_buffer_size / 8 : context_->bit_rate / fps_ / 8, 0);
             }
         } else if (vaapi_) {
             (void) av_dict_set(&options, "async_depth", "1", 0);
@@ -972,7 +975,7 @@ private:
 
     std::uint32_t width_, height_, fps_;
     std::string encoder_;
-    bool vaapi_, qsv_;
+    bool vaapi_, qsv_, cropped_;
     const AVCodec *codec_ {};
     AVCodecContext *context_ {};
     AVFrame *frame_ {}, *upload_ {};
@@ -1433,15 +1436,15 @@ private:
                 bool force_idr = force_idr_.exchange(false);
                 const bool cropped = region_mode &&
                     (region.width < region.surface_width || region.height < region.surface_height);
-                const bool opening = width_ != width || height_ != height;
+                const bool opening = width_ != width || height_ != height || encoder_cropped_ != cropped;
                 const auto codec_bitrate = cropped_video_rate_.update(tick, cropped,
                     requested_bitrate, video_bitrate_kbps_, opening);
                 const bool rate_changed = encoder_bitrate_kbps_ != codec_bitrate;
 #if defined(QMDP_HAS_LIBAVCODEC)
                 if (LibavVideoEncoder::supports(encoder_)) {
-                    if (!libav_encoder_ || width_ != width || height_ != height) {
+                    if (!libav_encoder_ || opening) {
                         close_video_process();
-                        open_video_process(width, height, codec_bitrate);
+                        open_video_process(width, height, codec_bitrate, cropped);
                     } else if (rate_changed) {
                         libav_encoder_->set_bitrate(codec_bitrate);
                         encoder_bitrate_kbps_ = codec_bitrate;
@@ -1452,10 +1455,10 @@ private:
                     }
                 } else {
 #endif
-                const bool fresh_encoder = video_input_ < 0 || width_ != width || height_ != height || force_idr || rate_changed;
+                const bool fresh_encoder = video_input_ < 0 || opening || force_idr || rate_changed;
                 if (fresh_encoder) {
                     close_video_process();
-                    open_video_process(width, height, codec_bitrate);
+                    open_video_process(width, height, codec_bitrate, cropped);
                 }
                 remember_video_capture(capture, region);
                 write_all(video_input_, *bgra);
@@ -1548,13 +1551,14 @@ private:
         video_stats_.luma_max = std::max(video_stats_.luma_max, luma_max);
     }
 
-    void open_video_process(std::uint32_t width, std::uint32_t height, std::uint32_t bitrate_kbps) {
+    void open_video_process(std::uint32_t width, std::uint32_t height, std::uint32_t bitrate_kbps, bool cropped) {
+        encoder_cropped_ = cropped;
 #if defined(QMDP_HAS_LIBAVCODEC)
         if (LibavVideoEncoder::supports(encoder_)) {
             // Explicit I-frame requests go straight to libavcodec/NVENC.
             // Restarting an ffmpeg process for PLI pauses capture, emits a
             // bootstrap burst, and can trigger another bounded-queue overrun.
-            libav_encoder_ = std::make_unique<LibavVideoEncoder>(width, height, fps_, encoder_, bitrate_kbps, vaapi_device_.value_or(""), encoder_device_);
+            libav_encoder_ = std::make_unique<LibavVideoEncoder>(width, height, fps_, encoder_, bitrate_kbps, vaapi_device_.value_or(""), encoder_device_, cropped);
             width_ = width;
             height_ = height;
             encoder_bitrate_kbps_ = bitrate_kbps;
@@ -1596,7 +1600,7 @@ private:
                 "-framerate", fps, "-i", "pipe:0", "-an", "-c:v", encoder_, "-flags", "low_delay",
                 "-b:v", std::to_string(bitrate_kbps * 1000U),
                 "-maxrate", std::to_string(bitrate_kbps * 1000U),
-                "-bufsize", std::to_string(bitrate_kbps * 1000U / fps_),
+                "-bufsize", std::to_string(qmdp::CroppedVideoRate::buffer_bits(bitrate_kbps, fps_, cropped)),
             };
             const std::string colour_filter = "scale=in_range=pc:out_range=tv:out_color_matrix=bt601";
             if (std::string_view(encoder_).ends_with("_vaapi")) {
@@ -1609,13 +1613,13 @@ private:
             arguments.insert(arguments.end(), {"-color_range", "tv", "-colorspace", "smpte170m",
                                                "-color_primaries", "bt709", "-color_trc", "iec61966-2-1"});
             if (std::string_view(encoder_).ends_with("_nvenc")) {
-                arguments.insert(arguments.end(), {"-preset", "p1", "-tune", "ll", "-forced-idr", "1",
+                arguments.insert(arguments.end(), {"-preset", cropped ? "p4" : "p1", "-tune", "ll", "-forced-idr", "1",
                                                    "-zerolatency", "1", "-delay", "0", "-rc-lookahead", "0",
                                                    // CQ mode explicitly clears averageBitRate and vbvBufferSize
                                                    // inside FFmpeg's NVENC wrapper. Even a static desktop then
                                                    // produces huge periodic IDRs which overflow a VPN queue.
-                                                   // Plain VBR retains a one-frame VBV budget without padding
-                                                   // an idle desktop with CBR filler NALs.
+                                                   // Plain VBR retains the bounded VBV budget without
+                                                   // padding an idle desktop with CBR filler NALs.
                                                    "-rc", "vbr",
                                                    "-g", std::to_string(INT_MAX), "-bf", "0"});
             } else if (encoder_ == "libx264") {
@@ -1862,6 +1866,7 @@ private:
     std::string codec_;
     std::string encoder_;
     std::optional<std::string> fallback_encoder_;
+    bool encoder_cropped_ {};
     std::optional<std::string> vaapi_device_;
     std::uint32_t fps_ {};
     std::uint32_t video_bitrate_kbps_ {};

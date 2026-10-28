@@ -136,7 +136,7 @@ class RateTests(unittest.TestCase):
         self.rr(loss=.2)
         self.assertEqual(self.applied, [3072])
         self.assertEqual(first._rate, second._rate)
-        self.assertEqual(first._rate, 3072 * 1000 / 8 * 1.25)
+        self.assertEqual(first._rate, 3072 * 1000 / 8)
         for t in range(3, 180):
             self.now = t
             self.rate.receiver_estimate('a', 40000000)
@@ -235,9 +235,9 @@ class RateTests(unittest.TestCase):
         gpu = _VideoPacer(8000)
         self.assertEqual(gpu._rate, _VideoPacer(8000)._rate)
         gpu.set_bitrate(2000)
-        self.assertEqual(gpu._rate, 2000 * 1000 / 8 * 1.25)
+        self.assertEqual(gpu._rate, 2000 * 1000 / 8)
         gpu.set_bitrate(500)
-        self.assertEqual(gpu._rate, 500 * 1000 / 8 * 1.25)
+        self.assertEqual(gpu._rate, 500 * 1000 / 8)
 
     def test_presentation_detects_tcp_queue_while_rtcp_rtt_stays_low(self):
         self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
@@ -405,6 +405,38 @@ class RateTests(unittest.TestCase):
         self.assertEqual(self.applied, [], 'old waits cannot turn a drained, app-limited interval into congestion')
         self.assertEqual(self.rate.current_kbps, 8000)
         self.assertEqual(self.rate._receivers['a'].credit_samples, [])
+
+    def test_shrinking_queue_does_not_trigger_another_bitrate_cut(self):
+        self.rate = AdaptiveVideoRate(2034, self.applied.append, clock=lambda: self.now)
+        total = 0
+        for n in range(1, 11):
+            self.now = n * .05
+            total += 14000
+            self.rate.received_report('a', self.now - .02, total)
+        self.now = .8
+        total += 10000
+        self.rate.received_report('a', .49, total)
+        for n in range(5):
+            self.now = .8 + n * .03
+            self.rate.presentation_backpressure('a', .025)
+        # A real20-to-2M transition leaves older frames in flight. Their
+        # delay falls310->300ms and delivery1846k exceeds offered1714k:
+        # the existing queue is draining under the already lowered target.
+        self.now = .93
+        total += 30000
+        self.rate.received_report('a', .63, total)
+        self.now = 1.01
+        self.rate.presentation_backpressure('a', .025)
+        self.assertEqual(self.applied, [], 'draining flight is not a new capacity decrease')
+        self.assertEqual(self.rate.current_kbps, 2034)
+        # The exemption ends as soon as new samples establish growing age
+        # and slower delivery; actual congestion must still reduce promptly.
+        for now, sent in ((1.13, .67), (1.20, .70), (1.27, .73)):
+            self.now = now
+            total += 20000
+            self.rate.received_report('a', sent, total)
+        self.rate.presentation_backpressure('a', .03)
+        self.assertLess(self.rate.current_kbps, 2034)
 
     def test_first_receipt_after_gap_does_not_reuse_old_interval_throughput(self):
         for n in range(1, 13):

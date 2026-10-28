@@ -523,7 +523,7 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                 await pacer.send(packet, sender, forward)
             elapsed.append(time.monotonic() - start)
             self.assertEqual(pacer.sent_packets, 40)
-            self.assertEqual(pacer._rate, bitrate * 1000 / 8 * 1.25)
+            self.assertEqual(pacer._rate, bitrate * 1000 / 8)
         self.assertGreater(elapsed[0], elapsed[1] * 3,
                            "a 20 Mbps setting must not retain the old 8 Mbps pacing ceiling")
         for invalid in (0, 499, 100001, True, "8000"):
@@ -555,6 +555,31 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
             start = clock[0]
             await pacer.send(packet, sender, forward)
             self.assertGreaterEqual(sent[0] - start, (len(packet) + 64 - debt) / pacer._rate)
+
+    async def test_video_burst_cannot_exceed_the_shared_wire_rate(self) -> None:
+        from types import SimpleNamespace
+        from aiortc.rtp import RtpPacket, HeaderExtensionsMap
+        clock = [100.0]
+        async def advance(seconds):
+            clock[0] += seconds + .000001
+        sender = SimpleNamespace(_ssrc=1, _rtx_ssrc=2,
+                                 _RTCRtpSender__rtp_header_extensions_map=HeaderExtensionsMap())
+        packet = RtpPacket(payload_type=102, ssrc=1, payload=b"v" * 1150).serialize()
+        async def forward(data):
+            pass
+        with patch("extensions.browser_bridge.qsm_browser_bridge.time.monotonic", side_effect=lambda: clock[0]), \
+             patch("extensions.browser_bridge.qsm_browser_bridge.asyncio.sleep", side_effect=advance):
+            for bitrate in (500, 2000, 8000, 100000):
+                pacer = _VideoPacer(bitrate)
+                start = clock[0]
+                for _ in range(80):
+                    await pacer.send(packet, sender, forward)
+                # RTP overhead is already charged by send(). Applying an
+                # extra25% to the refill rate creates a real routed queue
+                # during an IDR even when average raw admission fits.
+                wire_bytes_per_second = bitrate * 1000 / 8
+                self.assertGreaterEqual(clock[0] - start,
+                    (pacer.sent_bytes - pacer._burst) / wire_bytes_per_second - .000001)
 
     async def test_audio_and_rtcp_bypass_a_waiting_video_packet(self) -> None:
         from types import SimpleNamespace
@@ -927,6 +952,33 @@ class PacketTrackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(packet.pts, 7500)
         track.put_nowait(EncodedUnit(b"P6", False, 1500))
         self.assertEqual(bytes(await track.recv()), b"P6")
+
+    async def test_recent_pli_throttle_does_not_consume_a_recovery_retry(self) -> None:
+        clock = [100.0]
+        requested = []
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            bridge.input.request_keyframe = lambda: requested.append(clock[0])
+            track = _PacketTrack("video", maximum_queue=4)
+            track.on_keyframe_required = bridge._request_video_keyframe
+            try:
+                with patch("extensions.browser_bridge.qsm_browser_bridge.time.monotonic", side_effect=lambda: clock[0]):
+                    bridge._request_video_keyframe()
+                    clock[0] = 100.1
+                    track.put_nowait(EncodedUnit(b"broken P", False, 1500))
+                    self.assertEqual(requested, [100.0])
+                    clock[0] = 100.3
+                    track.put_nowait(EncodedUnit(b"still broken P", False, 1500))
+                    self.assertEqual(requested, [100.0, 100.3],
+                                     "a throttled request must retry after the bridge's250ms guard")
+                    clock[0] = 100.35
+                    track.put_nowait(EncodedUnit(b"another broken P", False, 1500))
+                    self.assertEqual(requested, [100.0, 100.3], "actual dispatch retains retry backoff")
+                    track.put_nowait(EncodedUnit(b"fresh IDR", True, 1500))
+                    self.assertEqual(bytes(await track.recv()), b"fresh IDR")
+            finally:
+                track.end_nowait()
+                await bridge.close()
 
     async def test_missing_recovery_idr_retries_without_periodic_keyframes(self) -> None:
         track = _PacketTrack("video", maximum_queue=4)
