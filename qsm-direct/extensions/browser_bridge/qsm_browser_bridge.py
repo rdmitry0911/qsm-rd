@@ -564,14 +564,27 @@ class AdaptiveVideoRate:
         # Its age plus waits from before that receipt cannot establish a
         # smaller path. Raw/FIFO backpressure already bounds admission while
         # waiting for new matched bytes; legacy display feedback is unchanged.
-        # A blocked frame plus independently slower delivery already confirms
-        # the queue. Do not hold several frames merely to repeat the same age
-        # evidence: that can overflow the raw FIFO before the rate is lowered.
+        # A severe delivery decrease needs an immediate response. A moderate
+        # slowdown can instead be one repaired TCP segment: require matched
+        # old receipts spanning100ms before treating that short interval as a
+        # new capacity. Time passing without another receipt cannot confirm
+        # it. Raw/FIFO credit still bounds admission in the meantime.
+        # Display-only feedback retains its longer-window behavior.
+        old_receipt_since = samples[-1][0] if samples else now
+        for arrived, sent_at, _ in reversed(samples):
+            if arrived - sent_at <= state.presented_base + .1:
+                break
+            old_receipt_since = arrived
+        delivery_confirmed = (state.feedback_kind != 'received' or
+                              state.presented_kbps < state.presented_offered_kbps * .5 or
+                              (len(samples) >= 2 and
+                               samples[-1][0] - old_receipt_since >= .1))
         delivering_slower = (state.presented_bytes >= VIDEO_DELIVERY_MIN_BYTES and
                             bool(credit) and sum(d for _, d in credit) >= .02 and
                             state.presented_delay > state.presented_base + .1 and
+                            delivery_confirmed and
                             state.presented_kbps < state.presented_offered_kbps * .85)
-        return (self._presentation_fresh(state, now) and not draining and (blocked or delivering_slower or
+        return (self._presentation_fresh(state, now) and not draining and ((blocked and delivery_confirmed) or delivering_slower or
                 (state.presented_queue_since is not None and now - state.presented_queue_since >= .3)))
 
     def _update(self, now: float) -> None:

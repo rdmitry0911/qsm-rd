@@ -69,6 +69,21 @@ that history; the latest image remains available independently. Exact UI still
 uses the latest capture, while video carries the selected image's own capture
 stamp. This small queue does not accumulate a congestion backlog.
 
+A confirmed cropped-codec rate change may admit one fresh predictive picture
+before resetting the encoder if its preceding access unit exceeds 100 ms of
+the current path budget. This separates an expensive scene picture from the
+reset's keyframe. It postpones the boundary only once; normal byte admission,
+RTP pacing, rate hysteresis and explicit keyframe repair remain authoritative.
+The full-desktop fixed-quality policy is unchanged.
+
+With pre-decoder receipt feedback, a moderate delivery slowdown needs matched
+old receipts spanning 100 ms before a short credit wait may lower the path
+target. A clock timeout cannot supply the missing receipt. This avoids
+treating one repaired TCP segment as newly lost capacity.
+A delivery interval below half the offered rate retains its immediate
+response; sustained credit blocking, RTCP loss and legacy feedback retain
+their existing checks. Raw admission remains bounded during confirmation.
+
 Each viewer keeps one latest pending pixel update and one latest mandatory
 invalidation per tile. A replacement cannot erase the unsent invalidation of
 an older visible bitmap. Cheap clears are sent first in bounded batches.

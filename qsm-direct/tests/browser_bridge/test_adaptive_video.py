@@ -519,6 +519,107 @@ class RateTests(unittest.TestCase):
         self.rate.presentation_backpressure('a', .025)
         self.assertLess(self.rate.current_kbps, 8000)
 
+    def test_one_moderately_old_tcp_receipt_does_not_revoke_recovered_capacity(self):
+        self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
+        for n in range(1, 21):
+            self.now = n * .05
+            self.rate.received_report('a', self.now - .02, n * 10000)
+        # Matched receipt/credit events from the retained exp91 repaired-TCP
+        # failure, translated to a local epoch. Only the last receipt exceeds
+        # baseline +100ms; the short delivery interval is not a new capacity.
+        events = [
+            ('received', 2.000596540, 1.922406227, 51434580),
+            ('received', 2.028567726, 1.940215229, 51446896),
+            ('received', 2.059702215, 1.956735729, 51458555),
+            ('wait', 2.059766587, .04618664784356952),
+            ('wait', 2.126542263, .050447359681129456),
+            ('received', 2.152846952, 2.013194479, 51510181),
+            ('wait', 2.152916533, .011086063925176859),
+        ]
+        for kind, now, *values in events:
+            self.now = now
+            if kind == 'received':
+                self.rate.received_report('a', values[0], values[1])
+            else:
+                self.rate.presentation_backpressure('a', values[0])
+        self.assertEqual(self.applied, [], 'one moderately delayed receipt cannot establish a smaller link')
+        # Fresh drained receipts end the incident; a later sustained moderate
+        # slowdown still lowers the target once its age is independently seen.
+        total = 51510181
+        for n in range(1, 5):
+            self.now = 2.16 + n * .04
+            total += 22000
+            self.rate.received_report('a', self.now - .025, total)
+        self.assertEqual(self.rate.current_kbps, 8000)
+        for now, sent in ((3.0, 2.8), (3.08, 2.85), (3.16, 2.9)):
+            self.now = now
+            total += 20000
+            self.rate.received_report('a', sent, total)
+            self.rate.presentation_backpressure('a', .03)
+        self.assertLess(self.rate.current_kbps, 8000)
+
+    def test_severe_delivery_step_keeps_immediate_first_old_receipt_response(self):
+        self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
+        for n in range(1, 21):
+            self.now = n * .05
+            self.rate.received_report('a', self.now - .02, n * 10000)
+        # Same exp91 run's actual 20-to-2M transition. Delivery is less than
+        # half the offered load: waiting for another old frame would add debt.
+        events = [
+            ('received', 2.000962706, 1.971179888, 19903119),
+            ('received', 2.023725564, 1.987414287, 19918811),
+            ('received', 2.047594608, 2.003326786, 19933746),
+            ('received', 2.096628791, 2.019128444, 19947792),
+            ('wait', 2.096712650, .02363893808797002),
+            ('wait', 2.162188684, .051860648207366467),
+            ('received', 2.179714850, 2.037816942, 19964712),
+        ]
+        for kind, now, *values in events:
+            self.now = now
+            if kind == 'received':
+                self.rate.received_report('a', values[0], values[1])
+            else:
+                self.rate.presentation_backpressure('a', values[0])
+        self.assertEqual(len(self.applied), 1)
+        self.assertLessEqual(self.rate.current_kbps, 3000)
+
+    def test_short_train_of_old_receipts_needs_elapsed_delivery_evidence(self):
+        self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
+        for n in range(1, 21):
+            self.now = n * .05
+            self.rate.received_report('a', self.now - .02, n * 10000)
+        # Actual exp93 recovery: two old receipts are only28ms apart. That
+        # repairs the segment, but does not establish100ms of bad delivery.
+        events = [
+            ('received', 2.000000000, 1.935118425, 45908775),
+            ('received', 2.037261725, 1.958581929, 45931203),
+            ('received', 2.065000000, 1.965797199, 45939144),
+            ('received', 2.096948197, 1.997815691, 45951302),
+            ('wait', 2.097373974, .011114106979221106),
+            ('received', 2.140049727, 2.014437243, 45964736),
+            ('wait', 2.140467108, .03551101917400956),
+            ('received', 2.167922966, 2.029002558, 45976168),
+        ]
+        for kind, now, *values in events:
+            self.now = now
+            if kind == 'received':
+                self.rate.received_report('a', values[0], values[1])
+            else:
+                self.rate.presentation_backpressure('a', values[0])
+        self.assertEqual(self.applied, [])
+        # Time passing without a new matched receipt cannot manufacture that
+        # evidence. Admission credit continues to bound the waiting producer.
+        self.now += .11
+        self.rate.presentation_backpressure('a', .025)
+        self.assertEqual(self.applied, [])
+        # Continued old receipts over100ms do establish persistent congestion,
+        # even if the flight-credit waits have started pacing the offered load.
+        for now, sent in ((2.30, 2.15), (2.36, 2.20), (2.42, 2.24)):
+            self.now = now
+            self.rate.received_report('a', sent, 45976168 + int((now - 2.30) * 400000) + 20000)
+            self.rate.presentation_backpressure('a', .025)
+        self.assertLess(self.rate.current_kbps, 8000)
+
     def test_fast_presenting_viewer_cannot_probe_while_other_viewer_is_delayed(self):
         self.rr()
         self.now = 2

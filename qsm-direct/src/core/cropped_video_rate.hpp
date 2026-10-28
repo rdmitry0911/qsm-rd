@@ -35,7 +35,7 @@ public:
 
     std::uint32_t update(Clock::time_point now, bool cropped,
                          std::uint32_t requested, std::uint32_t maximum,
-                         bool opening) {
+                         bool opening, std::uint64_t previous_access_unit_bytes = 0) {
         maximum = std::clamp(maximum, 500U, 100'000U);
         requested = std::clamp(requested, 500U, maximum);
         const auto desired = cropped
@@ -45,6 +45,7 @@ public:
             cropped_ = cropped;
             changed_ = now;
             pending_.reset();
+            boundary_deferred_ = false;
             return current_;
         }
         if (!cropped) { return current_; }
@@ -56,10 +57,11 @@ public:
         // postpone adaptation to a persistently smaller/larger link.
         const int direction = desired * 100U <= current_ * 80U ? -1
             : desired * 100U >= current_ * 125U ? 1 : 0;
-        if (!direction) { pending_.reset(); return current_; }
+        if (!direction) { pending_.reset(); boundary_deferred_ = false; return current_; }
         if (!pending_ || direction != direction_) {
             pending_ = now;
             direction_ = direction;
+            boundary_deferred_ = false;
         }
         // Raw admission and pacing react immediately, but an old high-rate
         // codec can still produce a scene-sized AU before its normal dwell
@@ -71,9 +73,23 @@ public:
                                          : std::chrono::milliseconds(5000);
         const auto quiet = urgent ? std::chrono::seconds(1) : std::chrono::seconds(5);
         if (now - *pending_ >= dwell && now - changed_ >= quiet) {
+            // A scene-sized P-frame can spend hundreds of milliseconds in
+            // byte admission and RTP pacing. Immediately resetting the codec
+            // then sends another large IDR while that displayed picture is
+            // already old. Admit one fresh predictive picture first. This
+            // postpones only this rate boundary, never drops references or
+            // grants bandwidth, and cannot keep postponing a real decrease
+            // if the next picture is large too. Opening and explicit repair
+            // bypass this hint; ordinary dwell/quiet periods still apply.
+            const auto large_picture = static_cast<std::uint64_t>(requested) * 1000U / 80U;
+            if (!boundary_deferred_ && previous_access_unit_bytes > large_picture) {
+                boundary_deferred_ = true;
+                return current_;
+            }
             current_ = desired;
             changed_ = now;
             pending_.reset();
+            boundary_deferred_ = false;
         }
         return current_;
     }
@@ -84,6 +100,7 @@ private:
     Clock::time_point changed_ {};
     std::optional<Clock::time_point> pending_;
     int direction_ {};
+    bool boundary_deferred_ {};
 };
 
 }  // namespace qmdp

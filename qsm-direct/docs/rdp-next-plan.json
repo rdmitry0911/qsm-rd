@@ -81,8 +81,8 @@
   ],
   "checkpoint": {
     "stage": "video-regions-and-queue",
-    "candidate": "0.4.0+stock4.14~exp90 private seven-package bundle; native H264 basic cadence paths pass; one of two LXC loss repeats fails source-age; full qualification remains",
-    "evidence_directory": "dist/rdp-hybrid/capture-cadence-exp90",
+    "candidate": "0.4.0+stock4.14~exp94 retained private pilot; flight95-98 rejected and restored; native/full qualification and release remain incomplete",
+    "evidence_directory": "dist/rdp-hybrid/video-queue-exp98",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -123,7 +123,9 @@
       "Use the configured QEMU display rendernode for DMA-BUF capture, independently of the encoder GPU. Shared/native profiles read current vga properties; owned legacy profiles read validated -display arguments; pending/snapshot changes are ignored. Worker accepts only a bounded DRM render-device path.",
       "Close both ends of the optional clipboard socket if a worker launch fails; explicit cleanup before garbage collection.",
       "Coalesce the QEMU buffer announcement and following damage into one GPU readback; a5ms deadline handles scanout without damage. Replacement retains the deadline; Disable/inline/map changes cancel the pending FD.",
-      "Keep at most two captures and64MiB for up to two negotiated frame periods. Clear history for rate/backpressure pauses, keyframe recovery, layout/size changes and UI/video-mode changes; the latest UI source stays independent. Video retains the selected capture stamp."
+      "Keep at most two captures and64MiB for up to two negotiated frame periods. Clear history for rate/backpressure pauses, keyframe recovery, layout/size changes and UI/video-mode changes; the latest UI source stays independent. Video retains the selected capture stamp.",
+      "A confirmed cropped-codec retune after a picture larger than100ms of path payload admits one fresh predictive picture before its IDR; only one deferral, unchanged quality/budget/dwell and explicit repair bypass.",
+      "A moderate received-feedback slowdown needs old matched receipts spanning100ms; timers alone cannot confirm it. A measured delivery below half offered load retains immediate reaction; legacy/RTCP loss and raw FIFO bounds remain."
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -203,10 +205,11 @@
       "Actual Intel GBM producer against unchanged90 display/core passes8 protocol cases: scanout only, paired or delayed damage, Disable cancellation, replacement, inline cancellation, stale damage bounds and malformed geometry. Real RGB values and readback counts checked.",
       "Full90 seven packages are built; main34 payload and6 install/control entries equal the tested pilot.133 bridge tests and3 C++ suites pass, including capture-burst/expiry/geometry/byte-limit cases; portable Qt5/Qt6 checks pass. Guest runtime bytes/modes/links equal the verified83/84 payloads.",
       "LXC90 controlled0.3% TCP-loss15ms/3ms jitter runs: first all13 gates pass (108 drops, narrow48.48/recovered54.37fps, glyph131ms,8218 exact static observations). Repeat (118 drops) passes12/13; narrow47.05/recovered53.24fps, glyph147ms and8177 exact static samples, full8000 recovery, but peak585.07ms minus fastP95172.14ms gives412.93ms excess versus400ms gate. Failed repeat retained, no release qualification.",
-      "LXC90 hard-cut quality all8 gates pass:52.18/51.61fps, gaps101/151ms, first-cut RGB36.43/31.28dB and SSIM.9851/.9072, no stale exact tiles or invalid IDs."
+      "LXC90 hard-cut quality all8 gates pass:52.18/51.61fps, gaps101/151ms, first-cut RGB36.43/31.28dB and SSIM.9851/.9072, no stale exact tiles or invalid IDs.",
+      "Retained91-98 evidence in docs/rdp-video-queue-20261029.json: source-matched pilots and deterministic original-policy failures. Full native QSV loss/input/static profiles expand the old basic proof and expose high-RTT queue/cadence failures. Tightened flight95-98 is rejected; current sources match94,136 bridge tests and3 C++ suites pass. None of this waives full qualification."
     ],
     "pending": [
-      "The new native basic H264 cadence gates pass, but one of two retained LXC loss runs has412.93ms source-age excess versus400ms. Analyse the47101-byte P plus28993-byte IDR transmission/recovery burst; retain45fps native and all existing LXC/fidelity gates.",
+      "Retained94 LXC excess413.95ms still fails400ms. Native93 full QSV fails fast cadence44.91fps and age gates on109ms baseline;95-98 tighter-flight experiments fail cadence/recovery and are restored. Run passive source/capture/admission/send traces before another scheduler/flight change; retain every failed result and unchanged gates.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -245,7 +248,7 @@
       "dist/rdp-hybrid/fresh-image-exp87",
       "dist/rdp-hybrid/capture-cadence-exp90"
     ],
-    "next_action": "Reduce the retained LXC scene-cut transmission/recovery source-age spike without static-text quality changes or relaxed gates, then complete native/full codec/GTK/component/fallback/resource/Mac/RDP checks and release/rollout/discussions.",
+    "next_action": "Trace retained94 native high-RTT source/capture/admission/send stages and LXC large-frame retunes; implement a measured fix, repeat unchanged queue/cadence/fidelity gates, then complete all hardware/codec/toolkit/fallback/long/resource/Mac/RDP and release/rollout/discussion requirements.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",

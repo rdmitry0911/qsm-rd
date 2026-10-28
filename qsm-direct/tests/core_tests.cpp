@@ -561,6 +561,45 @@ void test_severe_crop_decrease_has_a_short_confirmed_boundary_only() {
 }
 
 
+void test_codec_retune_after_a_scene_burst_admits_one_fresh_picture() {
+    using namespace std::chrono_literals;
+    const qmdp::CroppedVideoRate::Clock::time_point start {};
+    qmdp::CroppedVideoRate rate;
+    // The retained native trace: an old 1750 kbit/s codec, a new 1529
+    // kbit/s path, then a 47101-byte scene P immediately before retuning.
+    CHECK(rate.update(start, true, 2521, 8000, true) == 1750U);
+    CHECK(rate.update(start + 10s, true, 1529, 8000, false, 4000) == 1750U);
+    CHECK(rate.update(start + 11500ms, true, 1529, 8000, false, 47101) == 1750U);
+    // Byte admission remains responsible for this intermediate P. Even a
+    // second large picture cannot defer the confirmed decrease again.
+    CHECK(rate.update(start + 11517ms, true, 1529, 8000, false, 47101) == 1050U);
+    CHECK(rate.update(start + 12s, true, 1529, 8000, false, 4000) == 1050U);
+
+    qmdp::CroppedVideoRate quiet;
+    CHECK(quiet.update(start, true, 2521, 8000, true) == 1750U);
+    CHECK(quiet.update(start + 10s, true, 1529, 8000, false) == 1750U);
+    CHECK(quiet.update(start + 11500ms, true, 1529, 8000, false, 4000) == 1050U);
+}
+
+void test_codec_scene_guard_preserves_urgent_repair_and_pending_lifetimes() {
+    using namespace std::chrono_literals;
+    const qmdp::CroppedVideoRate::Clock::time_point start {};
+    qmdp::CroppedVideoRate rate;
+    CHECK(rate.update(start, true, 8000, 8000, true) == 5600U);
+    CHECK(rate.update(start + 10s, true, 1500, 8000, false, 50000) == 5600U);
+    CHECK(rate.update(start + 10500ms, true, 1500, 8000, false, 50000) == 5600U);
+    CHECK(rate.update(start + 10600ms, true, 1500, 8000, false, 50000) == 5600U);
+    // A recovered target cancels both the dwell and its one-picture guard.
+    CHECK(rate.update(start + 10617ms, true, 8000, 8000, false, 50000) == 5600U);
+    CHECK(rate.update(start + 11s, true, 1500, 8000, false, 50000) == 5600U);
+    CHECK(rate.update(start + 11600ms, true, 1500, 8000, false, 50000) == 5600U);
+    // Explicit recovery passes no previous-picture hint: never postpone
+    // the IDR needed to repair an invalid prediction chain.
+    CHECK(rate.update(start + 11617ms, true, 1500, 8000, false, 0) == 1050U);
+    CHECK(rate.update(start + 12s, false, 500, 8000, false, 50000) == 8000U);
+    CHECK(rate.update(start + 13s, true, 1500, 8000, true, 50000) == 1050U);
+}
+
 void test_capture_bursts_keep_both_fresh_images_in_order() {
     using namespace std::chrono_literals;
     qmdp::CaptureFrameQueue queue;
@@ -641,6 +680,8 @@ int main() {
     test_cropped_video_rate_fits_the_shared_wire_budget_at_full_cadence();
     test_cropped_scene_burst_is_bounded_and_paid_before_another_capture();
     test_severe_crop_decrease_has_a_short_confirmed_boundary_only();
+    test_codec_retune_after_a_scene_burst_admits_one_fresh_picture();
+    test_codec_scene_guard_preserves_urgent_repair_and_pending_lifetimes();
     test_capture_bursts_keep_both_fresh_images_in_order();
     test_capture_history_expires_and_is_cleared_for_modes_and_recovery();
     test_capture_history_has_a_byte_bound_as_well_as_a_frame_bound();

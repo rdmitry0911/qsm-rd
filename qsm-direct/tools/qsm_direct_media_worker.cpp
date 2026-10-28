@@ -1477,8 +1477,10 @@ private:
                 const bool cropped = region_mode &&
                     (region.width < region.surface_width || region.height < region.surface_height);
                 const bool opening = width_ != width || height_ != height || encoder_cropped_ != cropped;
+                const auto previous_access_unit_bytes = last_video_access_unit_bytes_.load();
                 const auto codec_bitrate = cropped_video_rate_.update(tick, cropped,
-                    requested_bitrate, video_bitrate_kbps_, opening);
+                    requested_bitrate, video_bitrate_kbps_, opening,
+                    force_idr ? 0U : previous_access_unit_bytes);
                 const bool rate_changed = encoder_bitrate_kbps_ != codec_bitrate;
 #if defined(QMDP_HAS_LIBAVCODEC)
                 if (LibavVideoEncoder::supports(encoder_)) {
@@ -1515,7 +1517,8 @@ private:
                 if (rate_changed) {
                     std::cerr << "QSM_DIRECT_MEDIA_CODEC_RATE encoder=" << encoder_
                               << " cropped=" << cropped << " target_kbps=" << codec_bitrate
-                              << " path_kbps=" << requested_bitrate << '\n' << std::flush;
+                              << " path_kbps=" << requested_bitrate << " capture=" << capture
+                              << " previous_au_bytes=" << previous_access_unit_bytes << '\n' << std::flush;
                 }
             } catch (...) {
                 // NVENC/VA-API/QSV can pass the startup probe but still
@@ -1841,6 +1844,7 @@ private:
             if (!video_captures_.empty()) { capture = video_captures_.front().capture; region = video_captures_.front().region; video_captures_.pop_front(); }
         }
         video_budget_.account(access_unit.size());
+        last_video_access_unit_bytes_.store(access_unit.size());
         if (!sink_.send_video(keyframe, access_unit, ui_v2_.load() ? capture : 0,
                 region_protocol_.load() && region.surface_width && region.surface_height ? std::optional(region) : std::nullopt)) {
             // A local Unix socket loss invalidates the same H.264 reference
@@ -1912,6 +1916,7 @@ private:
     std::uint32_t video_bitrate_kbps_ {};
     std::uint32_t encoder_bitrate_kbps_ {};
     std::atomic<std::uint32_t> requested_bitrate_kbps_ {};
+    std::atomic<std::uint64_t> last_video_access_unit_bytes_ {};
     qmdp::VideoBudget video_budget_;
     qmdp::CroppedVideoRate cropped_video_rate_;
     std::atomic<bool> ui_enabled_ {false};
