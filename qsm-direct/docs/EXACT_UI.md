@@ -3,7 +3,8 @@
 The exact UI layer sends the guest's actual pixels over a reliable WebRTC data
 channel. Text, menus and static backgrounds arrive independently of H.264/HEVC
 video. It uses neither OCR nor substituted fonts. Capture is shared by the VM
-and LXC backends; no additional guest package is required for these changes.
+and LXC backends. The pixel-based path works with existing guest tools; optional
+expanded guest metadata improves input-field priority and window tracking.
 
 The option remains experimental and **off by default** in the package. Open
 **Console settings → Experimental exact UI** in a supported browser. An explicit
@@ -32,7 +33,9 @@ there is no 16 ms worker or 20 ms UI bridge polling interval.
 The common video/UI budget charges every source UI byte, including invalidations.
 Refinement, full snapshots and scroll repaints normally receive 15% of the
 current target. Only recent forwarded keyboard activity may borrow up to 50%;
-source priority remains bounded near the last guest click for one second.
+Without usable guest metadata, source priority remains bounded near the last
+guest click for one second. Supported guest producers can instead identify
+the focused input component and caret.
 The ceiling is 512 KiB/s. Bursts are limited to about 20 ms of the complete path,
 with a one-maximum-tile floor and a 16 KiB ceiling. A bulk pending queue alone
 never authorizes the foreground share. Source UI byte debt is repaid progressively
@@ -40,8 +43,8 @@ rather than stopping video to pay an entire tile burst at once.
 Video pays by admitting fewer raw pictures; the encoder's static-picture quality
 and predictive reference chain are retained. Pending foreground tiles preserve
 their priority across refills. Keyboard events temporarily prioritize a bounded
-area near the last guest click. This is an input-location hint, not guest focus
-or caret metadata; keyboard-only focus changes may fall back to video. Cached replay reserves producer capacity as well;
+area near the last guest click when guest focus/caret metadata is unavailable;
+keyboard-only focus changes then use the ordinary-pixel fallback. Cached replay reserves producer capacity as well;
 several viewers share the maximum requested reservation rather than multiplying
 it. Old workers retain their original per-viewer 15%/128 KiB/s limit.
 
@@ -144,10 +147,30 @@ fallback in a primed region session uses a browser canvas; native video plus
 exact UI is the current conservative configuration for the Firefox/macOS
 regression. Reopen the console after changing the service environment.
 
-This implementation uses pixels, not window or text semantics. In nested Plasma,
-the outer Sway sees the nested KWin surface; per-application focus, caret and
-window metadata would require KWin-side integration. That integration is not
-implemented here. The current generic path works without it.
+## Optional guest metadata
+
+The expanded `qsm-desktop-agent` for VMs and `qsm-console-guest` for LXC carry
+bounded, versioned desktop metadata over the existing guest connection.
+The KWin session helper reports window geometry, stacking, visibility and focus.
+Supported accessibility producers and the optional Qt5/Qt6 input-geometry plugin
+add caret and input-component bounds. GTK accessibility and unavailable
+producers retain conservative fallbacks. Window titles and field text are not
+required or transferred by this metadata interface.
+
+In nested Plasma, outer Sway captures the desktop while the helper inside the
+KWin session supplies application geometry. The host intersects the focused
+component with visible window bounds; actual changed pixels must fit the
+priority area. The browser still draws the guest's actual pixels. Metadata
+helps scheduling and occlusion handling, rather than substituting fonts or
+rendering application text locally.
+
+Metadata has bounded sizes, sequence/session checks and an expiry lease.
+Missing, expired or old-agent metadata restores the pixel-based path. Support
+for metadata producers does not establish performance qualification for every
+application, encoder or browser. See the [current plan](rdp-next-plan.json),
+[VM metadata checks](rdp-vm-metadata-20261028.json),
+[Qt geometry checks](rdp-qt-input-geometry-20261028.json) and
+[GTK media checks](rdp-gtk-media-20261028.json) for their actual scopes.
 
 ## Bounds and transport
 
@@ -162,7 +185,7 @@ implemented here. The current generic path works without it.
   edits can retain exact backing briefly; recent keyboard focus permits sparse
   text updates immediately and can reclaim a field after 120 ms without a
   significant change. Larger background text motion is not treated as a caret.
-  Classification is still a pixel heuristic, not guest window/caret semantics.
+  Pixel classification remains necessary even with advisory guest geometry.
 * Unused source alpha/X changes do not invalidate opaque RGB output.
 * The shared compressed cache is limited to 16 MiB. Per-viewer SCTP buffering is
   bounded to 16 KiB. Slow viewers do not accumulate desktop history.
@@ -230,7 +253,7 @@ PYTHONPATH=. python3 -m unittest discover -s tests/signal -v
 node tests/proxmox_pve9/test_exact_ui.mjs
 ```
 
-Live qualification includes owned native Wayland LXC and QEMU VM capture,
+Release qualification must cover owned native Wayland LXC and QEMU VM capture,
 H.264/NVENC/QSV/VA-API, and HEVC with an actual Chromium hardware receiver.
 Check real glyph appearance, exact source pixels, composed visible motion,
 scrolling, move/resize/close and old pixel resurrection. Compare identical shaped

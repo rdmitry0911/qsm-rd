@@ -206,6 +206,7 @@ struct Options {
     // driver reset or a rejected live Display1 mode change.
     std::optional<std::string> fallback_encoder;
     std::optional<std::string> vaapi_device;
+    std::string capture_render_node;
     std::uint32_t fps {60U};
     std::uint32_t video_bitrate_kbps {8000U};
     std::optional<Size> initial_size;
@@ -226,6 +227,7 @@ struct Options {
         << "  --encoder NAME              FFmpeg encoder matching --codec (default: libx264)\n"
         << "  --fallback-encoder libx264  recover an automatic hardware encoder at runtime\n"
         << "  --vaapi-device /dev/dri/renderD<N>  VA-API node for *_vaapi\n"
+        << "  --capture-render-node /dev/dri/renderD<N>  QEMU display GPU for DMA-BUF import\n"
         << "  --video-bitrate-kbps N      video ceiling, 500..100000 kbit/s (default: 8000)\n"
         << "  --fps N                     10..240 (default: 60)\n"
         << "  --initial-size WIDTHxHEIGHT request initial guest scanout\n"
@@ -337,6 +339,15 @@ Options parse_options(int argc, char **argv) {
             options.fallback_encoder = std::string(next(index, argument));
         } else if (argument == "--vaapi-device") {
             options.vaapi_device = std::string(next(index, argument));
+        } else if (argument == "--capture-render-node") {
+            options.capture_render_node = next(index, argument);
+            constexpr std::string_view prefix = "/dev/dri/renderD";
+            const std::string_view node(options.capture_render_node);
+            if (!node.starts_with(prefix) || node.size() <= prefix.size() ||
+                node.size() > prefix.size() + 4U ||
+                node.substr(prefix.size()).find_first_not_of("0123456789") != std::string_view::npos) {
+                throw WorkerError("--capture-render-node requires /dev/dri/renderD<N>");
+            }
         } else if (argument == "--video-bitrate-kbps") {
             options.video_bitrate_kbps = parse_integer<std::uint32_t>(next(index, argument), "video bitrate");
         } else if (argument == "--fps") {
@@ -357,6 +368,9 @@ Options parse_options(int argc, char **argv) {
     const bool wlroots = !options.wlroots_root.empty() || !options.wlroots_dir.empty();
     if (wlroots && (options.wlroots_root.empty() || options.wlroots_dir.empty())) {
         throw WorkerError("--wlroots-root and --wlroots-dir must be given together");
+    }
+    if (wlroots && !options.capture_render_node.empty()) {
+        throw WorkerError("--capture-render-node is only valid for QEMU capture");
     }
     if ((options.dbus_address.empty() ? 0 : 1) + (options.dbus_fd >= 0 ? 1 : 0) + (wlroots ? 1 : 0) != 1) {
         throw WorkerError("exactly one of --dbus-address, --dbus-fd or --wlroots-root/--wlroots-dir is required");
@@ -2520,6 +2534,9 @@ int run(const Options &options) {
 #endif
     }
     qmdp::QemuDbusOptions display_options;
+    if (!options.capture_render_node.empty()) {
+        display_options.capture_render_node = options.capture_render_node;
+    }
     if (options.dbus_fd >= 0) {
         // Peer-to-peer (-display dbus,p2p=yes): QEMU itself is the peer, so
         // there is no bus name to address.

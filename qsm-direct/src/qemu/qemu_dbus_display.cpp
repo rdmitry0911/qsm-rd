@@ -1142,7 +1142,7 @@ int QemuDbusDisplay::handle_peer_message(sd_bus_message *message) {
         const auto readback_started = std::chrono::steady_clock::now();
         try {
             if (!dmabuf_readback_) {
-                dmabuf_readback_ = std::make_unique<DmaBufReadback>();
+                dmabuf_readback_ = std::make_unique<DmaBufReadback>(options_.capture_render_node);
             }
             publish(dmabuf_readback_->scanout(framebuffer_,
                                                duplicate_cloexec(fd),

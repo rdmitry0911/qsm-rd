@@ -81,8 +81,8 @@
   ],
   "checkpoint": {
     "stage": "video-regions-and-queue",
-    "candidate": "0.4.0+stock4.14~exp84 private seven-package bundle; two controlled LXC hot-loss repeats and hard-cut gates pass; native VM capture GPU selection and full qualification remain",
-    "evidence_directory": "dist/rdp-hybrid/receipt-gap-exp84",
+    "candidate": "0.4.0+stock4.14~exp86 private main pilot; configured capture GPU and failed-launch cleanup fixed; native unique-source cadence and complete qualification remain",
+    "evidence_directory": "dist/rdp-hybrid/capture-gpu-exp86",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -119,7 +119,9 @@
       "Received-frame feedback is bounded to16ms cadence in the shipped pass-through worker/main thread. Matched rapid receipts permit earlier complete-frame flight admission using the real target; old feedback cadence retains its previous path.",
       "Private opcode14 leases raw-video backpressure for at most100ms. Receipt waits and encoded-FIFO occupancy have independent owners; the latest scanout stays replaceable, codec references and byte debt remain, and UI/audio/input continue.",
       "At two queued encoded frames, refresh the bounded raw-admission lease while pacing and release it below two frames or synchronously on close. Callback cancellation also releases its independent receipt-wait lease.",
-      "Received-feedback credit-only reductions require sufficient new bytes in a fresh delivery pair. A lone delayed receipt after a gap cannot reuse preceding waits to infer lower capacity; legacy and actual persistent-congestion/loss paths remain."
+      "Received-feedback credit-only reductions require sufficient new bytes in a fresh delivery pair. A lone delayed receipt after a gap cannot reuse preceding waits to infer lower capacity; legacy and actual persistent-congestion/loss paths remain.",
+      "Use the configured QEMU display rendernode for DMA-BUF capture, independently of the encoder GPU. Shared/native profiles read current vga properties; owned legacy profiles read validated -display arguments; pending/snapshot changes are ignored. Worker accepts only a bounded DRM render-device path.",
+      "Close both ends of the optional clipboard socket if a worker launch fails; explicit cleanup before garbage collection."
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -190,10 +192,12 @@
       "Exp84 hard-cut gates all pass:51.47/51.01 sourcefps, gaps84/149ms, first-cut minimum RGB36.44/31.32dB and SSIM.9849/.9079; no stale exact tiles, invalid IDs or static mismatches.",
       "Actual native VM QSV H264 reaches Firefox and typed glyphs, but software-capture cadence remains35\u201340fps and fails45fps. Direct capture without encoder/UI/network has35.54fps. The owned VM was restarted normally with VirGL/Intel; new QEMU3079308, KWin828, SDDM710, native agent675 and source fixture957. Actual virgl Intel renderer verified. Initial GL capture fails because the private extracted runtime cannot create either GBM device; the actual host creates both. Missing private Mesa driver parity must be repaired before product changes.",
       "All seven84 packages are assembled; main34 payload entries and6 install/control entries equal the tested pilot. Full target-SDK133 bridge tests pass; portable Qt5/Qt6 GUI/widget lifetime checks pass. Installed guest83 payloads equal84. Signatures/private APT/publication/rollout remain pending.",
-      "Private Intel Mesa GBM/EGL runtime completed without host package changes. Actual default renderD128 capture fails importing Intel renderD129 QEMU buffers; an isolated per-worker mount alias restores media and zero display errors. Its43.53/41.05 sourcefps still fails45fps, so this is diagnostic evidence only, not native product acceptance."
+      "Private Intel Mesa GBM/EGL runtime completed without host package changes. Actual default renderD128 capture fails importing Intel renderD129 QEMU buffers; an isolated per-worker mount alias restores media and zero display errors. Its43.53/41.05 sourcefps still fails45fps, so this is diagnostic evidence only, not native product acceptance.",
+      "Exp85/86 actual Intel VirGL VM QSV/VAAPI capture works without device aliases; raw import errors are gone, visible glyph233ms in QSV, input exactly once/mode3. Worker85 equals86; full133 bridge tests,3 C++ suites and19+16 terminal checks pass. Launch failure closes its clipboard pair explicitly. Native cadence still fails: QSV42.98/41.23fps and VAAPI44.30/43.52fps.",
+      "Independent offline decode of actual85 QSV AUs before RTP finds45.32/44.49 unique sourcefps among58.39/57.00 encodedfps;158/252 repeated images. Browser raw video and composed source observations are about41\u201343fps with no RTP loss. Samples and original failed gates retained; this does not establish a final scheduler cause."
     ],
     "pending": [
-      "Native VM/encoder qualification remains open. Propagate the configured QEMU capture render node separately from encoder selection, repeat the packaged VirGL path and resolve the remaining native source cadence gate without weakening thresholds.",
+      "Native unique-source cadence remains below45fps despite correct capture GPU. Isolate capture/submission/admission timing, then test waiting for a fresh image instead of encoding stale repeats, while preserving keyframe recovery, UI fences, byte debt and keepalive behavior; repeat supported hardware paths.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -227,9 +231,10 @@
       "dist/rdp-hybrid/hardcuts-exp78",
       "dist/rdp-hybrid/scene-recovery-exp80",
       "dist/rdp-hybrid/flight-admission-exp83",
-      "dist/rdp-hybrid/receipt-gap-exp84"
+      "dist/rdp-hybrid/receipt-gap-exp84",
+      "dist/rdp-hybrid/capture-gpu-exp86"
     ],
-    "next_action": "Pass the configured QEMU capture GPU independently of encoder GPU, repeat actual native VirGL VM QSV capture/media, then finish the supported VM/LXC encoder matrix and remaining component/fallback/resource/Mac/RDP/release scope.",
+    "next_action": "Use retained86 control and pre-RTP source-ID evidence to isolate/remove stale-image encode ticks; qualify actual VM QSV/VAAPI/NVENC and LXC, then remaining component/fallback/resource/Mac/RDP/release scope.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -391,7 +396,8 @@
       "evidence": "docs/rdp-receipt-recovery-20261028.json"
     },
     "flight_admission": "docs/rdp-flight-admission-20261028.json",
-    "receipt_gap": "docs/rdp-receipt-gap-20261028.json"
+    "receipt_gap": "docs/rdp-receipt-gap-20261028.json",
+    "capture_gpu": "docs/rdp-capture-gpu-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",

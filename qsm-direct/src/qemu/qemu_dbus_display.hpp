@@ -38,6 +38,9 @@ struct QemuDbusOptions {
     std::chrono::milliseconds pump_interval {50};
     bool enable_audio {true};
     bool require_audio {false};
+    // Import the scanout on QEMU's display GPU. The encoder may use another
+    // accelerator; its render node is not a capture-device selection.
+    std::string capture_render_node {"/dev/dri/renderD128"};
     // Optional: a stream to the host speaking the QSF guest-agent line
     // protocol (PING, CLIP_GET, CLIP_SET; EVENT_CLIP).  The display then
     // registers as QEMU's org.qemu.Display1.Clipboard peer and bridges the

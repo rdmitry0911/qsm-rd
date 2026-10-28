@@ -354,6 +354,28 @@ def _managed_display_enabled(config: str, vmid: int, vm_runtime_directory: Path)
     return _managed_display_profile(config, vmid, vm_runtime_directory) is not None
 
 
+def _capture_render_node(config: str, profile: str, *, managed: bool = False) -> str | None:
+    """Use the running display configuration, independently of the encoder GPU.
+
+    Called only after the transport's display profile has been validated.
+    Shared/native Display1 uses PVE's VGA rendernode; the owned legacy
+    profile puts it in its explicit -display argument.
+    """
+    if profile != "virgl":
+        return None
+    if managed:
+        args = next((line[5:].strip() for line in _current_section(config)
+                     if line.startswith("args:")), "")
+        display = re.search(r"(?:^|\s)-display\s+dbus,([^\s]+)", args)
+        properties = dict(part.split("=", 1) for part in display[1].split(",") if "=" in part) if display else {}
+    else:
+        properties = _pve_vga_option(config) or {}
+    node = properties.get("rendernode")
+    if node is not None and re.fullmatch(r"/dev/dri/renderD[0-9]{1,4}", node) is None:
+        raise DirectTerminalError("direct-terminal QEMU capture render node is invalid")
+    return node
+
+
 def _managed_guest_channel_enabled(config: str, vmid: int, vm_runtime_directory: Path) -> bool:
     """Recognise the exact optional QSM virtio-serial guest channel.
 
@@ -1559,6 +1581,7 @@ class DirectSessionManager:
         worker: subprocess.Popen[bytes] | None = None
         guest: QsmGuestChannel | None = None
         clipboard_ours: socket.socket | None = None
+        clipboard_theirs: socket.socket | None = None
         pcm_ours, pcm_theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         try:
             media.start()
@@ -1594,7 +1617,6 @@ class DirectSessionManager:
             # A display attached by qemu-server also carries QEMU's D-Bus
             # clipboard (qemu-vdagent + spice-vdagent in the guest): the worker
             # bridges it to this socketpair in the guest-agent protocol.
-            clipboard_theirs: socket.socket | None = None
             companion = config is not None and _managed_guest_channel_enabled(
                 config, vmid, self._vm_runtime_directory)
             if display_fd is not None or (shared_profile is not None and not companion):
@@ -1619,6 +1641,10 @@ class DirectSessionManager:
             ]
             if profile == "cpu":
                 arguments.append("--allow-unsupported-ui-info")
+            capture_node = _capture_render_node(config or "", profile,
+                managed=shared_profile is None and display_fd is None)
+            if capture_node is not None:
+                arguments.extend(["--capture-render-node", capture_node])
             # The probe proves a hardware encoder is usable at service start,
             # but a driver reset or a live VirGL scanout replacement can still
             # kill it after its first frames. Automatic policy may recover to
@@ -1680,6 +1706,8 @@ class DirectSessionManager:
                 self._terminate_worker(worker)
             if clipboard_ours is not None:
                 clipboard_ours.close()
+            if clipboard_theirs is not None:
+                clipboard_theirs.close()
             pcm_ours.close()
             pcm_theirs.close()
             media.close()

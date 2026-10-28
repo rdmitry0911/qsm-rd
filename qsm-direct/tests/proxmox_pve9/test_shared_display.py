@@ -2,11 +2,13 @@
 """Native shared-display ownership and API contract regressions."""
 from __future__ import annotations
 
+import asyncio
 import os
 import socket
 import sys
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,8 +17,10 @@ sys.path.insert(0, str(ROOT))
 from extensions.direct_terminal.qsm_direct_terminal import (
     DirectSessionManager, DirectTerminalError, _shared_display_profile,
     _load_optional_instance, _require_shared_bus,
+    _capture_render_node,
 )
 from extensions.direct_terminal.qsm_shared_migration import migration_plan
+from extensions.direct_terminal.qsm_direct_encoder_probe import DirectEncoderSelection
 
 
 class MigrationTests(unittest.TestCase):
@@ -34,6 +38,22 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(plan["vga"], "virtio-gl,rendernode=/dev/dri/renderD129")
         self.assertEqual(plan["audio0"], "device=ich9-intel-hda,driver=dbus")
         self.assertEqual(plan["args"], "-machine vmport=off -device usb-kbd,id=qsm-direct-hda-custom")
+
+    def test_capture_gpu_survives_shared_display_migration_and_pending_changes(self):
+        legacy = self.config(True)
+        plan = migration_plan(legacy, 321)
+        shared = "dbus-display: 1\nvga: " + plan["vga"] + "\n"
+        for config, managed in ((legacy, True), (shared, False)):
+            config += "[PENDING]\nvga: virtio-gl,rendernode=/dev/dri/renderD128\n"
+            self.assertEqual(_capture_render_node(config, "virgl", managed=managed), "/dev/dri/renderD129")
+        self.assertIsNone(_capture_render_node(shared, "cpu"))
+        self.assertIsNone(_capture_render_node("vga: virtio-gl\n", "virgl"))
+
+    def test_capture_gpu_rejects_non_render_device_paths(self):
+        for node in ("/dev/dri/renderD", "/dev/dri/card0", "/dev/dri/renderD129/../card0",
+                     "/dev/dri/renderD129 extra", "/dev/dri/renderD12345"):
+            with self.subTest(node=node), self.assertRaises(DirectTerminalError):
+                _capture_render_node("vga: virtio-gl,rendernode=" + node + "\n", "virgl")
 
     def test_cpu_preserves_adapter_and_guest_channel(self):
         channel = ("-chardev socket,id=qsm-direct-agent,path=/run/qsm-pve-direct/321/qsm-agent.sock,server=on,wait=off "
@@ -223,6 +243,39 @@ class SharedDisplayTests(unittest.TestCase):
             finally:
                 manager.close()
         self.assertTrue(self.bus.exists(), "a consumer must not delete the shared bus")
+
+    def test_worker_uses_the_display_gpu_independently_of_the_encoder_gpu(self):
+        self.vm.write_text("dbus-display: 1\nvga: virtio-gl,rendernode=/dev/dri/renderD129\n")
+        manager = DirectSessionManager(
+            runtime_directory=self.root / "runtime", instance_directory=self.policy,
+            vm_runtime_directory=self.root / "legacy", pve_config_directory=self.config,
+            qemu_pid_directory=self.busdir, local_node="test")
+
+        class LaunchCaptured(RuntimeError):
+            pass
+
+        try:
+            with warnings.catch_warnings(record=True) as resources, \
+                    patch("extensions.direct_terminal.qsm_direct_terminal._qemu_process_generation",
+                       return_value="321:owned"), \
+                    patch("extensions.direct_terminal.qsm_direct_terminal.subprocess.Popen",
+                          side_effect=LaunchCaptured) as spawn:
+                warnings.simplefilter("always", ResourceWarning)
+                future = asyncio.run_coroutine_threadsafe(manager._transport_for(
+                    321, {"QSM_DIRECT_ENCODER": "h264_vaapi", "QSM_DIRECT_ENCODER_MODE": "hardware"},
+                    1280, 800, 60, codec="h264",
+                    selection=DirectEncoderSelection("h264_vaapi", "/dev/dri/renderD128")), manager._loop)
+                with self.assertRaises(LaunchCaptured):
+                    future.result(timeout=3)
+                arguments = spawn.call_args.args[0]
+                self.assertEqual(arguments[arguments.index("--capture-render-node") + 1], "/dev/dri/renderD129")
+                self.assertEqual(arguments[arguments.index("--vaapi-device") + 1], "/dev/dri/renderD128")
+                self.assertEqual(manager._transports, {})
+            self.assertEqual([str(w.message) for w in resources
+                              if issubclass(w.category, ResourceWarning)], [])
+        finally:
+            manager.close()
+        self.assertTrue(self.bus.exists())
 
     def test_native_companion_prepares_only_its_serial_directory(self):
         self.vm.write_text("dbus-display: 1\nvga: virtio\nargs: "

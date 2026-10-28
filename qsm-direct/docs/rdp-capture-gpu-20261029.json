@@ -1,0 +1,360 @@
+{
+  "date": "2026-10-29",
+  "candidate": "0.4.0+stock4.14~exp86",
+  "status": "Private capture-GPU selection and failed-launch cleanup fixes. Actual QSV/VAAPI media and input work; native source-cadence gate remains failed. Not release-qualified.",
+  "source_base_commit": "1b780b0e35e0dabe2343efbaf4cf890ef6e0574b",
+  "source_archive": "source-exp86.tar",
+  "source_archive_sha256": "cde62d90ddecf636f0cee2a276e762d7907243af92521a11e84d09cb2b9a313d",
+  "changed_runtime_and_regression_sources_match_frozen_archive": [
+    {
+      "path": "qsm-direct/src/qemu/qemu_dbus_display.hpp",
+      "sha256": "7679b8161127c9573589fad5ea3c6384874a58abc9e3e71c105372d6394f7449"
+    },
+    {
+      "path": "qsm-direct/src/qemu/qemu_dbus_display.cpp",
+      "sha256": "aa67537c573dd1a003c672ecc8e9fe8b97d03bd7ebdf41e18bdffb470d330798"
+    },
+    {
+      "path": "qsm-direct/tools/qsm_direct_media_worker.cpp",
+      "sha256": "9ab36043f6bff84ef0805093c403d16b8cc149d7df9518b59dce3419618f5cb8"
+    },
+    {
+      "path": "qsm-direct/extensions/direct_terminal/qsm_direct_terminal.py",
+      "sha256": "9d46960403ba8cb4da6b1eba381614e5aba971f0862f3f970e7af8e98acf5d28"
+    },
+    {
+      "path": "qsm-direct/tests/proxmox_pve9/test_shared_display.py",
+      "sha256": "0917787de6d6d78d8204bddcf292ec488ca4fd5af8f4a03e4316b5a1e2a22343"
+    }
+  ],
+  "payload84_to86": {
+    "version": "0.4.0+stock4.14~exp86",
+    "deb_sha256": "772cc9c1628e3ef45e12361ba482a3cd281b5deaeb7c1fd332f167487edeea67",
+    "changed_from84": [
+      "usr/lib/qsm-pve-direct/bin/qsm-direct-media-worker",
+      "usr/lib/qsm-pve-direct/direct_terminal/qsm_direct_terminal.py"
+    ],
+    "other_payload_bytes_modes_links_equal": true,
+    "worker_sha256": "d358bffcc3b1eb37df2159fafc79979da334289cd2ba32991bec1d645842afd6"
+  },
+  "payload85_to86": {
+    "changed_paths": [
+      "usr/lib/qsm-pve-direct/direct_terminal/qsm_direct_terminal.py"
+    ],
+    "all_other_bytes_modes_links_equal": true,
+    "worker_sha256": "d358bffcc3b1eb37df2159fafc79979da334289cd2ba32991bec1d645842afd6"
+  },
+  "fixes": [
+    "Use the configured QEMU display rendernode for DMA-BUF capture, independently of the encoder GPU. Shared/native profiles read current vga properties; owned legacy profiles read validated -display arguments; pending/snapshot changes are ignored. Worker accepts only a bounded DRM render-device path.",
+    "Close both ends of the optional clipboard socket if a worker launch fails; explicit cleanup before garbage collection."
+  ],
+  "tests": {
+    "bridge_target_sdk": {
+      "85": 133,
+      "86": 133,
+      "logs": [
+        "debian-exp85-build.log",
+        "debian-exp86-build.log"
+      ]
+    },
+    "cpp": "Three core/lossless/D-Bus suites pass; capture85-cpp-tests.log",
+    "shared_display_and_autoprovision": "19+16 tests pass after cleanup; capture86-terminal-tests-isolated.log. Includes actual transport launch argv with display129/encoder128.",
+    "cleanup_before": "capture86-launch-cleanup-before-warnings.log fails on an unclosed socket; final test captures ResourceWarnings and passes. Earlier fd-only test did not detect destructor-based cleanup and is retained, not claimed as failing.",
+    "environment_failure": "Initial plain chroot terminal suite has no /proc and fails its QEMU process-generation check; proper private proc/PID/network namespaces pass.",
+    "invalid_capture_nodes": "intel86-bootstrap.json proves five actual worker CLI rejections; native media uses no device aliases."
+  },
+  "native_trials": [
+    {
+      "evidence": "intel85-native-vm-h264_qsv-virgl-capture-gpu/result.json",
+      "encoder": "h264_qsv",
+      "candidate": "exp85",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer85; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "accepted": false,
+      "checks": {
+        "source_cadence": false,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "glyph_ms": 233,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 42.982090795501875,
+          "max_gap_ms": 67,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 41.23144584936779,
+          "max_gap_ms": 68,
+          "invalid_ids": 0
+        }
+      ]
+    },
+    {
+      "evidence": "intel85-native-vm-h264_qsv-virgl-capture-observer/result.json",
+      "encoder": "h264_qsv",
+      "candidate": "exp85",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer85; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "accepted": false,
+      "checks": {
+        "source_cadence": false,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "glyph_ms": 230,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 42.058799033896896,
+          "max_gap_ms": 67,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 43.52823588205897,
+          "max_gap_ms": 67,
+          "invalid_ids": 0
+        }
+      ]
+    },
+    {
+      "evidence": "intel85-native-vm-h264_qsv-virgl-encoded-observer/result.json",
+      "encoder": "h264_qsv",
+      "candidate": "exp85",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer85; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Diagnostic records unchanged encoded AUs before RTP; one extra IDR at each phase start. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "accepted": false,
+      "checks": {
+        "source_cadence": false,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "glyph_ms": 197,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 42.714404662781014,
+          "max_gap_ms": 83,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 41.25874125874126,
+          "max_gap_ms": 100,
+          "invalid_ids": 0
+        }
+      ]
+    },
+    {
+      "evidence": "intel86-native-vm-h264_vaapi-virgl-capture-gpu/result.json",
+      "encoder": "h264_vaapi",
+      "candidate": "exp86",
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer86; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Not a native Proxmox gateway or full impairment/recovery qualification.",
+      "accepted": false,
+      "checks": {
+        "source_cadence": false,
+        "no_long_gap": true,
+        "valid_source_ids": true,
+        "visible_glyph": true,
+        "input_once": true,
+        "metadata_mode3": true,
+        "same_connected_stream": true
+      },
+      "glyph_ms": 244,
+      "phases": [
+        {
+          "name": "fast",
+          "source_fps": 44.30379746835443,
+          "max_gap_ms": 66,
+          "invalid_ids": 0
+        },
+        {
+          "name": "narrow",
+          "source_fps": 43.5195363245728,
+          "max_gap_ms": 83,
+          "invalid_ids": 0
+        }
+      ]
+    }
+  ],
+  "diagnostics": {
+    "standalone_raw_capture": "native84-gl-node129-capture.json:56.50 unique sourcefps without encoder/UI/network under a private diagnostic node alias; one invalid initial marker, not acceptance evidence.",
+    "encoded_before_rtp": {
+      "scope": "Unchanged worker85 H264 QSV AUs tapped before RTP, independently decoded offline; extra phase-start IDR, diagnostic only; raw media retained. No acceptance gate changed.",
+      "phases": [
+        {
+          "phase": "fast",
+          "sha256": "dfc37299ce053fb21fa40f7a00e8bf5e0e685a6771dea691847de716bcfec13f",
+          "encoded_access_units": 707,
+          "decoded_frames": 707,
+          "invalid_ids": 0,
+          "unique_source_frames": 549,
+          "elapsed_server_seconds": 12.090511799789965,
+          "encoded_fps": 58.3928961561631,
+          "unique_source_fps": 45.32479758297079,
+          "repeated_source_frames": 158,
+          "maximum_consecutive_equal_sources": 4,
+          "decode_stderr": "",
+          "browser_raw_probe": {
+            "source_fps": 42.14653271257045,
+            "presented_fps": 52.9282038716001,
+            "invalid_ids": 0,
+            "unique_frames": 516,
+            "all_callbacks": 648,
+            "inbound_before": [
+              {
+                "framesDecoded": 963,
+                "framesReceived": 966,
+                "framesDropped": 0,
+                "packetsReceived": 12454,
+                "packetsLost": 0,
+                "nackCount": 0,
+                "pliCount": 1,
+                "freezeCount": 0,
+                "totalFreezesDuration": 0,
+                "jitterBufferDelay": 69.711626,
+                "jitterBufferEmittedCount": 963
+              }
+            ],
+            "inbound_after": [
+              {
+                "framesDecoded": 1673,
+                "framesReceived": 1675,
+                "framesDropped": 0,
+                "packetsReceived": 21405,
+                "packetsLost": 0,
+                "nackCount": 0,
+                "pliCount": 1,
+                "freezeCount": 0,
+                "totalFreezesDuration": 0,
+                "jitterBufferDelay": 123.273277,
+                "jitterBufferEmittedCount": 1673
+              }
+            ]
+          },
+          "composed_source_fps": 42.714404662781014
+        },
+        {
+          "phase": "narrow",
+          "sha256": "a2e5457da306bf166451e4125e6ee4043688931e07de503a3ff1160fa5da4ffd",
+          "encoded_access_units": 1149,
+          "decoded_frames": 1149,
+          "invalid_ids": 0,
+          "unique_source_frames": 897,
+          "elapsed_server_seconds": 20.140522443922237,
+          "encoded_fps": 56.99951444638069,
+          "unique_source_fps": 44.487425909370295,
+          "repeated_source_frames": 252,
+          "maximum_consecutive_equal_sources": 3,
+          "decode_stderr": "",
+          "browser_raw_probe": {
+            "source_fps": 39.42563900128294,
+            "presented_fps": 52.50172703049442,
+            "invalid_ids": 0,
+            "unique_frames": 799,
+            "all_callbacks": 1064,
+            "inbound_before": [
+              {
+                "framesDecoded": 1985,
+                "framesReceived": 1990,
+                "framesDropped": 0,
+                "packetsReceived": 23102,
+                "packetsLost": 0,
+                "nackCount": 0,
+                "pliCount": 1,
+                "freezeCount": 0,
+                "totalFreezesDuration": 0,
+                "jitterBufferDelay": 151.178466,
+                "jitterBufferEmittedCount": 1985
+              }
+            ],
+            "inbound_after": [
+              {
+                "framesDecoded": 3131,
+                "framesReceived": 3142,
+                "framesDropped": 0,
+                "packetsReceived": 28653,
+                "packetsLost": 0,
+                "nackCount": 0,
+                "pliCount": 1,
+                "freezeCount": 0,
+                "totalFreezesDuration": 0,
+                "jitterBufferDelay": 311.79209099999997,
+                "jitterBufferEmittedCount": 3131
+              }
+            ]
+          },
+          "composed_source_fps": 41.25874125874126
+        }
+      ]
+    },
+    "conclusion": "A substantial fraction of repeated source images exists in the encoded stream before RTP. Raw browser video and composed output both fall below45fps. Overlays alone and packet loss do not explain the cadence gap; exact location among source/capture/submission/admission remains to be isolated.",
+    "next_hypothesis": "The fixed encode tick can encode an unchanged latest image just before fresh capture arrives. Test bounded wait for a genuinely changed source image while keeping keyframe recovery, UI fences, byte debt and keepalive behavior; retain the unmodified86 control."
+  },
+  "production_state": {
+    "production_node20": {
+      "package": "0.4.0+stock4.14~exp35",
+      "processes": {
+        "577033": {
+          "alive": true,
+          "start_ticks": 332808379
+        },
+        "495374": {
+          "alive": true,
+          "start_ticks": 297084425
+        }
+      }
+    },
+    "owned_lxc_namespace": {
+      "processes": {
+        "3829219": {
+          "alive": true,
+          "start_ticks": 336885308
+        },
+        "3981095": {
+          "alive": true,
+          "start_ticks": 338753534
+        },
+        "444366": {
+          "alive": true,
+          "start_ticks": 241353958
+        },
+        "444367": {
+          "alive": true,
+          "start_ticks": 241353959
+        },
+        "444390": {
+          "alive": true,
+          "start_ticks": 241353968
+        }
+      },
+      "guest_versions": "qsm-console-guest 0.4.0+stock4.14~exp68\nqsm-qt-input-geometry 0.4.0+stock4.14~exp68\n",
+      "metadata_sha256": "f75936dcde17bfa5a21291be36eacbe0ebfffcd4e6980efb750a70cc9743a3d5"
+    },
+    "production_rollout_performed": false,
+    "owned_vm83_install": "vm83-install-proof.json"
+  },
+  "package_scope": "Matching private main pilot86 only; complete final seven-package bundle/signatures/APT/publication/rollout remain pending. Historical full84 seven-package parity remains in the separate receipt-gap report.",
+  "native_media_qualified": false,
+  "release_qualified": false,
+  "full_plan_complete": false,
+  "remaining": [
+    "Resolve native unique-source cadence without weakening45fps gate; repeat actual VM/LXC supported hardware/codecs and TCP loss/recovery profiles.",
+    "Final component/GTK/mode-toggle/full-desktop and old-agent fallback/cold-restoration repetitions.",
+    "Long mixed sessions, resolutions, resource/load, Firefox/macOS, matched QSM/RDP scenarios.",
+    "Final matching sources/seven debs/signatures/private-APT, publication/APT/docs/rollback, qualified rollout and authorized discussion updates."
+  ],
+  "evidence_directory": "dist/rdp-hybrid/capture-gpu-exp86"
+}
