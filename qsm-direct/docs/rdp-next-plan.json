@@ -143,12 +143,14 @@
       "Installed exp63 native LXC SDDM/PAM: Plasma profile automatically loads the Qt5.15.13 provider once without per-app Qt overrides; styled-editor caret coordinates match; normal logout revokes metadata and returns the greeter on the same connected media worker; outer Sway/SDDM PIDs preserved.",
       "Exp63 fixes a normal-shutdown double deletion in the new Qt generic plugin; real installed PyQt5/PyQt6 GUI/widget applications all exit 0, and each SDK major passes GUI/widget full-destruction tests.",
       "Real Firefox/TURN/TCP8006 fallback runs cover missing transform API, actual CSP worker denial, deliberate worker runtime failure after receipt messages, and an actual exp60 host without advertisement. All retain roughly 57 source fps, valid source IDs, detached transforms and presentation-feedback fallback.",
-      "Full exp63 host/viewer/guest-package repeat also passes the automatic 20-to-2-to-20 Mbit/s transition: narrow 54.33 source fps, gap 134 ms, full source age peak 508.12 ms, visible glyph peak 275 ms; 8180 static observations have zero mismatches/uncovered/XOR samples, all 15 input characters once, target returns to 8000. Two short no-loss runs still leave real loss/jitter and broader qualification open."
+      "Full exp63 host/viewer/guest-package repeat also passes the automatic 20-to-2-to-20 Mbit/s transition: narrow 54.33 source fps, gap 134 ms, full source age peak 508.12 ms, visible glyph peak 275 ms; 8180 static observations have zero mismatches/uncovered/XOR samples, all 15 input characters once, target returns to 8000. Two short no-loss runs still leave real loss/jitter and broader qualification open.",
+      "Exp63 normal Plasma6 VM logout revokes metadata; owned SDDM restart invokes its configured PAM autologin. Both Qt5.15.15 and Qt6.8.2 applications inherit the generic plugin exactly once without per-app overrides, with normal QT_ACCESSIBILITY=1 and exact styled-editor caret coordinates. Native agent PID243965 and QEMU PID2746656 stay unchanged; owned desktop KWin PID changes 779 -> 325054.",
+      "Real TCP-loss exp63 run: receiver IFB netem 0.3% loss + 15ms/3ms jitter drops 168 segments, peer TCP retransmits186. Narrow/recovered cadence55.13/55.77 source fps, largest gap135ms, glyph peak114ms, all8220 static observations exact. Full bitrate recovery fails the75-second gate (7306 versus8000); the10-second upward step interval is the immediate remaining recovery issue."
     ],
     "pending": [
-      "Normal-session Qt provider startup in the VM and Qt6 LXC applications; additional application/toolkit coverage and unsupported/legacy fallback",
+      "Qt6 native LXC application coverage; additional applications/toolkits and unsupported/legacy fallback",
       "Complete component-aware text-over-video move/resize/scroll/close, occlusion and lifecycle acceptance",
-      "Actual packet loss and jitter, repeated automatic bandwidth transitions and hard-cut fidelity",
+      "Speed up confirmed active-path bitrate recovery while retaining idle/shared-viewer/cooldown guards; repeat actual loss/jitter and no-loss transitions, hard-cut fidelity",
       "Supported VM/LXC NVENC/QSV/VAAPI H264/HEVC matrix, long encoded mixed sessions and resource checks",
       "Firefox/macOS acceptance and matched QSM/RDP network/content comparison",
       "Clean Trixie top-level build smoke; final matching source/debs, signed public checksums/APT, installation/rollback docs and qualified rollout/discussion updates"
@@ -169,7 +171,7 @@
       "dist/rdp-hybrid/input-geometry-exp60",
       "dist/rdp-hybrid/receive-feedback-exp63"
     ],
-    "next_action": "Finish normal-session/application coverage and component-aware overlap/lifecycle acceptance, then actual loss/jitter/transition/fidelity, codec/soak/browser/RDP and full release gates",
+    "next_action": "Qualify faster upward probing only with recent active receipt feedback; retain existing legacy/idle/shared-viewer/congestion cooldown behavior. Finish component/application acceptance and the complete codec/soak/browser/RDP/release scope.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -225,7 +227,7 @@
     "next_steps": [
       {
         "id": "guest-metadata",
-        "action": "Normal-session Qt provider startup in the VM and Qt6 LXC applications; additional application/toolkit coverage and unsupported/legacy fallback",
+        "action": "Qt6 native LXC application coverage; additional applications/toolkits and unsupported/legacy fallback",
         "gate": "Actual application/session startup and focus/locking/logout/recovery; assert actual toolkit versions and preserve existing production sessions"
       },
       {
@@ -235,7 +237,7 @@
       },
       {
         "id": "video-regions-and-queue",
-        "action": "Actual packet loss and jitter, repeated automatic bandwidth transitions and hard-cut fidelity",
+        "action": "Speed up confirmed active-path bitrate recovery while retaining idle/shared-viewer/cooldown guards; repeat actual loss/jitter and no-loss transitions, hard-cut fidelity",
         "gate": "Keep measured source-to-composed age, native presentation and input bounds; static pixels exact, true source cadence and video fidelity acceptable"
       },
       {

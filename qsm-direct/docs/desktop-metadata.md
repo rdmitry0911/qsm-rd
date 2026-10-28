@@ -186,6 +186,11 @@ requested-major labels both ran Qt 6; its historical report is corrected.
 Normal native LXC SDDM/PAM login also verifies automatic Plasma profile
 inheritance with Qt 5.15.13, exact styled-editor caret coordinates, ordinary
 logout and metadata revocation on the same media connection.
+The native Plasma 6 VM additionally verifies ordinary logout and a fresh
+configured SDDM PAM autologin after restarting only the owned display manager.
+Qt 5.15.15 and Qt 6.8.2 applications inherit the provider once, with normal
+accessibility defaults and no per-application Qt overrides. The guest agent
+and QEMU remain running throughout that desktop-session change.
 
 Qt owns the object returned by a generic plugin. The provider leaves that
 object parentless to avoid a second deletion during application shutdown,
