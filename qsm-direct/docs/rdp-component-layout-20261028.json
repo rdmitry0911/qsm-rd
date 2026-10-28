@@ -1,0 +1,488 @@
+{
+  "date": "2026-10-28",
+  "candidate": "0.4.0+stock4.14~exp65",
+  "status": "Private; ordinary-tile layout regression fixed and component pixels verified; adaptive mode-switch warmup still fails, full qualification incomplete",
+  "scope": "Owned LXC108/nested KWin5, NVENC/H264, Linux Firefox, TURN over TCP8006; real installed exp65 guest and extracted exp65 host/viewer, application launch and ACL mocked",
+  "bug": {
+    "observed": "An unchanged ordinary tile waited for its video capture while an advisory layout advanced. Browser rejected the queued tile; worker kept its unchanged source tile and did not republish it. This left permanent missing exact coverage.",
+    "failed_roi": [
+      416,
+      328,
+      224,
+      42
+    ],
+    "missing_tile": [
+      384,
+      320
+    ],
+    "rgb_errors_in_missing_tile": 440,
+    "fix": "Only early-leading jobs are retired by the advisory layout boundary. Ordinary jobs retain the existing capture, generation, serial and CLEAR fences.",
+    "regression_test": "tests/proxmox_pve9/test_exact_ui.mjs: ordinary tile spanning SCENE plus newer CLEAR cancellation",
+    "before": "Deterministic regression fails; real exp64 close-window ROI remains uncovered",
+    "after": "Deterministic regression passes; real packaged exp65 move/close and text regions regain complete exact coverage"
+  },
+  "packaged_pixel_verification": [
+    {
+      "phase": "fast",
+      "pixel_oracles": [
+        {
+          "name": "fast-line-window",
+          "pixels": 65536,
+          "correct_observations": 8,
+          "first_exact_ms": 29.631969053298235,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "fast-plain-input",
+          "pixels": 10240,
+          "correct_observations": 8,
+          "first_exact_ms": 13.25845904648304,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "fast-scroll",
+          "pixels": 65536,
+          "correct_observations": 8,
+          "first_exact_ms": 59.51282009482384,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "fast-occluder",
+          "pixels": 55936,
+          "correct_observations": 8,
+          "first_exact_ms": 50.06103264167905,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "fast-occluder-after-background-edit",
+          "pixels": 55936,
+          "correct_observations": 8,
+          "first_exact_ms": 52.546330727636814,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "fast-occluder-exposure",
+          "pixels": 12288,
+          "correct_observations": 8,
+          "first_exact_ms": 10.992134921252728,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "fast-resize",
+          "pixels": 65536,
+          "correct_observations": 8,
+          "first_exact_ms": 37.348739337176085,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "fast-base-after-move",
+          "pixels": 6048,
+          "correct_observations": 8,
+          "first_exact_ms": 8.069838862866163,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "fast-base-after-close",
+          "pixels": 9408,
+          "correct_observations": 8,
+          "first_exact_ms": 11.316679883748293,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "fast-toggle-0",
+          "pixels": 16384,
+          "correct_observations": 8,
+          "first_exact_ms": 633.504455909133,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "fast-toggle-1",
+          "pixels": 16384,
+          "correct_observations": 8,
+          "first_exact_ms": 643.6823289841413,
+          "all_observations_exact_after_first": true
+        }
+      ],
+      "typing": [
+        {
+          "editor": "line",
+          "glyph_ms": [
+            174,
+            53,
+            56,
+            54,
+            54,
+            70,
+            171,
+            88,
+            54,
+            56,
+            55,
+            189,
+            71,
+            70,
+            55
+          ],
+          "median_ms": 56,
+          "max_ms": 189,
+          "metadata": {
+            "callbacks": 353,
+            "mode": 3,
+            "layout": 19329105711,
+            "area": [
+              496,
+              228,
+              540,
+              42
+            ]
+          }
+        },
+        {
+          "editor": "plain",
+          "glyph_ms": [
+            183,
+            70,
+            57,
+            54,
+            71,
+            54,
+            38,
+            53,
+            57,
+            53,
+            72,
+            55,
+            55,
+            55,
+            55
+          ],
+          "median_ms": 55,
+          "max_ms": 183,
+          "metadata": {
+            "callbacks": 483,
+            "mode": 3,
+            "layout": 19329105712,
+            "area": [
+              497,
+              293,
+              606,
+              157
+            ]
+          }
+        }
+      ],
+      "transitions": [
+        {
+          "name": "fast-move",
+          "initial_old_marker": true,
+          "finally_gone": true,
+          "resurrected": 0
+        },
+        {
+          "name": "fast-close",
+          "initial_old_marker": true,
+          "finally_gone": true,
+          "resurrected": 0
+        }
+      ],
+      "exposed_video": [
+        {
+          "name": "fast-video-after-move",
+          "rect": [
+            720,
+            228,
+            64,
+            32
+          ],
+          "exact_pixels": 0,
+          "cleared_ms": 6.863222923129797
+        },
+        {
+          "name": "fast-video-after-close",
+          "rect": [
+            720,
+            328,
+            64,
+            32
+          ],
+          "exact_pixels": 0,
+          "cleared_ms": 5.436429288238287
+        }
+      ],
+      "aggregate_fps": 52.26587187589773,
+      "aggregate_gap_ms": 252,
+      "note": "Aggregate includes deliberately disabling exact UI and encoder format switches; 1010ms narrow gap fails the original aggregate performance gate"
+    },
+    {
+      "phase": "narrow",
+      "pixel_oracles": [
+        {
+          "name": "narrow-line-window",
+          "pixels": 65536,
+          "correct_observations": 8,
+          "first_exact_ms": 36.25143086537719,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "narrow-plain-input",
+          "pixels": 10240,
+          "correct_observations": 8,
+          "first_exact_ms": 9.784447029232979,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "narrow-scroll",
+          "pixels": 65536,
+          "correct_observations": 8,
+          "first_exact_ms": 38.81565807387233,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "narrow-occluder",
+          "pixels": 55936,
+          "correct_observations": 8,
+          "first_exact_ms": 31.31090011447668,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "narrow-occluder-after-background-edit",
+          "pixels": 55936,
+          "correct_observations": 8,
+          "first_exact_ms": 35.185641143471,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "narrow-occluder-exposure",
+          "pixels": 12288,
+          "correct_observations": 8,
+          "first_exact_ms": 11.60358265042305,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "narrow-resize",
+          "pixels": 65536,
+          "correct_observations": 8,
+          "first_exact_ms": 43.31181664019823,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "narrow-base-after-move",
+          "pixels": 6048,
+          "correct_observations": 8,
+          "first_exact_ms": 10.407887864857912,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "narrow-base-after-close",
+          "pixels": 9408,
+          "correct_observations": 8,
+          "first_exact_ms": 9.677744936197996,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "narrow-toggle-0",
+          "pixels": 16384,
+          "correct_observations": 8,
+          "first_exact_ms": 4134.317554999143,
+          "all_observations_exact_after_first": true
+        },
+        {
+          "name": "narrow-toggle-1",
+          "pixels": 16384,
+          "correct_observations": 8,
+          "first_exact_ms": 4166.7279582470655,
+          "all_observations_exact_after_first": true
+        }
+      ],
+      "typing": [
+        {
+          "editor": "line",
+          "glyph_ms": [
+            113,
+            71,
+            74,
+            87,
+            72,
+            55,
+            104,
+            54,
+            73,
+            88,
+            72,
+            89,
+            55,
+            87,
+            53
+          ],
+          "median_ms": 73,
+          "max_ms": 113,
+          "metadata": {
+            "callbacks": 1457,
+            "mode": 3,
+            "layout": 19329105734,
+            "area": [
+              496,
+              228,
+              540,
+              42
+            ]
+          }
+        },
+        {
+          "editor": "plain",
+          "glyph_ms": [
+            178,
+            71,
+            56,
+            89,
+            38,
+            88,
+            51,
+            57,
+            72,
+            56,
+            68,
+            58,
+            88,
+            73,
+            54
+          ],
+          "median_ms": 68,
+          "max_ms": 178,
+          "metadata": {
+            "callbacks": 1587,
+            "mode": 3,
+            "layout": 19329105735,
+            "area": [
+              497,
+              293,
+              606,
+              157
+            ]
+          }
+        }
+      ],
+      "transitions": [
+        {
+          "name": "narrow-move",
+          "initial_old_marker": true,
+          "finally_gone": true,
+          "resurrected": 0
+        },
+        {
+          "name": "narrow-close",
+          "initial_old_marker": true,
+          "finally_gone": true,
+          "resurrected": 0
+        }
+      ],
+      "exposed_video": [
+        {
+          "name": "narrow-video-after-move",
+          "rect": [
+            720,
+            228,
+            64,
+            32
+          ],
+          "exact_pixels": 0,
+          "cleared_ms": 4.033111035823822
+        },
+        {
+          "name": "narrow-video-after-close",
+          "rect": [
+            720,
+            328,
+            64,
+            32
+          ],
+          "exact_pixels": 0,
+          "cleared_ms": 5.576114170253277
+        }
+      ],
+      "aggregate_fps": 45.50863538417007,
+      "aggregate_gap_ms": 1010,
+      "note": "Aggregate includes deliberately disabling exact UI and encoder format switches; 1010ms narrow gap fails the original aggregate performance gate"
+    }
+  ],
+  "working_mode_and_failure": {
+    "fast": {
+      "source_fps": 54.12458415506285,
+      "max_source_gap_ms": 99,
+      "aggregate_source_fps": 53.24411346752289,
+      "aggregate_max_source_gap_ms": 252,
+      "mode_switches": {
+        "source_fps": 45.05005561735261,
+        "max_source_gap_ms": 252,
+        "note": "Includes deliberate feature-off baseline periods and codec-format changes; not relabeled as working-mode performance"
+      }
+    },
+    "narrow": "9 pixel oracles and both 15-character input checks pass before toggle-0; exact layer reaches full coverage only at 8.00065 seconds and cannot satisfy eight stable observations before the unchanged 8-second deadline",
+    "failure_target_kbps": 500,
+    "failure_feedback": [
+      {
+        "kind": "received",
+        "loss": 0.0,
+        "rtt": 0.011553764343261719,
+        "base_rtt": 0.0026397705078125,
+        "sending_kbps": 330.5801328072697,
+        "remb": 667300,
+        "present_delay_ms": 12.756847776472569,
+        "present_base_ms": 12.756847776472569,
+        "present_kbps": 1045.251689784901,
+        "present_offered_kbps": 448.2074369628793,
+        "present_age": 0.25370477698743343,
+        "present_queue_age": null,
+        "queue_age": null
+      }
+    ],
+    "failure_is_still_open": true,
+    "source_id_invalid_observations": 0
+  },
+  "build": {
+    "source": {
+      "archive": "source-exp65.tar",
+      "sha256": "c80e7cd8d1cff517174ad94d6a336b531d640fc0f9c03f7d79bde33b36c11b0f",
+      "qsm_direct_files_compared": 1309,
+      "worktree_differences_at_qualification": []
+    },
+    "payload_delta": {
+      "versions": [
+        "exp64",
+        "exp65"
+      ],
+      "host_payload_entries": 34,
+      "host_differences": [
+        "usr/share/pve-manager/js/qsm-pve-direct-console.js",
+        "usr/share/pve-webrtc-console/qsm-direct-console.js"
+      ],
+      "guest_packages": [
+        {
+          "package": "qsm-desktop-agent",
+          "entries": 13,
+          "differences": []
+        },
+        {
+          "package": "qsm-console-guest",
+          "entries": 29,
+          "differences": []
+        },
+        {
+          "package": "qsm-qt-input-geometry",
+          "entries": 4,
+          "differences": []
+        }
+      ]
+    },
+    "bridge_tests": 119,
+    "core_ctest": "36/36",
+    "qt_sdk": "Qt5 and Qt6 GUI/widget full-destruction tests pass",
+    "all_seven_packages_built": true,
+    "independent_clean_trixie": "Exp64 clean core payload proof applies to the 32 unchanged host entries; only two identical-copy JS assets differ in exp65, as listed by payload_delta"
+  },
+  "remaining": [
+    "Resolve adaptive target collapse and slow exact restoration after repeated off/on on a narrow channel; keep the existing 8-second oracle and full pixel coverage",
+    "Complete desktop resize, unsupported/application coverage, video cuts and matrix/long-session/browser/RDP qualification",
+    "No public source/package/APT or production rollout until qualification"
+  ]
+}

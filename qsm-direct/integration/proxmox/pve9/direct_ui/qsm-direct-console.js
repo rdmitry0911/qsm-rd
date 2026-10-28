@@ -272,7 +272,10 @@
             if (!this.enabled) { return; }
             let changed = false;
             for (const [key, job] of this.ready) {
-                if (this.scene && job.layout !== this.scene.layout && this.videoCapture >= this.scene.capture &&
+                // Only leading jobs depend on their advisory layout. An
+                // ordinary capture-fenced tile may remain unchanged across
+                // a focus/layout boundary and will not be sent again.
+                if (job.early && this.scene && job.layout !== this.scene.layout && this.videoCapture >= this.scene.capture &&
                     job.capture <= this.scene.capture) { this.ready.delete(key); changed = true; continue; }
                 if (job.capture > this.videoCapture && !this.canPresentEarly(key, job)) { continue; }
                 this.ready.delete(key); changed = true;

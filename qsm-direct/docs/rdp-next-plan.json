@@ -81,8 +81,8 @@
   ],
   "checkpoint": {
     "stage": "priority-ui",
-    "candidate": "0.4.0+stock4.14~exp64 (private, not release-qualified)",
-    "evidence_directory": "dist/rdp-hybrid/receipt-recovery-exp64",
+    "candidate": "0.4.0+stock4.14~exp65 (private, not release-qualified)",
+    "evidence_directory": "dist/rdp-hybrid/component-layout-exp65",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -107,7 +107,8 @@
       "Existing UI/video synchronization acknowledgements remain independent",
       "Qt QPlainTextEdit/QTextEdit geometry uses public viewport-relative cursor bounds including style/frame offsets",
       "Generic Qt plugin instances have Qt as sole owner; aboutToQuit stops publishing and unregisters its service; package builds test full application destruction for Qt5/Qt6",
-      "After the existing first healthy interval and post-congestion cooldown, fresh receipt-feedback viewers permit one bounded 25% upward probe per six seconds. Legacy, mixed or stale viewers keep ten-second spacing. All low-age, demand, shared-viewer and congestion guards remain."
+      "After the existing first healthy interval and post-congestion cooldown, fresh receipt-feedback viewers permit one bounded 25% upward probe per six seconds. Legacy, mixed or stale viewers keep ten-second spacing. All low-age, demand, shared-viewer and congestion guards remain.",
+      "Ordinary capture-fenced exact tiles survive advisory metadata layout changes; early-leading tiles still retire and newer invalidations still cancel old work"
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -152,9 +153,11 @@
       "Exp64 full host/viewer/guest repeat with receiver-ingress 0.3% TCP loss and 15ms/3ms delay/jitter: 170 kernel drops, full target recovery to 8000, narrow 53.71 and recovered 53.92 source fps, largest gap 132 ms, glyph peak 266 ms and all 8172 static observations exact. A separate no-imposed-loss repeat also passes every current transition gate: full 8000 recovery, glyph peak 146 ms, all 8217 static observations exact. These short NVENC/H264 LXC runs do not qualify other paths or a release.",
       "Private exp64 signed APT acceptance downloads all seven matching console/guest packages and a temporary keyring, verifies SHA256 and rejects modified signed metadata/debs; no public archive update.",
       "Installed exp64 native Qt6 LXC profile: ordinary SDDM/PAM automatically loads the plugin, styled-editor caret coordinates match, and normal logout revokes metadata on the same media worker; outer Sway/SDDM preserved.",
-      "Independent fresh Debian13 bootstrap completes with the portable exp64 Qt guest package: core/LXC/VM guest builds, install checks and actual worker/fake-QEMU media/input pass. Missing zlib development dependency and smoke-shell quoting are fixed; build services are prevented from starting and read-only proc/sys mounts are cleaned. Clean artifacts retained separately."
+      "Independent fresh Debian13 bootstrap completes with the portable exp64 Qt guest package: core/LXC/VM guest builds, install checks and actual worker/fake-QEMU media/input pass. Missing zlib development dependency and smoke-shell quoting are fixed; build services are prevented from starting and read-only proc/sys mounts are cleaned. Clean artifacts retained separately.",
+      "Exp65 packaged component acceptance: complete pixel equality and full alpha coverage across 22 line/plain/scroll/occlusion/resize/move/close/toggle oracles on fast and 2Mbit/s links; each editor receives exactly 15 characters and source-ID XOR stays valid. Aggregate narrow mode-switch cadence has a 1010ms gap, so full performance acceptance fails. A subsequent run reproduces target500 and 8-second cold-layer warmup after narrow off/on; this remains an open defect."
     ],
     "pending": [
+      "Fix narrow-channel adaptive target collapse and slow exact-layer restoration after mode changes; retain complete pixel equality and the existing 8-second restoration gate",
       "Broader application/toolkit coverage, including explicit unsupported/legacy behavior",
       "Complete component-aware text-over-video move/resize/scroll/close, occlusion and lifecycle acceptance",
       "Hard-cut video fidelity, repeated network profiles and broader real-loss/jitter coverage",
@@ -177,9 +180,10 @@
       "dist/rdp-hybrid/video-feedback-exp57",
       "dist/rdp-hybrid/input-geometry-exp60",
       "dist/rdp-hybrid/receive-feedback-exp63",
-      "dist/rdp-hybrid/receipt-recovery-exp64"
+      "dist/rdp-hybrid/receipt-recovery-exp64",
+      "dist/rdp-hybrid/component-layout-exp65"
     ],
-    "next_action": "Finish application/component overlap acceptance, hard-cut fidelity and codec/VM/long-session/browser/RDP qualification, then matching release and rollout",
+    "next_action": "Diagnose narrow off/on bitrate-collapse telemetry, fix and repeat full component/cold-layer/desktop-resize acceptance, then remaining fidelity/matrix/long-session/browser/RDP qualification and matching release/rollout",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",

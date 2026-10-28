@@ -301,3 +301,28 @@ assert.equal(priorityPaints.length,4,'revoked metadata cannot authorize another 
 priority.mapVideoFrame(4,500);priority.videoFrame(4);
 assert.equal(priorityClears.length,2);
 assert.deepEqual(priorityErrors,[]);
+
+// An ordinary capture-fenced tile can still be inflating/queued when the
+// compositor reports a new layout. Unchanged ordinary tiles are not sent
+// again by the worker, so dropping them would leave a permanent hole.
+const normalPaints=[],normalClears=[];
+const normalCanvas={width:0,height:0,style:{},getContext:()=>({
+ createImageData:(w,h)=>({data:new Uint8Array(w*h*4)}),
+ putImageData:image=>normalPaints.push(new Uint8Array(image.data)),
+ clearRect:(...args)=>normalClears.push(args)})};
+const normal=new sandbox.Renderer(normalCanvas,data=>Promise.resolve(zlib.inflateSync(data)),e=>{throw e});
+normal.configure(true);
+await normal.receive(record(1,{capture:100,layout:0}));
+normal.mapVideoFrame(1,100);normal.videoFrame(1);
+await normal.receive(record(2,{serial:2,w:64,h:64,pixels:white,capture:200,layout:0}));
+assert.equal(normalPaints.length,0,'ordinary tile still waits for its captured base');
+await normal.receive(record(5,{serial:3,capture:200,layout:8}));
+normal.mapVideoFrame(2,300);normal.videoFrame(2);
+assert.equal(normalPaints.length,1,'unchanged ordinary tile survives a metadata layout boundary');
+assert.deepEqual(normalPaints[0],white);
+await normal.receive(record(2,{serial:4,w:64,h:64,pixels:one,capture:400,layout:8}));
+await normal.receive(record(5,{serial:5,capture:500,layout:9}));
+await normal.receive(record(3,{serial:6,w:64,h:64,capture:500,layout:9}));
+normal.mapVideoFrame(3,500);normal.videoFrame(3);
+assert.equal(normalPaints.length,1,'newer invalidation still cancels an old queued ordinary tile');
+assert.equal(normal.active.size,0);
