@@ -1,0 +1,108 @@
+{
+  "date": "2026-10-29",
+  "status": "diagnostic_checkpoint_goal_open",
+  "evidence_directory": "dist/rdp-hybrid/macos-credit-capacity-166",
+  "artifact_manifest_sha256": "4525fb8327244394c6297b84b4a095133e4467180b23165894aed194f9b05447",
+  "parent_diagnostic": "docs/rdp-macos-counter-20261029.json",
+  "tcp_capacity": {
+    "scope": "Bounded direct native-to-Mac TCP capacity control,3 fresh connections,1MiB warmup+4MiB timed payload each; all-zero nonpersonal bytes; no UDP or product/prod mutation. Includes ready propagation latency.",
+    "runs": [
+      {
+        "trial": 0,
+        "measured_bytes": 4194304,
+        "seconds": 3.2065640390000003,
+        "mbps_including_ready_roundtrip": 10.464294987373552
+      },
+      {
+        "trial": 1,
+        "measured_bytes": 4194304,
+        "seconds": 1.995777469,
+        "mbps_including_ready_roundtrip": 16.812712099016085
+      },
+      {
+        "trial": 2,
+        "measured_bytes": 4194304,
+        "seconds": 1.566459867999999,
+        "mbps_including_ready_roundtrip": 21.420550047567527
+      }
+    ]
+  },
+  "passive_feedback": {
+    "scope": "Read-only extraction of the frozen direct16530s pilot; all times below use the same native monotonic clock. Actual run/counters and complete raw packet/credit traces are in macos-counter-155-165.",
+    "server_seconds": 28.695157524896786,
+    "frame_credit_calls": 1003,
+    "frame_credit_waits_above_2ms": 139,
+    "frame_credit_wait_seconds": 12.761631140485406,
+    "packet_reports": 377,
+    "packet_windows_valid": 207,
+    "all_packet_overuse_normal": true,
+    "packet_queue_excess_p95_ms": 9.215,
+    "received_ack_gap_p95_ms": 269.7520980145782,
+    "received_ack_gap_max_ms": 698.7426970154047
+  },
+  "interpretation": "Three bounded direct TCP transfers measure10.46/16.81/21.42Mbit/s, above the3.08Mbit/s encoded pilot. They do not establish stable20M capacity or eliminate path jitter. In the actual pilot, produced/sent/received/decoded cadence is already about35fps, while13s of per-frame credit waits consume much of the measured interval despite low matched packet queue growth. Isolate worker-to-main IPC and SCTP feedback timing before changing codec quality, decode or compositor. No causal fix or complete acceptance is established.",
+  "cleanup": {
+    "mac": {
+      "scope": "Only owned Chrome155 and its sleep assertion; original user browser profiles untouched",
+      "terminated": [
+        {
+          "pid": 33888,
+          "ownership_token": "--user-data-dir=/tmp/qsm-mac-qualification-20261029-155-local-schedule/profile"
+        },
+        {
+          "pid": 33900,
+          "ownership_token": "caffeinate -i -w 33888"
+        }
+      ],
+      "remaining_owned_pids": [],
+      "debug_ports_open": []
+    },
+    "local_network": {
+      "scope": "Local owned-netem controller and peer processes",
+      "remaining": []
+    },
+    "native": {
+      "owned_qemu_pid": 3079308,
+      "guest_process_start_ticks": {
+        "828": 712,
+        "710": 607,
+        "675": 601,
+        "957": 821
+      },
+      "diagnostic_workers_remaining": [],
+      "production_gateway_absent": true
+    },
+    "pve": {
+      "production_package": "0.4.0+stock4.14~exp35",
+      "original_terminal_and_user_vm103_unchanged": true,
+      "owned_graphics_and_metadata_start_ticks": {
+        "444366": 241353958,
+        "444367": 241353959,
+        "444390": 241353968,
+        "3829222": 336885310,
+        "4091558": 340029304
+      },
+      "owned_fixture": {
+        "pid": 3829227,
+        "start_ticks": 336885318,
+        "executable": "python3",
+        "owned_script": [
+          "/opt/qsm-rdp-hybrid-20261028/fixture.py"
+        ]
+      },
+      "lxc_init": 875731,
+      "diagnostic_workers_remaining": []
+    },
+    "temporary_tcp_listeners": {
+      "owned_test_ports": [
+        18486,
+        18487
+      ],
+      "listeners_remaining": []
+    }
+  },
+  "retained_product_change": "Recovery154 in commit2f274af.211 bridge tests pass; transient NORMAL queue pulses defer the current probe without restarting the entire healthy interval.163 QP change reverted; original127 worker and144 viewer retained.",
+  "production_changed": false,
+  "goal_complete": false,
+  "next_action": "Instrument worker-generated receipt time, main-thread dispatch/channel bufferedAmount and server receipt on one owned Mac run. Distinguish browser/IPC stalls, SCTP feedback delay and packet-prefix credit holes using the already frozen passive trace; keep payloads untouched. Then test a causal change under original native/LXC/Mac age, cadence, fidelity and input gates. Direct PVE/TCP8006 Mac acceptance, remaining supported codecs/toolkits/occlusion, long sessions and release/rollout remain required."
+}

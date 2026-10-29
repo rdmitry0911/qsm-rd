@@ -277,7 +277,7 @@
       "149 corrects initial RDP/QSM video-content mismatch with SHA2561a0635... proved in both guests. Corrected RDP31.52/29.02/31.63fps,15chars once,952ms initial-cut glyph fails600; QSM14455.15/47.99/55.49fps and138ms. Separate144 hardcut50.78/52.41fps passes cadence but narrow SSIM0.885896 fails0.90. Original failures retained; no overall winner declared."
     ],
     "pending": [
-      "Measure the real healthy Mac/native TCP capacity and correlate passive credit/packet feedback with raw-admission pauses. Qualify a direct PVE/TCP8006 Mac receiver separately from controller-detour diagnostics; preserve actual source-pixel/input/age/cadence gates.",
+      "Instrument worker-generated receipt time, main-thread dispatch/channel bufferedAmount and server receipt on one owned Mac run. Distinguish browser/IPC stalls, SCTP feedback delay and packet-prefix credit holes using the already frozen passive trace; keep payloads untouched. Then test a causal change under original native/LXC/Mac age, cadence, fidelity and input gates. Direct PVE/TCP8006 Mac acceptance, remaining supported codecs/toolkits/occlusion, long sessions and release/rollout remain required.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -340,9 +340,10 @@
       "dist/rdp-hybrid/nvenc-rate-quality-158-162",
       "dist/rdp-hybrid/nvenc-qmax-exp163",
       "dist/rdp-hybrid/macos-counter-155-165",
-      "dist/rdp-hybrid/headroom-156"
+      "dist/rdp-hybrid/headroom-156",
+      "dist/rdp-hybrid/macos-credit-capacity-166"
     ],
-    "next_action": "Measure the real healthy Mac/native TCP capacity and correlate passive credit/packet feedback with raw-admission pauses. Qualify a direct PVE/TCP8006 Mac receiver separately from controller-detour diagnostics; preserve actual source-pixel/input/age/cadence gates.",
+    "next_action": "Instrument worker-generated receipt time, main-thread dispatch/channel bufferedAmount and server receipt on one owned Mac run. Distinguish browser/IPC stalls, SCTP feedback delay and packet-prefix credit holes using the already frozen passive trace; keep payloads untouched. Then test a causal change under original native/LXC/Mac age, cadence, fidelity and input gates. Direct PVE/TCP8006 Mac acceptance, remaining supported codecs/toolkits/occlusion, long sessions and release/rollout remain required.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -550,10 +551,10 @@
         "Firefox158.0.1",
         "Safari26.3"
       ],
-      "scope": "Owned Chrome155 headless profile; local compositor controls and counter-only remote pilots, no physical-monitor/hardware-stream claim. Temporary direct165 proxy closed. Original user browser profiles untouched.",
+      "scope": "Owned Chrome155 headless profile and caffeinate retired with PID/profile guards; debug/forward ports28457/28458/28459 closed. Temporary native direct proxy and capacity listeners18486/18487 closed. Original user browser profiles and native/PVE sessions untouched.",
       "alternative": "dima@10.30.0.35 is a VM with ordinary VGA; user warned it may distort results. Prefer the supplied bob receiver.",
       "status": "Incomplete. Local MP4/rVFC57.86 and canvas48.10fps; remote sender36.60/34.95fps and rVFC31.59/27.05fps. Direct path RTT124ms does not restore45fps. Earlier pre-phase closures and duplicate-decoder observer perturbations retained.",
-      "evidence": "docs/rdp-macos-counter-20261029.json",
+      "evidence": "docs/rdp-macos-credit-20261029.json",
       "observed_receiver_gpu": "Chrome ANGLE Metal UHD630, video-decode capability enabled; per-stream hardware decoder unproven"
     },
     "bursty_recovery": "docs/rdp-bursty-recovery-20261029.json",
@@ -569,7 +570,8 @@
     "queue_recovery": "docs/rdp-queue-recovery-20261029.json",
     "nvenc_rate_quality": "docs/rdp-nvenc-rate-quality-20261029.json",
     "nvenc_qmax": "docs/rdp-nvenc-qmax-20261029.json",
-    "macos_counter": "docs/rdp-macos-counter-20261029.json"
+    "macos_counter": "docs/rdp-macos-counter-20261029.json",
+    "macos_credit": "docs/rdp-macos-credit-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",
