@@ -540,7 +540,7 @@
     const createVideoReceiveFeedback = (scope, channelForFeedback) => {
         let permitted = false, closed = false, failed = false;
         let receiver = null, worker = null, transform = null, timer = null, url = null;
-        let previous = null, sentAt = -Infinity, reports = 0;
+        let previous = null, reports = 0;
         const end = () => {
             if (timer !== null) { scope.clearTimeout(timer); timer = null; }
             if (url !== null) { scope.URL.revokeObjectURL(url); url = null; }
@@ -548,7 +548,7 @@
                 try { receiver.transform = null; } catch (_error) { /* Closing receiver. */ }
             }
             if (worker) { worker.terminate(); worker = null; }
-            transform = null; previous = null; sentAt = -Infinity;
+            transform = null; previous = null;
         };
         const disable = () => { failed = true; end(); };
         const start = () => {
@@ -605,17 +605,19 @@
                         disable();
                     } else if (value.op === 'received') {
                         try {
-                            const now = scope.performance.now(), rtp = value.rtp;
+                            const rtp = value.rtp;
                             const channel = channelForFeedback();
                             if (permitted && !failed && transform && Number.isInteger(rtp) && rtp >= 0 && rtp <= 0xffffffff &&
-                                rtp !== previous && now - sentAt >= 16 && channel &&
+                                rtp !== previous && channel &&
                                 channel.readyState === 'open' && channel.bufferedAmount <= 1024) {
                                 channel.send(JSON.stringify({ op: 'qsm_video_received', rtp }));
-                                previous = rtp; sentAt = now; reports += 1;
+                                previous = rtp; reports += 1;
                             }
                         } catch (_error) { /* Newer receipt replaces a dropped sample. */ }
-                        // One outstanding worker report bounds the queue even
-                        // when the main thread stalls; media never waits here.
+                        // The worker already bounds frequency and keeps one
+                        // outstanding report. IPC delivery can bunch after a
+                        // main-thread stall; resampling its clock here would
+                        // discard a newer valid receipt. Media never waits here.
                         if (worker === candidate) { candidate.postMessage('next'); }
                     }
                 };

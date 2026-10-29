@@ -81,7 +81,7 @@
   ],
   "checkpoint": {
     "stage": "video-regions-and-queue",
-    "candidate": "Private132 viewer fixes Chromium encoded-receipt attachment;209 target-SDK bridge tests and13 viewer suites pass. Host core remains byte-identical127. Local NVENC passes all13 original transition gates; native Intel and Mac performance gates remain open.",
+    "candidate": "Private144 removes duplicate main-thread receipt resampling;13 viewer suites and209 SDK bridge tests pass. Core127 payloads unchanged. LXC transition13 gates and22 component pixel oracles pass; native478.569ms age excess and Mac timing remain open.",
     "guest_extension_role": {
       "required_for_metadata_priority": "Expanded VM/LXC agents supply window geometry, stacking, visibility, focus and supported caret/input-component bounds over the existing guest transport.",
       "implemented_scope": "KWin session integration, optional Qt5/Qt6 input-geometry plugin and accessibility producers have documented checks; this does not establish universal toolkit or application coverage.",
@@ -152,7 +152,8 @@
       "Private124 confirms a capacity slowdown with consecutive matched delivery observations; a normal/draining/invalid interval resets evidence. Existing byte-volume, transit, overuse and severity checks are retained.",
       "Private125 arms confirmed refresh without discarding a live prediction chain; queue retirement and recovery serial advance occur only when a matching independent picture is available. Broken-chain recovery and in-progress RTP fragmentation retain their contracts.",
       "Packet-backed bounded25% active probes with exponential6/12/24/30s cooldown after failed probes; frame/legacy viewer policies remain conservative (private126).",
-      "Small-frame windows do not invent congestion; valid demanding packet delivery is still required for growth, and resumed stale flow restarts healthy evidence (private127)."
+      "Small-frame windows do not invent congestion; valid demanding packet delivery is still required for growth, and resumed stale flow restarts healthy evidence (private127).",
+      "Worker-paced encoded receipt reports retain valid newer IPC catch-up samples; remove only redundant main-clock resampling (private144)."
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -271,10 +272,11 @@
       "127 scoped component acceptance passes22 exact-pixel oracles,52.81/47.93fps, glyph maxima165/213ms, desktop resize restoration and same stream. Generic wrapper subsequently fails an unintended additional adaptive warmup; the whole script is not green.",
       "127 hardcut narrow SSIM0.908 passes; fast48.79fps fails50. Native VAAPI42.58fps narrow,512.278ms source-age excess and presentation excess fail. All failures retained.",
       "Supplied Mac receiver tested with Chrome156/Metal Intel: initial headless SSH/CDP interruption, headless repeat and headful repeat retained. Timing gates fail, marker readback overhead measured; no full Mac performance qualification claimed. Owned test profiles, assertions and diagnostic workers cleaned up; production remains exp35.",
-      "Private132 Chromium receipt creation-task fix verified with live Mac permission-toggle continuity; native Firefox regression and same-local-path NVENC/RDP comparison retained in docs/rdp-chromium-receive-20261029.json and docs/rdp-microsoft-reference-20261029.json. Local NVENC passes13 original transition gates; Mac/native failures remain open."
+      "Private132 Chromium receipt creation-task fix verified with live Mac permission-toggle continuity; native Firefox regression and same-local-path NVENC/RDP comparison retained in docs/rdp-chromium-receive-20261029.json and docs/rdp-microsoft-reference-20261029.json. Local NVENC passes13 original transition gates; Mac/native failures remain open.",
+      "144 LXC/NVENC transition passes13 original gates:55.15/47.99/55.49fps, glyph138ms, exact8224 static snapshots, source-age excess363.024ms and full8000 recovery. Original component assertions pass22 pixel oracles with50.96/48.02fps and glyph peaks91/170/289/244ms; scoped wrapper exits0. Native QSV age478.569ms and Mac cadence/gap fail and remain open."
     ],
     "pending": [
-      "Use saved native126 wire/packet/frame receipts to bound initial bandwidth-drop backlog without weakening400ms age or45fps gates. Establish Mac cadence by correlating independently decoded source IDs with successful composed/presented RTP timestamps and an observer-overhead control. Then complete remaining codec/application/browser/long-session/RDP and release scope.",
+      "Isolate bounded confirmed-refresh admission reservation from the rejected tighter window before considering a queue policy. Continue Mac scheduling/path diagnosis with the strict pixel observer and its controls; retain original timing/fidelity thresholds and complete the remaining plan.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -327,9 +329,11 @@
       "dist/rdp-hybrid/packet-probes-exp126",
       "dist/rdp-hybrid/active-recovery-exp127",
       "dist/rdp-hybrid/chromium-receive-exp132",
-      "dist/rdp-hybrid/macos-observer-133-136"
+      "dist/rdp-hybrid/macos-observer-133-136",
+      "dist/rdp-hybrid/playout-queue-139-143",
+      "dist/rdp-hybrid/received-feedback-exp144"
     ],
-    "next_action": "Use the5ms native-format pixel observer to investigate Mac Chrome video scheduling/arrival/playout behavior; paint callbacks are under1ms and opacity ABA did not fix cadence. In parallel address native132 initial-drop age with recorded packet/frame traces while preserving healthy throughput; naive smaller-window arithmetic pressures81% of healthy admissions. Retain400ms/45fps gates and complete remaining qualification/release.",
+    "next_action": "Isolate bounded confirmed-refresh admission reservation from the rejected tighter window before considering a queue policy. Continue Mac scheduling/path diagnosis with the strict pixel observer and its controls; retain original timing/fidelity thresholds and complete the remaining plan.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -539,15 +543,17 @@
       ],
       "scope": "Owned Chrome156 headless profile on bob; all1241 snapshots valid and exact, source25.01fps and first glyph1087.8ms fail declared gates. Permission-toggle continuity passes. Owned browser and temporary sleep assertion ended.",
       "alternative": "dima@10.30.0.35 is a VM with ordinary VGA; user warned it may distort results. Prefer the supplied bob receiver.",
-      "status": "Incomplete;132 receipt lifecycle passes, native-format observer reduces median readback to5ms with exact pixels, but Chrome presentation/cadence remains below45fps. Long JS callbacks and simple opacity suppression were not confirmed as the cause.",
-      "evidence": "docs/rdp-macos-observer-20261029.json",
+      "status": "Incomplete. Private Firefox157 and Chrome156 pilots preserve exact pixels but fail timing.144/emulated132 receipt-filter ABA and receiver-target60ms do not restore45fps; pixel-observer-off controls reach24.19/30.00 callbacks per second, still below45. No physical-display/hardware-decoder claim.",
+      "evidence": "docs/rdp-receipt-resampling-20261029.json",
       "observed_receiver_gpu": "Chrome ANGLE Metal UHD630, video-decode capability enabled; per-stream hardware decoder unproven"
     },
     "bursty_recovery": "docs/rdp-bursty-recovery-20261029.json",
     "corroborated_hold": "docs/rdp-corroborated-hold-20261029.json",
     "chromium_receive": "docs/rdp-chromium-receive-20261029.json",
     "microsoft_rdp_reference": "docs/rdp-microsoft-reference-20261029.json",
-    "macos_observer": "docs/rdp-macos-observer-20261029.json"
+    "macos_observer": "docs/rdp-macos-observer-20261029.json",
+    "receipt_resampling": "docs/rdp-receipt-resampling-20261029.json",
+    "playout_queue_diagnostics": "docs/rdp-playout-queue-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",

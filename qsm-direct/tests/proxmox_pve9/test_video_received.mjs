@@ -48,9 +48,13 @@ function harness(){
 }
 {
  const h=harness();h.feedback.attach(h.receiver);h.feedback.allow(true);const w=h.workers[0];w.emit({op:'ready'});
- for(let n=0;n<=64;n++){h.time(n);w.emit({op:'received',rtp:n});}
- assert.deepEqual(h.messages.map(v=>v.rtp),[0,16,32,48,64],
-  'receipt reports must expose a path change within one60fps frame, with bounded frequency');
+ // The worker captures these four receipts at0/16.7/33.4/50.1ms.
+ // A busy main thread delays the second message, then catches up on the third.
+ for(const [delivery,rtp] of [[0,10],[31.5,11],[34,12],[50.5,13]]){
+  h.time(delivery);w.emit({op:'received',rtp});
+ }
+ assert.deepEqual(h.messages.map(v=>v.rtp),[10,11,12,13],
+  'IPC catch-up must preserve newer receipts already paced by the worker');
  h.feedback.close();
 }
 {

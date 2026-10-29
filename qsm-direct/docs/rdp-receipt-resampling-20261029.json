@@ -1,0 +1,580 @@
+{
+  "date": "2026-10-29",
+  "status": "receipt_resampling_fix_retained_full_qualification_open",
+  "source_base_commit": "768a3ce",
+  "runtime": {
+    "version": "0.4.0+stock4.14~exp144",
+    "deb_sha256": "4b431cab02cb1b47b3b7f53fb929937ffc96470c4a9aa9dea6ca37774d717fd9",
+    "private_selector": 144,
+    "production_changed": false,
+    "worker_sha256": "f433e3b2d244f046ba50574801f51fbbb519d2cd6c9d2251a36fba7346d0bc14",
+    "bridge_sha256": "2862803cb04403042336245703cd00f8ad9ab624ae9e83a99666ed06c3352373",
+    "transport_sha256": "437eae4b7c69a764c57abc73a2449bfdb972eba3860ad32ce0c5d80f81b94903",
+    "viewer_sha256": "3c28da15b5184717484f537fb8408aac6897637c927a49bee1292aa56c2a021b"
+  },
+  "evidence_directory": "dist/rdp-hybrid/received-feedback-exp144",
+  "artifact_manifest_sha256": "a00983a5800934650879bf2b5268fade7ac2d2d22bce069a9a5269ee80ae1abd",
+  "change": {
+    "problem": "The encoded-frame worker already limits receipt capture to one per16ms and one outstanding report. A second16ms filter used the main thread IPC delivery clock. Delivery can bunch after a main-thread stall; that second filter discards a correctly paced newer receipt.",
+    "correction": "Remove only the redundant main-thread time filter. Keep worker pacing, one outstanding report, permission and transform checks, RTP integer/range/duplicate checks, channel readiness and1024-byte uplink buffering guard. The encoded frame is forwarded unchanged.",
+    "server_worker_transport": "All three packaged core payloads are byte-identical127. No139/140 RTP or142/143 queue diagnostic hooks in the144 baseline runs.",
+    "scope": "A concrete receipt correctness fix; no claim that this alone completes native queue or Mac performance qualification."
+  },
+  "tests": {
+    "regression_before": "Worker capture0/16.7/33.4/50.1ms delivered to main0/31.5/34/50.5ms: old source emits RTP10,11,13 and loses12. The new test fails on old source.",
+    "regression_after": "All four paced receipts retained. Existing actual WebStreams worker test still proves16ms bound, one outstanding report and unchanged frame objects/content.",
+    "viewer_suites": {
+      "count": 13,
+      "all_pass": true
+    },
+    "full_target_sdk_bridge_suite": {
+      "count": 209,
+      "all_pass": true,
+      "seconds": 7.45
+    },
+    "payload_source_match": "Packaged viewer equals worktree source and source-exp144.tar; changed test in archive matches the worktree. Core SHA256 matches frozen127."
+  },
+  "live": {
+    "lxc_nvenc": {
+      "run": "quality61-auto-lxc144-first-loss0p3-delay15-source-oracle",
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "additional_checks": null,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 55.15323936376568,
+          "max_frame_gap_ms": 103,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 928,
+            "median": 158.91939704306424,
+            "p95": 175.92180253317125,
+            "max": 223.58606389413183,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 47.98724417360155,
+          "max_frame_gap_ms": 183,
+          "initial_target": 8000,
+          "final_target": 2696,
+          "full_source_age_ms": {
+            "samples": 2746,
+            "median": 191.58425868178597,
+            "p95": 256.02398073921506,
+            "max": 538.9454929158078,
+            "clock_uncertainty_max": 2.0,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "source_age_max_minus_fast_p95_ms": 363.0236903826366
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 55.48564843636171,
+          "max_frame_gap_ms": 118,
+          "initial_target": 2696,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4530,
+            "median": 159.273832198231,
+            "p95": 208.66069331144388,
+            "max": 306.5637201691658,
+            "clock_uncertainty_max": 2.0,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "source_age_max_minus_fast_p95_ms": 130.64191763599453
+        }
+      ],
+      "glyph_ms": [
+        71,
+        72,
+        87,
+        72,
+        72,
+        138,
+        131,
+        113,
+        75,
+        75,
+        84,
+        57,
+        71,
+        66,
+        65
+      ],
+      "guest_characters": 15,
+      "observer": {
+        "frames": 8224,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0
+      }
+    },
+    "native_qsv": {
+      "run": "intel144-full-h264_qsv-virgl-capture-gpu-p8",
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "additional_checks": {
+        "whole_profile_source_gap_at_most_500ms": true
+      },
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 46.87295135702111,
+          "max_frame_gap_ms": 66,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 915,
+            "median": 213.80944956714742,
+            "p95": 232.80795863829695,
+            "max": 250.85374494083368,
+            "clock_uncertainty_max": 50.911478,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 45.17058041648205,
+          "max_frame_gap_ms": 183,
+          "initial_target": 8000,
+          "final_target": 1607,
+          "full_source_age_ms": {
+            "samples": 2708,
+            "median": 266.98218989186273,
+            "p95": 327.4989434207498,
+            "max": 711.3773351379997,
+            "clock_uncertainty_max": 48.411478,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "source_age_max_minus_fast_p95_ms": 478.56937649970274
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 50.384298289939096,
+          "max_frame_gap_ms": 117,
+          "initial_target": 1607,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4512,
+            "median": 232.6733777765071,
+            "p95": 300.5625545668096,
+            "max": 350.02044838232393,
+            "clock_uncertainty_max": 49.911478,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "source_age_max_minus_fast_p95_ms": 117.21248974402698
+        }
+      ],
+      "glyph_ms": [
+        343,
+        227,
+        258,
+        257,
+        252,
+        265,
+        272,
+        259,
+        273,
+        237,
+        231,
+        260,
+        274,
+        256,
+        225
+      ],
+      "guest_characters": 15,
+      "observer": {
+        "frames": 8168,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0
+      }
+    },
+    "mac_chrome_healthy": {
+      "run": "mac144-media-h264_qsv-virgl-capture-gpu-p9",
+      "checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": false,
+        "no_long_video_gap": false,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "additional_checks": {
+        "whole_profile_source_gap_at_most_500ms": false
+      },
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 21.754996631478328,
+          "max_frame_gap_ms": 1013.9000000059605,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 1282,
+            "median": 298.1970695157852,
+            "p95": 735.1647541392588,
+            "max": 1351.831420712795,
+            "clock_uncertainty_max": 95.07752200894069,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        342.80000001192093,
+        392.10000002384186,
+        388.7999999821186
+      ],
+      "guest_characters": 3,
+      "observer": {
+        "frames": 1314,
+        "requested": 1314,
+        "skipped": 0,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0
+      }
+    }
+  },
+  "components": {
+    "scope": "Owned KWin5/LXC108, installed exp68 Qt provider/agent and extracted exp144 host; Linux Firefox, real NVENC/H264, TURN/TCP8006. Application launch/ACL mocked; no private bitrate commands.",
+    "performance_scope": "Optimized cropped mode",
+    "mode_switch_limit": "Turning exact UI off restores the fixed-quality full-desktop baseline and can reinitialize the encoder. Its cadence is measured separately; raw aggregate gaps are retained.",
+    "same_connected_worker": true,
+    "desktop_resize_restore": true,
+    "no_minimum_target_collapse_on_2mbit": true,
+    "invalid_source_ids": 0,
+    "phases": [
+      {
+        "name": "fast",
+        "source_fps": 50.96219517094532,
+        "max_source_gap_ms": 117,
+        "mode_switches": {
+          "source_fps": 39.04674610449129,
+          "max_source_gap_ms": 246,
+          "note": "Includes deliberate feature-off baseline periods and codec-format changes; not relabeled as working-mode performance"
+        },
+        "pixel_oracles": 11,
+        "glyph_peaks_ms": [
+          91,
+          170
+        ]
+      },
+      {
+        "name": "narrow",
+        "source_fps": 48.01925584194163,
+        "max_source_gap_ms": 416,
+        "mode_switches": {
+          "source_fps": 34.58521511766104,
+          "max_source_gap_ms": 467,
+          "note": "Includes deliberate feature-off baseline periods and codec-format changes; not relabeled as working-mode performance"
+        },
+        "pixel_oracles": 11,
+        "glyph_peaks_ms": [
+          289,
+          244
+        ]
+      }
+    ]
+  },
+  "component_runner_scope": "Retain every original component assertion. Skip the generic wrapper's unrelated additional adaptive profile when component mode is selected; the old127 wrapper reached that unintended warmup after its component checks. The144 scoped runner exits0. Feature-off cadence remains measured separately and is not relabeled as optimized-mode performance.",
+  "mac_controls": {
+    "145_receipt_filter_and_receiver_target": {
+      "scope": "Single actual connection with144 product viewer and original127 backend. Test wrapper emulates only the old main-clock receipt filter for its middle ABA phase, then tests supported receiver.jitterBufferTarget60/0ms.",
+      "runtime": {
+        "run": "mac144-target145-h264_qsv-virgl-capture-gpu-q0",
+        "checks": {
+          "pixel_worker_complete": true,
+          "static_pixels_exact": true,
+          "source_ids_valid": true,
+          "source_fps_at_least_45": false,
+          "no_long_video_gap": true,
+          "same_connected_stream": true,
+          "full_rate_ceiling": true,
+          "input_delivered_once": true,
+          "glyph_peak_at_most_600ms": false,
+          "metadata_mode3": true,
+          "valid_source_ids": true
+        },
+        "additional_checks": {
+          "whole_profile_source_gap_at_most_500ms": false
+        },
+        "phases": [
+          {
+            "name": "fast",
+            "playout_case": "viewer144_before",
+            "receiver_target": {
+              "api": "jitterBufferTarget",
+              "value": 0
+            },
+            "receipt_filter_counters": {
+              "sent": 949,
+              "dropped": 0
+            },
+            "unique_fps": 19.97938297710264,
+            "max_frame_gap_ms": 467.19999998807907,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 564,
+              "median": 339.92998010944575,
+              "p95": 562.8358537486449,
+              "max": 836.5466467260063,
+              "clock_uncertainty_max": 148.07669,
+              "source_tick_interval_ms": 16.666666666666668
+            }
+          },
+          {
+            "name": "fast",
+            "playout_case": "emulated132_resample",
+            "receiver_target": {
+              "api": "jitterBufferTarget",
+              "value": 0
+            },
+            "receipt_filter_counters": {
+              "sent": 1277,
+              "dropped": 6
+            },
+            "unique_fps": 20.678341154477128,
+            "max_frame_gap_ms": 217.19999998807907,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 787,
+              "median": 331.72536902129934,
+              "p95": 534.3057279475047,
+              "max": 749.7253688983606,
+              "clock_uncertainty_max": 147.82669,
+              "source_tick_interval_ms": 16.666666666666668
+            }
+          },
+          {
+            "name": "fast",
+            "playout_case": "viewer144_after",
+            "receiver_target": {
+              "api": "jitterBufferTarget",
+              "value": 0
+            },
+            "receipt_filter_counters": {
+              "sent": 1476,
+              "dropped": 6
+            },
+            "unique_fps": 20.149299022880378,
+            "max_frame_gap_ms": 265.69999998807907,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 495,
+              "median": 377.6010576325177,
+              "p95": 628.0343909282209,
+              "max": 793.4343908447801,
+              "clock_uncertainty_max": 164.62668999701978,
+              "source_tick_interval_ms": 16.666666666666668
+            }
+          },
+          {
+            "name": "fast",
+            "playout_case": "viewer144_target60",
+            "receiver_target": {
+              "api": "jitterBufferTarget",
+              "value": 60
+            },
+            "receipt_filter_counters": {
+              "sent": 1818,
+              "dropped": 6
+            },
+            "unique_fps": 17.55114906299854,
+            "max_frame_gap_ms": 415.80000001192093,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 837,
+              "median": 357.7705330215366,
+              "p95": 651.1098180897505,
+              "max": 909.4701121095596,
+              "clock_uncertainty_max": 194.37668999701978,
+              "source_tick_interval_ms": 16.666666666666668
+            }
+          },
+          {
+            "name": "fast",
+            "playout_case": "viewer144_target0_restore",
+            "receiver_target": {
+              "api": "jitterBufferTarget",
+              "value": 0
+            },
+            "receipt_filter_counters": {
+              "sent": 2020,
+              "dropped": 6
+            },
+            "unique_fps": 18.583284278105374,
+            "max_frame_gap_ms": 216.0,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 520,
+              "median": 353.28890179904704,
+              "p95": 552.0222350489377,
+              "max": 769.4889016604662,
+              "clock_uncertainty_max": 124.4266900089407,
+              "source_tick_interval_ms": 16.666666666666668
+            }
+          }
+        ],
+        "glyph_ms": [
+          369.5,
+          380.40000000596046,
+          368.40000000596046,
+          362.30000001192093,
+          334.30000001192093,
+          680.0999999940395,
+          363.90000000596046
+        ],
+        "guest_characters": 7,
+        "observer": {
+          "frames": 3664,
+          "requested": 3664,
+          "skipped": 0,
+          "wrong_static": 0,
+          "uncovered_static": 0,
+          "invalid_ids": 0
+        }
+      },
+      "emulated_receipts_dropped": 6,
+      "decision": "19.98/20.68/20.15fps across144/emulated-old/144; restoring the old filter does not restore45fps in this trial. Target60 then0 yields17.55/18.58fps and does not solve cadence. Not a cross-trial causal proof or full15-character transition acceptance."
+    },
+    "147_pixel_observer_control": {
+      "status": "diagnostic_only_not_qualification",
+      "runtime_aggregation_failure": "The original helper attempted a median for intentionally empty source-pixel observations in an observer-off phase. Raw report contains all phase bounds, video callbacks, browser stats and observed snapshots; this separate analysis derives callback/decode metrics directly without inferring any unobserved source IDs.",
+      "phases": [
+        {
+          "case": "pixels_on_before",
+          "pixels_observed": true,
+          "seconds": 9.238399999976158,
+          "callback_fps": 22.4064773121465,
+          "decoded_fps": 44.190691586824094,
+          "wire_kbps": 4416.928724761257,
+          "source_fps": 21.215794942901997,
+          "browser_after_receive_ms_median": 77.30000000000291
+        },
+        {
+          "case": "pixels_off_first",
+          "pixels_observed": false,
+          "seconds": 13.024,
+          "callback_fps": 24.186117936117935,
+          "decoded_fps": 44.24439966210148,
+          "wire_kbps": 4445.91368978747,
+          "source_fps": null,
+          "browser_after_receive_ms_median": 98.5
+        },
+        {
+          "case": "pixels_on_middle",
+          "pixels_observed": true,
+          "seconds": 8.894700000017881,
+          "callback_fps": 24.05927125137102,
+          "decoded_fps": 45.164852883776064,
+          "wire_kbps": 4390.682872596412,
+          "source_fps": 22.260447232576922,
+          "browser_after_receive_ms_median": 89.90000000000146
+        },
+        {
+          "case": "pixels_off_second",
+          "pixels_observed": false,
+          "seconds": 12.86640000000596,
+          "callback_fps": 30.000621774530654,
+          "decoded_fps": 46.92400155068698,
+          "wire_kbps": 4716.957616807878,
+          "source_fps": null,
+          "browser_after_receive_ms_median": 88.5
+        },
+        {
+          "case": "pixels_on_restore",
+          "pixels_observed": true,
+          "seconds": 8.872799999982119,
+          "callback_fps": 25.921918672850005,
+          "decoded_fps": 42.516642583752116,
+          "wire_kbps": 4331.06405800889,
+          "source_fps": 23.893246776713916,
+          "browser_after_receive_ms_median": 68.25
+        }
+      ],
+      "observer": {
+        "frames": 1732,
+        "requested": 1732,
+        "pending": 0,
+        "max_pending": 3,
+        "skipped": 0,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "errors": [],
+        "observations": null,
+        "ids": null,
+        "diagnosticSampling": true,
+        "diagnostic_paused": 1636,
+        "creation_cost_ms": null,
+        "completion_ms": null,
+        "readback_ms": null,
+        "stop": true,
+        "format": "BGRX"
+      },
+      "glyph_ms": [
+        473.2999999821186,
+        373.40000000596046,
+        367,
+        333.69999998807907,
+        347.40000000596046,
+        645
+      ]
+    },
+    "observer_interpretation": "Turning pixel sampling off yields24.19 and30.00 actual browser callbacks/s, compared22.41/24.06/25.92 with sampling on. This can indicate some observer cost, but the control does not restore45fps. Unobserved phases have no source-ID or static-fidelity qualification. The empty-observation aggregation failure and original report are retained; no full run pass is claimed.",
+    "mac_environment": "Same owned Chrome156 profile on bob@10.90.10.22; no OS thermal/performance warning was recorded in the separate idle resource sample. Per-stream hardware decode remains unproven."
+  },
+  "limits": [
+    "Local LXC passes all13 original transition gates and22 component exact-pixel oracles; this does not complete the browser/codec/mode/fidelity/soak matrix.",
+    "Native144 source-age excess478.569ms still exceeds400ms despite passing frequency/input/static gates.",
+    "Mac144 healthy trial21.75fps and1013.9ms source gap fail; one observed last-send-to-receive interval reaches802.97ms. The remote path differs from local Windows/LXC.",
+    "The145 control has7 typed characters and147 has6; neither is the full15-character transition profile.",
+    "Production remains exp35 and existing session start ticks remain unchanged. No install, release, public push or rollout is performed."
+  ],
+  "next_action": "Isolate bounded confirmed-refresh admission reservation from the rejected tighter window before considering a queue policy. Continue Mac scheduling/path diagnosis with the strict pixel observer and its controls; retain original timing/fidelity thresholds and complete the remaining plan."
+}
