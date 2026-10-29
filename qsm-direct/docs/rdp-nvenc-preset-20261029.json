@@ -1,0 +1,125 @@
+{
+  "date": "2026-10-29",
+  "status": "preset_change_not_promoted",
+  "source_base_commit": "70d576d",
+  "evidence_directory": "dist/rdp-hybrid/nvenc-preset-153",
+  "artifact_manifest_sha256": "146816a05ed4ba39d0754bef87b8e89f822f3e73105c89a4383d344edb7f557c",
+  "scope": "Offline fixed1050kbit/s NVENC preset isolation on the same RTX3080; original127/144 codec options,450msVBV, no Bframes or lookahead;640x448 crop with natural640x360 video and32px top/56px bottom grey. Explicit IDRs each2s. Not actual packaged-worker, dynamic-rate, receiver, network, latency or cadence qualification.",
+  "source_sha256": "1a063574ef752a5d0c0ffa855d5dded6fc361f68a771b523e8ff0cf23b6f5886",
+  "experiments": [
+    {
+      "preset": "p4",
+      "first_cut_min_ssim": 0.8587452680731642,
+      "first_cut_min_rgb_psnr": 29.571124604534234,
+      "measured_bitrate_kbps": 1043.7648000000002,
+      "selected_packet_bytes": [
+        17597,
+        77,
+        7609,
+        113,
+        15040,
+        66,
+        17469,
+        853,
+        8321,
+        69
+      ]
+    },
+    {
+      "preset": "p5",
+      "first_cut_min_ssim": 0.8551384896233394,
+      "first_cut_min_rgb_psnr": 29.629420389868002,
+      "measured_bitrate_kbps": 1043.316,
+      "selected_packet_bytes": [
+        17465,
+        69,
+        8208,
+        95,
+        14891,
+        64,
+        17437,
+        709,
+        8198,
+        45
+      ]
+    },
+    {
+      "preset": "p6",
+      "first_cut_min_ssim": 0.8551384896233394,
+      "first_cut_min_rgb_psnr": 29.629420389868002,
+      "measured_bitrate_kbps": 1042.2968,
+      "selected_packet_bytes": [
+        17465,
+        69,
+        7427,
+        122,
+        14932,
+        66,
+        17437,
+        812,
+        8198,
+        45
+      ]
+    }
+  ],
+  "decision": "At the same1050kbit/s and450msVBV, p5/p6 do not improve the worst first-cut SSIM:0.85514 vs p40.85875. Do not change the product preset based on this trial. These are offline fixed-rate forced-IDR samples; no live package qualification is inferred.",
+  "limits": [
+    "Offline1050kbit/s rate is constant and forced IDRs align with cuts; actual144 worst early-narrow trace uses900kbit/s and its cut can be a P picture. This is not a replay of that controller/capture stream.",
+    "Encoding speed includes process/device startup; presets execute serially on a cold then warm GPU. Do not rank preset latency from these throughput figures."
+  ],
+  "live_followup": {
+    "scope": "Read-only extraction from the original144 hardcut backend log; codec times use actual capture stamps, which precede encoder decisions. No new live replay.",
+    "path_rates": [
+      {
+        "seconds_after_cut": 0.0,
+        "from": 8000,
+        "to": 1348
+      },
+      {
+        "seconds_after_cut": 13.658002679236233,
+        "from": 1348,
+        "to": 1685
+      },
+      {
+        "seconds_after_cut": 17.822785614989698,
+        "from": 1685,
+        "to": 2106
+      }
+    ],
+    "codec_rates": [
+      {
+        "cropped": false,
+        "codec_kbps": 8000,
+        "path_kbps": 8000,
+        "capture_seconds_after_cut": -44.49858646513894
+      },
+      {
+        "cropped": true,
+        "codec_kbps": 5600,
+        "path_kbps": 8000,
+        "capture_seconds_after_cut": -40.762430909555405
+      },
+      {
+        "cropped": true,
+        "codec_kbps": 900,
+        "path_kbps": 1348,
+        "capture_seconds_after_cut": 0.06749131251126528
+      },
+      {
+        "cropped": true,
+        "codec_kbps": 1450,
+        "path_kbps": 2106,
+        "capture_seconds_after_cut": 18.64745797915384
+      },
+      {
+        "cropped": false,
+        "codec_kbps": 8000,
+        "path_kbps": 2106,
+        "capture_seconds_after_cut": 51.68142464570701
+      }
+    ]
+  },
+  "interpretation": "The actual144 hardcut run retained a1348kbit/s path target and900kbit/s codec until its first upward probe13.658s after the cut. Its worst early-narrow scene sample occurs before that growth. The rate helper already tracks direction rather than identical targets; no such implementation bug was found. Investigate the controller's evidence/cooldown for this interval before another blind encoder or admission change.",
+  "production_changed": false,
+  "next_action": "Use the recorded low-rate packet/receipt windows to explain why growth starts13.658s after the cut despite spare2M capacity. Preserve byte debt and congestion guards, and require both hard-cut fidelity and transition timing in any replacement. Native/Mac and remaining matrix/release scope stay open."
+}

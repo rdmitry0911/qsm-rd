@@ -277,7 +277,7 @@
       "149 corrects initial RDP/QSM video-content mismatch with SHA2561a0635... proved in both guests. Corrected RDP31.52/29.02/31.63fps,15chars once,952ms initial-cut glyph fails600; QSM14455.15/47.99/55.49fps and138ms. Separate144 hardcut50.78/52.41fps passes cadence but narrow SSIM0.885896 fails0.90. Original failures retained; no overall winner declared."
     ],
     "pending": [
-      "Investigate why the low-rate cropped encoder misses hard-cut SSIM while preserving its observed cadence; prefer a measured encoder-quality change over another rejected admission hold. Continue native/Mac diagnosis and broader qualification in independent environments.",
+      "Use the recorded low-rate packet/receipt windows to explain why growth starts13.658s after the cut despite spare2M capacity. Preserve byte debt and congestion guards, and require both hard-cut fidelity and transition timing in any replacement. Native/Mac and remaining matrix/release scope stay open.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -334,9 +334,10 @@
       "dist/rdp-hybrid/playout-queue-139-143",
       "dist/rdp-hybrid/received-feedback-exp144",
       "dist/rdp-hybrid/refresh-reservation-146",
-      "dist/rdp-hybrid/rdp-matched-content-149"
+      "dist/rdp-hybrid/rdp-matched-content-149",
+      "dist/rdp-hybrid/nvenc-preset-153"
     ],
-    "next_action": "Investigate why the low-rate cropped encoder misses hard-cut SSIM while preserving its observed cadence; prefer a measured encoder-quality change over another rejected admission hold. Continue native/Mac diagnosis and broader qualification in independent environments.",
+    "next_action": "Use the recorded low-rate packet/receipt windows to explain why growth starts13.658s after the cut despite spare2M capacity. Preserve byte debt and congestion guards, and require both hard-cut fidelity and transition timing in any replacement. Native/Mac and remaining matrix/release scope stay open.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -558,7 +559,8 @@
     "receipt_resampling": "docs/rdp-receipt-resampling-20261029.json",
     "playout_queue_diagnostics": "docs/rdp-playout-queue-20261029.json",
     "refresh_reservation": "docs/rdp-refresh-reservation-20261029.json",
-    "matched_rdp_reference": "docs/rdp-matched-content-20261029.json"
+    "matched_rdp_reference": "docs/rdp-matched-content-20261029.json",
+    "nvenc_preset_diagnostic": "docs/rdp-nvenc-preset-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",
