@@ -2455,6 +2455,7 @@ class BrowserWebRtcBridge:
         self._next_video_wire_bytes = 0
         self._packet_hold_until = 0.
         self._packet_hold_serial = 0
+        self._packet_hold_frame_serial = 0
         self._packet_hold_armed = True
         self._video_frame_in_progress = False
         self._regions_eligible = self._regions_ready = False
@@ -2955,12 +2956,29 @@ class BrowserWebRtcBridge:
             self._packet_hold_until = 0.
             return
         delivery = state.packet_delivery
-        if delivery.serial == self._packet_hold_serial:
+        new_packet = delivery.serial != self._packet_hold_serial
+        new_frame = state.presented_serial != self._packet_hold_frame_serial
+        if not new_packet and not new_frame:
             return
         self._packet_hold_serial = delivery.serial
-        if delivery.valid and delivery.queue_excess <= .01 and now >= self._packet_hold_until:
+        self._packet_hold_frame_serial = state.presented_serial
+        if (new_packet and delivery.valid and delivery.queue_excess <= .01 and
+                now >= self._packet_hold_until):
             self._packet_hold_armed = True
-        if delivery.pressure and self._packet_hold_armed:
+        # A matched complete-frame receipt can precede the next RTCP report.
+        # Rising age plus enough recently delivered bytes may reserve the same
+        # short pause before another AU is committed. Display-only callbacks,
+        # draining flight and tiny/idle receipt pairs cannot establish this
+        # hint. Only canonical packet evidence may retune or request repair.
+        samples = state.presented_samples
+        frame_pressure = (new_frame and state.feedback_kind == 'received' and
+                          now - state.presented_time < .1 and len(samples) >= 2 and
+                          state.presented_bytes >= VIDEO_DELIVERY_MIN_BYTES and
+                          state.presented_delay > state.presented_base + .05 and
+                          state.presented_delay > samples[-2][0] - samples[-2][1] + .005 and
+                          state.presented_offered_kbps >= self._video_rate.current_kbps * .4 and
+                          0 < state.presented_kbps < state.presented_offered_kbps * .85)
+        if ((new_packet and delivery.pressure) or frame_pressure) and self._packet_hold_armed:
             self._packet_hold_until = now + .075
             self._packet_hold_armed = False
             self._video_received._wake.set()
@@ -3456,6 +3474,7 @@ class BrowserWebRtcBridge:
                         self._video_rate.received_report(self, *frame)
                     else:
                         self._video_rate.presentation_report(self, *frame)
+                    self._update_packet_admission()
             except (ValueError, BridgeError):
                 pass  # Disposable diagnostics must not retire guest input.
 

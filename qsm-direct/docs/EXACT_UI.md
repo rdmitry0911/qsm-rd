@@ -170,6 +170,15 @@ source-age excess is 313.4/347.3ms and recovered cadence 50.94/54.00fps. Actual
 forwarded pixels confirm those ages. Native 120, repeated/fidelity/matrix and
 release work remain; see the [packet-cadence report](rdp-packet-cadence-20261029.json).
 
+The private121 host also accepts a bounded growing received-frame hint before
+the next packet report; it changes no bitrate or image acknowledgement. The
+200-test suite passes and the LXC/NVENC transition passes all13 gates, but the
+native QSV run still fails source freshness and final rate recovery. Hard-cut
+SSIM/cadence and component cadence also fail; functional component pixels pass
+only the completed fast phase. The passive trace exposes repeated packet hints
+while the overuse filter is NORMAL. These are private diagnostics, not release
+qualification; see the [frame-admission report](rdp-frame-admission-20261029.json).
+
 Frame-aware waits permit one baseline round trip, bounded to 50–250 ms, with
 one deadline across all acknowledgements. Short healthy waits keep raw capture
 history; a wait lasting one short media tick applies the bounded raw lease.

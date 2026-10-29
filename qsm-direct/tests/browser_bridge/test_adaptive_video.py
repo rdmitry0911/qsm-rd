@@ -1155,6 +1155,65 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def growing_frame_receipt(bridge):
+        """Matched native QSV receipt before the first canonical path cut."""
+        state = BridgeTests.packet_congestion(bridge)
+        now = state.presented_time
+        state.packet_delivery.pressure = state.packet_delivery.queued = False
+        state.packet_delivery.queue_excess = 0.
+        state.presented_serial = 12
+        state.presented_base = .109088565
+        state.presented_delay = .185690564
+        state.presented_bytes = 75627
+        span, send_span = .162950595, .093484776
+        state.presented_kbps = state.presented_bytes * 8 / 1000 / span
+        state.presented_offered_kbps = state.presented_bytes * 8 / 1000 / send_span
+        state.presented_samples = [(now - span, now - span - .115, 100000),
+                                   (now - .05, now - .05 - .109, 160000),
+                                   (now, now - state.presented_delay, 175627)]
+        return state
+
+    async def test_growing_matched_frame_receipt_holds_before_new_packet_feedback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            state = self.growing_frame_receipt(bridge)
+            try:
+                bridge._update_packet_admission()
+                until = bridge._packet_hold_until
+                self.assertGreater(until, time.monotonic())
+                self.assertLessEqual(until, state.presented_time + .076)
+                self.assertTrue(bridge._video_received._wake.is_set())
+                self.assertEqual(bridge._video_rate.current_kbps, 8000)
+                self.assertEqual(bridge._video_received._acknowledged_bytes, 0)
+                self.assertEqual(bridge.video_track.recovery_serial, 0)
+                bridge._update_packet_admission()
+                state.presented_serial += 1
+                bridge._update_packet_admission()
+                self.assertEqual(bridge._packet_hold_until, until,
+                                 'frame reports cannot extend an existing episode')
+            finally:
+                await bridge.close()
+
+    async def test_frame_hold_excludes_display_delay_tiny_samples_and_draining_flight(self):
+        for case in ('presented', 'tiny', 'falling', 'fast_delivery', 'stale_frame', 'stale_packet'):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                bridge = BrowserWebRtcBridge(Path(directory))
+                state = self.growing_frame_receipt(bridge)
+                if case == 'presented': state.feedback_kind = 'presented'
+                if case == 'tiny': state.presented_bytes = 2000
+                if case == 'falling':
+                    t, _, b = state.presented_samples[-2]
+                    state.presented_samples[-2] = (t, t - .2, b)
+                if case == 'fast_delivery': state.presented_kbps = state.presented_offered_kbps * 1.1
+                if case == 'stale_frame': state.presented_time -= .2
+                if case == 'stale_packet': state.packet_delivery.updated -= 2
+                try:
+                    bridge._update_packet_admission()
+                    self.assertEqual(bridge._packet_hold_until, 0)
+                finally:
+                    await bridge.close()
+
     async def test_packet_confirmed_repair_and_short_hold_ignore_frame_receipt_cadence(self):
         for kind in ('received', 'presented'):
             with tempfile.TemporaryDirectory() as directory:
