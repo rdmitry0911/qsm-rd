@@ -21,6 +21,26 @@ from extensions.browser_bridge.qsm_transport_feedback import DeliveryEstimator
 
 
 class PacketDeliveryTests(unittest.TestCase):
+    def test_early_packet_pressure_precedes_confirmed_cut_and_stays_clear_on_a_fast_link(self):
+        estimator = DeliveryEstimator()
+        for group in range(50):
+            samples=tuple((n*.0012, 400+n*.0012+.02, 1200) for n in range(group*4, group*4+4))
+            estimator.add(samples, samples[-1][1]-400+.02)
+            self.assertFalse(estimator.pressure)
+        hints=[];confirmed=[];last_arrival=samples[-1][1]
+        for group in range(30):
+            samples=[]
+            for index in range(4):
+                sent=(200+group*4+index)*.0012
+                last_arrival=max(last_arrival,400+sent+.02)+.0048
+                samples.append((sent,last_arrival,1200))
+            estimator.add(tuple(samples), last_arrival-400+.02)
+            if estimator.pressure:hints.append(estimator.updated)
+            if estimator.queued:confirmed.append(estimator.updated)
+        self.assertTrue(hints)
+        self.assertTrue(confirmed)
+        self.assertLess(hints[0], confirmed[0])
+
     def setUp(self):
         self.now = 0.
         self.applied = []
@@ -771,6 +791,43 @@ class PresentationHistoryTests(unittest.TestCase):
 
 
 class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
+    async def test_early_hold_blocks_an_uncommitted_frame_and_expires_without_ack_or_retune(self):
+        history = _VideoPresentation()
+        now = time.monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.11, presented_delay=.11,
+                                presented_kbps=8000, presented_offered_kbps=8000,
+                                feedback_kind='received', received_rapid_time=now)
+        until = now + .04
+        leases = []
+        pending = asyncio.create_task(history.wait_for_credit(lambda: 0, lambda: state,
+            bitrate_kbps=8000, frame_wire_bytes=10000, admission_hold=lambda: until, on_wait=leases.append))
+        await asyncio.sleep(.005)
+        self.assertFalse(pending.done(), 'even a frame fitting byte credit is not yet committed')
+        await asyncio.wait_for(pending, .08)
+        self.assertGreaterEqual(time.monotonic(), until)
+        self.assertEqual(history._acknowledged_bytes, 0)
+        self.assertEqual(leases, [True, False])
+
+    async def test_replaced_unsent_frame_interrupts_credit_wait_and_releases_lease(self):
+        history = _VideoPresentation()
+        now = time.monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.2, presented_delay=.25,
+                                presented_kbps=8000, presented_offered_kbps=8000,
+                                feedback_kind='received', received_rapid_time=now)
+        history.sent(10, 1000000)
+        leases = []
+        superseded = False
+        pending = asyncio.create_task(history.wait_for_credit(
+            lambda: 1000000, lambda: state, bitrate_kbps=8000, frame_wire_bytes=20000,
+            interrupted=lambda: superseded, on_wait=leases.append))
+        await asyncio.sleep(.005)
+        self.assertFalse(pending.done())
+        superseded = True
+        history._wake.set()
+        await asyncio.wait_for(pending, .03)
+        self.assertEqual(history._acknowledged_bytes, 0)
+        self.assertEqual(leases, [True, False])
+
     def drain_state(self, now):
         return SimpleNamespace(presented_time=now, presented_base=.11, presented_delay=.115,
                                presented_kbps=6000, presented_offered_kbps=6000,
@@ -1095,6 +1152,204 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_packet_admission_hold_deduplicates_and_cannot_renew_a_congestion_episode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            state = self.packet_congestion(bridge)
+            delivery = state.packet_delivery
+            delivery.pressure = True; delivery.queue_excess = .04
+            try:
+                bridge._update_packet_admission()
+                until = bridge._packet_hold_until
+                self.assertGreater(until, time.monotonic())
+                bridge._update_packet_admission()
+                self.assertEqual(bridge._packet_hold_until, until)
+                delivery.serial += 1
+                bridge._update_packet_admission()
+                self.assertEqual(bridge._packet_hold_until, until, 'new samples cannot extend this episode')
+                bridge._packet_hold_until = time.monotonic() - .01
+                delivery.serial += 1; delivery.queue_excess = .005; delivery.pressure = False
+                bridge._update_packet_admission()
+                self.assertTrue(bridge._packet_hold_armed)
+                delivery.serial += 1; delivery.queue_excess = .04; delivery.pressure = True
+                bridge._update_packet_admission()
+                self.assertGreater(bridge._packet_hold_until, time.monotonic())
+                bridge.video_track.current_region = None
+                bridge._update_packet_admission()
+                self.assertEqual(bridge._packet_hold_until, 0)
+            finally:
+                await bridge.close()
+
+    async def test_full_desktop_and_unknown_crop_keep_the_established_prediction_chain(self):
+        for region in (None, (1280, 768, 0, 0, 1280, 768)):
+            with tempfile.TemporaryDirectory() as directory:
+                bridge = BrowserWebRtcBridge(Path(directory))
+                self.packet_congestion(bridge)
+                bridge.video_track.current_region = region
+                requests = []
+                bridge.input.request_video_refresh = lambda rate: requests.append(rate) or 7
+                bridge.video_track.put_nowait(EncodedUnit(b'I', True, 1500))
+                bridge.video_track.put_nowait(EncodedUnit(b'P', False, 1500))
+                try:
+                    bridge._video_rate_changed(1700)
+                    self.assertEqual(requests, [])
+                    self.assertEqual(bridge.video_track.recovery_serial, 0)
+                    self.assertEqual(bridge.video_track._queue.qsize(), 2)
+                finally:
+                    await bridge.close()
+
+    async def test_private_refresh_requires_all_ready_regions_and_deduplicates_shared_viewers(self):
+        from extensions.browser_bridge.qsm_browser_bridge import UnixInputEgress, INPUT_VIDEO_REFRESH, BridgeError
+        with tempfile.TemporaryDirectory() as directory:
+            output = UnixInputEgress(Path(directory))
+            packets = []
+            output._send_packet = lambda packet: packets.append(packet) or True
+            self.assertEqual(output.request_video_refresh(1700), 0)
+            output._region_owners = {'new': (True, True), 'old': (False, False)}
+            self.assertEqual(output.request_video_refresh(1700), 0)
+            output._region_owners.pop('old')
+            token = output.request_video_refresh(1700)
+            self.assertGreater(token, 0)
+            self.assertEqual(output.request_video_refresh(1700), token)
+            self.assertEqual(len(packets), 1)
+            self.assertEqual(packets[0], INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_VIDEO_REFRESH, 12) + struct.pack('!IQ', 1700, token))
+            with self.assertRaises(BridgeError): output.request_video_refresh(True)
+            output._send_packet = lambda _: False
+            self.assertEqual(output.request_video_refresh(1000), 0)
+
+    @staticmethod
+    def packet_congestion(bridge):
+        from extensions.browser_bridge.qsm_browser_bridge import _ReceiverFeedback
+        now = time.monotonic()
+        state = _ReceiverFeedback(now, presented_time=now, presented_base=.15,
+                                  presented_delay=.2, feedback_kind='received',
+                                  received_rapid_time=now)
+        state.packet_delivery = DeliveryEstimator()
+        state.packet_delivery.updated = state.packet_delivery.sent_at = now
+        state.packet_delivery.valid = state.packet_delivery.queued = True
+        state.packet_delivery.serial = 1
+        state.packet_delivery.kbps = 2000
+        state.packet_delivery.offered_kbps = 6000
+        bridge._video_rate._receivers[bridge] = state
+        from extensions.browser_bridge.qsm_transport_feedback import PacketHistory
+        bridge._twcc_history = PacketHistory({1})
+        bridge._ui_source.features = 31
+        bridge._ui_peer.enabled = True
+        bridge._regions_ready = bridge._regions_eligible = True
+        bridge.video_track.current_region = (1280, 768, 0, 64, 1280, 512)
+        return state
+
+    async def test_replaced_frame_never_enters_real_rtp_history_or_counters(self):
+        from aiortc.rtp import RtpPacket
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            sender = bridge._pc.addTrack(bridge.video_track)
+            history = bridge._video_received
+            self.packet_congestion(bridge)
+            bridge._video_pacer.sent_bytes = 1000000
+            history.sent(123, 1000000)
+            started = asyncio.Event()
+            original_wait = history.wait_for_credit
+            async def wait(*args, **kwargs):
+                started.set()
+                return await original_wait(*args, **kwargs)
+            history.wait_for_credit = wait
+            async def encoded(codec):
+                packet = await bridge.video_track.recv()
+                bridge.video_track.current_region = (1280, 768, 0, 64, 1280, 512)
+                return SimpleNamespace(payloads=[bytes(packet)], timestamp=packet.pts, audio_level=None)
+            sender._next_encoded_frame = encoded
+            bridge._attach_video_frame_budget(sender)
+            sent = []
+            done = asyncio.Event()
+            async def wire(data):
+                sent.append(RtpPacket.parse(data))
+                if len(sent) == 2:
+                    done.set()
+            sender.transport._send_rtp = wire
+            old_capture = int((time.monotonic() - .1) * 90000)
+            bridge.video_track.put_nowait(EncodedUnit(b'initial', True, 1500, capture=old_capture))
+            await bridge.video_track.recv()
+            bridge.video_track.put_nowait(EncodedUnit(b'obsolete P1', False, 1500, capture=old_capture))
+            bridge.video_track.put_nowait(EncodedUnit(b'obsolete P2', False, 1500, capture=old_capture))
+            requests = []
+            def produce():
+                bridge.video_track.put_nowait(EncodedUnit(b'old IDR in transit', True, 1500, capture=old_capture - 1500))
+                fresh = int(time.monotonic() * 90000) + 1
+                bridge.video_track.put_nowait(EncodedUnit(b'fresh IDR', True, 1500, capture=fresh, refresh_token=7, codec_bitrate=1150))
+                bridge.video_track.put_nowait(EncodedUnit(b'fresh P', False, 1500, capture=fresh + 1500, refresh_token=7, codec_bitrate=1150))
+            def request(rate):
+                requests.append(rate)
+                asyncio.get_running_loop().call_soon(produce)
+                return 7
+            bridge.input.request_video_refresh = request
+            pending = asyncio.create_task(sender._run_rtp(SimpleNamespace(payloadType=99)))
+            try:
+                await asyncio.wait_for(started.wait(), .1)
+                self.assertEqual(history.credit_waits, 1)
+                self.assertEqual(sent, [])
+                bridge._video_rate.current_kbps = 1700
+                bridge._video_rate_changed(1700)
+                history.acknowledge(123)
+                await asyncio.wait_for(done.wait(), .2)
+                self.assertEqual([packet.payload for packet in sent], [b'fresh IDR', b'fresh P'])
+                self.assertEqual(sent[1].sequence_number, (sent[0].sequence_number + 1) & 65535)
+                self.assertEqual((sent[1].timestamp - sent[0].timestamp) & 0xffffffff, 1500)
+                self.assertEqual(sender._RTCRtpSender__packet_count, 2)
+                self.assertEqual(sender._RTCRtpSender__octet_count, len(b'fresh IDRfresh P'))
+                self.assertEqual(len(sender._RTCRtpSender__rtp_history), 2)
+                self.assertEqual(requests, [1700])
+                self.assertFalse(bridge._receipt_pause_active)
+            finally:
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
+                await bridge.close()
+
+    async def test_confirmed_cut_finishes_an_rtp_frame_already_in_progress(self):
+        from aiortc.rtp import RtpPacket
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            sender = bridge._pc.addTrack(bridge.video_track)
+            self.packet_congestion(bridge)
+            async def encoded(codec):
+                packet = await bridge.video_track.recv()
+                bridge.video_track.current_region = (1280, 768, 0, 64, 1280, 512)
+                payloads = [b'old-a', b'old-b', b'old-c'] if bytes(packet) == b'old' else [bytes(packet)]
+                return SimpleNamespace(payloads=payloads, timestamp=packet.pts, audio_level=None)
+            sender._next_encoded_frame = encoded
+            bridge._attach_video_frame_budget(sender)
+            sent = []
+            done = asyncio.Event()
+            def request(rate):
+                fresh = int(time.monotonic() * 90000) + 1
+                asyncio.get_running_loop().call_soon(bridge.video_track.put_nowait, EncodedUnit(b'new-IDR', True, 1500, capture=fresh, refresh_token=7, codec_bitrate=1150))
+                return 7
+            bridge.input.request_video_refresh = request
+            async def wire(data):
+                sent.append(RtpPacket.parse(data))
+                if len(sent) == 1:
+                    bridge._video_rate.current_kbps = 1700
+                    bridge._video_rate_changed(1700)
+                if len(sent) == 4:
+                    done.set()
+            sender.transport._send_rtp = wire
+            capture = int((time.monotonic() - .02) * 90000)
+            bridge.video_track.put_nowait(EncodedUnit(b'old', True, 1500, capture=capture))
+            bridge.video_track.put_nowait(EncodedUnit(b'old-dependent', False, 1500, capture=capture))
+            pending = asyncio.create_task(sender._run_rtp(SimpleNamespace(payloadType=99)))
+            try:
+                await asyncio.wait_for(done.wait(), .2)
+                self.assertEqual([p.payload for p in sent], [b'old-a', b'old-b', b'old-c', b'new-IDR'])
+                self.assertEqual([p.marker for p in sent], [0, 0, 1, 1])
+                self.assertTrue(all(b.sequence_number == (a.sequence_number + 1) & 65535
+                                    for a, b in zip(sent, sent[1:])))
+                self.assertEqual(sender._RTCRtpSender__packet_count, 4)
+                self.assertEqual(sender._RTCRtpSender__octet_count, len(b'old-aold-bold-cnew-IDR'))
+            finally:
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
+                await bridge.close()
+
     async def test_confirmed_packet_cut_retains_old_flight_with_new_pacing_and_no_idr(self):
         from extensions.browser_bridge.qsm_browser_bridge import _ReceiverFeedback
         from extensions.browser_bridge.qsm_transport_feedback import PacketHistory

@@ -36,6 +36,7 @@ class DeliveryEstimator:
         self.serial = self.bytes = 0
         self.kbps = self.offered_kbps = self.queue_excess = 0.
         self.valid = self.queued = False
+        self.pressure = False
 
     def fresh(self, now: float) -> bool:
         return 0 <= now - self.updated < self.FRESH_AGE
@@ -80,7 +81,19 @@ class DeliveryEstimator:
         self._baselines.append((now, min(transits)))
         baseline = sorted(value for _, value in self._baselines)[int((len(self._baselines) - 1) * .1)]
         # One reordered/late packet must not establish a whole-path queue.
+        previous_queue = self.queue_excess
         self.queue_excess = max(0., min(transits[-8:]) - baseline) / 1e6
+        # A short matched interval may pause new frame admission before enough
+        # evidence exists to change bitrate. It cannot change codec quality.
+        short = next((row for row in reversed(self._window)
+                      if round((self._last_arrival - row[1]) * 1e6) >= 25000), None)
+        self.pressure = False
+        if short is not None and self._total - short[2] >= 3450:
+            span = (round(self._last_arrival * 1e6) - round(short[1] * 1e6)) / 1e6
+            senders = [row[0] for row in self._window if row[1] >= short[1]]
+            offered_span = max(.001, max(senders) - min(senders))
+            self.pressure = (self.queue_excess > .02 and self.queue_excess > previous_queue + .005
+                             and offered_span < span * .5)
         # Use the nearest anchor at least100ms old. Including all180ms can
         # mix the preceding fast link into the first congestion estimate,
         # leaving the new target above capacity for another control interval.

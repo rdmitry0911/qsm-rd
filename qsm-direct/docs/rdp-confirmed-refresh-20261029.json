@@ -1,0 +1,619 @@
+{
+  "date": "2026-10-29",
+  "status": "native119_initial_and_repeat_pass_full_project_qualification_pending",
+  "source_base_commit": "8db86be",
+  "retained_candidate": "0.4.0+stock4.14~exp119 private main package; no public rollout",
+  "evidence_directory": "dist/rdp-hybrid/confirmed-refresh-exp119",
+  "artifact_count": 136,
+  "artifact_bytes": 1584057641,
+  "artifact_manifest_sha256": "c8c075e52ead82975014458f57c91a131684c9eb2f513e2062c9c09e44848d74",
+  "source": {
+    "version": "0.4.0+stock4.14~exp119",
+    "deb_sha256": "c3b081665fb99c4f659979e8db920a1029682252639171d7313b5e08ac004773",
+    "worker_sha256": "f433e3b2d244f046ba50574801f51fbbb519d2cd6c9d2251a36fba7346d0bc14",
+    "bridge_sha256": "ef3def732e81cdcd21e9983885046f7beb31fcf8bf4081e9758d6c4df246633b",
+    "backend_sha256": "9be99b7a2789d55e403b5898f8efffd3318fcaad628cfebad61c4c29ccb08d09",
+    "private_selector": 119,
+    "production_changed": false
+  },
+  "tests": {
+    "exp116_packaged_core": 192,
+    "exp117_packaged_core": 194,
+    "exp118_packaged_core": 196,
+    "exp119_packaged_core": 197,
+    "exp116_and117_cpp_core": "pass;119 uses byte-identical117 worker payload",
+    "exp118_live_media": "not run;119 adds a short-signal regression without changing product code",
+    "contracts": [
+      "Private capability-gated token/rate refresh and all-viewer region readiness",
+      "Reject old-token and excessive-codec-rate IDRs; a still desktop needs no new damage",
+      "Real aiortc sequence/history/counters exclude uncommitted cancelled frames; committed fragmented frames finish",
+      "Full-desktop fixed-quality fallback, ordinary400/500ms transient guards, exactly-once input and actual byte debt remain",
+      "Confirmed path collapse may require less-than-half codec decrease; pending requests survive reset quiet time",
+      "One75ms pre-RTP admission hold per episode; duplicate/new reports cannot extend it and expiry invents no ACK",
+      "A normal fast link has no short-signal pressure; sufficient short severe evidence precedes100ms confirmation in the deterministic serialized-link regression"
+    ]
+  },
+  "implemented": [
+    "Private source feature16 and server-only input opcode15 carry a path rate and64-bit token. Worker applies the new cropped target before marking a fresh independent picture; each local AU keeps its actual token and configured codec target across delayed output/rate resets. Normal old-worker output is unchanged until the explicit command.",
+    "Host credit/admission wait now precedes RTP sequence/history/counter assignment. A confirmed refresh retires only uncommitted dependent work; an already-dispatched fragmented AU finishes. Authentication and complete-frame image/layout ACKs remain independent.",
+    "Explicit confirmed decrease honors any needed cropped codec reduction while preserving the reset quiet period; ordinary estimate dwell, full-desktop quality, caps and actual byte debt remain. A request persists until its target is applied or full-desktop fallback is selected.",
+    "Matched25ms/3450B packet pressure may hold the next uncommitted AU for75ms once per congestion episode. It cannot change codec rate, pacing target, packet credit or guest input. A confirmed cut releases it; a fresh low-queue interval rearms it."
+  ],
+  "trials": [
+    {
+      "candidate": 116,
+      "tag": "first",
+      "original_checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "passed_original_checks": 15,
+      "total_original_checks": 16,
+      "additional_checks": null,
+      "whole_profile_max_source_gap_ms": 2165,
+      "source_excess_ms": 2178.715601858368,
+      "source_excess_gate_ms": 400,
+      "glyph_peak_ms": 326,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 51.127028980745216,
+          "max_frame_gap_ms": 51,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 913,
+            "median": 203.375247695174,
+            "p95": 220.8075588103391,
+            "max": 248.9067178685218,
+            "clock_uncertainty_max": 48.269801,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 45.937955077004546,
+          "max_frame_gap_ms": 100,
+          "final_target": 1672,
+          "full_source_age_ms": {
+            "samples": 2719,
+            "median": 286.0248837309598,
+            "p95": 332.8310863891062,
+            "max": 1646.9770316189738,
+            "clock_uncertainty_max": 48.769801,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 48.274123796131704,
+          "max_frame_gap_ms": 133,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4523,
+            "median": 255.82650418704134,
+            "p95": 300.5633682943909,
+            "max": 2399.523160668707,
+            "clock_uncertainty_max": 49.769801,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "post_collection_target_kbps": 8000,
+      "qualified": false
+    },
+    {
+      "candidate": 117,
+      "tag": "first",
+      "original_checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "passed_original_checks": 15,
+      "total_original_checks": 16,
+      "additional_checks": {
+        "whole_profile_source_gap_at_most_500ms": true
+      },
+      "whole_profile_max_source_gap_ms": 150,
+      "source_excess_ms": 411.5563286623605,
+      "source_excess_gate_ms": 400,
+      "glyph_peak_ms": 364,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 50.82525543620645,
+          "max_frame_gap_ms": 51,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 916,
+            "median": 212.13014400564134,
+            "p95": 215.98708673069922,
+            "max": 232.65375353706474,
+            "clock_uncertainty_max": 47.595221,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 47.24789777592377,
+          "max_frame_gap_ms": 150,
+          "final_target": 3203,
+          "full_source_age_ms": {
+            "samples": 2733,
+            "median": 281.5916856906071,
+            "p95": 311.74551690928354,
+            "max": 627.5434153930597,
+            "clock_uncertainty_max": 49.095221,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 48.53132379865736,
+          "max_frame_gap_ms": 83,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4523,
+            "median": 214.58696718327985,
+            "p95": 266.8767723565253,
+            "max": 431.21010578857977,
+            "clock_uncertainty_max": 49.595221,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "post_collection_target_kbps": 8000,
+      "qualified": false
+    },
+    {
+      "candidate": 119,
+      "tag": "first",
+      "original_checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "passed_original_checks": 16,
+      "total_original_checks": 16,
+      "additional_checks": {
+        "whole_profile_source_gap_at_most_500ms": true
+      },
+      "whole_profile_max_source_gap_ms": 117,
+      "source_excess_ms": 360.6569425358135,
+      "source_excess_gate_ms": 400,
+      "glyph_peak_ms": 379,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 48.90199934447722,
+          "max_frame_gap_ms": 51,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 915,
+            "median": 206.6733785749726,
+            "p95": 225.4255199028794,
+            "max": 243.09218659376165,
+            "clock_uncertainty_max": 50.829461,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 47.772870107895486,
+          "max_frame_gap_ms": 117,
+          "final_target": 1532,
+          "full_source_age_ms": {
+            "samples": 2730,
+            "median": 274.5441595402838,
+            "p95": 309.210826223719,
+            "max": 586.0824624386929,
+            "clock_uncertainty_max": 49.329461,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 49.170521614292554,
+          "max_frame_gap_ms": 84,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4514,
+            "median": 257.41326348700966,
+            "p95": 291.01957506500753,
+            "max": 355.54158296436356,
+            "clock_uncertainty_max": 49.329461,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "post_collection_target_kbps": 8000,
+      "qualified": true
+    },
+    {
+      "candidate": 119,
+      "tag": "repeat",
+      "original_checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "passed_original_checks": 16,
+      "total_original_checks": 16,
+      "additional_checks": {
+        "whole_profile_source_gap_at_most_500ms": true
+      },
+      "whole_profile_max_source_gap_ms": 133,
+      "source_excess_ms": 345.3174392537512,
+      "source_excess_gate_ms": 400,
+      "glyph_peak_ms": 343,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 49.18463966333508,
+          "max_frame_gap_ms": 66,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 913,
+            "median": 199.52291611892468,
+            "p95": 215.88645524655803,
+            "max": 232.8562494522579,
+            "clock_uncertainty_max": 49.118423,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 47.903137039075396,
+          "max_frame_gap_ms": 84,
+          "final_target": 3377,
+          "full_source_age_ms": {
+            "samples": 2725,
+            "median": 280.5032931578637,
+            "p95": 313.1238587666303,
+            "max": 561.2038945003093,
+            "clock_uncertainty_max": 50.618423,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 49.484289435908345,
+          "max_frame_gap_ms": 133,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4514,
+            "median": 213.8932320134046,
+            "p95": 265.3246053804992,
+            "max": 344.6579386169759,
+            "clock_uncertainty_max": 50.118423,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "post_collection_target_kbps": 2985,
+      "qualified": true
+    }
+  ],
+  "defect_found_and_fixed": {
+    "exp116": "Path halving required1950->1150codec kbit/s, not a codec halving. Original confirmed predicate rejected it and forgot the request after one tick; the host waited2seconds then fell back. Raw and composed source peaks agree at2399.523ms; whole-profile source-ID gap2165ms. Fixed in117 with a persistent request, any actual confirmed decrease and guarded full-desktop fallback.",
+    "exp117": "Correct token1/1100kbit/s IDR13006B arrives24.46ms after request, but source-age excess411.556ms still fails400ms. Retained as a failed full profile.",
+    "exp116_terminal_accounting": "Strict all-record accounting fails one uncompleted terminal observation; original failure and separate notice retained. No all-packet acceptance is claimed for116.",
+    "metadata_erratum": "Original117 helper emitted an integer selector116 and116scope label; actual paths, package version and payload hashes identify117. Original output plus explicit corrected metadata retained."
+  },
+  "independent_actual_video": {
+    "initial119": {
+      "scope": "Independently decode actual forwarded RTP AUs and compare source-ID pixels with the last native rVFC image at the same composed-monitor sample. No media test or gate altered.",
+      "decoded_complete_AUs": 10146,
+      "invalid_observations": 0,
+      "unmatched_observations": 1,
+      "phases": [
+        {
+          "phase": "fast",
+          "samples": 915,
+          "native_raw_age_p95_ms": 225.4255199028794,
+          "native_raw_age_max_ms": 243.09218659376165,
+          "composed_age_max_ms": 243.09218659376165,
+          "max_composed_tick_lag": 0
+        },
+        {
+          "phase": "narrow",
+          "samples": 2730,
+          "native_raw_age_p95_ms": 309.210826223719,
+          "native_raw_age_max_ms": 586.0824624386929,
+          "composed_age_max_ms": 586.0824624386929,
+          "max_composed_tick_lag": 6
+        },
+        {
+          "phase": "recovered",
+          "samples": 4514,
+          "native_raw_age_p95_ms": 291.01957506500753,
+          "native_raw_age_max_ms": 355.54158296436356,
+          "composed_age_max_ms": 355.54158296436356,
+          "max_composed_tick_lag": 0
+        }
+      ],
+      "native_raw_excess_ms": 360.6569425358135,
+      "composed_peak": {
+        "ms": 38112,
+        "rtp": 225722655,
+        "composed_tick": 1819,
+        "native_tick": 1819,
+        "native_callback_ms": 38063.16,
+        "composed_age_ms": 586.0824624386929,
+        "native_repeated_age_ms": 586.0824624386929,
+        "composed_tick_lag": 0
+      }
+    },
+    "repeat119": {
+      "scope": "Independently decode actual forwarded RTP AUs and compare source-ID pixels with the last native rVFC image at the same composed-monitor sample. No media test or gate altered.",
+      "decoded_complete_AUs": 10169,
+      "invalid_observations": 0,
+      "unmatched_observations": 0,
+      "phases": [
+        {
+          "phase": "fast",
+          "samples": 913,
+          "native_raw_age_p95_ms": 215.88645524655803,
+          "native_raw_age_max_ms": 232.8562494522579,
+          "composed_age_max_ms": 232.8562494522579,
+          "max_composed_tick_lag": 0
+        },
+        {
+          "phase": "narrow",
+          "samples": 2725,
+          "native_raw_age_p95_ms": 313.16948214856666,
+          "native_raw_age_max_ms": 561.2038945003093,
+          "composed_age_max_ms": 561.2038945003093,
+          "max_composed_tick_lag": 0
+        },
+        {
+          "phase": "recovered",
+          "samples": 4514,
+          "native_raw_age_p95_ms": 265.3246053804992,
+          "native_raw_age_max_ms": 344.6579386169759,
+          "composed_age_max_ms": 344.6579386169759,
+          "max_composed_tick_lag": 0
+        }
+      ],
+      "native_raw_excess_ms": 345.3174392537512,
+      "composed_peak": {
+        "ms": 37063,
+        "rtp": 2326785427,
+        "composed_tick": 1724,
+        "native_tick": 1724,
+        "native_callback_ms": 36996.36,
+        "composed_age_ms": 561.2038945003093,
+        "native_repeated_age_ms": 561.2038945003093,
+        "composed_tick_lag": 0
+      }
+    },
+    "limit": "ROI marker is checked for every measured phase; earlier differently cropped startup pictures are not universal marker coverage. This is source cadence/freshness, not hard-cut perceptual fidelity or physical display latency."
+  },
+  "packet_accounting_initial119": {
+    "scope": "Full native QSV private119 packet-accounting proof; media/source-age verdict remains in the unchanged full-profile result.",
+    "twcc_enabled": true,
+    "module_sha256": "dff29c766796c8c27b642cdd70fc599a6dc6fb6e91e3c5b975023e48d8d33525",
+    "actual_final_rtp_packets": 76979,
+    "video_packets": 76979,
+    "transport_sequence_wraps": 1,
+    "actual_wire_matches_pacer": true,
+    "complete_frame_reservations_checked": 10099,
+    "reservation_errors": 0,
+    "feedback_reports": 3443,
+    "unique_received_packets": 76877,
+    "timed_video_samples": 76877,
+    "timing_batches_without_prefix_advance": 58,
+    "max_history_to_dispatch_ms": 1.6378439031541348,
+    "all_reported_packets_match_actual_dispatch": true,
+    "credit_frontier_errors": 0,
+    "capacity_observations": 3443,
+    "max_history_records": 6068,
+    "trace_overflow": false,
+    "limits": [
+      "This live trial has video RTP only; audio/RTX ownership retains unit coverage and needs matching live qualification.",
+      "Source and receiver clocks have different origins; transit changes and within-clock intervals are used, not absolute one-way latency."
+    ]
+  },
+  "packet_accounting_repeat119": {
+    "scope": "Full native QSV private119 packet-accounting proof; media/source-age verdict remains in the unchanged full-profile result.",
+    "twcc_enabled": true,
+    "module_sha256": "dff29c766796c8c27b642cdd70fc599a6dc6fb6e91e3c5b975023e48d8d33525",
+    "actual_final_rtp_packets": 89382,
+    "video_packets": 89382,
+    "transport_sequence_wraps": 1,
+    "actual_wire_matches_pacer": true,
+    "complete_frame_reservations_checked": 10103,
+    "reservation_errors": 0,
+    "feedback_reports": 3420,
+    "unique_received_packets": 89324,
+    "timed_video_samples": 89324,
+    "timing_batches_without_prefix_advance": 35,
+    "max_history_to_dispatch_ms": 21.270659985020757,
+    "all_reported_packets_match_actual_dispatch": true,
+    "credit_frontier_errors": 0,
+    "capacity_observations": 3420,
+    "max_history_records": 6076,
+    "trace_overflow": false,
+    "limits": [
+      "This live trial has video RTP only; audio/RTX ownership retains unit coverage and needs matching live qualification.",
+      "Source and receiver clocks have different origins; transit changes and within-clock intervals are used, not absolute one-way latency."
+    ]
+  },
+  "initial119_refresh": [
+    {
+      "event": "requested",
+      "t": 1604916.165027738,
+      "target": 1656,
+      "token": 1
+    },
+    {
+      "event": "accepted-or-timeout",
+      "t": 1604916.184120165,
+      "expected": 1,
+      "token": 1,
+      "codec_bitrate": 1150,
+      "keyframe": true,
+      "bytes": 14145,
+      "capture": 144442455338
+    },
+    {
+      "event": "requested",
+      "t": 1604960.921415884,
+      "target": 1532,
+      "token": 2
+    },
+    {
+      "event": "accepted-or-timeout",
+      "t": 1604960.950880151,
+      "expected": 2,
+      "token": 2,
+      "codec_bitrate": 1050,
+      "keyframe": true,
+      "bytes": 13127,
+      "capture": 144446482966
+    }
+  ],
+  "initial119_early_hold": [
+    {
+      "t": 1604892.087667593,
+      "until": 1604892.162658956,
+      "target": 8000,
+      "armed": false,
+      "serial": 217
+    },
+    {
+      "t": 1604916.165107787,
+      "until": 0.0,
+      "target": 1656,
+      "armed": false,
+      "serial": 691
+    },
+    {
+      "t": 1604939.739034729,
+      "until": 1604939.814017907,
+      "target": 1656,
+      "armed": false,
+      "serial": 1157
+    },
+    {
+      "t": 1604960.921592988,
+      "until": 0.0,
+      "target": 1532,
+      "armed": false,
+      "serial": 1575
+    },
+    {
+      "t": 1605037.170193768,
+      "until": 1605037.245187633,
+      "target": 8000,
+      "armed": false,
+      "serial": 3081
+    },
+    {
+      "t": 1605037.573291998,
+      "until": 1605037.648288911,
+      "target": 8000,
+      "armed": false,
+      "serial": 3087
+    },
+    {
+      "t": 1605043.191996872,
+      "until": 1605043.2669853969,
+      "target": 8000,
+      "armed": false,
+      "serial": 3194
+    }
+  ],
+  "causal_limit": "Initial119 passes, but no advisory hold is observed before its first measured cut. Holds occur during startup, later narrow traffic and post-profile collection. Do not attribute the first-cut improvement to this hold from one unseeded profile. Source-age acceptance must repeat.",
+  "production": {
+    "node20": {
+      "package": "0.4.0+stock4.14~exp35",
+      "process_start_ticks": {
+        "577033": 332808379,
+        "495374": 297084425
+      },
+      "original_terminal_and_user_vm_103_unchanged": true
+    },
+    "owned_intel": {
+      "owned_qemu_pid": 3079308,
+      "guest_process_start_ticks": {
+        "828": 712,
+        "710": 607,
+        "675": 601,
+        "957": 821
+      },
+      "diagnostic_workers_remaining": [],
+      "production_gateway_absent": true
+    },
+    "node17_or240_changed": false,
+    "public_release_or_rollout": false
+  },
+  "remaining": [
+    "Repeatable native/LXC queue and source-age qualification with original gates; additional whole-profile gap<=500ms.",
+    "Component/Qt/GTK/application coverage, overlap typing, occlusion, move/resize/scroll/close, mode toggles, old-agent fallback and cold restoration.",
+    "Hard-cut fidelity and varied real loss/jitter/network profiles.",
+    "Supported VM/LXC NVENC/QSV/VAAPI H264/HEVC matrix, long sessions, resource and resolution checks.",
+    "Firefox/macOS acceptance and matched QSM/RDP network/content comparison.",
+    "Matching final source and seven-package bundle, signatures, APT, installation/rollback docs, qualified rollout on.20/.17/.240 and authorized discussion updates."
+  ],
+  "next_action": "Qualify the identical119 payload on the owned native LXC/NVENC path with all unchanged queue/source-age/static/input gates; then complete hard-cut fidelity and component/occlusion/toggle/cold-restoration coverage before the remaining encoder/browser/long-session/RDP/release scope.",
+  "limits": [
+    "Owned native Debian13/KWin6 QEMU3079308, installed guest83, QSV H264, Linux Firefox, private package and mock PVE ACL/launch. Actual TURN over one SSH-forwarded TCP socket with20M->2M->20M and0.3% ingress TCP loss/15ms delay/3ms jitter. This is not real public NAT/PVE8006 integration or broad encoder/browser qualification.",
+    "Sender/receiver clock origins differ; matched receiver intervals and sampled calibration are used. Typical browser/server uncertainty is45-51ms; source IDs use16.7ms ticks. Source-age gate remains nominal400ms with no relaxed threshold.",
+    "Repeat reaches8000kbit/s at the end of the measured recovery phase, then cuts to2985kbit/s during trace collection. The entire rate history is retained; do not claim long-session stability or attribute the later cut without separate lifecycle/soak evidence.",
+    "Live packet proof is video RTP only; live audio/RTX/multi-viewer coverage remains. No whole-project completion claim from197unit tests or this native profile."
+  ]
+}

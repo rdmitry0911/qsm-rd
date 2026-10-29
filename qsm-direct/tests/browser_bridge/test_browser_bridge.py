@@ -68,6 +68,23 @@ from extensions.browser_bridge.qsm_browser_bridge import (
 
 
 class BrowserBridgeAssemblerTests(unittest.TestCase):
+    def test_confirmed_refresh_metadata_stays_with_the_fragmented_picture(self) -> None:
+        import struct
+        from extensions.browser_bridge.qsm_browser_bridge import PACKET_CAPTURE_TIME, PACKET_REGION, PACKET_REFRESH
+        assembler = _VideoAssembler(60)
+        flags = PACKET_VIDEO_TIME | PACKET_CAPTURE_TIME | PACKET_REGION | PACKET_REFRESH | PACKET_IDR
+        region = (1280, 720, 0, 64, 1280, 512)
+        payload = struct.pack('!QQHHHHHHQI', 90000, 1234567, *region, 7, 1050) + b'IDR'
+        self.assertIsNone(assembler.add(1, 0, flags | PACKET_FIRST, payload[:37]))
+        unit = assembler.add(1, 1, flags | PACKET_END, payload[37:])
+        self.assertEqual((unit.data, unit.refresh_token, unit.codec_bitrate, unit.capture, unit.region),
+                         (b'IDR', 7, 1050, 1234567, region))
+        for token, rate in [(0, 1050), (7, 499), (7, 100001)]:
+            bad = struct.pack('!QQHHHHHHQI', 90000, 1234567, *region, token, rate) + b'I'
+            with self.assertRaises(BridgeError): assembler.add(2, 0, flags | PACKET_FIRST | PACKET_END, bad)
+        with self.assertRaises(BridgeError):
+            assembler.add(3, 0, PACKET_FIRST | PACKET_END | PACKET_VIDEO_TIME | PACKET_REFRESH, payload)
+
     def test_timed_video_keeps_picture_bytes_and_variable_capture_intervals(self) -> None:
         import struct
         assembler = _VideoAssembler(60)
@@ -926,6 +943,45 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PacketTrackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_confirmed_refresh_accepts_fresh_full_desktop_fallback_without_reducing_quality(self):
+        track = _PacketTrack('video', maximum_queue=4)
+        track.require_confirmed_refresh(7, 1050)
+        track.put_nowait(EncodedUnit(b'full-desktop-IDR', True, 1500, capture=100,
+                          region=(1280, 768, 0, 0, 1280, 768), refresh_token=7, codec_bitrate=8000))
+        packet = await asyncio.wait_for(track.recv(), .03)
+        self.assertEqual(bytes(packet), b'full-desktop-IDR')
+        self.assertEqual(track._refresh_token, 0)
+        track.end_nowait()
+
+    async def test_confirmed_refresh_rejects_old_or_high_rate_idrs_and_keeps_media_time(self):
+        track = _PacketTrack('video', maximum_queue=4)
+        track.put_nowait(EncodedUnit(b'initial', True, 1500, capture=100))
+        await track.recv()
+        track.put_nowait(EncodedUnit(b'old-P', False, 1500, capture=100))
+        track.require_confirmed_refresh(7, 1050)
+        for data, key, token, rate in [(b'old-IDR', True, 6, 1050), (b'old-rate', True, 7, 5600),
+                                        (b'new-P', False, 7, 1050)]:
+            track.put_nowait(EncodedUnit(data, key, 1500, capture=100, refresh_token=token, codec_bitrate=rate))
+        self.assertTrue(track._queue.empty())
+        # No new damage is needed for a still desktop; the token fences repair.
+        track.put_nowait(EncodedUnit(b'fresh-IDR', True, 1500, capture=100, refresh_token=7, codec_bitrate=1050))
+        packet = await asyncio.wait_for(track.recv(), .03)
+        self.assertEqual(bytes(packet), b'fresh-IDR')
+        self.assertEqual(packet.pts, 7500)
+        self.assertEqual(track.current_recovery_serial, 1)
+        track.end_nowait()
+
+    async def test_unfinished_refresh_falls_back_only_at_an_independent_picture(self):
+        track = _PacketTrack('video', maximum_queue=4)
+        track.require_confirmed_refresh(7, 1050)
+        track._refresh_deadline = time.monotonic() - .1
+        track.put_nowait(EncodedUnit(b'P', False, 1500))
+        self.assertTrue(track._queue.empty())
+        track.put_nowait(EncodedUnit(b'fallback-IDR', True, 1500))
+        packet = await asyncio.wait_for(track.recv(), .03)
+        self.assertEqual(bytes(packet), b'fallback-IDR')
+        track.end_nowait()
+
     async def test_short_video_burst_keeps_the_complete_prediction_chain(self) -> None:
         track = _PacketTrack("video", maximum_queue=4)
         for n in range(4):

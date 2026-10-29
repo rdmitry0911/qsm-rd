@@ -91,8 +91,10 @@ feedback interval; small access units reserve their complete cost. Larger
 pictures remain serialized by the packet pacer, so their whole size does not
 add an RTT of credit waiting before that serialization. The window uses the
 current path target and receipt baseline. A rate change wakes the pending
-admission check; a partial acknowledgement cannot keep the preceding
-high-rate window. Encoded payloads, timestamps and predictive references are kept.
+admission check. Only the bounded old-flight exception described below may
+retain earlier headroom. Normal admission preserves encoded payloads,
+timestamps and predictive references; the negotiated refresh below replaces
+an obsolete uncommitted chain only at an independent picture.
 
 When the peer negotiates transport-cc, authenticated RTCP packet receipts also
 release video flight credit. Video, RTX and bundled audio share transport
@@ -140,6 +142,23 @@ one-off headroom spending, raw-only early pressure and a smaller configured
 video window did not qualify and are not retained. See the
 [flight-drain report](rdp-flight-drain-20261029.json). These private candidates
 are not a qualified release.
+
+The private confirmed-refresh candidate negotiates source feature 16 before
+using server-only opcode 15. The request correlates a path target and 64-bit
+repair token. A complete local AU carries that token and its configured codec
+target; the bridge accepts an independent picture at the requested cropped
+rate, or an explicit fresh full-desktop fallback. The request survives reset
+quiet time. Ordinary codec hysteresis and fixed full-desktop quality remain.
+Credit waiting now precedes RTP sequence/history assignment, so obsolete
+uncommitted work can retire without holes; committed fragmented AUs finish.
+A separate 25ms/3450-byte packet hint may hold the next AU for 75ms once per
+congestion episode. It grants no ACK or rate and cannot retune the codec.
+The initial native119 run passes all 16 unchanged gates, with 360.7ms source-age
+excess and 117ms maximum source gap. A hold was not observed before that run's
+first cut, so the pass does not establish that hint's causal benefit. Repeat
+and remaining qualification are recorded in the
+[confirmed-refresh report](rdp-confirmed-refresh-20261029.json). This is still
+a private candidate; full matrix/fidelity/browser/release work remains.
 
 Frame-aware waits permit one baseline round trip, bounded to 50–250 ms, with
 one deadline across all acknowledgements. Short healthy waits keep raw capture

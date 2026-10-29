@@ -75,6 +75,7 @@ PACKET_VIDEO_TIME = 0x00000040
 PACKET_UI = 0x00000080
 PACKET_CAPTURE_TIME = 0x00000100
 PACKET_REGION = 0x00000200
+PACKET_REFRESH = 0x00000400
 CURSOR_HEADER = struct.Struct("!BBQQiiHHHH")
 CURSOR_VERSION = 1
 CURSOR_VISIBLE = 0x01
@@ -93,6 +94,8 @@ INPUT_KEY_TAP = 8
 INPUT_MOUSE_ACTION = 9
 INPUT_LOSSLESS_UI = 10
 INPUT_VIDEO_BACKPRESSURE = 14
+INPUT_VIDEO_REFRESH = 15
+SOURCE_CONFIRMED_REFRESH = 16
 MODIFIER_KEYS = frozenset({29, 42, 54, 56, 0x9d, 0xb8, 0xdb, 0xdc})
 MAX_FRAGMENT_BYTES = 256 * 1024
 MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024
@@ -271,6 +274,8 @@ class _VideoPresentation:
                               frame_wire_bytes: int = 0,
                               current_bitrate: Callable[[], int] | None = None,
                               packet_credit: Callable[[int], int] | None = None,
+                              interrupted: Callable[[], bool] | None = None,
+                              admission_hold: Callable[[], float] | None = None,
                               on_wait: Callable[[bool], None] | None = None) -> float:
         """Limit ordinary video in flight, without holding audio/UI or RTX.
 
@@ -324,8 +329,11 @@ class _VideoPresentation:
             kbps = max(500, min(value.presented_kbps, value.presented_offered_kbps))
             return kbps * 1000 / 8 * (value.presented_base + .12), False
 
+        def held(at: float) -> bool:
+            return admission_hold is not None and admission_hold() > at
+
         credit, rapid = allowance(state, now)
-        if credit is None or bytes_sent() - delivered() <= credit:
+        if not held(now) and (credit is None or bytes_sent() - delivered() <= credit):
             return 0.
         self.credit_waits += 1
         started = self._clock()
@@ -334,18 +342,20 @@ class _VideoPresentation:
         # round trip, capped by the existing250ms recovery cadence. The same
         # deadline covers all partial ACKs and rate changes.
         timeout = min(.25, max(.05, state.presented_base)) if rapid and frame_budget else .05 if rapid else .025
-        deadline = started + timeout
+        deadline = started + max(timeout, min(.1, max(0., admission_hold() - started)) if admission_hold else 0.)
         try:
             if on_wait is not None:
                 on_wait(True)
             while True:
                 self._wake.clear()
+                if interrupted is not None and interrupted():
+                    break
                 state = feedback()
                 now = self._clock()
                 if state is None or now - state.presented_time >= 1.5:
                     break
                 credit, _ = allowance(state, now)
-                if credit is None or bytes_sent() - delivered() <= credit:
+                if not held(now) and (credit is None or bytes_sent() - delivered() <= credit):
                     break
                 remaining = deadline - self._clock()
                 if remaining <= 0:
@@ -1038,6 +1048,8 @@ class EncodedUnit:
     timestamp: int | None = None
     capture: int | None = None
     region: tuple[int, int, int, int, int, int] | None = None
+    refresh_token: int = 0
+    codec_bitrate: int = 0
 
 
 @dataclass(frozen=True)
@@ -1079,6 +1091,7 @@ class _VideoAssembler:
         self._timed = False
         self._captured = False
         self._region = False
+        self._refresh = False
 
     def _reset(self) -> None:
         self._frame = None
@@ -1089,6 +1102,7 @@ class _VideoAssembler:
         self._timed = False
         self._captured = False
         self._region = False
+        self._refresh = False
 
     def add(self, frame: int, fragment: int, flags: int, data: bytes) -> EncodedUnit | None:
         if flags & (PACKET_AUDIO | PACKET_CONFIG):
@@ -1101,6 +1115,9 @@ class _VideoAssembler:
             self._timed = bool(flags & PACKET_VIDEO_TIME)
             self._captured = bool(flags & PACKET_CAPTURE_TIME)
             self._region = bool(flags & PACKET_REGION)
+            self._refresh = bool(flags & PACKET_REFRESH)
+            if self._refresh and not self._captured:
+                raise BridgeError('refresh metadata requires capture metadata')
             if self._captured and not self._timed:
                 raise BridgeError("capture metadata requires a timed picture")
         if self._frame is None:
@@ -1108,7 +1125,8 @@ class _VideoAssembler:
         if (frame != self._frame or fragment != self._fragment or
                 bool(flags & PACKET_VIDEO_TIME) != self._timed or
                 bool(flags & PACKET_CAPTURE_TIME) != self._captured or
-                bool(flags & PACKET_REGION) != self._region):
+                bool(flags & PACKET_REGION) != self._region or
+                bool(flags & PACKET_REFRESH) != self._refresh):
             # The Unix sender intentionally drops rather than blocks a
             # local encoder. Do not emit a corrupt partial frame; wait
             # for the next FIRST boundary instead.
@@ -1148,8 +1166,17 @@ class _VideoAssembler:
                     not w or not h or x + w > sw or y + h > sh):
                 self._reset(); raise BridgeError("invalid video region geometry")
             payload = payload[12:]
+        refresh_token = codec_bitrate = 0
+        if self._refresh:
+            if len(payload) <= 12:
+                self._reset(); raise BridgeError('refresh metadata has no picture')
+            refresh_token, codec_bitrate = struct.unpack_from('!QI', payload)
+            if not refresh_token or not 500 <= codec_bitrate <= 100000:
+                self._reset(); raise BridgeError('invalid confirmed refresh metadata')
+            payload = payload[12:]
         result = EncodedUnit(data=payload, keyframe=self._keyframe,
-                             duration=self._nominal_duration, timestamp=timestamp, capture=capture, region=region)
+                             duration=self._nominal_duration, timestamp=timestamp, capture=capture, region=region,
+                             refresh_token=refresh_token, codec_bitrate=codec_bitrate)
         self._reset()
         return result
 
@@ -1204,6 +1231,20 @@ class _PacketTrack(MediaStreamTrack):
         self.current_capture = 0
         self.current_region = None
         self.recoveries = 0
+        self.recovery_serial = self.current_recovery_serial = 0
+        self._refresh_token = self._refresh_max_rate = 0
+        self._refresh_deadline = 0.
+
+    def require_confirmed_refresh(self, token: int, maximum_rate: int) -> None:
+        if self._closed or self.kind != 'video':
+            return
+        if type(token) is not int or not 0 < token < 1 << 64 or type(maximum_rate) is not int or not 500 <= maximum_rate <= 100000:
+            raise BridgeError('invalid confirmed refresh boundary')
+        self.recovery_serial += 1
+        self._refresh_token, self._refresh_max_rate = token, maximum_rate
+        self._refresh_deadline = time.monotonic() + 2
+        self._waiting_for_keyframe = True
+        self._clear_queue()
 
     def _clear_queue(self) -> None:
         while not self._queue.empty():
@@ -1250,16 +1291,28 @@ class _PacketTrack(MediaStreamTrack):
                 self._clear_queue()
                 self._waiting_for_keyframe = True
                 self._last_recovery_request = float("-inf")
+                self.recovery_serial += 1
             else:
                 # Opus packets do not have a video reference chain. Keep the
                 # existing bounded audio FIFO and discard only its oldest unit.
                 self._queue.get_nowait()
                 self.dropped_units += 1
         if self.kind == "video" and self._waiting_for_keyframe:
-            if not unit.keyframe:
+            if self._refresh_token and time.monotonic() >= self._refresh_deadline:
+                # A worker which cannot finish the negotiated repair falls
+                # back at an independent picture, never at an arbitrary P.
+                self._refresh_token = self._refresh_max_rate = 0
+                self._last_recovery_request = float('-inf')
+            full_picture = unit.region is not None and unit.region[2:] == (0, 0, unit.region[0], unit.region[1])
+            confirmed = (not self._refresh_token or
+                         (unit.refresh_token == self._refresh_token and
+                          (500 <= unit.codec_bitrate <= self._refresh_max_rate or full_picture)))
+            if not unit.keyframe or not confirmed:
                 self.dropped_units += 1
-                self._request_recovery()
+                if not self._refresh_token:
+                    self._request_recovery()
                 return
+            self._refresh_token = self._refresh_max_rate = 0
             self._waiting_for_keyframe = False
             self._last_recovery_request = float("-inf")
             self.recoveries += 1
@@ -1285,6 +1338,7 @@ class _PacketTrack(MediaStreamTrack):
         unit, pts = item
         self.current_capture = unit.capture or 0
         self.current_region = unit.region
+        self.current_recovery_serial = self.recovery_serial
         self.delivered_units += 1
         packet = av.Packet(unit.data)
         packet.pts = pts
@@ -1672,6 +1726,9 @@ class UnixInputEgress:
         self._ui_budgets: dict[object, int] = {}
         self._region_owners: dict[object, tuple[bool, bool]] = {}
         self._video_backpressure: dict[object, float] = {}
+        self._refresh_sequence = 0
+        self._refresh_rate = 0
+        self._refresh_at = float('-inf')
 
     def start(self) -> None:
         UnixTapIngress._validate_runtime_directory(self._runtime_directory)
@@ -1945,6 +2002,23 @@ class UnixInputEgress:
             raise BridgeError("video bitrate must be 500..100000 kbit/s")
         self._send_packet(INPUT_HEADER.pack(
             INPUT_MAGIC, INPUT_VERSION, INPUT_VIDEO_BITRATE, 4) + struct.pack("!I", bitrate_kbps))
+
+    def request_video_refresh(self, bitrate_kbps: int) -> int:
+        """Return a private correlated repair token, or zero if not ready."""
+        if type(bitrate_kbps) is not int or not 500 <= bitrate_kbps <= 100000:
+            raise BridgeError('invalid confirmed video rate')
+        with self._input_state_lock:
+            if not self._region_owners or not all(enabled and ready for enabled, ready in self._region_owners.values()):
+                return 0
+            now = time.monotonic()
+            if self._refresh_rate == bitrate_kbps and now - self._refresh_at < .25:
+                return self._refresh_sequence
+            token = (self._refresh_sequence + 1) & 0xffffffffffffffff or 1
+            if not self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_VIDEO_REFRESH, 12) +
+                                     struct.pack('!IQ', bitrate_kbps, token)):
+                return 0
+            self._refresh_sequence, self._refresh_rate, self._refresh_at = token, bitrate_kbps, now
+            return token
 
     def set_video_backpressure(self, owner: object, milliseconds: int) -> None:
         """Private, leased raw-admission pause; never pauses UI or guest input."""
@@ -2378,6 +2452,9 @@ class BrowserWebRtcBridge:
         self._twcc_video = False
         self._twcc_history: transport_feedback.PacketHistory | None = None
         self._next_video_wire_bytes = 0
+        self._packet_hold_until = 0.
+        self._packet_hold_serial = 0
+        self._packet_hold_armed = True
         self._video_frame_in_progress = False
         self._regions_eligible = self._regions_ready = False
         self.input.set_video_regions(self, False)
@@ -2865,6 +2942,29 @@ class BrowserWebRtcBridge:
                 return f"codec={codec.mimeType} pt={codec.payloadType} fmtp={parameters or 'none'}"
         return "codec=none"
 
+    def _update_packet_admission(self) -> None:
+        """One short hold per congestion episode, before committing another AU."""
+        state = self._video_rate._receivers.get(self)
+        now = time.monotonic()
+        region = self.video_track.current_region
+        eligible = (state is not None and self._video_rate._packet_fresh(state, now) and
+                    state.feedback_kind == 'received' and now - state.received_rapid_time < 1.5 and
+                    self._ui_peer.enabled and self._regions_ready and self._regions_eligible and
+                    region is not None and (region[4] < region[0] or region[5] < region[1]))
+        if not eligible:
+            self._packet_hold_until = 0.
+            return
+        delivery = state.packet_delivery
+        if delivery.serial == self._packet_hold_serial:
+            return
+        self._packet_hold_serial = delivery.serial
+        if delivery.valid and delivery.queue_excess <= .01 and now >= self._packet_hold_until:
+            self._packet_hold_armed = True
+        if delivery.pressure and self._packet_hold_armed:
+            self._packet_hold_until = now + .075
+            self._packet_hold_armed = False
+            self._video_received._wake.set()
+
     def _video_rate_changed(self, bitrate_kbps: int) -> None:
         previous_kbps = self._video_pacer._rate * 8 / 1000
         self._ui_peer.wake()
@@ -2876,6 +2976,9 @@ class BrowserWebRtcBridge:
                 state.feedback_kind == 'received' and now - state.received_rapid_time < 1.5 and
                 any(self._video_rate._packet_fresh(peer, now) and peer.packet_delivery.queued
                     for peer in self._video_rate._receivers.values())):
+            # A confirmed repair must not wait behind its advisory early hold.
+            self._packet_hold_until = 0.
+            self._packet_hold_armed = False
             history = self._video_received
             sent = self._video_pacer.sent_bytes
             delivered = self._twcc_history.credit(history._acknowledged_bytes)
@@ -2884,7 +2987,19 @@ class BrowserWebRtcBridge:
             # The packet pacer has already adopted the lower target above.
             maximum = int(previous_kbps * 1000 / 8 * (min(.25, state.presented_base) + .016))
             history.retain_flight(sent, delivered, maximum)
+            region = self.video_track.current_region
+            cropped = region is not None and (region[4] < region[0] or region[5] < region[1])
+            if (self._ui_source.features & SOURCE_CONFIRMED_REFRESH and cropped and self._regions_ready and
+                    self._regions_eligible and self._ui_peer.enabled):
+                try:
+                    token = self.input.request_video_refresh(bitrate_kbps)
+                    if token:
+                        maximum_codec = max(500, bitrate_kbps * 70 // 100 // 50 * 50)
+                        self.video_track.require_confirmed_refresh(token, maximum_codec)
+                except BridgeError:
+                    pass  # Retiring or old producer keeps the established path.
         self._video_received._wake.set()
+        self._video_presentation._wake.set()
         self._publish_video_rate()
 
     def _publish_video_rate(self) -> None:
@@ -2985,9 +3100,14 @@ class BrowserWebRtcBridge:
             raise BridgeError('WebRTC sender cannot expose encoded frame payloads')
 
         async def budgeted(codec: RTCRtpCodecParameters) -> object:
-            frame = await next_frame(codec)
-            self._next_video_wire_bytes = 0
-            if frame is not None:
+            while True:
+                frame = await next_frame(codec)
+                serial = self.video_track.current_recovery_serial
+                self._next_video_wire_bytes = 0
+                if frame is None:
+                    self._video_frame_in_progress = False
+                    self._update_video_backpressure()
+                    return None
                 # Match the sender's actual RTP extensions. Payloads are
                 # already packetized here; neither the bitstream nor its
                 # timestamps are changed. The pacer still pays every RTP/RTX.
@@ -3000,9 +3120,39 @@ class BrowserWebRtcBridge:
                     header.extensions.audio_level = (False, -frame.audio_level)
                 overhead = len(header.serialize(sender._RTCRtpSender__rtp_header_extensions_map)) + 64
                 self._next_video_wire_bytes = sum(len(p) + overhead for p in frame.payloads)
-            self._video_frame_in_progress = frame is not None
-            self._update_video_backpressure()
-            return frame
+                self._video_frame_in_progress = True
+                self._update_video_backpressure()
+                state = self._video_rate._receivers.get(self)
+                history = (self._video_received if state is not None and state.feedback_kind == 'received'
+                           else self._video_presentation)
+                try:
+                    waited = await history.wait_for_credit(
+                        lambda: self._video_pacer.sent_bytes,
+                        lambda: None if self._closed else self._video_rate._receivers.get(self),
+                        bitrate_kbps=self._video_rate.current_kbps,
+                        frame_wire_bytes=self._next_video_wire_bytes,
+                        current_bitrate=lambda: self._video_rate.current_kbps,
+                        packet_credit=self._twcc_history.credit if self._twcc_history is not None else None,
+                        interrupted=lambda: serial != self.video_track.recovery_serial,
+                        admission_hold=lambda: self._packet_hold_until,
+                        on_wait=self._set_receipt_backpressure)
+                except BaseException:
+                    self._video_frame_in_progress = False
+                    self._update_video_backpressure()
+                    raise
+                if self._closed:
+                    raise MediaStreamError
+                if serial != self.video_track.recovery_serial:
+                    # aiortc has not assigned RTP sequence numbers, history or
+                    # send counters yet. Only a subsequent independent picture
+                    # may replace this obsolete frame and its dependent queue.
+                    self.video_track.dropped_units += 1
+                    self._next_video_wire_bytes = 0
+                    self._video_frame_in_progress = False
+                    self._update_video_backpressure()
+                    continue
+                self._video_rate.presentation_backpressure(self, waited)
+                return frame
 
         sender._next_encoded_frame = budgeted
 
@@ -3205,6 +3355,7 @@ class BrowserWebRtcBridge:
                             self._video_received._wake.set()
                             self._video_presentation._wake.set()
                         self._video_rate.transport_report(self, self._twcc_history.take_delivery())
+                        self._update_packet_admission()
                 if remaining:
                     await receive_rtcp(remaining)
 
@@ -3260,21 +3411,6 @@ class BrowserWebRtcBridge:
             data = numbered(data, actual=False)
             if self._queue_pause_active:
                 self._update_video_backpressure()
-            if (len(data) >= 12 and data[0] >> 6 == 2 and not 192 <= data[1] <= 223 and
-                    struct.unpack_from("!I", data, 8)[0] == video_sender._ssrc and
-                    struct.unpack_from("!I", data, 4)[0] != last_frame_rtp):
-                state = self._video_rate._receivers.get(self)
-                history = (self._video_received if state is not None and state.feedback_kind == 'received'
-                           else self._video_presentation)
-                waited = await history.wait_for_credit(
-                    lambda: self._video_pacer.sent_bytes,
-                    lambda: None if self._closed else self._video_rate._receivers.get(self),
-                    bitrate_kbps=self._video_rate.current_kbps,
-                    frame_wire_bytes=self._next_video_wire_bytes,
-                    current_bitrate=lambda: self._video_rate.current_kbps,
-                    packet_credit=self._twcc_history.credit if self._twcc_history is not None else None,
-                    on_wait=self._set_receipt_backpressure)
-                self._video_rate.presentation_backpressure(self, waited)
             await self._video_pacer.send(data, video_sender, send_with_frame)
 
         transport._send_rtp = send_paced

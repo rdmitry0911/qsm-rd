@@ -103,6 +103,7 @@ constexpr std::uint32_t packet_video_time = 0x00000040U;
 constexpr std::uint32_t packet_ui = 0x00000080U;
 constexpr std::uint32_t packet_capture_time = 0x00000100U;
 constexpr std::uint32_t packet_region = 0x00000200U;
+constexpr std::uint32_t packet_refresh = 0x00000400U;
 constexpr std::uint32_t input_magic = 0x51534d49U; // QSMI
 constexpr std::uint8_t input_version = 1U;
 constexpr std::uint8_t input_mouse_position = 1U;
@@ -114,6 +115,7 @@ constexpr std::uint8_t input_resize = 5U;
 // authenticated WebRTC peer sends RTCP PLI, never from browser JSON input.
 constexpr std::uint8_t input_keyframe_request = 6U;
 constexpr std::uint8_t input_video_bitrate = 7U;
+constexpr std::uint8_t input_video_refresh = 15U;
 constexpr std::uint8_t input_key_tap = 8U;
 constexpr std::uint8_t input_mouse_action = 9U;
 constexpr std::uint8_t input_lossless_ui = 10U;
@@ -450,6 +452,8 @@ struct VideoRegion {
 struct CapturedVideo {
     std::uint64_t capture {};
     VideoRegion region;
+    std::uint64_t refresh_token {};
+    std::uint32_t codec_bitrate {};
 };
 
 class PacketSink {
@@ -468,7 +472,8 @@ public:
     PacketSink(const PacketSink &) = delete;
     PacketSink &operator=(const PacketSink &) = delete;
 
-    [[nodiscard]] bool send_video(bool keyframe, std::span<const std::uint8_t> data, std::uint64_t capture = 0, std::optional<VideoRegion> region = std::nullopt) noexcept {
+    [[nodiscard]] bool send_video(bool keyframe, std::span<const std::uint8_t> data, std::uint64_t capture = 0, std::optional<VideoRegion> region = std::nullopt,
+                                  std::uint64_t refresh_token = 0, std::uint32_t codec_bitrate = 0) noexcept {
         try {
             const auto now = std::chrono::steady_clock::now();
             if (!video_origin_) { video_origin_ = now; }
@@ -482,8 +487,11 @@ public:
                 append_u16(timed, region->x); append_u16(timed, region->y);
                 append_u16(timed, region->width); append_u16(timed, region->height);
             }
+            if (refresh_token) {
+                append_u64(timed, refresh_token); append_u32(timed, codec_bitrate);
+            }
             timed.insert(timed.end(), data.begin(), data.end());
-            if (send(video_, ++video_number_, packet_video_time | (capture ? packet_capture_time : 0U) | (region ? packet_region : 0U) | (keyframe ? packet_idr : 0U), timed)) {
+            if (send(video_, ++video_number_, packet_video_time | (capture ? packet_capture_time : 0U) | (region ? packet_region : 0U) | (refresh_token ? packet_refresh : 0U) | (keyframe ? packet_idr : 0U), timed)) {
                 std::lock_guard lock(mutex_);
                 ++video_access_units_;
                 return true;
@@ -683,6 +691,8 @@ public:
         bool keyframe {};
         std::uint64_t capture {};
         VideoRegion region;
+        std::uint64_t refresh_token {};
+        std::uint32_t codec_bitrate {};
     };
 
     static bool supports(std::string_view encoder) {
@@ -826,7 +836,8 @@ public:
     }
 
     [[nodiscard]] std::vector<Packet> encode(std::span<const std::uint8_t> bgra,
-                                            bool force_idr, std::uint64_t capture, const VideoRegion& region) {
+                                            bool force_idr, std::uint64_t capture, const VideoRegion& region,
+                                              std::uint64_t refresh_token, std::uint32_t codec_bitrate) {
         if (bgra.size() != static_cast<std::size_t>(width_) * height_ * 4U) {
             throw WorkerError("in-process video input frame has an invalid size");
         }
@@ -839,7 +850,7 @@ public:
         (void) sws_scale(scale_, source.data(), stride.data(), 0, static_cast<int>(height_),
                          frame_->data, frame_->linesize);
         frame_->pts = next_pts_++;
-        capture_times_[frame_->pts] = CapturedVideo {capture, region};
+        capture_times_[frame_->pts] = CapturedVideo {capture, region, refresh_token, codec_bitrate};
         frame_->pict_type = force_idr ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
         AVFrame *input = frame_;
         if (vaapi_) {
@@ -968,7 +979,8 @@ private:
             const auto captured = stamp == capture_times_.end() ? CapturedVideo {} : stamp->second;
             if (stamp != capture_times_.end()) { capture_times_.erase(stamp); }
             result.push_back({.bytes = {packet_->data, packet_->data + packet_->size},
-                              .keyframe = (packet_->flags & AV_PKT_FLAG_KEY) != 0, .capture = captured.capture, .region = captured.region});
+                              .keyframe = (packet_->flags & AV_PKT_FLAG_KEY) != 0, .capture = captured.capture, .region = captured.region,
+                              .refresh_token = captured.refresh_token, .codec_bitrate = captured.codec_bitrate});
             av_packet_unref(packet_);
         }
     }
@@ -1248,6 +1260,20 @@ public:
         }
     }
 
+    void request_confirmed_refresh(std::uint32_t bitrate_kbps, std::uint64_t token) noexcept {
+        if (!token || bitrate_kbps < 500U || bitrate_kbps > 100'000U) { return; }
+        {
+            std::lock_guard lock(video_mutex_);
+            if (!ui_v3_.load() || !ui_enabled_.load() || !regions_enabled_.load() ||
+                    token == confirmed_refresh_token_ || token == pending_refresh_token_) { return; }
+            requested_bitrate_kbps_.store(bitrate_kbps);
+            pending_refresh_token_ = token;
+            pending_raw_video_.clear();
+            ++ui_revision_;
+        }
+        video_cv_.notify_one(); ui_cv_.notify_one();
+    }
+
     void request_idr() override {
         ++keyframe_requests_;
         force_idr_ = true;
@@ -1318,7 +1344,7 @@ private:
             // A delayed reply can overlap a lower-version fallback probe.
             // Advertise the format already enabled for this connection.
             const bool retry_probe = probe && !sink_.send_ui(qmdp::LosslessUi::greeting(
-                ui_v3_.load() ? 15U : ui_v2_.load() ? 7U : 0U));
+                ui_v3_.load() ? 31U : ui_v2_.load() ? 7U : 0U));
             bool retry_update = false;
             if (retry_probe) { ui_probe_.store(probe); }
             if (!enabled) {
@@ -1470,6 +1496,9 @@ private:
                     region.width = static_cast<std::uint16_t>(width); region.height = static_cast<std::uint16_t>(height);
                 }
             }
+            const auto refresh = pending_refresh_token_;
+            if (refresh) { confirmed_refresh_token_ = refresh; }
+            const auto refresh_token = confirmed_refresh_token_;
             frame_changed_ = false;
             lock.unlock();
             try {
@@ -1480,7 +1509,10 @@ private:
                 const auto previous_access_unit_bytes = last_video_access_unit_bytes_.load();
                 const auto codec_bitrate = cropped_video_rate_.update(tick, cropped,
                     requested_bitrate, video_bitrate_kbps_, opening,
-                    force_idr ? 0U : previous_access_unit_bytes);
+                    force_idr ? 0U : previous_access_unit_bytes, refresh != 0);
+                if (refresh && cropped && codec_bitrate <= std::max(500U, requested_bitrate * 70U / 100U / 50U * 50U)) {
+                    force_idr = true;
+                }
                 const bool rate_changed = encoder_bitrate_kbps_ != codec_bitrate;
 #if defined(QMDP_HAS_LIBAVCODEC)
                 if (LibavVideoEncoder::supports(encoder_)) {
@@ -1492,8 +1524,8 @@ private:
                         encoder_bitrate_kbps_ = codec_bitrate;
                         force_idr = true;
                     }
-                    for (auto &packet : libav_encoder_->encode(*bgra, force_idr, capture, region)) {
-                        publish_video(packet.keyframe, packet.bytes, packet.capture, packet.region);
+                    for (auto &packet : libav_encoder_->encode(*bgra, force_idr, capture, region, refresh_token, codec_bitrate)) {
+                        publish_video(packet.keyframe, packet.bytes, packet.capture, packet.region, packet.refresh_token, packet.codec_bitrate);
                     }
                 } else {
 #endif
@@ -1502,13 +1534,13 @@ private:
                     close_video_process();
                     open_video_process(width, height, codec_bitrate, cropped);
                 }
-                remember_video_capture(capture, region);
+                remember_video_capture(capture, region, refresh_token, codec_bitrate);
                 write_all(video_input_, *bgra);
                 if (fresh_encoder) {
                     // The first raw video frame may not be emitted until FFmpeg
                     // sees another timestamp. Establish a decodable console
                     // picture immediately; steady-state repeats are paced.
-                    remember_video_capture(capture, region);
+                    remember_video_capture(capture, region, refresh_token, codec_bitrate);
                     write_all(video_input_, *bgra);
                 }
 #if defined(QMDP_HAS_LIBAVCODEC)
@@ -1541,6 +1573,14 @@ private:
                 break;
             }
             lock.lock();
+            // Keep confirmation live across the one-second reset quiet period.
+            // A later ordinary estimate cannot leave the host waiting for a
+            // low-rate IDR while this request silently expires after one tick.
+            if (pending_refresh_token_ == refresh &&
+                    (!region_mode || !encoder_cropped_ || encoder_bitrate_kbps_ <=
+                     std::max(500U, requested_bitrate * 70U / 100U / 50U * 50U))) {
+                pending_refresh_token_ = 0;
+            }
             // Keep the media cadence measured from the preceding presentation
             // deadline, not from the end of BGRA conversion and encoding.
             // Starting a new interval after libx264 work turns a nominal
@@ -1831,22 +1871,28 @@ private:
         ::close(descriptor);
     }
 
-    void remember_video_capture(std::uint64_t capture, const VideoRegion& region) {
+    void remember_video_capture(std::uint64_t capture, const VideoRegion& region,
+                                std::uint64_t refresh_token, std::uint32_t codec_bitrate) {
         std::lock_guard lock(video_capture_mutex_);
         if (video_captures_.size() >= 256) { throw WorkerError("video capture metadata overflow"); }
-        video_captures_.push_back({capture, region});
+        video_captures_.push_back({capture, region, refresh_token, codec_bitrate});
     }
 
     void publish_video(bool keyframe, std::span<const std::uint8_t> access_unit,
-                       std::uint64_t capture = 0, VideoRegion region = {}) noexcept {
+                       std::uint64_t capture = 0, VideoRegion region = {},
+                       std::uint64_t refresh_token = 0, std::uint32_t codec_bitrate = 0) noexcept {
         if (!capture) {
             std::lock_guard lock(video_capture_mutex_);
-            if (!video_captures_.empty()) { capture = video_captures_.front().capture; region = video_captures_.front().region; video_captures_.pop_front(); }
+            if (!video_captures_.empty()) {
+                const auto captured = video_captures_.front(); video_captures_.pop_front();
+                capture = captured.capture; region = captured.region;
+                refresh_token = captured.refresh_token; codec_bitrate = captured.codec_bitrate;
+            }
         }
         video_budget_.account(access_unit.size());
         last_video_access_unit_bytes_.store(access_unit.size());
         if (!sink_.send_video(keyframe, access_unit, ui_v2_.load() ? capture : 0,
-                region_protocol_.load() && region.surface_width && region.surface_height ? std::optional(region) : std::nullopt)) {
+                region_protocol_.load() && region.surface_width && region.surface_height ? std::optional(region) : std::nullopt, refresh_token, codec_bitrate)) {
             // A local Unix socket loss invalidates the same H.264 reference
             // chain as a network loss.  The larger private buffer normally
             // avoids it, but when a busy browser peer still forces a drop,
@@ -1919,6 +1965,7 @@ private:
     std::atomic<std::uint64_t> last_video_access_unit_bytes_ {};
     qmdp::VideoBudget video_budget_;
     qmdp::CroppedVideoRate cropped_video_rate_;
+    std::uint64_t pending_refresh_token_ {}, confirmed_refresh_token_ {};
     std::atomic<bool> ui_enabled_ {false};
     std::atomic<std::uint8_t> ui_probe_ {0};
     std::atomic<unsigned> ui_budget_ {0};
@@ -2201,6 +2248,9 @@ private:
             media_.request_idr();
         } else if (op == input_video_bitrate && payload.size() == 4U) {
             media_.request_bitrate(read_u32(payload, 0U));
+        } else if (op == input_video_refresh && payload.size() == 12U) {
+            const auto token = (static_cast<std::uint64_t>(read_u32(payload, 4)) << 32U) | read_u32(payload, 8);
+            media_.request_confirmed_refresh(read_u32(payload, 0), token);
         } else if (op == input_lossless_ui && payload.size() == 1U && payload[0] <= 5U) {
             media_.request_lossless_ui(payload[0]);
         } else if (op == input_ui_budget && payload.size() == 1U && payload[0] <= 50U) {

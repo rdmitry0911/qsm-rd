@@ -600,6 +600,30 @@ void test_codec_scene_guard_preserves_urgent_repair_and_pending_lifetimes() {
     CHECK(rate.update(start + 13s, true, 1500, 8000, true, 50000) == 1050U);
 }
 
+void test_packet_confirmed_crop_repair_preserves_ordinary_quality_guards() {
+    using namespace std::chrono_literals;
+    const qmdp::CroppedVideoRate::Clock::time_point start {};
+    qmdp::CroppedVideoRate rate;
+    CHECK(rate.update(start, true, 8000, 8000, true) == 5600U);
+    // Explicit packet confirmation can retune before ordinary600ms dwell.
+    CHECK(rate.update(start + 2s, true, 1500, 8000, false, 80000, true) == 1050U);
+    // A second repair cannot repeatedly reset the codec inside its quiet period.
+    CHECK(rate.update(start + 2100ms, true, 500, 8000, false, 0, true) == 1050U);
+    CHECK(rate.update(start + 3100ms, true, 500, 8000, false, 0, true) == 500U);
+    // Full-desktop quality remains fixed even with explicit confirmation.
+    CHECK(rate.update(start + 4s, false, 500, 8000, false, 0, true) == 8000U);
+    // A halving of the path can require a smaller-than-half codec cut after
+    // the previous upward codec dwell. Confirmation applies that real target.
+    qmdp::CroppedVideoRate stepped;
+    CHECK(stepped.update(start, true, 2815, 8000, true) == 1950U);
+    CHECK(stepped.update(start + 2s, true, 1672, 8000, false, 9000, true) == 1150U);
+    qmdp::CroppedVideoRate ordinary;
+    CHECK(ordinary.update(start, true, 8000, 8000, true) == 5600U);
+    CHECK(ordinary.update(start + 2s, true, 1500, 8000, false) == 5600U);
+    CHECK(ordinary.update(start + 2500ms, true, 1500, 8000, false) == 5600U);
+    CHECK(ordinary.update(start + 2600ms, true, 1500, 8000, false) == 1050U);
+}
+
 void test_capture_bursts_keep_both_fresh_images_in_order() {
     using namespace std::chrono_literals;
     qmdp::CaptureFrameQueue queue;
@@ -682,6 +706,7 @@ int main() {
     test_severe_crop_decrease_has_a_short_confirmed_boundary_only();
     test_codec_retune_after_a_scene_burst_admits_one_fresh_picture();
     test_codec_scene_guard_preserves_urgent_repair_and_pending_lifetimes();
+    test_packet_confirmed_crop_repair_preserves_ordinary_quality_guards();
     test_capture_bursts_keep_both_fresh_images_in_order();
     test_capture_history_expires_and_is_cleared_for_modes_and_recovery();
     test_capture_history_has_a_byte_bound_as_well_as_a_frame_bound();

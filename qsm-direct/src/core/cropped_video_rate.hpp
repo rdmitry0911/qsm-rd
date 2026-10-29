@@ -35,7 +35,8 @@ public:
 
     std::uint32_t update(Clock::time_point now, bool cropped,
                          std::uint32_t requested, std::uint32_t maximum,
-                         bool opening, std::uint64_t previous_access_unit_bytes = 0) {
+                         bool opening, std::uint64_t previous_access_unit_bytes = 0,
+                         bool confirmed_decrease = false) {
         maximum = std::clamp(maximum, 500U, 100'000U);
         requested = std::clamp(requested, 500U, maximum);
         const auto desired = cropped
@@ -49,6 +50,17 @@ public:
             return current_;
         }
         if (!cropped) { return current_; }
+        // Only the negotiated host repair command may bypass estimate dwell.
+        // It follows authenticated packet evidence of a severe path collapse.
+        // Keep the reset quiet period; ordinary estimates use the guards below.
+        if (confirmed_decrease && desired < current_ &&
+                now - changed_ >= std::chrono::seconds(1)) {
+            current_ = desired;
+            changed_ = now;
+            pending_.reset();
+            boundary_deferred_ = false;
+            return current_;
+        }
 
         // Ignore small rate fluctuations. A single loss report or a short
         // typing burst cannot reset the codec. Even a sustained change must
