@@ -1,6 +1,6 @@
 {
   "date": "2026-10-29",
-  "status": "isolated_native_microsoft_rdp_reference_running_comparison_incomplete",
+  "status": "initial_content_mismatch_corrected_reference149_available",
   "user_context": "User confirmed no ready Windows RDP node; prepared an isolated owned evaluation VM.",
   "evidence_directory": "dist/rdp-hybrid/chromium-receive-exp132/windows-reference",
   "server": {
@@ -44,12 +44,12 @@
     "height": 360,
     "source_rate": 60,
     "sha256": "58d618b3351ab000ca62fc421b7c28026e2eb4758173a3f9d9e21bcec38fd905",
-    "source_marker": "Same phase/tick/XOR source marker as QSM, drawn with the actual movie frame; native Windows editable input and own glyph templates.",
-    "difference": "Windows WinForms/GDI TextBox versus Linux Qt/KWin; operating system, client and encoding stacks differ."
+    "source_marker": "Same phase/tick/XOR marker format, native Windows editable input and own glyph templates. Original RDP media hash58d618... differs from the QSM hardcut media hash1a0635...; equal frame counts do not establish equal content.",
+    "difference": "Initial RDP trial used the original600-frame BBB excerpt; contemporaneous QSM132 used alternating hardcut68 scenes. Windows WinForms/GDI TextBox versus Linux Qt/KWin and OS/client/encoding stacks also differ."
   },
   "healthy_unshaped_pilot": {
     "scope": "Unshaped isolated Microsoft Windows Server2025 RDP / FreeRDP3 software X11 presentation; diagnostic healthy-path pilot only; no matched network or quality comparison yet",
-    "source": "Same600 RGB frames and source/XOR marker as QSM fixture; native Windows TextBox with actual glyph templates",
+    "source": "Original600-frame BBB excerpt, SHA25658d618...; not equal to the QSM132 hardcut68 file. Actual source/XOR marker and native Windows TextBox glyph templates.",
     "unique_fps": 31.79880883346392,
     "invalid_source_ids": 0,
     "max_gap_ms": 64.51250799000263,
@@ -163,7 +163,7 @@
   },
   "comparability": {
     "base_path_evidence": "Measured ICMP and TCP connect RTT is approximately106ms to native Intel172.16.16.200, versus0.03ms to local192.168.64.20. Artificial impairment equality does not make those base paths equal.",
-    "appropriate_next_comparison": "Local base-path comparison is recorded; expand matched fidelity, negotiated RDP codec, repetition and additional scenarios. Native Intel106ms base RTT must remain a separate profile.",
+    "appropriate_next_comparison": "Repeat with actual media SHA256 equality verified inside both guests; include matched fidelity, negotiated RDP codec evidence, repetition and additional scenarios.",
     "not_claimed": "No overall QSM-vs-RDP winner or full qualification is inferred from these pilots. Video fidelity, negotiated RDP codec, longer sessions and remaining cases still require acceptance.",
     "local_qsm132_run": {
       "checks": {
@@ -291,7 +291,16 @@
         "whole_profile_source_gap_ms": 150
       }
     },
-    "local_trial_interpretation": "On the shared local base path, QSM132 delivered55.27/51.54/53.95fps versus RDP31.73/28.55/31.81fps. QSM glyphs ranged55-105ms; RDP healthy/recovered40-65ms, with a943.54ms initial-drop glyph. These are individual stochastic trials with different OS/client/encoder stacks; measured source-clock brackets and RDP codec/fidelity limitations remain. No overall winner is declared."
+    "local_trial_interpretation": "Retain the individual QSM132 and original RDP measurements as separate trials. Their artificial network profiles and local base paths were similar, but their video content differed. The previous direct numeric comparison cannot establish relative performance. Repeat RDP with the verified QSM hardcut68 file before making a matched-content comparison.",
+    "source_equality_audit": {
+      "date": "2026-10-29",
+      "initial_rdp_sha256": "58d618b3351ab000ca62fc421b7c28026e2eb4758173a3f9d9e21bcec38fd905",
+      "qsm_lxc_configured_directory": "/opt/qsm-rdp-hybrid-20261028/hardcut68",
+      "qsm_lxc_sha256": "1a063574ef752a5d0c0ffa855d5dded6fc361f68a771b523e8ff0cf23b6f5886",
+      "finding": "The new fidelity harness SHA256 guard rejected a wrong reference before image scoring. Auditing the actual fixture configuration and readable Windows CD file confirmed the initial mismatch. Original reports are preserved.",
+      "correction": "A new immutable content3.iso contains the QSM hardcut68 file and unchanged Windows fixture source. Only the owned reference VM CD media was changed; no VM/host restart. Corrected runs are recorded separately."
+    },
+    "corrected_reference": "docs/rdp-matched-content-20261029.json"
   },
   "setup_fixes": [
     "The readonly source file needs a read-only memory map; C# input event storage must not hide Component.Events because Add-Type treats warnings as errors.",

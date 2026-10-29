@@ -273,10 +273,11 @@
       "127 hardcut narrow SSIM0.908 passes; fast48.79fps fails50. Native VAAPI42.58fps narrow,512.278ms source-age excess and presentation excess fail. All failures retained.",
       "Supplied Mac receiver tested with Chrome156/Metal Intel: initial headless SSH/CDP interruption, headless repeat and headful repeat retained. Timing gates fail, marker readback overhead measured; no full Mac performance qualification claimed. Owned test profiles, assertions and diagnostic workers cleaned up; production remains exp35.",
       "Private132 Chromium receipt creation-task fix verified with live Mac permission-toggle continuity; native Firefox regression and same-local-path NVENC/RDP comparison retained in docs/rdp-chromium-receive-20261029.json and docs/rdp-microsoft-reference-20261029.json. Local NVENC passes13 original transition gates; Mac/native failures remain open.",
-      "144 LXC/NVENC transition passes13 original gates:55.15/47.99/55.49fps, glyph138ms, exact8224 static snapshots, source-age excess363.024ms and full8000 recovery. Original component assertions pass22 pixel oracles with50.96/48.02fps and glyph peaks91/170/289/244ms; scoped wrapper exits0. Native QSV age478.569ms and Mac cadence/gap fail and remain open."
+      "144 LXC/NVENC transition passes13 original gates:55.15/47.99/55.49fps, glyph138ms, exact8224 static snapshots, source-age excess363.024ms and full8000 recovery. Original component assertions pass22 pixel oracles with50.96/48.02fps and glyph peaks91/170/289/244ms; scoped wrapper exits0. Native QSV age478.569ms and Mac cadence/gap fail and remain open.",
+      "149 corrects initial RDP/QSM video-content mismatch with SHA2561a0635... proved in both guests. Corrected RDP31.52/29.02/31.63fps,15chars once,952ms initial-cut glyph fails600; QSM14455.15/47.99/55.49fps and138ms. Separate144 hardcut50.78/52.41fps passes cadence but narrow SSIM0.885896 fails0.90. Original failures retained; no overall winner declared."
     ],
     "pending": [
-      "Use recorded144/146 initial-cut packet/frame timings to separate unavoidable old wire flight from new admission; avoid another unqualified delay-only policy. Continue independent fidelity/codec/application qualification without relaxing the original45fps/400ms gates.",
+      "Investigate why the low-rate cropped encoder misses hard-cut SSIM while preserving its observed cadence; prefer a measured encoder-quality change over another rejected admission hold. Continue native/Mac diagnosis and broader qualification in independent environments.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -284,7 +285,7 @@
       "Complete component-aware text-over-video move/resize/scroll/close, occlusion and lifecycle acceptance",
       "Hard-cut video fidelity, repeated network profiles and broader real-loss/jitter coverage",
       "Supported VM/LXC NVENC/QSV/VAAPI H264/HEVC matrix, long encoded mixed sessions and resource checks",
-      "Firefox/macOS acceptance and matched QSM/RDP network/content comparison",
+      "Firefox/macOS acceptance; extend the corrected149 same-content RDP comparison to impaired fidelity, codec proof, repeats and longer scenarios",
       "Publish matching final source/debs/signed sums/APT and installation/rollback docs; qualified rollout and discussion updates"
     ],
     "production_node_20": "Host remains exp35; no worker or user desktop restart",
@@ -332,9 +333,10 @@
       "dist/rdp-hybrid/macos-observer-133-136",
       "dist/rdp-hybrid/playout-queue-139-143",
       "dist/rdp-hybrid/received-feedback-exp144",
-      "dist/rdp-hybrid/refresh-reservation-146"
+      "dist/rdp-hybrid/refresh-reservation-146",
+      "dist/rdp-hybrid/rdp-matched-content-149"
     ],
-    "next_action": "Use recorded144/146 initial-cut packet/frame timings to separate unavoidable old wire flight from new admission; avoid another unqualified delay-only policy. Continue independent fidelity/codec/application qualification without relaxing the original45fps/400ms gates.",
+    "next_action": "Investigate why the low-rate cropped encoder misses hard-cut SSIM while preserving its observed cadence; prefer a measured encoder-quality change over another rejected admission hold. Continue native/Mac diagnosis and broader qualification in independent environments.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -555,7 +557,8 @@
     "macos_observer": "docs/rdp-macos-observer-20261029.json",
     "receipt_resampling": "docs/rdp-receipt-resampling-20261029.json",
     "playout_queue_diagnostics": "docs/rdp-playout-queue-20261029.json",
-    "refresh_reservation": "docs/rdp-refresh-reservation-20261029.json"
+    "refresh_reservation": "docs/rdp-refresh-reservation-20261029.json",
+    "matched_rdp_reference": "docs/rdp-matched-content-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",

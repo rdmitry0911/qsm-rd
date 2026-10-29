@@ -1,0 +1,273 @@
+{
+  "date": "2026-10-29",
+  "status": "corrected_content_reference_recorded_full_qualification_open",
+  "evidence_directory": "dist/rdp-hybrid/rdp-matched-content-149",
+  "artifact_manifest_sha256": "2e2fab4f1cbadfe05436d581e2c7db76fffca19514c0da3af56316348fca2d1c",
+  "source_audit": {
+    "initial_windows_sha256": "58d618b3351ab000ca62fc421b7c28026e2eb4758173a3f9d9e21bcec38fd905",
+    "qsm_lxc_sha256": "1a063574ef752a5d0c0ffa855d5dded6fc361f68a771b523e8ff0cf23b6f5886",
+    "corrected_windows_guest": {
+      "id": "24ac844a975e78d2",
+      "tick": 1028758402160,
+      "frequency": 100000000,
+      "utc": "2026-10-29T13:47:35.4505576Z",
+      "result": "{\"sha256\":\"1A063574EF752A5D0C0FFA855D5DDED6FC361F68A771B523E8FF0CF23B6F5886\",\"source\":\"E:\\\\quality60.rgb\",\"fixture_state\":\"Running\"}\r\n",
+      "ok": true
+    },
+    "correction": "The initial Windows source was the original BBB excerpt, while the actual configured QSM fixture reads hardcut68. A new SHA256 guard rejected scoring against the wrong file. Original measurements and artifacts remain; their previous matched-content claim is corrected in rdp-microsoft-reference-20261029.json.",
+    "new_media": {
+      "owned_vm_pid": 1213118,
+      "rgb_sha256": "1a063574ef752a5d0c0ffa855d5dded6fc361f68a771b523e8ff0cf23b6f5886",
+      "rgb_bytes": 414720000,
+      "iso_sha256": "684b7cc8361611983b73cd84b5f0136ad9ec8845fa8493b54eca444eac022d26",
+      "media_changed": true,
+      "fixture_source_unchanged": true,
+      "old_content_retained": true,
+      "vm_restarted": false,
+      "new_media": "/var/tmp/qsm-rdp-reference-20261029/content3.iso"
+    },
+    "unchanged": "Windows Reference.cs and fixture.ps1, VM PID1213118 and its system disk/session; only the owned CD medium changed, without a VM/host restart."
+  },
+  "rdp_corrected_network": {
+    "scope": "Windows Server2025 native Microsoft RDP, FreeRDP3 software X11. Verified identical hardcut68 RGB600-frame video, SHA2561a063574ef752a5d0c0ffa855d5dded6fc361f68a771b523e8ff0cf23b6f5886, and native editable TextBox. One SSH-forwarded RDP TCP socket; actual15ms3ms ingress jitter,0.3% loss after cut,20M/2M/20M phases15/45/75sec. This is cross-OS/client/encoder comparison, not an identical-backend benchmark.",
+    "source_sha256": "1a063574ef752a5d0c0ffa855d5dded6fc361f68a771b523e8ff0cf23b6f5886",
+    "checks": {
+      "source_ids_valid": true,
+      "input_delivered_once": true,
+      "glyph_peak_at_most_600ms": false,
+      "source_gap_at_most_500ms": true
+    },
+    "phases": [
+      {
+        "name": "fast",
+        "rate": 20000000,
+        "unique_fps": 31.523631086803945,
+        "max_gap_ms": 64.5581348799169,
+        "bytes": 5701901,
+        "source_age_ms": {
+          "median": 170.42503289085255,
+          "p95": 191.0710173703887,
+          "max": 211.30164495807514
+        }
+      },
+      {
+        "name": "narrow",
+        "rate": 2000000,
+        "unique_fps": 29.01757952368259,
+        "max_gap_ms": 169.32046366855502,
+        "bytes": 10598212,
+        "source_age_ms": {
+          "median": 264.32864865115846,
+          "p95": 891.2219314880829,
+          "max": 1261.768425167368
+        }
+      },
+      {
+        "name": "recovered",
+        "rate": 20000000,
+        "unique_fps": 31.62532851094901,
+        "max_gap_ms": 96.73586999997497,
+        "bytes": 28708293,
+        "source_age_ms": {
+          "median": 174.67869480278608,
+          "p95": 201.34203350620794,
+          "max": 249.5951003750463
+        }
+      }
+    ],
+    "visible_glyph_ms": [
+      56.32293177768588,
+      64.61415207013488,
+      952.3436999879777,
+      88.57962768524885,
+      161.38387704268098,
+      56.43991380929947,
+      56.71470519155264,
+      121.02543096989393,
+      72.61192426085472,
+      56.51214066892862,
+      56.79620895534754,
+      40.351372212171555,
+      40.42780678719282,
+      64.56157099455595,
+      64.59006574004889
+    ],
+    "guest_characters": 15,
+    "source_id_errors": 0,
+    "source_clock_uncertainty_max_ms": 114.12027850747108,
+    "network_evidence": {
+      "configured_at_rescue": {
+        "delay_ms": 15,
+        "jitter_ms": 3,
+        "loss_percent": 0.3,
+        "seed": null,
+        "seed_note": "Installed iproute2 does not support netem seed; retain actual packet/drop counters"
+      },
+      "total_qdisc_drops_at_rescue": 159,
+      "initial_counter_snapshot_available": false,
+      "limitation": "The original proxy stalled during cleanup, so its initial snapshot was not serialized. Actual final namespace settings/counters were rescued before shutdown.159 is a final counter, not a measured phase delta."
+    }
+  },
+  "qsm144_same_content_network": {
+    "scope": "Owned LXC108/KWin5,NVENC/H264,Linux Firefox,TURN TCP8006; mock launch/ACL. Same local base host and same artificial15/3ms delay/jitter,0->0.3% ingress loss at the20M->2M cut and20M recovery, with independent stochastic realizations.",
+    "source_sha256": "1a063574ef752a5d0c0ffa855d5dded6fc361f68a771b523e8ff0cf23b6f5886",
+    "checks": {
+      "no_long_video_gap": true,
+      "narrow_source_fps_at_least_45": true,
+      "recovered_source_fps_at_least_50": true,
+      "full_rate_recovered": true,
+      "presentation_excess_at_most_400ms": true,
+      "glyph_peak_at_most_600ms": true,
+      "full_source_excess_from_fast_p95_at_most_400ms": true,
+      "no_observed_rtp_loss": true,
+      "narrowed": true,
+      "recovered_some": true,
+      "static_pixels_exact": true,
+      "input_delivered_once": true,
+      "same_connected_stream": true
+    },
+    "phases": [
+      {
+        "name": "fast",
+        "unique_fps": 55.15323936376568,
+        "max_frame_gap_ms": 103,
+        "final_target": 8000
+      },
+      {
+        "name": "narrow",
+        "unique_fps": 47.98724417360155,
+        "max_frame_gap_ms": 183,
+        "final_target": 2696
+      },
+      {
+        "name": "recovered",
+        "unique_fps": 55.48564843636171,
+        "max_frame_gap_ms": 118,
+        "final_target": 8000
+      }
+    ],
+    "visible_glyph_ms": [
+      71,
+      72,
+      87,
+      72,
+      72,
+      138,
+      131,
+      113,
+      75,
+      75,
+      84,
+      57,
+      71,
+      66,
+      65
+    ],
+    "static_pixel_observations": 8224,
+    "comparison_limits": [
+      "OS, native widget toolkit, client, encoder and transport stacks differ; this is not a single-variable backend benchmark.",
+      "RDP active AVC codec/profile remains unproved; AVC444 was requested and RDS graphics/AVC capability events exist.",
+      "QSM and RDP are individual unseeded-loss trials. No overall winner, repeated-case qualification or equivalent quality claim follows from these numbers."
+    ]
+  },
+  "rdp_healthy_scene_fidelity": {
+    "scope": "Isolated Server2025/RDS + FreeRDP3.15 software X11; unshaped healthy full-video reference only. Same frozen600 RGB images; overlap hidden. Not matched transition acceptance or proof of an active AVC444 mode.",
+    "source_sha256": "1a063574ef752a5d0c0ffa855d5dded6fc361f68a771b523e8ff0cf23b6f5886",
+    "source_rate": 60,
+    "duration_s": 22.0030959402211,
+    "unique_source_fps": 31.677360399356424,
+    "max_source_gap_ms": 72.61689426377416,
+    "invalid_source_ids": 0,
+    "readback_ms": {
+      "median": 0.5121198482811451,
+      "p95": 0.9315177332609881,
+      "max": 10.706524830311537
+    },
+    "first_cut_frames": 9,
+    "first_cut_min_rgb_psnr": 33.45672670085164,
+    "first_cut_min_ssim_8x8_box": 0.9608746485405919,
+    "possible_neighbor_identity_mismatch_samples": 0,
+    "pixel_identity_limit": "RDP can deliver video regions and marker draws independently. One X11 image provides simultaneous pixels/marker, but XOR alone cannot prove atomic cross-region source identity. Neighbor matching is diagnostic only; the claimed marker tick is never replaced by a better-matching neighbor for scoring.",
+    "quality_formula": "Exact score() function from the existing QSM quality-browser.py; non-overlapping8x8 luma SSIM, no Gaussian claim; same marker rectangle excluded."
+  },
+  "qsm144_scene_fidelity": {
+    "scope": "Separate original hardcut acceptance20s20M/30s2M; exact same source and score() formula. This is not the RDP unshaped healthy fidelity profile.",
+    "checks": {
+      "quality_rgb": true,
+      "quality_ssim": false,
+      "no_visible_stale_exact_tiles": true,
+      "static_ui_exact": true,
+      "source_ids_valid": true,
+      "snapshot_ids_match": true,
+      "cadence": true,
+      "no_long_gap": true
+    },
+    "phases": [
+      {
+        "name": "fast",
+        "unique_source_fps": 50.78476457062881,
+        "max_gap_ms": 100,
+        "first_cut_frames": 8,
+        "first_cut_min_rgb_psnr": 36.166891901947366,
+        "first_cut_min_ssim_8x8_box": 0.9831818672954509,
+        "max_strong_stale_exact_matches": 0
+      },
+      {
+        "name": "narrow",
+        "unique_source_fps": 52.41411482456433,
+        "max_gap_ms": 133,
+        "first_cut_frames": 12,
+        "first_cut_min_rgb_psnr": 30.140281759750135,
+        "first_cut_min_ssim_8x8_box": 0.8858963536472932,
+        "max_strong_stale_exact_matches": 0
+      }
+    ],
+    "static_observations": 3002,
+    "static_wrong": 0,
+    "static_uncovered": 0,
+    "source_id_errors": 0,
+    "decision": "50.78/52.41fps and exact/static/source/layout checks pass. Narrow first-cut SSIM0.885896 remains below the unchanged0.90 gate, despite RGB>=30.14dB. Retain this quality failure; do not waive it because other runs passed."
+  },
+  "harness_cleanup": {
+    "149_failure": "The previous attempted bounded gather fix did not solve cleanup. asyncio.Server.wait_closed() was awaited before cancelling its active handlers, so it could wait indefinitely; a new active-connection test reproduced this in151.",
+    "152_correction": "Cancel handlers and close their writers before waiting for server closure; retire the owned network before waiting for pumps. No product source changed.",
+    "152_actual_active_connection_test": {
+      "active_connections_at_stop": 2,
+      "exit_code": 0,
+      "shutdown_seconds": 0.03446368733420968,
+      "network_proof_saved": true,
+      "network_control_socket_removed": true
+    },
+    "scope": "The152 cleanup test uses two live TCP connections, exits0 in34ms, saves counters and removes the owned network control socket. It is a lifecycle test; the135s reference profile is not relabeled as having used152.",
+    "151_cleanup": {
+      "scope": "Only failed151 test network namespace processes",
+      "signals": [
+        {
+          "pid": 907141,
+          "signal": 15
+        },
+        {
+          "pid": 907140,
+          "signal": 15
+        }
+      ],
+      "live_remaining": []
+    },
+    "windows_fixture_after": {
+      "id": "9db9dacae6e96798",
+      "tick": 1060509648880,
+      "frequency": 100000000,
+      "utc": "2026-10-29T13:52:52.9630888Z",
+      "result": "{\"fixture_state\":\"Ready\"}\r\n",
+      "ok": true
+    },
+    "reference_vm": "Kept ready with fixture task stopped; no existing desktop or production package changed."
+  },
+  "remaining": [
+    "Fix QSM narrow hard-cut quality without weakening0.90SSIM,26dBRGB or50/45fps gates.",
+    "Native Intel144 initial-drop source-age excess478.569ms and macOS cadence/gap/input gates remain open.",
+    "Complete supported encoder/codec/application/browser and long-session matrix; extend RDP fidelity to matched impaired cases and confirm active codec.",
+    "Final matching source/seven debs/signed sums/APT/docs, qualified rollout and authorized discussion delivery remain pending."
+  ],
+  "next_action": "Investigate why the low-rate cropped encoder misses hard-cut SSIM while preserving its observed cadence; prefer a measured encoder-quality change over another rejected admission hold. Continue native/Mac diagnosis and broader qualification in independent environments."
+}
