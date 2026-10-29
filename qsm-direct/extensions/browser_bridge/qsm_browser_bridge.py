@@ -244,6 +244,8 @@ class _VideoPresentation:
     async def wait_for_credit(self, bytes_sent: Callable[[], int],
                               feedback: Callable[[], _ReceiverFeedback | None], *,
                               bitrate_kbps: int | None = None,
+                              frame_wire_bytes: int = 0,
+                              current_bitrate: Callable[[], int] | None = None,
                               on_wait: Callable[[bool], None] | None = None) -> float:
         """Limit ordinary video in flight, without holding audio/UI or RTX.
 
@@ -255,41 +257,68 @@ class _VideoPresentation:
         now = self._clock()
         if state is None or now - state.presented_time >= 1.5:
             return 0.
-        # Fast matched receipts permit admission before the last ACK already
-        # looks late. Otherwise a sudden path decrease can admit hundreds of
-        # kilobytes while that healthy ACK is still the newest observation.
-        # Use the actual path target, not an idle desktop's old delivery rate.
-        rapid = (getattr(state, 'feedback_kind', None) == 'received' and
-                 now - getattr(state, 'received_rapid_time', float('-inf')) < 1.5 and
-                 type(bitrate_kbps) is int and 500 <= bitrate_kbps <= 100000 and
-                 self._serial > self._acknowledged)
-        if rapid:
-            credit = bitrate_kbps * 1000 / 8 * (state.presented_base + .035)
-        else:
-            if (state.presented_delay <= state.presented_base + .1 or
-                    state.presented_kbps <= 0 or state.presented_offered_kbps <= 0):
-                return 0.
-            kbps = max(500, min(state.presented_kbps, state.presented_offered_kbps))
-            credit = kbps * 1000 / 8 * (state.presented_base + .12)
-        if bytes_sent() - self._acknowledged_bytes <= credit:
+        frame_budget = frame_wire_bytes if type(frame_wire_bytes) is int and frame_wire_bytes > 0 else 0
+
+        def allowance(value: _ReceiverFeedback, at: float) -> tuple[float | None, bool]:
+            target = current_bitrate() if current_bitrate is not None else bitrate_kbps
+            # Use the path target, not an offered rate which already includes
+            # our own admission pauses. The latter can recursively throttle a
+            # healthy clip after startup or an app-limited interval.
+            rapid = (getattr(value, 'feedback_kind', None) == 'received' and
+                     at - getattr(value, 'received_rapid_time', float('-inf')) < 1.5 and
+                     type(target) is int and 500 <= target <= 100000 and
+                     self._serial > self._acknowledged)
+            if rapid:
+                if frame_budget:
+                    # Reserve what pacing can emit during one feedback tick.
+                    # A larger AU is serialized across subsequent ticks; its
+                    # full cost here would add an RTT before that serialization
+                    # even when the preceding flight already fits the path.
+                    # Small AUs still reserve their complete actual wire cost.
+                    rate = target * 1000 / 8
+                    immediate = min(frame_budget, rate * .016)
+                    return max(0., rate * (value.presented_base + .016) - immediate), True
+                return target * 1000 / 8 * (value.presented_base + .035), True
+            if (value.presented_delay <= value.presented_base + .1 or
+                    value.presented_kbps <= 0 or value.presented_offered_kbps <= 0):
+                return None, False
+            kbps = max(500, min(value.presented_kbps, value.presented_offered_kbps))
+            return kbps * 1000 / 8 * (value.presented_base + .12), False
+
+        credit, rapid = allowance(state, now)
+        if credit is None or bytes_sent() - self._acknowledged_bytes <= credit:
             return 0.
         self.credit_waits += 1
         started = self._clock()
-        deadline = started + (.05 if rapid else .025)
+        # A fixed50ms retry can send several additional pictures before an
+        # ordinary110ms RTT ACK could possibly arrive. Allow one baseline
+        # round trip, capped by the existing250ms recovery cadence. The same
+        # deadline covers all partial ACKs and rate changes.
+        timeout = min(.25, max(.05, state.presented_base)) if rapid and frame_budget else .05 if rapid else .025
+        deadline = started + timeout
         try:
             if on_wait is not None:
                 on_wait(True)
             while True:
                 self._wake.clear()
-                if bytes_sent() - self._acknowledged_bytes <= credit:
+                state = feedback()
+                now = self._clock()
+                if state is None or now - state.presented_time >= 1.5:
+                    break
+                credit, _ = allowance(state, now)
+                if credit is None or bytes_sent() - self._acknowledged_bytes <= credit:
                     break
                 remaining = deadline - self._clock()
                 if remaining <= 0:
                     break
                 try:
-                    await asyncio.wait_for(self._wake.wait(), remaining)
+                    await asyncio.wait_for(self._wake.wait(), min(remaining, .05))
                 except asyncio.TimeoutError:
-                    break
+                    if self._clock() >= deadline:
+                        break
+                    if on_wait is not None:
+                        on_wait(True)  # Renew a bounded raw lease, not the deadline.
+                    continue
                 # Legacy ACK cadence retains its single short wait. Fast clients
                 # may acknowledge an earlier frame without freeing enough credit;
                 # retain the same per-frame deadline, never a new timeout per ACK.
@@ -2251,6 +2280,8 @@ class BrowserWebRtcBridge:
         self._region_full_frames: set[int] = set()
         self._video_presentation = _VideoPresentation()
         self._video_received = _VideoPresentation()
+        self._next_video_wire_bytes = 0
+        self._video_frame_in_progress = False
         self._regions_eligible = self._regions_ready = False
         self.input.set_video_regions(self, False)
         self._ui_peer = exact_ui.Peer(self._ui_source, self._send_control, self.input.request_ui_snapshot,
@@ -2270,6 +2301,10 @@ class BrowserWebRtcBridge:
         self.video_track.on_keyframe_required = self._request_video_keyframe
         self._queue_pause_active = False
         self._queue_pause_refreshed = float('-inf')
+        self._queue_pause_handle: asyncio.TimerHandle | None = None
+        self._receipt_pause_handle: asyncio.TimerHandle | None = None
+        self._receipt_pause_active = False
+        self._receipt_pause_delay = min(.016, 1 / fps)
         self.video_track.on_queue_changed = self._update_video_backpressure
         self._guest_dispatch = guest_dispatch
         # The terminal service owns the lifetime of the shared producer.  A
@@ -2736,6 +2771,7 @@ class BrowserWebRtcBridge:
     def _video_rate_changed(self, bitrate_kbps: int) -> None:
         self._ui_peer.wake()
         self._video_pacer.set_bitrate(bitrate_kbps)
+        self._video_received._wake.set()
         self._publish_video_rate()
 
     def _publish_video_rate(self) -> None:
@@ -2759,16 +2795,60 @@ class BrowserWebRtcBridge:
         else:
             self._send_control(payload)
 
-    def _update_video_backpressure(self) -> None:
-        # Start at two queued frames, before the four-frame prediction FIFO
-        # overflows. Receipt waits and queue occupancy have separate owners:
-        # draining one must not release the other's raw-admission pause.
-        if not self._closed and self.video_track._queue.qsize() >= 2:
+    def _set_receipt_backpressure(self, waiting: bool) -> None:
+        if self._receipt_pause_handle is not None:
+            self._receipt_pause_handle.cancel()
+            self._receipt_pause_handle = None
+
+        def pause() -> None:
+            self._receipt_pause_handle = None
+            if not self._closed:
+                self._receipt_pause_active = True
+                try:
+                    self.input.set_video_backpressure(self, 75)
+                except BridgeError:
+                    pass  # The producer may have retired during this wait.
+
+        if waiting and not self._closed:
+            if self._receipt_pause_active:
+                pause()
+            else:
+                # Short ACK waits do not need to discard raw capture history.
+                # The independent two-frame encoded-FIFO guard stays immediate.
+                self._receipt_pause_handle = self._loop.call_later(self._receipt_pause_delay, pause)
+        elif self._receipt_pause_active:
+            self._receipt_pause_active = False
+            try:
+                self.input.set_video_backpressure(self, 0)
+            except BridgeError:
+                pass  # Local authority is revoked; the remote lease is bounded.
+
+    def _pause_video_queue(self) -> None:
+        self._queue_pause_handle = None
+        queued = self.video_track._queue.qsize()
+        if not self._closed and (queued >= 2 or (queued >= 1 and self._video_frame_in_progress)):
             now = time.monotonic()
             if not self._queue_pause_active or now - self._queue_pause_refreshed >= .05:
                 self.input.set_video_backpressure(self.video_track, 100)
                 self._queue_pause_refreshed = now
                 self._queue_pause_active = True
+
+    def _update_video_backpressure(self) -> None:
+        # A healthy pacing overlap shorter than a media tick must not clear
+        # the raw capture burst history. A sustained overlap pauses with one
+        # future encoded picture; two queued pictures still pause immediately.
+        # The timer is not restarted by ACKs or per-packet updates.
+        queued = self.video_track._queue.qsize()
+        waiting = not self._closed and (queued >= 2 or (queued >= 1 and self._video_frame_in_progress))
+        if waiting and queued < 2 and not self._queue_pause_active:
+            if self._queue_pause_handle is None:
+                self._queue_pause_handle = self._loop.call_later(self._receipt_pause_delay, self._pause_video_queue)
+            return
+        if self._queue_pause_handle is not None:
+            self._queue_pause_handle.cancel()
+            self._queue_pause_handle = None
+        if waiting:
+            self._pause_video_queue()
         elif self._queue_pause_active:
             self.input.set_video_backpressure(self.video_track, 0)
             self._queue_pause_active = False
@@ -2785,6 +2865,31 @@ class BrowserWebRtcBridge:
             return True
         except BridgeError:
             return False  # The producer may already be retiring.
+
+    def _attach_video_frame_budget(self, sender: object) -> None:
+        next_frame = getattr(sender, '_next_encoded_frame', None)
+        if not callable(next_frame):
+            raise BridgeError('WebRTC sender cannot expose encoded frame payloads')
+
+        async def budgeted(codec: RTCRtpCodecParameters) -> object:
+            frame = await next_frame(codec)
+            self._next_video_wire_bytes = 0
+            if frame is not None:
+                # Match the sender's actual RTP extensions. Payloads are
+                # already packetized here; neither the bitstream nor its
+                # timestamps are changed. The pacer still pays every RTP/RTX.
+                header = RtpPacket(payload_type=codec.payloadType, ssrc=sender._ssrc)
+                header.extensions.abs_send_time = 1
+                header.extensions.mid = sender._RTCRtpSender__mid
+                if frame.audio_level is not None:
+                    header.extensions.audio_level = (False, -frame.audio_level)
+                overhead = len(header.serialize(sender._RTCRtpSender__rtp_header_extensions_map)) + 64
+                self._next_video_wire_bytes = sum(len(p) + overhead for p in frame.payloads)
+            self._video_frame_in_progress = frame is not None
+            self._update_video_backpressure()
+            return frame
+
+        sender._next_encoded_frame = budgeted
 
     def _attach_video_recovery(self, sender: object) -> None:
         """Bridge RTCP PLI to the external Display1 encoder.
@@ -2912,6 +3017,7 @@ class BrowserWebRtcBridge:
         video_sender = self._pc.addTrack(self.video_track)
         audio_sender = self._pc.addTrack(self.audio_track)
         self._attach_video_recovery(video_sender)
+        self._attach_video_frame_budget(video_sender)
         if self.video_codec == "hevc":
             # Answer with the browser's own payload type and its
             # profile/tier/level/tx-mode, so its receiver binds the packets
@@ -2978,6 +3084,8 @@ class BrowserWebRtcBridge:
                                               self._video_pacer.sent_bytes + len(data) + 64)
                 self._video_received.sent(struct.unpack_from("!I", data, 4)[0],
                                           self._video_pacer.sent_bytes + len(data) + 64)
+                self._video_frame_in_progress = False
+                self._update_video_backpressure()
 
         async def send_paced(data: bytes) -> None:
             if self._queue_pause_active:
@@ -2992,7 +3100,9 @@ class BrowserWebRtcBridge:
                     lambda: self._video_pacer.sent_bytes,
                     lambda: None if self._closed else self._video_rate._receivers.get(self),
                     bitrate_kbps=self._video_rate.current_kbps,
-                    on_wait=lambda waiting: self.input.set_video_backpressure(self, 75 if waiting else 0))
+                    frame_wire_bytes=self._next_video_wire_bytes,
+                    current_bitrate=lambda: self._video_rate.current_kbps,
+                    on_wait=self._set_receipt_backpressure)
                 self._video_rate.presentation_backpressure(self, waited)
             await self._video_pacer.send(data, video_sender, send_with_frame)
 
@@ -3097,6 +3207,7 @@ class BrowserWebRtcBridge:
         if self._closed:
             return
         self._closed = True
+        self._set_receipt_backpressure(False)
         self._update_video_backpressure()
         self._set_lossless_ui(False)
         self.input.set_video_regions(self, False, remove=True)

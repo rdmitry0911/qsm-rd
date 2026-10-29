@@ -84,6 +84,28 @@ A delivery interval below half the offered rate retains its immediate
 response; sustained credit blocking, RTCP loss and legacy feedback retain
 their existing checks. Raw admission remains bounded during confirmation.
 
+For a rapid receipt-feedback viewer, admission measures the complete next
+access unit, including its actual packetized RTP headers and conservative
+wire overhead. It reserves the bytes pacing can emit during one 16-ms
+feedback interval; small access units reserve their complete cost. Larger
+pictures remain serialized by the packet pacer, so their whole size does not
+add an RTT of credit waiting before that serialization. The window uses the
+current path target and receipt baseline. A rate change wakes the pending
+admission check; a partial acknowledgement cannot keep the preceding
+high-rate window. Encoded payloads, timestamps and predictive references are kept.
+
+Frame-aware waits permit one baseline round trip, bounded to 50–250 ms, with
+one deadline across all acknowledgements. Short healthy waits keep raw capture
+history; a wait lasting one short media tick applies the bounded raw lease.
+Long waits renew that lease every 50 ms and release it on completion or
+cancellation. A future encoded picture held behind a frame being paced or
+awaiting credit for one short media tick pauses raw admission; normal short
+pacing overlaps preserve the bounded capture history. An idle consumer can
+receive its first picture without pausing capture. The independent two-frame
+guard stays immediate, and close cancels a pending one-frame pause.
+Legacy feedback and senders without a complete-frame reservation retain their
+previous admission behavior. Audio, UI, cursor and RTX stay independent.
+
 Each viewer keeps one latest pending pixel update and one latest mandatory
 invalidation per tile. A replacement cannot erase the unsent invalidation of
 an older visible bitmap. Cheap clears are sent first in bounded batches.

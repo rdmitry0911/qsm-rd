@@ -731,6 +731,97 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.wait_for(pending, .03)
         self.assertEqual(history.credit_waits, 1)
 
+    async def test_frame_aware_credit_reserves_the_initial_paced_bytes(self):
+        for target, base, outstanding, frame_size in (
+                (2000, .02, 10000, 4000), (8000, .11, 120000, 20000),
+                (2000, .02, 6000, 3500)):
+            history = _VideoPresentation()
+            now = time.monotonic()
+            state = SimpleNamespace(presented_time=now, presented_base=base, presented_delay=base + .005,
+                                    presented_kbps=64, presented_offered_kbps=64,
+                                    feedback_kind='received', received_rapid_time=now)
+            history.sent(10, outstanding)
+            pending = asyncio.create_task(history.wait_for_credit(
+                lambda: outstanding, lambda: state, bitrate_kbps=target,
+                frame_wire_bytes=frame_size))
+            await asyncio.sleep(.005)
+            self.assertFalse(pending.done(), 'frame admission must reserve its initial paced bytes')
+            history.acknowledge(10)
+            await asyncio.wait_for(pending, .04)
+            self.assertEqual(history.credit_waits, 1)
+            # Drained frames cannot deadlock waiting for their own ACK.
+            await history.wait_for_credit(lambda: outstanding, lambda: state,
+                                          bitrate_kbps=target, frame_wire_bytes=frame_size)
+            self.assertEqual(history.credit_waits, 1)
+
+    async def test_large_paced_picture_does_not_wait_for_its_whole_wire_reservation(self):
+        for target, base, outstanding, frame_size in (
+                (1708, .109, 10968, 37322), (2000, .02, 1000, 20000)):
+            history = _VideoPresentation()
+            now = time.monotonic()
+            state = SimpleNamespace(presented_time=now, presented_base=base, presented_delay=base + .005,
+                                    presented_kbps=target, presented_offered_kbps=target,
+                                    feedback_kind='received', received_rapid_time=now)
+            history.sent(10, outstanding)
+            await asyncio.wait_for(history.wait_for_credit(
+                lambda: outstanding, lambda: state, bitrate_kbps=target,
+                frame_wire_bytes=frame_size), .02)
+            self.assertEqual(history.credit_waits, 0,
+                             'pacing already spreads this AU over more than one feedback interval')
+
+    async def test_frame_aware_credit_keeps_path_target_after_idle(self):
+        history = _VideoPresentation()
+        now = time.monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.11, presented_delay=.115,
+                                presented_kbps=64, presented_offered_kbps=64,
+                                feedback_kind='received', received_rapid_time=now)
+        history.sent(10, 100000)
+        # A previous idle source must not become a self-reinforcing limit on
+        # a new clip. This whole120KB fits the actual8M path's RTT allowance.
+        await asyncio.wait_for(history.wait_for_credit(
+            lambda: 100000, lambda: state, bitrate_kbps=8000, frame_wire_bytes=20000), .02)
+        self.assertEqual(history.credit_waits, 0)
+
+    async def test_frame_aware_credit_rechecks_rate_on_partial_ack(self):
+        history = _VideoPresentation()
+        target = [8000]
+        now = time.monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.11, presented_delay=.115,
+                                presented_kbps=6400, presented_offered_kbps=6400,
+                                feedback_kind='received', received_rapid_time=now)
+        history.sent(10, 50000)
+        history.sent(11, 120000)
+        pending = asyncio.create_task(history.wait_for_credit(
+            lambda: 120000, lambda: state, bitrate_kbps=8000, frame_wire_bytes=20000,
+            current_bitrate=lambda: target[0]))
+        await asyncio.sleep(.005)
+        self.assertFalse(pending.done())
+        target[0] = 2000
+        history._wake.set()
+        history.acknowledge(10)
+        await asyncio.sleep(.005)
+        self.assertFalse(pending.done(), 'a partial ACK cannot reuse the old high-rate window')
+        history.acknowledge(11)
+        await asyncio.wait_for(pending, .04)
+
+    async def test_frame_aware_long_rtt_wait_renews_lease_and_stays_bounded(self):
+        history = _VideoPresentation()
+        now = time.monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.11, presented_delay=.115,
+                                presented_kbps=6400, presented_offered_kbps=6400,
+                                feedback_kind='received', received_rapid_time=now)
+        history.sent(10, 200000)
+        leases = []
+        pending = asyncio.create_task(history.wait_for_credit(
+            lambda: 200000, lambda: state, bitrate_kbps=8000,
+            frame_wire_bytes=20000, on_wait=leases.append))
+        await asyncio.sleep(.065)
+        self.assertFalse(pending.done(), '50ms cannot prove loss on a110ms RTT path')
+        self.assertGreaterEqual(leases.count(True), 2)
+        await asyncio.wait_for(pending, .25)
+        self.assertLess(time.monotonic() - now, .20, 'a prepared frame cannot wait for two full RTTs')
+        self.assertEqual(leases[-1], False)
+
     async def test_only_matched_rapid_receipts_enable_early_admission(self):
         now = [1.]
         rate = AdaptiveVideoRate(8000, lambda _: None, clock=lambda: now[0])
@@ -797,6 +888,123 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_one_future_frame_pauses_only_while_an_au_is_in_progress(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            leases = []
+            bridge.input.set_video_backpressure = lambda owner, ms: leases.append((owner, ms))
+            try:
+                bridge._video_frame_in_progress = True
+                bridge.video_track.put_nowait(EncodedUnit(b'IDR', True, 1500))
+                self.assertEqual(leases, [], 'one short pacing overlap must preserve raw capture history')
+                await asyncio.sleep(.025)
+                self.assertEqual(leases, [(bridge.video_track, 100)], 'do not queue several old pictures behind a held AU')
+                bridge._video_frame_in_progress = False
+                bridge._update_video_backpressure()
+                self.assertEqual(leases[-1], (bridge.video_track, 0))
+                await bridge.video_track.recv()
+                before = len(leases)
+                bridge.video_track.put_nowait(EncodedUnit(b'P', False, 1500))
+                self.assertEqual(len(leases), before, 'an idle consumer may receive its first frame without a raw pause')
+            finally:
+                await bridge.close()
+
+    async def test_short_future_frame_overlap_does_not_pulse_raw_admission(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            leases = []
+            bridge.input.set_video_backpressure = lambda owner, ms: leases.append((owner, ms))
+            try:
+                bridge._video_frame_in_progress = True
+                bridge.video_track.put_nowait(EncodedUnit(b'IDR', True, 1500))
+                await asyncio.sleep(.004)
+                bridge._video_frame_in_progress = False
+                bridge._update_video_backpressure()
+                await asyncio.sleep(.025)
+                self.assertEqual(leases, [], 'a short overlap cannot discard the bounded raw burst history')
+            finally:
+                await bridge.close()
+
+    async def test_close_cancels_pending_future_frame_pause(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            leases = []
+            bridge.input.set_video_backpressure = lambda owner, ms: leases.append((owner, ms))
+            bridge._video_frame_in_progress = True
+            bridge.video_track.put_nowait(EncodedUnit(b'IDR', True, 1500))
+            await bridge.close()
+            await asyncio.sleep(.025)
+            self.assertEqual(leases, [], 'teardown cannot activate a pending raw lease')
+
+    async def test_packetized_frame_budget_matches_rtp_and_preserves_payloads(self):
+        from aiortc.rtp import RtpPacket, HeaderExtensionsMap
+        from aiortc.rtcrtpparameters import RTCRtpParameters, RTCRtpHeaderExtensionParameters
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            extension_map = HeaderExtensionsMap()
+            extension_map.configure(RTCRtpParameters(headerExtensions=[
+                RTCRtpHeaderExtensionParameters(id=1, uri='urn:ietf:params:rtp-hdrext:sdes:mid'),
+                RTCRtpHeaderExtensionParameters(id=2, uri='http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time'),
+            ]))
+            payloads = [b'a' * 1150, b'b' * 1137, b'c' * 23]
+            frame = SimpleNamespace(payloads=payloads, timestamp=12345, audio_level=None)
+            async def next_frame(codec):
+                return frame
+            sender = SimpleNamespace(_next_encoded_frame=next_frame, _ssrc=123,
+                                     _RTCRtpSender__mid='video',
+                                     _RTCRtpSender__rtp_header_extensions_map=extension_map)
+            try:
+                bridge._attach_video_frame_budget(sender)
+                for payload_type in (99, 49):
+                    actual = await sender._next_encoded_frame(SimpleNamespace(payloadType=payload_type))
+                    self.assertIs(actual, frame)
+                    self.assertIs(actual.payloads, payloads)
+                    wire = 0
+                    for payload in payloads:
+                        packet = RtpPacket(payload_type=payload_type, ssrc=123, payload=payload)
+                        packet.extensions.abs_send_time = 123
+                        packet.extensions.mid = 'video'
+                        wire += len(packet.serialize(extension_map)) + 64
+                    self.assertEqual(bridge._next_video_wire_bytes, wire)
+            finally:
+                await bridge.close()
+
+    async def test_short_receipt_wait_keeps_history_and_sustained_wait_renews_lease(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            leases = []
+            bridge.input.set_video_backpressure = lambda owner, ms: leases.append((owner, ms))
+            try:
+                bridge._set_receipt_backpressure(True)
+                await asyncio.sleep(.004)
+                self.assertEqual(leases, [])
+                bridge._set_receipt_backpressure(False)
+                await asyncio.sleep(.025)
+                self.assertEqual(leases, [], 'cancelled pause cannot affect a later frame')
+                bridge._set_receipt_backpressure(True)
+                await asyncio.sleep(.025)
+                self.assertEqual(leases[-1], (bridge, 75))
+                count = len(leases)
+                bridge._set_receipt_backpressure(True)
+                self.assertEqual(len(leases), count + 1, 'active raw leases renew immediately')
+                bridge._set_receipt_backpressure(False)
+                self.assertEqual(leases[-1], (bridge, 0))
+            finally:
+                await bridge.close()
+
+    async def test_close_cancels_pending_receipt_pause_and_releases_active_lease(self):
+        for active in (False, True):
+            with tempfile.TemporaryDirectory() as directory:
+                bridge = BrowserWebRtcBridge(Path(directory))
+                leases = []
+                bridge.input.set_video_backpressure = lambda owner, ms: leases.append((owner, ms))
+                bridge._set_receipt_backpressure(True)
+                if active:
+                    await asyncio.sleep(.025)
+                await bridge.close()
+                await asyncio.sleep(.025)
+                self.assertEqual(leases, [(bridge, 75), (bridge, 0)] if active else [])
+
     async def test_encoded_queue_pauses_raw_source_before_prediction_overflow(self):
         with tempfile.TemporaryDirectory() as directory:
             bridge = BrowserWebRtcBridge(Path(directory))
