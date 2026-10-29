@@ -1,0 +1,707 @@
+{
+  "date": "2026-10-29",
+  "status": "diagnostic_policies_rejected_performance_qualification_open",
+  "baseline_product": "exp132 viewer, byte-identical exp127 worker/bridge/transport",
+  "evidence_directory": "dist/rdp-hybrid/playout-queue-139-143",
+  "artifact_manifest_sha256": "b43e31d56ec4f22ebf08d53277c001714eb76b62470fba26c16727859fec5281",
+  "production_changed": false,
+  "policy_scope": "139/140 and142/143 inject process-local test hooks into the frozen bridge. Byte-identical files do not make their modified runtime behavior a qualification of the unmodified product. None of these hooks was copied into product source.",
+  "experiments": {
+    "139_rtp_maximum_playout_delay": {
+      "status": "not_promoted",
+      "change": "Only after an actual browser offer, negotiate the standard playout-delay URI and add min0/max10ms to video RTP headers; retain all existing extension fields and payloads. Existing viewer delay setting is zero.",
+      "contract": "Four negotiated-ID cases, including one/two-byte IDs and repeated serialization, preserve payload/timestamp/other extensions.",
+      "harness_failure": "First p3 attempt used the wrong aiortc extension-map interface and failed before a usable report. Corrected configure(RTCRtpParameters) and set(), retained the failure, and made browser-close failure unable to abort other cleanup.",
+      "runtime": {
+        "run": "mac132-play139b-h264_qsv-virgl-capture-gpu-p4",
+        "scope": "Native Debian13/KWin6 VM with132 viewer and byte-identical132/127 worker/bridge; macOS Chrome156 receiver in an owned headless profile; candidate132, native-format immutable-pixel observer134 pilot. CDP and loopback page/TURN forwarded over SSH; actual authenticated TURN/TCP and kernel loss/jitter. PVE launch/ACL mocked; headless browser acceptance, not physical-monitor or native PVE integration.",
+        "checks": {
+          "pixel_worker_complete": true,
+          "static_pixels_exact": true,
+          "source_ids_valid": true,
+          "source_fps_at_least_45": false,
+          "no_long_video_gap": true,
+          "same_connected_stream": true,
+          "full_rate_ceiling": true,
+          "input_delivered_once": true,
+          "glyph_peak_at_most_600ms": true,
+          "metadata_mode3": true,
+          "valid_source_ids": true
+        },
+        "phases": [
+          {
+            "name": "fast",
+            "unique_fps": 31.21552683426453,
+            "max_frame_gap_ms": 266.69999998807907,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 1244,
+              "median": 230.74722901607458,
+              "p95": 380.44118988327824,
+              "max": 510.81447289325155,
+              "clock_uncertainty_max": 98.74895100298023,
+              "source_tick_interval_ms": 16.666666666666668
+            },
+            "browser_after_receive_ms": {
+              "samples": 725,
+              "median": 31.19999999999709,
+              "p95": 44.19999999999709,
+              "max": 77.0
+            }
+          }
+        ],
+        "observer": {
+          "frames": 1280,
+          "requested": 1280,
+          "skipped": 0,
+          "wrong_static": 0,
+          "uncovered_static": 0,
+          "invalid_ids": 0
+        },
+        "observer_cost_ms": {
+          "creation": {
+            "samples": 1280,
+            "median": 0.19999998807907104,
+            "p95": 0.30000001192092896,
+            "max": 17.100000023841858
+          },
+          "completion": {
+            "samples": 1280,
+            "median": 5.5999999940395355,
+            "p95": 7.0999999940395355,
+            "max": 31.899999976158142
+          },
+          "readback": {
+            "samples": 1280,
+            "median": 5.399999976158142,
+            "p95": 6.700000017881393,
+            "max": 25.700000017881393
+          }
+        },
+        "visible_glyph_ms": [
+          573.0999999940395,
+          341.19999998807907,
+          587.6999999880791
+        ],
+        "guest_characters": 3,
+        "diagnostic_playout": {
+          "scope": "test-only fixed0/10ms with the existing zero-delay viewer setting; not a general user-policy implementation",
+          "offered": true,
+          "negotiated": true,
+          "serialization_calls": 146709,
+          "delay_units_10ms": [
+            0,
+            1
+          ],
+          "extension_id": 5
+        }
+      },
+      "decision": "31.22fps remains below45. Lower browser playout time is insufficient; this fixed test policy does not implement general user delay preferences."
+    },
+    "140_playout_maximum_aba": {
+      "status": "not_promoted",
+      "change": "Same connection: RTP max10ms for8s, max60ms for12s, max10ms for8s; min0 throughout.",
+      "contract": "Eight wire cases preserve RTP content and negotiated extensions.",
+      "runtime": {
+        "run": "mac132-play140-h264_qsv-virgl-capture-gpu-p5",
+        "scope": "Native Debian13/KWin6 VM with132 viewer and byte-identical132/127 worker/bridge; macOS Chrome156 receiver in an owned headless profile; candidate132, native-format immutable-pixel observer134 pilot. CDP and loopback page/TURN forwarded over SSH; actual authenticated TURN/TCP and kernel loss/jitter. PVE launch/ACL mocked; headless browser acceptance, not physical-monitor or native PVE integration.",
+        "checks": {
+          "pixel_worker_complete": true,
+          "static_pixels_exact": true,
+          "source_ids_valid": true,
+          "source_fps_at_least_45": false,
+          "no_long_video_gap": true,
+          "same_connected_stream": true,
+          "full_rate_ceiling": true,
+          "input_delivered_once": true,
+          "glyph_peak_at_most_600ms": true,
+          "metadata_mode3": true,
+          "valid_source_ids": true
+        },
+        "phases": [
+          {
+            "name": "fast",
+            "playout_case": "max10_before",
+            "unique_fps": 30.84697929312464,
+            "max_frame_gap_ms": 266.5,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 548,
+              "median": 252.3117782082398,
+              "p95": 496.2727262172848,
+              "max": 750.6784449952341,
+              "clock_uncertainty_max": 137.07646099701978,
+              "source_tick_interval_ms": 16.666666666666668
+            },
+            "browser_after_receive_ms": {
+              "samples": 315,
+              "median": 32.299999999995634,
+              "p95": 44.0,
+              "max": 50.80000000000291
+            }
+          },
+          {
+            "name": "fast",
+            "playout_case": "max60",
+            "unique_fps": 33.49930018583701,
+            "max_frame_gap_ms": 298.30000001192093,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 784,
+              "median": 270.6998787742734,
+              "p95": 507.8136244167872,
+              "max": 739.4136244275912,
+              "clock_uncertainty_max": 136.526461,
+              "source_tick_interval_ms": 16.666666666666668
+            },
+            "browser_after_receive_ms": {
+              "samples": 510,
+              "median": 44.400000000001455,
+              "p95": 61.80000000000291,
+              "max": 85.0
+            }
+          },
+          {
+            "name": "fast",
+            "playout_case": "max10_after",
+            "unique_fps": 33.366852545868376,
+            "max_frame_gap_ms": 318.0,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 526,
+              "median": 226.12304157422258,
+              "p95": 441.15108659801194,
+              "max": 791.417753091082,
+              "clock_uncertainty_max": 95.026461,
+              "source_tick_interval_ms": 16.666666666666668
+            },
+            "browser_after_receive_ms": {
+              "samples": 310,
+              "median": 31.94999999999709,
+              "p95": 44.39999999999418,
+              "max": 49.0
+            }
+          }
+        ],
+        "observer": {
+          "frames": 1995,
+          "requested": 1995,
+          "skipped": 0,
+          "wrong_static": 0,
+          "uncovered_static": 0,
+          "invalid_ids": 0
+        },
+        "observer_cost_ms": {
+          "creation": {
+            "samples": 1995,
+            "median": 0.19999998807907104,
+            "p95": 0.30000001192092896,
+            "max": 16.099999994039536
+          },
+          "completion": {
+            "samples": 1995,
+            "median": 5.699999988079071,
+            "p95": 8.300000011920929,
+            "max": 41.60000002384186
+          },
+          "readback": {
+            "samples": 1995,
+            "median": 5.4000000059604645,
+            "p95": 7.699999988079071,
+            "max": 34.599999994039536
+          }
+        },
+        "visible_glyph_ms": [
+          382.2000000178814,
+          382,
+          490.59999999403954,
+          338.19999998807907
+        ],
+        "guest_characters": 4,
+        "diagnostic_playout": {
+          "scope": "test-only bounded0/10-or60ms with the existing zero-delay viewer setting; not a general user-policy implementation",
+          "offered": true,
+          "negotiated": true,
+          "serialization_calls": 208065,
+          "delay_units_10ms": [
+            0,
+            1
+          ],
+          "extension_id": 5
+        }
+      },
+      "decision": "30.85/33.50/33.37fps remain below45. The browser-after-receive median tracks the requested maximum, but cadence remains deficient."
+    },
+    "141_macos_firefox": {
+      "status": "unqualified",
+      "setup": "Private Node24.22.2, playwright-core1.64.1 and bundled Firefox157 revision1555. Public download hashes and npm integrity retained. No system install or changes to the user Firefox158 profile. Private BrowserServer capability URL is excluded from this archive.",
+      "preflight": {
+        "secure": true,
+        "receiveTransform": "function",
+        "videoFrame": "function",
+        "codecs": [
+          "video/VP8",
+          "video/rtx",
+          "video/VP9",
+          "video/H264",
+          "video/H264",
+          "video/H264",
+          "video/H264",
+          "video/AV1",
+          "video/ulpfec",
+          "video/red"
+        ],
+        "playout": [
+          "a=extmap:6/recvonly http://www.webrtc.org/experiments/rtp-hdrext/playout-delay"
+        ],
+        "snapshot": {
+          "format": "BGRA",
+          "first": [
+            91,
+            43,
+            17,
+            255
+          ],
+          "timestamp": 42
+        },
+        "browser_version": "157.0"
+      },
+      "runtime": {
+        "run": "mac132-ff141-h264_qsv-virgl-capture-gpu-ff0",
+        "scope": "Native Debian13/KWin6 VM with132 viewer and byte-identical132/127 worker/bridge; macOS isolated Playwright Firefox157 receiver in an owned headless profile; installed user Firefox158 unchanged; candidate132, native-format immutable-pixel observer134 pilot. CDP and loopback page/TURN forwarded over SSH; actual authenticated TURN/TCP and kernel loss/jitter. PVE launch/ACL mocked; headless browser acceptance, not physical-monitor or native PVE integration.",
+        "checks": {
+          "pixel_worker_complete": true,
+          "static_pixels_exact": true,
+          "source_ids_valid": true,
+          "source_fps_at_least_45": false,
+          "no_long_video_gap": true,
+          "same_connected_stream": true,
+          "full_rate_ceiling": true,
+          "input_delivered_once": true,
+          "glyph_peak_at_most_600ms": false,
+          "metadata_mode3": true,
+          "valid_source_ids": true
+        },
+        "phases": [
+          {
+            "name": "fast",
+            "unique_fps": 31.11453617185242,
+            "max_frame_gap_ms": 269,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 1022,
+              "median": 276.2980636830124,
+              "p95": 421.6313968412564,
+              "max": 722.9119974498915,
+              "clock_uncertainty_max": 117.923784,
+              "source_tick_interval_ms": 16.666666666666668
+            },
+            "browser_after_receive_ms": {
+              "samples": 719,
+              "median": 68.36000000000058,
+              "p95": 84.36000000000058,
+              "max": 112.30000000000291
+            }
+          }
+        ],
+        "observer": {
+          "frames": 1042,
+          "requested": 1042,
+          "skipped": 0,
+          "wrong_static": 0,
+          "uncovered_static": 0,
+          "invalid_ids": 0
+        },
+        "observer_cost_ms": {
+          "creation": {
+            "samples": 1042,
+            "median": 6.0,
+            "p95": 18,
+            "max": 139
+          },
+          "completion": {
+            "samples": 1042,
+            "median": 2.0,
+            "p95": 23,
+            "max": 247
+          },
+          "readback": {
+            "samples": 1042,
+            "median": 1.0,
+            "p95": 1,
+            "max": 5
+          }
+        },
+        "visible_glyph_ms": [
+          480,
+          364,
+          670
+        ],
+        "guest_characters": 3
+      },
+      "decision": "31.11fps and670ms glyph peak fail45fps/600ms. All1042 composed snapshots are exact with valid IDs and no skips. VideoFrame creation costs median6ms/p9518ms on the main thread; copying costs1ms in the worker. This is a20s healthy pilot with3 characters, not full15-character transition acceptance."
+    },
+    "142_long_rtt_window_and_refresh_reservation": {
+      "status": "rejected",
+      "change": "For fresh packet-backed cropped hybrid receipts with baseline>=75ms, test window max54ms/base-minus8ms instead of base-plus32ms. Separately reserve admission up to125ms after a confirmed severe cut while awaiting its correlated IDR. Preserve actual credits, old reference chain, dispatch accounting and UI/input.",
+      "runtime": {
+        "run": "intel132-q142-h264_qsv-virgl-capture-gpu-p6",
+        "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, viewer132 with byte-identical127/132 worker/bridge; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Actual mixed typing/static/recovery plus declared ingress loss/jitter; not native Proxmox8006 or toolkit/occlusion/fidelity/soak qualification.",
+        "checks": {
+          "no_long_video_gap": true,
+          "narrow_source_fps_at_least_45": false,
+          "recovered_source_fps_at_least_45": true,
+          "fast_source_fps_at_least_45": false,
+          "full_rate_recovered": true,
+          "presentation_excess_at_most_400ms": true,
+          "glyph_peak_at_most_600ms": true,
+          "full_source_excess_from_fast_p95_at_most_400ms": true,
+          "no_observed_rtp_loss": true,
+          "narrowed": true,
+          "recovered_some": true,
+          "static_pixels_exact": true,
+          "input_delivered_once": true,
+          "same_connected_stream": true,
+          "metadata_mode3": true,
+          "valid_source_ids": true
+        },
+        "phases": [
+          {
+            "name": "fast",
+            "unique_fps": 42.834479111581174,
+            "max_frame_gap_ms": 68,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 908,
+              "median": 208.7406436136625,
+              "p95": 237.07850944871822,
+              "max": 257.05858849299545,
+              "clock_uncertainty_max": 47.854924,
+              "source_tick_interval_ms": 16.666666666666668
+            },
+            "browser_after_receive_ms": {
+              "samples": 755,
+              "median": 53.38000000000102,
+              "p95": 74.95999999999913,
+              "max": 89.72000000000116
+            }
+          },
+          {
+            "name": "narrow",
+            "unique_fps": 38.837940665479096,
+            "max_frame_gap_ms": 133,
+            "initial_target": 8000,
+            "final_target": 2258,
+            "full_source_age_ms": {
+              "samples": 2728,
+              "median": 275.00316343115117,
+              "p95": 453.82320663581055,
+              "max": 570.1256684648506,
+              "clock_uncertainty_max": 48.854924,
+              "source_tick_interval_ms": 16.666666666666668
+            },
+            "browser_after_receive_ms": {
+              "samples": 2022,
+              "median": 75.03999999999724,
+              "p95": 245.13999999999942,
+              "max": 326.3000000000029
+            },
+            "source_age_max_minus_fast_p95_ms": 333.04715901613235
+          },
+          {
+            "name": "recovered",
+            "unique_fps": 46.99596988015696,
+            "max_frame_gap_ms": 217,
+            "initial_target": 2258,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 4526,
+              "median": 229.80124427316184,
+              "p95": 290.44740052583506,
+              "max": 556.5791814743193,
+              "clock_uncertainty_max": 48.854924,
+              "source_tick_interval_ms": 16.666666666666668
+            },
+            "browser_after_receive_ms": {
+              "samples": 4059,
+              "median": 78.69999999999709,
+              "p95": 138.24000000000524,
+              "max": 160.6999999999971
+            },
+            "source_age_max_minus_fast_p95_ms": 319.50067202560103
+          }
+        ],
+        "observer": {
+          "frames": 8195,
+          "requested": null,
+          "skipped": null,
+          "wrong_static": 0,
+          "uncovered_static": 0,
+          "invalid_ids": 0
+        },
+        "observer_cost_ms": null,
+        "visible_glyph_ms": [
+          249,
+          238,
+          262,
+          260,
+          280,
+          346,
+          403,
+          296,
+          263,
+          258,
+          249,
+          267,
+          278,
+          255,
+          248
+        ],
+        "guest_characters": 15,
+        "diagnostic_queue_policy": {
+          "scope": "test-only long-RTT cropped hybrid window and bounded confirmed-refresh reservation; not a qualified product policy",
+          "compacted_budget_evaluations": 13123,
+          "reserve_events": [
+            {
+              "t": 1632524.673879703,
+              "token": 1,
+              "until": 1632524.798879703,
+              "from": 8000.0,
+              "to": 1682,
+              "outstanding": 77251
+            },
+            {
+              "t": 1632560.645393726,
+              "token": 2,
+              "until": 1632560.770393726,
+              "from": 3283.0,
+              "to": 1446,
+              "outstanding": 56297
+            },
+            {
+              "t": 1632585.836641432,
+              "token": 3,
+              "until": 1632585.961641432,
+              "from": 8000.0,
+              "to": 2723,
+              "outstanding": 79603
+            },
+            {
+              "t": 1632657.11726762,
+              "token": 4,
+              "until": 1632657.24226762,
+              "from": 8000.0,
+              "to": 2810,
+              "outstanding": 65792
+            }
+          ],
+          "idr_wakes": 4,
+          "original_wait_sha256": "69d4ef148b38d581c285585209ceea7fa6d594661f614ac79ba80adc75331eb0",
+          "probe_wait_sha256": "c51868de5e274975bf9dee528cd7e75aa12aac19804a6bbf534cf5988d263729"
+        }
+      },
+      "decision": "Source-age excess improves542ms ->333ms, but fast42.83/narrow38.84fps fail. These two policy changes were combined in this experiment; their individual effects are not isolated."
+    },
+    "143_subtick_pause_timer_reset": {
+      "status": "rejected",
+      "change": "On top of142, reset only an unfired single-frame queue pause after a sub16ms credit wait on a fresh low-queue path. Existing active/two-frame/congestion pause guards remain.",
+      "runtime": {
+        "run": "intel132-q143-h264_qsv-virgl-capture-gpu-p7",
+        "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, viewer132 with byte-identical127/132 worker/bridge; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Actual mixed typing/static/recovery plus declared ingress loss/jitter; not native Proxmox8006 or toolkit/occlusion/fidelity/soak qualification.",
+        "checks": {
+          "no_long_video_gap": true,
+          "narrow_source_fps_at_least_45": false,
+          "recovered_source_fps_at_least_45": false,
+          "fast_source_fps_at_least_45": false,
+          "full_rate_recovered": true,
+          "presentation_excess_at_most_400ms": true,
+          "glyph_peak_at_most_600ms": true,
+          "full_source_excess_from_fast_p95_at_most_400ms": true,
+          "no_observed_rtp_loss": true,
+          "narrowed": true,
+          "recovered_some": true,
+          "static_pixels_exact": true,
+          "input_delivered_once": true,
+          "same_connected_stream": true,
+          "metadata_mode3": true,
+          "valid_source_ids": true
+        },
+        "phases": [
+          {
+            "name": "fast",
+            "unique_fps": 42.88164665523156,
+            "max_frame_gap_ms": 83,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 909,
+              "median": 212.7575212003059,
+              "p95": 242.20637576654624,
+              "max": 274.3749709799879,
+              "clock_uncertainty_max": 45.152858,
+              "source_tick_interval_ms": 16.666666666666668
+            },
+            "browser_after_receive_ms": {
+              "samples": 740,
+              "median": 52.149999999999636,
+              "p95": 74.2599999999984,
+              "max": 92.47999999999956
+            }
+          },
+          {
+            "name": "narrow",
+            "unique_fps": 40.78292602012606,
+            "max_frame_gap_ms": 200,
+            "initial_target": 8000,
+            "final_target": 3862,
+            "full_source_age_ms": {
+              "samples": 2713,
+              "median": 281.0374256378694,
+              "p95": 444.9091982717306,
+              "max": 642.1407736372196,
+              "clock_uncertainty_max": 46.152858,
+              "source_tick_interval_ms": 16.666666666666668
+            },
+            "browser_after_receive_ms": {
+              "samples": 2125,
+              "median": 117.16000000000349,
+              "p95": 173.77999999999884,
+              "max": 232.88000000000466
+            },
+            "source_age_max_minus_fast_p95_ms": 399.93439787067337
+          },
+          {
+            "name": "recovered",
+            "unique_fps": 42.72636133389616,
+            "max_frame_gap_ms": 283,
+            "initial_target": 3862,
+            "final_target": 8000,
+            "full_source_age_ms": {
+              "samples": 4548,
+              "median": 214.50090120391252,
+              "p95": 275.6313421608212,
+              "max": 623.9812667947149,
+              "clock_uncertainty_max": 47.152858,
+              "source_tick_interval_ms": 16.666666666666668
+            },
+            "browser_after_receive_ms": {
+              "samples": 3697,
+              "median": 56.54000000000815,
+              "p95": 116.55999999999767,
+              "max": 290.4799999999959
+            },
+            "source_age_max_minus_fast_p95_ms": 381.77489102816867
+          }
+        ],
+        "observer": {
+          "frames": 8201,
+          "requested": null,
+          "skipped": null,
+          "wrong_static": 0,
+          "uncovered_static": 0,
+          "invalid_ids": 0
+        },
+        "observer_cost_ms": null,
+        "visible_glyph_ms": [
+          342,
+          237,
+          265,
+          264,
+          288,
+          257,
+          254,
+          372,
+          224,
+          259,
+          250,
+          227,
+          239,
+          245,
+          231
+        ],
+        "guest_characters": 15,
+        "diagnostic_queue_policy": {
+          "scope": "test-only long-RTT cropped hybrid window and bounded confirmed-refresh reservation; not a qualified product policy",
+          "compacted_budget_evaluations": 14401,
+          "reserve_events": [
+            {
+              "t": 1633365.896666528,
+              "token": 1,
+              "until": 1633366.021666528,
+              "from": 8000.0,
+              "to": 1670,
+              "outstanding": 79601
+            },
+            {
+              "t": 1633382.319867953,
+              "token": 2,
+              "until": 1633382.444867953,
+              "from": 3260.0,
+              "to": 1583,
+              "outstanding": 30271
+            }
+          ],
+          "idr_wakes": 2,
+          "subtick_stage_resets": 597,
+          "original_wait_sha256": "69d4ef148b38d581c285585209ceea7fa6d594661f614ac79ba80adc75331eb0",
+          "probe_wait_sha256": "c51868de5e274975bf9dee528cd7e75aa12aac19804a6bbf534cf5988d263729"
+        }
+      },
+      "decision": "597 actual timer resets do not restore cadence:42.88/40.78/42.73fps. Do not add this policy to product source."
+    }
+  },
+  "static_window_diagnostic": {
+    "scope": "Static prefix-ACK wait diagnostic on the recorded132 healthy phase; uses immutable already-emitted prefixes and observed later packet/frame credit, not a causal re-run or a qualified policy",
+    "summary": {
+      "current": {
+        "samples": 594,
+        "mean_ms": 0.0,
+        "median_ms": 0.0,
+        "p95_ms": 0.0,
+        "max_ms": 0.0,
+        "fraction_positive": 0.0
+      },
+      "base": {
+        "samples": 594,
+        "mean_ms": 1.5519764697687193,
+        "median_ms": 0.0,
+        "p95_ms": 11.043522041290998,
+        "max_ms": 27.63517084531486,
+        "fraction_positive": 0.20875420875420875
+      },
+      "base_minus8": {
+        "samples": 594,
+        "mean_ms": 5.022961927753456,
+        "median_ms": 0.0,
+        "p95_ms": 21.332130068913102,
+        "max_ms": 44.842683942988515,
+        "fraction_positive": 0.4764309764309764
+      },
+      "base_minus16": {
+        "samples": 594,
+        "mean_ms": 12.168410545378071,
+        "median_ms": 10.981648927554488,
+        "p95_ms": 32.80761605128646,
+        "max_ms": 50.42252689599991,
+        "fraction_positive": 0.8097643097643098
+      }
+    }
+  },
+  "trace_correction": "The copied native132-initial-cut-compact.json normalizes sender_frames.sent_at into sent-row t. The earlier macos-observer archive retained an empty sent selection because it expected t. Raw original132 result and packet trace are unchanged.",
+  "measurement_limits": [
+    "Mac headless browser measurements include the real remote path; its natural latency/jitter is not equal to the local Windows/LXC comparison.",
+    "Per-stream hardware decoding has not been proved. GPU model strings alone do not establish a physical Apple hardware configuration.",
+    "No source/static/input acceptance threshold has been relaxed. Healthy pilots with3/4 characters do not complete the full matrix or soak."
+  ],
+  "next_action": "Qualify viewer144 removal of redundant main-thread receipt resampling using the original127 backend, independently of all rejected test hooks. Preserve45fps and400ms source-excess requirements.",
+  "sources": [
+    "https://webrtc.googlesource.com/src/+/refs/heads/main/video/video_receive_stream2.cc",
+    "https://www.w3.org/TR/webcodecs/"
+  ]
+}
