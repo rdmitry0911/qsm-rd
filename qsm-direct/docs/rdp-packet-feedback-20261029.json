@@ -1,0 +1,1024 @@
+{
+  "date": "2026-10-29",
+  "status": "packet_feedback_investigation",
+  "retained_candidate": "Private103 restored exactly; original431.21ms excess-age failure remains unaccepted",
+  "source_base_commit": "f3355ceddbc3dcbf1b69a59fed4a37dc011d1911",
+  "evidence_directory": "dist/rdp-hybrid/packet-feedback-exp104",
+  "source_frame_proof": {
+    "scope": "Independent CPU H264 decode of the held source image at the actual103 peak; not complete-stream/fidelity qualification",
+    "source_observation": {
+      "ms": 36464,
+      "tick": 1710,
+      "phase": 36,
+      "clock_uncertainty_ms": 43.8826,
+      "source_age_ms": 663.5975630488247
+    },
+    "last_preceding_native_presentation": {
+      "rtp": 3170091662,
+      "ms": 36414.12,
+      "delay_ms": 212.7414271235466,
+      "clock_uncertainty_ms": 43.5,
+      "capture_to_last_send_ms": 366.48100637830794,
+      "capture_to_presentation_ms": 579.2224335018545,
+      "last_send_to_receive_ms": 202.62142713181674,
+      "browser_after_receive_ms": 10.12000000000262
+    },
+    "sender": {
+      "rtp": 3170091662,
+      "sent_at": 1590721.743847673,
+      "capture": 143164923963,
+      "total_bytes": 25313148
+    },
+    "independent_decode": {
+      "unit": 2008,
+      "preceding_idr": 164,
+      "decoded_packets": 1845,
+      "capture": 143164923963,
+      "phase": 36,
+      "tick": 1710,
+      "crc_valid": true,
+      "geometry": [
+        1280,
+        512
+      ],
+      "region": [
+        1280,
+        768,
+        0,
+        64,
+        1280,
+        512
+      ]
+    },
+    "encoded_image_matches_composed_peak_source_id": true
+  },
+  "lease_gap_observation": {
+    "scope": "Actual103 peak frame and raw lease release/reacquisition; corresponding image independently decoded in handoff103-peak-source-proof.json",
+    "source_observation": {
+      "ms": 36464,
+      "tick": 1710,
+      "phase": 36,
+      "clock_uncertainty_ms": 43.8826,
+      "source_age_ms": 663.5975630488247
+    },
+    "native_frame": {
+      "rtp": 3170091662,
+      "ms": 36414.12,
+      "delay_ms": 212.7414271235466,
+      "clock_uncertainty_ms": 43.5,
+      "capture_to_last_send_ms": 366.48100637830794,
+      "capture_to_presentation_ms": 579.2224335018545,
+      "last_send_to_receive_ms": 202.62142713181674,
+      "browser_after_receive_ms": 10.12000000000262
+    },
+    "unit": {
+      "t": 1590721.415271236,
+      "capture": 143164923963,
+      "offset": 23909155,
+      "bytes": 19065,
+      "keyframe": false,
+      "region": [
+        1280,
+        768,
+        0,
+        64,
+        1280,
+        512
+      ]
+    },
+    "credit": {
+      "t": 1590721.5455927,
+      "waited": 0.10894307401031256,
+      "sent_before": 25292389,
+      "acked_before": 25202839,
+      "serial_before": 1958,
+      "ack_serial_before": 1951,
+      "outstanding_before": 89550,
+      "outstanding_after": 75111,
+      "frame_wire_bytes": 20759,
+      "target_after": 1690,
+      "target": 1690,
+      "delay": 0.3458960910793394,
+      "base": 0.10758169600740075
+    },
+    "source_capture_to_encoded_ms": 37.904569413512945,
+    "encoded_queue_to_credit_ms": 130.32146380282938,
+    "credit_wait_ms": 108.94307401031256,
+    "admission_end_to_last_packet_ms": 89.45494401268661,
+    "queue_lease_release": {
+      "t": 1590721.396640283,
+      "owner": "queue",
+      "milliseconds": 0,
+      "queue": 1,
+      "in_progress": false,
+      "capture": 143164918055
+    },
+    "receipt_lease_reacquisition": {
+      "t": 1590721.414707835,
+      "owner": "receipt",
+      "milliseconds": 75,
+      "queue": 0,
+      "in_progress": true,
+      "capture": 143164919526
+    },
+    "raw_reopening_ms": 18.06755200959742,
+    "encoded_arrival_after_reacquisition_ms": 0.5634010303765535,
+    "candidate104": "Carry only an already active queue pause across the next dequeue/packetization/credit check; no new pause for short healthy overlaps; bounded release on admission/no-frame/error/cancellation/close. Real media acceptance pending."
+  },
+  "lease_gap_interpretation": "An18.07ms release/reacquisition gap was observed. Closing it did not pass actual media gates; this observation alone is not an accepted causal fix.",
+  "rejected104": {
+    "policy": "Carry the existing raw queue pause across dequeue/packetization/next frame-credit wait, with bounded no-frame/error/cancellation/close cleanup.",
+    "source_archive_sha256": "5e136fd9b8c3252acd52efd57108fbb2efa5128bacbd2d03c0df9d6cec645aed",
+    "pilot_sha256": "d15fc01f0e79239e06b2c9419db7ede4d49aa4d6261b5ab3787dd68a606c679c",
+    "unit_tests": "65 adaptive/150 complete bridge tests pass in the target-SDK build. These are rejected104 tests, not a claim that restored103 has150 tests.",
+    "before_policy": "Extracted lifecycle methods with the old103 behavior;3 targeted behavioral failures in handoff104-before.log. An earlier unisolated-chroot147-test control had2 ICE connection failures; the isolated full104 build passes those cases. All logs retained.",
+    "result": {
+      "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer101; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Actual mixed typing/static/recovery plus declared ingress loss/jitter; not native Proxmox8006 or toolkit/occlusion/fidelity/soak qualification.",
+      "encoder": "h264_qsv",
+      "package": "exp104",
+      "gates": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": false,
+        "recovered_source_fps_at_least_45": false,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "accepted": false,
+      "source_age_excess_ms": 559.9220901262019,
+      "max_glyph_ms": 349,
+      "static_observer": {
+        "frames": 8208,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "ids": null,
+        "observations": null,
+        "stop": true
+      },
+      "guest_characters": 15,
+      "trace_overflow": false,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 47.637743750817954,
+          "max_frame_gap_ms": 66,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 917,
+            "median": 199.61253479123187,
+            "p95": 218.32001760291496,
+            "max": 251.65335098281537,
+            "clock_uncertainty_max": 48.797656,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 869,
+              "median": 127.70519312471151,
+              "p95": 140.33505297265947,
+              "max": 147.41418394260108
+            },
+            "capture_to_last_send_ms": {
+              "samples": 869,
+              "median": 38.06350892409682,
+              "p95": 52.5462357327342,
+              "max": 78.46104656346142
+            },
+            "capture_to_presentation_ms": {
+              "samples": 869,
+              "median": 163.81217981688678,
+              "p95": 182.12598888203502,
+              "max": 202.83803041093051
+            },
+            "last_send_to_receive_ms": {
+              "samples": 869,
+              "median": 65.41870813816786,
+              "p95": 77.13579689152539,
+              "max": 95.98602610640228
+            },
+            "browser_after_receive_ms": {
+              "samples": 869,
+              "median": 61.26000000000204,
+              "p95": 71.7599999999984,
+              "max": 82.29999999999927
+            }
+          },
+          "credit_wait_count": 48,
+          "credit_wait_total_seconds": 0.33514547906816006,
+          "raw_lease_writes": 36,
+          "raw_lease_nonzero": 18,
+          "raw_lease_owners": {
+            "queue": 12,
+            "receipt": 6
+          },
+          "maximum_encoded_queue_at_lease": 2
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 35.131991836913826,
+          "max_frame_gap_ms": 183,
+          "initial_target": 8000,
+          "final_target": 711,
+          "full_source_age_ms": {
+            "samples": 2734,
+            "median": 329.7603927863157,
+            "p95": 394.90924994461096,
+            "max": 778.2421077291168,
+            "clock_uncertainty_max": 49.297656,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 1905,
+              "median": 220.0837810523808,
+              "p95": 270.04450000822544,
+              "max": 454.7738281544298
+            },
+            "capture_to_last_send_ms": {
+              "samples": 1905,
+              "median": 43.515265453606844,
+              "p95": 83.77093635499477,
+              "max": 348.8914570771158
+            },
+            "capture_to_presentation_ms": {
+              "samples": 1905,
+              "median": 271.09937579371035,
+              "p95": 316.9083930552006,
+              "max": 638.7676033191383
+            },
+            "last_send_to_receive_ms": {
+              "samples": 1905,
+              "median": 85.26553399860859,
+              "p95": 130.14995981939137,
+              "max": 447.43382814340293
+            },
+            "browser_after_receive_ms": {
+              "samples": 1905,
+              "median": 117.45999999999913,
+              "p95": 197.75999999999476,
+              "max": 223.77999999999884
+            }
+          },
+          "credit_wait_count": 700,
+          "credit_wait_total_seconds": 13.461935140192509,
+          "raw_lease_writes": 1127,
+          "raw_lease_nonzero": 584,
+          "raw_lease_owners": {
+            "queue": 241,
+            "receipt": 343
+          },
+          "maximum_encoded_queue_at_lease": 2
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 44.45298828021424,
+          "max_frame_gap_ms": 182,
+          "initial_target": 711,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4525,
+            "median": 297.00388231624686,
+            "p95": 363.7753298195747,
+            "max": 494.0834031750825,
+            "clock_uncertainty_max": 49.297656,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "native_presentation": {
+            "delay_ms": {
+              "samples": 3959,
+              "median": 216.78886888548732,
+              "p95": 272.8692530654371,
+              "max": 290.0010889861733
+            },
+            "capture_to_last_send_ms": {
+              "samples": 3959,
+              "median": 30.562224332243204,
+              "p95": 58.2488055806607,
+              "max": 205.31783672049642
+            },
+            "capture_to_presentation_ms": {
+              "samples": 3959,
+              "median": 250.70872902870178,
+              "p95": 310.8465732075274,
+              "max": 354.60974811576307
+            },
+            "last_send_to_receive_ms": {
+              "samples": 3959,
+              "median": 71.5334890410304,
+              "p95": 84.76298721507192,
+              "max": 118.77510603517294
+            },
+            "browser_after_receive_ms": {
+              "samples": 3959,
+              "median": 144.22000000000116,
+              "p95": 201.8399999999965,
+              "max": 225.0399999999936
+            }
+          },
+          "credit_wait_count": 288,
+          "credit_wait_total_seconds": 5.135992205701768,
+          "raw_lease_writes": 386,
+          "raw_lease_nonzero": 200,
+          "raw_lease_owners": {
+            "queue": 77,
+            "receipt": 123
+          },
+          "maximum_encoded_queue_at_lease": 2
+        }
+      ],
+      "wire_accounting": {
+        "matched_complete_frames": 8450,
+        "reservation_mismatches": [],
+        "packet_accounting_errors": [],
+        "marker_errors": []
+      },
+      "trace_counts": {
+        "credit": 8451,
+        "recovery": 15,
+        "encoded": 8611,
+        "presentation": 5372,
+        "sent": 8502,
+        "packet": 64700,
+        "lease": 1766
+      },
+      "worst_source_observation": {
+        "ms": 36382,
+        "tick": 1676,
+        "phase": 38,
+        "clock_uncertainty_ms": 45.297656,
+        "source_age_ms": 778.2421077291168
+      },
+      "limitations": [
+        "Owned native VM; actual TURN over one SSH-forwarded TCP socket with kernel loss/jitter; mock PVE launch/ACL, not native Proxmox8006 integration",
+        "Full source-generation-to-composed-canvas age includes repeated frames, with sampled clock brackets and a 16.7 ms source tick; not a physical monitor photon measurement",
+        "Source-ID cadence and exact pixels are checked; native presentation gates use completed-sender timestamps and rVFC, independently of received feedback; other encoders, toolkit/occlusion/fidelity/soak, Mac and RDP remain separate gates"
+      ]
+    },
+    "decision": "Reject and restore103; narrow35.13/recovered44.45fps and source-age excess559.92ms violate the unchanged45fps/400ms gates. Full8000 recovery/static/input success does not waive them."
+  },
+  "restoration": {
+    "runtime_tests_exact_ui_equal_frozen103": {
+      "qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py": "5998841d20fa2d0c91b299df407b929bf850f5aa6f36e6225293340b3f4f0a33",
+      "qsm-direct/tests/browser_bridge/test_adaptive_video.py": "fe6b9676868c121a9374a3169c3d7d7d0603b7e09a4fc947da3d8aa46a217940",
+      "qsm-direct/docs/EXACT_UI.md": "b46f201fd73cce72fc25f1492f1eb7d7e9f0f6bc94dcdd77955d23a3e2a06ec3"
+    },
+    "package_bridge_sha256": "5998841d20fa2d0c91b299df407b929bf850f5aa6f36e6225293340b3f4f0a33",
+    "new_product_feedback_code_installed": false
+  },
+  "stats_byte_probe": {
+    "completed_probe": "byte-final controller succeeded;1072 samples, no sampling errors",
+    "earlier_attempts": "byte-probe failed setup with an overlong Unix-socket path. byte-ready captured1070 samples but failed optional SDP extraction after sampling; these failures and data are retained separately.",
+    "proofs": {
+      "ready": {
+        "scope": "Diagnostic unchanged103 packaged bridge/viewer/worker, owned native QSV VM/guest83, real TURN/TCP. Observe stats byte/packet granularity and partial-frame progress; not full mixed-content acceptance.",
+        "source_package": "unchanged103, official worker7ca0467; no guest changes",
+        "samples": 1070,
+        "sampling_errors": [],
+        "stats_cost_ms": {
+          "median": 0.0,
+          "p95": 1,
+          "max": 8
+        },
+        "bytes_updated_samples": 1016,
+        "update_interval_ms": {
+          "median": 17,
+          "p95": 21,
+          "max": 69
+        },
+        "partial_frame_updates": 304,
+        "partial_frame_examples": [
+          {
+            "before": {
+              "ms": 5975,
+              "duration": 0,
+              "timestamp": 1793237166803,
+              "ssrc": 3215579087,
+              "bytesReceived": 1849927,
+              "headerBytesReceived": 48264,
+              "packetsReceived": 2011,
+              "retransmittedPacketsReceived": 0,
+              "retransmittedBytesReceived": 0,
+              "framesReceived": 144,
+              "framesDecoded": 139,
+              "lastPacketReceivedTimestamp": 1793237166804
+            },
+            "after": {
+              "ms": 5992,
+              "duration": 1,
+              "timestamp": 1793237166819,
+              "ssrc": 3215579087,
+              "bytesReceived": 1851077,
+              "headerBytesReceived": 48288,
+              "packetsReceived": 2012,
+              "retransmittedPacketsReceived": 0,
+              "retransmittedBytesReceived": 0,
+              "framesReceived": 144,
+              "framesDecoded": 140,
+              "lastPacketReceivedTimestamp": 1793237166809
+            }
+          },
+          {
+            "before": {
+              "ms": 6011,
+              "duration": 1,
+              "timestamp": 1793237166839,
+              "ssrc": 3215579087,
+              "bytesReceived": 1857711,
+              "headerBytesReceived": 48480,
+              "packetsReceived": 2020,
+              "retransmittedPacketsReceived": 0,
+              "retransmittedBytesReceived": 0,
+              "framesReceived": 145,
+              "framesDecoded": 141,
+              "lastPacketReceivedTimestamp": 1793237166836
+            },
+            "after": {
+              "ms": 6027,
+              "duration": 0,
+              "timestamp": 1793237166855,
+              "ssrc": 3215579087,
+              "bytesReceived": 1878411,
+              "headerBytesReceived": 48912,
+              "packetsReceived": 2038,
+              "retransmittedPacketsReceived": 0,
+              "retransmittedBytesReceived": 0,
+              "framesReceived": 145,
+              "framesDecoded": 142,
+              "lastPacketReceivedTimestamp": 1793237166855
+            }
+          },
+          {
+            "before": {
+              "ms": 6027,
+              "duration": 0,
+              "timestamp": 1793237166855,
+              "ssrc": 3215579087,
+              "bytesReceived": 1878411,
+              "headerBytesReceived": 48912,
+              "packetsReceived": 2038,
+              "retransmittedPacketsReceived": 0,
+              "retransmittedBytesReceived": 0,
+              "framesReceived": 145,
+              "framesDecoded": 142,
+              "lastPacketReceivedTimestamp": 1793237166855
+            },
+            "after": {
+              "ms": 6044,
+              "duration": 1,
+              "timestamp": 1793237166871,
+              "ssrc": 3215579087,
+              "bytesReceived": 1893361,
+              "headerBytesReceived": 49224,
+              "packetsReceived": 2051,
+              "retransmittedPacketsReceived": 0,
+              "retransmittedBytesReceived": 0,
+              "framesReceived": 145,
+              "framesDecoded": 143,
+              "lastPacketReceivedTimestamp": 1793237166871
+            }
+          }
+        ],
+        "checked_sent_prefixes": 1070,
+        "wire_prefix_mismatches": [
+          {
+            "sample": 0,
+            "packets": 1981,
+            "received_cost": 1997852,
+            "sent_prefix": 2050069
+          },
+          {
+            "sample": 1,
+            "packets": 1994,
+            "received_cost": 2011652,
+            "sent_prefix": 2060969
+          },
+          {
+            "sample": 2,
+            "packets": 2011,
+            "received_cost": 2026895,
+            "sent_prefix": 2075722
+          },
+          {
+            "sample": 3,
+            "packets": 2012,
+            "received_cost": 2028133,
+            "sent_prefix": 2076960
+          },
+          {
+            "sample": 4,
+            "packets": 2020,
+            "received_cost": 2035471,
+            "sent_prefix": 2083529
+          },
+          {
+            "sample": 5,
+            "packets": 2038,
+            "received_cost": 2057755,
+            "sent_prefix": 2094303
+          },
+          {
+            "sample": 6,
+            "packets": 2051,
+            "received_cost": 2073849,
+            "sent_prefix": 2110397
+          },
+          {
+            "sample": 7,
+            "packets": 2070,
+            "received_cost": 2093942,
+            "sent_prefix": 2128405
+          },
+          {
+            "sample": 8,
+            "packets": 2076,
+            "received_cost": 2098656,
+            "sent_prefix": 2135833
+          },
+          {
+            "sample": 9,
+            "packets": 2085,
+            "received_cost": 2106455,
+            "sent_prefix": 2143664
+          }
+        ],
+        "wire_prefix_mismatch_count": 1070,
+        "rtx_packets_seen": 0,
+        "trace_overflow": false,
+        "negotiated_feedback": null,
+        "controller_complete": null,
+        "limitations": [
+          "Only this Linux Firefox/QSV diagnostic; not Mac or broad browser/codec support.",
+          "W3C permits getStats caching; timestamps/counter validity and freshness require explicit guards/fallback.",
+          "Byte/header/packet counters include retransmissions; this zero-RTX proof does not establish RTX/FEC mapping.",
+          "No live byte feedback/control law was added to the product; source-age acceptance still fails431.21ms on retained103."
+        ]
+      },
+      "final": {
+        "scope": "Diagnostic unchanged103 packaged bridge/viewer/worker, owned native QSV VM/guest83, real TURN/TCP. Observe stats byte/packet granularity and partial-frame progress; not full mixed-content acceptance.",
+        "source_package": "unchanged103, official worker7ca0467; no guest changes",
+        "samples": 1072,
+        "sampling_errors": [],
+        "stats_cost_ms": {
+          "median": 0.0,
+          "p95": 1,
+          "max": 4
+        },
+        "bytes_updated_samples": 1028,
+        "update_interval_ms": {
+          "median": 17,
+          "p95": 19,
+          "max": 67
+        },
+        "partial_frame_updates": 308,
+        "partial_frame_examples": [
+          {
+            "before": {
+              "ms": 6215,
+              "duration": 1,
+              "timestamp": 1793237360002,
+              "ssrc": 2708460710,
+              "bytesReceived": 1888109,
+              "headerBytesReceived": 49200,
+              "packetsReceived": 2050,
+              "retransmittedPacketsReceived": 0,
+              "retransmittedBytesReceived": 0,
+              "framesReceived": 151,
+              "framesDecoded": 146,
+              "lastPacketReceivedTimestamp": 1793237360002
+            },
+            "after": {
+              "ms": 6231,
+              "duration": 1,
+              "timestamp": 1793237360018,
+              "ssrc": 2708460710,
+              "bytesReceived": 1899609,
+              "headerBytesReceived": 49440,
+              "packetsReceived": 2060,
+              "retransmittedPacketsReceived": 0,
+              "retransmittedBytesReceived": 0,
+              "framesReceived": 151,
+              "framesDecoded": 147,
+              "lastPacketReceivedTimestamp": 1793237360017
+            }
+          },
+          {
+            "before": {
+              "ms": 6317,
+              "duration": 0,
+              "timestamp": 1793237360105,
+              "ssrc": 2708460710,
+              "bytesReceived": 1964040,
+              "headerBytesReceived": 51144,
+              "packetsReceived": 2131,
+              "retransmittedPacketsReceived": 0,
+              "retransmittedBytesReceived": 0,
+              "framesReceived": 158,
+              "framesDecoded": 152,
+              "lastPacketReceivedTimestamp": 1793237360101
+            },
+            "after": {
+              "ms": 6333,
+              "duration": 0,
+              "timestamp": 1793237360121,
+              "ssrc": 2708460710,
+              "bytesReceived": 1969804,
+              "headerBytesReceived": 51312,
+              "packetsReceived": 2138,
+              "retransmittedPacketsReceived": 0,
+              "retransmittedBytesReceived": 0,
+              "framesReceived": 158,
+              "framesDecoded": 153,
+              "lastPacketReceivedTimestamp": 1793237360121
+            }
+          },
+          {
+            "before": {
+              "ms": 6420,
+              "duration": 1,
+              "timestamp": 1793237360207,
+              "ssrc": 2708460710,
+              "bytesReceived": 2037272,
+              "headerBytesReceived": 53088,
+              "packetsReceived": 2212,
+              "retransmittedPacketsReceived": 0,
+              "retransmittedBytesReceived": 0,
+              "framesReceived": 164,
+              "framesDecoded": 159,
+              "lastPacketReceivedTimestamp": 1793237360207
+            },
+            "after": {
+              "ms": 6436,
+              "duration": 0,
+              "timestamp": 1793237360224,
+              "ssrc": 2708460710,
+              "bytesReceived": 2048784,
+              "headerBytesReceived": 53352,
+              "packetsReceived": 2223,
+              "retransmittedPacketsReceived": 0,
+              "retransmittedBytesReceived": 0,
+              "framesReceived": 164,
+              "framesDecoded": 160,
+              "lastPacketReceivedTimestamp": 1793237360223
+            }
+          }
+        ],
+        "checked_sent_prefixes": 1072,
+        "wire_prefix_mismatches": [
+          {
+            "sample": 0,
+            "packets": 1965,
+            "received_cost": 1986774,
+            "sent_prefix": 2063327
+          },
+          {
+            "sample": 1,
+            "packets": 1971,
+            "received_cost": 1991084,
+            "sent_prefix": 2070755
+          },
+          {
+            "sample": 2,
+            "packets": 1989,
+            "received_cost": 2007123,
+            "sent_prefix": 2090626
+          },
+          {
+            "sample": 3,
+            "packets": 2003,
+            "received_cost": 2021535,
+            "sent_prefix": 2102315
+          },
+          {
+            "sample": 4,
+            "packets": 2018,
+            "received_cost": 2037501,
+            "sent_prefix": 2115569
+          },
+          {
+            "sample": 5,
+            "packets": 2035,
+            "received_cost": 2056045,
+            "sent_prefix": 2130223
+          },
+          {
+            "sample": 6,
+            "packets": 2043,
+            "received_cost": 2062617,
+            "sent_prefix": 2137662
+          },
+          {
+            "sample": 7,
+            "packets": 2050,
+            "received_cost": 2068509,
+            "sent_prefix": 2143036
+          },
+          {
+            "sample": 8,
+            "packets": 2060,
+            "received_cost": 2080889,
+            "sent_prefix": 2150202
+          },
+          {
+            "sample": 9,
+            "packets": 2070,
+            "received_cost": 2090970,
+            "sent_prefix": 2155243
+          }
+        ],
+        "wire_prefix_mismatch_count": 1072,
+        "rtx_packets_seen": 0,
+        "trace_overflow": false,
+        "negotiated_feedback": {
+          "localDescription": [
+            "a=extmap:3 urn:ietf:params:rtp-hdrext:sdes:mid",
+            "a=extmap:4 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time",
+            "a=extmap:5 urn:ietf:params:rtp-hdrext:toffset",
+            "a=extmap:6/recvonly http://www.webrtc.org/experiments/rtp-hdrext/playout-delay",
+            "a=extmap:7 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
+            "a=extmap:8 urn:3gpp:video-orientation",
+            "a=extmap:9/recvonly https://aomediacodec.github.io/av1-rtp-spec/#dependency-descriptor-rtp-header-extension",
+            "a=rtcp-fb:120 nack",
+            "a=rtcp-fb:120 nack pli",
+            "a=rtcp-fb:120 ccm fir",
+            "a=rtcp-fb:120 goog-remb",
+            "a=rtcp-fb:120 transport-cc",
+            "a=rtcp-fb:121 nack",
+            "a=rtcp-fb:121 nack pli",
+            "a=rtcp-fb:121 ccm fir",
+            "a=rtcp-fb:121 goog-remb",
+            "a=rtcp-fb:121 transport-cc",
+            "a=rtcp-fb:126 nack",
+            "a=rtcp-fb:126 nack pli",
+            "a=rtcp-fb:126 ccm fir",
+            "a=rtcp-fb:126 goog-remb",
+            "a=rtcp-fb:126 transport-cc",
+            "a=rtcp-fb:97 nack",
+            "a=rtcp-fb:97 nack pli",
+            "a=rtcp-fb:97 ccm fir",
+            "a=rtcp-fb:97 goog-remb",
+            "a=rtcp-fb:97 transport-cc",
+            "a=rtcp-fb:105 nack",
+            "a=rtcp-fb:105 nack pli",
+            "a=rtcp-fb:105 ccm fir",
+            "a=rtcp-fb:105 goog-remb",
+            "a=rtcp-fb:105 transport-cc",
+            "a=rtcp-fb:103 nack",
+            "a=rtcp-fb:103 nack pli",
+            "a=rtcp-fb:103 ccm fir",
+            "a=rtcp-fb:103 goog-remb",
+            "a=rtcp-fb:103 transport-cc",
+            "a=rtcp-fb:99 nack",
+            "a=rtcp-fb:99 nack pli",
+            "a=rtcp-fb:99 ccm fir",
+            "a=rtcp-fb:99 goog-remb",
+            "a=rtcp-fb:99 transport-cc",
+            "a=rtcp-fb:123 nack",
+            "a=rtcp-fb:123 nack pli",
+            "a=rtcp-fb:123 ccm fir",
+            "a=rtcp-fb:123 goog-remb",
+            "a=rtcp-fb:123 transport-cc",
+            "a=rtcp-fb:122 nack",
+            "a=rtcp-fb:122 nack pli",
+            "a=rtcp-fb:122 ccm fir",
+            "a=rtcp-fb:122 goog-remb",
+            "a=rtcp-fb:122 transport-cc",
+            "a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+            "a=extmap:2/recvonly urn:ietf:params:rtp-hdrext:csrc-audio-level",
+            "a=extmap:3 urn:ietf:params:rtp-hdrext:sdes:mid",
+            "a=extmap:7 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
+            "a=rtcp-fb:109 transport-cc",
+            "a=rtcp-fb:9 transport-cc",
+            "a=rtcp-fb:0 transport-cc",
+            "a=rtcp-fb:8 transport-cc"
+          ],
+          "remoteDescription": [
+            "a=extmap:3 urn:ietf:params:rtp-hdrext:sdes:mid",
+            "a=extmap:4 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time",
+            "a=rtcp-fb:105 nack",
+            "a=rtcp-fb:105 nack pli",
+            "a=rtcp-fb:105 goog-remb",
+            "a=rtcp-fb:126 nack",
+            "a=rtcp-fb:126 nack pli",
+            "a=rtcp-fb:126 goog-remb",
+            "a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+            "a=extmap:3 urn:ietf:params:rtp-hdrext:sdes:mid"
+          ]
+        },
+        "controller_complete": {
+          "sampled_stats": true,
+          "no_probe_errors": true
+        },
+        "limitations": [
+          "Only this Linux Firefox/QSV diagnostic; not Mac or broad browser/codec support.",
+          "W3C permits getStats caching; timestamps/counter validity and freshness require explicit guards/fallback.",
+          "Byte/header/packet counters include retransmissions; this zero-RTX proof does not establish RTX/FEC mapping.",
+          "No live byte feedback/control law was added to the product; source-age acceptance still fails431.21ms on retained103."
+        ]
+      }
+    },
+    "decision": "Partial-frame progress is visible, but direct byte/header/packet-count-to-sent-prefix mapping fails every tested snapshot. Validation still exits nonzero and retains mismatches; no unsafe byte-based ACK has been accepted. Source of the mismatch is unproven."
+  },
+  "twcc_probe": {
+    "scope": "Private103 process installs TWCC negotiation and RTP numbering/RTCP observation only. Shipped103 code/worker bytes unchanged; feedback does not drive QSM admission or bitrate. Not media/performance/release acceptance.",
+    "sent_packets": 8670,
+    "feedback_reports": 440,
+    "decode_errors": [],
+    "trace_overflow": false,
+    "unknown_received_sequences": [],
+    "received_packet_ids_matched": 8624,
+    "feedback_interval_ms": {
+      "median": 50.280391005799174,
+      "p95": 55.64321298152208,
+      "max": 101.12552205100656
+    },
+    "partial_frame_feedback_packet_observations": 1921,
+    "unique_partial_frames": 350,
+    "feedback_before_marker_was_sent_observations": 0,
+    "feedback_before_full_frame_ack_observations": 1635,
+    "unique_frames_with_earlier_packet_feedback": 287,
+    "maximum_lead_over_full_frame_ack_ms": 86.98728703893721,
+    "partial_examples": [
+      {
+        "feedback": 0,
+        "sequence": 0,
+        "rtp": 2469332631,
+        "feedback_at": 1592645.97898964
+      },
+      {
+        "feedback": 0,
+        "sequence": 1,
+        "rtp": 2469332631,
+        "feedback_at": 1592645.97898964
+      },
+      {
+        "feedback": 0,
+        "sequence": 2,
+        "rtp": 2469332631,
+        "feedback_at": 1592645.97898964
+      }
+    ],
+    "before_send_examples": [],
+    "before_frame_ack_examples": [
+      {
+        "feedback": 47,
+        "sequence": 1749,
+        "rtp": 2469562107,
+        "feedback_at": 1592648.346569706,
+        "full_frame_ack_at": 1592648.433556993,
+        "lead_ms": 86.98728703893721
+      },
+      {
+        "feedback": 47,
+        "sequence": 1750,
+        "rtp": 2469562107,
+        "feedback_at": 1592648.346569706,
+        "full_frame_ack_at": 1592648.433556993,
+        "lead_ms": 86.98728703893721
+      },
+      {
+        "feedback": 47,
+        "sequence": 1751,
+        "rtp": 2469562107,
+        "feedback_at": 1592648.346569706,
+        "full_frame_ack_at": 1592648.433556993,
+        "lead_ms": 86.98728703893721
+      }
+    ],
+    "negotiated_feedback": {
+      "localDescription": [
+        "a=extmap:3 urn:ietf:params:rtp-hdrext:sdes:mid",
+        "a=extmap:4 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time",
+        "a=extmap:5 urn:ietf:params:rtp-hdrext:toffset",
+        "a=extmap:6/recvonly http://www.webrtc.org/experiments/rtp-hdrext/playout-delay",
+        "a=extmap:7 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
+        "a=extmap:8 urn:3gpp:video-orientation",
+        "a=extmap:9/recvonly https://aomediacodec.github.io/av1-rtp-spec/#dependency-descriptor-rtp-header-extension",
+        "a=rtcp-fb:120 nack",
+        "a=rtcp-fb:120 nack pli",
+        "a=rtcp-fb:120 ccm fir",
+        "a=rtcp-fb:120 goog-remb",
+        "a=rtcp-fb:120 transport-cc",
+        "a=rtcp-fb:121 nack",
+        "a=rtcp-fb:121 nack pli",
+        "a=rtcp-fb:121 ccm fir",
+        "a=rtcp-fb:121 goog-remb",
+        "a=rtcp-fb:121 transport-cc",
+        "a=rtcp-fb:126 nack",
+        "a=rtcp-fb:126 nack pli",
+        "a=rtcp-fb:126 ccm fir",
+        "a=rtcp-fb:126 goog-remb",
+        "a=rtcp-fb:126 transport-cc",
+        "a=rtcp-fb:97 nack",
+        "a=rtcp-fb:97 nack pli",
+        "a=rtcp-fb:97 ccm fir",
+        "a=rtcp-fb:97 goog-remb",
+        "a=rtcp-fb:97 transport-cc",
+        "a=rtcp-fb:105 nack",
+        "a=rtcp-fb:105 nack pli",
+        "a=rtcp-fb:105 ccm fir",
+        "a=rtcp-fb:105 goog-remb",
+        "a=rtcp-fb:105 transport-cc",
+        "a=rtcp-fb:103 nack",
+        "a=rtcp-fb:103 nack pli",
+        "a=rtcp-fb:103 ccm fir",
+        "a=rtcp-fb:103 goog-remb",
+        "a=rtcp-fb:103 transport-cc",
+        "a=rtcp-fb:99 nack",
+        "a=rtcp-fb:99 nack pli",
+        "a=rtcp-fb:99 ccm fir",
+        "a=rtcp-fb:99 goog-remb",
+        "a=rtcp-fb:99 transport-cc",
+        "a=rtcp-fb:123 nack",
+        "a=rtcp-fb:123 nack pli",
+        "a=rtcp-fb:123 ccm fir",
+        "a=rtcp-fb:123 goog-remb",
+        "a=rtcp-fb:123 transport-cc",
+        "a=rtcp-fb:122 nack",
+        "a=rtcp-fb:122 nack pli",
+        "a=rtcp-fb:122 ccm fir",
+        "a=rtcp-fb:122 goog-remb",
+        "a=rtcp-fb:122 transport-cc",
+        "a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+        "a=extmap:2/recvonly urn:ietf:params:rtp-hdrext:csrc-audio-level",
+        "a=extmap:3 urn:ietf:params:rtp-hdrext:sdes:mid",
+        "a=extmap:7 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
+        "a=rtcp-fb:109 transport-cc",
+        "a=rtcp-fb:9 transport-cc",
+        "a=rtcp-fb:0 transport-cc",
+        "a=rtcp-fb:8 transport-cc"
+      ],
+      "remoteDescription": [
+        "a=extmap:3 urn:ietf:params:rtp-hdrext:sdes:mid",
+        "a=extmap:4 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time",
+        "a=extmap:7 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
+        "a=rtcp-fb:105 nack",
+        "a=rtcp-fb:105 nack pli",
+        "a=rtcp-fb:105 goog-remb",
+        "a=rtcp-fb:105 transport-cc",
+        "a=rtcp-fb:126 nack",
+        "a=rtcp-fb:126 nack pli",
+        "a=rtcp-fb:126 goog-remb",
+        "a=rtcp-fb:126 transport-cc",
+        "a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level",
+        "a=extmap:3 urn:ietf:params:rtp-hdrext:sdes:mid",
+        "a=extmap:7 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01",
+        "a=rtcp-fb:109 transport-cc"
+      ]
+    },
+    "controller_complete": {
+      "sampled_stats": true,
+      "no_probe_errors": true
+    },
+    "limitations": [
+      "No control-policy integration; native103 source-age431.21ms failure remains.",
+      "This Linux Firefox/H264 QSV probe has no audio/RTX traffic; wrap/reorder/loss/compound/malformed feedback need deliberate tests.",
+      "Private packetizer adds TWCC bytes after103 AU lookahead; this is diagnostic and is not a matching release-package qualification.",
+      "TWCC -01 is the browser-advertised draft extension; it is distinct from RFC8888 CCFB."
+    ]
+  },
+  "twcc_interpretation": "Actual Firefox offer and negotiated answer advertise transport-cc and its packet-sequence extension.440 real RTCP reports decode without errors;8624 received IDs map to recorded sent packets.350 frames have partial-frame feedback;287 have earlier packet feedback than full-frame receipts, up to86.99ms. This proves a diagnostic feedback path, not end-to-end control or release acceptance.",
+  "primary_references": [
+    "https://www.w3.org/TR/webrtc-stats/#dom-rtcinboundrtpstreamstats-headerbytesreceived",
+    "https://www.w3.org/TR/webrtc-stats/#dom-rtcinboundrtpstreamstats-framesreceived",
+    "https://www.w3.org/TR/webrtc-stats/#guidelines-for-getstats-results-cachingthrottling",
+    "https://datatracker.ietf.org/doc/html/draft-holmer-rmcat-transport-wide-cc-extensions-01"
+  ],
+  "references_limit": "TWCC -01 is an expired draft extension actually offered by this browser; it is not RFC8888 CCFB. W3C permits stats caching and includes retransmissions in byte/header counters. The tested diagnostic does not establish broad browser/RTX/FEC correctness.",
+  "next_action": "Implement a bounded authenticated TWCC packet-history/feedback adapter, preserving frame/capture acknowledgements for composition and old-peer fallback. Validate malformed/padding/compound/wrap/reorder/duplicate/stale/unknown feedback, actual RTP wire-cost accounting, and audio/RTX ownership before using packet credit. Then repeat unchanged native and LXC loss/cadence/source-age/input/static/fidelity gates; do not infer acceptance from this capability probe.",
+  "production": {
+    "node20": {
+      "package": "0.4.0+stock4.14~exp35",
+      "production_process_start_ticks": {
+        "577033": 332808379,
+        "495374": 297084425
+      },
+      "production_rollout_performed": false
+    },
+    "owned_native_vm": {
+      "owned_qemu_pid": 3079308,
+      "guest_process_start_ticks": {
+        "828": 712,
+        "710": 607,
+        "675": 601,
+        "957": 821
+      },
+      "diagnostic_workers_remaining": [],
+      "production_gateway_absent": true
+    },
+    "production_services_restarted": false,
+    "publication_or_rollout": false
+  },
+  "remaining": "The complete component/toolkit/occlusion/lifecycle/fallback/hardware/codec/long/resource/Mac/RDP and final matching source/seven packages/signatures/APT/docs/rollout/discussion scope remains in rdp-next-plan.json."
+}

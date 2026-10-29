@@ -81,7 +81,7 @@
   ],
   "checkpoint": {
     "stage": "video-regions-and-queue",
-    "candidate": "0.4.0+stock4.14~exp103 private pilot; source-age acceptance still fails",
+    "candidate": "Private103 restored exactly; original431.21ms excess-age failure remains unaccepted",
     "guest_extension_role": {
       "required_for_metadata_priority": "Expanded VM/LXC agents supply window geometry, stacking, visibility, focus and supported caret/input-component bounds over the existing guest transport.",
       "implemented_scope": "KWin session integration, optional Qt5/Qt6 input-geometry plugin and accessibility producers have documented checks; this does not establish universal toolkit or application coverage.",
@@ -89,7 +89,7 @@
       "rendering": "The browser composes actual guest pixels; this plan does not introduce OCR, text-content transfer, font substitution or a drawing-command protocol.",
       "remaining": "Complete application/toolkit, overlapping-input, occlusion and lifecycle acceptance together with host scheduling and video queue qualification. The measured queue issue is not evidence that another guest protocol expansion is required."
     },
-    "evidence_directory": "dist/rdp-hybrid/frame-queue-exp103",
+    "evidence_directory": "dist/rdp-hybrid/packet-feedback-exp104",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -215,10 +215,11 @@
       "LXC90 hard-cut quality all8 gates pass:52.18/51.61fps, gaps101/151ms, first-cut RGB36.43/31.28dB and SSIM.9851/.9072, no stale exact tiles or invalid IDs.",
       "Retained91-98 evidence in docs/rdp-video-queue-20261029.json: source-matched pilots and deterministic original-policy failures. Full native QSV loss/input/static profiles expand the old basic proof and expose high-RTT queue/cadence failures. Tightened flight95-98 is rejected; current sources match94,136 bridge tests and3 C++ suites pass. None of this waives full qualification.",
       "Passive retained94 native QSV control: fast F/C52.26, selected51.87 and independently decoded51.80 sourcefps; narrow F/C52.43, selected/decoded47.50. All9438 decoded pictures match selected source IDs and geometry. Browser49.05/45.15/48.08fps and static/input gates pass; age excess511.21ms still fails400. Approximate healthy pre-AU flight median95.8KB/P95113.4KB/P99118.8KB; exact packet trace remains. Diagnostic binary is not release qualification.",
-      "Exact retained94 packet/ACK trace verifies69540 packet charges and9140 complete markers.100-103 complete AU costs match35889 measured frames without mismatch. Private103147 bridge tests pass; real native QSV50.95/47.53/47.70fps, gaps<=133ms, glyph<=326ms, exact static/input/mode3/full8000 recovery pass; source-age excess431.21ms still fails400. Prior100/101/102 failures retained; no release/rollout."
+      "Exact retained94 packet/ACK trace verifies69540 packet charges and9140 complete markers.100-103 complete AU costs match35889 measured frames without mismatch. Private103147 bridge tests pass; real native QSV50.95/47.53/47.70fps, gaps<=133ms, glyph<=326ms, exact static/input/mode3/full8000 recovery pass; source-age excess431.21ms still fails400. Prior100/101/102 failures retained; no release/rollout.",
+      "Independent103 H264 decoding matches the exact old source image at the431.21ms excess-age peak. Closing the observed18.07ms lease gap104 passes150 unit tests but worsens native media (35.13fps narrow,559.92ms excess), so103 is restored byte-for-byte. Direct browser byte-counter prefix mapping fails and is not used. Private TWCC negotiation obtains440 error-free reports/8624 matched packet IDs,350 partial frames and up to86.99ms lead over frame ACKs; no control/release acceptance yet."
     ],
     "pending": [
-      "Separate the remaining capture-to-send age from network flight using exact103 packet/lease/capture timestamps. Test a congestion-confirmed raw-admission policy that preserves normal short overlaps; retain431.21ms failure and all original gates. Repeat real native/LXC loss and hard-cut fidelity only after a candidate passes its initial unchanged gates.",
+      "Implement a bounded authenticated TWCC packet-history/feedback adapter, preserving frame/capture acknowledgements for composition and old-peer fallback. Validate malformed/padding/compound/wrap/reorder/duplicate/stale/unknown feedback, actual RTP wire-cost accounting, and audio/RTX ownership before using packet credit. Then repeat unchanged native and LXC loss/cadence/source-age/input/static/fidelity gates; do not infer acceptance from this capability probe.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -256,9 +257,10 @@
       "dist/rdp-hybrid/capture-gpu-exp86",
       "dist/rdp-hybrid/fresh-image-exp87",
       "dist/rdp-hybrid/capture-cadence-exp90",
-      "dist/rdp-hybrid/frame-queue-exp103"
+      "dist/rdp-hybrid/frame-queue-exp103",
+      "dist/rdp-hybrid/packet-feedback-exp104"
     ],
-    "next_action": "Separate the remaining capture-to-send age from network flight using exact103 packet/lease/capture timestamps. Test a congestion-confirmed raw-admission policy that preserves normal short overlaps; retain431.21ms failure and all original gates. Repeat real native/LXC loss and hard-cut fidelity only after a candidate passes its initial unchanged gates. Then finish the entire hardware/codec/toolkit/fallback/long/resource/Mac/RDP and release/rollout/discussion scope.",
+    "next_action": "Implement a bounded authenticated TWCC packet-history/feedback adapter, preserving frame/capture acknowledgements for composition and old-peer fallback. Validate malformed/padding/compound/wrap/reorder/duplicate/stale/unknown feedback, actual RTP wire-cost accounting, and audio/RTX ownership before using packet credit. Then repeat unchanged native and LXC loss/cadence/source-age/input/static/fidelity gates; do not infer acceptance from this capability probe. Complete the entire remaining qualification/release/rollout/discussion scope afterward.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -429,7 +431,8 @@
     "capture_gpu": "docs/rdp-capture-gpu-20261029.json",
     "fresh_image_experiment": "docs/rdp-fresh-image-20261029.json",
     "capture_cadence": "docs/rdp-capture-cadence-20261029.json",
-    "frame_queue": "docs/rdp-frame-queue-20261029.json"
+    "frame_queue": "docs/rdp-frame-queue-20261029.json",
+    "packet_feedback": "docs/rdp-packet-feedback-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",
