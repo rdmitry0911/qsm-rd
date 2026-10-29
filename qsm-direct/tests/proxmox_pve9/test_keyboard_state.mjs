@@ -10,7 +10,7 @@ const section = (start, end) => {
 const keyboard = section('const sendKeyboard =', '// Map a printable character');
 const maps = section('const scanCodes =','// A guest-first console');
 const modifierState = section('const deferredModifiers =','let fullscreenEscapePending =');
-const listeners = section("for (const name of ['keydown', 'keyup']) {\n                video.addEventListener", "peer.addTransceiver('video'");
+const listeners = section("for (const name of ['keydown', 'keyup']) {\n                video.addEventListener", 'const incomingVideo =');
 const kbListeners=section("for (const name of ['keydown', 'keyup']) {\n            kbInput.addEventListener",'// beforeinput is the primary path');
 const make = new Function('env', `
     const {video, kbInput, document, send, settings, actions, popup} = env;

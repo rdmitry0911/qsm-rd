@@ -81,7 +81,7 @@
   ],
   "checkpoint": {
     "stage": "video-regions-and-queue",
-    "candidate": "Private127;209 isolated bridge tests. LXC/NVENC passes all original transition gates and scoped22 component pixel oracles. Native VAAPI age/cadence, hardcut fast cadence and Mac timing remain incomplete.",
+    "candidate": "Private132 viewer fixes Chromium encoded-receipt attachment;209 target-SDK bridge tests and13 viewer suites pass. Host core remains byte-identical127. Local NVENC passes all13 original transition gates; native Intel and Mac performance gates remain open.",
     "guest_extension_role": {
       "required_for_metadata_priority": "Expanded VM/LXC agents supply window geometry, stacking, visibility, focus and supported caret/input-component bounds over the existing guest transport.",
       "implemented_scope": "KWin session integration, optional Qt5/Qt6 input-geometry plugin and accessibility producers have documented checks; this does not establish universal toolkit or application coverage.",
@@ -270,7 +270,8 @@
       "127 full LXC loss/jitter transition passes all13 original gates:55.50/46.94/54.32fps, largest gap167ms, glyph142ms, source-age excess266.080ms, full8000 recovery.",
       "127 scoped component acceptance passes22 exact-pixel oracles,52.81/47.93fps, glyph maxima165/213ms, desktop resize restoration and same stream. Generic wrapper subsequently fails an unintended additional adaptive warmup; the whole script is not green.",
       "127 hardcut narrow SSIM0.908 passes; fast48.79fps fails50. Native VAAPI42.58fps narrow,512.278ms source-age excess and presentation excess fail. All failures retained.",
-      "Supplied Mac receiver tested with Chrome156/Metal Intel: initial headless SSH/CDP interruption, headless repeat and headful repeat retained. Timing gates fail, marker readback overhead measured; no full Mac performance qualification claimed. Owned test profiles, assertions and diagnostic workers cleaned up; production remains exp35."
+      "Supplied Mac receiver tested with Chrome156/Metal Intel: initial headless SSH/CDP interruption, headless repeat and headful repeat retained. Timing gates fail, marker readback overhead measured; no full Mac performance qualification claimed. Owned test profiles, assertions and diagnostic workers cleaned up; production remains exp35.",
+      "Private132 Chromium receipt creation-task fix verified with live Mac permission-toggle continuity; native Firefox regression and same-local-path NVENC/RDP comparison retained in docs/rdp-chromium-receive-20261029.json and docs/rdp-microsoft-reference-20261029.json. Local NVENC passes13 original transition gates; Mac/native failures remain open."
     ],
     "pending": [
       "Use saved native126 wire/packet/frame receipts to bound initial bandwidth-drop backlog without weakening400ms age or45fps gates. Establish Mac cadence by correlating independently decoded source IDs with successful composed/presented RTP timestamps and an observer-overhead control. Then complete remaining codec/application/browser/long-session/RDP and release scope.",
@@ -324,9 +325,10 @@
       "dist/rdp-hybrid/packet-recovery-exp124",
       "dist/rdp-hybrid/deferred-refresh-exp125",
       "dist/rdp-hybrid/packet-probes-exp126",
-      "dist/rdp-hybrid/active-recovery-exp127"
+      "dist/rdp-hybrid/active-recovery-exp127",
+      "dist/rdp-hybrid/chromium-receive-exp132"
     ],
-    "next_action": "Use saved native126 wire/packet/frame receipts to bound initial bandwidth-drop backlog without weakening400ms age or45fps gates. Establish Mac cadence by correlating independently decoded source IDs with successful composed/presented RTP timestamps and an observer-overhead control. Then complete remaining codec/application/browser/long-session/RDP and release scope.",
+    "next_action": "Target native first-drop source-age excess542ms and Mac25fps/1088ms glyph failures without weakening400ms/45fps gates. Local132 NVENC passed all13 transition gates and a first comparable-base-path Microsoft RDP trial is recorded; expand fidelity, encoder/application/browser and long-session qualification before release/rollout.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -534,13 +536,16 @@
         "Firefox158.0.1",
         "Safari26.3"
       ],
-      "scope": "Owned Chrome156 headless/headful profiles on supplied bob receiver. Source marker readback median5.4ms,p9518.7ms,max398.3ms can alter cadence. Both profiles and temporary sleep assertions cleaned up.",
+      "scope": "Owned Chrome156 headless profile on bob; all1241 snapshots valid and exact, source25.01fps and first glyph1087.8ms fail declared gates. Permission-toggle continuity passes. Owned browser and temporary sleep assertion ended.",
       "alternative": "dima@10.30.0.35 is a VM with ordinary VGA; user warned it may distort results. Prefer the supplied bob receiver.",
-      "status": "incomplete; initial SSH interruption and retained headless/headful performance failures",
-      "evidence": "docs/rdp-bursty-recovery-20261029.json",
+      "status": "Receipt lifecycle fixed with132; immutable pixel observer validates identity but Mac cadence and glyph gates still fail.",
+      "evidence": "docs/rdp-chromium-receive-20261029.json",
       "observed_receiver_gpu": "Chrome ANGLE Metal UHD630, video-decode capability enabled; per-stream hardware decoder unproven"
     },
-    "bursty_recovery": "docs/rdp-bursty-recovery-20261029.json"
+    "bursty_recovery": "docs/rdp-bursty-recovery-20261029.json",
+    "corroborated_hold": "docs/rdp-corroborated-hold-20261029.json",
+    "chromium_receive": "docs/rdp-chromium-receive-20261029.json",
+    "microsoft_rdp_reference": "docs/rdp-microsoft-reference-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",

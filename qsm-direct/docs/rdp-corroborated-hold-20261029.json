@@ -1,0 +1,164 @@
+{
+  "date": "2026-10-29",
+  "status": "private128_not_promoted_product_restored_to127",
+  "source_base_commit": "c174f79",
+  "experiment_source": {
+    "version": "0.4.0+stock4.14~exp128",
+    "deb_sha256": "26d53e1dfee2c131a0baa95201c2e5390c7c3221ae89331507bb073a75ec36d6",
+    "worker_sha256": "f433e3b2d244f046ba50574801f51fbbb519d2cd6c9d2251a36fba7346d0bc14",
+    "bridge_sha256": "edc96be37d2ccb6c616cd7b5a061b7cbc7af25ae01578896f243d444e91f9fc4",
+    "transport_sha256": "437eae4b7c69a764c57abc73a2449bfdb972eba3860ad32ce0c5d80f81b94903",
+    "private_selector": 128,
+    "production_changed": false
+  },
+  "active_product_source": {
+    "version": "0.4.0+stock4.14~exp127",
+    "deb_sha256": "8b7dd2a062d74c975aac008a5b6492bee248dc658fef5a45278dc696710f60f1",
+    "worker_sha256": "f433e3b2d244f046ba50574801f51fbbb519d2cd6c9d2251a36fba7346d0bc14",
+    "bridge_sha256": "2862803cb04403042336245703cd00f8ad9ab624ae9e83a99666ed06c3352373",
+    "transport_sha256": "437eae4b7c69a764c57abc73a2449bfdb972eba3860ad32ce0c5d80f81b94903",
+    "private_selector": 127,
+    "production_changed": false
+  },
+  "evidence_directory": "dist/rdp-hybrid/corroborated-hold-exp128",
+  "hypothesis": "A recent matched growing-frame interval can corroborate NORMAL-trend packet pressure one RTCP report earlier, without an isolated packet pulse pausing video.",
+  "tests": {
+    "recorded_native_window_before": "first hold only2.7ms before canonical cut; desired25ms margin fails",
+    "after": "corroborated hold starts about49ms before the original cut; capacity/image credit/recovery serial remain unchanged",
+    "target_sdk_full_suite": {
+      "tests": 211,
+      "result": "pass",
+      "seconds": 7.458
+    },
+    "negative_cases": "Freshness, tiny/falling/faster/display-only receipts, absent packet pressure, isolated NORMAL pulses and one-hold episode bound pass."
+  },
+  "live": {
+    "quality61-auto-hardcut128-diagnostic-source-oracle": {
+      "checks": {
+        "quality_rgb": true,
+        "quality_ssim": true,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": true,
+        "no_long_gap": true
+      },
+      "phases": [
+        {
+          "name": "fast",
+          "final_target": 8000,
+          "unique_source_fps": 51.781876343279855,
+          "max_gap_ms": 116,
+          "first_cut_min_ssim_8x8_box": 0.9849971165985687
+        },
+        {
+          "name": "narrow",
+          "final_target": 2095,
+          "unique_source_fps": 52.94725267401952,
+          "max_gap_ms": 134,
+          "first_cut_min_ssim_8x8_box": 0.9146234721809136
+        }
+      ]
+    },
+    "quality61-auto-lxc128-first-loss0p3-delay15-source-oracle": {
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": false,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "phases": [
+        {
+          "name": "fast",
+          "final_target": 8000,
+          "unique_fps": 55.99689982561519,
+          "max_frame_gap_ms": 83
+        },
+        {
+          "name": "narrow",
+          "final_target": 2266,
+          "unique_fps": 50.958760178618334,
+          "max_frame_gap_ms": 184
+        },
+        {
+          "name": "recovered",
+          "final_target": 3800,
+          "unique_fps": 55.272919978802335,
+          "max_frame_gap_ms": 117
+        }
+      ]
+    },
+    "intel128-native-full-vm-h264_qsv-virgl-capture-gpu-q": {
+      "checks": {
+        "no_long_video_gap": false,
+        "narrow_source_fps_at_least_45": false,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": false,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": false,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "phases": [
+        {
+          "name": "fast",
+          "final_target": 8000,
+          "unique_fps": 47.09797145965317,
+          "max_frame_gap_ms": 67
+        },
+        {
+          "name": "narrow",
+          "final_target": 1642,
+          "unique_fps": 44.00831932029383,
+          "max_frame_gap_ms": 187
+        },
+        {
+          "name": "recovered",
+          "final_target": 2532,
+          "unique_fps": 46.101256467110126,
+          "max_frame_gap_ms": 700
+        }
+      ]
+    }
+  },
+  "decision": "The new hint did not remove the shared native age/cadence/recovery blocker. Retain the frozen211-test experiment and restore the last committed127 product while pursuing accurate measurement and input-path evidence. Random loss trials are not matched A/B evidence of causation.",
+  "remaining_native_evidence": {
+    "worst": {
+      "ms": 109133,
+      "tick": 5988,
+      "phase": 95,
+      "clock_uncertainty_ms": 56.279064,
+      "source_age_ms": 1109.1428949032006
+    },
+    "server_estimate": 1620553.708688143,
+    "phase": "recovered",
+    "phase_offset_ms": 26126,
+    "initial_drop_excess_ms": 494.4406410834432,
+    "baseline_ms": 227.6728950751341
+  },
+  "next_action": "Measure client input enqueue/send/host ingress/guest edit times and validate asynchronous direct-pixel observations. The worst native128 late stall has844ms input-to-guest delay,197.6ms guest-to-visible delay and no nearby admission hold; local packet excess transit peaks108.4ms. Avoid treating all latency as the same video-queue problem.",
+  "limitations": [
+    "128 hardcut passes all original fidelity/cadence gates, but that single improvement does not qualify the whole product.",
+    "128 LXC transition passes pixel/input/age/cadence but ends3800 instead8000; native QSV also fails original core gates.",
+    "Final release, broad matrix/browser/application/long-session/RDP qualification remains open."
+  ],
+  "subsequent_checkpoint": "This record describes rejection of128 and restoration to127 before the later132 viewer-only fix. Current runtime core still equals127; see docs/rdp-chromium-receive-20261029.json."
+}

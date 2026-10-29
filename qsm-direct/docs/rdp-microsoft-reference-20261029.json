@@ -1,0 +1,294 @@
+{
+  "date": "2026-10-29",
+  "status": "isolated_native_microsoft_rdp_reference_running_comparison_incomplete",
+  "user_context": "User confirmed no ready Windows RDP node; prepared an isolated owned evaluation VM.",
+  "evidence_directory": "dist/rdp-hybrid/chromium-receive-exp132/windows-reference",
+  "server": {
+    "host": "192.168.64.20",
+    "unit": "qsm-rdp-reference-20261029",
+    "qemu_pid": 1213118,
+    "edition": "Windows Server2025 Standard Evaluation Desktop Experience",
+    "install_wim_index": 2,
+    "iso_bytes": 8152356864,
+    "iso_sha256": "7b052573ba7894c9924e3e87ba732ccd354d18cb75a883efa9b900ea125bfd51",
+    "vcpus": 4,
+    "memory_mib": 8192,
+    "disk_virtual_gib": 70,
+    "inbound": "RDP TCP3389 is forwarded only on host127.0.0.1:13389; no public or LAN listener",
+    "nla": true,
+    "secrets": "Generated administrator credential is restricted to private lab files and piped through stdin; no credential or answer ISO is archived.",
+    "existing_guests_preserved": "Production VM103 PID495374, VM104 PID2104260, LXC108 and terminal were not restarted or reconfigured."
+  },
+  "client": {
+    "name": "FreeRDP3.15.0 xfreerdp3",
+    "environment": "Private Debian13 SDK with an owned Xvfb display; no production package installation.",
+    "transport": "TCP only; multitransport and clipboard disabled; loopback forwarded through SSH and the owned netem proxy.",
+    "requested_graphics": "Software GDI and AVC444-capable GFX requested; the actual negotiated server codec has not yet been independently established.",
+    "observability": "Read actual X11 root pixels at8ms intervals. Glyph coordinates come from native TextBox.DrawToBitmap ink/blank differences; input uses XTest keyboard events and guest event counts.",
+    "cleanup": "Both owned RDP/Xvfb clients and forwards ended; a delayed proxy teardown left two private netns processes. Rescued their actual qdisc counters and quit their exact controller; zero owned media/netns processes remain. The Windows fixture task is stopped and its VM remains ready."
+  },
+  "shared_content": {
+    "rgb_bytes": 414720000,
+    "frames": 600,
+    "width": 640,
+    "height": 360,
+    "source_rate": 60,
+    "sha256": "58d618b3351ab000ca62fc421b7c28026e2eb4758173a3f9d9e21bcec38fd905",
+    "source_marker": "Same phase/tick/XOR source marker as QSM, drawn with the actual movie frame; native Windows editable input and own glyph templates.",
+    "difference": "Windows WinForms/GDI TextBox versus Linux Qt/KWin; operating system, client and encoding stacks differ."
+  },
+  "healthy_unshaped_pilot": {
+    "scope": "Unshaped isolated Microsoft Windows Server2025 RDP / FreeRDP3 software X11 presentation; diagnostic healthy-path pilot only; no matched network or quality comparison yet",
+    "source": "Same600 RGB frames and source/XOR marker as QSM fixture; native Windows TextBox with actual glyph templates",
+    "unique_fps": 31.79880883346392,
+    "invalid_source_ids": 0,
+    "max_gap_ms": 64.51250799000263,
+    "input": [
+      {
+        "n": 1,
+        "sent_at": 3464424.232384355,
+        "latency_ms": 24.250400252640247
+      },
+      {
+        "n": 2,
+        "sent_at": 3464428.232553471,
+        "latency_ms": 32.21834823489189
+      },
+      {
+        "n": 3,
+        "sent_at": 3464432.232632547,
+        "latency_ms": 32.40218572318554
+      }
+    ],
+    "readback_cost_ms": {
+      "median": 0.1846752129495144,
+      "max": 0.7168683223426342
+    },
+    "declared_duration_s": 15
+  },
+  "network_profile": {
+    "artificial_parameters": "Same15/45/75sec healthy20M, narrow2M and recovered20M; kernel ingress15ms3ms jitter,loss0 initially and0.3% beginning at cut, retained in recovery. Loss is stochastic and not seed-matched.",
+    "checks": {
+      "source_ids_valid": true,
+      "input_delivered_once": true,
+      "glyph_peak_at_most_600ms": false,
+      "source_gap_at_most_500ms": true
+    },
+    "phases": [
+      {
+        "name": "fast",
+        "rate": 20000000,
+        "start_s": 3464597.110387138,
+        "end_s": 3464612.113323558,
+        "unique_fps": 31.727120926152615,
+        "max_gap_ms": 72.5541952997446,
+        "bytes": 6492309,
+        "source_age_ms": {
+          "median": 163.53089516858967,
+          "p95": 184.3254199177107,
+          "max": 212.22459856297337
+        },
+        "visible_glyph_ms": [
+          40.319726802408695,
+          48.54005295783281
+        ]
+      },
+      {
+        "name": "narrow",
+        "rate": 2000000,
+        "start_s": 3464612.31584248,
+        "end_s": 3464657.318245846,
+        "unique_fps": 28.5540300299452,
+        "max_gap_ms": 153.21617387235165,
+        "bytes": 10988621,
+        "source_age_ms": {
+          "median": 259.34895237473654,
+          "p95": 1203.4367735733654,
+          "max": 1424.4608261858502
+        },
+        "visible_glyph_ms": [
+          943.5389540158212,
+          363.1906220689416,
+          121.06155697256327,
+          72.6123359054327,
+          96.91698802635074,
+          137.04609405249357
+        ]
+      },
+      {
+        "name": "recovered",
+        "rate": 20000000,
+        "start_s": 3464657.522847995,
+        "end_s": 3464732.530229508,
+        "unique_fps": 31.810202338297934,
+        "max_gap_ms": 80.5974556133151,
+        "bytes": 34298319,
+        "source_age_ms": {
+          "median": 169.69765346374288,
+          "p95": 194.95064401255036,
+          "max": 251.89165826142812
+        },
+        "visible_glyph_ms": [
+          56.4917610026896,
+          40.39885802194476,
+          40.39340699091554,
+          48.41384384781122,
+          48.46930876374245,
+          40.351588279008865,
+          64.68396307900548
+        ]
+      }
+    ],
+    "source_id_errors": 0,
+    "guest_characters": "abcdefghijklmno",
+    "guest_event_count": 15,
+    "readback_ms": {
+      "median": 0.18182490020990372,
+      "p95": 0.25792885571718216,
+      "max": 3.63286305218935
+    },
+    "source_clock_uncertainty_max_ms": 115.93985767103732,
+    "actual_kernel_drops_after_profile_and_idling": 408,
+    "counter_scope": "Recovered actual qdisc counters include later connected idling. Initial and per-phase counter snapshots were not preserved."
+  },
+  "comparability": {
+    "base_path_evidence": "Measured ICMP and TCP connect RTT is approximately106ms to native Intel172.16.16.200, versus0.03ms to local192.168.64.20. Artificial impairment equality does not make those base paths equal.",
+    "appropriate_next_comparison": "Local base-path comparison is recorded; expand matched fidelity, negotiated RDP codec, repetition and additional scenarios. Native Intel106ms base RTT must remain a separate profile.",
+    "not_claimed": "No overall QSM-vs-RDP winner or full qualification is inferred from these pilots. Video fidelity, negotiated RDP codec, longer sessions and remaining cases still require acceptance.",
+    "local_qsm132_run": {
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 55.268261150614094,
+          "max_frame_gap_ms": 68,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 928,
+            "median": 160.69956324063293,
+            "p95": 177.16819386308558,
+            "max": 223.83486051112556,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "transport_kbps": 5172.280243381631
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 51.538040503557745,
+          "max_frame_gap_ms": 150,
+          "final_target": 2196,
+          "full_source_age_ms": {
+            "samples": 2740,
+            "median": 193.19707161436384,
+            "p95": 224.0803335482866,
+            "max": 573.862740024925,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "transport_kbps": 1683.8643749671749
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 53.951257007302175,
+          "max_frame_gap_ms": 100,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4528,
+            "median": 160.02899704811568,
+            "p95": 193.36747753744987,
+            "max": 291.52498456339515,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          },
+          "transport_kbps": 4643.173652261348
+        }
+      ],
+      "visible_glyph_ms_by_phase": {
+        "fast": [
+          56,
+          74
+        ],
+        "narrow": [
+          70,
+          105,
+          90,
+          86,
+          94,
+          81
+        ],
+        "recovered": [
+          63,
+          55,
+          73,
+          59,
+          79,
+          56,
+          73
+        ]
+      },
+      "max_visible_glyph_ms": 105,
+      "maximum_source_excess_from_fast_p95_ms": 396.6945461618394,
+      "static_observer": {
+        "frames": 8213,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "ids": null,
+        "observations": null,
+        "stop": true
+      },
+      "feedback": [
+        {
+          "kind": "received",
+          "loss": 0.0,
+          "rtt": 0.020863771438598633,
+          "base_rtt": 0.01735830307006836,
+          "sending_kbps": 2341.3485065757523,
+          "remb": 0,
+          "present_delay_ms": 27.953047305345535,
+          "present_base_ms": 21.505499724298716,
+          "present_kbps": 2904.398299359784,
+          "present_offered_kbps": 3036.6409078336806,
+          "present_age": 0.09192419098690152,
+          "present_queue_age": null,
+          "queue_age": null
+        }
+      ],
+      "actual_relay": {
+        "type": "relay",
+        "protocol": "tcp"
+      },
+      "scope": "real LXC108/KWin5 capture, NVENC/H264, Firefox/Linux, TURN TCP8006; launch/ACL mocked",
+      "source": "Big Buck Bunny alternating natural scenes; hardcut68/manifest.json; 640x360 RGB60; source-frame/XOR oracle",
+      "additional_checks": {
+        "whole_profile_source_gap_at_most_500ms": true,
+        "source_id_errors_zero": true,
+        "whole_profile_source_gap_ms": 150
+      }
+    },
+    "local_trial_interpretation": "On the shared local base path, QSM132 delivered55.27/51.54/53.95fps versus RDP31.73/28.55/31.81fps. QSM glyphs ranged55-105ms; RDP healthy/recovered40-65ms, with a943.54ms initial-drop glyph. These are individual stochastic trials with different OS/client/encoder stacks; measured source-clock brackets and RDP codec/fidelity limitations remain. No overall winner is declared."
+  },
+  "setup_fixes": [
+    "The readonly source file needs a read-only memory map; C# input event storage must not hide Component.Events because Add-Type treats warnings as errors.",
+    "A System serial task can block on cross-user Stop-Process confirmation. Restarted only this owned task through the RDP desktop with NonInteractive; subsequent stop of the owned VM Server Manager used Force. No production/user desktop process was targeted.",
+    "IDE CD hotplug is unavailable on this QEMU bus; changed only the owned setup-answer CD medium to a readonly content ISO after installation.",
+    "RDP proxy shutdown now stops the media client first and bounds media-task cancellation before closing the private network. This harness repair was syntax checked; the completed profile was not rerun merely to exercise teardown."
+  ],
+  "official_source": "https://www.microsoft.com/en-us/evalcenter/download-windows-server-2025",
+  "artifact_manifest_sha256": "1336d2e56ee6f753172dd6b88ede22a893128ec8f2b5e2f750cca33ed5e765ca"
+}

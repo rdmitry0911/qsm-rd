@@ -552,17 +552,21 @@
         };
         const disable = () => { failed = true; end(); };
         const start = () => {
-            if (!permitted || closed || failed || worker || !receiver ||
+            if (closed || failed || worker || !receiver ||
                 typeof scope.Worker !== 'function' || typeof scope.RTCRtpScriptTransform !== 'function' ||
                 !('transform' in receiver) || receiver.transform !== null) { return; }
             const source = `
-                let pending = false, unsupported = false;
-                self.onmessage = event => { if (event.data === 'next') pending = false; };
+                let pending = false, unsupported = false, permitted = false;
+                self.onmessage = event => {
+                    if (event.data === 'next') pending = false;
+                    else if (event.data === 'allow') permitted = true;
+                    else if (event.data === 'deny') permitted = false;
+                };
                 self.onrtctransform = event => {
                     const t = event.transformer; let last = -Infinity;
                     t.readable.pipeThrough(new TransformStream({ transform(frame, controller) {
                         const now = performance.now();
-                        if (!pending && now - last >= 16) {
+                        if (permitted && !unsupported && !pending && now - last >= 16) {
                             try {
                                 const rtp = frame.getMetadata().rtpTimestamp;
                                 if (Number.isInteger(rtp) && rtp >= 0 && rtp <= 0xffffffff) {
@@ -593,19 +597,17 @@
                     if (value.op === 'ready') {
                         if (timer !== null) { scope.clearTimeout(timer); timer = null; }
                         if (url !== null) { scope.URL.revokeObjectURL(url); url = null; }
-                        if (transform) { return; }
-                        try {
-                            if (receiver.transform !== null) { disable(); return; }
-                            transform = new scope.RTCRtpScriptTransform(candidate);
-                            receiver.transform = transform;
-                        } catch (_error) { disable(); }
-                    } else if (value.op === 'unsupported' || value.op === 'failed') {
+                    } else if (value.op === 'unsupported') {
+                        // Keep forwarding media when optional metadata is
+                        // unavailable. Detaching can strand Chromium's pipeline.
+                        failed = true; candidate.postMessage('deny');
+                    } else if (value.op === 'failed') {
                         disable();
                     } else if (value.op === 'received') {
                         try {
                             const now = scope.performance.now(), rtp = value.rtp;
                             const channel = channelForFeedback();
-                            if (transform && Number.isInteger(rtp) && rtp >= 0 && rtp <= 0xffffffff &&
+                            if (permitted && !failed && transform && Number.isInteger(rtp) && rtp >= 0 && rtp <= 0xffffffff &&
                                 rtp !== previous && now - sentAt >= 16 && channel &&
                                 channel.readyState === 'open' && channel.bufferedAmount <= 1024) {
                                 channel.send(JSON.stringify({ op: 'qsm_video_received', rtp }));
@@ -617,10 +619,19 @@
                         if (worker === candidate) { candidate.postMessage('next'); }
                     }
                 };
+                // Chromium bypasses transforms permanently after the receiver's
+                // creation task. Attach synchronously, before worker readiness
+                // or the server's later permission message; bytes pass unchanged.
+                transform = new scope.RTCRtpScriptTransform(candidate);
+                receiver.transform = transform;
+                candidate.postMessage(permitted ? 'allow' : 'deny');
             } catch (_error) { disable(); }
         };
         return {
-            allow(value) { permitted = value === true; if (!permitted) { end(); } else { start(); } },
+            allow(value) {
+                permitted = value === true;
+                if (worker && !failed) { worker.postMessage(permitted ? 'allow' : 'deny'); }
+            },
             attach(value) { if (receiver !== value) { end(); receiver = value; } start(); },
             close() { closed = true; end(); },
             get active() { return transform !== null; },
@@ -4828,7 +4839,8 @@
                     }
                 });
             }
-            peer.addTransceiver('video', { direction: 'recvonly' });
+            const incomingVideo = peer.addTransceiver('video', { direction: 'recvonly' });
+            receiveFeedback.attach(incomingVideo.receiver);
             micTransceiver = peer.addTransceiver('audio', { direction: 'sendrecv' });
             if (micStream) {
                 // A reconnect keeps a switched-on microphone.
