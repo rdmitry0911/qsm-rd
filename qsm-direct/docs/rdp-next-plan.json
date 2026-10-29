@@ -206,10 +206,11 @@
       "Full90 seven packages are built; main34 payload and6 install/control entries equal the tested pilot.133 bridge tests and3 C++ suites pass, including capture-burst/expiry/geometry/byte-limit cases; portable Qt5/Qt6 checks pass. Guest runtime bytes/modes/links equal the verified83/84 payloads.",
       "LXC90 controlled0.3% TCP-loss15ms/3ms jitter runs: first all13 gates pass (108 drops, narrow48.48/recovered54.37fps, glyph131ms,8218 exact static observations). Repeat (118 drops) passes12/13; narrow47.05/recovered53.24fps, glyph147ms and8177 exact static samples, full8000 recovery, but peak585.07ms minus fastP95172.14ms gives412.93ms excess versus400ms gate. Failed repeat retained, no release qualification.",
       "LXC90 hard-cut quality all8 gates pass:52.18/51.61fps, gaps101/151ms, first-cut RGB36.43/31.28dB and SSIM.9851/.9072, no stale exact tiles or invalid IDs.",
-      "Retained91-98 evidence in docs/rdp-video-queue-20261029.json: source-matched pilots and deterministic original-policy failures. Full native QSV loss/input/static profiles expand the old basic proof and expose high-RTT queue/cadence failures. Tightened flight95-98 is rejected; current sources match94,136 bridge tests and3 C++ suites pass. None of this waives full qualification."
+      "Retained91-98 evidence in docs/rdp-video-queue-20261029.json: source-matched pilots and deterministic original-policy failures. Full native QSV loss/input/static profiles expand the old basic proof and expose high-RTT queue/cadence failures. Tightened flight95-98 is rejected; current sources match94,136 bridge tests and3 C++ suites pass. None of this waives full qualification.",
+      "Passive retained94 native QSV control: fast F/C52.26, selected51.87 and independently decoded51.80 sourcefps; narrow F/C52.43, selected/decoded47.50. All9438 decoded pictures match selected source IDs and geometry. Browser49.05/45.15/48.08fps and static/input gates pass; age excess511.21ms still fails400. Approximate healthy pre-AU flight median95.8KB/P95113.4KB/P99118.8KB; exact packet trace remains. Diagnostic binary is not release qualification."
     ],
     "pending": [
-      "Retained94 LXC excess413.95ms still fails400ms. Native93 full QSV fails fast cadence44.91fps and age gates on109ms baseline;95-98 tighter-flight experiments fail cadence/recovery and are restored. Run passive source/capture/admission/send traces before another scheduler/flight change; retain every failed result and unchanged gates.",
+      "Retained94 LXC excess413.95ms still fails400ms. Passive native94 trace preserves selected/encoded source identity and cadence but fails age excess511.21ms; record exact per-RTP/ACK flight using measured healthy-flight requirements before another control change. Keep rejected95-98 failures and all unchanged gates.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -248,7 +249,7 @@
       "dist/rdp-hybrid/fresh-image-exp87",
       "dist/rdp-hybrid/capture-cadence-exp90"
     ],
-    "next_action": "Trace retained94 native high-RTT source/capture/admission/send stages and LXC large-frame retunes; implement a measured fix, repeat unchanged queue/cadence/fidelity gates, then complete all hardware/codec/toolkit/fallback/long/resource/Mac/RDP and release/rollout/discussion requirements.",
+    "next_action": "Record exact retained94 native packet/ACK flight and test a bounded queue policy that preserves measured healthy cadence; repeat native/LXC loss and scene-fidelity gates, then complete the full hardware/codec/toolkit/fallback/long/resource/Mac/RDP and release/rollout/discussion scope.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
