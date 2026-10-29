@@ -803,6 +803,9 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
             bitrate_kbps=8000, frame_wire_bytes=10000, admission_hold=lambda: until, on_wait=leases.append))
         await asyncio.sleep(.005)
         self.assertFalse(pending.done(), 'even a frame fitting byte credit is not yet committed')
+        history._wake.set()
+        await asyncio.sleep(.005)
+        self.assertFalse(pending.done(), 'a legacy-cadence ACK cannot end a packet-evidenced hold early')
         await asyncio.wait_for(pending, .08)
         self.assertGreaterEqual(time.monotonic(), until)
         self.assertEqual(history._acknowledged_bytes, 0)
@@ -1152,6 +1155,31 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_packet_confirmed_repair_and_short_hold_ignore_frame_receipt_cadence(self):
+        for kind in ('received', 'presented'):
+            with tempfile.TemporaryDirectory() as directory:
+                bridge = BrowserWebRtcBridge(Path(directory))
+                state = self.packet_congestion(bridge)
+                state.feedback_kind = kind
+                state.received_rapid_time = time.monotonic() - 2
+                state.packet_delivery.pressure = True
+                state.packet_delivery.queue_excess = .04
+                requested = []
+                bridge.input.request_video_refresh = lambda rate: requested.append(rate) or 7
+                try:
+                    bridge._update_packet_admission()
+                    held = bridge._packet_hold_until > time.monotonic()
+                    bridge._video_rate_changed(1700)
+                    self.assertEqual((held, requested), (True, [1700]),
+                        'fresh packet evidence remains useful when complete frames arrive slowly')
+                    self.assertEqual(bridge._video_received._draining_limit, 0,
+                        'the old-flight window still requires its original rapid-receipt contract')
+                    self.assertEqual(bridge._video_received._acknowledged_bytes, 0)
+                    self.assertEqual(bridge.video_track._refresh_token, 7)
+                    self.assertEqual(bridge._packet_hold_until, 0)
+                finally:
+                    await bridge.close()
+
     async def test_packet_admission_hold_deduplicates_and_cannot_renew_a_congestion_episode(self):
         with tempfile.TemporaryDirectory() as directory:
             bridge = BrowserWebRtcBridge(Path(directory))

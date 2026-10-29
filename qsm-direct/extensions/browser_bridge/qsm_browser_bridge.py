@@ -372,7 +372,8 @@ class _VideoPresentation:
                 # may acknowledge an earlier frame without freeing enough credit;
                 # retain the same per-frame deadline, never a new timeout per ACK.
                 state = feedback()
-                if not rapid or state is None or self._clock() - state.presented_time >= 1.5:
+                if (state is None or self._clock() - state.presented_time >= 1.5 or
+                        (not rapid and not held(self._clock()))):
                     break
         finally:
             if on_wait is not None:
@@ -2948,7 +2949,6 @@ class BrowserWebRtcBridge:
         now = time.monotonic()
         region = self.video_track.current_region
         eligible = (state is not None and self._video_rate._packet_fresh(state, now) and
-                    state.feedback_kind == 'received' and now - state.received_rapid_time < 1.5 and
                     self._ui_peer.enabled and self._regions_ready and self._regions_eligible and
                     region is not None and (region[4] < region[0] or region[5] < region[1]))
         if not eligible:
@@ -2973,20 +2973,23 @@ class BrowserWebRtcBridge:
         state = self._video_rate._receivers.get(self)
         if (bitrate_kbps * 2 <= previous_kbps and self._twcc_history is not None and
                 state is not None and self._video_rate._packet_fresh(state, now) and
-                state.feedback_kind == 'received' and now - state.received_rapid_time < 1.5 and
                 any(self._video_rate._packet_fresh(peer, now) and peer.packet_delivery.queued
                     for peer in self._video_rate._receivers.values())):
             # A confirmed repair must not wait behind its advisory early hold.
             self._packet_hold_until = 0.
             self._packet_hold_armed = False
-            history = self._video_received
-            sent = self._video_pacer.sent_bytes
-            delivered = self._twcc_history.credit(history._acknowledged_bytes)
-            # Keep no more than the previous baseline window or actual
-            # outstanding bytes, and retire it once that old prefix arrives.
-            # The packet pacer has already adopted the lower target above.
-            maximum = int(previous_kbps * 1000 / 8 * (min(.25, state.presented_base) + .016))
-            history.retain_flight(sent, delivered, maximum)
+            # Flight-window arithmetic retains its rapid-frame contract.
+            # A fresh packet-confirmed repair itself needs no frame cadence:
+            # complete-frame receipts naturally slow down on a narrow link.
+            if state.feedback_kind == 'received' and now - state.received_rapid_time < 1.5:
+                history = self._video_received
+                sent = self._video_pacer.sent_bytes
+                delivered = self._twcc_history.credit(history._acknowledged_bytes)
+                # Keep no more than the previous baseline window or actual
+                # outstanding bytes, and retire it once that old prefix arrives.
+                # The packet pacer has already adopted the lower target above.
+                maximum = int(previous_kbps * 1000 / 8 * (min(.25, state.presented_base) + .016))
+                history.retain_flight(sent, delivered, maximum)
             region = self.video_track.current_region
             cropped = region is not None and (region[4] < region[0] or region[5] < region[1])
             if (self._ui_source.features & SOURCE_CONFIRMED_REFRESH and cropped and self._regions_ready and

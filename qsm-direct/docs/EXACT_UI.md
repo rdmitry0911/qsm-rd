@@ -160,6 +160,16 @@ and remaining qualification are recorded in the
 [confirmed-refresh report](rdp-confirmed-refresh-20261029.json). This is still
 a private candidate; full matrix/fidelity/browser/release work remains.
 
+The private 120 host separates packet evidence from full-frame cadence. A
+packet-confirmed repair and its bounded pre-RTP hold also work when complete
+frames arrive slowly or only presentation feedback is available. Retained
+old-flight arithmetic keeps its original rapid-receipt guard. A frame ACK
+wake cannot end an active packet-evidenced hold before its deadline. The
+198-test target-SDK suite and normal/presentation-only LXC/NVENC profiles pass;
+source-age excess is 313.4/347.3ms and recovered cadence 50.94/54.00fps. Actual
+forwarded pixels confirm those ages. Native 120, repeated/fidelity/matrix and
+release work remain; see the [packet-cadence report](rdp-packet-cadence-20261029.json).
+
 Frame-aware waits permit one baseline round trip, bounded to 50–250 ms, with
 one deadline across all acknowledgements. Short healthy waits keep raw capture
 history; a wait lasting one short media tick applies the bounded raw lease.

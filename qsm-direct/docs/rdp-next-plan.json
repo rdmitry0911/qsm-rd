@@ -81,7 +81,7 @@
   ],
   "checkpoint": {
     "stage": "video-regions-and-queue",
-    "candidate": "Private119;197 core tests; native initial16/16 and whole-profile gap pass; repeat passes; full qualification/release pending.",
+    "candidate": "Private120;198 bridge tests; normal and presentation-only LXC/NVENC pass13 original plus gap/CRC checks; exact120 native regression and full qualification/release remain pending.",
     "guest_extension_role": {
       "required_for_metadata_priority": "Expanded VM/LXC agents supply window geometry, stacking, visibility, focus and supported caret/input-component bounds over the existing guest transport.",
       "implemented_scope": "KWin session integration, optional Qt5/Qt6 input-geometry plugin and accessibility producers have documented checks; this does not establish universal toolkit or application coverage.",
@@ -89,7 +89,7 @@
       "rendering": "The browser composes actual guest pixels; this plan does not introduce OCR, text-content transfer, font substitution or a drawing-command protocol.",
       "remaining": "Complete application/toolkit, overlapping-input, occlusion and lifecycle acceptance together with host scheduling and video queue qualification. The measured queue issue is not evidence that another guest protocol expansion is required."
     },
-    "evidence_directory": "dist/rdp-hybrid/confirmed-refresh-exp119",
+    "evidence_directory": "dist/rdp-hybrid/packet-cadence-exp120",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -139,7 +139,10 @@
       "Private source feature16 and server-only input opcode15 carry a path rate and64-bit token. Worker applies the new cropped target before marking a fresh independent picture; each local AU keeps its actual token and configured codec target across delayed output/rate resets. Normal old-worker output is unchanged until the explicit command.",
       "Host credit/admission wait now precedes RTP sequence/history/counter assignment. A confirmed refresh retires only uncommitted dependent work; an already-dispatched fragmented AU finishes. Authentication and complete-frame image/layout ACKs remain independent.",
       "Explicit confirmed decrease honors any needed cropped codec reduction while preserving the reset quiet period; ordinary estimate dwell, full-desktop quality, caps and actual byte debt remain. A request persists until its target is applied or full-desktop fallback is selected.",
-      "Matched25ms/3450B packet pressure may hold the next uncommitted AU for75ms once per congestion episode. It cannot change codec rate, pacing target, packet credit or guest input. A confirmed cut releases it; a fresh low-queue interval rearms it."
+      "Matched25ms/3450B packet pressure may hold the next uncommitted AU for75ms once per congestion episode. It cannot change codec rate, pacing target, packet credit or guest input. A confirmed cut releases it; a fresh low-queue interval rearms it.",
+      "Fresh authenticated packet feedback may drive one bounded pre-RTP hold and a confirmed cropped-rate refresh independently of full-frame receipt cadence or presented/received kind. Packet freshness, actual queue evidence, severe canonical path decrease, worker capability and all-viewer crop readiness remain required for repair.",
+      "Retained old-flight window arithmetic still requires its original rapid received-frame contract. Packet evidence cannot acknowledge a complete image/layout or invent delivered bytes.",
+      "A legacy-cadence ACK wake cannot end an active packet-evidenced hold early; its existing bounded deadline remains. Ordinary codec dwell/quiet, fixed full-desktop quality, actual byte debt and private-only opcode routing remain."
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -234,10 +237,14 @@
       "All rejected110/113/114/115 full profiles and source/binary snapshots are retained.110 collector was recovered from the same closed run; bounded256-row snapshots fix collection without changing media gates. Production35 and original VM/guest process starts remain unchanged.",
       "Private119:197 packaged bridge tests;117 CPP core passes with the identical119 worker payload. Real correlated low-rate IDRs, pre-RTP cancellation and ordinary/full-desktop compatibility have bounded contract tests.",
       "Native119 initial passes all16 unchanged gates plus whole-profile gap:48.90/47.77/49.17sourcefps, gaps<=117ms, full8000kbit/s recovery, glyph<=379ms, exact static pixels,15once-only characters, metadata3 and no source-ID errors; source-age excess360.657ms. Initial actual10146AUs independently decode and raw/composed peaks agree; no causal attribution to the hold before the first cut.",
-      "Native119 repeat passes; the full results and all116/117 failures remain in docs/rdp-confirmed-refresh-20261029.json."
+      "Native119 repeat passes; the full results and all116/117 failures remain in docs/rdp-confirmed-refresh-20261029.json.",
+      "119 LXC first fails500.770ms source-age excess despite12/13 gates passing; a separately instrumented repeat passes231.349ms. Keep both; Debian aiortc1.11 really negotiates/receives transport-cc.",
+      "120: two targeted cadence-independence/ACK-wake tests fail before the change;198 complete target-SDK tests pass after.",
+      "120 normal/presentation-only NVENC LXC both pass all13 original plus whole-profile gap/CRC checks: source-age excess313.393/347.316ms, recovered50.94/54.00fps, glyph peaks108/122ms, exact static and15once-only characters. Real kernel loss141/92segments.",
+      "Actual8259/9065 complete forwarded120 AUs independently decode in software, without errors; raw/composed source-age peaks agree. The presentation-only path really issues a low-rate correlated IDR with packet feedback and no rapid received-frame contract."
     ],
     "pending": [
-      "Qualify the identical119 payload on the owned native LXC/NVENC path with all unchanged queue/source-age/static/input gates; then complete hard-cut fidelity and component/occlusion/toggle/cold-restoration coverage before the remaining encoder/browser/long-session/RDP/release scope.",
+      "Run the exact120 payload on the owned native VM/QSV path, repeat the normal LXC120 path and qualify hard-cut fidelity. Then finish component/application/occlusion/mode-toggle/cold-restoration acceptance, supported VM/LXC encoder/codec matrix, long/resource/resolution and Firefox/macOS/RDP comparisons before matching seven-package release/APT/docs/rollout/discussion updates.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -280,9 +287,10 @@
       "dist/rdp-hybrid/transport-credit-exp106",
       "dist/rdp-hybrid/packet-capacity-exp108",
       "dist/rdp-hybrid/flight-drain-exp111",
-      "dist/rdp-hybrid/confirmed-refresh-exp119"
+      "dist/rdp-hybrid/confirmed-refresh-exp119",
+      "dist/rdp-hybrid/packet-cadence-exp120"
     ],
-    "next_action": "Qualify the identical119 payload on the owned native LXC/NVENC path with all unchanged queue/source-age/static/input gates; then complete hard-cut fidelity and component/occlusion/toggle/cold-restoration coverage before the remaining encoder/browser/long-session/RDP/release scope. Complete the full existing qualification/release/rollout/discussion scope afterward.",
+    "next_action": "Run the exact120 payload on the owned native VM/QSV path, repeat the normal LXC120 path and qualify hard-cut fidelity. Then finish component/application/occlusion/mode-toggle/cold-restoration acceptance, supported VM/LXC encoder/codec matrix, long/resource/resolution and Firefox/macOS/RDP comparisons before matching seven-package release/APT/docs/rollout/discussion updates.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -338,7 +346,7 @@
     "next_steps": [
       {
         "id": "video-regions-and-queue",
-        "action": "Qualify the identical119 payload on the owned native LXC/NVENC path with all unchanged queue/source-age/static/input gates; then complete hard-cut fidelity and component/occlusion/toggle/cold-restoration coverage before the remaining encoder/browser/long-session/RDP/release scope.",
+        "action": "Run the exact120 payload on the owned native VM/QSV path, repeat the normal LXC120 path and qualify hard-cut fidelity. Then finish component/application/occlusion/mode-toggle/cold-restoration acceptance, supported VM/LXC encoder/codec matrix, long/resource/resolution and Firefox/macOS/RDP comparisons before matching seven-package release/APT/docs/rollout/discussion updates.",
         "gate": "Retain native45fps and LXC recovered50fps gates,500ms maximum gaps,400ms excess source age,600ms glyph latency, exact static pixels, exactly-once input, same stream and full configured-rate recovery; repeat passing runs and retain failures"
       },
       {
@@ -458,7 +466,8 @@
     "transport_credit": "docs/rdp-transport-credit-20261029.json",
     "packet_capacity": "docs/rdp-packet-capacity-20261029.json",
     "flight_drain": "docs/rdp-flight-drain-20261029.json",
-    "confirmed_refresh": "docs/rdp-confirmed-refresh-20261029.json"
+    "confirmed_refresh": "docs/rdp-confirmed-refresh-20261029.json",
+    "packet_cadence": "docs/rdp-packet-cadence-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",
