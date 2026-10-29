@@ -242,8 +242,7 @@ newer invalidations, epoch resets and disable discard waiting replacements.
 When video is composed into a region canvas, the matching picture must also
 have been successfully painted with the expected decoded dimensions before
 releasing old exact pixels. Invalid or late region metadata cannot bypass that
-fence. Exact text shares that presentation timeline; this mode does not remove
-existing video playout latency. Fenced clears compare the epoch and
+fence. Exact text shares that presentation timeline. Fenced clears compare the epoch and
 serial of the bitmap actually painted, rather than the latest received update.
 An in-flight replacement therefore cannot keep an older square on top of new
 video. Same-size epoch resets use the same painted-bitmap rule. Same-size resets retain backing pixels
@@ -252,6 +251,21 @@ until the matching presentation fence; late inflations cannot resurrect old tile
 Browsers without usable RTP frame metadata negotiate the original tile protocol
 and retain full-desktop video. A callback API alone is not treated as evidence
 that its RTP metadata is available.
+
+The experimental receiver can also present pictures from a cloned remote track
+through `MediaStreamTrackProcessor`, when each decoded `VideoFrame.metadata()`
+provides its original RTP timestamp. It uses the same region, capture and layout
+fences; it does not instantiate another decoder. At most two waiting pictures
+are retained, at most one is drawn per animation frame, and waiting pictures
+older than 50 ms are discarded. The displayed picture remains alive for a late
+matching region map. A missing map cannot acknowledge an undrawn picture.
+Disabling exact UI, hiding or closing the console releases the reader, cloned
+track and retained pictures. Missing APIs, missing RTP identity, a stopped or
+stalled reader, or a drawing error fall back to HTML video. The original media
+track remains intact, and an older HTML picture cannot move the presentation
+fences backwards when that fallback takes over. Performance, audio/video sync
+and browser/codec qualification remain open in the RDP plan; this implementation
+is not a qualification or rollout claim.
 
 Protocol version 3 adds bounded opaque fills, acknowledged bitmap references,
 and vertical scroll copies. Scroll commands read an immutable cached bitmap and
@@ -393,6 +407,7 @@ ctest --test-dir build-exact-ui --output-on-failure
 PYTHONPATH=. python3 -m unittest discover -s tests/browser_bridge -v
 PYTHONPATH=. python3 -m unittest discover -s tests/signal -v
 node tests/proxmox_pve9/test_exact_ui.mjs
+node tests/proxmox_pve9/test_decoded_presentation.mjs
 ```
 
 Release qualification must cover owned native Wayland LXC and QEMU VM capture,

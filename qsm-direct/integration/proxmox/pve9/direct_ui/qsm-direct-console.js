@@ -84,6 +84,104 @@
         }
     };
 
+    // Read the receiver's already decoded pictures when they retain their
+    // original RTP identity. A two-picture FIFO absorbs short delivery bursts
+    // without adding another decoder or an unbounded presentation backlog.
+    class DecodedVideoPresenter {
+        constructor(scope, present, retire = () => {}) {
+            this.scope = scope; this.present = present; this.retire = retire;
+            this.session = null; this.failed = new WeakSet();
+        }
+        get active() { return this.session?.active === true; }
+        release(item) {
+            if (item && !item.closed) { item.closed = true; item.frame.close(); }
+        }
+        configure(source, enabled) {
+            if (enabled && this.session?.source === source) { return; }
+            this.stop();
+            if (!enabled || !source || this.failed.has(source) || source.readyState === 'ended' ||
+                typeof source.clone !== 'function' ||
+                typeof this.scope.MediaStreamTrackProcessor !== 'function') { return; }
+            const s = { source, queue: [], current: null, active: false, raf: null, timer: null,
+                lastArrival: this.scope.performance.now() };
+            this.session = s;
+            try {
+                s.track = source.clone();
+                s.reader = new this.scope.MediaStreamTrackProcessor({ track: s.track, maxBufferSize: 1 })
+                    .readable.getReader();
+                const watchdog = () => {
+                    if (this.session !== s) { return; }
+                    if (this.scope.performance.now() - s.lastArrival >= 2000) { this.fail(s); }
+                    else { s.timer = this.scope.setTimeout(watchdog, 1000); }
+                };
+                s.timer = this.scope.setTimeout(watchdog, 2000);
+                void this.read(s);
+            } catch (_error) { this.fail(s); }
+        }
+        fail(s) {
+            if (this.session !== s) { return; }
+            this.failed.add(s.source); this.stop();
+        }
+        stop() {
+            const s = this.session;
+            if (!s) { return; }
+            this.session = null; s.active = false;
+            if (s.raf !== null) { this.scope.cancelAnimationFrame(s.raf); }
+            if (s.timer !== null) { this.scope.clearTimeout(s.timer); }
+            // Remove the renderer's borrowed reference before closing frames.
+            this.retire();
+            this.release(s.current);
+            for (const item of s.queue) { this.release(item); }
+            s.queue.length = 0;
+            if (s.reader) {
+                try { Promise.resolve(s.reader.cancel()).catch(() => {}); } catch (_error) { /* closed reader */ }
+            }
+            s.track?.stop();
+        }
+        async read(s) {
+            try {
+                while (this.session === s) {
+                    const { value: frame, done } = await s.reader.read();
+                    // Cancellation need not settle a pending read immediately.
+                    if (this.session !== s) { frame?.close(); return; }
+                    if (done) { frame?.close(); this.fail(s); return; }
+                    let rtp;
+                    try { rtp = frame.metadata().rtpTimestamp; }
+                    catch (_error) { frame?.close(); this.fail(s); return; }
+                    if (!Number.isInteger(rtp) || rtp < 0 || rtp > 0xffffffff) {
+                        frame.close(); this.fail(s); return;
+                    }
+                    s.active = true; s.lastArrival = this.scope.performance.now();
+                    s.queue.push({ frame, rtp, at: s.lastArrival, closed: false });
+                    while (s.queue.length > 2) { this.release(s.queue.shift()); }
+                    if (s.raf === null) {
+                        s.raf = this.scope.requestAnimationFrame(now => this.draw(s, now));
+                    }
+                }
+            } catch (_error) { this.fail(s); }
+        }
+        draw(s, now) {
+            if (this.session !== s) { return; }
+            s.raf = null;
+            while (s.queue.length && now - s.queue[0].at > 50) { this.release(s.queue.shift()); }
+            const item = s.queue.shift();
+            if (item) {
+                const previous = s.current;
+                s.current = item;
+                try {
+                    if (this.present(item.frame, item.rtp, now) === false) {
+                        s.current = this.session === s ? previous : null;
+                        this.release(item);
+                        if (this.session !== s) { this.release(previous); }
+                    } else { this.release(previous); }
+                } catch (_error) { this.release(previous); this.fail(s); return; }
+            }
+            if (this.session === s && s.queue.length) {
+                s.raf = this.scope.requestAnimationFrame(next => this.draw(s, next));
+            }
+        }
+    }
+
     // Exact UI records are independent of video decode/presentation. Keep
     // geometry epochs and per-tile serials across asynchronous inflation so
     // an older patch can never paint over a newer clear, resize or disable.
@@ -101,23 +199,30 @@
                 !w || !h || x + w > sw || y + h > sh) { return false; }
             this.frames.set(rtp, region);
             if (this.frames.size > 256) { this.frames.delete(this.frames.keys().next().value); }
-            if (this.presented === rtp) { this.frame(rtp); }
+            if (this.presented === rtp) { this.frame(rtp, this.decoded?.image); }
             return true;
         }
-        frame(rtp) {
+        retireDecoded() {
+            if (this.decoded) { this.decoded = null; this.presented = null; }
+        }
+        frame(rtp, image = null) {
             this.presented = rtp;
+            this.decoded = image ? { rtp, image } : null;
             const region = this.frames.get(rtp);
             if (!region) { return; }
             const [sw, sh, x, y, w, h] = region;
             // Metadata and the browser-decoded picture must agree. A late
             // mapping can never stretch a different crop across the desktop.
-            if (this.video.videoWidth !== w || this.video.videoHeight !== h) { return; }
+            const source = image || this.video;
+            const width = image ? image.displayWidth : this.video.videoWidth;
+            const height = image ? image.displayHeight : this.video.videoHeight;
+            if (width !== w || height !== h) { return; }
             if (this.width !== sw || this.height !== sh) {
                 this.width = this.canvas.width = sw; this.height = this.canvas.height = sh;
                 this.acknowledged = false;
             }
             const ctx = this.canvas.getContext('2d', { alpha: false, colorSpace: 'srgb' });
-            ctx.drawImage(this.video, x, y, w, h);
+            ctx.drawImage(source, x, y, w, h);
             this.painted = rtp;
             this.canvas.style.display = 'block'; this.video.style.opacity = '0';
             if (!x && !y && w === sw && h === sh && !this.acknowledged) {
@@ -1761,21 +1866,52 @@
                 control.send(JSON.stringify(ack));
             }
         }, (rtp, region) => !region || videoRegions.painted === rtp, queueComposition);
+        let presentationRtp = null, reportedPresentationRtp = null;
+        const finishVideoPresentation = (rtp, now) => {
+            if (rtp !== presentationRtp) { return; }
+            if (videoRegions.width && videoRegions.painted !== rtp) { return; }
+            if (exactRenderer.enabled) { exactCompositor.capture(); }
+            exactRenderer.videoFrame(rtp);
+            syncExactGeometry();
+            if (reportedPresentationRtp !== rtp && !document.hidden) {
+                reportedPresentationRtp = rtp; reportVideoPresented(rtp, now);
+            }
+        };
+        const presentVideoFrame = (rtp, now, image = null) => {
+            if (presentationRtp !== null) {
+                const distance = (rtp - presentationRtp) >>> 0;
+                // HTML video can still be behind when the decoded reader
+                // retires. Resume only with a newer picture, including wrap.
+                if (!distance || distance >= 0x80000000) { return false; }
+            }
+            presentationRtp = rtp;
+            videoRegions.frame(rtp, image);
+            finishVideoPresentation(rtp, now);
+            return true;
+        };
+        const decodedPresenter = new DecodedVideoPresenter(popup,
+            (image, rtp, now) => presentVideoFrame(rtp, now, image),
+            () => videoRegions.retireDecoded());
+        const updateDecodedPresentation = () => {
+            const track = video.srcObject?.getVideoTracks()[0];
+            decodedPresenter.configure(track, !closed && !document.hidden && exactRenderer.enabled &&
+                exactFrameSupport === true && videoRegions.width > 0);
+        };
+        document.addEventListener('visibilitychange', updateDecodedPresentation);
         if (typeof video.requestVideoFrameCallback === 'function') {
             const presented = (_now, metadata) => {
+                if (closed) { return; }
                 const frameSupport = Number.isInteger(metadata.rtpTimestamp);
                 if (exactFrameSupport !== frameSupport) {
                     exactFrameSupport = frameSupport; updateExactPreference();
                 }
-                if (frameSupport) {
-                    videoRegions.frame(metadata.rtpTimestamp);
-                    if (!document.hidden) { reportVideoPresented(metadata.rtpTimestamp, _now); }
+                if (!decodedPresenter.active) {
+                    if (frameSupport) { presentVideoFrame(metadata.rtpTimestamp, _now); }
+                    else {
+                        if (exactRenderer.enabled) { exactCompositor.capture(); }
+                        syncExactGeometry();
+                    }
                 }
-                if (exactRenderer.enabled) { exactCompositor.capture(); }
-                if (frameSupport) {
-                    exactRenderer.videoFrame(metadata.rtpTimestamp);
-                }
-                syncExactGeometry();
                 video.requestVideoFrameCallback(presented);
             };
             video.requestVideoFrameCallback(presented);
@@ -1795,6 +1931,7 @@
                 popup.cancelAnimationFrame(legacyCompositionFrame); legacyCompositionFrame = null;
             }
             exactCompositor.present(enabled);
+            updateDecodedPresentation();
         };
         const updateExactPreference = () => {
             applyExactUiDefault(settings, exactUiPolicy);
@@ -3821,6 +3958,7 @@
             status.textContent = gettext('Client keyboard shortcuts active — click the guest picture to resume.');
         };
         const close = () => {
+            decodedPresenter.stop();
             exactRenderer.configure(false);
             if (closed) { return; }
             receiveFeedback.close();
@@ -4060,6 +4198,9 @@
                 // This is an optional Chromium API, hence feature-detect it
                 // rather than making an older browser unable to connect.
                 if (event.track.kind === 'video' && event.receiver) {
+                    decodedPresenter.stop();
+                    presentationRtp = reportedPresentationRtp = null;
+                    videoRegions.presented = null; videoRegions.frames.clear();
                     videoReceiver = event.receiver;
                     receiveFeedback.attach(videoReceiver);
                     applyReceiverPlayoutDelay(videoReceiver, settings.playoutDelayMs);
@@ -4073,6 +4214,7 @@
                     }
                 }
                 video.srcObject = stream;
+                updateDecodedPresentation();
                 event.track.addEventListener('ended', closeForStoppedVm, { once: true });
                 video.play().catch(() => undefined);
                 updateMediaStatus();
@@ -4318,7 +4460,9 @@
                     if (message.region !== undefined && !mapped) { return; }
                     const region = mapped ? message.region : null;
                     exactRenderer.mapVideoFrame(message.rtp, message.capture, region);
-                    if (mapped && videoRegions.painted === message.rtp) { queueComposition(); }
+                    if (mapped && videoRegions.painted === message.rtp) {
+                        finishVideoPresentation(message.rtp, popup.performance.now());
+                    }
                 } else if (message.op === 'qsm_mouse_ack') {
                     if (message.sequence === mouseFenceSequence) { mouseFenceSequence = null; }
                 } else if (message.op === 'qsm_video_rate') {

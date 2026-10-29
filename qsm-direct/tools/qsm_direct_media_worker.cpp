@@ -1226,6 +1226,14 @@ public:
 
     void video_backpressure(std::uint32_t milliseconds) {
         video_budget_.backpressure(qmdp::VideoBudget::Clock::now(), milliseconds);
+        if (!milliseconds) {
+            // A release can arrive between admission polls. Wake only the
+            // budget wait; it must not bypass the normal media deadline.
+            // Share the wait mutex so a notification cannot fall between
+            // the predicate check and the condition-variable sleep.
+            { std::lock_guard lock(video_mutex_); ++video_budget_released_; }
+            video_cv_.notify_all();
+        }
     }
 
     void submit_audio(std::span<const float> interleaved_samples, std::uint32_t sample_rate,
@@ -1431,10 +1439,13 @@ private:
             // The latest raw scanout stays replaceable while budget drains.
             const auto tick = std::chrono::steady_clock::now();
             const auto requested_bitrate = requested_bitrate_kbps_.load();
+            const auto budget_release = video_budget_released_.load();
             if (!video_budget_.ready(tick, requested_bitrate, ui_budget_.load())) {
                 pending_raw_video_.clear();
                 was_backpressured = true;
-                next_frame = tick + repeat_interval;
+                (void) video_cv_.wait_until(lock, tick + repeat_interval, [this, budget_release] {
+                    return !running_.load() || video_budget_released_.load() != budget_release;
+                });
                 continue;
             }
 
@@ -1443,6 +1454,10 @@ private:
             // Preserve at most two fresh pictures; congestion, recovery,
             // layout changes or a two-tick age discard that short history.
             if (was_backpressured || force_idr_.load()) { pending_raw_video_.clear(); }
+            // A resumed admission consumes the current slot. Starting the
+            // next slot here avoids both an extra polling tick and an
+            // immediate catch-up repeat after a long pause.
+            if (was_backpressured) { next_frame = tick; }
             was_backpressured = false;
             auto queued = pending_raw_video_.pop(tick, 2 * repeat_interval);
             auto source = queued ? std::move(*queued) : qmdp::CaptureFrameQueue::Frame {
@@ -1964,6 +1979,7 @@ private:
     std::atomic<std::uint32_t> requested_bitrate_kbps_ {};
     std::atomic<std::uint64_t> last_video_access_unit_bytes_ {};
     qmdp::VideoBudget video_budget_;
+    std::atomic<std::uint64_t> video_budget_released_ {};
     qmdp::CroppedVideoRate cropped_video_rate_;
     std::uint64_t pending_refresh_token_ {}, confirmed_refresh_token_ {};
     std::atomic<bool> ui_enabled_ {false};

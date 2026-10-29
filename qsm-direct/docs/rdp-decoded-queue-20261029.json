@@ -1,0 +1,1084 @@
+{
+  "date": "2026-10-29",
+  "status": "candidate_implemented_not_fully_qualified_goal_open",
+  "goal_complete": false,
+  "production_changed": false,
+  "objective": "добиться отзывчивости microsoft rdp, сохранив качество и скорость воспроизведения графики/клипов и завершить план",
+  "evidence_directory": "dist/rdp-hybrid/decoded-queue-178-181",
+  "artifact_manifest_sha256": "39785c663b1e453944c0b6202b2f6580d4c8fc1200d14b58121e7820b79877aa",
+  "candidate": {
+    "version": "0.4.0+stock4.14~exp181",
+    "production_changed": false,
+    "deb_sha256": "a2f4cf54908cea6a829fc89a3dfb50903279b86ded25b66d27a3cfb204a945e7",
+    "worker_source_sha256": "ce640e2765d43dfe177b491a254474e02afb92185e35f0b2e651351d1e80ccb8",
+    "worker_sha256": "3bf9202ce2681cbb891da3f8c9dec9b4b1c209b726fd2e316e11212ab0807479",
+    "bridge_sha256": "feb3b64469d1f5328fdc73b2775f1b022c8aef3a788a815194076b2eec002779",
+    "transport_sha256": "437eae4b7c69a764c57abc73a2449bfdb972eba3860ad32ce0c5d80f81b94903",
+    "viewer_sha256": "44b8a57dc1b4399b5c97ee8326d18ae2956f206d508fb76e710edda815d5dd8d"
+  },
+  "changes": {
+    "raw_admission": "Explicit zero-duration budget release wakes only the paused-budget wait; all byte debt/UI reserve checks remain. Normal frame deadline is unchanged; resumed admission consumes one current slot.181 protects notification revision with the wait mutex, preventing a predicate-to-sleep lost notification.",
+    "decoded_presentation": "Automatic capability-detected cloned already-decoded remote track, original VideoFrame.metadata().rtpTimestamp, at most2 application-queued pictures and1 draw/RAF; discard queue age>50ms. Keep displayed frame alive for late matching region metadata. No added VideoDecoder or RTP/capture-clock rewrite.",
+    "ownership_and_fallback": "Disable/hide/close cancels owned reader/clone and closes queued/current frames. Missing APIs/identity, startup/stall timeout, EOF/read/draw/construction errors return to HTML without stopping original remote track. Shared U32 RTP ordering prevents old HTML pictures or stale late mappings from regressing capture fences; undrawn pictures cannot report presentation.",
+    "private_dependency": "Mac runs still use diagnostic initial SDP application exclusion from BUNDLE in both remote offer and answer. Two nominated relay/TCP connections use the same PVE TCP8006 port. This transport split is NOT in the product bridge181; these Mac results do not qualify an unmodified production package end to end."
+  },
+  "offline_model": {
+    "scope": "Offline counterfactual presentation model only, frozen176 decoded-arrival and actual observer RAF times with independent actual-wire source IDs. No new live or qualification result.",
+    "current_composed_fps": 39.40867942849014,
+    "actual_wire_unique_fps": 44.59581965697745,
+    "matched_latest_decoded_to_observer": 1247,
+    "known_observations": 1250,
+    "frames_matched_fraction": 0.9976,
+    "models": [
+      {
+        "capacity": 1,
+        "model_unique_changes": 821,
+        "model_fps": 39.075514264239615,
+        "dropped_decoded": 103,
+        "presentation_wait_mean_ms": 8.602243210904854,
+        "presentation_wait_max_ms": 19.400000005960464
+      },
+      {
+        "capacity": 2,
+        "model_unique_changes": 922,
+        "model_fps": 43.882611634139984,
+        "dropped_decoded": 1,
+        "presentation_wait_mean_ms": 15.194415173647402,
+        "presentation_wait_max_ms": 30.899999976158142
+      },
+      {
+        "capacity": 3,
+        "model_unique_changes": 923,
+        "model_fps": 43.930206657604344,
+        "dropped_decoded": 0,
+        "presentation_wait_mean_ms": 15.226315789254087,
+        "presentation_wait_max_ms": 43.400000005960464
+      }
+    ]
+  },
+  "release_correlation": {
+    "scope": "Read-only correlation of bridge effective lease releases and next produced AU; includes encoder/delivery work and is not worker wake instrumentation. Sequential nonrandomized runs.",
+    "baseline176": {
+      "median": 12.190847657620907,
+      "p95": 18.48373981192708,
+      "max": 24.38143501058221
+    },
+    "wake179": {
+      "queue179": {
+        "samples": 100,
+        "median_ms": 2.690782770514488,
+        "p95_ms": 15.151847153902054,
+        "max_ms": 120.76079426333308
+      },
+      "product180": {
+        "samples": 164,
+        "median_ms": 2.7860538102686405,
+        "p95_ms": 15.53966524079442,
+        "max_ms": 37.62760711833835
+      }
+    }
+  },
+  "validation": {
+    "scope": "Observed local Node test runs on the same viewer bytes packaged in180 and181. Results recorded from tool output; no repeated performance run. CMake registers the new decoded_presentation suite.",
+    "viewer_sha256": "44b8a57dc1b4399b5c97ee8326d18ae2956f206d508fb76e710edda815d5dd8d",
+    "node_tests": [
+      "test_decoded_presentation.mjs",
+      "test_direct_console_overlay.mjs",
+      "test_exact_ui.mjs",
+      "test_host_shortcuts.mjs",
+      "test_keyboard_capture.mjs",
+      "test_keyboard_state.mjs",
+      "test_local_cursor.mjs",
+      "test_mouse_state.mjs",
+      "test_pointer_pacing.mjs",
+      "test_receiver_playout.mjs",
+      "test_signal_endpoint.mjs",
+      "test_touch_gestures.mjs",
+      "test_video_presentation.mjs",
+      "test_video_received.mjs"
+    ],
+    "all_node_tests_passed": true,
+    "bridge181": {
+      "tests": 211,
+      "seconds": 7.738,
+      "passed": true
+    },
+    "cpp_worker181_compiles": true,
+    "cpp_core_lossless179": {
+      "passed": 2,
+      "total": 2,
+      "seconds": 0.22,
+      "scope": "Existing179 core/lossless suites; no claim that this unit suite exercises the condition-variable notification."
+    },
+    "decoded_scenarios": [
+      "one picture per RAF and original U32 RTP including wrap",
+      "bounded burst/age retirement with exactly-once frame closure",
+      "cancelled and superseded reads cannot repaint",
+      "absent API/metadata, invalid RTP, construction/read/draw failures, EOF and stalled-reader fallback",
+      "late mapping borrows exact held decoded image and cannot substitute HTML after retirement",
+      "shared presentation handoff rejects old/duplicate HTML RTP and does not ACK undrawn or stale mappings"
+    ]
+  },
+  "runs": [
+    {
+      "run": "quality61-auto-mac178-queue2-pve-source-oracle",
+      "package": "exp154+diagnostic-queue178",
+      "scope": "Owned LXC108/KWin5 NVENC H264 and shipped154 viewer; owned Mac167 Chrome156 profile. Authenticated TURN directly on actual PVE TCP8006, web/CDP over SSH. PVE launch/ACL mocked. Unshaped WAN healthy20s pilot, not transition/fidelity/long-session or full PVE integration qualification.",
+      "media_checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": true,
+        "no_long_video_gap": true,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": false
+      },
+      "page_errors": [],
+      "lifecycle": null,
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 45.26365129939778,
+          "max_frame_gap_ms": 151.30000001192093,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 1268,
+            "median": 253.79793361450353,
+            "p95": 342.1069699339583,
+            "max": 586.288949847221,
+            "clock_uncertainty_max": 104.95000000298023,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        659,
+        157.7000000178814,
+        151.60000002384186
+      ],
+      "guest_characters": 3
+    },
+    {
+      "run": "quality61-auto-mac179-wake-queue2-pve-source-oracle",
+      "package": "exp179+diagnostic-queue178",
+      "scope": "Candidate179 worker wakes paused raw admission on explicit lease release, bridge154 retained. Private queue178 decoded RTP presenter plus split-control171 hooks; owned Mac178 headed Chrome. Actual authenticated TURN over PVE TCP8006, launch/ACL mocked. Unshaped WAN20s pilot, original45fps/600ms/exact-pixel/input gates. Not full qualification.",
+      "media_checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": true,
+        "no_long_video_gap": true,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": true
+      },
+      "page_errors": [],
+      "lifecycle": null,
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 46.54737391608313,
+          "max_frame_gap_ms": 265.59999999403954,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 1241,
+            "median": 275.8719010589026,
+            "p95": 365.10746395215324,
+            "max": 527.0385679788881,
+            "clock_uncertainty_max": 89.29999999701977,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        178.10000002384186,
+        171,
+        149.19999998807907
+      ],
+      "guest_characters": 3
+    },
+    {
+      "run": "intel179-full-h264_qsv-virgl-capture-gpu-w1",
+      "package": "exp179",
+      "scope": "Private179 worker with explicit raw-budget release wake and preserved byte debt/60fps scheduling; bridge154 and packaged144 viewer. Owned KWin6/guest83 native VM, actual QSV/TURN with declared kernel loss/jitter and20M/2M/20M transition. PVE launch/ACL mocked; no production or original-session restart.",
+      "media_checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": false,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "page_errors": [],
+      "lifecycle": null,
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 51.14083398898505,
+          "max_frame_gap_ms": 68,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 915,
+            "median": 203.3947423721365,
+            "p95": 206.7514503219492,
+            "max": 238.52157917184158,
+            "clock_uncertainty_max": 48.847997,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 43.35177308090715,
+          "max_frame_gap_ms": 199,
+          "initial_target": 8000,
+          "final_target": 1775,
+          "full_source_age_ms": {
+            "samples": 2722,
+            "median": 270.90436054083256,
+            "p95": 318.85238027510354,
+            "max": 650.9463675009713,
+            "clock_uncertainty_max": 49.347997,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 49.33774834437086,
+          "max_frame_gap_ms": 100,
+          "initial_target": 1775,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4530,
+            "median": 207.97460737327356,
+            "p95": 288.8137873107013,
+            "max": 334.409604128453,
+            "clock_uncertainty_max": 49.847997,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        338,
+        246,
+        262,
+        271,
+        244,
+        262,
+        247,
+        233,
+        282,
+        246,
+        259,
+        264,
+        245,
+        256,
+        239
+      ],
+      "guest_characters": 15,
+      "source_age_excess_ms": 444.1949171790221
+    },
+    {
+      "run": "quality61-auto-lxc179-first-loss0p3-delay15-source-oracle",
+      "package": "exp179",
+      "scope": "real LXC108/KWin5 capture, NVENC/H264, Firefox/Linux, TURN TCP8006; launch/ACL mocked",
+      "media_checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "page_errors": [],
+      "lifecycle": null,
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 56.45630127252761,
+          "max_frame_gap_ms": 67,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 929,
+            "median": 163.94066940993213,
+            "p95": 181.5724211124081,
+            "max": 228.2390878535807,
+            "clock_uncertainty_max": 2.0,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 45.930841774362555,
+          "max_frame_gap_ms": 247,
+          "initial_target": 8000,
+          "final_target": 1703,
+          "full_source_age_ms": {
+            "samples": 2748,
+            "median": 197.09332808852054,
+            "p95": 311.6799943769948,
+            "max": 545.0231202878051,
+            "clock_uncertainty_max": 2.0,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 54.75531054954084,
+          "max_frame_gap_ms": 216,
+          "initial_target": 1703,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4528,
+            "median": 163.93242493892757,
+            "p95": 282.0570636230144,
+            "max": 427.9173673130572,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        84,
+        62,
+        66,
+        84,
+        97,
+        179,
+        73,
+        124,
+        81,
+        70,
+        76,
+        59,
+        73,
+        78,
+        73
+      ],
+      "guest_characters": 15,
+      "source_age_excess_ms": 363.450699175397
+    },
+    {
+      "run": "quality61-auto-mac180-product-decoded-pve-source-oracle",
+      "package": "exp180-viewer+179-worker+private-split171",
+      "scope": "Repository180 automatic decoded RTP presenter with bounded FIFO, cancellation/fallback and shared presentation guards; byte-identical179 worker and bridge154. Private split-control171 hooks; owned Mac178 headed Chrome. Actual authenticated TURN over PVE TCP8006, launch/ACL mocked. Unshaped WAN20s pilot, original45fps/600ms/exact-pixel/input gates. Not full qualification.",
+      "media_checks": null,
+      "page_errors": [],
+      "lifecycle": null,
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "measurement": "No measured media phase; setup/lifecycle-only scope"
+    },
+    {
+      "run": "quality61-auto-mac180-product-decoded-r1-pve-source-oracle",
+      "package": "exp180-viewer+179-worker+private-split171",
+      "scope": "Repository180 automatic decoded RTP presenter with bounded FIFO, cancellation/fallback and shared presentation guards; byte-identical179 worker and bridge154. Private split-control171 hooks; owned Mac178 headed Chrome. Actual authenticated TURN over PVE TCP8006, launch/ACL mocked. Unshaped WAN20s pilot, original45fps/600ms/exact-pixel/input gates. Not full qualification.",
+      "media_checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": false,
+        "no_long_video_gap": true,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": true
+      },
+      "page_errors": [],
+      "lifecycle": null,
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 44.8303892601899,
+          "max_frame_gap_ms": 282.59999999403954,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 1232,
+            "median": 214.91791453833287,
+            "p95": 350.1089181751027,
+            "max": 563.7089181691408,
+            "clock_uncertainty_max": 50.8999999910593,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        401.30000001192093,
+        165.2999999821186,
+        286.59999999403954
+      ],
+      "guest_characters": 3
+    },
+    {
+      "run": "intel180-viewer-full-h264_qsv-virgl-capture-gpu-v180w1",
+      "package": "exp180-viewer+byte-identical179-worker",
+      "scope": "Packaged180 automatic decoded presenter with HTML fallback; byte-identical179 worker and bridge154. Firefox157 is the API-negative control. Owned KWin6/guest83 native VM, actual QSV/TURN with declared kernel loss/jitter and20M/2M/20M transition. PVE launch/ACL mocked; no production or original-session restart.",
+      "media_checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": false,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "page_errors": [],
+      "lifecycle": null,
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 50.91743119266055,
+          "max_frame_gap_ms": 51,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 915,
+            "median": 182.18619247587853,
+            "p95": 199.36775459597555,
+            "max": 215.70108802989196,
+            "clock_uncertainty_max": 49.410038,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 46.67208683996572,
+          "max_frame_gap_ms": 184,
+          "initial_target": 8000,
+          "final_target": 1614,
+          "full_source_age_ms": {
+            "samples": 2731,
+            "median": 263.737520637612,
+            "p95": 298.8139803366181,
+            "max": 792.9073976973698,
+            "clock_uncertainty_max": 51.910038,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 46.63397826663133,
+          "max_frame_gap_ms": 233,
+          "initial_target": 1614,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4527,
+            "median": 232.6513708569138,
+            "p95": 281.61558423501276,
+            "max": 644.9952047783825,
+            "clock_uncertainty_max": 50.910038,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        313,
+        263,
+        264,
+        279,
+        259,
+        266,
+        263,
+        241,
+        239,
+        232,
+        238,
+        262,
+        296,
+        264,
+        242
+      ],
+      "guest_characters": 15,
+      "source_age_excess_ms": 593.5396431013942
+    },
+    {
+      "run": "quality61-auto-mac181-product-decoded-r1-pve-source-oracle",
+      "package": "exp181+private-split171",
+      "scope": "Repository181 automatic decoded RTP presenter with bounded FIFO, cancellation/fallback and shared presentation guards; worker181 with mutex-protected lease-release notification and bridge154. Private split-control171 hooks; owned Mac178 headed Chrome. Actual authenticated TURN over PVE TCP8006, launch/ACL mocked. Unshaped WAN20s pilot, original45fps/600ms/exact-pixel/input gates. Not full qualification.",
+      "media_checks": null,
+      "page_errors": [],
+      "lifecycle": null,
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "measurement": "No measured media phase; setup/lifecycle-only scope"
+    },
+    {
+      "run": "intel181-full-h264_qsv-virgl-capture-gpu-w1",
+      "package": "exp181",
+      "scope": "Packaged181 automatic decoded presenter with HTML fallback; mutex-protected181 worker and bridge154. Firefox157 is the API-negative control. Owned KWin6/guest83 native VM, actual QSV/TURN with declared kernel loss/jitter and20M/2M/20M transition. PVE launch/ACL mocked; no production or original-session restart.",
+      "media_checks": null,
+      "page_errors": [],
+      "lifecycle": null,
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "measurement": "No measured media phase; setup/lifecycle-only scope"
+    },
+    {
+      "run": "quality61-auto-mac181-product-decoded-r2-pve-source-oracle",
+      "package": "exp181+private-split171",
+      "scope": "Repository181 automatic decoded RTP presenter with bounded FIFO, cancellation/fallback and shared presentation guards; worker181 with mutex-protected lease-release notification and bridge154. Private split-control171 hooks; owned Mac178 headed Chrome. Actual authenticated TURN over PVE TCP8006, launch/ACL mocked. Unshaped WAN20s pilot, original45fps/600ms/exact-pixel/input gates. Not full qualification.",
+      "media_checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": true,
+        "no_long_video_gap": true,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": true
+      },
+      "page_errors": [],
+      "lifecycle": null,
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 47.35743588513303,
+          "max_frame_gap_ms": 184.40000000596046,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 1251,
+            "median": 252.31793240333644,
+            "p95": 333.04847435404736,
+            "max": 687.5623512392259,
+            "clock_uncertainty_max": 79.1499999910593,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        450.09999999403954,
+        250.90000000596046,
+        142.2000000178814
+      ],
+      "guest_characters": 3
+    },
+    {
+      "run": "intel181-full-h264_qsv-virgl-capture-gpu-w2",
+      "package": "exp181",
+      "scope": "Packaged181 automatic decoded presenter with HTML fallback; mutex-protected181 worker and bridge154. Firefox157 is the API-negative control. Owned KWin6/guest83 native VM, actual QSV/TURN with declared kernel loss/jitter and20M/2M/20M transition. PVE launch/ACL mocked; no production or original-session restart.",
+      "media_checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": false,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "page_errors": [],
+      "lifecycle": null,
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 48.79486507728583,
+          "max_frame_gap_ms": 83,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 916,
+            "median": 198.9440724952125,
+            "p95": 216.8628078419701,
+            "max": 234.40745826810527,
+            "clock_uncertainty_max": 49.434295,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 44.45178335535007,
+          "max_frame_gap_ms": 117,
+          "initial_target": 8000,
+          "final_target": 1650,
+          "full_source_age_ms": {
+            "samples": 2725,
+            "median": 281.2989681493434,
+            "p95": 350.1632473741978,
+            "max": 680.614340382938,
+            "clock_uncertainty_max": 50.434295,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 48.151184934405414,
+          "max_frame_gap_ms": 100,
+          "initial_target": 1650,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4537,
+            "median": 229.98549514448996,
+            "p95": 299.2133493380038,
+            "max": 399.16398058025493,
+            "clock_uncertainty_max": 51.934295,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        343,
+        248,
+        242,
+        245,
+        248,
+        275,
+        263,
+        290,
+        260,
+        260,
+        253,
+        264,
+        298,
+        242,
+        260
+      ],
+      "guest_characters": 15,
+      "source_age_excess_ms": 463.75153254096796
+    },
+    {
+      "run": "quality61-auto-mac181-product-decoded-r3-pve-source-oracle",
+      "package": "exp181+private-split171",
+      "scope": "Repository181 automatic decoded RTP presenter with bounded FIFO, cancellation/fallback and shared presentation guards; worker181 with mutex-protected lease-release notification and bridge154. Private split-control171 hooks; owned Mac178 headed Chrome. Actual authenticated TURN over PVE TCP8006, launch/ACL mocked. Unshaped WAN40s pilot, original45fps/600ms/exact-pixel/input gates. Not full qualification.",
+      "media_checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": true,
+        "no_long_video_gap": true,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": true
+      },
+      "page_errors": [],
+      "lifecycle": {
+        "disabled": {
+          "inactive": true,
+          "clone_ended": true,
+          "retained_picture_closed": true,
+          "queue_empty": true,
+          "original_track_live": true
+        },
+        "reenabled": true
+      },
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 47.924507772284045,
+          "max_frame_gap_ms": 116.80000001192093,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 2426,
+            "median": 249.76417349341062,
+            "p95": 330.8914357485868,
+            "max": 428.4848412498832,
+            "clock_uncertainty_max": 115.20000000298023,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        175.40000000596046,
+        147.80000001192093,
+        142.59999999403954,
+        159.2999999821186,
+        386.80000001192093
+      ],
+      "guest_characters": 5
+    },
+    {
+      "run": "quality61-auto-mac181-product-lifecycle-r4-pve-source-oracle",
+      "package": "exp181+private-split171",
+      "scope": "Repository181 automatic decoded RTP presenter with bounded FIFO, cancellation/fallback and shared presentation guards; worker181 with mutex-protected lease-release notification and bridge154. Private split-control171 hooks; owned Mac178 headed Chrome. Actual authenticated TURN over PVE TCP8006, launch/ACL mocked. Lifecycle-only run after frozen20s/40s media phases. No new FPS, pixel, input-latency or full-qualification claim.",
+      "media_checks": null,
+      "page_errors": [],
+      "lifecycle": {
+        "disabled": {
+          "inactive": true,
+          "clone_ended": true,
+          "retained_picture_closed": true,
+          "queue_empty": true,
+          "original_track_live": true
+        },
+        "reenabled": true
+      },
+      "lifecycle_only": true,
+      "last_browser_state": null,
+      "measurement": "No measured media phase; setup/lifecycle-only scope"
+    },
+    {
+      "run": "quality61-auto-mac181-product-lifecycle-r5-pve-source-oracle",
+      "package": "exp181+private-split171",
+      "scope": "Repository181 automatic decoded RTP presenter with bounded FIFO, cancellation/fallback and shared presentation guards; worker181 with mutex-protected lease-release notification and bridge154. Private split-control171 hooks; owned Mac178 headed Chrome. Actual authenticated TURN over PVE TCP8006, launch/ACL mocked. Lifecycle-only run after frozen20s/40s media phases. No new FPS, pixel, input-latency or full-qualification claim.",
+      "media_checks": null,
+      "page_errors": [],
+      "lifecycle": null,
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "measurement": "No measured media phase; setup/lifecycle-only scope"
+    },
+    {
+      "run": "quality61-auto-mac181-product-lifecycle-r6-pve-source-oracle",
+      "package": "exp181+private-split171",
+      "scope": "Repository181 automatic decoded RTP presenter with bounded FIFO, cancellation/fallback and shared presentation guards; worker181 with mutex-protected lease-release notification and bridge154. Private split-control171 hooks; owned Mac178 headed Chrome. Actual authenticated TURN over PVE TCP8006, launch/ACL mocked. Lifecycle-only run after frozen20s/40s media phases. No new FPS, pixel, input-latency or full-qualification claim.",
+      "media_checks": null,
+      "page_errors": [],
+      "lifecycle": {
+        "disabled": {
+          "inactive": true,
+          "clone_ended": true,
+          "retained_picture_closed": true,
+          "queue_empty": true,
+          "original_track_live": true
+        },
+        "reenabled": true,
+        "visibility_before": "visible",
+        "hidden_timeout_snapshot": {
+          "visibility": "visible",
+          "active": true,
+          "has_session": true,
+          "focus": true
+        }
+      },
+      "lifecycle_only": true,
+      "last_browser_state": null,
+      "measurement": "No measured media phase; setup/lifecycle-only scope"
+    },
+    {
+      "run": "quality61-auto-mac181-product-lifecycle-r7-pve-source-oracle",
+      "package": "exp181+private-split171",
+      "scope": "Repository181 automatic decoded RTP presenter with bounded FIFO, cancellation/fallback and shared presentation guards; worker181 with mutex-protected lease-release notification and bridge154. Private split-control171 hooks; owned Mac178 headed Chrome. Actual authenticated TURN over PVE TCP8006, launch/ACL mocked. Lifecycle-only run after frozen20s/40s media phases. No new FPS, pixel, input-latency or full-qualification claim.",
+      "media_checks": null,
+      "page_errors": [],
+      "lifecycle": {
+        "disabled": {
+          "inactive": true,
+          "clone_ended": true,
+          "retained_picture_closed": true,
+          "queue_empty": true,
+          "original_track_live": true
+        },
+        "reenabled": true,
+        "playwright_focus_emulation_disabled": true,
+        "visibility_before": "visible",
+        "hidden_timeout_snapshot": {
+          "visibility": "visible",
+          "active": true,
+          "has_session": true,
+          "focus": false
+        }
+      },
+      "lifecycle_only": true,
+      "last_browser_state": null,
+      "measurement": "No measured media phase; setup/lifecycle-only scope"
+    },
+    {
+      "run": "quality61-auto-lxc181-first-loss0p3-delay15-source-oracle",
+      "package": "exp181",
+      "scope": "real LXC108/KWin5 capture, NVENC/H264, Firefox/Linux, TURN TCP8006; launch/ACL mocked",
+      "media_checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": false,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "page_errors": [],
+      "lifecycle": null,
+      "lifecycle_only": false,
+      "last_browser_state": null,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 54.064541162775654,
+          "max_frame_gap_ms": 66,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 928,
+            "median": 159.70698357559775,
+            "p95": 176.87943832327946,
+            "max": 207.10020512342453,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 49.35138800778772,
+          "max_frame_gap_ms": 166,
+          "initial_target": 8000,
+          "final_target": 2677,
+          "full_source_age_ms": {
+            "samples": 2743,
+            "median": 192.09172595292046,
+            "p95": 242.7829913174122,
+            "max": 556.2073786122106,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 55.57689505821269,
+          "max_frame_gap_ms": 167,
+          "initial_target": 2677,
+          "final_target": 4561,
+          "full_source_age_ms": {
+            "samples": 4530,
+            "median": 143.61653627516802,
+            "p95": 192.11172989258785,
+            "max": 373.3342845613663,
+            "clock_uncertainty_max": 2.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        65,
+        63,
+        72,
+        89,
+        104,
+        139,
+        56,
+        99,
+        74,
+        73,
+        75,
+        70,
+        56,
+        75,
+        90
+      ],
+      "guest_characters": 15,
+      "source_age_excess_ms": 379.32794028893113
+    }
+  ],
+  "independent_wire_decode": {
+    "queue179": {
+      "scope": "Software-decode every actual wire H264 AU, exact frame-count match to independent packet journal. Fixed measured960x512 crop; source XOR markers, no receiver decoded-count substitution.",
+      "wire_frames": 2676,
+      "measured_aus": 997,
+      "invalid_crc": 0,
+      "unique_source_frames": 970,
+      "unique_source_fps": 47.17441674255201,
+      "composed_source_fps": 46.54737391608313,
+      "duplicate_source_aus": 27
+    },
+    "product180": {
+      "scope": "Software-decode every actual wire H264 AU, exact frame-count match to independent packet journal. Fixed measured960x512 crop; source XOR markers, no receiver decoded-count substitution.",
+      "wire_frames": 2664,
+      "measured_aus": 958,
+      "invalid_crc": 0,
+      "unique_source_frames": 931,
+      "unique_source_fps": 45.20988864384986,
+      "composed_source_fps": 44.8303892601899,
+      "duplicate_source_aus": 27
+    }
+  },
+  "setup_errors": {
+    "mac180": "Repeated179 immutable trace directory rejected before media; rerun has a distinct directory.",
+    "181_hashes": {
+      "scope": "Both setup assertions rejected a corrupted diagnostic expected SHA before media startup. No performance result from those two failed setup attempts. Generator corrected with a protected fingerprint placeholder. New runs use distinct labels.",
+      "scripts": [
+        {
+          "script": "intel181-backend.py",
+          "expected_worker_sha256": "3bf9202ce2681cbb891da3f8c9dec9b4b1c209b726fd2e316e11212ab0807479",
+          "incorrect_hash_replaced": true
+        },
+        {
+          "script": "gtk181-product-backend.py",
+          "expected_worker_sha256": "3bf9202ce2681cbb891da3f8c9dec9b4b1c209b726fd2e316e11212ab0807479",
+          "incorrect_hash_replaced": true
+        },
+        {
+          "script": "gtk181-transition-backend.py",
+          "expected_worker_sha256": "3bf9202ce2681cbb891da3f8c9dec9b4b1c209b726fd2e316e11212ab0807479",
+          "incorrect_hash_replaced": true
+        }
+      ]
+    },
+    "mac181_r3_r4": "Measured40s media phase passes all original9 gates. Subsequent hidden-page wait times out; focus change to another window is not proof of hidden document. Timer-based retry also times out. Preserve incomplete visibility evidence; separate minimization/restore probe records actual state.",
+    "mac181_r5": "No media phase. Lifecycle-only setup still demanded initial1280 video width and timed out. r6 accepts positive decoded dimensions for lifecycle only and records browser state; no performance gate changed."
+  },
+  "playwright_focus_emulation": {
+    "source": "/home/dima/.cache/uv/archive-v0/hvIotvr6JCXEIget/lib/python3.12/site-packages/playwright/driver/package/lib/coreBundle.js",
+    "sha256": "829521b67ed7be90c7d6d6098ff39f2241562d47e4ad7ccab13710924a56001d",
+    "line": 39024,
+    "excerpt": [
+      "            promises2.push(this.exposePlaywrightBinding());",
+      "          if (this._isMainFrame() && !skipDefaultOverrides)",
+      "            promises2.push(this._client.send(\"Emulation.setFocusEmulationEnabled\", { enabled: true }));",
+      "          const options = this._crPage._browserContext._options;",
+      "          if (options.bypassCSP)"
+    ],
+    "interpretation": "Playwright1.64 enables CDP focus emulation by default. r3/r4/r6 hidden waits cannot establish a product visibility failure while document.visibilityState remains forced visible. r7 explicitly disables it before minimizing only the owned Chrome window. Earlier media pilots retain their scope and this harness limitation."
+  },
+  "visibility_lifecycle_status": "NOT qualified. r7 explicitly disables focus emulation, but document.visibilityState stays visible after the owned-window minimization attempt (focus becomes false). Thus no actual hidden transition was observed. Disable/re-enable cleanup passes live; hidden cleanup is covered by class configure/cancellation tests only. Preserve this distinction and investigate the browser/window visibility harness separately.",
+  "limits": [
+    "Short20s/40s healthy Mac pilots are not a narrow/loss/fidelity/long-session or physical-monitor acceptance. Receiver/API counts do not replace original unique source-ID gates.",
+    "Playwright1.64 forces focus/visibility by default. All earlier healthy media pilots keep that harness limitation. r7 disables focus emulation but still observes visible state; actual hidden-window acceptance remains open.",
+    "All failed runs remain in evidence; initial queue178 first glyph659ms and product18044.83fps are failures, not rounded passes. Sequential runs are not randomized causal attribution.",
+    "Native179/180/181 Firefox impaired profiles retain source-age failures; some retain narrow source-fps failures. Native qualification remains open.",
+    "Hardware decoding/model identity is not established. Audio/video sync, supported codec/toolkit/occlusion/fallback matrix, long sessions, matched RDP and all seven packages/release/rollout remain open."
+  ],
+  "cleanup": {
+    "native": {
+      "owned_qemu_pid": 3079308,
+      "guest_process_start_ticks": {
+        "828": 712,
+        "710": 607,
+        "675": 601,
+        "957": 821
+      },
+      "diagnostic_workers_remaining": [],
+      "production_gateway_absent": true
+    },
+    "pve": {
+      "production_package": "0.4.0+stock4.14~exp35",
+      "original_terminal_and_user_vm103_unchanged": true,
+      "owned_graphics_and_metadata_start_ticks": {
+        "444366": 241353958,
+        "444367": 241353959,
+        "444390": 241353968,
+        "3829222": 336885310,
+        "4091558": 340029304
+      },
+      "owned_fixture": {
+        "pid": 3829227,
+        "start_ticks": 336885318,
+        "executable": "python3",
+        "owned_script": [
+          "/opt/qsm-rdp-hybrid-20261028/fixture.py"
+        ]
+      },
+      "lxc_init": 875731,
+      "diagnostic_workers_remaining": []
+    },
+    "mac": {
+      "scope": "Only owned headed Chrome178 and its own system/display sleep assertion; original user browser profiles untouched",
+      "terminated": [
+        {
+          "pid": 35450,
+          "token": "--user-data-dir=/tmp/qsm-mac-qualification-20261029-178-queue2/profile"
+        },
+        {
+          "pid": 35461,
+          "token": "caffeinate -i -d -w 35450"
+        }
+      ],
+      "remaining_owned_pids": [],
+      "debug_ports_open": [],
+      "remaining_profile_processes": []
+    }
+  },
+  "lxc181_full_profile": "12/13 original gates pass:54.06/49.35/55.58fps, glyph max139ms, source-age excess379.33ms. Full-rate recovery FAIL: target ends4561 instead of8000.179 preceding full profile passed13/13, so preserve this new recovery failure and investigate before promotion; sequential random loss profiles do not isolate its cause.",
+  "next_action": "Diagnose181 late recut after recovery (8000 reached at9.75s; recut to3649 at69.85s; ends4561) using frozen rate/packet traces against179 control; stabilize native impaired source age<=400ms excess and true source cadence>=45 while retaining low-rate hardcut fidelity. Replace the private Mac split-control SDP hook with bounded, tested production negotiation before claiming packaged Mac acceptance. Complete actual hidden-window lifecycle/A-V, codec/application/browser/soak and matched RDP qualification, then all seven signed release/APT/documentation/qualified-rollout artifacts.",
+  "lxc181_recovery_path": {
+    "scope": "Derived from immutable181 result adaptive_probe.telemetry, original75s recovery phase; persistent0.3% TCP loss remains.",
+    "sampled_target_changes": [
+      {
+        "seconds_into_recovery": 0.001,
+        "target": 2677
+      },
+      {
+        "seconds_into_recovery": 1.614,
+        "target": 3346
+      },
+      {
+        "seconds_into_recovery": 4.033,
+        "target": 4182
+      },
+      {
+        "seconds_into_recovery": 5.722,
+        "target": 5227
+      },
+      {
+        "seconds_into_recovery": 8.139,
+        "target": 6533
+      },
+      {
+        "seconds_into_recovery": 9.749,
+        "target": 8000
+      },
+      {
+        "seconds_into_recovery": 69.854,
+        "target": 3649
+      }
+    ],
+    "first_8000_seconds": 9.749,
+    "final_target": 4561,
+    "meaning": "Ceiling was reached, then rate fell again near the phase end. The original exact final8000 gate fails; do not describe this as never reaching8000."
+  }
+}
