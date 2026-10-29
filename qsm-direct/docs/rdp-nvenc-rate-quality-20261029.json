@@ -1,0 +1,201 @@
+{
+  "date": "2026-10-29",
+  "status": "offline_diagnostics_live_qmax_rejected",
+  "evidence_directory": "dist/rdp-hybrid/nvenc-rate-quality-158-162",
+  "artifact_manifest_sha256": "9862c5cebecc8d73ed89f30ee84dd4be2841bb886dbd05adadde72988618e3e5",
+  "source_sha256": "1a063574ef752a5d0c0ffa855d5dded6fc361f68a771b523e8ff0cf23b6f5886",
+  "scope": "Same RTX3080,600 frozen frames,640x448 padded crop,900kbit/s VBR,405000bit450ms VBV, P4, no B frames/lookahead, only initial IDR. Natural P-picture cuts. Identical existing PSNR/8x8 luma SSIM oracle. Not real-worker, capture-timing, dynamic-rate, network or latency/cadence qualification.",
+  "multipass158": {
+    "scope": "Offline fixed900kbit/s NVENC P4 multipass isolation on the same RTX3080; original127/144 codec options,450msVBV, no Bframes or lookahead;640x448 crop with natural640x360 video and32px top/56px bottom grey. Only initial IDR; natural P-picture scene cuts. The preset field identifies multipass=disabled/qres/fullres, all with preset=p4. Not actual packaged-worker, dynamic-rate, receiver, network, latency or cadence qualification.",
+    "runs": [
+      {
+        "preset": "disabled",
+        "first_cut_min_ssim": 0.8841972108972121,
+        "first_cut_min_rgb_psnr": 29.888447433371805,
+        "measured_bitrate_kbps": 900.308,
+        "selected_packet_bytes": [
+          15639,
+          75,
+          14488,
+          206,
+          27560,
+          1449,
+          24154,
+          728,
+          10642,
+          113
+        ]
+      },
+      {
+        "preset": "qres",
+        "first_cut_min_ssim": 0.7368323517589018,
+        "first_cut_min_rgb_psnr": 25.45629608454499,
+        "measured_bitrate_kbps": 901.2216,
+        "selected_packet_bytes": [
+          9900,
+          1550,
+          5107,
+          8488,
+          8292,
+          21629,
+          5345,
+          1263,
+          7749,
+          2550
+        ]
+      },
+      {
+        "preset": "fullres",
+        "first_cut_min_ssim": 0.8762210568785657,
+        "first_cut_min_rgb_psnr": 28.700090131928295,
+        "measured_bitrate_kbps": 893.9264000000001,
+        "selected_packet_bytes": [
+          8390,
+          249,
+          12758,
+          385,
+          14260,
+          8855,
+          14777,
+          8422,
+          10111,
+          182
+        ]
+      }
+    ]
+  },
+  "tune159": {
+    "scope": "Offline fixed900kbit/s NVENC P4 tune isolation on the same RTX3080; original127/144 codec options,450msVBV, no Bframes or lookahead;640x448 crop with natural640x360 video and32px top/56px bottom grey. Only initial IDR; natural P-picture scene cuts. The preset field identifies tune=ll/hq/ull, all with preset=p4 and no multipass. Not actual packaged-worker, dynamic-rate, receiver, network, latency or cadence qualification.",
+    "runs": [
+      {
+        "preset": "ll",
+        "first_cut_min_ssim": 0.8841972108972121,
+        "first_cut_min_rgb_psnr": 29.888447433371805,
+        "measured_bitrate_kbps": 900.308,
+        "selected_packet_bytes": [
+          15639,
+          75,
+          14488,
+          206,
+          27560,
+          1449,
+          24154,
+          728,
+          10642,
+          113
+        ]
+      },
+      {
+        "preset": "hq",
+        "first_cut_min_ssim": 0.8841972108972121,
+        "first_cut_min_rgb_psnr": 29.888447433371805,
+        "measured_bitrate_kbps": 900.308,
+        "selected_packet_bytes": [
+          15639,
+          75,
+          14488,
+          206,
+          27560,
+          1449,
+          24154,
+          728,
+          10642,
+          113
+        ]
+      },
+      {
+        "preset": "ull",
+        "first_cut_min_ssim": 0.8841972108972121,
+        "first_cut_min_rgb_psnr": 29.888447433371805,
+        "measured_bitrate_kbps": 900.308,
+        "selected_packet_bytes": [
+          15639,
+          75,
+          14488,
+          206,
+          27560,
+          1449,
+          24154,
+          728,
+          10642,
+          113
+        ]
+      }
+    ]
+  },
+  "inactive_qmax161": {
+    "scope": "qmin omitted; -qmax32/28 did not enable maximum QP in this FFmpeg wrapper. All three encoded byte streams identical. Not evidence that an active QP ceiling fails.",
+    "encoded_sha256": [
+      "a4f620a6b79b1c22521a46da709240ee22af365a8902e040ddeb903266eac2c6",
+      "a4f620a6b79b1c22521a46da709240ee22af365a8902e040ddeb903266eac2c6",
+      "a4f620a6b79b1c22521a46da709240ee22af365a8902e040ddeb903266eac2c6"
+    ]
+  },
+  "active_qmax162": {
+    "scope": "Offline fixed900kbit/s NVENC P4 maximum-QP isolation on the same RTX3080; original127/144 codec options,450msVBV, no Bframes or lookahead;640x448 crop with natural640x360 video and32px top/56px bottom grey. Only initial IDR; natural P-picture scene cuts. The preset field identifies qmax=-1/32/28 with qmin=-1/0/0 and initialP/I/B26, all with preset=p4 and tune=ll; VBV remains405000bits. Not actual packaged-worker, dynamic-rate, receiver, network, latency or cadence qualification.",
+    "runs": [
+      {
+        "preset": "-1",
+        "first_cut_min_ssim": 0.8850486856164448,
+        "first_cut_min_rgb_psnr": 30.356651320037056,
+        "measured_bitrate_kbps": 897.192,
+        "selected_packet_bytes": [
+          14108,
+          73,
+          13485,
+          143,
+          26784,
+          1190,
+          25743,
+          863,
+          10693,
+          96
+        ]
+      },
+      {
+        "preset": "32",
+        "first_cut_min_ssim": 0.9019281056463545,
+        "first_cut_min_rgb_psnr": 30.974986356102242,
+        "measured_bitrate_kbps": 905.3856,
+        "selected_packet_bytes": [
+          17781,
+          399,
+          16003,
+          109,
+          26980,
+          848,
+          27715,
+          2753,
+          13157,
+          104
+        ]
+      },
+      {
+        "preset": "28",
+        "first_cut_min_ssim": 0.9361949295619504,
+        "first_cut_min_rgb_psnr": 32.215130043773314,
+        "measured_bitrate_kbps": 1030.5192,
+        "selected_packet_bytes": [
+          27358,
+          600,
+          17251,
+          107,
+          27273,
+          376,
+          34723,
+          3976,
+          20548,
+          105
+        ]
+      }
+    ]
+  },
+  "ffmpeg_contract": {
+    "primary_source": "https://github.com/FFmpeg/FFmpeg/blob/n7.1.5/libavcodec/nvenc.c",
+    "behavior": "set_vbr enables maxQP only when both AVCodecContext.qmin and qmax are nonnegative. Both bounds also derive initial QP unless explicitly supplied.162 control disables both bounds; trials use qmin0/qmax32 or28, all with identical explicit initial P/I/B QP26. VBR and VBV retained."
+  },
+  "decision": "Multipass and tune changes are rejected. Active QP32 improves worst first-cut SSIM0.88505 to0.90193 with897.192 to905.386kbit/s; QP28 reaches0.93619 but1030.519kbit/s. Test only QP32 in the actual cropped H264 NVENC path before retaining a product change. No hardware throughput or acceptance claim from offline encode speed.",
+  "live_candidate": "Private exp163, cropped H264 NVENC only, explicit qmin0/qmax32 and initial P/I/B26 in libav and external ffmpeg fallback.211 bridge tests pass; actual transition/hardcut timing and fidelity remain required.",
+  "production_changed": false,
+  "live_result": "docs/rdp-nvenc-qmax-20261029.json"
+}

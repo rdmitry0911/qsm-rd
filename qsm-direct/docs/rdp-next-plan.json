@@ -81,7 +81,7 @@
   ],
   "checkpoint": {
     "stage": "video-regions-and-queue",
-    "candidate": "Private154 fixes recovery resets on brief NORMAL packet queue pulses;211 bridge tests pass. LXC transition13 gates pass. Native age476/497ms, one44.485fps narrow phase, one7540 recovery and one hardcut SSIM0.8623 remain unqualified.",
+    "candidate": "Private154 recovery fix retained (211 bridge tests).163 QP32 experiment improves hardcut quality but fails both transition age gates and is reverted; production remains35. Native age/cadence and Mac timing remain open.",
     "guest_extension_role": {
       "required_for_metadata_priority": "Expanded VM/LXC agents supply window geometry, stacking, visibility, focus and supported caret/input-component bounds over the existing guest transport.",
       "implemented_scope": "KWin session integration, optional Qt5/Qt6 input-geometry plugin and accessibility producers have documented checks; this does not establish universal toolkit or application coverage.",
@@ -277,7 +277,7 @@
       "149 corrects initial RDP/QSM video-content mismatch with SHA2561a0635... proved in both guests. Corrected RDP31.52/29.02/31.63fps,15chars once,952ms initial-cut glyph fails600; QSM14455.15/47.99/55.49fps and138ms. Separate144 hardcut50.78/52.41fps passes cadence but narrow SSIM0.885896 fails0.90. Original failures retained; no overall winner declared."
     ],
     "pending": [
-      "Measure a cropped-H264-NVENC QP ceiling in the actual worker after the fixed-rate control; use counter-only Mac receiver diagnostics to locate cadence loss. Preserve native400ms/45fps and all other acceptance gates.",
+      "Measure the real healthy Mac/native TCP capacity and correlate passive credit/packet feedback with raw-admission pauses. Qualify a direct PVE/TCP8006 Mac receiver separately from controller-detour diagnostics; preserve actual source-pixel/input/age/cadence gates.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -336,9 +336,13 @@
       "dist/rdp-hybrid/refresh-reservation-146",
       "dist/rdp-hybrid/rdp-matched-content-149",
       "dist/rdp-hybrid/nvenc-preset-153",
-      "dist/rdp-hybrid/queue-recovery-exp154"
+      "dist/rdp-hybrid/queue-recovery-exp154",
+      "dist/rdp-hybrid/nvenc-rate-quality-158-162",
+      "dist/rdp-hybrid/nvenc-qmax-exp163",
+      "dist/rdp-hybrid/macos-counter-155-165",
+      "dist/rdp-hybrid/headroom-156"
     ],
-    "next_action": "Measure a cropped-H264-NVENC QP ceiling in the actual worker after the fixed-rate control; use counter-only Mac receiver diagnostics to locate cadence loss. Preserve native400ms/45fps and all other acceptance gates.",
+    "next_action": "Measure the real healthy Mac/native TCP capacity and correlate passive credit/packet feedback with raw-admission pauses. Qualify a direct PVE/TCP8006 Mac receiver separately from controller-detour diagnostics; preserve actual source-pixel/input/age/cadence gates.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -546,10 +550,10 @@
         "Firefox158.0.1",
         "Safari26.3"
       ],
-      "scope": "Owned Chrome156 and private Firefox157 headless profiles only; timing remains unqualified. Guarded cleanup retired Chrome139/Firefox141 browser processes and both sleep assertions; debug ports28427/28437 are closed. User browser profiles are untouched.",
+      "scope": "Owned Chrome155 headless profile; local compositor controls and counter-only remote pilots, no physical-monitor/hardware-stream claim. Temporary direct165 proxy closed. Original user browser profiles untouched.",
       "alternative": "dima@10.30.0.35 is a VM with ordinary VGA; user warned it may distort results. Prefer the supplied bob receiver.",
-      "status": "Incomplete. Private Firefox157 and Chrome156 pilots preserve exact pixels but fail timing.144/emulated132 receipt-filter ABA and receiver-target60ms do not restore45fps; pixel-observer-off controls reach24.19/30.00 callbacks per second, still below45. No physical-display/hardware-decoder claim.",
-      "evidence": "docs/rdp-receipt-resampling-20261029.json",
+      "status": "Incomplete. Local MP4/rVFC57.86 and canvas48.10fps; remote sender36.60/34.95fps and rVFC31.59/27.05fps. Direct path RTT124ms does not restore45fps. Earlier pre-phase closures and duplicate-decoder observer perturbations retained.",
+      "evidence": "docs/rdp-macos-counter-20261029.json",
       "observed_receiver_gpu": "Chrome ANGLE Metal UHD630, video-decode capability enabled; per-stream hardware decoder unproven"
     },
     "bursty_recovery": "docs/rdp-bursty-recovery-20261029.json",
@@ -562,7 +566,10 @@
     "refresh_reservation": "docs/rdp-refresh-reservation-20261029.json",
     "matched_rdp_reference": "docs/rdp-matched-content-20261029.json",
     "nvenc_preset_diagnostic": "docs/rdp-nvenc-preset-20261029.json",
-    "queue_recovery": "docs/rdp-queue-recovery-20261029.json"
+    "queue_recovery": "docs/rdp-queue-recovery-20261029.json",
+    "nvenc_rate_quality": "docs/rdp-nvenc-rate-quality-20261029.json",
+    "nvenc_qmax": "docs/rdp-nvenc-qmax-20261029.json",
+    "macos_counter": "docs/rdp-macos-counter-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",

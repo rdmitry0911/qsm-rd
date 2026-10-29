@@ -1,0 +1,127 @@
+{
+  "date": "2026-10-29",
+  "status": "diagnostics_only_macos_qualification_open",
+  "evidence_directory": "dist/rdp-hybrid/macos-counter-155-165",
+  "artifact_manifest_sha256": "bd4797006fe993dcf2d55a7f6bd80023ef4423e858960437186c42f3558bf66e",
+  "receiver": "bob@10.90.10.22, macOS26.3 Chrome156.0.8078.49, owned headless155 profile; no physical-monitor or remote-stream hardware-decoder claim.",
+  "product_base": "154 bridge,127 worker and144 viewer; private157 counter/decoder instrumentation is not shipped.",
+  "local_control": {
+    "scope": "Local Mac scheduling control; actual product region/compositor classes, synthetic frame mapping. No remote transport, RTP, source-pixel or full product qualification.",
+    "phases": [
+      {
+        "kind": "canvas_capture",
+        "video_size": [
+          1280,
+          512
+        ],
+        "callback_fps": 48.10155049409829,
+        "raf_fps": 60.22064243676721,
+        "max_callback_gap_ms": 66.79999999999973,
+        "composition_cpu_median_ms": 1.4000000059604645,
+        "composition_cpu_max_ms": 15
+      },
+      {
+        "kind": "mp4_file",
+        "video_size": [
+          640,
+          448
+        ],
+        "callback_fps": 57.86198105417659,
+        "raf_fps": 60.111474918053865,
+        "max_callback_gap_ms": 33.400000000001455,
+        "composition_cpu_median_ms": 0.5999999940395355,
+        "composition_cpu_max_ms": 4.799999982118607
+      }
+    ],
+    "decoder_proof": "CDP Media reports VideoToolboxVideoDecoder and kIsPlatformVideoDecoder=true for the local MP4 only. Canvas capture counters are inconsistent with rVFC and are not cadence evidence."
+  },
+  "duplicate_decoder157": {
+    "scope": "Second WebCodecs decoder receives copies; this adds work and cannot measure the untouched product pipeline. NV12 output does not prove hardware use.",
+    "q5": "Maximum queue8 disabled the bounded diagnostic after364 decoded frames; final decoded/whole-duration division is invalid.",
+    "q6": "UI toolbar auto-hide left the settings button outside the viewport; no measured phase.",
+    "q8": "Real pointer held near toolbar fixes harness interaction.2598 encoded,2597 decoded, max queue9, no decode errors; actual composed16.03fps and glyph gates fail. Second decoder remains an observer perturbation, not a product fix."
+  },
+  "counter_only157": {
+    "change": "Per-frame type/RTP metadata counters only; never access payload or create a second decoder. Original frames are forwarded unchanged, one stats message/second, worker/page clocks aligned.",
+    "q9": "Connection already closed before the measured phase. Missing guest input event then triggers StopIteration in the old pilot finalizer. Invalid cadence/input run; zero frames is not a receiver benchmark.",
+    "r0": "Simpler diagnostic still starts after server has closed while browser reports connected. One sample only, not30s.",
+    "r1": "Earlier measurement obtains a connected30s pilot; passive original-worker traces collected. No full-frame pixel observer or additional decoder."
+  },
+  "healthy_pilot_comparison": {
+    "scope": "Read-only alignment of two30s healthy pilot traces; neither is source-pixel/input/age qualification. Topology differs and no matched baseline/randomization is claimed.",
+    "runs": {
+      "mac154-count157f-h264_qsv-virgl-capture-gpu-r1": {
+        "seconds": 28.960799999982118,
+        "sender_complete_fps": 36.60235131742193,
+        "encoded_transform_fps": 36.505857960354895,
+        "decoded_fps": 36.53213999615526,
+        "received_fps": 36.56666942904388,
+        "rVFC_fps": 31.594431093083234,
+        "dropped_delta": 0,
+        "rtp_lost_delta": 0,
+        "server_feedback_last": [
+          {
+            "kind": "received",
+            "loss": 0.0,
+            "rtt": 0.4045881520210924,
+            "delay_ms": 221.19442000985146,
+            "base_ms": 265.9458059351891
+          }
+        ],
+        "checks": {
+          "same_connected_stream": true,
+          "observed_30_seconds": true
+        }
+      },
+      "mac154-direct165-h264_qsv-virgl-capture-gpu-r2": {
+        "seconds": 28.6875,
+        "sender_complete_fps": 34.95363282566987,
+        "encoded_transform_fps": 35.1144815679665,
+        "decoded_fps": 34.893246187363836,
+        "received_fps": 34.85838779956427,
+        "rVFC_fps": 27.050108932461875,
+        "dropped_delta": 0,
+        "rtp_lost_delta": 0,
+        "server_feedback_last": [
+          {
+            "kind": "received",
+            "loss": 0.0,
+            "rtt": 0.12404060363769531,
+            "delay_ms": 292.1495521441102,
+            "base_ms": 132.57932011038065
+          }
+        ],
+        "checks": {
+          "same_connected_stream": true,
+          "observed_30_seconds": true
+        }
+      }
+    }
+  },
+  "direct165": {
+    "scope": "Unshaped direct authenticated TURN/TCP18486 on the native node, source-restricted to10.90.10.22, bypasses both controller media SSH hops. HTTP/CDP still use controller. This does not qualify production TCP8006 integration.",
+    "result": "RTT fell from404.6 to124.0ms, but sender36.60 to34.95fps and rVFC31.59 to27.05fps. Route detour does not explain the entire cadence deficit. Neither pilot has RTP loss or decoded-frame drops in its measured counter interval.",
+    "cleanup": "Owned qsm-direct-mac165 service stopped, all5 TCP connections ended. No firewall/global route or production change.",
+    "close164": "Only private backend instrumentation logs RTCPeerConnection.close stacks. In the connected pilots, observed close is final harness bridge cleanup; no spontaneous-close root cause is established for the earlier failed runs."
+  },
+  "passive_followup": {
+    "r1": {
+      "produced_au_fps": 36.5333,
+      "encoded_kbps": 3418.179,
+      "complete_sent_fps": 36.6024,
+      "credit_wait_seconds": 11.7102,
+      "measured_seconds": 28.9608
+    },
+    "r2": {
+      "produced_au_fps": 34.9536,
+      "encoded_kbps": 3078.713,
+      "complete_sent_fps": 34.9536,
+      "credit_wait_seconds": 12.7616,
+      "measured_seconds": 28.6875
+    },
+    "interpretation": "Loss of cadence already exists at actual encoded AU production/sending. Packet feedback is negotiated and active (704/578 reports in the full recordings). Investigate credit pauses and actual path capacity before changing the decoder or compositor. This does not yet prove which component causes the source throttling."
+  },
+  "headroom156": "Rejected private high-rate/long-RTT16ms admission headroom: native excess510.706ms fails400ms. Original32ms retained. Evidence dist/rdp-hybrid/headroom-156/report.json.",
+  "production_changed": false,
+  "next_action": "Measure the real healthy Mac/native TCP capacity and correlate passive credit/packet feedback with raw-admission pauses. Qualify a direct PVE/TCP8006 Mac receiver separately from controller-detour diagnostics; preserve actual source-pixel/input/age/cadence gates."
+}
