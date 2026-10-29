@@ -23,9 +23,19 @@
     "name": "FreeRDP3.15.0 xfreerdp3",
     "environment": "Private Debian13 SDK with an owned Xvfb display; no production package installation.",
     "transport": "TCP only; multitransport and clipboard disabled; loopback forwarded through SSH and the owned netem proxy.",
-    "requested_graphics": "Software GDI and AVC444-capable GFX requested; the actual negotiated server codec has not yet been independently established.",
+    "requested_graphics": "Software GDI and AVC444-capable GFX requested. Server event132 confirms the RDS Graphics channel; event162 confirms protocol0xA0701, client mode2, AVC available1 and initial profile2. This establishes channel/capability negotiation; exact per-stream codec/profile mapping remains unproven.",
     "observability": "Read actual X11 root pixels at8ms intervals. Glyph coordinates come from native TextBox.DrawToBitmap ink/blank differences; input uses XTest keyboard events and guest event counts.",
-    "cleanup": "Both owned RDP/Xvfb clients and forwards ended; a delayed proxy teardown left two private netns processes. Rescued their actual qdisc counters and quit their exact controller; zero owned media/netns processes remain. The Windows fixture task is stopped and its VM remains ready."
+    "cleanup": "Both owned RDP/Xvfb clients and forwards ended; a delayed proxy teardown left two private netns processes. Rescued their actual qdisc counters and quit their exact controller; zero owned media/netns processes remain. The Windows fixture task is stopped and its VM remains ready.",
+    "server_graphics_events": [
+      {
+        "Id": 162,
+        "Message": "The client supports version 0xA0701 of the RDP graphics protocol, client mode: 2, AVC available: 1, Initial profile: 2. Server: QSM-RDP-REF"
+      },
+      {
+        "Id": 132,
+        "Message": "A channel Microsoft::Windows::RDS::Graphics has been connected between the server and the client using transport tunnel: 0."
+      }
+    ]
   },
   "shared_content": {
     "rgb_bytes": 414720000,
@@ -290,5 +300,5 @@
     "RDP proxy shutdown now stops the media client first and bounds media-task cancellation before closing the private network. This harness repair was syntax checked; the completed profile was not rerun merely to exercise teardown."
   ],
   "official_source": "https://www.microsoft.com/en-us/evalcenter/download-windows-server-2025",
-  "artifact_manifest_sha256": "1336d2e56ee6f753172dd6b88ede22a893128ec8f2b5e2f750cca33ed5e765ca"
+  "artifact_manifest_sha256": "fa31e8c87f01d890162fff76c5df9fe9f40153c0763fe0885591bbe5c83b20a2"
 }

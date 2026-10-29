@@ -326,9 +326,10 @@
       "dist/rdp-hybrid/deferred-refresh-exp125",
       "dist/rdp-hybrid/packet-probes-exp126",
       "dist/rdp-hybrid/active-recovery-exp127",
-      "dist/rdp-hybrid/chromium-receive-exp132"
+      "dist/rdp-hybrid/chromium-receive-exp132",
+      "dist/rdp-hybrid/macos-observer-133-136"
     ],
-    "next_action": "Target native first-drop source-age excess542ms and Mac25fps/1088ms glyph failures without weakening400ms/45fps gates. Local132 NVENC passed all13 transition gates and a first comparable-base-path Microsoft RDP trial is recorded; expand fidelity, encoder/application/browser and long-session qualification before release/rollout.",
+    "next_action": "Use the5ms native-format pixel observer to investigate Mac Chrome video scheduling/arrival/playout behavior; paint callbacks are under1ms and opacity ABA did not fix cadence. In parallel address native132 initial-drop age with recorded packet/frame traces while preserving healthy throughput; naive smaller-window arithmetic pressures81% of healthy admissions. Retain400ms/45fps gates and complete remaining qualification/release.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -538,14 +539,15 @@
       ],
       "scope": "Owned Chrome156 headless profile on bob; all1241 snapshots valid and exact, source25.01fps and first glyph1087.8ms fail declared gates. Permission-toggle continuity passes. Owned browser and temporary sleep assertion ended.",
       "alternative": "dima@10.30.0.35 is a VM with ordinary VGA; user warned it may distort results. Prefer the supplied bob receiver.",
-      "status": "Receipt lifecycle fixed with132; immutable pixel observer validates identity but Mac cadence and glyph gates still fail.",
-      "evidence": "docs/rdp-chromium-receive-20261029.json",
+      "status": "Incomplete;132 receipt lifecycle passes, native-format observer reduces median readback to5ms with exact pixels, but Chrome presentation/cadence remains below45fps. Long JS callbacks and simple opacity suppression were not confirmed as the cause.",
+      "evidence": "docs/rdp-macos-observer-20261029.json",
       "observed_receiver_gpu": "Chrome ANGLE Metal UHD630, video-decode capability enabled; per-stream hardware decoder unproven"
     },
     "bursty_recovery": "docs/rdp-bursty-recovery-20261029.json",
     "corroborated_hold": "docs/rdp-corroborated-hold-20261029.json",
     "chromium_receive": "docs/rdp-chromium-receive-20261029.json",
-    "microsoft_rdp_reference": "docs/rdp-microsoft-reference-20261029.json"
+    "microsoft_rdp_reference": "docs/rdp-microsoft-reference-20261029.json",
+    "macos_observer": "docs/rdp-macos-observer-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",

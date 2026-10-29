@@ -1,0 +1,635 @@
+{
+  "date": "2026-10-29",
+  "status": "native_pixel_format_observer_retained_macos_performance_unqualified",
+  "product_candidate": "0.4.0+stock4.14~exp132; no runtime source or packaged payload changes in these diagnostics",
+  "source_commit": "0db2662",
+  "evidence_directory": "dist/rdp-hybrid/macos-observer-133-136",
+  "artifact_manifest_sha256": "710b180ff11eb14bbafe35cfd718c30e081a34010ed3417a4c5a2a08a78352fd",
+  "unchanged_gates": "All original numerical/source/static/input gates remain. The healthy pilot is not the full transition/browser/codec qualification.",
+  "experiments": {
+    "133_two_small_crops": {
+      "status": "rejected",
+      "operation": "Copy marker136x16 and static128x32 rectangles separately from the same immutable frame on everyRAF, rather than one756x204 bounding rectangle.",
+      "coordinate_contract": "Good image, wrong static color, missing mask and invalid XOR yield exactly the same oracle results as129. Copied pixels drop154224 ->6272, with both tests still performed on every requested frame.",
+      "runtime": {
+        "checks": null,
+        "phases": [
+          {
+            "name": "fast",
+            "unique_fps": 0.0,
+            "max_frame_gap_ms": 0,
+            "initial_target": 8000,
+            "final_target": 8000
+          }
+        ],
+        "observer": {
+          "frames": 775,
+          "requested": 775,
+          "pending": 0,
+          "max_pending": 32,
+          "skipped": 509,
+          "wrong_static": 0,
+          "uncovered_static": 0,
+          "invalid_ids": 0,
+          "errors": [],
+          "observations": null,
+          "ids": null,
+          "creation_cost_ms": null,
+          "completion_ms": null,
+          "readback_ms": null,
+          "stop": true,
+          "format": "BGRX"
+        },
+        "cost_ms": {
+          "creation": {
+            "samples": 775,
+            "median": 0.20000001788139343,
+            "p95": 0.5,
+            "max": 20
+          },
+          "completion": {
+            "samples": 775,
+            "median": 898.5999999940395,
+            "p95": 957.3000000119209,
+            "max": 1001.2999999821186
+          },
+          "readback": {
+            "samples": 775,
+            "median": 28.099999994039536,
+            "p95": 32.79999998211861,
+            "max": 87.59999999403954
+          }
+        },
+        "input": [
+          {
+            "phase": "fast",
+            "key_index": 1,
+            "latency_ms": 483.7999999821186,
+            "client_key_ms": 35998.90000000596,
+            "metadata_mode": 3
+          },
+          {
+            "phase": "fast",
+            "key_index": 2,
+            "latency_ms": 461.5,
+            "client_key_ms": 44249.90000000596,
+            "metadata_mode": 3
+          },
+          {
+            "phase": "fast",
+            "key_index": 3,
+            "latency_ms": 633.2000000178814,
+            "client_key_ms": 52815.19999998808,
+            "metadata_mode": 3
+          }
+        ]
+      },
+      "reason": "Two API copies cost a median28.1ms, filled32 pending slots and skipped509 snapshots. Strict completeness assertion rejected the trial before cadence was computed; zero placeholder phase counters are not measured0fps.",
+      "setup_failure": "Initial tagm already existed on the frozen127 backend and failed before streaming. The existing record was preserved; retry used a checked-unused n7 tag."
+    },
+    "134_native_format": {
+      "status": "retained_as_test_observer",
+      "operation": "One original bounding rectangle per immutable frame. Use its native RGBA/RGBX/BGRA/BGRX representation and explicitly map BGR channels when comparing the actual static pixels. Unknown formats fail. No GPU color conversion is requested.",
+      "coordinate_color_contract": "16 RGBA/RGBX/BGRA/BGRX, non-grey color, checksum, static and mask cases equal the original RGBA oracle.",
+      "runtime": {
+        "checks": {
+          "pixel_worker_complete": true,
+          "static_pixels_exact": true,
+          "source_ids_valid": true,
+          "source_fps_at_least_45": false,
+          "no_long_video_gap": true,
+          "same_connected_stream": true,
+          "full_rate_ceiling": true,
+          "input_delivered_once": true,
+          "glyph_peak_at_most_600ms": false,
+          "metadata_mode3": true,
+          "valid_source_ids": true
+        },
+        "phases": [
+          {
+            "name": "fast",
+            "unique_fps": 26.580280754199983,
+            "max_frame_gap_ms": 451.30000001192093,
+            "initial_target": 8000,
+            "final_target": 8000
+          }
+        ],
+        "observer": {
+          "frames": 1253,
+          "requested": 1253,
+          "pending": 0,
+          "max_pending": 6,
+          "skipped": 0,
+          "wrong_static": 0,
+          "uncovered_static": 0,
+          "invalid_ids": 0,
+          "errors": [],
+          "observations": null,
+          "ids": null,
+          "creation_cost_ms": null,
+          "completion_ms": null,
+          "readback_ms": null,
+          "stop": true,
+          "format": "BGRX"
+        },
+        "cost_ms": {
+          "creation": {
+            "samples": 1253,
+            "median": 0.19999998807907104,
+            "p95": 0.30000001192092896,
+            "max": 18.399999976158142
+          },
+          "completion": {
+            "samples": 1253,
+            "median": 5.300000011920929,
+            "p95": 7.5,
+            "max": 88.40000000596046
+          },
+          "readback": {
+            "samples": 1253,
+            "median": 5,
+            "p95": 6.800000011920929,
+            "max": 68.30000001192093
+          }
+        },
+        "input": [
+          {
+            "phase": "fast",
+            "key_index": 1,
+            "latency_ms": 410.89999997615814,
+            "client_key_ms": 35763.70000001788,
+            "metadata_mode": 3,
+            "guest_edited_ns": 1628524699120560,
+            "input_to_guest_ms": 192.80657497420606,
+            "guest_to_visible_ms": 218.09342500195208,
+            "clock_uncertainty_ms": 103.0488319910593
+          },
+          {
+            "phase": "fast",
+            "key_index": 2,
+            "latency_ms": 355.7000000178814,
+            "client_key_ms": 43798.59999999404,
+            "metadata_mode": 3,
+            "guest_edited_ns": 1628532731750737,
+            "input_to_guest_ms": 188.1798418331897,
+            "guest_to_visible_ms": 167.5201581846917,
+            "clock_uncertainty_ms": 99.34883200298023
+          },
+          {
+            "phase": "fast",
+            "key_index": 3,
+            "latency_ms": 650.1000000238419,
+            "client_key_ms": 52373.09999999404,
+            "metadata_mode": 3,
+            "guest_edited_ns": 1628541586258474,
+            "input_to_guest_ms": 387.1874459758402,
+            "guest_to_visible_ms": 262.91255404800165,
+            "clock_uncertainty_ms": 185.9988320089407
+          }
+        ]
+      },
+      "interpretation": "Readback median5.0ms versus prior15.7ms; all1253 snapshots valid/exact with no skips.26.58fps and650.1ms peak glyph still fail45fps/600ms. The improvement in observer cost is not relabeled as a product cadence improvement."
+    },
+    "135_136_read_only_media_telemetry": {
+      "harness_failure": "Track settings can contain an infinite frameRate. The135 strict JSON writer rejected that diagnostic value and lost its final report; the error log is retained.136 preserves nonfinite diagnostic floats as tagged objects after gate computation, and writes rare Media events immediately. Gates themselves are not changed.",
+      "runtime": {
+        "checks": {
+          "pixel_worker_complete": true,
+          "static_pixels_exact": true,
+          "source_ids_valid": true,
+          "source_fps_at_least_45": false,
+          "no_long_video_gap": true,
+          "same_connected_stream": true,
+          "full_rate_ceiling": true,
+          "input_delivered_once": true,
+          "glyph_peak_at_most_600ms": true,
+          "metadata_mode3": true,
+          "valid_source_ids": true
+        },
+        "phases": [
+          {
+            "name": "fast",
+            "unique_fps": 28.217312496938227,
+            "max_frame_gap_ms": 233.2000000178814,
+            "initial_target": 8000,
+            "final_target": 8000
+          }
+        ],
+        "observer": {
+          "frames": 1255,
+          "requested": 1255,
+          "pending": 0,
+          "max_pending": 2,
+          "skipped": 0,
+          "wrong_static": 0,
+          "uncovered_static": 0,
+          "invalid_ids": 0,
+          "errors": [],
+          "observations": null,
+          "ids": null,
+          "creation_cost_ms": null,
+          "completion_ms": null,
+          "readback_ms": null,
+          "stop": true,
+          "format": "BGRX"
+        },
+        "cost_ms": {
+          "creation": {
+            "samples": 1255,
+            "median": 0.19999998807907104,
+            "p95": 0.30000001192092896,
+            "max": 13.800000011920929
+          },
+          "completion": {
+            "samples": 1255,
+            "median": 5.5,
+            "p95": 7.699999988079071,
+            "max": 20.30000001192093
+          },
+          "readback": {
+            "samples": 1255,
+            "median": 5.199999988079071,
+            "p95": 7.199999988079071,
+            "max": 16
+          }
+        },
+        "input": [
+          {
+            "phase": "fast",
+            "key_index": 1,
+            "latency_ms": 372.69999998807907,
+            "client_key_ms": 32353.5,
+            "metadata_mode": 3,
+            "guest_edited_ns": 1629254612156266,
+            "input_to_guest_ms": 183.138511111963,
+            "guest_to_visible_ms": 189.56148887611607,
+            "clock_uncertainty_ms": 103.39810799403953
+          },
+          {
+            "phase": "fast",
+            "key_index": 2,
+            "latency_ms": 437.39999997615814,
+            "client_key_ms": 41614.30000001192,
+            "metadata_mode": 3,
+            "guest_edited_ns": 1629263874315728,
+            "input_to_guest_ms": 188.9803779814372,
+            "guest_to_visible_ms": 248.41962199472096,
+            "clock_uncertainty_ms": 115.298108
+          },
+          {
+            "phase": "fast",
+            "key_index": 3,
+            "latency_ms": 369.5,
+            "client_key_ms": 50397.40000000596,
+            "metadata_mode": 3,
+            "guest_edited_ns": 1629272660028961,
+            "input_to_guest_ms": 189.2737209666535,
+            "guest_to_visible_ms": 180.2262790333465,
+            "clock_uncertainty_ms": 103.89810799403953
+          }
+        ]
+      },
+      "presentation_samples": {
+        "first": {
+          "total": 1323,
+          "dropped": 141,
+          "visibility": "visible",
+          "focus": true,
+          "opacity": "0",
+          "ready": 4,
+          "settings": {
+            "aspectRatio": 2.5,
+            "deviceId": "92834d50-3599-4cc7-8290-9e209a248335",
+            "frameRate": 59.56788383183274,
+            "height": 512,
+            "resizeMode": "none",
+            "width": 1280
+          }
+        },
+        "last": {
+          "total": 2226,
+          "dropped": 216,
+          "visibility": "visible",
+          "focus": true,
+          "opacity": "0",
+          "ready": 4,
+          "settings": {
+            "aspectRatio": 2.5,
+            "deviceId": "92834d50-3599-4cc7-8290-9e209a248335",
+            "frameRate": 60.637175697749505,
+            "height": 512,
+            "resizeMode": "none",
+            "width": 1280
+          }
+        },
+        "decoded_fps": 50.06598388123851,
+        "additional_browser_presentation_drops": 75,
+        "decoded_rtp_loss": 0
+      },
+      "media_protocol": {
+        "error": null,
+        "player_property_events": [],
+        "hardware_decoder_proven": false
+      },
+      "interpretation": "The document is visible and focused, the video is ready, received RTP reports no loss, while the browser presentation counter drops additional frames. Media.enable returned no player properties for this WebRTC stream; no hardware decoder claim is made."
+    },
+    "137_product_paint_timing": {
+      "runtime": {
+        "checks": {
+          "pixel_worker_complete": true,
+          "static_pixels_exact": true,
+          "source_ids_valid": true,
+          "source_fps_at_least_45": false,
+          "no_long_video_gap": true,
+          "same_connected_stream": true,
+          "full_rate_ceiling": true,
+          "input_delivered_once": true,
+          "glyph_peak_at_most_600ms": true,
+          "metadata_mode3": true,
+          "valid_source_ids": true
+        },
+        "phases": [
+          {
+            "name": "fast",
+            "unique_fps": 32.54553982519274,
+            "max_frame_gap_ms": 184.89999997615814,
+            "initial_target": 8000,
+            "final_target": 8000
+          }
+        ],
+        "observer": {
+          "frames": 1284,
+          "requested": 1284,
+          "pending": 0,
+          "max_pending": 2,
+          "skipped": 0,
+          "wrong_static": 0,
+          "uncovered_static": 0,
+          "invalid_ids": 0,
+          "errors": [],
+          "observations": null,
+          "ids": null,
+          "creation_cost_ms": null,
+          "completion_ms": null,
+          "readback_ms": null,
+          "stop": true,
+          "format": "BGRX"
+        },
+        "cost_ms": {
+          "creation": {
+            "samples": 1284,
+            "median": 0.19999998807907104,
+            "p95": 0.30000001192092896,
+            "max": 12.299999982118607
+          },
+          "completion": {
+            "samples": 1284,
+            "median": 5.5,
+            "p95": 6.700000017881393,
+            "max": 21.599999994039536
+          },
+          "readback": {
+            "samples": 1284,
+            "median": 5.299999982118607,
+            "p95": 6.4000000059604645,
+            "max": 18.5
+          }
+        },
+        "input": [
+          {
+            "phase": "fast",
+            "key_index": 1,
+            "latency_ms": 390.09999999403954,
+            "client_key_ms": 31650.09999999404,
+            "metadata_mode": 3,
+            "guest_edited_ns": 1629470371775298,
+            "input_to_guest_ms": 188.50855992548077,
+            "guest_to_visible_ms": 201.59144006855877,
+            "clock_uncertainty_ms": 103.13281699701977
+          },
+          {
+            "phase": "fast",
+            "key_index": 2,
+            "latency_ms": 375.19999998807907,
+            "client_key_ms": 40708.90000000596,
+            "metadata_mode": 3,
+            "guest_edited_ns": 1629479426523802,
+            "input_to_guest_ms": 182.135221976786,
+            "guest_to_visible_ms": 193.06477801129307,
+            "clock_uncertainty_ms": 105.6828170089407
+          },
+          {
+            "phase": "fast",
+            "key_index": 3,
+            "latency_ms": 361.89999997615814,
+            "client_key_ms": 49323.40000000596,
+            "metadata_mode": 3,
+            "guest_edited_ns": 1629488034282689,
+            "input_to_guest_ms": 178.90962293557777,
+            "guest_to_visible_ms": 182.99037704058037,
+            "clock_uncertainty_ms": 99.9328170089407
+          }
+        ]
+      },
+      "cpu_call_ms": {
+        "region": {
+          "samples": 2315,
+          "median": 0.4000000059604645,
+          "p95": 0.5999999940395355,
+          "max": 4.0999999940395355
+        },
+        "capture": {
+          "samples": 2211,
+          "median": 0,
+          "p95": 0,
+          "max": 0.699999988079071
+        },
+        "compose": {
+          "samples": 2920,
+          "median": 0.0,
+          "p95": 0.10000002384185791,
+          "max": 0.4000000059604645
+        },
+        "callback": {
+          "samples": 2308,
+          "median": 0.4000000059604645,
+          "p95": 0.7000000178813934,
+          "max": 4.0999999940395355
+        }
+      },
+      "interpretation": "Region/callback median0.4ms,p950.7ms and maximum4.1ms do not establish a long JavaScript paint callback as the cadence bottleneck. These are CPU call durations; asynchronous GPU work can continue later."
+    },
+    "138_opacity_control": {
+      "runtime": {
+        "checks": {
+          "pixel_worker_complete": true,
+          "static_pixels_exact": true,
+          "source_ids_valid": true,
+          "source_fps_at_least_45": false,
+          "no_long_video_gap": true,
+          "same_connected_stream": true,
+          "full_rate_ceiling": true,
+          "input_delivered_once": true,
+          "glyph_peak_at_most_600ms": true,
+          "metadata_mode3": true,
+          "valid_source_ids": true
+        },
+        "phases": [
+          {
+            "name": "fast",
+            "unique_fps": 37.11944309827992,
+            "max_frame_gap_ms": 163.60000002384186,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "visibility_case": "default_before",
+            "computed_opacity": "0"
+          },
+          {
+            "name": "fast",
+            "unique_fps": 32.07610984435257,
+            "max_frame_gap_ms": 196.69999998807907,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "visibility_case": "visible_under_canvas",
+            "computed_opacity": "1"
+          },
+          {
+            "name": "fast",
+            "unique_fps": 30.956401264293365,
+            "max_frame_gap_ms": 164.7999999821186,
+            "initial_target": 8000,
+            "final_target": 8000,
+            "visibility_case": "default_after",
+            "computed_opacity": "0"
+          }
+        ],
+        "observer": {
+          "frames": 1766,
+          "requested": 1766,
+          "pending": 0,
+          "max_pending": 4,
+          "skipped": 0,
+          "wrong_static": 0,
+          "uncovered_static": 0,
+          "invalid_ids": 0,
+          "errors": [],
+          "observations": null,
+          "ids": null,
+          "creation_cost_ms": null,
+          "completion_ms": null,
+          "readback_ms": null,
+          "stop": true,
+          "format": "BGRX"
+        },
+        "cost_ms": {
+          "creation": {
+            "samples": 1766,
+            "median": 0.19999998807907104,
+            "p95": 0.30000001192092896,
+            "max": 13.800000011920929
+          },
+          "completion": {
+            "samples": 1766,
+            "median": 5.5999999940395355,
+            "p95": 7.0999999940395355,
+            "max": 68
+          },
+          "readback": {
+            "samples": 1766,
+            "median": 5.300000011920929,
+            "p95": 6.799999982118607,
+            "max": 60.29999998211861
+          }
+        },
+        "input": [
+          {
+            "phase": "fast",
+            "key_index": 1,
+            "latency_ms": 428,
+            "client_key_ms": 31801,
+            "metadata_mode": 3,
+            "guest_edited_ns": 1629680386859802,
+            "input_to_guest_ms": 198.52980014495714,
+            "guest_to_visible_ms": 229.47019985504286,
+            "clock_uncertainty_ms": 103.71114099403954
+          },
+          {
+            "phase": "fast",
+            "key_index": 2,
+            "latency_ms": 417.40000000596046,
+            "client_key_ms": 41399.5,
+            "metadata_mode": 3,
+            "guest_edited_ns": 1629689992967959,
+            "input_to_guest_ms": 204.9207219965723,
+            "guest_to_visible_ms": 212.47927800938817,
+            "clock_uncertainty_ms": 102.46114099403954
+          },
+          {
+            "phase": "fast",
+            "key_index": 3,
+            "latency_ms": 365.5,
+            "client_key_ms": 51058.40000000596,
+            "metadata_mode": 3,
+            "guest_edited_ns": 1629699635755989,
+            "input_to_guest_ms": 186.6320518050344,
+            "guest_to_visible_ms": 178.8679481949656,
+            "clock_uncertainty_ms": 103.111141
+          }
+        ]
+      },
+      "interpretation": "Same connected stream, default0 / forced1 under composed canvas / default0.37.12 /32.08 /30.96fps with all1766 snapshots valid/exact and no skips. Opacity1 did not restore45fps; the test-only style was not added to the product."
+    }
+  },
+  "network_note": {
+    "direct_mac_to_native_tcp22_ms": [
+      143.739474,
+      140.614534,
+      136.511219,
+      137.397149
+    ],
+    "existing_native_turn_bind": "Private TURN remains loopback127.0.0.1:13486; no new externally listening port was created.",
+    "scope": "Actual remote path and jitter remain part of these Mac trials, distinct from the local Windows/LXC comparison."
+  },
+  "native_queue_followup": {
+    "snapshot": "native132-initial-cut-compact.json",
+    "scope": "Read-only initial-cut132 traces and diagnostic packet-window arithmetic; not a causal replay or an implemented policy",
+    "cut": {
+      "t": 1626522.122232005,
+      "from": 8000.0,
+      "to": 1709,
+      "kind": "received",
+      "rapid_age": 0.0673787840642035,
+      "packet_fresh": true,
+      "packet_queued": true,
+      "packet_valid": true,
+      "region": [
+        1280,
+        768,
+        0,
+        64,
+        1280,
+        512
+      ]
+    },
+    "pressure_only_arithmetic": {
+      "healthy_admissions": 594,
+      "candidate_formula": "rate*max(base-.016,.054)-min(frame_wire_bytes,rate*.016)",
+      "would_block_fraction": 0.8097643097643098,
+      "current_formula_would_block_fraction": 0.0
+    },
+    "interpretation": "The smaller-window arithmetic would block about81% of recorded healthy admission attempts. This is not a causal simulation; it flags cadence risk and is not an implemented or qualified fix. Preserve healthy throughput while investigating the native initial-drop flight."
+  },
+  "cleanup": {
+    "owned_chrome": 32226,
+    "profile": "/tmp/qsm-mac-qualification-20261029-133-small-crops/profile",
+    "remaining_owned_profile_processes": [],
+    "owned_sleep_assertion_target": 32226,
+    "user_browsers_targeted": false
+  },
+  "next_action": "Investigate Chromium video scheduling, arrival timing and negotiated playout-delay behavior with the native-format observer; retain source/image/layout fences. Separately use the native132 packet/frame trace for a qualified initial-drop queue fix. Complete remaining matrix/soak/release after those blockers.",
+  "sources": [
+    "https://www.w3.org/TR/webcodecs/",
+    "https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/modules/mediastream/web_media_player_ms.cc",
+    "https://raw.githubusercontent.com/chromium/chromium/main/third_party/blink/renderer/modules/mediastream/web_media_player_ms_compositor.cc"
+  ]
+}
