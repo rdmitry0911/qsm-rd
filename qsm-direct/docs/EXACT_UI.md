@@ -121,12 +121,25 @@ Codec dwell/quiet and full-desktop quality are unchanged.
 The sender and receiver clocks have different origins. Packet timing uses
 within-clock intervals and relative transit changes, never uncalibrated
 absolute one-way latency. Packet arrival does not claim decoder completion
-or physical display. Native108 passes 15 of 16 unchanged full-profile gates,
+or physical display. The initial native108 trial passed 15 of 16 unchanged full-profile gates,
 including full-rate recovery, but still fails the 400 ms source-age excess
 limit because obsolete encoded frames wait before dispatch. It remains a
 private, unqualified candidate. See the
 [packet capacity report](rdp-packet-capacity-20261029.json) and the earlier
 [transport credit report](rdp-transport-credit-20261029.json).
+
+For a packet-confirmed halving with rapid receipt feedback, the private
+candidate retains an admission ceiling bounded by its previous baseline
+window and actually outstanding video bytes. Pacing adopts the new path
+rate immediately. Actual prefix receipt, missing packet credit or 1.5 seconds
+retires the old allowance. Complete-frame/image ACKs and codec quality remain
+independent. Existing bounded loss-repair deadlines still apply; this is not
+a hard no-overshoot guarantee. Native111 passes 15 of 16 original gates but
+still has 461.7 ms source-age excess, above 400 ms. Forced old-rate keyframes,
+one-off headroom spending, raw-only early pressure and a smaller configured
+video window did not qualify and are not retained. See the
+[flight-drain report](rdp-flight-drain-20261029.json). These private candidates
+are not a qualified release.
 
 Frame-aware waits permit one baseline round trip, bounded to 50–250 ms, with
 one deadline across all acknowledgements. Short healthy waits keep raw capture

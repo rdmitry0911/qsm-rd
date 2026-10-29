@@ -228,6 +228,24 @@ class _VideoPresentation:
         self._acknowledged_bytes = 0
         self._wake = asyncio.Event()
         self.credit_waits = 0
+        self._draining_end = self._draining_limit = 0
+        self._draining_started = float('-inf')
+
+    def retain_flight(self, sent_bytes: int, delivered_bytes: int, maximum: int) -> None:
+        """Keep a bounded old window until its already-sent prefix arrives.
+
+        A large target cut cannot unsend the previous flight. Serializing its
+        small encoded FIFO at the new pacing rate must not also add a fresh
+        RTT before each picture. This grants no ACK, extra rate or larger
+        flight than the host had already committed.
+        """
+        if (any(type(value) is not int for value in (sent_bytes, delivered_bytes, maximum)) or
+                not 0 <= delivered_bytes <= sent_bytes or maximum < 0):
+            return
+        self._draining_end = sent_bytes
+        self._draining_limit = min(maximum, sent_bytes - delivered_bytes)
+        self._draining_started = self._clock()
+        self._wake.set()
 
     def sent(self, rtp: int, total_bytes: int) -> None:
         self._serial += 1
@@ -291,7 +309,14 @@ class _VideoPresentation:
                     # Small AUs still reserve their complete actual wire cost.
                     rate = target * 1000 / 8
                     immediate = min(frame_budget, rate * .016)
-                    return max(0., rate * (value.presented_base + .016) - immediate), True
+                    limit = rate * (value.presented_base + .016)
+                    if self._draining_limit:
+                        if (packet_credit is None or at - self._draining_started >= 1.5 or
+                                delivered() >= self._draining_end):
+                            self._draining_end = self._draining_limit = 0
+                        else:
+                            limit = max(limit, self._draining_limit)
+                    return max(0., limit - immediate), True
                 return target * 1000 / 8 * (value.presented_base + .035), True
             if (value.presented_delay <= value.presented_base + .1 or
                     value.presented_kbps <= 0 or value.presented_offered_kbps <= 0):
@@ -2841,8 +2866,24 @@ class BrowserWebRtcBridge:
         return "codec=none"
 
     def _video_rate_changed(self, bitrate_kbps: int) -> None:
+        previous_kbps = self._video_pacer._rate * 8 / 1000
         self._ui_peer.wake()
         self._video_pacer.set_bitrate(bitrate_kbps)
+        now = time.monotonic()
+        state = self._video_rate._receivers.get(self)
+        if (bitrate_kbps * 2 <= previous_kbps and self._twcc_history is not None and
+                state is not None and self._video_rate._packet_fresh(state, now) and
+                state.feedback_kind == 'received' and now - state.received_rapid_time < 1.5 and
+                any(self._video_rate._packet_fresh(peer, now) and peer.packet_delivery.queued
+                    for peer in self._video_rate._receivers.values())):
+            history = self._video_received
+            sent = self._video_pacer.sent_bytes
+            delivered = self._twcc_history.credit(history._acknowledged_bytes)
+            # Keep no more than the previous baseline window or actual
+            # outstanding bytes, and retire it once that old prefix arrives.
+            # The packet pacer has already adopted the lower target above.
+            maximum = int(previous_kbps * 1000 / 8 * (min(.25, state.presented_base) + .016))
+            history.retain_flight(sent, delivered, maximum)
         self._video_received._wake.set()
         self._publish_video_rate()
 

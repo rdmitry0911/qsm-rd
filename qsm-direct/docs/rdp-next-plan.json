@@ -81,7 +81,7 @@
   ],
   "checkpoint": {
     "stage": "video-regions-and-queue",
-    "candidate": "Private108 packet-capacity controller; full native108 passes15/16 gates and still fails full source freshness;107 also failed recovery",
+    "candidate": "Private111 retained;185 core tests; native11115/16 gates and461.732ms source-age excess fails400ms.110/113/114/115 rejected.",
     "guest_extension_role": {
       "required_for_metadata_priority": "Expanded VM/LXC agents supply window geometry, stacking, visibility, focus and supported caret/input-component bounds over the existing guest transport.",
       "implemented_scope": "KWin session integration, optional Qt5/Qt6 input-geometry plugin and accessibility producers have documented checks; this does not establish universal toolkit or application coverage.",
@@ -89,7 +89,7 @@
       "rendering": "The browser composes actual guest pixels; this plan does not introduce OCR, text-content transfer, font substitution or a drawing-command protocol.",
       "remaining": "Complete application/toolkit, overlapping-input, occlusion and lifecycle acceptance together with host scheduling and video queue qualification. The measured queue issue is not evidence that another guest protocol expansion is required."
     },
-    "evidence_directory": "dist/rdp-hybrid/packet-capacity-exp108",
+    "evidence_directory": "dist/rdp-hybrid/flight-drain-exp111",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -134,7 +134,8 @@
       "A confirmed cropped-codec retune after a picture larger than100ms of path payload admits one fresh predictive picture before its IDR; only one deferral, unchanged quality/budget/dwell and explicit repair bypass.",
       "A moderate received-feedback slowdown needs old matched receipts spanning100ms; timers alone cannot confirm it. A measured delivery below half offered load retains immediate reaction; legacy/RTCP loss and raw FIFO bounds remain.",
       "Private negotiated TWCC packet credit with bounded authenticated parsing/history, final-dispatch numbering and wire-cost reservation. Complete-frame image/layout fences stay separate.106 retains send timing after frame ACKs for the pending packet-capacity controller.",
-      "Private108 packet-clock capacity/queue controller consumes matched TWCC timing, including reports after frame ACKs; bounded100ms delivery and overuse/transit checks retain active probes, RTCP/legacy/shared guards and fixed full-desktop quality."
+      "Private108 packet-clock capacity/queue controller consumes matched TWCC timing, including reports after frame ACKs; bounded100ms delivery and overuse/transit checks retain active probes, RTCP/legacy/shared guards and fixed full-desktop quality.",
+      "Private111 retained old-flight admission allowance bounded by prior baseline window and actual outstanding bytes, retired by actual prefix receipt or1.5s expiry; no fake frame ACK, extra pacing rate, codec retune or predictive-frame drop."
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -222,10 +223,14 @@
       "105168/106170 full bridge tests pass; both frozen parsers replay440 real reports. Native105 really receives3159 reports but full media still fails cadence/recovery/463.03ms source-age excess. Short106 verifies8880 actual RTP wire costs and1133 complete AU reservations without mismatch;8831 unique packet IDs/timed delivery samples match. No full106 media or audio/RTX/matrix acceptance; production35/session PIDs unchanged.",
       "Private108:179 packaged core tests pass, including9 deterministic packet-capacity/repair/clock/fallback/shared tests and a short continuous-TCP-slowdown regression that fails before the fix.",
       "Full native108 QSV H264:48.645/45.742/46.966 sourcefps, gaps<=150ms, glyph<=325ms, exact static pixels, exactly15 guest characters, same stream and full8000kbit/s recovery;15/16 gates pass, but542.101ms source-age excess fails400ms. Full native107 also fails source age and full-rate recovery; both raw profiles are retained.",
-      "Native108:69499 final RTP packets and9144 complete-AU reservations match wire costs,69373 unique video delivery samples match actual dispatch across sequence wrap, all credit frontiers are bounded and49 timing batches remain useful without prefix advancement; this accounting does not waive source freshness."
+      "Native108:69499 final RTP packets and9144 complete-AU reservations match wire costs,69373 unique video delivery samples match actual dispatch across sequence wrap, all credit frontiers are bounded and49 timing batches remain useful without prefix advancement; this accounting does not waive source freshness.",
+      "Retained111:185 packaged core tests, including6 actual-window/partial-credit/expiry/legacy/integration contracts. Full native111 still fails400ms source freshness despite passing15/16 unchanged gates; no current repeat or LXC acceptance.",
+      "Native111:97574 final RTP records,9972 complete-AU reservations and97515 unique received video timing samples have strict matching charge/identity/credit proofs.10020 complete forwarded AVC AUs independently decode with zero errors, duplication or drops.",
+      "Native111 raw-source-ID and composed-monitor peaks agree; measured receiver-clock packet transit rises363.580ms above the healthy baseline. The peak has17.2ms after the encoded callback. Wrong-layer/oracle and decoder-only explanations do not account for this peak.",
+      "All rejected110/113/114/115 full profiles and source/binary snapshots are retained.110 collector was recovered from the same closed run; bounded256-row snapshots fix collection without changing media gates. Production35 and original VM/guest process starts remain unchanged."
     ],
     "pending": [
-      "Rework replaceable admission before RTP packetization and reference-safe fresh-keyframe recovery for obsolete encoded work. Inspect aiortc next-encoded-frame ownership so an unsent frame may be replaced before sequence/counter assignment; never drop arbitrary predictive frames or abandon a partially dispatched RTP frame. Preserve complete-frame image/layout fences, codec quality/dwell, actual wire charging and shared/legacy behavior. Then repeat the unchanged native/LXC/hard-cut gates.",
+      "Implement and qualify a capability-negotiated, host-only confirmed cropped-rate refresh: after packet-confirmed severe congestion, establish the new cropped codec target before requesting a fresh independent picture, then retire only uncommitted dependent work before RTP sequence/history assignment. Preserve ordinary transient/dwell/quiet guards, full-desktop quality, old-worker/guest fallback, complete-frame image/layout fences and the unchanged native/LXC/fidelity gates. Do not resend an81KiB old-rate IDR as low-latency recovery.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -266,9 +271,10 @@
       "dist/rdp-hybrid/frame-queue-exp103",
       "dist/rdp-hybrid/packet-feedback-exp104",
       "dist/rdp-hybrid/transport-credit-exp106",
-      "dist/rdp-hybrid/packet-capacity-exp108"
+      "dist/rdp-hybrid/packet-capacity-exp108",
+      "dist/rdp-hybrid/flight-drain-exp111"
     ],
-    "next_action": "Rework replaceable admission before RTP packetization and reference-safe fresh-keyframe recovery for obsolete encoded work. Inspect aiortc next-encoded-frame ownership so an unsent frame may be replaced before sequence/counter assignment; never drop arbitrary predictive frames or abandon a partially dispatched RTP frame. Preserve complete-frame image/layout fences, codec quality/dwell, actual wire charging and shared/legacy behavior. Then repeat the unchanged native/LXC/hard-cut gates. Complete the entire remaining qualification/release/rollout/discussion scope afterward.",
+    "next_action": "Implement and qualify a capability-negotiated, host-only confirmed cropped-rate refresh: after packet-confirmed severe congestion, establish the new cropped codec target before requesting a fresh independent picture, then retire only uncommitted dependent work before RTP sequence/history assignment. Preserve ordinary transient/dwell/quiet guards, full-desktop quality, old-worker/guest fallback, complete-frame image/layout fences and the unchanged native/LXC/fidelity gates. Do not resend an81KiB old-rate IDR as low-latency recovery. Complete the entire remaining qualification/release/rollout/discussion scope afterward.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -324,7 +330,7 @@
     "next_steps": [
       {
         "id": "video-regions-and-queue",
-        "action": "Finish replaceable pre-packetization admission and reference-safe recovery for obsolete encoded work; packet-capacity control is implemented, but native108 source freshness still fails. Repeat all unchanged native/LXC queue and fidelity gates.",
+        "action": "Implement and qualify a capability-negotiated, host-only confirmed cropped-rate refresh: after packet-confirmed severe congestion, establish the new cropped codec target before requesting a fresh independent picture, then retire only uncommitted dependent work before RTP sequence/history assignment. Preserve ordinary transient/dwell/quiet guards, full-desktop quality, old-worker/guest fallback, complete-frame image/layout fences and the unchanged native/LXC/fidelity gates. Do not resend an81KiB old-rate IDR as low-latency recovery.",
         "gate": "Retain native45fps and LXC recovered50fps gates,500ms maximum gaps,400ms excess source age,600ms glyph latency, exact static pixels, exactly-once input, same stream and full configured-rate recovery; repeat passing runs and retain failures"
       },
       {
@@ -442,7 +448,8 @@
     "frame_queue": "docs/rdp-frame-queue-20261029.json",
     "packet_feedback": "docs/rdp-packet-feedback-20261029.json",
     "transport_credit": "docs/rdp-transport-credit-20261029.json",
-    "packet_capacity": "docs/rdp-packet-capacity-20261029.json"
+    "packet_capacity": "docs/rdp-packet-capacity-20261029.json",
+    "flight_drain": "docs/rdp-flight-drain-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",

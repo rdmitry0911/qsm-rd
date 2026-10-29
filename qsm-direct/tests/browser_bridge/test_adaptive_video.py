@@ -771,6 +771,83 @@ class PresentationHistoryTests(unittest.TestCase):
 
 
 class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
+    def drain_state(self, now):
+        return SimpleNamespace(presented_time=now, presented_base=.11, presented_delay=.115,
+                               presented_kbps=6000, presented_offered_kbps=6000,
+                               feedback_kind='received', received_rapid_time=now)
+
+    async def test_retained_flight_drains_packets_without_acknowledging_a_frame(self):
+        history = _VideoPresentation()
+        state = self.drain_state(time.monotonic())
+        history.sent(10, 100000)
+        sent, delivered = [100000], [10000]
+        history.retain_flight(100000, 0, 126000)
+        async def admission():
+            return await history.wait_for_credit(lambda: sent[0], lambda: state,
+                bitrate_kbps=2000, frame_wire_bytes=20000, packet_credit=lambda _: delivered[0])
+        await asyncio.wait_for(admission(), .02)
+        self.assertEqual(history.credit_waits, 0)
+        self.assertEqual(history._acknowledged_bytes, 0)
+        sent[0] = 120000
+        pending = asyncio.create_task(admission())
+        await asyncio.sleep(.005)
+        self.assertFalse(pending.done(), 'the old window cannot grow to fit a new picture')
+        delivered[0] = 25000
+        history._wake.set()
+        await asyncio.wait_for(pending, .03)
+        self.assertEqual(history._draining_limit, 100000)
+        sent[0] = 240000
+        pending = asyncio.create_task(admission())
+        await asyncio.sleep(.005)
+        delivered[0] = 100000
+        history._wake.set()
+        await asyncio.sleep(.005)
+        self.assertEqual(history._draining_limit, 0, 'the old sent prefix has arrived')
+        self.assertFalse(pending.done(), 'new flight must now fit the lower target')
+        delivered[0] = 220000
+        history._wake.set()
+        await asyncio.wait_for(pending, .03)
+        self.assertEqual(history._acknowledged_bytes, 0, 'packet delivery never acknowledges pixels')
+
+    async def test_retained_flight_requires_packet_credit(self):
+        history = _VideoPresentation()
+        state = self.drain_state(time.monotonic())
+        history.sent(10, 100000)
+        history.retain_flight(100000, 0, 126000)
+        pending = asyncio.create_task(history.wait_for_credit(lambda: 100000, lambda: state,
+            bitrate_kbps=2000, frame_wire_bytes=20000))
+        await asyncio.sleep(.005)
+        self.assertEqual(history._draining_limit, 0)
+        self.assertFalse(pending.done())
+        history.acknowledge(10)
+        await asyncio.wait_for(pending, .03)
+
+    async def test_retained_flight_expires_without_inventing_delivery(self):
+        now = [10.]
+        history = _VideoPresentation(clock=lambda: now[0])
+        history.sent(10, 100000)
+        history.retain_flight(100000, 0, 126000)
+        now[0] = 11.6
+        state = self.drain_state(now[0])
+        pending = asyncio.create_task(history.wait_for_credit(lambda: 100000, lambda: state,
+            bitrate_kbps=2000, frame_wire_bytes=20000, packet_credit=lambda _: 0))
+        await asyncio.sleep(.005)
+        self.assertEqual(history._draining_limit, 0)
+        self.assertFalse(pending.done())
+        self.assertEqual(history._acknowledged_bytes, 0)
+        history.acknowledge(10)
+        await asyncio.wait_for(pending, .03)
+
+    async def test_retained_flight_is_bounded_by_prior_limit_and_valid_host_bytes(self):
+        history = _VideoPresentation()
+        history.retain_flight(100000, 10000, 50000)
+        self.assertEqual(history._draining_limit, 50000)
+        for args in ((True, 0, 1000000), (100, 101, 1000000), (100, -1, 1000000), (100, 0, -1)):
+            history.retain_flight(*args)
+            self.assertEqual(history._draining_limit, 50000)
+        history.retain_flight(100000, 100000, 1000000)
+        self.assertEqual(history._draining_limit, 0)
+
     async def test_cancelled_credit_wait_releases_raw_producer(self):
         history = _VideoPresentation()
         now = time.monotonic()
@@ -1018,6 +1095,57 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_confirmed_packet_cut_retains_old_flight_with_new_pacing_and_no_idr(self):
+        from extensions.browser_bridge.qsm_browser_bridge import _ReceiverFeedback
+        from extensions.browser_bridge.qsm_transport_feedback import PacketHistory
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            now = time.monotonic()
+            state = _ReceiverFeedback(now, presented_time=now, presented_base=.11,
+                                      feedback_kind='received', received_rapid_time=now)
+            state.packet_delivery = DeliveryEstimator()
+            state.packet_delivery.updated = now
+            state.packet_delivery.queued = True
+            bridge._video_rate._receivers[bridge] = state
+            bridge._twcc_history = PacketHistory({1})
+            for _ in range(10):bridge._twcc_history.sent(10000)
+            bridge._video_pacer.sent_bytes = 100000
+            bridge._video_received.sent(10, 100000)
+            requested = []
+            bridge.input.request_keyframe = lambda: requested.append(True)
+            bridge.video_track.put_nowait(EncodedUnit(b'I', True, 1500))
+            bridge.video_track.put_nowait(EncodedUnit(b'P', False, 1500))
+            try:
+                bridge._video_rate_changed(1700)
+                self.assertEqual(bridge._video_pacer._rate, 1700 * 1000 / 8)
+                self.assertEqual(bridge._video_received._draining_end, 100000)
+                self.assertEqual(bridge._video_received._draining_limit, 100000)
+                self.assertEqual(bridge._video_received._acknowledged_bytes, 0)
+                self.assertEqual(bridge.video_track._queue.qsize(), 2)
+                self.assertEqual(requested, [])
+            finally:
+                await bridge.close()
+
+    async def test_legacy_or_minor_cut_cannot_retain_an_unknown_flight(self):
+        from extensions.browser_bridge.qsm_browser_bridge import _ReceiverFeedback
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            now = time.monotonic()
+            state = _ReceiverFeedback(now, presented_time=now, presented_base=.11,
+                                      feedback_kind='received', received_rapid_time=now)
+            state.packet_delivery = DeliveryEstimator()
+            state.packet_delivery.updated = now
+            state.packet_delivery.queued = True
+            bridge._video_rate._receivers[bridge] = state
+            bridge._video_pacer.sent_bytes = 100000
+            try:
+                bridge._video_rate_changed(6000)
+                self.assertEqual(bridge._video_received._draining_limit, 0)
+                bridge._video_rate_changed(1000)
+                self.assertEqual(bridge._video_received._draining_limit, 0, 'no negotiated packet history')
+            finally:
+                await bridge.close()
+
     async def test_one_future_frame_pauses_only_while_an_au_is_in_progress(self):
         with tempfile.TemporaryDirectory() as directory:
             bridge = BrowserWebRtcBridge(Path(directory))
