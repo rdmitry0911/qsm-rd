@@ -35,7 +35,7 @@ class DeliveryEstimator:
         self.updated = self.sent_at = float('-inf')
         self.serial = self.bytes = 0
         self.kbps = self.offered_kbps = self.queue_excess = 0.
-        self.valid = self.queued = False
+        self.valid = self.queued = self.overusing = False
         self.pressure = False
 
     def fresh(self, now: float) -> bool:
@@ -76,6 +76,7 @@ class DeliveryEstimator:
             return False
         self.updated, self.sent_at = now, max(accepted)
         self.serial += 1
+        self.overusing = self._filter.detector.state() == BandwidthUsage.OVERUSING
         while self._baselines and now - self._baselines[0][0] >= 60:
             self._baselines.popleft()
         self._baselines.append((now, min(transits)))
@@ -118,7 +119,7 @@ class DeliveryEstimator:
         # of transit; a50ms threshold mistakes that repair for a new capacity.
         severe = self.kbps < self.offered_kbps * .5
         self.queued = (self.valid and not draining and self.queue_excess > (.05 if severe else .1) and
-                       self._filter.detector.state() == BandwidthUsage.OVERUSING and
+                       self.overusing and
                        self.kbps < self.offered_kbps * .85)
         return True
 

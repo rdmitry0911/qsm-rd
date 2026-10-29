@@ -1155,6 +1155,29 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
 
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_normal_packet_timing_pulse_cannot_hold_fast_video(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = BrowserWebRtcBridge(Path(directory))
+            state = self.packet_congestion(bridge)
+            delivery = state.packet_delivery
+            # The live fast-link hard-cut trace had39 such advisory pulses,
+            # all with a NORMAL trend and no canonical queue or frame hint.
+            delivery.pressure = True
+            delivery.queued = delivery.overusing = False
+            delivery.queue_excess = .0272
+            try:
+                bridge._update_packet_admission()
+                self.assertEqual(bridge._packet_hold_until, 0,
+                                 'a short pulse without an overuse trend cannot pause fast video')
+                delivery.overusing = True
+                delivery.serial += 1
+                bridge._update_packet_admission()
+                self.assertGreater(bridge._packet_hold_until, time.monotonic())
+                self.assertEqual(bridge._video_rate.current_kbps, 8000)
+                self.assertEqual(bridge._video_received._acknowledged_bytes, 0)
+            finally:
+                await bridge.close()
+
     @staticmethod
     def growing_frame_receipt(bridge):
         """Matched native QSV receipt before the first canonical path cut."""
@@ -1314,6 +1337,7 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         state.packet_delivery = DeliveryEstimator()
         state.packet_delivery.updated = state.packet_delivery.sent_at = now
         state.packet_delivery.valid = state.packet_delivery.queued = True
+        state.packet_delivery.overusing = True
         state.packet_delivery.serial = 1
         state.packet_delivery.kbps = 2000
         state.packet_delivery.offered_kbps = 6000

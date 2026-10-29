@@ -2978,7 +2978,12 @@ class BrowserWebRtcBridge:
                           state.presented_delay > samples[-2][0] - samples[-2][1] + .005 and
                           state.presented_offered_kbps >= self._video_rate.current_kbps * .4 and
                           0 < state.presented_kbps < state.presented_offered_kbps * .85)
-        if ((new_packet and delivery.pressure) or frame_pressure) and self._packet_hold_armed:
+        # A fast TCP stream can show a short receiver-clock pulse while the
+        # overuse trend stays normal. Pausing each such pulse creates its own
+        # cadence loss. Packet-only hints need the independent overuse trend;
+        # the matched growing-frame hint above keeps its separate evidence.
+        packet_pressure = new_packet and delivery.pressure and delivery.overusing
+        if (packet_pressure or frame_pressure) and self._packet_hold_armed:
             self._packet_hold_until = now + .075
             self._packet_hold_armed = False
             self._video_received._wake.set()

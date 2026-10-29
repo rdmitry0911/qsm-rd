@@ -81,7 +81,7 @@
   ],
   "checkpoint": {
     "stage": "video-regions-and-queue",
-    "candidate": "Private121;200 bridge tests; LXC/NVENC transition passes13/13, native QSV fails source-age/recovery and hard-cut/component cadence remains below gates. No release qualification.",
+    "candidate": "Private122;201 bridge tests; NORMAL-trend packet holds removed on real fast path; hard-cut cadence/SSIM still fail, exact native122/full transition qualification pending.",
     "guest_extension_role": {
       "required_for_metadata_priority": "Expanded VM/LXC agents supply window geometry, stacking, visibility, focus and supported caret/input-component bounds over the existing guest transport.",
       "implemented_scope": "KWin session integration, optional Qt5/Qt6 input-geometry plugin and accessibility producers have documented checks; this does not establish universal toolkit or application coverage.",
@@ -89,7 +89,7 @@
       "rendering": "The browser composes actual guest pixels; this plan does not introduce OCR, text-content transfer, font substitution or a drawing-command protocol.",
       "remaining": "Complete application/toolkit, overlapping-input, occlusion and lifecycle acceptance together with host scheduling and video queue qualification. The measured queue issue is not evidence that another guest protocol expansion is required."
     },
-    "evidence_directory": "dist/rdp-hybrid/frame-admission-exp121",
+    "evidence_directory": "dist/rdp-hybrid/packet-trend-exp122",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -145,7 +145,9 @@
       "A legacy-cadence ACK wake cannot end an active packet-evidenced hold early; its existing bounded deadline remains. Ordinary codec dwell/quiet, fixed full-desktop quality, actual byte debt and private-only opcode routing remain.",
       "A growing matched received-frame delay with sufficient recent byte volume can start the existing one-off75ms pre-RTP hold before the next packet report. Fresh packet feedback, actual crop and UI readiness remain required.",
       "Duplicate frame reports cannot extend the episode; display-only delay, tiny samples, falling age, fast delivery and stale feedback do not supply the new hint. No codec target, image ACK, flight credit, guest protocol or pacing rate changes at this hint.",
-      "Matched cursor-channel receipt handling installs the hold before the awakened RTP waiter resumes; a canonical cut still owns correlated low-rate repair."
+      "Matched cursor-channel receipt handling installs the hold before the awakened RTP waiter resumes; a canonical cut still owns correlated low-rate repair.",
+      "Expose the existing estimator overuse state without changing its canonical queue, byte or capacity arithmetic.",
+      "Require overuse corroboration for a packet-only advisory hold. The separate growing matched-frame hint, confirmed-cut repair, raw leases, pacing and actual byte debt retain their behavior."
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -250,10 +252,12 @@
       "121 LXC/NVENC passes13/13: source excess200.139ms, glyph98ms, recovered50.93fps/full8000, static exact and15 characters once;147 real TCP drops. Native121 fails419.072ms excess and final4535 despite other gates passing.",
       "Independently decoded9926/10055 native120/121 and8324/8249 LXC120repeat/121 AUs; strict packet accounting passes all four profiles. Raw and composed source-age peaks agree.",
       "121 hard-cut original/diagnostic fail SSIM and cadence; no stale exact pixels. Component fast phase has11 exact pixel oracles, line/plain peaks69/181ms, no pixel resurrection, but42.23fps fails50; remaining phases are unexecuted.",
-      "Passive hard-cut fast trace finds39 packet-pressure holds with NORMAL overuse and zero frame-only hints;18 low-queue clear reports arrive before the hold deadline."
+      "Passive hard-cut fast trace finds39 packet-pressure holds with NORMAL overuse and zero frame-only hints;18 low-queue clear reports arrive before the hold deadline.",
+      "122 normal-pulse admission regression fails before;201 complete target-SDK tests pass after. Canonical packet-capacity arithmetic and worker/guest payloads unchanged.",
+      "122 passive hard-cut fast path has zero early holds versus39 NORMAL-trend packet holds in121;199 ordinary waits total5.531s. Fast43.49/narrow43.39fps and SSIM.8786 still fail the original gates. Static/source/snapshot/stale-pixel/gap checks and strict live packet accounting pass."
     ],
     "pending": [
-      "Fix repeated advisory holds on healthy packet timing (39/39 fast-path episodes have NORMAL overuse state), then remeasure fast/cropped hard-cut and component cadence without lowering gates. Also finish native source freshness during stalled feedback, transient-cut recovery, hard-cut SSIM, full application/codec/browser/long-session/RDP scope and matching release/rollout.",
+      "Resolve low-RTT cropped-video frame-credit waits:122 removes all fast-path early holds but still waits5.531s in20s and delivers43.49fps. Inspect actual packet-prefix credit, per-AU reservation and receipt cadence before changing admission; preserve byte accounting and source freshness. Repeat hard-cut/component and exact native/LXC transitions, then finish unchanged full qualification/release scope.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -298,9 +302,10 @@
       "dist/rdp-hybrid/flight-drain-exp111",
       "dist/rdp-hybrid/confirmed-refresh-exp119",
       "dist/rdp-hybrid/packet-cadence-exp120",
-      "dist/rdp-hybrid/frame-admission-exp121"
+      "dist/rdp-hybrid/frame-admission-exp121",
+      "dist/rdp-hybrid/packet-trend-exp122"
     ],
-    "next_action": "Fix repeated advisory holds on healthy packet timing (39/39 fast-path episodes have NORMAL overuse state), then remeasure fast/cropped hard-cut and component cadence without lowering gates. Also finish native source freshness during stalled feedback, transient-cut recovery, hard-cut SSIM, full application/codec/browser/long-session/RDP scope and matching release/rollout.",
+    "next_action": "Resolve low-RTT cropped-video frame-credit waits:122 removes all fast-path early holds but still waits5.531s in20s and delivers43.49fps. Inspect actual packet-prefix credit, per-AU reservation and receipt cadence before changing admission; preserve byte accounting and source freshness. Repeat hard-cut/component and exact native/LXC transitions, then finish unchanged full qualification/release scope.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -356,7 +361,7 @@
     "next_steps": [
       {
         "id": "video-regions-and-queue",
-        "action": "Fix repeated advisory holds on healthy packet timing (39/39 fast-path episodes have NORMAL overuse state), then remeasure fast/cropped hard-cut and component cadence without lowering gates. Also finish native source freshness during stalled feedback, transient-cut recovery, hard-cut SSIM, full application/codec/browser/long-session/RDP scope and matching release/rollout.",
+        "action": "Resolve low-RTT cropped-video frame-credit waits:122 removes all fast-path early holds but still waits5.531s in20s and delivers43.49fps. Inspect actual packet-prefix credit, per-AU reservation and receipt cadence before changing admission; preserve byte accounting and source freshness. Repeat hard-cut/component and exact native/LXC transitions, then finish unchanged full qualification/release scope.",
         "gate": "Retain native45fps and LXC recovered50fps gates,500ms maximum gaps,400ms excess source age,600ms glyph latency, exact static pixels, exactly-once input, same stream and full configured-rate recovery; repeat passing runs and retain failures"
       },
       {
@@ -478,7 +483,8 @@
     "flight_drain": "docs/rdp-flight-drain-20261029.json",
     "confirmed_refresh": "docs/rdp-confirmed-refresh-20261029.json",
     "packet_cadence": "docs/rdp-packet-cadence-20261029.json",
-    "frame_admission": "docs/rdp-frame-admission-20261029.json"
+    "frame_admission": "docs/rdp-frame-admission-20261029.json",
+    "packet_trend": "docs/rdp-packet-trend-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",

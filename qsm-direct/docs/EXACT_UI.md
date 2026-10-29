@@ -179,6 +179,13 @@ only the completed fast phase. The passive trace exposes repeated packet hints
 while the overuse filter is NORMAL. These are private diagnostics, not release
 qualification; see the [frame-admission report](rdp-frame-admission-20261029.json).
 
+Private122 requires the estimator overuse trend for a packet-only early hold.
+The growing matched-frame hint remains independent. The201-test suite passes;
+the fast hard-cut trace has no early holds, but ordinary flight-credit waits
+still occupy5.53s of20s. Fast43.49/narrow43.39fps and narrow SSIM.879 fail the
+unchanged gates. Native/full transition and remaining qualification stay open;
+see the [packet-trend report](rdp-packet-trend-20261029.json).
+
 Frame-aware waits permit one baseline round trip, bounded to 50–250 ms, with
 one deadline across all acknowledgements. Short healthy waits keep raw capture
 history; a wait lasting one short media tick applies the bounded raw lease.

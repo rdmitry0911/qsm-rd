@@ -1,0 +1,314 @@
+{
+  "date": "2026-10-29",
+  "status": "private122_false_packet_holds_removed_full_qualification_incomplete",
+  "source_base_commit": "a61c375",
+  "source": {
+    "version": "0.4.0+stock4.14~exp122",
+    "deb_sha256": "a1fa8cede08daa21e4f3bf7719dc0c78f9d382fd9d520d6bae2c1c06dcb326bb",
+    "worker_sha256": "f433e3b2d244f046ba50574801f51fbbb519d2cd6c9d2251a36fba7346d0bc14",
+    "bridge_sha256": "75134554aed0ee2a8c58d06bc6041082a7d536322c36c5adef0e66966dad2c8b",
+    "transport_sha256": "5531c7b764b979ae84eb53fcb637a71940ee47a79e8fdb9c236a1f25a332dff7",
+    "private_selector": 122,
+    "production_changed": false
+  },
+  "evidence_directory": "dist/rdp-hybrid/packet-trend-exp122",
+  "artifact_count": 44,
+  "artifact_bytes": 125730687,
+  "artifact_manifest_sha256": "d507d1ac9028ab2e274dce93290ebd65cd170e43875bd15f99291e754eaf340d",
+  "diagnosis_basis": "docs/rdp-frame-admission-20261029.json;121 passive fast trace has39 packet-only holds, all NORMAL overuse; no frame-only hints.",
+  "implemented": [
+    "Expose the existing estimator overuse state without changing its canonical queue, byte or capacity arithmetic.",
+    "Require overuse corroboration for a packet-only advisory hold. The separate growing matched-frame hint, confirmed-cut repair, raw leases, pacing and actual byte debt retain their behavior."
+  ],
+  "tests": {
+    "before": "Live-trace-derived normal-pulse admission regression fails against121; exact log retained.",
+    "after": "201 packaged bridge tests pass in the isolated target SDK.",
+    "worker": "Same f433e3b2d244f046ba50574801f51fbbb519d2cd6c9d2251a36fba7346d0bc14 worker; no codec/guest source change."
+  },
+  "checks": {
+    "quality_rgb": true,
+    "quality_ssim": false,
+    "no_visible_stale_exact_tiles": true,
+    "static_ui_exact": true,
+    "source_ids_valid": true,
+    "snapshot_ids_match": true,
+    "cadence": false,
+    "no_long_gap": true
+  },
+  "phases": [
+    {
+      "name": "fast",
+      "unique_source_fps": 43.489127718070485,
+      "max_gap_ms": 101,
+      "first_cut_min_rgb_psnr": 35.90869178087746,
+      "first_cut_min_ssim_8x8_box": 0.9812652392356136,
+      "max_strong_stale_exact_matches": 0
+    },
+    {
+      "name": "narrow",
+      "unique_source_fps": 43.38553815394869,
+      "max_gap_ms": 167,
+      "first_cut_min_rgb_psnr": 30.615712094017276,
+      "first_cut_min_ssim_8x8_box": 0.878587447430343,
+      "max_strong_stale_exact_matches": 0
+    }
+  ],
+  "admission_diagnosis": {
+    "fast_early_holds": 0,
+    "fast_packet_only_holds": 0,
+    "fast_frame_hints": 0,
+    "fast_positive_waits": 199,
+    "sum_positive_wait_seconds": 5.530758044216782,
+    "median_positive_wait_ms": 29.0840701200068,
+    "longest_waits": [
+      {
+        "t": 3448263.343281925,
+        "waited": 0.05143837118521333,
+        "sent_before": 21790601,
+        "acked_before": 21765721,
+        "serial_before": 1708,
+        "ack_serial_before": 1706,
+        "outstanding_before": 24880,
+        "outstanding_after": 14767,
+        "retained_limit": 0,
+        "retained_end": 0,
+        "frame_wire_bytes": 14946,
+        "target_after": 8000,
+        "target": 8000,
+        "delay": 0.020884727127850056,
+        "base": 0.009635233785957098
+      },
+      {
+        "t": 3448269.356146049,
+        "waited": 0.05107970116659999,
+        "sent_before": 24646087,
+        "acked_before": 24619774,
+        "serial_before": 1928,
+        "ack_serial_before": 1926,
+        "outstanding_before": 26313,
+        "outstanding_after": 12929,
+        "retained_limit": 0,
+        "retained_end": 0,
+        "frame_wire_bytes": 16675,
+        "target_after": 8000,
+        "target": 8000,
+        "delay": 0.03764096088707447,
+        "base": 0.010930267162621021
+      },
+      {
+        "t": 3448252.957309064,
+        "waited": 0.04881996056064963,
+        "sent_before": 15307827,
+        "acked_before": 15281614,
+        "serial_before": 1202,
+        "ack_serial_before": 1200,
+        "outstanding_before": 26213,
+        "outstanding_after": 26213,
+        "retained_limit": 0,
+        "retained_end": 0,
+        "frame_wire_bytes": 12972,
+        "target_after": 8000,
+        "target": 8000,
+        "delay": 0.03470491897314787,
+        "base": 0.008824358228594065
+      },
+      {
+        "t": 3448262.996421662,
+        "waited": 0.04543267283588648,
+        "sent_before": 21643769,
+        "acked_before": 21630246,
+        "serial_before": 1697,
+        "ack_serial_before": 1696,
+        "outstanding_before": 13523,
+        "outstanding_after": 13523,
+        "retained_limit": 0,
+        "retained_end": 0,
+        "frame_wire_bytes": 12933,
+        "target_after": 8000,
+        "target": 8000,
+        "delay": 0.020926184952259064,
+        "base": 0.009635233785957098
+      },
+      {
+        "t": 3448265.356179588,
+        "waited": 0.04197945073246956,
+        "sent_before": 22756161,
+        "acked_before": 22694108,
+        "serial_before": 1775,
+        "ack_serial_before": 1773,
+        "outstanding_before": 62053,
+        "outstanding_after": 0,
+        "retained_limit": 0,
+        "retained_end": 0,
+        "frame_wire_bytes": 50105,
+        "target_after": 8000,
+        "target": 8000,
+        "delay": 0.04173435689881444,
+        "base": 0.00994166499003768
+      },
+      {
+        "t": 3448265.813988725,
+        "waited": 0.04180857725441456,
+        "sent_before": 22965582,
+        "acked_before": 22947588,
+        "serial_before": 1794,
+        "ack_serial_before": 1793,
+        "outstanding_before": 17994,
+        "outstanding_after": 0,
+        "retained_limit": 0,
+        "retained_end": 0,
+        "frame_wire_bytes": 9360,
+        "target_after": 8000,
+        "target": 8000,
+        "delay": 0.04149687709286809,
+        "base": 0.009969526901841164
+      }
+    ],
+    "canonical_cuts": [
+      {
+        "t": 3448270.025934917,
+        "from": 8000.0,
+        "to": 1753,
+        "kind": "received",
+        "rapid_age": 1.6556572439149022,
+        "packet_fresh": true,
+        "packet_queued": true,
+        "packet_valid": true,
+        "region": [
+          1280,
+          720,
+          640,
+          64,
+          640,
+          448
+        ]
+      },
+      {
+        "t": 3448300.111124936,
+        "from": 1753.0,
+        "to": 2191,
+        "kind": "received",
+        "rapid_age": 0.03253088006749749,
+        "packet_fresh": true,
+        "packet_queued": false,
+        "packet_valid": true,
+        "region": [
+          1280,
+          720,
+          640,
+          64,
+          640,
+          448
+        ]
+      },
+      {
+        "t": 3448306.113538612,
+        "from": 2191.0,
+        "to": 2738,
+        "kind": "received",
+        "rapid_age": 1.0017599831335247,
+        "packet_fresh": true,
+        "packet_queued": false,
+        "packet_valid": true,
+        "region": [
+          1280,
+          720,
+          640,
+          64,
+          640,
+          448
+        ]
+      },
+      {
+        "t": 3448312.235373063,
+        "from": 2738.0,
+        "to": 3422,
+        "kind": "received",
+        "rapid_age": 1.6530272220261395,
+        "packet_fresh": true,
+        "packet_queued": false,
+        "packet_valid": true,
+        "region": [
+          1280,
+          720,
+          640,
+          64,
+          640,
+          448
+        ]
+      },
+      {
+        "t": 3448315.436985698,
+        "from": 3422.0,
+        "to": 1650,
+        "kind": "received",
+        "rapid_age": 0.024795835837721825,
+        "packet_fresh": true,
+        "packet_queued": true,
+        "packet_valid": true,
+        "region": [
+          1280,
+          720,
+          640,
+          64,
+          640,
+          448
+        ]
+      }
+    ]
+  },
+  "packet_accounting": {
+    "scope": "LXC/NVENC122 packet accounting; the full media verdict remains independent.",
+    "twcc_enabled": true,
+    "module_sha256": "5531c7b764b979ae84eb53fcb637a71940ee47a79e8fdb9c236a1f25a332dff7",
+    "actual_final_rtp_packets": 35780,
+    "video_packets": 35780,
+    "transport_sequence_wraps": 0,
+    "actual_wire_matches_pacer": true,
+    "complete_frame_reservations_checked": 4279,
+    "reservation_errors": 0,
+    "feedback_reports": 1910,
+    "unique_received_packets": 35762,
+    "timed_video_samples": 35762,
+    "timing_batches_without_prefix_advance": 271,
+    "max_history_to_dispatch_ms": 0.7833340205252171,
+    "all_reported_packets_match_actual_dispatch": true,
+    "credit_frontier_errors": 0,
+    "capacity_observations": 1910,
+    "max_history_records": 5514,
+    "trace_overflow": false,
+    "limits": [
+      "This live trial has video RTP only; audio/RTX ownership retains unit coverage and needs matching live qualification.",
+      "Source and receiver clocks have different origins; transit changes and within-clock intervals are used, not absolute one-way latency."
+    ]
+  },
+  "production": {
+    "production_package": "0.4.0+stock4.14~exp35",
+    "original_terminal_and_user_vm103_unchanged": true,
+    "owned_graphics_and_metadata_start_ticks": {
+      "444366": 241353958,
+      "444367": 241353959,
+      "444390": 241353968,
+      "3829222": 336885310,
+      "4091558": 340029304
+    },
+    "owned_fixture": {
+      "pid": 3829227,
+      "start_ticks": 336885318,
+      "executable": "python3",
+      "owned_script": [
+        "/opt/qsm-rdp-hybrid-20261028/fixture.py"
+      ]
+    },
+    "lxc_init": 875731,
+    "diagnostic_workers_remaining": []
+  },
+  "limits": [
+    "One owned LXC108/NVENC H264/Linux Firefox hard-cut profile over actual gateway TURN/TCP8006 with shaped20M/2M downlink and no added packet loss. Launch/ACL mocked; no public-NAT/browser/matrix/soak acceptance.",
+    "Zero fast early holds confirms removal of the observed NORMAL-trend hold path. Measured43.49 versus the prior diagnostic40.84fps is not a controlled paired performance comparison or complete performance fix.",
+    "Fast50fps, narrow45fps and SSIM.90 gates still fail; RGB26dB, exact static pixels, valid source/snapshot IDs, no stale exact video and500ms gaps pass.",
+    "Native122/full transition/component requalification is pending. Prior121 native419.072ms/final4535 failure and120 repeat recovery failure remain valid; this check cannot supersede them.",
+    "Full application/codec/long-session/resource/browser/RDP qualification and matching seven-package/source/signatures/APT/docs/rollout/discussion updates remain; no production install or publication."
+  ],
+  "next_action": "Resolve low-RTT cropped-video frame-credit waits:122 removes all fast-path early holds but still waits5.531s in20s and delivers43.49fps. Inspect actual packet-prefix credit, per-AU reservation and receipt cadence before changing admission; preserve byte accounting and source freshness. Repeat hard-cut/component and exact native/LXC transitions, then finish unchanged full qualification/release scope."
+}
