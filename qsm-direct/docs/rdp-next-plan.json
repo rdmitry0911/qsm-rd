@@ -81,7 +81,7 @@
   ],
   "checkpoint": {
     "stage": "video-regions-and-queue",
-    "candidate": "Private125;205 isolated bridge tests; LXC/NVENC and native QSV pass video/source-age/static/input gates. Late bitrate cuts leave final3510/1772 targets, so full qualification and release remain open.",
+    "candidate": "Private127;209 isolated bridge tests. LXC/NVENC passes all original transition gates and scoped22 component pixel oracles. Native VAAPI age/cadence, hardcut fast cadence and Mac timing remain incomplete.",
     "guest_extension_role": {
       "required_for_metadata_priority": "Expanded VM/LXC agents supply window geometry, stacking, visibility, focus and supported caret/input-component bounds over the existing guest transport.",
       "implemented_scope": "KWin session integration, optional Qt5/Qt6 input-geometry plugin and accessibility producers have documented checks; this does not establish universal toolkit or application coverage.",
@@ -89,7 +89,7 @@
       "rendering": "The browser composes actual guest pixels; this plan does not introduce OCR, text-content transfer, font substitution or a drawing-command protocol.",
       "remaining": "Complete application/toolkit, overlapping-input, occlusion and lifecycle acceptance together with host scheduling and video queue qualification. The measured queue issue is not evidence that another guest protocol expansion is required."
     },
-    "evidence_directory": "dist/rdp-hybrid/deferred-refresh-exp125",
+    "evidence_directory": "dist/rdp-hybrid/active-recovery-exp127",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -150,7 +150,9 @@
       "Require overuse corroboration for a packet-only advisory hold. The separate growing matched-frame hint, confirmed-cut repair, raw leases, pacing and actual byte debt retain their behavior.",
       "Separate rapid low-RTT frame dispatch reservation and receipt-feedback headroom; retain actual byte credit, pacing rate and bounded repair deadlines (private123).",
       "Private124 confirms a capacity slowdown with consecutive matched delivery observations; a normal/draining/invalid interval resets evidence. Existing byte-volume, transit, overuse and severity checks are retained.",
-      "Private125 arms confirmed refresh without discarding a live prediction chain; queue retirement and recovery serial advance occur only when a matching independent picture is available. Broken-chain recovery and in-progress RTP fragmentation retain their contracts."
+      "Private125 arms confirmed refresh without discarding a live prediction chain; queue retirement and recovery serial advance occur only when a matching independent picture is available. Broken-chain recovery and in-progress RTP fragmentation retain their contracts.",
+      "Packet-backed bounded25% active probes with exponential6/12/24/30s cooldown after failed probes; frame/legacy viewer policies remain conservative (private126).",
+      "Small-frame windows do not invent congestion; valid demanding packet delivery is still required for growth, and resumed stale flow restarts healthy evidence (private127)."
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -170,15 +172,15 @@
       "Real VM reboot: metadata recovers in ~11.4 seconds on the same host stream; guest boot changes while host boot and QEMU PID stay unchanged",
       "Exp48 packaged host acceptance, with and without cropping: independent move/close pixels regain full exact coverage with zero mismatches; visible overlap typing medians 65/74 ms without cropping on fast/2 Mbit/s links; cropped-video cadence regression remains open",
       "Real native LXC SDDM/PAM: package exp48 preserves outer display/SDDM PIDs; login starts metadata automatically, normal Plasma logout revokes hints and returns the greeter, login again creates a new metadata session on the same media worker/WebRTC/TCP8006 connection",
-      "Exp50 LXC crop: all static pixel/move/close/input/resize checks pass; raster-change samples 34\u201339/s versus exp48 crop ~14/s; those counters are not source-frame cadence and are superseded by the frame-id oracle",
+      "Exp50 LXC crop: all static pixel/move/close/input/resize checks pass; raster-change samples 34–39/s versus exp48 crop ~14/s; those counters are not source-frame cadence and are superseded by the frame-id oracle",
       "Persistent crop rate up/down/recovery uses 5600/1050 kbit/s codec targets; a 400 ms bad target does not retune; 2162 presented frames retain exact static pixels without gaps",
-      "Installed LXC metadata child crash: hints expire after ~3 seconds, new child restores layout after ~4.8 seconds on the same worker/WebRTC connection; 4-minute memory sample ~19\u201320 MiB",
+      "Installed LXC metadata child crash: hints expire after ~3 seconds, new child restores layout after ~4.8 seconds on the same worker/WebRTC connection; 4-minute memory sample ~19–20 MiB",
       "Native Gio ownership regression fails before fix (~37 MB RSS growth / 2200 calls), passes after (~0.1 MB); installed Debian13 VM exp50 passes same real-call/delayed-reply stress without native PID changes",
       "Frame-ID oracle corrects the old raster-hash cadence metric; exp35 synthetic source-ID baseline and matching pixel references are frozen",
       "Exp51 transition regression: 14 invalid composite counter observations in exp50, valid raw video plus 1024 old exact pixels; the same real 30-to-60 fps transition has zero invalid observations after the focused-retention fix",
       "Public 60 fps animation excerpt over TCP8006 at a 2 Mbit/s downlink: exp35 ~15.6 versus exp51 ~54.1 unique source frames/s; median RGB PSNR ~31.0 versus ~32.3 dB; scene-cut minimum remains explicitly tracked",
       "Exp51 overlap typing: 65/70 ms median on fast/2 Mbit/s links, all 65536 exact pixel samples equal, move/close coverage complete with zero mismatches; no-metadata fallback also passes pixels/move/close/input",
-      "Installed metadata helper completes 30 minutes under continuous owned video damage on the same PID/session, 18\u201320 MiB RSS, no new OOM or metadata availability loss; this is not a 30-minute full end-to-end mixed-content soak",
+      "Installed metadata helper completes 30 minutes under continuous owned video damage on the same PID/session, 18–20 MiB RSS, no new OOM or metadata availability loss; this is not a 30-minute full end-to-end mixed-content soak",
       "Exp57 real automatic 20-to-2-to-20 Mbit/s TURN/TCP8006 trial: ~55 source frames/s at 2 Mbit/s, full 8000 kbit/s target recovery, zero static-pixel/XOR mismatches in 8180 observations and exactly 15 guest characters; residual peak presentation 573 ms and glyph 712 ms fail the stricter transition gates",
       "Historical exp59 VM geometry loops both ran PyQt6 despite their requested-major labels; raw evidence retained and canonical report corrected. Separate actual-major-asserting exp63 verification covers both Qt5 and Qt6.",
       "Same-application edge reproducer: exp58 has 86 invalid composed marker observations at 30 fps with valid raw video; exp60 has zero at 30/60 fps, retires the layout when the field moves, preserves it for caret-only movement, and removes all old-field overlays from exposed video",
@@ -219,13 +221,13 @@
       "Exp84 before/after regression: old policy cuts8000->6000 on the first delayed receipt; corrected policy holds, then still cuts a genuine subsequent measured queue to2057. All133 target-SDK bridge tests pass.",
       "Exp84 both full8000->2M plus newly enabled0.3% TCP loss/15ms3ms jitter repeats pass all13 unchanged gates, with165/114 kernel drops. Narrow47.31/49.70fps, recovered52.62/52.01fps, full target8000 returns; source-age maxima469.65/550.03ms, glyph peaks173/124ms, zero phase overflows and exact static pixels/all15 input characters once. This is controlled LXC NVENC H264 scope only.",
       "Exp84 hard-cut gates all pass:51.47/51.01 sourcefps, gaps84/149ms, first-cut minimum RGB36.44/31.32dB and SSIM.9849/.9079; no stale exact tiles, invalid IDs or static mismatches.",
-      "Actual native VM QSV H264 reaches Firefox and typed glyphs, but software-capture cadence remains35\u201340fps and fails45fps. Direct capture without encoder/UI/network has35.54fps. The owned VM was restarted normally with VirGL/Intel; new QEMU3079308, KWin828, SDDM710, native agent675 and source fixture957. Actual virgl Intel renderer verified. Initial GL capture fails because the private extracted runtime cannot create either GBM device; the actual host creates both. Missing private Mesa driver parity must be repaired before product changes.",
+      "Actual native VM QSV H264 reaches Firefox and typed glyphs, but software-capture cadence remains35–40fps and fails45fps. Direct capture without encoder/UI/network has35.54fps. The owned VM was restarted normally with VirGL/Intel; new QEMU3079308, KWin828, SDDM710, native agent675 and source fixture957. Actual virgl Intel renderer verified. Initial GL capture fails because the private extracted runtime cannot create either GBM device; the actual host creates both. Missing private Mesa driver parity must be repaired before product changes.",
       "All seven84 packages are assembled; main34 payload entries and6 install/control entries equal the tested pilot. Full target-SDK133 bridge tests pass; portable Qt5/Qt6 GUI/widget lifetime checks pass. Installed guest83 payloads equal84. Signatures/private APT/publication/rollout remain pending.",
       "Private Intel Mesa GBM/EGL runtime completed without host package changes. Actual default renderD128 capture fails importing Intel renderD129 QEMU buffers; an isolated per-worker mount alias restores media and zero display errors. Its43.53/41.05 sourcefps still fails45fps, so this is diagnostic evidence only, not native product acceptance.",
       "Exp85/86 actual Intel VirGL VM QSV/VAAPI capture works without device aliases; raw import errors are gone, visible glyph233ms in QSV, input exactly once/mode3. Worker85 equals86; full133 bridge tests,3 C++ suites and19+16 terminal checks pass. Launch failure closes its clipboard pair explicitly. Native cadence still fails: QSV42.98/41.23fps and VAAPI44.30/43.52fps.",
-      "Independent offline decode of actual85 QSV AUs before RTP finds45.32/44.49 unique sourcefps among58.39/57.00 encodedfps;158/252 repeated images. Browser raw video and composed source observations are about41\u201343fps with no RTP loss. Samples and original failed gates retained; this does not establish a final scheduler cause.",
+      "Independent offline decode of actual85 QSV AUs before RTP finds45.32/44.49 unique sourcefps among58.39/57.00 encodedfps;158/252 repeated images. Browser raw video and composed source observations are about41–43fps with no RTP loss. Samples and original failed gates retained; this does not establish a final scheduler cause.",
       "Rejected exp87 fresh-image wait experiment: unchanged full raw images wait for capture or100ms keepalive. Wide-link traffic falls to5.04Mbit/s but unique source cadence42.08/41.03fps still fails45fps. Code restored exactly to frozen86 worker source; raw result, patch, source and deb retained. No release qualification claimed.",
-      "Actual passive86 same-phase trace: F/C51\u201352 sourcefps, E43\u201345, no capture/source mismatch. Coalescing88 alone removes half the readbacks but does not pass45fps. Two-frame history89 then passes; bounded64MiB tested helper90 retains that behavior.",
+      "Actual passive86 same-phase trace: F/C51–52 sourcefps, E43–45, no capture/source mismatch. Coalescing88 alone removes half the readbacks but does not pass45fps. Two-frame history89 then passes; bounded64MiB tested helper90 retains that behavior.",
       "Private90 native VM H264: QSV46.99/46.87fps, VAAPI49.02/47.22fps, NVENC52.50/49.38fps on20M/2M. Basic cadence/gap/CRC/input/mode3/same-stream checks pass; QSV glyph225ms, VAAPI221ms. These are not full native mixed-content/loss/fidelity gates.",
       "Actual Intel GBM producer against unchanged90 display/core passes8 protocol cases: scanout only, paired or delayed damage, Disable cancellation, replacement, inline cancellation, stale damage bounds and malformed geometry. Real RGB values and readback counts checked.",
       "Full90 seven packages are built; main34 payload and6 install/control entries equal the tested pilot.133 bridge tests and3 C++ suites pass, including capture-burst/expiry/geometry/byte-limit cases; portable Qt5/Qt6 checks pass. Guest runtime bytes/modes/links equal the verified83/84 payloads.",
@@ -263,10 +265,15 @@
       "123 native VAAPI full bandwidth/loss/input/static profile passes16 original and whole-profile gap gates; source-age excess365.587ms, glyph<=370ms, full8000 recovery. Native QSV first has441.675ms excess and fails that gate; all other gates pass.",
       "123 recovered LXC target collapses8000->2398 after one transient packet slow interval; native QSV repeat also fails final recovery and age. Real-window regression fails before124 and passes after; actual20->2M cut keeps its original report and1678 target. Full isolated204 bridge tests pass.",
       "124 both live targets recover8000. QSV source-age excess443.963ms still fails400; LXC has934ms source gap while encoding continues. Trace identifies early queue retirement before codec quiet-period completion.125 reproducer fails before, passes after;205 isolated bridge tests pass.",
-      "125 full live profiles: LXC sourcefps54.91/51.10/54.02, gaps<=168ms, glyph<=89ms, source-age excess364.013ms; native QSV49.07/46.97/48.63fps, gaps<=100ms, glyph<=299ms, excess364.318ms. All static/input/cadence/age gates pass; late final targets3510/1772 fail recovery. Original failed gates retained; production unchanged and owned diagnostic workers cleaned up."
+      "125 full live profiles: LXC sourcefps54.91/51.10/54.02, gaps<=168ms, glyph<=89ms, source-age excess364.013ms; native QSV49.07/46.97/48.63fps, gaps<=100ms, glyph<=299ms, excess364.318ms. All static/input/cadence/age gates pass; late final targets3510/1772 fail recovery. Original failed gates retained; production unchanged and owned diagnostic workers cleaned up.",
+      "126/127 target-SDK suites pass207/209 tests. Transient400ms drop recovers8000 with bounded probes; persistent bottleneck retries back off, and idle/legacy/shared/packet-accounting contracts pass.",
+      "127 full LXC loss/jitter transition passes all13 original gates:55.50/46.94/54.32fps, largest gap167ms, glyph142ms, source-age excess266.080ms, full8000 recovery.",
+      "127 scoped component acceptance passes22 exact-pixel oracles,52.81/47.93fps, glyph maxima165/213ms, desktop resize restoration and same stream. Generic wrapper subsequently fails an unintended additional adaptive warmup; the whole script is not green.",
+      "127 hardcut narrow SSIM0.908 passes; fast48.79fps fails50. Native VAAPI42.58fps narrow,512.278ms source-age excess and presentation excess fail. All failures retained.",
+      "Supplied Mac receiver tested with Chrome156/Metal Intel: initial headless SSH/CDP interruption, headless repeat and headful repeat retained. Timing gates fail, marker readback overhead measured; no full Mac performance qualification claimed. Owned test profiles, assertions and diagnostic workers cleaned up; production remains exp35."
     ],
     "pending": [
-      "Use saved125 packet evidence to address late recovery cuts without regressing current video/input bounds. Then repeat unchanged live profiles and complete remaining codec/application/browser/long-session/RDP qualification.",
+      "Use saved native126 wire/packet/frame receipts to bound initial bandwidth-drop backlog without weakening400ms age or45fps gates. Establish Mac cadence by correlating independently decoded source IDs with successful composed/presented RTP timestamps and an observer-overhead control. Then complete remaining codec/application/browser/long-session/RDP and release scope.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -315,9 +322,11 @@
       "dist/rdp-hybrid/packet-trend-exp122",
       "dist/rdp-hybrid/feedback-window-exp123",
       "dist/rdp-hybrid/packet-recovery-exp124",
-      "dist/rdp-hybrid/deferred-refresh-exp125"
+      "dist/rdp-hybrid/deferred-refresh-exp125",
+      "dist/rdp-hybrid/packet-probes-exp126",
+      "dist/rdp-hybrid/active-recovery-exp127"
     ],
-    "next_action": "Use saved125 packet evidence to address late recovery cuts without regressing current video/input bounds. Then repeat unchanged live profiles and complete remaining codec/application/browser/long-session/RDP qualification.",
+    "next_action": "Use saved native126 wire/packet/frame receipts to bound initial bandwidth-drop backlog without weakening400ms age or45fps gates. Establish Mac cadence by correlating independently decoded source IDs with successful composed/presented RTP timestamps and an observer-overhead control. Then complete remaining codec/application/browser/long-session/RDP and release scope.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -373,7 +382,7 @@
     "next_steps": [
       {
         "id": "video-regions-and-queue",
-        "action": "Use saved125 packet evidence to address late recovery cuts without regressing current video/input bounds. Then repeat unchanged live profiles and complete remaining codec/application/browser/long-session/RDP qualification.",
+        "action": "Use saved native126 wire/packet/frame receipts to bound initial bandwidth-drop backlog without weakening400ms age or45fps gates. Establish Mac cadence by correlating independently decoded source IDs with successful composed/presented RTP timestamps and an observer-overhead control. Then complete remaining codec/application/browser/long-session/RDP and release scope.",
         "gate": "Retain native45fps and LXC recovered50fps gates,500ms maximum gaps,400ms excess source age,600ms glyph latency, exact static pixels, exactly-once input, same stream and full configured-rate recovery; repeat passing runs and retain failures"
       },
       {
@@ -502,8 +511,8 @@
     "deferred_refresh": "docs/rdp-deferred-refresh-20261029.json",
     "priority_order": [
       {
-        "blocker": "Late bitrate cuts and slow recovery after TCP repair",
-        "reason": "Only remaining failure in the two latest core mixed-content profiles; saved packet evidence avoids another broad rewrite."
+        "blocker": "Native initial-drop age/VAAPI cadence and Mac measurement interference",
+        "reason": "Remaining core and cross-platform acceptance failures; captured wire/feedback and measured observer cost allow targeted work before another broad live rewrite."
       },
       {
         "blocker": "Remaining supported encoder/application/browser and long-session/RDP qualification",
@@ -513,7 +522,25 @@
         "blocker": "Release, APT, qualified rollout and discussion updates",
         "reason": "Depends on qualification; existing production remains the working baseline."
       }
-    ]
+    ],
+    "active_recovery": "docs/rdp-active-recovery-20261029.json",
+    "macos_qualification": {
+      "preferred_receiver": "bob@10.90.10.22",
+      "reported_model": "MacBookPro15,2",
+      "reported_gpu": "Whiskey Lake UHD620 LG Gram; Intel",
+      "os": "macOS26.3",
+      "available_browsers": [
+        "Chrome156.0.8078.49",
+        "Firefox158.0.1",
+        "Safari26.3"
+      ],
+      "scope": "Owned Chrome156 headless/headful profiles on supplied bob receiver. Source marker readback median5.4ms,p9518.7ms,max398.3ms can alter cadence. Both profiles and temporary sleep assertions cleaned up.",
+      "alternative": "dima@10.30.0.35 is a VM with ordinary VGA; user warned it may distort results. Prefer the supplied bob receiver.",
+      "status": "incomplete; initial SSH interruption and retained headless/headful performance failures",
+      "evidence": "docs/rdp-bursty-recovery-20261029.json",
+      "observed_receiver_gpu": "Chrome ANGLE Metal UHD630, video-decode capability enabled; per-stream hardware decoder unproven"
+    },
+    "bursty_recovery": "docs/rdp-bursty-recovery-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",
@@ -523,5 +550,6 @@
   "execution_rules": {
     "wall_time": "Parallelize independent work. Serialize tasks sharing mutable fixtures, GPU workloads on the same guest, or the SDK build tree.",
     "pareto": "Choose next work by the size of the blocker removed divided by expected implementation and verification cost; preserve declared gates and failed evidence."
-  }
+  },
+  "user_objective": "добиться отзывчивости microsoft rdp, сохранив качество и скорость воспроизведения графики/клипов и завершить план"
 }

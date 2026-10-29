@@ -1,0 +1,446 @@
+{
+  "date": "2026-10-29",
+  "status": "private127_lxc_core_components_pass_native_age_and_macos_timing_open",
+  "source_base_commit": "618c1d4",
+  "source": {
+    "version": "0.4.0+stock4.14~exp127",
+    "deb_sha256": "8b7dd2a062d74c975aac008a5b6492bee248dc658fef5a45278dc696710f60f1",
+    "worker_sha256": "f433e3b2d244f046ba50574801f51fbbb519d2cd6c9d2251a36fba7346d0bc14",
+    "bridge_sha256": "2862803cb04403042336245703cd00f8ad9ab624ae9e83a99666ed06c3352373",
+    "transport_sha256": "437eae4b7c69a764c57abc73a2449bfdb972eba3860ad32ce0c5d80f81b94903",
+    "private_selector": 127,
+    "production_changed": false
+  },
+  "evidence_directory": "dist/rdp-hybrid/active-recovery-exp127",
+  "change": [
+    "Retain the126 packet-based bounded active probes and exponential cooldown for failed probes.",
+    "A small-frame interval lacks capacity evidence but does not itself indicate congestion or restart the healthy timer. Growth still requires valid fresh delivery and actual demand.",
+    "After a stale interval, accepted new packet feedback starts a new healthy interval; duplicate/malformed samples cannot create progress."
+  ],
+  "tests": {
+    "full_isolated_target_sdk_bridge_suite": {
+      "tests": 209,
+      "result": "pass",
+      "seconds": 7.38
+    },
+    "bursty_video_before": "126 remains1800 after40s following a400ms dip despite later active detailed intervals.",
+    "bursty_video_after": "Same real packet-flow model recovers8000; separate stale-flow test excludes premature growth after a10s silence.",
+    "existing_contracts": "Recorded real-capacity cut timing, idle/duplicate samples, shared/legacy viewers, actual RTP history, packet credit and replacement-frame contracts pass."
+  },
+  "live_runs": [
+    {
+      "result": "quality61-auto-lxc127-first-loss0p3-delay15-source-oracle/result.json",
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "additional_checks": {},
+      "visible_glyph_peak_ms": 142,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 55.498126372916396,
+          "max_frame_gap_ms": 68,
+          "final_target": 8000
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 46.93886618091345,
+          "max_frame_gap_ms": 167,
+          "final_target": 2701
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 54.32174062926771,
+          "max_frame_gap_ms": 101,
+          "final_target": 8000
+        }
+      ],
+      "source_age_excess_ms": 266.0804998129578
+    },
+    {
+      "result": "intel127-native-full-vm-h264_vaapi-virgl-capture-gpu-v/result.json",
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": false,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": false,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "additional_checks": {
+        "whole_profile_source_gap_at_most_500ms": true
+      },
+      "visible_glyph_peak_ms": 496,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 51.14836325237592,
+          "max_frame_gap_ms": 67,
+          "final_target": 8000
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 42.57820152811337,
+          "max_frame_gap_ms": 150,
+          "final_target": 1536
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 49.86733881666225,
+          "max_frame_gap_ms": 134,
+          "final_target": 8000
+        }
+      ],
+      "source_age_excess_ms": 512.2778424837938
+    }
+  ],
+  "hardcut": {
+    "checks": {
+      "quality_rgb": true,
+      "quality_ssim": true,
+      "no_visible_stale_exact_tiles": true,
+      "static_ui_exact": true,
+      "source_ids_valid": true,
+      "snapshot_ids_match": true,
+      "cadence": false,
+      "no_long_gap": true
+    },
+    "phases": [
+      {
+        "name": "fast",
+        "unique_source_fps": 48.785364390682794,
+        "max_gap_ms": 101,
+        "first_cut_min_rgb_psnr": 36.42428445703467,
+        "first_cut_min_ssim_8x8_box": 0.9789206095117308,
+        "max_strong_stale_exact_matches": 0
+      },
+      {
+        "name": "narrow",
+        "unique_source_fps": 53.31378494551998,
+        "max_gap_ms": 151,
+        "first_cut_min_rgb_psnr": 31.347754178371886,
+        "first_cut_min_ssim_8x8_box": 0.9081422516371745,
+        "max_strong_stale_exact_matches": 0
+      }
+    ]
+  },
+  "component": {
+    "original_component_assertions": "pass",
+    "wrapper_exit": 1,
+    "wrapper_limitation": "After component acceptance finishes, the generic wrapper also enters an unintended adaptive warmup, which fails its8000 ceiling. Preserve that failure; do not call the whole script passing. The previous123 collecting runner already excludes this extra profile.",
+    "same_connected_worker": true,
+    "desktop_resize_restore": true,
+    "no_minimum_target_collapse_on_2mbit": true,
+    "phases": [
+      {
+        "name": "fast",
+        "source_fps": 52.809215844785776,
+        "max_source_gap_ms": 151,
+        "mode_switches": {
+          "source_fps": 37.95811518324607,
+          "max_source_gap_ms": 252,
+          "note": "Includes deliberate feature-off baseline periods and codec-format changes; not relabeled as working-mode performance"
+        },
+        "exact_pixel_oracles": 11,
+        "glyph_peaks_ms": [
+          71,
+          165
+        ]
+      },
+      {
+        "name": "narrow",
+        "source_fps": 47.927121752625105,
+        "max_source_gap_ms": 350,
+        "mode_switches": {
+          "source_fps": 37.11790393013101,
+          "max_source_gap_ms": 536,
+          "note": "Includes deliberate feature-off baseline periods and codec-format changes; not relabeled as working-mode performance"
+        },
+        "exact_pixel_oracles": 11,
+        "glyph_peaks_ms": [
+          190,
+          213
+        ]
+      }
+    ]
+  },
+  "macos": {
+    "receiver": "bob@10.90.10.22",
+    "reported_model": "MacBookPro15,2",
+    "reported_gpu": "System profiler: Whiskey Lake UHD620 LG Gram; Chrome ANGLE Metal: UHD630",
+    "os": "macOS26.3",
+    "browser": "Chrome156.0.8078.49",
+    "qualification": "incomplete",
+    "runs": [
+      {
+        "result": "mac127-native-full-vm-h264_qsv-virgl-capture-gpu-m/result.json",
+        "checks": {},
+        "additional_checks": {},
+        "visible_glyph_peak_ms": 434.5,
+        "phases": [
+          {
+            "name": "fast",
+            "unique_fps": 46.17968094036898,
+            "max_frame_gap_ms": 66.7000000178814,
+            "final_target": 8000
+          }
+        ],
+        "receiver_browser": "156.0.8078.49",
+        "receiver_codec": {
+          "mimeType": "video/H264",
+          "framesDecoded": 10,
+          "decoderImplementation": null,
+          "powerEfficientDecoder": null
+        },
+        "receiver_gpu": {
+          "devices": [
+            {
+              "vendorId": 32902,
+              "deviceId": 16027,
+              "vendorString": "Google Inc. (Intel)",
+              "deviceString": "ANGLE (Intel, ANGLE Metal Renderer: Intel(R) UHD Graphics 630, Version 26.3 (Build 25D125))",
+              "driverVendor": "Intel",
+              "driverVersion": "26.3"
+            }
+          ],
+          "features": {
+            "2d_canvas": "enabled",
+            "direct_rendering_display_compositor": "disabled_off_ok",
+            "gpu_compositing": "enabled",
+            "multiple_raster_threads": "enabled_on",
+            "opengl": "enabled_on",
+            "rasterization": "enabled",
+            "raw_draw": "disabled_off_ok",
+            "skia_graphite": "enabled_on",
+            "trees_in_viz": "disabled_off",
+            "video_decode": "enabled",
+            "video_encode": "enabled",
+            "webgl": "enabled",
+            "webgpu": "enabled",
+            "webnn": "disabled_off"
+          },
+          "renderer": "ANGLE (Intel, ANGLE Metal Renderer: Intel(R) UHD Graphics 630, Version 26.3 (Build 25D125))"
+        },
+        "receiver_probe_cost_ms": null
+      },
+      {
+        "result": "mac127-native-full-vm-h264_qsv-virgl-capture-gpu-r/result.json",
+        "checks": {
+          "no_long_video_gap": true,
+          "narrow_source_fps_at_least_45": false,
+          "recovered_source_fps_at_least_45": false,
+          "fast_source_fps_at_least_45": false,
+          "full_rate_recovered": true,
+          "presentation_excess_at_most_400ms": false,
+          "glyph_peak_at_most_600ms": false,
+          "full_source_excess_from_fast_p95_at_most_400ms": false,
+          "no_observed_rtp_loss": true,
+          "narrowed": true,
+          "recovered_some": true,
+          "static_pixels_exact": true,
+          "input_delivered_once": true,
+          "same_connected_stream": true,
+          "metadata_mode3": true,
+          "valid_source_ids": true
+        },
+        "additional_checks": {
+          "whole_profile_source_gap_at_most_500ms": true
+        },
+        "visible_glyph_peak_ms": 688.3000000119209,
+        "phases": [
+          {
+            "name": "fast",
+            "unique_fps": 37.52937905937879,
+            "max_frame_gap_ms": 88.39999997615814,
+            "final_target": 8000
+          },
+          {
+            "name": "narrow",
+            "unique_fps": 32.26463431627917,
+            "max_frame_gap_ms": 235.30000001192093,
+            "final_target": 1790
+          },
+          {
+            "name": "recovered",
+            "unique_fps": 37.699985409010324,
+            "max_frame_gap_ms": 115.19999998807907,
+            "final_target": 8000
+          }
+        ],
+        "source_age_excess_ms": 1150.912369772172,
+        "receiver_browser": "156.0.8078.49",
+        "receiver_codec": {
+          "mimeType": "video/H264",
+          "framesDecoded": 4,
+          "decoderImplementation": null,
+          "powerEfficientDecoder": null
+        },
+        "receiver_gpu": {
+          "devices": [
+            {
+              "vendorId": 32902,
+              "deviceId": 16027,
+              "vendorString": "Google Inc. (Intel)",
+              "deviceString": "ANGLE (Intel, ANGLE Metal Renderer: Intel(R) UHD Graphics 630, Version 26.3 (Build 25D125))",
+              "driverVendor": "Intel",
+              "driverVersion": "26.3"
+            }
+          ],
+          "features": {
+            "2d_canvas": "enabled",
+            "direct_rendering_display_compositor": "disabled_off_ok",
+            "gpu_compositing": "enabled",
+            "multiple_raster_threads": "enabled_on",
+            "opengl": "enabled_on",
+            "rasterization": "enabled",
+            "raw_draw": "disabled_off_ok",
+            "skia_graphite": "enabled_on",
+            "trees_in_viz": "disabled_off",
+            "video_decode": "enabled",
+            "video_encode": "enabled",
+            "webgl": "enabled",
+            "webgpu": "enabled",
+            "webnn": "disabled_off"
+          },
+          "renderer": "ANGLE (Intel, ANGLE Metal Renderer: Intel(R) UHD Graphics 630, Version 26.3 (Build 25D125))"
+        },
+        "receiver_probe_cost_ms": null
+      },
+      {
+        "result": "mac127-native-full-vm-h264_qsv-virgl-capture-gpu-f/result.json",
+        "checks": {
+          "no_long_video_gap": false,
+          "narrow_source_fps_at_least_45": false,
+          "recovered_source_fps_at_least_45": false,
+          "fast_source_fps_at_least_45": false,
+          "full_rate_recovered": false,
+          "presentation_excess_at_most_400ms": false,
+          "glyph_peak_at_most_600ms": false,
+          "full_source_excess_from_fast_p95_at_most_400ms": false,
+          "no_observed_rtp_loss": true,
+          "narrowed": true,
+          "recovered_some": true,
+          "static_pixels_exact": true,
+          "input_delivered_once": true,
+          "same_connected_stream": true,
+          "metadata_mode3": true,
+          "valid_source_ids": true
+        },
+        "additional_checks": {
+          "whole_profile_source_gap_at_most_500ms": false
+        },
+        "visible_glyph_peak_ms": 1607.699999988079,
+        "phases": [
+          {
+            "name": "fast",
+            "unique_fps": 16.944748822345662,
+            "max_frame_gap_ms": 2359.800000011921,
+            "final_target": 8000
+          },
+          {
+            "name": "narrow",
+            "unique_fps": 31.903258516014056,
+            "max_frame_gap_ms": 625.2999999821186,
+            "final_target": 1560
+          },
+          {
+            "name": "recovered",
+            "unique_fps": 37.633119253243805,
+            "max_frame_gap_ms": 865.5999999940395,
+            "final_target": 4623
+          }
+        ],
+        "source_age_excess_ms": 865.2999999467283,
+        "receiver_browser": "156.0.8078.49",
+        "receiver_codec": {
+          "mimeType": "video/H264",
+          "framesDecoded": 11,
+          "decoderImplementation": null,
+          "powerEfficientDecoder": null
+        },
+        "receiver_gpu": {
+          "devices": [
+            {
+              "vendorId": 32902,
+              "deviceId": 16027,
+              "vendorString": "Google Inc. (Intel)",
+              "deviceString": "ANGLE (Intel, ANGLE Metal Renderer: Intel(R) UHD Graphics 630, Version 26.3 (Build 25D125))",
+              "driverVendor": "Intel",
+              "driverVersion": "26.3"
+            }
+          ],
+          "features": {
+            "2d_canvas": "enabled",
+            "direct_rendering_display_compositor": "disabled_off_ok",
+            "gpu_compositing": "enabled",
+            "multiple_raster_threads": "enabled_on",
+            "opengl": "enabled_on",
+            "rasterization": "enabled",
+            "raw_draw": "disabled_off_ok",
+            "skia_graphite": "enabled_on",
+            "trees_in_viz": "disabled_off",
+            "video_decode": "enabled",
+            "video_encode": "enabled",
+            "webgl": "enabled",
+            "webgpu": "enabled",
+            "webnn": "disabled_off"
+          },
+          "renderer": "ANGLE (Intel, ANGLE Metal Renderer: Intel(R) UHD Graphics 630, Version 26.3 (Build 25D125))"
+        },
+        "receiver_probe_cost_ms": {
+          "samples": 8197,
+          "median": 5.399999976158142,
+          "p95": 18.69999998807907,
+          "max": 398.2999999821186
+        }
+      }
+    ],
+    "observations": [
+      "Initial headless run loses the SSH/CDP connection after its fast phase; the owned Chrome process remains alive. Preserve the incomplete run.",
+      "Repeat with keepalive, separate logs and a scoped idle-sleep assertion completes. Static/input/metadata and8000 recovery pass, but cadence/age/input-latency gates fail.",
+      "Headful repeat with scoped display/idle-sleep assertions also fails performance gates. Source-marker readback costs median5.4ms,p9518.7ms,max398.3ms; a60Hz frame interval is16.7ms. This establishes observer interference, not proof that uninstrumented product performance meets the gates.",
+      "Chrome reports video-decode capability enabled, but per-stream decoderImplementation/powerEfficientDecoder are unavailable; this does not prove hardware decoding for the stream."
+    ],
+    "next_measurement": "Correlate actual source IDs independently decoded from captured RTP with successfully composed/presented RTP timestamps, and measure marker readback overhead against a low-intrusion control. Retain independent exact-pixel and actual-glyph checks and all original thresholds.",
+    "cleanup": {
+      "owned_browser_pids_targeted": [
+        30734
+      ],
+      "profile_path_guards_passed": true,
+      "owned_profile_processes_remaining": [],
+      "temporary_idle_and_display_sleep_assertions_retired": true,
+      "user_profile_targeted": false
+    },
+    "alternative_receiver": "dima@10.30.0.35 is a VM with ordinary VGA; user supplied the bob receiver to avoid that display bias."
+  },
+  "remaining": [
+    "Native Intel initial bandwidth-drop source age exceeds400ms; VAAPI narrow cadence below45fps.",
+    "Hardcut127 narrow fidelity now passes0.908 SSIM, but fast48.79fps fails50; do not erase the126 narrow-fidelity failure.",
+    "Mac timing requires an observer which does not materially alter the rendered cadence.",
+    "Remaining supported codecs/applications/browser paths, long sessions, matched RDP comparison and all final release/deployment deliverables remain open."
+  ],
+  "production": "Post checks confirm exp35 and original user/native guest processes unchanged; all owned diagnostic workers and both Mac test profiles retired.",
+  "staging_note": "The inherited native127 bootstrap scope string says extracted126; versioned paths and asserted runtime hashes identify127."
+}

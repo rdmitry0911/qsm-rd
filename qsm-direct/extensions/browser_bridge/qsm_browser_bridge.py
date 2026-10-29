@@ -452,6 +452,8 @@ class AdaptiveVideoRate:
         self._changed = clock()
         self._healthy_since = clock()
         self._probe_not_before = clock()
+        self._packet_probe_backoff = 6.
+        self._last_packet_probe = float('-inf')
         self._receivers: dict[object, _ReceiverFeedback] = {}
         self._listeners: dict[object, Callable[[int], None]] = {}
 
@@ -549,9 +551,12 @@ class AdaptiveVideoRate:
             return
         now = self._clock()
         state = self._receivers.setdefault(peer, _ReceiverFeedback(now))
+        was_fresh = self._packet_fresh(state, now)
         if state.packet_delivery is None:
             state.packet_delivery = transport_feedback.DeliveryEstimator()
         if state.packet_delivery.add(samples, now):
+            if not was_fresh:
+                self._healthy_since = now
             self._update(now)
 
     def _delivery_report(self, peer: object, sent_at: float, total_bytes: int, kind: str) -> None:
@@ -719,6 +724,15 @@ class AdaptiveVideoRate:
                 s.sending_kbps >= self.current_kbps * .5)]
         if bad:
             self._healthy_since = now
+        packet_feedback = bool(fresh) and all(self._packet_fresh(s, now) for s in fresh)
+        if packet_feedback and any(s.packet_delivery.queue_excess > .02 or
+                                   s.packet_delivery.overusing for s in fresh):
+            # Fast probes need a continuously clear matched-packet interval,
+            # not merely absence of a canonical cut. A small-frame interval
+            # cannot prove capacity but is not congestion; actual growth still
+            # requires a valid, demanding delivery window below. Stale flow
+            # restarts the timer when matched packets resume.
+            self._healthy_since = now
         pending = [s for s in bad if (s.sequence != s.reduced_sequence or
                     (self._presentation_queued(s, now) and
                      ((s.packet_delivery.serial != s.reduced_packet_serial) if self._packet_fresh(s, now)
@@ -726,11 +740,11 @@ class AdaptiveVideoRate:
                    and (not self._delivery_fresh(s, now) or
                         (s.packet_delivery.sent_at if self._packet_fresh(s, now)
                          else s.presented_sent_at) >= self._changed + .5)]
-        # Recent pre-decoder receipts resolve active delivery sooner than
-        # display callbacks. Keep the existing first healthy interval and
-        # post-congestion cooldown, then recover in bounded six-second steps.
-        # A legacy, mixed or stale viewer retains the ten-second spacing.
-        probe_interval = 6 if fresh and all(
+        # Matched packets permit bounded probes after the flight clears.
+        # A failed probe backs off separately below; an unrelated short TCP
+        # slowdown need not hold a healthy path at low quality for30 seconds.
+        # Frame receipts retain six-second steps, legacy/mixed feedback ten.
+        probe_interval = 2 if packet_feedback else 6 if fresh and all(
             self._packet_fresh(s, now) or (s.feedback_kind == 'received' and self._presentation_fresh(s, now))
             for s in fresh) else 10
         if not fresh or now - self._changed < (1 if pending else probe_interval):
@@ -753,7 +767,8 @@ class AdaptiveVideoRate:
                 elif not self._delivery_fresh(state, now) and now - state.remb_time < 5:
                     ceiling = min(ceiling, max(500, int(state.remb * .8 / 1000) - 128))
             target = min(ceiling, int(target * factor))
-        elif (not bad and now >= self._probe_not_before and now - self._healthy_since >= 10
+        elif (not bad and now >= self._probe_not_before and
+              now - self._healthy_since >= (2 if packet_feedback else 10)
               and all(self._delivery_clear(s, now) for s in fresh) and any(
                 (now - s.loss_time < 6 and s.sending_kbps >= self.current_kbps * .7) or
                 (self._delivery_demand(s, now) and self._delivery_clear(s, now)) for s in fresh)):
@@ -781,7 +796,17 @@ class AdaptiveVideoRate:
                 if state.packet_delivery is not None:
                     state.reduced_packet_serial = state.packet_delivery.serial
             if any(self._presentation_queued(s, now) for s in pending):
-                self._probe_not_before = now + 30
+                if packet_feedback:
+                    # Congestion shortly after a probe demonstrates a real
+                    # bottleneck: retry progressively less often. A later
+                    # independent incident starts with the short cooldown.
+                    self._packet_probe_backoff = (min(30., self._packet_probe_backoff * 2)
+                        if now - self._last_packet_probe < 6 else 6.)
+                    self._probe_not_before = now + self._packet_probe_backoff
+                else:
+                    self._probe_not_before = now + 30
+        elif packet_feedback:
+            self._last_packet_probe = now
         self.current_kbps, self._changed = target, now
         for listener in tuple(self._listeners.values()):
             listener(target)

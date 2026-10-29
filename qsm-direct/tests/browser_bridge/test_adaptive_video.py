@@ -86,7 +86,8 @@ class PacketDeliveryTests(unittest.TestCase):
                     incoming = max(incoming, repair(send))
                 pending.append((send, incoming + offset, 1200))
                 previous_arrival = incoming
-                send += 1200 * 8 / (self.rate.current_kbps * 1000 * demand)
+                load = demand(send) if callable(demand) else demand
+                send += 1200 * 8 / (self.rate.current_kbps * 1000 * load)
             batch = []
             while pending and pending[0][1] - offset + .02 <= self.now:
                 batch.append(pending.popleft())
@@ -109,6 +110,47 @@ class PacketDeliveryTests(unittest.TestCase):
         self.assertGreaterEqual(min(narrow), 1400)
         self.assertLess(max(age for t, _, age in steps if 8 <= t < 10), .4)
         self.assertEqual(steps[-1][1], 8000)
+
+    def test_confirmed_transient_slowdown_recovers_without_a_fixed_thirty_second_hold(self):
+        # Unlike a repair which the estimator can reject, this continuous
+        # slowdown really requires a cut. Once fresh packet delivery clears,
+        # bounded active probes must restore quality on the recovered link.
+        steps = self.model(32, lambda t: 2_000_000 if 8 <= t < 8.4 else 20_000_000)
+        self.assertLess(min(rate for t, rate, _ in steps if 8 <= t < 10), 2500)
+        self.assertLess(max(age for _, _, age in steps), .4)
+        self.assertEqual(steps[-1][1], 8000)
+
+    def test_failed_packet_probes_back_off_on_a_persistent_bottleneck(self):
+        steps = self.model(100, lambda t: 2_000_000 if t >= 8 else 20_000_000)
+        cuts = [(b[0], b[1]) for a, b in zip(steps, steps[1:]) if b[1] < a[1]]
+        self.assertGreaterEqual(len(cuts), 3, 'active video must actually probe for recovery')
+        self.assertLessEqual(len(cuts), 7, 'failed probes must not continuously reset the codec')
+        self.assertGreater(cuts[-1][0] - cuts[-2][0], cuts[1][0] - cuts[0][0])
+        self.assertLess(max(age for _, _, age in steps), .4)
+
+    def test_bursty_active_video_can_recover_between_small_frame_intervals(self):
+        # Alternating detailed/static pictures are still active video. Tiny
+        # intervals cannot prove capacity, but cannot manufacture congestion
+        # which continually restarts the healthy timer either.
+        steps = self.model(40, lambda t: 2_000_000 if 8 <= t < 8.4 else 20_000_000,
+                           demand=lambda t: .7 if t % 1 < .5 else .02)
+        self.assertLess(min(rate for t, rate, _ in steps if 8 <= t < 10), 2500)
+        self.assertEqual(steps[-1][1], 8000)
+
+    def test_resumed_packets_require_a_new_healthy_interval(self):
+        self.model(2, lambda t: 20_000_000)
+        self.rate.current_kbps = 2000
+        changes = []
+        for group in range(70):
+            self.now = 12.05 + group * .05
+            samples = tuple((12 + group * .05 + n * .006, 412.02 + group * .05 + n * .006, 1200)
+                            for n in range(5))
+            before = self.rate.current_kbps
+            self.rate.transport_report('a', samples)
+            if before != self.rate.current_kbps:
+                changes.append(self.now)
+        self.assertTrue(changes)
+        self.assertGreaterEqual(changes[0], 14.05)
 
     def test_short_tcp_repair_and_fast_drain_do_not_cut_capacity(self):
         self.model(12, lambda t: 20_000_000,
