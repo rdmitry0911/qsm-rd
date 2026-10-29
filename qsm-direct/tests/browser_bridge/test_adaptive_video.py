@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Deterministic controller and real private-worker protocol checks."""
 import asyncio
+import gzip
 import json
 import socket
 import struct
@@ -21,6 +22,44 @@ from extensions.browser_bridge.qsm_transport_feedback import DeliveryEstimator
 
 
 class PacketDeliveryTests(unittest.TestCase):
+    def probe_prefix(self, *, cooldown_offset=None):
+        path = Path(__file__).parents[1] / 'fixtures' / 'twcc-probe-exp144.json.gz'
+        case = json.loads(gzip.decompress(path.read_bytes()))
+        changes = []
+        for report in case['reports']:
+            self.now = report['t']
+            before = self.rate.current_kbps
+            self.rate.transport_report('a', tuple(map(tuple, report['samples'])))
+            if self.rate.current_kbps != before:
+                estimate = self.rate._receivers['a'].packet_delivery
+                changes.append((self.now, before, self.rate.current_kbps, estimate.queue_excess))
+                if self.rate.current_kbps > before:
+                    # Later packets belong to the old live policy. Stop at
+                    # the first divergent decision, rather than replaying a
+                    # counterfactual sending schedule as measured recovery.
+                    break
+                if cooldown_offset is not None:
+                    self.rate._probe_not_before = case['cut'] + cooldown_offset
+        return case, changes
+
+    def test_recorded_normal_queue_pulses_do_not_restart_probe_recovery(self):
+        case, changes = self.probe_prefix()
+        self.assertEqual([(a, b) for _, a, b, _ in changes], [(8000, 1348), (1348, 1685)])
+        self.assertLessEqual(changes[0][0], case['cut'] + .005)
+        self.assertGreaterEqual(changes[1][0], changes[0][0] + 6)
+        self.assertLessEqual(changes[1][0], case['cut'] + 6.25)
+        self.assertLessEqual(changes[1][3], .02)
+
+    def test_current_packet_queue_pulse_still_defers_a_probe(self):
+        # The recorded6.52s report has20.109ms excess but NORMAL overuse.
+        # Let the cooldown expire just before it: that report must not grow
+        # the target, while the next clear demanding report may do so.
+        case, changes = self.probe_prefix(cooldown_offset=6.5)
+        self.assertEqual(len(changes), 2)
+        self.assertGreater(changes[1][0], case['cut'] + 6.55)
+        self.assertLessEqual(changes[1][0], case['cut'] + 6.75)
+        self.assertLessEqual(changes[1][3], .02)
+
     def recorded_delivery(self, name):
         path = Path(__file__).parents[1] / 'fixtures' / 'twcc-recovery-exp123.json'
         case = json.loads(path.read_text())[name]

@@ -725,13 +725,13 @@ class AdaptiveVideoRate:
         if bad:
             self._healthy_since = now
         packet_feedback = bool(fresh) and all(self._packet_fresh(s, now) for s in fresh)
-        if packet_feedback and any(s.packet_delivery.queue_excess > .02 or
-                                   s.packet_delivery.overusing for s in fresh):
-            # Fast probes need a continuously clear matched-packet interval,
-            # not merely absence of a canonical cut. A small-frame interval
-            # cannot prove capacity but is not congestion; actual growth still
-            # requires a valid, demanding delivery window below. Stale flow
-            # restarts the timer when matched packets resume.
+        if packet_feedback and any(s.packet_delivery.overusing for s in fresh):
+            # A growing packet-delay trend restarts recovery evidence even
+            # before a canonical cut. A short queue-level pulse alone defers
+            # the current probe below; restarting the whole interval on every
+            # such pulse can strand an active stream at its reduced quality.
+            # Invalid/small windows still cannot prove capacity, and stale
+            # flow restarts the timer when matched packets resume.
             self._healthy_since = now
         pending = [s for s in bad if (s.sequence != s.reduced_sequence or
                     (self._presentation_queued(s, now) and
@@ -769,6 +769,7 @@ class AdaptiveVideoRate:
             target = min(ceiling, int(target * factor))
         elif (not bad and now >= self._probe_not_before and
               now - self._healthy_since >= (2 if packet_feedback else 10)
+              and (not packet_feedback or all(s.packet_delivery.queue_excess <= .02 for s in fresh))
               and all(self._delivery_clear(s, now) for s in fresh) and any(
                 (now - s.loss_time < 6 and s.sending_kbps >= self.current_kbps * .7) or
                 (self._delivery_demand(s, now) and self._delivery_clear(s, now)) for s in fresh)):

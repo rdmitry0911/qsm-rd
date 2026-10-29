@@ -1,0 +1,917 @@
+{
+  "date": "2026-10-29",
+  "status": "implemented_private_candidate_qualification_incomplete",
+  "source_base_commit": "b5a7e34",
+  "evidence_directory": "dist/rdp-hybrid/queue-recovery-exp154",
+  "artifact_manifest_sha256": "06098b388b062f0cdbe8310c1cc1b4ee03c5e85eefe04135a93499ef34c36c57",
+  "runtime": {
+    "version": "0.4.0+stock4.14~exp154",
+    "private_selector": 154,
+    "production_changed": false,
+    "deb_sha256": "2f5025a08b3fdea32c47b730130af35cf3bf00955127176cb62021dbd63de57e",
+    "worker_sha256": "f433e3b2d244f046ba50574801f51fbbb519d2cd6c9d2251a36fba7346d0bc14",
+    "bridge_sha256": "feb3b64469d1f5328fdc73b2775f1b022c8aef3a788a815194076b2eec002779",
+    "transport_sha256": "437eae4b7c69a764c57abc73a2449bfdb972eba3860ad32ce0c5d80f81b94903",
+    "viewer_sha256": "3c28da15b5184717484f537fb8408aac6897637c927a49bee1292aa56c2a021b"
+  },
+  "change": "A NORMAL packet-delay level pulse above20ms defers the current upward probe without restarting the entire healthy interval. Actual overusing, congestion/loss, stale feedback and failed-probe backoff still restart or delay recovery. Fresh/demanding/clear matched delivery is required at the growth decision. Legacy/mixed-receiver policy and25% step size remain.",
+  "recorded_prefix_replay": {
+    "scope": "1040 recorded packet reports from144; no RR/frame callbacks and no replay after first upward divergence. Not a measured closed-loop recovery run.",
+    "old_first_probe_seconds_after_cut": 13.255,
+    "new_first_probe_seconds_after_cut": 6.018,
+    "actual144_first_probe_seconds_after_cut": 13.658,
+    "first_reduction": [
+      8000,
+      1348
+    ],
+    "first_probe": [
+      1348,
+      1685
+    ]
+  },
+  "validation": {
+    "before": "99 targeted tests:97 existing pass; exactly2 new regressions fail",
+    "after": "99 targeted tests pass; matching SDK package full211 bridge tests pass",
+    "source_matches_package": true
+  },
+  "lxc_transition": {
+    "run": "quality61-auto-lxc154-first-loss0p3-delay15-source-oracle",
+    "checks": {
+      "no_long_video_gap": true,
+      "narrow_source_fps_at_least_45": true,
+      "recovered_source_fps_at_least_50": true,
+      "full_rate_recovered": true,
+      "presentation_excess_at_most_400ms": true,
+      "glyph_peak_at_most_600ms": true,
+      "full_source_excess_from_fast_p95_at_most_400ms": true,
+      "no_observed_rtp_loss": true,
+      "narrowed": true,
+      "recovered_some": true,
+      "static_pixels_exact": true,
+      "input_delivered_once": true,
+      "same_connected_stream": true
+    },
+    "additional_checks": {},
+    "phases": [
+      {
+        "name": "fast",
+        "unique_fps": 56.07175119370241,
+        "max_frame_gap_ms": 51,
+        "final_target": 8000,
+        "full_source_age_ms": {
+          "samples": 930,
+          "median": 163.98487671589024,
+          "p95": 181.41651066641094,
+          "max": 210.74984408915043,
+          "clock_uncertainty_max": 1.0,
+          "source_tick_interval_ms": 16.666666666666668
+        }
+      },
+      {
+        "name": "narrow",
+        "unique_fps": 47.96392153377913,
+        "max_frame_gap_ms": 201,
+        "final_target": 3491,
+        "full_source_age_ms": {
+          "samples": 2701,
+          "median": 181.1104792170255,
+          "p95": 244.44381253172764,
+          "max": 510.3440225434816,
+          "clock_uncertainty_max": 2.0,
+          "source_tick_interval_ms": 16.666666666666668
+        }
+      },
+      {
+        "name": "recovered",
+        "unique_fps": 56.51200084821014,
+        "max_frame_gap_ms": 84,
+        "final_target": 8000,
+        "full_source_age_ms": {
+          "samples": 4527,
+          "median": 160.3557190857714,
+          "p95": 180.7968878497661,
+          "max": 294.1423524791986,
+          "clock_uncertainty_max": 1.5,
+          "source_tick_interval_ms": 16.666666666666668
+        }
+      }
+    ],
+    "source_age_excess_from_fast_p95_ms": {
+      "fast": 29.333333422739486,
+      "narrow": 328.9275118770707,
+      "recovered": 112.72584181278768
+    },
+    "glyph_latencies_ms": [
+      76,
+      80,
+      96,
+      122,
+      87,
+      170,
+      72,
+      116,
+      79,
+      57,
+      53,
+      74,
+      63,
+      66,
+      73
+    ],
+    "input_observations": [
+      {
+        "phase": "fast",
+        "key_index": 1,
+        "latency_ms": 76,
+        "client_key_ms": 19422,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476257797542461,
+        "input_to_guest_ms": 3.7379393093281976,
+        "guest_to_visible_ms": 72.2620606906718,
+        "clock_uncertainty_ms": 1.0
+      },
+      {
+        "phase": "fast",
+        "key_index": 2,
+        "latency_ms": 80,
+        "client_key_ms": 27568,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476265941173371,
+        "input_to_guest_ms": 1.9881478212759873,
+        "guest_to_visible_ms": 78.01185217872401,
+        "clock_uncertainty_ms": 1.0
+      },
+      {
+        "phase": "narrow",
+        "key_index": 3,
+        "latency_ms": 96,
+        "client_key_ms": 35769,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476274142542376,
+        "input_to_guest_ms": 2.4770091697590146,
+        "guest_to_visible_ms": 93.52299083024099,
+        "clock_uncertainty_ms": 1.0
+      },
+      {
+        "phase": "narrow",
+        "key_index": 4,
+        "latency_ms": 122,
+        "client_key_ms": 43927,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476282299307090,
+        "input_to_guest_ms": 0.800260018557708,
+        "guest_to_visible_ms": 121.19973998144229,
+        "clock_uncertainty_ms": 1.0
+      },
+      {
+        "phase": "narrow",
+        "key_index": 5,
+        "latency_ms": 87,
+        "client_key_ms": 52111,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476290484505547,
+        "input_to_guest_ms": 1.8778522834210776,
+        "guest_to_visible_ms": 85.12214771657892,
+        "clock_uncertainty_ms": 1.0
+      },
+      {
+        "phase": "narrow",
+        "key_index": 6,
+        "latency_ms": 170,
+        "client_key_ms": 60261,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476298634213661,
+        "input_to_guest_ms": 1.9018975421758455,
+        "guest_to_visible_ms": 168.09810245782415,
+        "clock_uncertainty_ms": 1.0
+      },
+      {
+        "phase": "narrow",
+        "key_index": 7,
+        "latency_ms": 72,
+        "client_key_ms": 68492,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476306864537145,
+        "input_to_guest_ms": 1.6802173033312329,
+        "guest_to_visible_ms": 70.31978269666877,
+        "clock_uncertainty_ms": 1.0
+      },
+      {
+        "phase": "narrow",
+        "key_index": 8,
+        "latency_ms": 116,
+        "client_key_ms": 76632,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476315005231441,
+        "input_to_guest_ms": 2.1756628826210545,
+        "guest_to_visible_ms": 113.82433711737895,
+        "clock_uncertainty_ms": 1.0
+      },
+      {
+        "phase": "recovered",
+        "key_index": 9,
+        "latency_ms": 79,
+        "client_key_ms": 84903,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476323276062073,
+        "input_to_guest_ms": 1.5088021084608272,
+        "guest_to_visible_ms": 77.49119789153917,
+        "clock_uncertainty_ms": 1.0
+      },
+      {
+        "phase": "recovered",
+        "key_index": 10,
+        "latency_ms": 57,
+        "client_key_ms": 93042,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476331415073230,
+        "input_to_guest_ms": 1.5950425453468142,
+        "guest_to_visible_ms": 55.404957454653186,
+        "clock_uncertainty_ms": 1.5
+      },
+      {
+        "phase": "recovered",
+        "key_index": 11,
+        "latency_ms": 53,
+        "client_key_ms": 101161,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476339533640813,
+        "input_to_guest_ms": 1.0191447436795897,
+        "guest_to_visible_ms": 51.98085525632041,
+        "clock_uncertainty_ms": 1.0
+      },
+      {
+        "phase": "recovered",
+        "key_index": 12,
+        "latency_ms": 74,
+        "client_key_ms": 109273,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476347645819742,
+        "input_to_guest_ms": 1.2694173939564735,
+        "guest_to_visible_ms": 72.73058260604353,
+        "clock_uncertainty_ms": 1.5
+      },
+      {
+        "phase": "recovered",
+        "key_index": 13,
+        "latency_ms": 63,
+        "client_key_ms": 117419,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476355792333655,
+        "input_to_guest_ms": 1.9116222336919009,
+        "guest_to_visible_ms": 61.0883777663081,
+        "clock_uncertainty_ms": 1.5
+      },
+      {
+        "phase": "recovered",
+        "key_index": 14,
+        "latency_ms": 66,
+        "client_key_ms": 125549,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476363922508743,
+        "input_to_guest_ms": 2.050398498766981,
+        "guest_to_visible_ms": 63.94960150123302,
+        "clock_uncertainty_ms": 1.0
+      },
+      {
+        "phase": "recovered",
+        "key_index": 15,
+        "latency_ms": 73,
+        "client_key_ms": 133676,
+        "metadata_mode": 3,
+        "guest_edited_ns": 3476372050335551,
+        "input_to_guest_ms": 2.544307127607226,
+        "guest_to_visible_ms": 70.45569287239277,
+        "clock_uncertainty_ms": 0.5
+      }
+    ],
+    "static_observer": {
+      "frames": 8176,
+      "wrong_static": 0,
+      "uncovered_static": 0,
+      "invalid_ids": 0,
+      "ids": null,
+      "observations": null,
+      "stop": true
+    }
+  },
+  "native_qsv_transitions": [
+    {
+      "run": "intel154-full-h264_qsv-virgl-capture-gpu-q3",
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": false,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "additional_checks": {
+        "whole_profile_source_gap_at_most_500ms": true
+      },
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 50.66701715186962,
+          "max_frame_gap_ms": 50,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 913,
+            "median": 195.76259047413913,
+            "p95": 213.3363309316323,
+            "max": 229.38674950661664,
+            "clock_uncertainty_max": 48.387006,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 45.40626659585767,
+          "max_frame_gap_ms": 117,
+          "final_target": 1625,
+          "full_source_age_ms": {
+            "samples": 2711,
+            "median": 275.76944981701956,
+            "p95": 310.43611650044767,
+            "max": 688.980651165668,
+            "clock_uncertainty_max": 48.387006,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 48.412888782281925,
+          "max_frame_gap_ms": 150,
+          "final_target": 7540,
+          "full_source_age_ms": {
+            "samples": 4503,
+            "median": 228.3861415616002,
+            "p95": 293.859835776189,
+            "max": 589.9592468980757,
+            "clock_uncertainty_max": 47.887006,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "source_age_excess_from_fast_p95_ms": {
+        "fast": 16.05041857498435,
+        "narrow": 475.64432023403566,
+        "recovered": 376.6229159664434
+      },
+      "glyph_latencies_ms": [
+        338,
+        254,
+        272,
+        258,
+        264,
+        248,
+        254,
+        264,
+        264,
+        252,
+        254,
+        265,
+        241,
+        240,
+        249
+      ],
+      "input_observations": [
+        {
+          "phase": "fast",
+          "key_index": 1,
+          "latency_ms": 338,
+          "client_key_ms": 21529,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1638936074795655,
+          "input_to_guest_ms": 135.53134501352915,
+          "guest_to_visible_ms": 202.46865498647085,
+          "clock_uncertainty_ms": 47.387006
+        },
+        {
+          "phase": "fast",
+          "key_index": 2,
+          "latency_ms": 254,
+          "client_key_ms": 30029,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1638944563717338,
+          "input_to_guest_ms": 124.96764315664777,
+          "guest_to_visible_ms": 129.03235684335223,
+          "clock_uncertainty_ms": 41.887006
+        },
+        {
+          "phase": "narrow",
+          "key_index": 3,
+          "latency_ms": 272,
+          "client_key_ms": 38678,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1638953220442370,
+          "input_to_guest_ms": 136.58674720488762,
+          "guest_to_visible_ms": 135.41325279511238,
+          "clock_uncertainty_ms": 48.387006
+        },
+        {
+          "phase": "narrow",
+          "key_index": 4,
+          "latency_ms": 258,
+          "client_key_ms": 47092,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1638961632682756,
+          "input_to_guest_ms": 131.10975519940382,
+          "guest_to_visible_ms": 126.89024480059618,
+          "clock_uncertainty_ms": 42.887006
+        },
+        {
+          "phase": "narrow",
+          "key_index": 5,
+          "latency_ms": 264,
+          "client_key_ms": 55520,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1638970059057712,
+          "input_to_guest_ms": 129.23259313217983,
+          "guest_to_visible_ms": 134.76740686782017,
+          "clock_uncertainty_ms": 44.387006
+        },
+        {
+          "phase": "narrow",
+          "key_index": 6,
+          "latency_ms": 248,
+          "client_key_ms": 63937,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1638978475765648,
+          "input_to_guest_ms": 128.7154871150875,
+          "guest_to_visible_ms": 119.28451288491249,
+          "clock_uncertainty_ms": 40.887006
+        },
+        {
+          "phase": "narrow",
+          "key_index": 7,
+          "latency_ms": 254,
+          "client_key_ms": 72313,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1638986851853178,
+          "input_to_guest_ms": 130.0149921681708,
+          "guest_to_visible_ms": 123.9850078318292,
+          "clock_uncertainty_ms": 43.887006
+        },
+        {
+          "phase": "narrow",
+          "key_index": 8,
+          "latency_ms": 264,
+          "client_key_ms": 80720,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1638995251982007,
+          "input_to_guest_ms": 122.69777382724101,
+          "guest_to_visible_ms": 141.302226172759,
+          "clock_uncertainty_ms": 43.387006
+        },
+        {
+          "phase": "recovered",
+          "key_index": 9,
+          "latency_ms": 264,
+          "client_key_ms": 89387,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639003938558307,
+          "input_to_guest_ms": 144.33552591316356,
+          "guest_to_visible_ms": 119.66447408683644,
+          "clock_uncertainty_ms": 45.387006
+        },
+        {
+          "phase": "recovered",
+          "key_index": 10,
+          "latency_ms": 252,
+          "client_key_ms": 97814,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639012355229140,
+          "input_to_guest_ms": 133.0676151104342,
+          "guest_to_visible_ms": 118.93238488956581,
+          "clock_uncertainty_ms": 46.387006
+        },
+        {
+          "phase": "recovered",
+          "key_index": 11,
+          "latency_ms": 254,
+          "client_key_ms": 106213,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639020748300924,
+          "input_to_guest_ms": 125.81089393981415,
+          "guest_to_visible_ms": 128.18910606018585,
+          "clock_uncertainty_ms": 46.387006
+        },
+        {
+          "phase": "recovered",
+          "key_index": 12,
+          "latency_ms": 265,
+          "client_key_ms": 114636,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639029181751807,
+          "input_to_guest_ms": 136.79133815318778,
+          "guest_to_visible_ms": 128.20866184681222,
+          "clock_uncertainty_ms": 44.887006
+        },
+        {
+          "phase": "recovered",
+          "key_index": 13,
+          "latency_ms": 241,
+          "client_key_ms": 123074,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639037620299360,
+          "input_to_guest_ms": 137.89246908761754,
+          "guest_to_visible_ms": 103.10753091238246,
+          "clock_uncertainty_ms": 43.387006
+        },
+        {
+          "phase": "recovered",
+          "key_index": 14,
+          "latency_ms": 240,
+          "client_key_ms": 131445,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639045988100282,
+          "input_to_guest_ms": 135.1114318892428,
+          "guest_to_visible_ms": 104.8885681107572,
+          "clock_uncertainty_ms": 44.887006
+        },
+        {
+          "phase": "recovered",
+          "key_index": 15,
+          "latency_ms": 249,
+          "client_key_ms": 139818,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639054368697452,
+          "input_to_guest_ms": 143.65353292598115,
+          "guest_to_visible_ms": 105.34646707401885,
+          "clock_uncertainty_ms": 44.387006
+        }
+      ],
+      "static_observer": {
+        "frames": 8159,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "ids": null,
+        "observations": null,
+        "stop": true
+      }
+    },
+    {
+      "run": "intel154-full-h264_qsv-virgl-capture-gpu-q4",
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": false,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "additional_checks": {
+        "whole_profile_source_gap_at_most_500ms": true
+      },
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 47.86143980961195,
+          "max_frame_gap_ms": 67,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 908,
+            "median": 204.02886449980073,
+            "p95": 221.49175222342166,
+            "max": 270.2184927805007,
+            "clock_uncertainty_max": 48.811482,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 44.48516425291417,
+          "max_frame_gap_ms": 183,
+          "final_target": 1582,
+          "full_source_age_ms": {
+            "samples": 2718,
+            "median": 271.3244132542378,
+            "p95": 456.24130570018906,
+            "max": 718.3991765292994,
+            "clock_uncertainty_max": 47.311482,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 47.786479143359436,
+          "max_frame_gap_ms": 133,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4505,
+            "median": 221.50933646285864,
+            "p95": 287.4086468014809,
+            "max": 382.2556628379914,
+            "clock_uncertainty_max": 48.311482,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "source_age_excess_from_fast_p95_ms": {
+        "fast": 48.72674055707904,
+        "narrow": 496.9074243058778,
+        "recovered": 160.76391061456974
+      },
+      "glyph_latencies_ms": [
+        249,
+        247,
+        236,
+        262,
+        277,
+        265,
+        391,
+        262,
+        245,
+        247,
+        262,
+        271,
+        248,
+        253,
+        246
+      ],
+      "input_observations": [
+        {
+          "phase": "fast",
+          "key_index": 1,
+          "latency_ms": 249,
+          "client_key_ms": 20701,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639223070088376,
+          "input_to_guest_ms": 138.57092906348356,
+          "guest_to_visible_ms": 110.42907093651644,
+          "clock_uncertainty_ms": 42.811482
+        },
+        {
+          "phase": "fast",
+          "key_index": 2,
+          "latency_ms": 247,
+          "client_key_ms": 29120,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639231480229372,
+          "input_to_guest_ms": 133.35639691911538,
+          "guest_to_visible_ms": 113.64360308088462,
+          "clock_uncertainty_ms": 46.811482
+        },
+        {
+          "phase": "narrow",
+          "key_index": 3,
+          "latency_ms": 236,
+          "client_key_ms": 37746,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639240099130790,
+          "input_to_guest_ms": 122.67269501089828,
+          "guest_to_visible_ms": 113.32730498910172,
+          "clock_uncertainty_ms": 45.311482
+        },
+        {
+          "phase": "narrow",
+          "key_index": 4,
+          "latency_ms": 262,
+          "client_key_ms": 46137,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639248507584868,
+          "input_to_guest_ms": 140.50819292850747,
+          "guest_to_visible_ms": 121.49180707149253,
+          "clock_uncertainty_ms": 46.811482
+        },
+        {
+          "phase": "narrow",
+          "key_index": 5,
+          "latency_ms": 277,
+          "client_key_ms": 54556,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639256908516026,
+          "input_to_guest_ms": 122.24344313703739,
+          "guest_to_visible_ms": 154.7565568629626,
+          "clock_uncertainty_ms": 45.311482
+        },
+        {
+          "phase": "narrow",
+          "key_index": 6,
+          "latency_ms": 265,
+          "client_key_ms": 62969,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639265332284616,
+          "input_to_guest_ms": 130.7866289690125,
+          "guest_to_visible_ms": 134.2133710309875,
+          "clock_uncertainty_ms": 46.311482
+        },
+        {
+          "phase": "narrow",
+          "key_index": 7,
+          "latency_ms": 391,
+          "client_key_ms": 71376,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639273735134775,
+          "input_to_guest_ms": 129.13411895371496,
+          "guest_to_visible_ms": 261.86588104628504,
+          "clock_uncertainty_ms": 43.811482
+        },
+        {
+          "phase": "narrow",
+          "key_index": 8,
+          "latency_ms": 262,
+          "client_key_ms": 79904,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639282265044293,
+          "input_to_guest_ms": 130.94339087047047,
+          "guest_to_visible_ms": 131.05660912952953,
+          "clock_uncertainty_ms": 43.311482
+        },
+        {
+          "phase": "recovered",
+          "key_index": 9,
+          "latency_ms": 245,
+          "client_key_ms": 88571,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639290922863868,
+          "input_to_guest_ms": 120.39043800533022,
+          "guest_to_visible_ms": 124.60956199466978,
+          "clock_uncertainty_ms": 46.811482
+        },
+        {
+          "phase": "recovered",
+          "key_index": 10,
+          "latency_ms": 247,
+          "client_key_ms": 96970,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639299333052833,
+          "input_to_guest_ms": 133.92124531790728,
+          "guest_to_visible_ms": 113.07875468209272,
+          "clock_uncertainty_ms": 47.311482
+        },
+        {
+          "phase": "recovered",
+          "key_index": 11,
+          "latency_ms": 262,
+          "client_key_ms": 105370,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639307733408728,
+          "input_to_guest_ms": 136.76691089756332,
+          "guest_to_visible_ms": 125.23308910243668,
+          "clock_uncertainty_ms": 45.811482
+        },
+        {
+          "phase": "recovered",
+          "key_index": 12,
+          "latency_ms": 271,
+          "client_key_ms": 113746,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639316108802618,
+          "input_to_guest_ms": 134.7105559390087,
+          "guest_to_visible_ms": 136.2894440609913,
+          "clock_uncertainty_ms": 44.311482
+        },
+        {
+          "phase": "recovered",
+          "key_index": 13,
+          "latency_ms": 248,
+          "client_key_ms": 122185,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639324539105727,
+          "input_to_guest_ms": 127.73246603086363,
+          "guest_to_visible_ms": 120.26753396913637,
+          "clock_uncertainty_ms": 46.311482
+        },
+        {
+          "phase": "recovered",
+          "key_index": 14,
+          "latency_ms": 253,
+          "client_key_ms": 130596,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639332957355769,
+          "input_to_guest_ms": 133.29697600192958,
+          "guest_to_visible_ms": 119.70302399807042,
+          "clock_uncertainty_ms": 45.311482
+        },
+        {
+          "phase": "recovered",
+          "key_index": 15,
+          "latency_ms": 246,
+          "client_key_ms": 139020,
+          "metadata_mode": 3,
+          "guest_edited_ns": 1639341390254793,
+          "input_to_guest_ms": 142.50510700045993,
+          "guest_to_visible_ms": 103.49489299954007,
+          "clock_uncertainty_ms": 45.811482
+        }
+      ],
+      "static_observer": {
+        "frames": 8162,
+        "wrong_static": 0,
+        "uncovered_static": 0,
+        "invalid_ids": 0,
+        "ids": null,
+        "observations": null,
+        "stop": true
+      }
+    }
+  ],
+  "lxc_hardcut_runs": [
+    {
+      "run": "quality61-auto-hardcut154-diagnostic-source-oracle",
+      "checks": {
+        "quality_rgb": true,
+        "quality_ssim": true,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": true,
+        "no_long_gap": true
+      },
+      "phases": [
+        {
+          "name": "fast",
+          "unique_source_fps": 50.68479456163151,
+          "max_gap_ms": 101,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 36.42437309598532,
+          "first_cut_min_ssim_8x8_box": 0.9831604755436882,
+          "transport_kbps": 5613.333599920024,
+          "initial_target": 8000,
+          "final_target": 8000
+        },
+        {
+          "name": "narrow",
+          "unique_source_fps": 49.113687858190055,
+          "max_gap_ms": 217,
+          "first_cut_frames": 12,
+          "first_cut_min_rgb_psnr": 30.93541880592621,
+          "first_cut_min_ssim_8x8_box": 0.9077124262500094,
+          "transport_kbps": 1652.744768759163,
+          "initial_target": 2090,
+          "final_target": 1721
+        }
+      ]
+    },
+    {
+      "run": "quality61-auto-hardcut154-repeat-source-oracle",
+      "checks": {
+        "quality_rgb": true,
+        "quality_ssim": false,
+        "no_visible_stale_exact_tiles": true,
+        "static_ui_exact": true,
+        "source_ids_valid": true,
+        "snapshot_ids_match": true,
+        "cadence": true,
+        "no_long_gap": true
+      },
+      "phases": [
+        {
+          "name": "fast",
+          "unique_source_fps": 51.082121257559855,
+          "max_gap_ms": 84,
+          "first_cut_frames": 8,
+          "first_cut_min_rgb_psnr": 36.42926903155244,
+          "first_cut_min_ssim_8x8_box": 0.9848516176261238,
+          "transport_kbps": 5701.684410456341,
+          "initial_target": 8000,
+          "final_target": 8000
+        },
+        {
+          "name": "narrow",
+          "unique_source_fps": 48.44890206924128,
+          "max_gap_ms": 184,
+          "first_cut_frames": 11,
+          "first_cut_min_rgb_psnr": 28.374991426170837,
+          "first_cut_min_ssim_8x8_box": 0.8623256880104513,
+          "transport_kbps": 1659.7668854753258,
+          "initial_target": 2086,
+          "final_target": 1796
+        }
+      ]
+    }
+  ],
+  "decision": "Retain the recovery fix and regression evidence. It removes the explained unnecessary cooldown restart, but does not satisfy full qualification: native source-age excess476/497ms exceeds400ms, one native narrow cadence44.485fps misses45, one recovery finishes7540 rather than8000, and one of two hard-cut runs has narrow SSIM0.8623 below0.90. Do not promote or release.",
+  "limits": [
+    "LXC108/KWin5 NVENC H264 Firefox/Linux and native dedicated KWin6/QSV H264 VM only; broader supported matrix, application/occlusion/lifecycle and long sessions remain.",
+    "One passing hardcut run is not repeatability; keep the failing repeat and unchanged gates.",
+    "Recorded-prefix unit replay omits other feedback callbacks and stops before counterfactual sending decisions.",
+    "Production remains exp35; extracted private packages only, original host/guest process identities checked."
+  ],
+  "production_changed": false,
+  "next_action": "Measure a cropped-H264-NVENC QP ceiling in the actual worker after the fixed-rate control; use counter-only Mac receiver diagnostics to locate cadence loss. Preserve native400ms/45fps and all other acceptance gates."
+}

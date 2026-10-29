@@ -81,7 +81,7 @@
   ],
   "checkpoint": {
     "stage": "video-regions-and-queue",
-    "candidate": "Private144 removes duplicate main-thread receipt resampling;13 viewer suites and209 SDK bridge tests pass. Core127 payloads unchanged. LXC transition13 gates and22 component pixel oracles pass; native478.569ms age excess and Mac timing remain open.",
+    "candidate": "Private154 fixes recovery resets on brief NORMAL packet queue pulses;211 bridge tests pass. LXC transition13 gates pass. Native age476/497ms, one44.485fps narrow phase, one7540 recovery and one hardcut SSIM0.8623 remain unqualified.",
     "guest_extension_role": {
       "required_for_metadata_priority": "Expanded VM/LXC agents supply window geometry, stacking, visibility, focus and supported caret/input-component bounds over the existing guest transport.",
       "implemented_scope": "KWin session integration, optional Qt5/Qt6 input-geometry plugin and accessibility producers have documented checks; this does not establish universal toolkit or application coverage.",
@@ -277,7 +277,7 @@
       "149 corrects initial RDP/QSM video-content mismatch with SHA2561a0635... proved in both guests. Corrected RDP31.52/29.02/31.63fps,15chars once,952ms initial-cut glyph fails600; QSM14455.15/47.99/55.49fps and138ms. Separate144 hardcut50.78/52.41fps passes cadence but narrow SSIM0.885896 fails0.90. Original failures retained; no overall winner declared."
     ],
     "pending": [
-      "Use the recorded low-rate packet/receipt windows to explain why growth starts13.658s after the cut despite spare2M capacity. Preserve byte debt and congestion guards, and require both hard-cut fidelity and transition timing in any replacement. Native/Mac and remaining matrix/release scope stay open.",
+      "Measure a cropped-H264-NVENC QP ceiling in the actual worker after the fixed-rate control; use counter-only Mac receiver diagnostics to locate cadence loss. Preserve native400ms/45fps and all other acceptance gates.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -335,9 +335,10 @@
       "dist/rdp-hybrid/received-feedback-exp144",
       "dist/rdp-hybrid/refresh-reservation-146",
       "dist/rdp-hybrid/rdp-matched-content-149",
-      "dist/rdp-hybrid/nvenc-preset-153"
+      "dist/rdp-hybrid/nvenc-preset-153",
+      "dist/rdp-hybrid/queue-recovery-exp154"
     ],
-    "next_action": "Use the recorded low-rate packet/receipt windows to explain why growth starts13.658s after the cut despite spare2M capacity. Preserve byte debt and congestion guards, and require both hard-cut fidelity and transition timing in any replacement. Native/Mac and remaining matrix/release scope stay open.",
+    "next_action": "Measure a cropped-H264-NVENC QP ceiling in the actual worker after the fixed-rate control; use counter-only Mac receiver diagnostics to locate cadence loss. Preserve native400ms/45fps and all other acceptance gates.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -560,7 +561,8 @@
     "playout_queue_diagnostics": "docs/rdp-playout-queue-20261029.json",
     "refresh_reservation": "docs/rdp-refresh-reservation-20261029.json",
     "matched_rdp_reference": "docs/rdp-matched-content-20261029.json",
-    "nvenc_preset_diagnostic": "docs/rdp-nvenc-preset-20261029.json"
+    "nvenc_preset_diagnostic": "docs/rdp-nvenc-preset-20261029.json",
+    "queue_recovery": "docs/rdp-queue-recovery-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",
