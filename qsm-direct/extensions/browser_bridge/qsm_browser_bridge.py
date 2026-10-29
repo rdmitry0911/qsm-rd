@@ -382,6 +382,8 @@ class _ReceiverFeedback:
     feedback_kind: str = 'presented'
     received_time: float = float('-inf')
     received_rapid_time: float = float('-inf')
+    packet_delivery: transport_feedback.DeliveryEstimator | None = None
+    reduced_packet_serial: int = 0
 
 
 class AdaptiveVideoRate:
@@ -499,6 +501,17 @@ class AdaptiveVideoRate:
         """A complete encoded frame arrived, before optional decoder playout."""
         self._delivery_report(peer, sent_at, total_bytes, 'received')
 
+    def transport_report(self, peer: object, samples: tuple[tuple[float, float, int], ...]) -> None:
+        """Packet arrivals already matched to authenticated send history."""
+        if not samples:
+            return
+        now = self._clock()
+        state = self._receivers.setdefault(peer, _ReceiverFeedback(now))
+        if state.packet_delivery is None:
+            state.packet_delivery = transport_feedback.DeliveryEstimator()
+        if state.packet_delivery.add(samples, now):
+            self._update(now)
+
     def _delivery_report(self, peer: object, sent_at: float, total_bytes: int, kind: str) -> None:
         now = self._clock()
         state = self._receivers.setdefault(peer, _ReceiverFeedback(now))
@@ -577,6 +590,23 @@ class AdaptiveVideoRate:
     def _presentation_fresh(state: _ReceiverFeedback, now: float) -> bool:
         return now - state.presented_time < 1.5
 
+    @staticmethod
+    def _packet_fresh(state: _ReceiverFeedback, now: float) -> bool:
+        return state.packet_delivery is not None and state.packet_delivery.fresh(now)
+
+    def _delivery_fresh(self, state: _ReceiverFeedback, now: float) -> bool:
+        return self._packet_fresh(state, now) or self._presentation_fresh(state, now)
+
+    def _delivery_clear(self, state: _ReceiverFeedback, now: float) -> bool:
+        if self._packet_fresh(state, now):
+            return state.packet_delivery.valid and state.packet_delivery.queue_excess <= .08
+        return not self._presentation_fresh(state, now) or state.presented_delay <= state.presented_base + .08
+
+    def _delivery_demand(self, state: _ReceiverFeedback, now: float) -> bool:
+        if self._packet_fresh(state, now):
+            return state.packet_delivery.valid and state.packet_delivery.kbps >= self.current_kbps * .4
+        return self._presentation_fresh(state, now) and state.presented_kbps >= self.current_kbps * .4
+
     def presentation_backpressure(self, peer: object, waited: float) -> None:
         state = self._receivers.get(peer)
         if state is None or waited < .002:
@@ -587,6 +617,10 @@ class AdaptiveVideoRate:
         self._update(now)
 
     def _presentation_queued(self, state: _ReceiverFeedback, now: float) -> bool:
+        if self._packet_fresh(state, now):
+            # Host receipt/display scheduling cannot override actual packet
+            # arrival intervals, including the first interval after TCP repair.
+            return state.packet_delivery.queued
         credit = [(t, d) for t, d in state.credit_samples if now - t < .6]
         # After a path decrease, old flight can still be much older than
         # baseline while the already reduced target is draining it. Matched
@@ -637,21 +671,25 @@ class AdaptiveVideoRate:
         # evidence and actual media demand; delay noise and idle estimates
         # must not continually reconfigure an encoder.
         fresh = [s for s in self._receivers.values() if now - s.loss_time < 6 or
-                 self._presentation_fresh(s, now)]
+                 self._delivery_fresh(s, now)]
         bad = [s for s in fresh if (now - s.loss_time < 6 and s.loss >= .03) or self._presentation_queued(s, now) or
-               (not self._presentation_fresh(s, now) and s.queue_since is not None and now - s.queue_since >= 3 and
+               (not self._delivery_fresh(s, now) and s.queue_since is not None and now - s.queue_since >= 3 and
                 s.sending_kbps >= self.current_kbps * .5)]
         if bad:
             self._healthy_since = now
         pending = [s for s in bad if (s.sequence != s.reduced_sequence or
-                    (self._presentation_queued(s, now) and s.presented_serial != s.reduced_presented_serial))
-                   and (not self._presentation_fresh(s, now) or s.presented_sent_at >= self._changed + .5)]
+                    (self._presentation_queued(s, now) and
+                     ((s.packet_delivery.serial != s.reduced_packet_serial) if self._packet_fresh(s, now)
+                      else (s.presented_serial != s.reduced_presented_serial))))
+                   and (not self._delivery_fresh(s, now) or
+                        (s.packet_delivery.sent_at if self._packet_fresh(s, now)
+                         else s.presented_sent_at) >= self._changed + .5)]
         # Recent pre-decoder receipts resolve active delivery sooner than
         # display callbacks. Keep the existing first healthy interval and
         # post-congestion cooldown, then recover in bounded six-second steps.
         # A legacy, mixed or stale viewer retains the ten-second spacing.
         probe_interval = 6 if fresh and all(
-            s.feedback_kind == 'received' and self._presentation_fresh(s, now)
+            self._packet_fresh(s, now) or (s.feedback_kind == 'received' and self._presentation_fresh(s, now))
             for s in fresh) else 10
         if not fresh or now - self._changed < (1 if pending else probe_interval):
             return
@@ -665,18 +703,18 @@ class AdaptiveVideoRate:
             # not apply an old loss/RTT sample again while the path is draining.
             factor = .5 if max((s.loss for s in pending if now - s.loss_time < 6), default=0.) >= .12 else .75
             for state in fresh:
-                if (state in pending and self._presentation_queued(state, now) and
-                        state.presented_bytes >= VIDEO_DELIVERY_MIN_BYTES):
-                    ceiling = min(ceiling, max(500, int(state.presented_kbps * .9)))
-                elif not self._presentation_fresh(state, now) and now - state.remb_time < 5:
+                if state in pending and self._presentation_queued(state, now):
+                    if self._packet_fresh(state, now):
+                        ceiling = min(ceiling, max(500, int(state.packet_delivery.kbps * .9)))
+                    elif state.presented_bytes >= VIDEO_DELIVERY_MIN_BYTES:
+                        ceiling = min(ceiling, max(500, int(state.presented_kbps * .9)))
+                elif not self._delivery_fresh(state, now) and now - state.remb_time < 5:
                     ceiling = min(ceiling, max(500, int(state.remb * .8 / 1000) - 128))
             target = min(ceiling, int(target * factor))
         elif (not bad and now >= self._probe_not_before and now - self._healthy_since >= 10
-              and all(not self._presentation_fresh(s, now) or s.presented_delay <= s.presented_base + .08
-                      for s in fresh) and any(
+              and all(self._delivery_clear(s, now) for s in fresh) and any(
                 (now - s.loss_time < 6 and s.sending_kbps >= self.current_kbps * .7) or
-                (self._presentation_fresh(s, now) and s.presented_kbps >= self.current_kbps * .4
-                 and s.presented_delay <= s.presented_base + .08) for s in fresh)):
+                (self._delivery_demand(s, now) and self._delivery_clear(s, now)) for s in fresh)):
             # Every reporting viewer must have drained before an active
             # probe. Fresh legacy estimates still bound old clients; an
             # app-limited estimate alone never cuts quality.
@@ -684,7 +722,7 @@ class AdaptiveVideoRate:
                 # Fresh, low-age presentation permits a bounded active probe:
                 # REMB alone cannot distinguish a limited encoder from a
                 # limited path. Legacy viewers keep the previous ceiling.
-                if not self._presentation_fresh(state, now) and now - state.remb_time < 5:
+                if not self._delivery_fresh(state, now) and now - state.remb_time < 5:
                     ceiling = min(ceiling, max(500, int(state.remb * .9 / 1000)))
             target = max(target, min(ceiling, target + max(250, int(target * .25))))
         target = max(500, min(self.maximum_kbps, target))
@@ -698,6 +736,8 @@ class AdaptiveVideoRate:
             for state in pending:
                 state.reduced_sequence = state.sequence
                 state.reduced_presented_serial = state.presented_serial
+                if state.packet_delivery is not None:
+                    state.reduced_packet_serial = state.packet_delivery.serial
             if any(self._presentation_queued(s, now) for s in pending):
                 self._probe_not_before = now + 30
         self.current_kbps, self._changed = target, now
@@ -3123,6 +3163,7 @@ class BrowserWebRtcBridge:
                         if self._twcc_history.receive(report):
                             self._video_received._wake.set()
                             self._video_presentation._wake.set()
+                        self._video_rate.transport_report(self, self._twcc_history.take_delivery())
                 if remaining:
                     await receive_rtcp(remaining)
 

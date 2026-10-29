@@ -102,17 +102,31 @@ The packet history is limited to 16,384 entries and eight seconds. Missing
 video packets remain holes until packet delivery or a host-matched complete
 frame proves repair; history eviction cannot acknowledge a missing packet.
 Packet credit expires after 1.5 seconds without new video receipt evidence.
-Complete-frame acknowledgements still fence pixels and drive the existing
-rate controller. A peer without negotiated/fresh packet feedback retains the
-complete-frame path. Packet feedback never acknowledges a layout or image.
-Bounded send timing remains available after a complete-frame ACK, so a later
-transport report can supply each packet's actual arrival interval once.
-The sender and receiver clocks have different origins. Packet timing must
-not be treated as an absolute one-way latency without clock calibration.
-This is a private qualification candidate: packet-based capacity estimation
-is still pending. The native105 cadence/recovery/source-age failures and106
-protocol-only scope are recorded in
-[the transport credit report](rdp-transport-credit-20261029.json).
+Complete-frame acknowledgements still fence pixels. A peer without
+negotiated/fresh packet feedback retains the complete-frame rate/credit path.
+Packet feedback never acknowledges a layout or image. Bounded send timing
+remains available after a complete-frame ACK, so a later transport report can
+supply each packet's actual arrival interval once.
+
+The private packet-capacity controller uses a recent receiver-clock interval
+of at least 100 ms and 9,200 wire bytes. The installed aiortc interarrival
+filter supplies an overuse trend; excess transit and slower packet delivery
+must agree before a reduction. Moderate slowdowns retain a 100 ms transit
+allowance; a delivery rate below half the offered load can act at 50 ms.
+A gap longer than 50 ms rebuilds the delivery window. QSM retains active
+recovery probes, shared/legacy guards and RTCP loss handling. An
+application-limited estimate alone cannot impose a low recovery ceiling.
+Codec dwell/quiet and full-desktop quality are unchanged.
+
+The sender and receiver clocks have different origins. Packet timing uses
+within-clock intervals and relative transit changes, never uncalibrated
+absolute one-way latency. Packet arrival does not claim decoder completion
+or physical display. Native108 passes 15 of 16 unchanged full-profile gates,
+including full-rate recovery, but still fails the 400 ms source-age excess
+limit because obsolete encoded frames wait before dispatch. It remains a
+private, unqualified candidate. See the
+[packet capacity report](rdp-packet-capacity-20261029.json) and the earlier
+[transport credit report](rdp-transport-credit-20261029.json).
 
 Frame-aware waits permit one baseline round trip, bounded to 50–250 ms, with
 one deadline across all acknowledgements. Short healthy waits keep raw capture

@@ -3,12 +3,111 @@ from __future__ import annotations
 
 from collections import OrderedDict, deque
 from dataclasses import dataclass
+import math
 import struct
 import time
 from typing import Callable
 
 URI = 'http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01'
 MAX_REPORTED_PACKETS = 4096
+
+
+class DeliveryEstimator:
+    """Receiver-clock throughput and transit changes from matched packets.
+
+    The receiver and sender clocks need no common origin. aiortc's existing
+    interarrival/overuse filter supplies a trend, not an application-limited
+    AIMD ceiling. A recent wire-byte interval and excess transit must agree
+    before QSM may reduce its target. Active recovery remains QSM's policy.
+    """
+    MIN_BYTES = 1150 * 8
+    FRESH_AGE = 1.5
+
+    def __init__(self) -> None:
+        # Keep the RTCP parser/history usable without optional media modules.
+        from aiortc.rate import RemoteBitrateEstimator
+        self._filter_type = RemoteBitrateEstimator
+        self._filter = RemoteBitrateEstimator()
+        self._window: deque[tuple[float, float, int]] = deque(maxlen=4096)
+        self._baselines: deque[tuple[float, float]] = deque(maxlen=600)
+        self._last_arrival = self._last_tie_sent = float('-inf')
+        self._total = 0
+        self.updated = self.sent_at = float('-inf')
+        self.serial = self.bytes = 0
+        self.kbps = self.offered_kbps = self.queue_excess = 0.
+        self.valid = self.queued = False
+
+    def fresh(self, now: float) -> bool:
+        return 0 <= now - self.updated < self.FRESH_AGE
+
+    def add(self, samples: tuple[tuple[float, float, int], ...], now: float) -> bool:
+        from aiortc.rate import BandwidthUsage
+        if not math.isfinite(now) or not samples or len(samples) > MAX_REPORTED_PACKETS:
+            return False
+        if any(type(sent) not in (float, int) or type(arrived) not in (float, int) or
+               not math.isfinite(sent) or not math.isfinite(arrived) or
+               not 0 <= now - sent < PacketHistory.MAX_AGE or
+               type(cost) is not int or not 0 < cost <= 65599
+               for sent, arrived, cost in samples):
+            return False
+        transits, accepted = [], []
+        for sent, arrived, cost in sorted(samples, key=lambda row: (row[1], row[0])):
+            if (arrived < self._last_arrival or
+                    (arrived == self._last_arrival and sent <= self._last_tie_sent)):
+                continue
+            gap = arrived - self._last_arrival
+            if gap > .05:
+                # A TCP repair or an idle source supplies no continuous
+                # capacity interval across its silent part. Fresh packets
+                # rebuild the window while the existing flight bound holds.
+                self._window.clear()
+            if (gap > self.FRESH_AGE or now - self.updated >= self.FRESH_AGE) and not accepted:
+                self._filter = self._filter_type()
+            self._filter.add(int(arrived * 1000), int(sent * 262144) & 0xffffff, cost, 1)
+            self._total += cost
+            self._window.append((sent, arrived, self._total))
+            while self._window and round((arrived - self._window[0][1]) * 1e6) >= 180000:
+                self._window.popleft()
+            self._last_arrival, self._last_tie_sent = arrived, sent
+            transits.append(round(arrived * 1e6) - round(sent * 1e6))
+            accepted.append(sent)
+        if not accepted:
+            return False
+        self.updated, self.sent_at = now, max(accepted)
+        self.serial += 1
+        while self._baselines and now - self._baselines[0][0] >= 60:
+            self._baselines.popleft()
+        self._baselines.append((now, min(transits)))
+        baseline = sorted(value for _, value in self._baselines)[int((len(self._baselines) - 1) * .1)]
+        # One reordered/late packet must not establish a whole-path queue.
+        self.queue_excess = max(0., min(transits[-8:]) - baseline) / 1e6
+        # Use the nearest anchor at least100ms old. Including all180ms can
+        # mix the preceding fast link into the first congestion estimate,
+        # leaving the new target above capacity for another control interval.
+        anchor = next((row for row in reversed(self._window)
+                       if round((self._last_arrival - row[1]) * 1e6) >= 100000), self._window[0])
+        first_sent, first_arrived, first_count = anchor
+        span = (round(self._last_arrival * 1e6) - round(first_arrived * 1e6)) / 1e6
+        self.bytes = self._total - first_count
+        self.valid = span >= .1 and self.bytes >= self.MIN_BYTES
+        self.kbps = self.offered_kbps = 0.
+        draining = False
+        if self.valid:
+            bits = self.bytes * 8 / 1000
+            self.kbps = bits / span
+            send_times = [row[0] for row in self._window if row[1] >= first_arrived]
+            send_span = max(send_times) - min(send_times)
+            self.offered_kbps = bits / max(.001, send_span)
+            draining = (self.kbps >= self.offered_kbps * 1.05 and
+                        transits[-1] <= round(first_arrived * 1e6) - round(first_sent * 1e6) - 5000)
+        # Keep the existing100ms queue allowance. A short TCP cwnd reduction
+        # can deliver continuously at a lower rate while adding only50-85ms
+        # of transit; a50ms threshold mistakes that repair for a new capacity.
+        severe = self.kbps < self.offered_kbps * .5
+        self.queued = (self.valid and not draining and self.queue_excess > (.05 if severe else .1) and
+                       self._filter.detector.state() == BandwidthUsage.OVERUSING and
+                       self.kbps < self.offered_kbps * .85)
+        return True
 
 
 @dataclass(frozen=True)

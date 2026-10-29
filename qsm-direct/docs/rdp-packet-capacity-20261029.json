@@ -1,0 +1,379 @@
+{
+  "date": "2026-10-29",
+  "status": "packet_capacity_implemented_source_age_unqualified",
+  "source_base_commit": "400f233",
+  "candidate": "0.4.0+stock4.14~exp108 private core; no public release or production installation",
+  "evidence_directory": "dist/rdp-hybrid/packet-capacity-exp108",
+  "artifact_count": 62,
+  "artifact_manifest_sha256": "ac3a161e619663ca13d665626ac638fc40a4c210e79ffd171b94d75f2a031bb9",
+  "source": {
+    "version": "0.4.0+stock4.14~exp108",
+    "deb_sha256": "7a941d7742fc1d057420859fd90a64e9b716337d6238dc2708c02bcb41d8ea0b",
+    "worker_sha256": "7ca0467168faf52944c8f8aeb5b7a10c535aec48b185bc8090dc2a14eaf716e0",
+    "bridge_sha256": "a0d7e741bc9a7772385271ec418897b0417769921ebc412f6ccbc6afc4965f77",
+    "backend_sha256": "a2430f0002549d00a18608498d7170e498df5f8d6c043403186577c6853353f7",
+    "private_selector": 108,
+    "production_changed": false
+  },
+  "transport_module_sha256": "44c15ca0909e15ba3c0f87cbe74eb93443397630d05b0283b1b9f8a23e2acfa8",
+  "implemented": [
+    "Consume new matched packet timing after every authenticated TWCC report, including reports that do not advance contiguous packet credit. Frame/image/layout ACKs remain independent.",
+    "Use receiver-clock delivery intervals and sender-clock offered load with actual conservative wire costs. Sender and receiver clock origins are never subtracted as absolute one-way latency.",
+    "Use the installed aiortc interarrival/overuse detector as a congestion trend, with a nearest100ms throughput anchor, at least9200 wire bytes and a bounded180ms history. Do not use its application-limited AIMD estimate as an available-capacity ceiling.",
+    "Robust relative transit baseline is bounded to600 reports/60seconds. A50ms arrival gap rebuilds the delivery window; estimator freshness expires after1.5seconds. Microsecond interval arithmetic avoids clock-origin-dependent rounding.",
+    "Moderate slowdowns keep100ms excess-transit allowance. A delivery rate below half the offered load keeps the earlier50ms response. Actual byte volume, slower delivery and overuse must agree; a draining queue cannot cut again.",
+    "Retain QSM active recovery, one-second cut spacing, first healthy interval, post-congestion cooldown, shared/legacy viewer guards and independent RTCP-loss handling. Codec dwell/quiet, full-desktop quality and encoded/RTP payloads are unchanged."
+  ],
+  "tests": {
+    "packaged_core_suite": {
+      "exp107": 178,
+      "exp108": 179,
+      "result": "pass in isolated target SDK"
+    },
+    "new_deterministic_tests": 9,
+    "coverage": [
+      "True20-to2-to20Mbit/s serialized-link step and full active recovery",
+      "200ms TCP repair followed by fast drain",
+      "Continuous short4Mbit/s throughput dip with50-100ms transit inflation, reproduced before the correction",
+      "Delayed complete-frame feedback cannot override fresh packet arrivals",
+      "Receiver clock origin invariance",
+      "Idle source, duplicates/invalid samples and freshness expiry",
+      "Legacy fallback and a separate slow legacy viewer still constrain the shared producer"
+    ],
+    "intermediate_failures": "packet108-unit.log retains an intermediate source-step failure of queue-age and clock-origin tests; final108 passes both without changing their assertions. packet108-regression-before.log fails on frozen107 behavior.",
+    "recorded_replay": "replay-delivery108.json replays sender107 packet timing; it is not a counterfactual108 media qualification."
+  },
+  "native107": {
+    "candidate": "exp107",
+    "acceptance": "failed",
+    "checks": {
+      "no_long_video_gap": true,
+      "narrow_source_fps_at_least_45": true,
+      "recovered_source_fps_at_least_45": true,
+      "fast_source_fps_at_least_45": true,
+      "full_rate_recovered": false,
+      "presentation_excess_at_most_400ms": true,
+      "glyph_peak_at_most_600ms": true,
+      "full_source_excess_from_fast_p95_at_most_400ms": false,
+      "no_observed_rtp_loss": true,
+      "narrowed": true,
+      "recovered_some": true,
+      "static_pixels_exact": true,
+      "input_delivered_once": true,
+      "same_connected_stream": true,
+      "metadata_mode3": true,
+      "valid_source_ids": true
+    },
+    "passed_checks": 14,
+    "total_checks": 16,
+    "phases": [
+      {
+        "name": "fast",
+        "source_fps": 47.89397716835061,
+        "max_source_gap_ms": 67,
+        "final_target_kbps": 8000,
+        "full_source_age_ms": {
+          "samples": 915,
+          "median": 202.0101851318028,
+          "p95": 221.6250066334986,
+          "max": 236.45191957863787,
+          "clock_uncertainty_max": 47.74361,
+          "source_tick_interval_ms": 16.666666666666668
+        }
+      },
+      {
+        "name": "narrow",
+        "source_fps": 45.63767254474605,
+        "max_source_gap_ms": 233,
+        "final_target_kbps": 3481,
+        "full_source_age_ms": {
+          "samples": 2725,
+          "median": 284.71724586561464,
+          "p95": 356.40936226894837,
+          "max": 753.4407728041224,
+          "clock_uncertainty_max": 49.24361,
+          "source_tick_interval_ms": 16.666666666666668
+        }
+      },
+      {
+        "name": "recovered",
+        "source_fps": 48.42653625345524,
+        "max_source_gap_ms": 116,
+        "final_target_kbps": 4532,
+        "full_source_age_ms": {
+          "samples": 4514,
+          "median": 224.38132804818167,
+          "p95": 272.8689419105592,
+          "max": 388.7276755024942,
+          "clock_uncertainty_max": 49.74361,
+          "source_tick_interval_ms": 16.666666666666668
+        }
+      }
+    ],
+    "source_excess_from_fast_p95_ms": 531.8157661706238,
+    "source_excess_gate_ms": 400,
+    "glyph_max_ms": 357,
+    "rate_history": [
+      {
+        "t": 1596724.79603572,
+        "from": 8000,
+        "to": 3417
+      },
+      {
+        "t": 1596725.810593258,
+        "from": 3417,
+        "to": 1783
+      },
+      {
+        "t": 1596755.823976783,
+        "from": 1783,
+        "to": 2228
+      },
+      {
+        "t": 1596761.827853504,
+        "from": 2228,
+        "to": 2785
+      },
+      {
+        "t": 1596767.85786795,
+        "from": 2785,
+        "to": 3481
+      },
+      {
+        "t": 1596773.864098499,
+        "from": 3481,
+        "to": 4351
+      },
+      {
+        "t": 1596779.884153532,
+        "from": 4351,
+        "to": 5438
+      },
+      {
+        "t": 1596785.899244257,
+        "from": 5438,
+        "to": 6797
+      },
+      {
+        "t": 1596791.904565078,
+        "from": 6797,
+        "to": 8000
+      },
+      {
+        "t": 1596812.998781967,
+        "from": 8000,
+        "to": 3626
+      },
+      {
+        "t": 1596843.024419911,
+        "from": 3626,
+        "to": 4532
+      },
+      {
+        "t": 1596849.091793277,
+        "from": 4532,
+        "to": 5665
+      }
+    ],
+    "raw_result": "intel107-native-full-vm-h264_qsv-virgl-capture-gpu-first/result.json"
+  },
+  "native108": {
+    "candidate": "exp108",
+    "acceptance": "failed",
+    "checks": {
+      "no_long_video_gap": true,
+      "narrow_source_fps_at_least_45": true,
+      "recovered_source_fps_at_least_45": true,
+      "fast_source_fps_at_least_45": true,
+      "full_rate_recovered": true,
+      "presentation_excess_at_most_400ms": true,
+      "glyph_peak_at_most_600ms": true,
+      "full_source_excess_from_fast_p95_at_most_400ms": false,
+      "no_observed_rtp_loss": true,
+      "narrowed": true,
+      "recovered_some": true,
+      "static_pixels_exact": true,
+      "input_delivered_once": true,
+      "same_connected_stream": true,
+      "metadata_mode3": true,
+      "valid_source_ids": true
+    },
+    "passed_checks": 15,
+    "total_checks": 16,
+    "phases": [
+      {
+        "name": "fast",
+        "source_fps": 48.64475579416001,
+        "max_source_gap_ms": 66,
+        "final_target_kbps": 8000,
+        "full_source_age_ms": {
+          "samples": 916,
+          "median": 200.58252295323877,
+          "p95": 217.79474785240893,
+          "max": 236.2547054731614,
+          "clock_uncertainty_max": 48.692669,
+          "source_tick_interval_ms": 16.666666666666668
+        }
+      },
+      {
+        "name": "narrow",
+        "source_fps": 45.74226417591143,
+        "max_source_gap_ms": 150,
+        "final_target_kbps": 1675,
+        "full_source_age_ms": {
+          "samples": 2720,
+          "median": 267.803347328055,
+          "p95": 301.6479302663342,
+          "max": 759.8953635276615,
+          "clock_uncertainty_max": 48.692669,
+          "source_tick_interval_ms": 16.666666666666668
+        }
+      },
+      {
+        "name": "recovered",
+        "source_fps": 46.966393704136976,
+        "max_source_gap_ms": 116,
+        "final_target_kbps": 8000,
+        "full_source_age_ms": {
+          "samples": 4514,
+          "median": 247.9486022920696,
+          "p95": 283.76878566729147,
+          "max": 344.7791633040964,
+          "clock_uncertainty_max": 48.692669,
+          "source_tick_interval_ms": 16.666666666666668
+        }
+      }
+    ],
+    "source_excess_from_fast_p95_ms": 542.1006156752526,
+    "source_excess_gate_ms": 400,
+    "glyph_max_ms": 325,
+    "rate_history": [
+      {
+        "t": 1597091.262957872,
+        "from": 8000,
+        "to": 1708
+      },
+      {
+        "t": 1597121.280586455,
+        "from": 1708,
+        "to": 2135
+      },
+      {
+        "t": 1597127.292865726,
+        "from": 2135,
+        "to": 2668
+      },
+      {
+        "t": 1597133.294226128,
+        "from": 2668,
+        "to": 3335
+      },
+      {
+        "t": 1597134.486660639,
+        "from": 3335,
+        "to": 1675
+      },
+      {
+        "t": 1597164.4946167,
+        "from": 1675,
+        "to": 2093
+      },
+      {
+        "t": 1597170.498862739,
+        "from": 2093,
+        "to": 2616
+      },
+      {
+        "t": 1597176.511977906,
+        "from": 2616,
+        "to": 3270
+      },
+      {
+        "t": 1597182.522471043,
+        "from": 3270,
+        "to": 4087
+      },
+      {
+        "t": 1597188.545502187,
+        "from": 4087,
+        "to": 5108
+      },
+      {
+        "t": 1597194.550814258,
+        "from": 5108,
+        "to": 6385
+      },
+      {
+        "t": 1597200.555659372,
+        "from": 6385,
+        "to": 7981
+      },
+      {
+        "t": 1597206.56143998,
+        "from": 7981,
+        "to": 8000
+      }
+    ],
+    "raw_result": "intel108-native-full-vm-h264_qsv-virgl-capture-gpu-first/result.json"
+  },
+  "native108_packet_accounting": {
+    "scope": "Full native QSV private108 packet-accounting proof; media/source-age verdict remains in the unchanged full-profile result.",
+    "twcc_enabled": true,
+    "module_sha256": "44c15ca0909e15ba3c0f87cbe74eb93443397630d05b0283b1b9f8a23e2acfa8",
+    "actual_final_rtp_packets": 69499,
+    "video_packets": 69499,
+    "transport_sequence_wraps": 1,
+    "actual_wire_matches_pacer": true,
+    "complete_frame_reservations_checked": 9144,
+    "reservation_errors": 0,
+    "feedback_reports": 3172,
+    "unique_received_packets": 69373,
+    "timed_video_samples": 69373,
+    "timing_batches_without_prefix_advance": 49,
+    "max_history_to_dispatch_ms": 3.210444003343582,
+    "all_reported_packets_match_actual_dispatch": true,
+    "credit_frontier_errors": 0,
+    "capacity_observations": 3172,
+    "max_history_records": 6075,
+    "trace_overflow": false,
+    "limits": [
+      "This live trial has video RTP only; audio/RTX ownership retains unit coverage and needs matching live qualification.",
+      "Source and receiver clocks have different origins; transit changes and within-clock intervals are used, not absolute one-way latency."
+    ]
+  },
+  "interpretation": [
+    "107 detects actual packet timing but mixes old fast-link samples into its first capacity ceiling and reacts to a short continuous TCP slowdown; its full-rate recovery and source-age gates fail.",
+    "108 reaches full8000kbit/s recovery and passes15 of16 unchanged native gates, including cadence, packet/display timing, static pixels, glyphs, input-once, metadata and the same connected stream. It still fails full source freshness:759.895ms peak versus217.795ms fast p95 gives542.101ms excess, above400ms.",
+    "Actual RTP/capture timing localizes remaining age before first dispatch: some already-encoded frames reach roughly512.6ms capture-to-last-dispatch and639.2ms capture-to-presentation. See native108-encoded-age.json; source-ID observations also count the displayed frame while it repeats.",
+    "Neither successful unit checks nor complete packet accounting qualifies native/LXC source freshness. No gate was removed or relaxed."
+  ],
+  "next_action": "Rework replaceable admission before RTP packetization and reference-safe fresh-keyframe recovery for obsolete encoded work. Inspect aiortc next-encoded-frame ownership so an unsent frame may be replaced before sequence/counter assignment; never drop arbitrary predictive frames or abandon a partially dispatched RTP frame. Preserve complete-frame image/layout fences, codec quality/dwell, actual wire charging and shared/legacy behavior. Then repeat the unchanged native/LXC/hard-cut gates.",
+  "production": {
+    "node20": {
+      "package": "0.4.0+stock4.14~exp35",
+      "production_process_start_ticks": {
+        "577033": 332808379,
+        "495374": 297084425
+      },
+      "production_rollout_performed": false
+    },
+    "intel": {
+      "owned_qemu_pid": 3079308,
+      "guest_process_start_ticks": {
+        "828": 712,
+        "710": 607,
+        "675": 601,
+        "957": 821
+      },
+      "diagnostic_workers_remaining": [],
+      "production_gateway_absent": true
+    },
+    "other_requested_nodes": "No rollout on172.16.16.17 or10.30.0.240 in this work."
+  },
+  "limits": [
+    "Full profiles use a real native Debian13/KWin6 VM, Intel capture and QSV H264, packaged worker/bridge/viewer and real TURN over one SSH-forwarded TCP socket; PVE launch/ACL is mocked. This does not qualify native PVE8006 integration.",
+    "No passing native repeat, current LXC loss/fidelity result, other encoder/codec, live audio/RTX, macOS/Firefox, long/resource/resolution or matched RDP acceptance is established by these two failed full profiles.",
+    "Remaining full scope is unchanged in rdp-next-plan.json: toolkit/component/occlusion/lifecycle/fallback, VM/LXC NVENC/QSV/VAAPI H264/HEVC matrix, long/resource/resolution, Firefox/macOS, matched RDP, final seven packages/signatures/APT/docs/rollout/discussions.",
+    "native107-analysis-notice.json retains correction of an offline20ms scheduling assumption; actual dispatch/charge/identity checks pass and media failures remain recorded."
+  ]
+}

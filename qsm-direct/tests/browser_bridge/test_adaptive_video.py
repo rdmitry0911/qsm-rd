@@ -17,6 +17,113 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     AdaptiveVideoRate, BrowserWebRtcBridge, BridgeError, UnixInputEgress,
     INPUT_HEADER, INPUT_MAGIC, INPUT_VERSION, INPUT_VIDEO_BITRATE, _VideoPacer,
     _VideoPresentation, INPUT_VIDEO_BACKPRESSURE, EncodedUnit)
+from extensions.browser_bridge.qsm_transport_feedback import DeliveryEstimator
+
+
+class PacketDeliveryTests(unittest.TestCase):
+    def setUp(self):
+        self.now = 0.
+        self.applied = []
+        self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
+
+    def model(self, duration, capacity, *, demand=.7, offset=400., repair=None, delayed_frames=False):
+        """Serialized link, receiver clock and 50ms RTCP, without fake estimates."""
+        from collections import deque
+        pending = deque()
+        send, previous_arrival, steps = 0., 0., []
+        for tick in range(1, int(duration * 20) + 1):
+            self.now = tick / 20
+            while send < self.now:
+                incoming = max(send + .02, previous_arrival) + 1200 * 8 / capacity(send)
+                if repair is not None:
+                    incoming = max(incoming, repair(send))
+                pending.append((send, incoming + offset, 1200))
+                previous_arrival = incoming
+                send += 1200 * 8 / (self.rate.current_kbps * 1000 * demand)
+            batch = []
+            while pending and pending[0][1] - offset + .02 <= self.now:
+                batch.append(pending.popleft())
+            self.rate.transport_report('a', tuple(batch))
+            if delayed_frames and tick > 20:
+                # Frame-completion callbacks can lag even as actual packets
+                # arrive promptly. They retain image fences, not capacity.
+                self.rate.received_report('a', self.now - (.03 if tick < 40 else .4), tick * 5000)
+                self.rate.presentation_backpressure('a', .05)
+            state = self.rate._receivers.get('a')
+            estimate = state.packet_delivery if state else None
+            steps.append((self.now, self.rate.current_kbps,
+                          estimate.queue_excess if estimate else 0.))
+        return steps
+
+    def test_real_capacity_step_and_full_active_recovery(self):
+        steps = self.model(100, lambda t: 2_000_000 if 8 <= t < 25 else 20_000_000)
+        narrow = [rate for t, rate, _ in steps if 8.2 <= t < 25]
+        self.assertLess(min(narrow), 2500)
+        self.assertGreaterEqual(min(narrow), 1400)
+        self.assertLess(max(age for t, _, age in steps if 8 <= t < 10), .4)
+        self.assertEqual(steps[-1][1], 8000)
+
+    def test_short_tcp_repair_and_fast_drain_do_not_cut_capacity(self):
+        self.model(12, lambda t: 20_000_000,
+                   repair=lambda sent: 5.20 if 5 <= sent < 5.20 else 0.)
+        self.assertEqual(self.applied, [])
+
+    def test_short_tcp_throughput_dip_with_continuous_arrivals_does_not_cut(self):
+        steps = self.model(12, lambda t: 4_000_000 if 5 <= t < 5.2 else 20_000_000)
+        self.assertGreater(max(age for _, _, age in steps), .05)
+        self.assertLess(max(age for _, _, age in steps), .1)
+        self.assertEqual(self.applied, [])
+
+    def test_packet_timing_overrides_delayed_complete_frame_callbacks(self):
+        self.model(15, lambda t: 20_000_000, delayed_frames=True)
+        self.assertEqual(self.applied, [])
+        self.assertFalse(self.rate._presentation_queued(self.rate._receivers['a'], self.now))
+
+    def test_receiver_clock_origin_does_not_change_control(self):
+        first = self.model(12, lambda t: 2_000_000 if t >= 8 else 20_000_000)
+        changes = self.applied[:]
+        self.setUp()
+        second = self.model(12, lambda t: 2_000_000 if t >= 8 else 20_000_000, offset=50000.)
+        self.assertEqual(changes, self.applied)
+        self.assertEqual([row[1] for row in first], [row[1] for row in second])
+
+    def test_idle_packets_cannot_drive_recovery(self):
+        self.rate.current_kbps = 2000
+        self.model(20, lambda t: 20_000_000, demand=.02)
+        self.assertEqual(self.applied, [])
+
+    def test_duplicate_and_invalid_samples_do_not_renew_freshness(self):
+        estimator = DeliveryEstimator()
+        sample = ((0., 400., 1200),)
+        self.assertTrue(estimator.add(sample, .05))
+        self.assertFalse(estimator.add(sample, .5))
+        for bad in (((0., float('nan'), 1200),), ((1., 401., -1),),
+                    ((2., 402., 1200),), ((-9., 391., 1200),)):
+            self.assertFalse(estimator.add(bad, 1.))
+        self.assertEqual(estimator.updated, .05)
+        self.assertFalse(estimator.fresh(1.6))
+        self.assertFalse(estimator.add(sample * 4097, .5))
+
+    def test_expired_packets_restore_legacy_frame_capacity_checks(self):
+        self.model(2, lambda t: 20_000_000)
+        self.assertTrue(self.rate._packet_fresh(self.rate._receivers['a'], self.now))
+        for n in range(1, 31):
+            self.now = 4 + n * .05
+            sent = 4 + n * .02
+            self.rate.received_report('a', sent, 1_000_000 + n * 8000)
+            self.rate.presentation_backpressure('a', .05)
+        self.assertFalse(self.rate._packet_fresh(self.rate._receivers['a'], self.now))
+        self.assertLess(self.rate.current_kbps, 8000)
+
+    def test_slow_legacy_viewer_still_limits_shared_producer(self):
+        self.model(2, lambda t: 20_000_000)
+        # Keep packet evidence fresh while the separate old viewer queues.
+        for n in range(1, 21):
+            self.now = 2 + n * .05
+            self.rate.transport_report('a', ((self.now - .04, 400 + self.now - .02, 1200),))
+            self.rate.presentation_report('old', 2 + n * .02, n * 8000)
+            self.rate.presentation_backpressure('old', .05)
+        self.assertLess(self.rate.current_kbps, 8000)
 
 
 class RateTests(unittest.TestCase):
