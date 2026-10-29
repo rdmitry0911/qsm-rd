@@ -94,6 +94,26 @@ current path target and receipt baseline. A rate change wakes the pending
 admission check; a partial acknowledgement cannot keep the preceding
 high-rate window. Encoded payloads, timestamps and predictive references are kept.
 
+When the peer negotiates transport-cc, authenticated RTCP packet receipts also
+release video flight credit. Video, RTX and bundled audio share transport
+sequence numbering; audio does not acknowledge video bytes. RTP extensions
+are reserved before pacing, with the final sequence assigned at dispatch.
+The packet history is limited to 16,384 entries and eight seconds. Missing
+video packets remain holes until packet delivery or a host-matched complete
+frame proves repair; history eviction cannot acknowledge a missing packet.
+Packet credit expires after 1.5 seconds without new video receipt evidence.
+Complete-frame acknowledgements still fence pixels and drive the existing
+rate controller. A peer without negotiated/fresh packet feedback retains the
+complete-frame path. Packet feedback never acknowledges a layout or image.
+Bounded send timing remains available after a complete-frame ACK, so a later
+transport report can supply each packet's actual arrival interval once.
+The sender and receiver clocks have different origins. Packet timing must
+not be treated as an absolute one-way latency without clock calibration.
+This is a private qualification candidate: packet-based capacity estimation
+is still pending. The native105 cadence/recovery/source-age failures and106
+protocol-only scope are recorded in
+[the transport credit report](rdp-transport-credit-20261029.json).
+
 Frame-aware waits permit one baseline round trip, bounded to 50–250 ms, with
 one deadline across all acknowledgements. Short healthy waits keep raw capture
 history; a wait lasting one short media tick applies the bounded raw lease.

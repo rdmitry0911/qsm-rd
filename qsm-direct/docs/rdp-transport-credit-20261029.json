@@ -1,0 +1,427 @@
+{
+  "date": "2026-10-29",
+  "status": "packet_credit_implemented_capacity_estimation_pending",
+  "source_base_commit": "e128e4b28fc7e292a5610daa9d0394e96fa42e48",
+  "candidate": "Private106 core; native105 full trial failed,106 has only short protocol/timing validation",
+  "evidence_directory": "dist/rdp-hybrid/transport-credit-exp106",
+  "implemented": [
+    "Process-local transport-cc capability intersection with browser SDP; no patched third-party or Proxmox packages.",
+    "Number video/RTX/bundled-audio packets on the negotiated final transport. Reserve the actual extension size before pacing and assign its fixed-width sequence at actual dispatch.",
+    "Separate TWCC only after authenticated SRTCP unprotection; retain other RTCP blocks byte-for-byte. Bound counts/compound parsing, verify padding, run/vector chunks, signed deltas and 16-bit/reference wrap.",
+    "Track at most16384 packets/eight seconds. Video/RTX contribute actual serialized RTP plus the existing64-byte pacing charge; audio sequence numbers cannot acknowledge video. Missing/evicted video holes need actual delivery or host-matched complete-frame repair.",
+    "Fresh packet prefix credit may wake admission without acknowledging any frame/layout/pixels. Legacy or stale packet feedback retains the existing frame path.",
+    "Retain bounded send metadata after frame acknowledgements; expose each new video sender-time/receiver-arrival-time/wire-cost sample once. Capacity control does not consume these samples yet."
+  ],
+  "tests": {
+    "105": "168 full target-SDK bridge tests pass;20 parser/history cases and partial-credit-without-frame-ACK regression included.",
+    "106": "170 full target-SDK bridge tests pass;22 parser/history cases include nonfinal compound padding and retained post-frame-ACK timing.",
+    "coverage": [
+      "Real Firefox feedback vector, one/two-bit vectors, RLE, missing packets and negative deltas",
+      "Malformed lengths/padding/counts/statuses/tails/truncations and compound control preservation",
+      "Unknown/foreign/duplicate/stale feedback, sequence/reference wrap and old-payload replay",
+      "Audio versus video/RTX credit, complete-frame hole repair, bounded history eviction and expiry",
+      "Real RTP serialization lengths with and without transport extensions for H264/H265 packet types; predictive payloads unchanged",
+      "Partial packet credit releases a blocked admission without changing complete-frame ACK state"
+    ],
+    "frozen_replays": {
+      "105": {
+        "scope": "Frozen105 parser/history replay of the previously recorded diagnostic103 wire; not105 live media acceptance",
+        "reports": 440,
+        "sent_packets": 8670,
+        "received_statuses_equal_diagnostic_parser": true,
+        "reports_advancing_packet_prefix": 403,
+        "reports_with_earlier_credit_than_complete_frames": 403,
+        "maximum_additional_credit_bytes": 718240,
+        "credit_bounded_between_complete_ack_and_actual_sent": true,
+        "remaining_history_records": 44,
+        "examples": [
+          {
+            "t": 1592645.97898964,
+            "packet_credit": 434,
+            "completed_credit": 0,
+            "extra": 434
+          },
+          {
+            "t": 1592646.027558062,
+            "packet_credit": 10370,
+            "completed_credit": 0,
+            "extra": 10370
+          },
+          {
+            "t": 1592646.077489862,
+            "packet_credit": 20306,
+            "completed_credit": 0,
+            "extra": 20306
+          }
+        ]
+      },
+      "106": {
+        "scope": "Frozen106 parser/history replay of the previously recorded diagnostic103 wire; not105 live media acceptance",
+        "reports": 440,
+        "sent_packets": 8670,
+        "received_statuses_equal_diagnostic_parser": true,
+        "reports_advancing_packet_prefix": 403,
+        "reports_with_earlier_credit_than_complete_frames": 403,
+        "maximum_additional_credit_bytes": 718240,
+        "credit_bounded_between_complete_ack_and_actual_sent": true,
+        "remaining_history_records": 2020,
+        "examples": [
+          {
+            "t": 1592645.97898964,
+            "packet_credit": 434,
+            "completed_credit": 0,
+            "extra": 434
+          },
+          {
+            "t": 1592646.027558062,
+            "packet_credit": 10370,
+            "completed_credit": 0,
+            "extra": 10370
+          },
+          {
+            "t": 1592646.077489862,
+            "packet_credit": 20306,
+            "completed_credit": 0,
+            "extra": 20306
+          }
+        ]
+      }
+    }
+  },
+  "full_native105": {
+    "scope": "Owned native Debian13/KWin6 QEMU3079308 VM, installed guest83, bridge/worker/viewer101; mock PVE launch/ACL; actual TURN over one SSH-forwarded TCP socket. Actual mixed typing/static/recovery plus declared ingress loss/jitter; not native Proxmox8006 or toolkit/occlusion/fidelity/soak qualification.",
+    "encoder": "h264_qsv",
+    "package": "exp105",
+    "gates": {
+      "no_long_video_gap": true,
+      "narrow_source_fps_at_least_45": false,
+      "recovered_source_fps_at_least_45": false,
+      "fast_source_fps_at_least_45": true,
+      "full_rate_recovered": false,
+      "presentation_excess_at_most_400ms": true,
+      "glyph_peak_at_most_600ms": true,
+      "full_source_excess_from_fast_p95_at_most_400ms": false,
+      "no_observed_rtp_loss": true,
+      "narrowed": true,
+      "recovered_some": false,
+      "static_pixels_exact": true,
+      "input_delivered_once": true,
+      "same_connected_stream": true,
+      "metadata_mode3": true,
+      "valid_source_ids": true
+    },
+    "accepted": false,
+    "source_age_excess_ms": 463.0263811908648,
+    "max_glyph_ms": 306,
+    "static_observer": {
+      "frames": 8187,
+      "wrong_static": 0,
+      "uncovered_static": 0,
+      "invalid_ids": 0,
+      "ids": null,
+      "observations": null,
+      "stop": true
+    },
+    "guest_characters": 15,
+    "trace_overflow": false,
+    "phases": [
+      {
+        "name": "fast",
+        "unique_fps": 49.707794339746535,
+        "max_frame_gap_ms": 66,
+        "initial_target": 8000,
+        "final_target": 8000,
+        "full_source_age_ms": {
+          "samples": 914,
+          "median": 205.69227172527428,
+          "p95": 222.98586894758188,
+          "max": 241.00057999603308,
+          "clock_uncertainty_max": 49.808596,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 884,
+            "median": 122.79908545315266,
+            "p95": 135.37788693793118,
+            "max": 143.9516090322286
+          },
+          "capture_to_last_send_ms": {
+            "samples": 884,
+            "median": 39.754751487635076,
+            "p95": 54.46287989616394,
+            "max": 80.08971763774753
+          },
+          "capture_to_presentation_ms": {
+            "samples": 884,
+            "median": 161.47796297445893,
+            "p95": 177.28498298674822,
+            "max": 199.28063172847033
+          },
+          "last_send_to_receive_ms": {
+            "samples": 884,
+            "median": 65.23996288888156,
+            "p95": 75.59685898013413,
+            "max": 90.35971900448203
+          },
+          "browser_after_receive_ms": {
+            "samples": 884,
+            "median": 56.88000000000102,
+            "p95": 66.95999999999913,
+            "max": 83.93999999999869
+          }
+        },
+        "credit_wait_count": 39,
+        "credit_wait_total_seconds": 0.2317923961672932,
+        "raw_lease_writes": 24,
+        "raw_lease_nonzero": 12,
+        "raw_lease_owners": {
+          "queue": 12,
+          "receipt": 0
+        },
+        "maximum_encoded_queue_at_lease": 2
+      },
+      {
+        "name": "narrow",
+        "unique_fps": 44.91658034513918,
+        "max_frame_gap_ms": 116,
+        "initial_target": 8000,
+        "final_target": 1782,
+        "full_source_age_ms": {
+          "samples": 2722,
+          "median": 272.86019964764563,
+          "p95": 306.11198342715795,
+          "max": 686.0122501384467,
+          "clock_uncertainty_max": 48.308596,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 2353,
+            "median": 199.67262796126306,
+            "p95": 219.20108422636986,
+            "max": 458.92977295443416
+          },
+          "capture_to_last_send_ms": {
+            "samples": 2353,
+            "median": 31.699016457423568,
+            "p95": 59.58586395718157,
+            "max": 331.8747759331018
+          },
+          "capture_to_presentation_ms": {
+            "samples": 2353,
+            "median": 232.2169195394963,
+            "p95": 255.79202850349247,
+            "max": 586.634524166584
+          },
+          "last_send_to_receive_ms": {
+            "samples": 2353,
+            "median": 74.24861309118569,
+            "p95": 96.42785810865462,
+            "max": 454.0497730486095
+          },
+          "browser_after_receive_ms": {
+            "samples": 2353,
+            "median": 122.04000000000087,
+            "p95": 145.63999999999942,
+            "max": 163.6999999999971
+          }
+        },
+        "credit_wait_count": 111,
+        "credit_wait_total_seconds": 1.8095115118194371,
+        "raw_lease_writes": 180,
+        "raw_lease_nonzero": 95,
+        "raw_lease_owners": {
+          "queue": 67,
+          "receipt": 28
+        },
+        "maximum_encoded_queue_at_lease": 2
+      },
+      {
+        "name": "recovered",
+        "unique_fps": 37.749873901616716,
+        "max_frame_gap_ms": 233,
+        "initial_target": 1782,
+        "final_target": 1250,
+        "full_source_age_ms": {
+          "samples": 4520,
+          "median": 288.6401004778776,
+          "p95": 372.4440452953246,
+          "max": 505.6093931974175,
+          "clock_uncertainty_max": 49.308596,
+          "source_tick_interval_ms": 16.666666666666668
+        },
+        "native_presentation": {
+          "delay_ms": {
+            "samples": 3215,
+            "median": 203.44998594373465,
+            "p95": 254.82945097610354,
+            "max": 294.36577297747135
+          },
+          "capture_to_last_send_ms": {
+            "samples": 3215,
+            "median": 38.905884604901075,
+            "p95": 114.63423236273229,
+            "max": 304.2052611708641
+          },
+          "capture_to_presentation_ms": {
+            "samples": 3215,
+            "median": 238.40856296010315,
+            "p95": 318.51871334947646,
+            "max": 393.52944516576827
+          },
+          "last_send_to_receive_ms": {
+            "samples": 3215,
+            "median": 71.35711400769651,
+            "p95": 91.55595279298723,
+            "max": 127.90052592754364
+          },
+          "browser_after_receive_ms": {
+            "samples": 3215,
+            "median": 131.0399999999936,
+            "p95": 183.94000000000233,
+            "max": 219.2399999999907
+          }
+        },
+        "credit_wait_count": 987,
+        "credit_wait_total_seconds": 23.07123968959786,
+        "raw_lease_writes": 3223,
+        "raw_lease_nonzero": 1616,
+        "raw_lease_owners": {
+          "queue": 996,
+          "receipt": 620
+        },
+        "maximum_encoded_queue_at_lease": 2
+      }
+    ],
+    "wire_accounting": {
+      "matched_complete_frames": 8026,
+      "reservation_mismatches": [],
+      "packet_accounting_errors": [],
+      "marker_errors": []
+    },
+    "trace_counts": {
+      "credit": 8026,
+      "recovery": 13,
+      "encoded": 8166,
+      "presentation": 5118,
+      "sent": 8079,
+      "packet": 53423,
+      "lease": 3827,
+      "packet_feedback": 3159
+    },
+    "worst_source_observation": {
+      "ms": 37073,
+      "tick": 1725,
+      "phase": 43,
+      "clock_uncertainty_ms": 47.308596,
+      "source_age_ms": 686.0122501384467
+    },
+    "limitations": [
+      "Owned native VM; actual TURN over one SSH-forwarded TCP socket with kernel loss/jitter; mock PVE launch/ACL, not native Proxmox8006 integration",
+      "Full source-generation-to-composed-canvas age includes repeated frames, with sampled clock brackets and a 16.7 ms source tick; not a physical monitor photon measurement",
+      "Source-ID cadence and exact pixels are checked; native presentation gates use completed-sender timestamps and rVFC, independently of received feedback; other encoders, toolkit/occlusion/fidelity/soak, Mac and RDP remain separate gates"
+    ]
+  },
+  "native105_interpretation": "Packet feedback is actually negotiated:3159 reports,2962 advance the live prefix. Yet old frame-based capacity control cuts2227->500 during wide-link recovery and later1250->500;44.92/37.75fps, final1250 and source-age excess463.03ms fail the unchanged gates. This is not accepted as a release.",
+  "native105_instrumentation_notice": {
+    "scope": "Verified105 selected via runtime105-proof.json/core105 and module SHA accf53...; old textual scope string still mentioned viewer101",
+    "field_notice": "packet.transport_sequence in the105 passive pre-dispatch observer is the reserved placeholder0. Final transport numbering occurs inside send_with_frame; never map those placeholders to receiver packet IDs.",
+    "usable_evidence": "Actual module hash, packet-feedback events/frontiers, normal RTP timestamps, actual byte lengths and media gates remain valid. Final106 observer records bytes at the underlying DTLS RTP boundary."
+  },
+  "short106": {
+    "scope": "Short diagnostic packaged106. Actual final plaintext RTP at DTLS boundary and real SRTCP feedback; no full media/source-age/capacity-controller acceptance.",
+    "twcc_enabled": true,
+    "module_sha256": "9ace5089156aa409d56b35359dd4959bc47f0412be4cc6af078af47a456ca698",
+    "actual_rtp_packets": 8880,
+    "video_packets": 8880,
+    "nonvideo_packets": 0,
+    "actual_wire_lengths_match_pacer": true,
+    "complete_frame_reservations_checked": 1133,
+    "reservation_mismatches": [],
+    "feedback_reports": 440,
+    "unique_received_packet_ids": 8831,
+    "unique_video_delivery_samples": 8831,
+    "delivery_samples_match_final_rtp_cost_and_send_order": true,
+    "credit_frontier_errors": [],
+    "trace_overflow": false,
+    "rate_cut_observations": [
+      {
+        "cut": {
+          "t": 1595036.153149352,
+          "from": 8000,
+          "to": 1584
+        },
+        "receiver_packet_span_ms": 164.5000000000323,
+        "observed_packet_delivery_kbps": 2017.6048632214886,
+        "note": "Observed throughput, not available capacity for an application-limited sender."
+      }
+    ],
+    "remaining": "Connect packet timing to capacity/queue estimation, retain active probes/legacy fallback and qualify original native/LXC/fidelity gates.",
+    "limits": [
+      "All actual RTP in this diagnostic was video; audio/RTX ownership has unit coverage but no live mixed-audio/RTX acceptance here.",
+      "Sender and receiver clocks have different origins; only intervals and relative delay trends are usable without calibration.",
+      "This18s diagnostic does not establish longer resource or browser/hardware/codec qualification."
+    ]
+  },
+  "diagnostic_failure106_one": {
+    "terminal": "Controller exited1 and closed its private workers after no-video timeout",
+    "cause": "Diagnostic wire_packet collector category was missing; its KeyError stopped the intercepted send before dispatch. No105/106 package code caused this instrumentation failure.",
+    "fix": "Initialize wire_packet category before interception; use a fresh packet-two tag/output; package106 payload unchanged",
+    "production_changed": false
+  },
+  "diagnostic_scope": "106 packet-two is a short18s protocol/timing diagnostic, not full mixed-content/source-age/fidelity/matrix acceptance. Its final RTP boundary observer fixes a private collector failure in packet-one; package106 bytes were unchanged between attempts.",
+  "source": {
+    "frozen106_runtime_tests_packaging_equal_current": {
+      "qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py": "36d076094476e5d3b149f2db030aae0116fc864ccb80caeb53ab1c64d7fdb384",
+      "qsm-direct/extensions/browser_bridge/qsm_transport_feedback.py": "9ace5089156aa409d56b35359dd4959bc47f0412be4cc6af078af47a456ca698",
+      "qsm-direct/tests/browser_bridge/test_adaptive_video.py": "482329b67c4d6bce71b3961ed07372b6850af91500d673cd866cfa82af737953",
+      "qsm-direct/tests/browser_bridge/test_transport_feedback.py": "012c3950372889bd19855cfbad9d1e0171d37c43231b15a61964534388827268",
+      "qsm-direct/packaging/debian/build-qsm-pve-direct-deb.sh": "da63d30be9ae495cc4dae13fd4be137ba15745c0e27e35c24e1dc25e06a20b5a"
+    },
+    "module_sha256": "9ace5089156aa409d56b35359dd4959bc47f0412be4cc6af078af47a456ca698",
+    "versions": {
+      "105": {
+        "deb_sha256": "7659e5ff01dd0eabd2d1e15f9e93cd39d5abf54b2fb85400bf8d558ea5f1a3b3",
+        "source_archive_sha256": "0205d468fadbe51cd033309d032fe17f674f6ed6cdcf6e733adda38e5b5e209d"
+      },
+      "106": {
+        "deb_sha256": "bf0f5d548f87d5e1977cabf480ce52307e6388eac8eefe0bf7fcd466f3d6a2d9",
+        "source_archive_sha256": "2f042b040ffd7bd9318bea6b71592c4cfec349b343274125c54e32c517062b70"
+      }
+    },
+    "main_pilots_only_not_full_seven_package_bundle": true,
+    "final_plan_report_release_tree_not_frozen": true
+  },
+  "next_action": "Use retained receiver packet arrival intervals for capacity/queue decisions instead of deriving available bandwidth from completed-frame timing. Evaluate the existing target-SDK aiortc.rate.RemoteBitrateEstimator/OveruseDetector against these real samples; keep active recovery probes, shared/legacy guards, RTCP loss handling, codec dwell/quiet and fixed full-desktop quality. Then run unchanged native/LXC loss/cadence/full-source-age/input/static/full-rate-recovery and hard-cut fidelity gates before broader qualification.",
+  "clock_contract": "Server send seconds and receiver arrival seconds have different origins. Throughput uses receiver intervals; transit trend uses changes after cancelling the constant offset. Neither field alone proves absolute one-way latency.",
+  "remaining": "Complete the entire component/toolkit/occlusion/lifecycle/fallback VM/LXC NVENC/QSV/VAAPI H264/HEVC long/resource/resolution Firefox/macOS matched-RDP and final source/seven packages/signatures/APT/docs/rollout/discussion scope in rdp-next-plan.json.",
+  "production": {
+    "node20": {
+      "package": "0.4.0+stock4.14~exp35",
+      "production_process_start_ticks": {
+        "577033": 332808379,
+        "495374": 297084425
+      },
+      "production_rollout_performed": false
+    },
+    "owned_native_vm": {
+      "owned_qemu_pid": 3079308,
+      "guest_process_start_ticks": {
+        "828": 712,
+        "710": 607,
+        "675": 601,
+        "957": 821
+      },
+      "diagnostic_workers_remaining": [],
+      "production_gateway_absent": true
+    },
+    "publication_or_rollout": false
+  },
+  "limitations": [
+    "106 actual RTP contained no audio/RTX traffic; ownership has unit coverage, live mixed-audio/RTX remains.",
+    "A protocol proof and170 unit tests do not waive any failed native media gate.",
+    "105 pre-dispatch transport sequence placeholders cannot be matched to actual receiver IDs; no capacity reconstruction based on those fields is accepted.106 records actual dispatch headers and preserves timed delivery samples.",
+    "Only main private105/106 pilots are built; release packages, signatures/APT and qualified rollout are pending."
+  ]
+}

@@ -822,6 +822,29 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
         self.assertLess(time.monotonic() - now, .20, 'a prepared frame cannot wait for two full RTTs')
         self.assertEqual(leases[-1], False)
 
+    async def test_partial_packet_credit_releases_admission_without_a_frame_ack(self):
+        from extensions.browser_bridge.qsm_transport_feedback import PacketHistory, Report
+        history = _VideoPresentation()
+        packets = PacketHistory({1})
+        for _ in range(16):
+            packets.sent(12500)
+        history.sent(10, 200000)
+        now = time.monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.11, presented_delay=.115,
+                                presented_kbps=6400, presented_offered_kbps=6400,
+                                feedback_kind='received', received_rapid_time=now)
+        pending = asyncio.create_task(history.wait_for_credit(
+            lambda: 200000, lambda: state, bitrate_kbps=8000,
+            frame_wire_bytes=20000, packet_credit=packets.credit))
+        await asyncio.sleep(.005)
+        self.assertFalse(pending.done())
+        self.assertTrue(packets.receive(Report(1, 0, tuple((i, 0) for i in range(8)))))
+        history._wake.set()
+        await asyncio.wait_for(pending, .03)
+        self.assertEqual(history._acknowledged, 0)
+        self.assertEqual(history._acknowledged_bytes, 0, 'packet credit cannot acknowledge pixels or complete frames')
+        self.assertEqual(history.credit_waits, 1)
+
     async def test_only_matched_rapid_receipts_enable_early_admission(self):
         now = [1.]
         rate = AdaptiveVideoRate(8000, lambda _: None, clock=lambda: now[0])
@@ -939,12 +962,14 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_packetized_frame_budget_matches_rtp_and_preserves_payloads(self):
         from aiortc.rtp import RtpPacket, HeaderExtensionsMap
         from aiortc.rtcrtpparameters import RTCRtpParameters, RTCRtpHeaderExtensionParameters
+        from extensions.browser_bridge.qsm_transport_feedback import URI
         with tempfile.TemporaryDirectory() as directory:
             bridge = BrowserWebRtcBridge(Path(directory))
             extension_map = HeaderExtensionsMap()
             extension_map.configure(RTCRtpParameters(headerExtensions=[
                 RTCRtpHeaderExtensionParameters(id=1, uri='urn:ietf:params:rtp-hdrext:sdes:mid'),
                 RTCRtpHeaderExtensionParameters(id=2, uri='http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time'),
+                RTCRtpHeaderExtensionParameters(id=3, uri=URI),
             ]))
             payloads = [b'a' * 1150, b'b' * 1137, b'c' * 23]
             frame = SimpleNamespace(payloads=payloads, timestamp=12345, audio_level=None)
@@ -955,17 +980,21 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
                                      _RTCRtpSender__rtp_header_extensions_map=extension_map)
             try:
                 bridge._attach_video_frame_budget(sender)
-                for payload_type in (99, 49):
-                    actual = await sender._next_encoded_frame(SimpleNamespace(payloadType=payload_type))
-                    self.assertIs(actual, frame)
-                    self.assertIs(actual.payloads, payloads)
-                    wire = 0
-                    for payload in payloads:
-                        packet = RtpPacket(payload_type=payload_type, ssrc=123, payload=payload)
-                        packet.extensions.abs_send_time = 123
-                        packet.extensions.mid = 'video'
-                        wire += len(packet.serialize(extension_map)) + 64
-                    self.assertEqual(bridge._next_video_wire_bytes, wire)
+                for twcc in (False, True):
+                    bridge._twcc_video = twcc
+                    for payload_type in (99, 49):
+                        actual = await sender._next_encoded_frame(SimpleNamespace(payloadType=payload_type))
+                        self.assertIs(actual, frame)
+                        self.assertIs(actual.payloads, payloads)
+                        wire = 0
+                        for payload in payloads:
+                            packet = RtpPacket(payload_type=payload_type, ssrc=123, payload=payload)
+                            packet.extensions.abs_send_time = 123
+                            packet.extensions.mid = 'video'
+                            if twcc:
+                                packet.extensions.transport_sequence_number = 1234
+                            wire += len(packet.serialize(extension_map)) + 64
+                        self.assertEqual(bridge._next_video_wire_bytes, wire)
             finally:
                 await bridge.close()
 

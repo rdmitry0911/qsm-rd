@@ -27,6 +27,7 @@ for required in \
     "$ROOT_DIR/CMakeLists.txt" \
     "$ROOT_DIR/tools/qsm_direct_media_worker.cpp" \
     "$ROOT_DIR/extensions/browser_bridge/qsm_browser_bridge.py" \
+    "$ROOT_DIR/extensions/browser_bridge/qsm_transport_feedback.py" \
     "$ROOT_DIR/extensions/direct_guest/__init__.py" \
     "$ROOT_DIR/extensions/direct_guest/qsm_guest_channel.py" \
     "$ROOT_DIR/extensions/direct_guest/qsm_desktop_metadata.py" \
@@ -90,6 +91,7 @@ install -m 0755 "$worker" "$package_root/bin/qsm-direct-media-worker"
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/__init__.py" "$package_root/browser_bridge/__init__.py"
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/qsm_browser_bridge.py" "$package_root/browser_bridge/qsm_browser_bridge.py"
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/qsm_lossless_ui.py" "$package_root/browser_bridge/qsm_lossless_ui.py"
+install -m 0644 "$ROOT_DIR/extensions/browser_bridge/qsm_transport_feedback.py" "$package_root/browser_bridge/qsm_transport_feedback.py"
 install -m 0644 "$ROOT_DIR/extensions/signal/qsm_gateway.py" "$package_root/browser_bridge/qsm_gateway.py"
 install -m 0644 "$ROOT_DIR/extensions/signal/qsm_gateway.py" "$package_root/signal_service/qsm_gateway.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/__init__.py" "$package_root/direct_guest/__init__.py"

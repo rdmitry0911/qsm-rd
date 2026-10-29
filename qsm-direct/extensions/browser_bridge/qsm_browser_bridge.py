@@ -17,6 +17,11 @@ try:
 except ImportError:
     import qsm_lossless_ui as exact_ui
 
+try:
+    from . import qsm_transport_feedback as transport_feedback
+except ImportError:
+    import qsm_transport_feedback as transport_feedback
+
 # The installed module lives next to this file; source tests use its package.
 try:
     from .qsm_gateway import read_gateway, IcePeerLease
@@ -51,7 +56,8 @@ import aiortc.rtcrtpsender as aiortc_rtcrtpsender
 from aiortc.codecs.h264 import H264Encoder
 from aiortc.mediastreams import convert_timebase
 from aiortc.mediastreams import MediaStreamError
-from aiortc.rtcrtpparameters import RTCRtcpFeedback, RTCRtpCodecParameters
+from aiortc.rtcrtpparameters import (RTCRtcpFeedback, RTCRtpCodecParameters,
+                                    RTCRtpHeaderExtensionParameters)
 from aiortc.rtp import (RTCP_PSFB_PLI, RTCP_PSFB_APP, RtcpPsfbPacket,
                         RtcpRrPacket, RtcpSrPacket, RtpPacket, unpack_remb_fci)
 from aiortc.sdp import SessionDescription
@@ -246,6 +252,7 @@ class _VideoPresentation:
                               bitrate_kbps: int | None = None,
                               frame_wire_bytes: int = 0,
                               current_bitrate: Callable[[], int] | None = None,
+                              packet_credit: Callable[[int], int] | None = None,
                               on_wait: Callable[[bool], None] | None = None) -> float:
         """Limit ordinary video in flight, without holding audio/UI or RTX.
 
@@ -258,6 +265,13 @@ class _VideoPresentation:
         if state is None or now - state.presented_time >= 1.5:
             return 0.
         frame_budget = frame_wire_bytes if type(frame_wire_bytes) is int and frame_wire_bytes > 0 else 0
+
+        def delivered() -> int:
+            complete = self._acknowledged_bytes
+            if packet_credit is None:
+                return complete
+            extra = packet_credit(complete)
+            return max(complete, min(bytes_sent(), extra)) if type(extra) is int else complete
 
         def allowance(value: _ReceiverFeedback, at: float) -> tuple[float | None, bool]:
             target = current_bitrate() if current_bitrate is not None else bitrate_kbps
@@ -286,7 +300,7 @@ class _VideoPresentation:
             return kbps * 1000 / 8 * (value.presented_base + .12), False
 
         credit, rapid = allowance(state, now)
-        if credit is None or bytes_sent() - self._acknowledged_bytes <= credit:
+        if credit is None or bytes_sent() - delivered() <= credit:
             return 0.
         self.credit_waits += 1
         started = self._clock()
@@ -306,7 +320,7 @@ class _VideoPresentation:
                 if state is None or now - state.presented_time >= 1.5:
                     break
                 credit, _ = allowance(state, now)
-                if credit is None or bytes_sent() - self._acknowledged_bytes <= credit:
+                if credit is None or bytes_sent() - delivered() <= credit:
                     break
                 remaining = deadline - self._clock()
                 if remaining <= 0:
@@ -718,6 +732,22 @@ class _H264Packetizer(H264Encoder):
                 flags = nal_type | (0x80 if offset == 1 else 0) | (0x40 if end == len(nal) else 0)
                 payloads.append(bytes([indicator, flags]) + nal[offset:end])
         return payloads
+
+
+def _install_transport_feedback_capabilities() -> None:
+    # Negotiation remains an intersection with the actual browser offer.
+    # No third-party files or packages are changed by this process-local capability.
+    ids = {ext.id for values in aiortc_codecs.HEADER_EXTENSIONS.values() for ext in values}
+    extension_id = next(i for i in range(1, 15) if i not in ids)
+    for kind in ('audio', 'video'):
+        if not any(ext.uri == transport_feedback.URI for ext in aiortc_codecs.HEADER_EXTENSIONS[kind]):
+            aiortc_codecs.HEADER_EXTENSIONS[kind].append(
+                RTCRtpHeaderExtensionParameters(id=extension_id, uri=transport_feedback.URI))
+        for codec in aiortc_codecs.CODECS[kind]:
+            if codec.mimeType.lower().endswith('/rtx'):
+                continue
+            if not any(fb.type == 'transport-cc' for fb in codec.rtcpFeedback):
+                codec.rtcpFeedback.append(RTCRtcpFeedback(type='transport-cc'))
 
 
 def _install_h264_packetizer() -> None:
@@ -2280,6 +2310,8 @@ class BrowserWebRtcBridge:
         self._region_full_frames: set[int] = set()
         self._video_presentation = _VideoPresentation()
         self._video_received = _VideoPresentation()
+        self._twcc_video = False
+        self._twcc_history: transport_feedback.PacketHistory | None = None
         self._next_video_wire_bytes = 0
         self._video_frame_in_progress = False
         self._regions_eligible = self._regions_ready = False
@@ -2881,6 +2913,8 @@ class BrowserWebRtcBridge:
                 header = RtpPacket(payload_type=codec.payloadType, ssrc=sender._ssrc)
                 header.extensions.abs_send_time = 1
                 header.extensions.mid = sender._RTCRtpSender__mid
+                if self._twcc_video:
+                    header.extensions.transport_sequence_number = 0
                 if frame.audio_level is not None:
                     header.extensions.audio_level = (False, -frame.audio_level)
                 overhead = len(header.serialize(sender._RTCRtpSender__rtp_header_extensions_map)) + 64
@@ -3023,6 +3057,7 @@ class BrowserWebRtcBridge:
             # profile/tier/level/tx-mode, so its receiver binds the packets
             # we send to the H265 decoder it offered.
             _apply_h265_offer(*_h265_offer_details(sdp))
+        _install_transport_feedback_capabilities()
         video_codecs = self._video_codecs(self.video_codec)
         if not video_codecs:
             requested = "HEVC" if self.video_codec == "hevc" else "H.264"
@@ -3060,9 +3095,59 @@ class BrowserWebRtcBridge:
         transport = video_sender.transport
         send_rtp = transport._send_rtp
 
+        def negotiated_twcc(sender: object) -> bool:
+            for transceiver in self._pc.getTransceivers():
+                if transceiver.sender is sender:
+                    codecs = getattr(transceiver, '_codecs', [])
+                    return bool(codecs and any(fb.type == 'transport-cc' for fb in codecs[0].rtcpFeedback) and
+                                any(ext.uri == transport_feedback.URI for ext in
+                                    getattr(transceiver, '_headerExtensions', [])))
+            return False
+
+        twcc_senders = {}
+        self._twcc_video = negotiated_twcc(video_sender)
+        if self._twcc_video:
+            twcc_senders = {video_sender._ssrc: (video_sender, True),
+                            video_sender._rtx_ssrc: (video_sender, True)}
+            if audio_sender.transport is transport and negotiated_twcc(audio_sender):
+                twcc_senders.update({audio_sender._ssrc: (audio_sender, False),
+                                     audio_sender._rtx_ssrc: (audio_sender, False)})
+            self._twcc_history = transport_feedback.PacketHistory(set(twcc_senders))
+            receive_rtcp = transport._handle_rtcp_data
+
+            async def receive_transport_feedback(data: bytes) -> None:
+                # aiortc calls this only after authenticated SRTCP unprotection.
+                reports, remaining = transport_feedback.separate(data)
+                if not self._closed:
+                    for report in reports:
+                        if self._twcc_history.receive(report):
+                            self._video_received._wake.set()
+                            self._video_presentation._wake.set()
+                if remaining:
+                    await receive_rtcp(remaining)
+
+            transport._handle_rtcp_data = receive_transport_feedback
+
+        def numbered(data: bytes, *, actual: bool) -> bytes:
+            if (not twcc_senders or len(data) < 12 or data[0] >> 6 != 2 or
+                    192 <= data[1] <= 223):
+                return data
+            entry = twcc_senders.get(struct.unpack_from('!I', data, 8)[0])
+            if entry is None:
+                return data
+            sender, video = entry
+            mapper = sender._RTCRtpSender__rtp_header_extensions_map
+            packet = RtpPacket.parse(data, mapper)
+            packet.extensions.transport_sequence_number = self._twcc_history.next_sequence if actual else 0
+            wire = packet.serialize(mapper)
+            if actual:
+                self._twcc_history.sent(len(wire) + 64 if video else 0)
+            return wire
+
         last_frame_rtp = None
         async def send_with_frame(data: bytes) -> None:
             nonlocal last_frame_rtp
+            data = numbered(data, actual=True)
             if (len(data) >= 12 and data[0] >> 6 == 2 and not 192 <= data[1] <= 223 and
                     struct.unpack_from("!I", data, 8)[0] == video_sender._ssrc):
                 rtp = struct.unpack_from("!I", data, 4)[0]
@@ -3088,6 +3173,9 @@ class BrowserWebRtcBridge:
                 self._update_video_backpressure()
 
         async def send_paced(data: bytes) -> None:
+            # Reserve the extension before pacing charges this packet. Its
+            # final fixed-width sequence is assigned at actual dispatch.
+            data = numbered(data, actual=False)
             if self._queue_pause_active:
                 self._update_video_backpressure()
             if (len(data) >= 12 and data[0] >> 6 == 2 and not 192 <= data[1] <= 223 and
@@ -3102,6 +3190,7 @@ class BrowserWebRtcBridge:
                     bitrate_kbps=self._video_rate.current_kbps,
                     frame_wire_bytes=self._next_video_wire_bytes,
                     current_bitrate=lambda: self._video_rate.current_kbps,
+                    packet_credit=self._twcc_history.credit if self._twcc_history is not None else None,
                     on_wait=self._set_receipt_backpressure)
                 self._video_rate.presentation_backpressure(self, waited)
             await self._video_pacer.send(data, video_sender, send_with_frame)
@@ -3207,6 +3296,8 @@ class BrowserWebRtcBridge:
         if self._closed:
             return
         self._closed = True
+        if self._twcc_history is not None:
+            self._twcc_history.clear()
         self._set_receipt_backpressure(False)
         self._update_video_backpressure()
         self._set_lossless_ui(False)
