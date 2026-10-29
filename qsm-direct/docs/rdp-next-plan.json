@@ -276,7 +276,7 @@
       "144 LXC/NVENC transition passes13 original gates:55.15/47.99/55.49fps, glyph138ms, exact8224 static snapshots, source-age excess363.024ms and full8000 recovery. Original component assertions pass22 pixel oracles with50.96/48.02fps and glyph peaks91/170/289/244ms; scoped wrapper exits0. Native QSV age478.569ms and Mac cadence/gap fail and remain open."
     ],
     "pending": [
-      "Isolate bounded confirmed-refresh admission reservation from the rejected tighter window before considering a queue policy. Continue Mac scheduling/path diagnosis with the strict pixel observer and its controls; retain original timing/fidelity thresholds and complete the remaining plan.",
+      "Use recorded144/146 initial-cut packet/frame timings to separate unavoidable old wire flight from new admission; avoid another unqualified delay-only policy. Continue independent fidelity/codec/application qualification without relaxing the original45fps/400ms gates.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -331,9 +331,10 @@
       "dist/rdp-hybrid/chromium-receive-exp132",
       "dist/rdp-hybrid/macos-observer-133-136",
       "dist/rdp-hybrid/playout-queue-139-143",
-      "dist/rdp-hybrid/received-feedback-exp144"
+      "dist/rdp-hybrid/received-feedback-exp144",
+      "dist/rdp-hybrid/refresh-reservation-146"
     ],
-    "next_action": "Isolate bounded confirmed-refresh admission reservation from the rejected tighter window before considering a queue policy. Continue Mac scheduling/path diagnosis with the strict pixel observer and its controls; retain original timing/fidelity thresholds and complete the remaining plan.",
+    "next_action": "Use recorded144/146 initial-cut packet/frame timings to separate unavoidable old wire flight from new admission; avoid another unqualified delay-only policy. Continue independent fidelity/codec/application qualification without relaxing the original45fps/400ms gates.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -541,7 +542,7 @@
         "Firefox158.0.1",
         "Safari26.3"
       ],
-      "scope": "Owned Chrome156 headless profile on bob; all1241 snapshots valid and exact, source25.01fps and first glyph1087.8ms fail declared gates. Permission-toggle continuity passes. Owned browser and temporary sleep assertion ended.",
+      "scope": "Owned Chrome156 and private Firefox157 headless profiles only; timing remains unqualified. Guarded cleanup retired Chrome139/Firefox141 browser processes and both sleep assertions; debug ports28427/28437 are closed. User browser profiles are untouched.",
       "alternative": "dima@10.30.0.35 is a VM with ordinary VGA; user warned it may distort results. Prefer the supplied bob receiver.",
       "status": "Incomplete. Private Firefox157 and Chrome156 pilots preserve exact pixels but fail timing.144/emulated132 receipt-filter ABA and receiver-target60ms do not restore45fps; pixel-observer-off controls reach24.19/30.00 callbacks per second, still below45. No physical-display/hardware-decoder claim.",
       "evidence": "docs/rdp-receipt-resampling-20261029.json",
@@ -553,7 +554,8 @@
     "microsoft_rdp_reference": "docs/rdp-microsoft-reference-20261029.json",
     "macos_observer": "docs/rdp-macos-observer-20261029.json",
     "receipt_resampling": "docs/rdp-receipt-resampling-20261029.json",
-    "playout_queue_diagnostics": "docs/rdp-playout-queue-20261029.json"
+    "playout_queue_diagnostics": "docs/rdp-playout-queue-20261029.json",
+    "refresh_reservation": "docs/rdp-refresh-reservation-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",
