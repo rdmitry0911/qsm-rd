@@ -1,0 +1,907 @@
+{
+  "date": "2026-10-29",
+  "status": "private_diagnostics_product_unchanged_goal_open",
+  "evidence_directory": "dist/rdp-hybrid/macos-decoded-167-176",
+  "artifact_manifest_sha256": "78fae7099d978acd2c08f8e848cb46c69966e0e4b6d5c9f797ccaa5bbcc6e495",
+  "retained_runtime": {
+    "version": "0.4.0+stock4.14~exp154",
+    "private_selector": 154,
+    "production_changed": false,
+    "deb_sha256": "2f5025a08b3fdea32c47b730130af35cf3bf00955127176cb62021dbd63de57e",
+    "worker_sha256": "f433e3b2d244f046ba50574801f51fbbb519d2cd6c9d2251a36fba7346d0bc14",
+    "bridge_sha256": "feb3b64469d1f5328fdc73b2775f1b022c8aef3a788a815194076b2eec002779",
+    "transport_sha256": "437eae4b7c69a764c57abc73a2449bfdb972eba3860ad32ce0c5d80f81b94903",
+    "viewer_sha256": "3c28da15b5184717484f537fb8408aac6897637c927a49bee1292aa56c2a021b"
+  },
+  "receipt_path": {
+    "167_controller_route": {
+      "source": "/tmp/qsm-rdp-hybrid-20261028/mac154-rx167-h264_qsv-virgl-capture-gpu-r3/result.json",
+      "scope": "30s counter-only receiver and rVFC observation; no full-frame pixel observer or second decoder. Not pixel, input, age or cadence qualification.",
+      "checks": {
+        "same_connected_stream": true,
+        "observed_30_seconds": true
+      },
+      "page_errors": [],
+      "client_seconds": 29.73159999999404,
+      "server_seconds": 29.733237626962364,
+      "timeline_reports": 652,
+      "sent_reports": 652,
+      "matched_server_receipts": 652,
+      "unsent_outcomes": {
+        "permitted": 0,
+        "failed": 0,
+        "transform": 0
+      },
+      "buffered_before": {
+        "n": 652,
+        "min": 0,
+        "median": 0.0,
+        "p95": 0,
+        "max": 311
+      },
+      "worker_to_main_ms": {
+        "n": 652,
+        "min": 0.09995114803314209,
+        "median": 0.2999511659145355,
+        "p95": 0.400146484375,
+        "max": 6.499951153993607
+      },
+      "main_send_cpu_ms": {
+        "n": 652,
+        "min": 0.0,
+        "median": 0.0,
+        "p95": 0.10000002384185791,
+        "max": 0.20000001788139343
+      },
+      "worker_generated_gaps_ms": {
+        "n": 651,
+        "min": 16.0,
+        "median": 31.2001953125,
+        "p95": 170.800048828125,
+        "max": 312.60009765625
+      },
+      "client_sent_gaps_ms": {
+        "n": 651,
+        "min": 15.5,
+        "median": 31.19999998807907,
+        "p95": 170.5,
+        "max": 312.59999999403954
+      },
+      "server_received_gaps_ms": {
+        "n": 651,
+        "min": 0.2056681551039219,
+        "median": 3.1854889821261168,
+        "p95": 285.5024258606136,
+        "max": 824.1078730206937
+      },
+      "return_gap_growth_ms": {
+        "n": 651,
+        "min": -238.54033116996288,
+        "median": -26.441763950511813,
+        "p95": 197.07595291174948,
+        "max": 775.0978900101036
+      },
+      "largest_return_growth": [
+        {
+          "first_rtp": 2884085581,
+          "last_rtp": 2884094789,
+          "client_gap_ms": 46.900000005960464,
+          "server_gap_ms": 821.997890016064,
+          "return_gap_growth_ms": 775.0978900101036
+        },
+        {
+          "first_rtp": 2882818662,
+          "last_rtp": 2882822935,
+          "client_gap_ms": 53.29999998211861,
+          "server_gap_ms": 824.1078730206937,
+          "return_gap_growth_ms": 770.807873038575
+        },
+        {
+          "first_rtp": 2884073511,
+          "last_rtp": 2884074866,
+          "client_gap_ms": 29.69999998807907,
+          "server_gap_ms": 785.8339478261769,
+          "return_gap_growth_ms": 756.1339478380978
+        },
+        {
+          "first_rtp": 2882423045,
+          "last_rtp": 2882424610,
+          "client_gap_ms": 106.59999999403954,
+          "server_gap_ms": 628.8522349204868,
+          "return_gap_growth_ms": 522.2522349264473
+        },
+        {
+          "first_rtp": 2883502341,
+          "last_rtp": 2883505336,
+          "client_gap_ms": 31.80000001192093,
+          "server_gap_ms": 551.6376129817218,
+          "return_gap_growth_ms": 519.8376129698008
+        },
+        {
+          "first_rtp": 2883219737,
+          "last_rtp": 2883236498,
+          "client_gap_ms": 29.5,
+          "server_gap_ms": 546.8783660326153,
+          "return_gap_growth_ms": 517.3783660326153
+        },
+        {
+          "first_rtp": 2883006321,
+          "last_rtp": 2883007836,
+          "client_gap_ms": 30.599999994039536,
+          "server_gap_ms": 536.0939388629049,
+          "return_gap_growth_ms": 505.49393886886537
+        },
+        {
+          "first_rtp": 2881934788,
+          "last_rtp": 2881937814,
+          "client_gap_ms": 16.200000017881393,
+          "server_gap_ms": 504.37711691483855,
+          "return_gap_growth_ms": 488.17711689695716
+        }
+      ],
+      "received_fps": 37.46855197837397,
+      "decoded_fps": 37.434917730637544,
+      "rvfc_fps": 30.472628449198215
+    },
+    "168_direct_route": {
+      "source": "/tmp/qsm-rdp-hybrid-20261028/mac154-direct168-h264_qsv-virgl-capture-gpu-r4/result.json",
+      "scope": "30s counter-only receiver and rVFC observation; no full-frame pixel observer or second decoder. Not pixel, input, age or cadence qualification.",
+      "checks": {
+        "same_connected_stream": true,
+        "observed_30_seconds": true
+      },
+      "page_errors": [],
+      "client_seconds": 29.42090000000596,
+      "server_seconds": 29.425601628841832,
+      "timeline_reports": 602,
+      "sent_reports": 590,
+      "matched_server_receipts": 590,
+      "unsent_outcomes": {
+        "permitted": 12,
+        "failed": 0,
+        "transform": 12
+      },
+      "buffered_before": {
+        "n": 602,
+        "min": 0,
+        "median": 0.0,
+        "p95": 532,
+        "max": 1063
+      },
+      "worker_to_main_ms": {
+        "n": 602,
+        "min": -0.00014650821685791016,
+        "median": 0.19990232586860657,
+        "p95": 0.29999998211860657,
+        "max": 1.2999999821186066
+      },
+      "main_send_cpu_ms": {
+        "n": 590,
+        "min": 0.0,
+        "median": 0.0,
+        "p95": 0.10000002384185791,
+        "max": 0.7000000178813934
+      },
+      "worker_generated_gaps_ms": {
+        "n": 589,
+        "min": 16.0,
+        "median": 31.0,
+        "p95": 154.199951171875,
+        "max": 903.400146484375
+      },
+      "client_sent_gaps_ms": {
+        "n": 589,
+        "min": 14.5,
+        "median": 31.0,
+        "p95": 154.0,
+        "max": 903.4000000059605
+      },
+      "server_received_gaps_ms": {
+        "n": 589,
+        "min": 0.14360109344124794,
+        "median": 6.923893000930548,
+        "p95": 219.734851969406,
+        "max": 2269.782187882811
+      },
+      "return_gap_growth_ms": {
+        "n": 589,
+        "min": -634.038058867678,
+        "median": -15.398355029523373,
+        "p95": 169.29579584114254,
+        "max": 1798.3821878768504
+      },
+      "largest_return_growth": [
+        {
+          "first_rtp": 3655821100,
+          "last_rtp": 3655825416,
+          "client_gap_ms": 471.40000000596046,
+          "server_gap_ms": 2269.782187882811,
+          "return_gap_growth_ms": 1798.3821878768504
+        },
+        {
+          "first_rtp": 3655807341,
+          "last_rtp": 3655810464,
+          "client_gap_ms": 30.099999994039536,
+          "server_gap_ms": 987.3386700637639,
+          "return_gap_growth_ms": 957.2386700697243
+        },
+        {
+          "first_rtp": 3655948726,
+          "last_rtp": 3655956247,
+          "client_gap_ms": 20.80000001192093,
+          "server_gap_ms": 703.2371331006289,
+          "return_gap_growth_ms": 682.4371330887079
+        },
+        {
+          "first_rtp": 3655939670,
+          "last_rtp": 3655948726,
+          "client_gap_ms": 29.69999998807907,
+          "server_gap_ms": 707.8335238620639,
+          "return_gap_growth_ms": 678.1335238739848
+        },
+        {
+          "first_rtp": 3656590958,
+          "last_rtp": 3656598547,
+          "client_gap_ms": 30.799999982118607,
+          "server_gap_ms": 660.3661780245602,
+          "return_gap_growth_ms": 629.5661780424416
+        },
+        {
+          "first_rtp": 3657277756,
+          "last_rtp": 3657279212,
+          "client_gap_ms": 16.69999998807907,
+          "server_gap_ms": 626.6462861094624,
+          "return_gap_growth_ms": 609.9462861213833
+        },
+        {
+          "first_rtp": 3656199130,
+          "last_rtp": 3656206845,
+          "client_gap_ms": 109.59999999403954,
+          "server_gap_ms": 703.7344151176512,
+          "return_gap_growth_ms": 594.1344151236117
+        },
+        {
+          "first_rtp": 3656245756,
+          "last_rtp": 3656257758,
+          "client_gap_ms": 17.69999998807907,
+          "server_gap_ms": 555.8350330684334,
+          "return_gap_growth_ms": 538.1350330803543
+        }
+      ],
+      "received_fps": 43.71042354243886,
+      "decoded_fps": 38.917912096494945,
+      "rvfc_fps": 24.77830385881643
+    },
+    "tcp_headers168": {
+      "scope": "IPv4/TCP header-only68byte captures on the owned direct168 test port. PCAP wall clock mapped to native monotonic by same-host calibration. Captured overlap only; sequence duplicates include retransmission or out-of-order possibilities, not decrypted WebRTC data.",
+      "linktype": 276,
+      "counter_phase": [
+        1645033.708854227,
+        1645063.134455856
+      ],
+      "captured_overlap": [
+        1645033.7103989124,
+        1645063.1113598347
+      ],
+      "directions": {
+        "up": {
+          "data_segments": 2084,
+          "payload_bytes_counted_with_duplicates": 261744,
+          "identical_sequence_length_duplicates": 2,
+          "data_gap_p95_ms": 63.35091590881348,
+          "data_gap_max_ms": 579.6589851379395,
+          "largest_gaps": [
+            {
+              "start": 1645048.2892508507,
+              "end": 1645048.8689098358,
+              "gap_ms": 579.6589851379395
+            },
+            {
+              "start": 1645054.6098248959,
+              "end": 1645055.120926857,
+              "gap_ms": 511.10196113586426
+            },
+            {
+              "start": 1645047.7691767216,
+              "end": 1645048.2267017365,
+              "gap_ms": 457.52501487731934
+            },
+            {
+              "start": 1645047.1872467995,
+              "end": 1645047.639277935,
+              "gap_ms": 452.03113555908203
+            },
+            {
+              "start": 1645055.729033947,
+              "end": 1645056.1705138683,
+              "gap_ms": 441.4799213409424
+            },
+            {
+              "start": 1645050.0954387188,
+              "end": 1645050.5041267872,
+              "gap_ms": 408.6880683898926
+            },
+            {
+              "start": 1645046.7852089405,
+              "end": 1645047.1810338497,
+              "gap_ms": 395.8249092102051
+            },
+            {
+              "start": 1645049.739067793,
+              "end": 1645050.0939297676,
+              "gap_ms": 354.8619747161865
+            }
+          ]
+        },
+        "down": {
+          "data_segments": 15498,
+          "payload_bytes_counted_with_duplicates": 15982096,
+          "identical_sequence_length_duplicates": 67,
+          "data_gap_p95_ms": 3.3080577850341797,
+          "data_gap_max_ms": 641.7100429534912,
+          "largest_gaps": [
+            {
+              "start": 1645048.2306187153,
+              "end": 1645048.8723287582,
+              "gap_ms": 641.7100429534912
+            },
+            {
+              "start": 1645048.8731768131,
+              "end": 1645049.3457307816,
+              "gap_ms": 472.55396842956543
+            },
+            {
+              "start": 1645047.7684428692,
+              "end": 1645048.2265927792,
+              "gap_ms": 458.14990997314453
+            },
+            {
+              "start": 1645047.1872947216,
+              "end": 1645047.6344168186,
+              "gap_ms": 447.12209701538086
+            },
+            {
+              "start": 1645050.095540762,
+              "end": 1645050.5041599274,
+              "gap_ms": 408.6191654205322
+            },
+            {
+              "start": 1645049.7519948483,
+              "end": 1645050.0110697746,
+              "gap_ms": 259.0749263763428
+            },
+            {
+              "start": 1645053.2495057583,
+              "end": 1645053.4107077122,
+              "gap_ms": 161.20195388793945
+            },
+            {
+              "start": 1645051.3698847294,
+              "end": 1645051.5308299065,
+              "gap_ms": 160.94517707824707
+            }
+          ]
+        }
+      }
+    },
+    "interpretation": "167 all652 attempted receipts sent and delivered; worker-to-main p950.400ms, max6.50ms, channel buffer p950. Server inter-receipt gaps gain up to775ms. Direct168 still has large return bunching, with some bounded-buffer skips; header capture also observes real TCP data gaps/duplicate sequences. No main-thread IPC bottleneck or complete network-vs-SCTP root cause is established."
+  },
+  "actual_pve_tcp8006_pilots": [
+    {
+      "run": "mac169-direct-pve",
+      "package": "exp154",
+      "source_fps": 22.781005618683093,
+      "max_source_gap_ms": 179.09999999403954,
+      "glyph_ms": [
+        154.2999999821186,
+        537.7000000178814,
+        424.5
+      ],
+      "checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": false,
+        "no_long_video_gap": true,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": true
+      },
+      "sender_complete_fps": 39.18367743179324,
+      "credit_wait_seconds": 7.725643157958984,
+      "source_age_ms": {
+        "samples": 1254,
+        "median": 262.9573744876943,
+        "p95": 430.1652795945614,
+        "max": 529.942951009918,
+        "clock_uncertainty_max": 51.54999999701977,
+        "source_tick_interval_ms": 16.666666666666668
+      },
+      "transport_split": null,
+      "transport_facts": null
+    },
+    {
+      "run": "mac170-split-pve",
+      "measurement": "none; UI setup failed before phase",
+      "package": "exp154+diagnostic-split170"
+    },
+    {
+      "run": "mac171-split-pve",
+      "package": "exp154+diagnostic-split171",
+      "source_fps": 30.155020225341914,
+      "max_source_gap_ms": 172.59999999403954,
+      "glyph_ms": [
+        168.40000000596046,
+        215.59999999403954,
+        165.5
+      ],
+      "checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": false,
+        "no_long_video_gap": true,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": true
+      },
+      "sender_complete_fps": 48.59861858079964,
+      "credit_wait_seconds": 4.06282816035673,
+      "source_age_ms": {
+        "samples": 1230,
+        "median": 265.2720670060589,
+        "p95": 359.6583086376395,
+        "max": 577.0589683515333,
+        "clock_uncertainty_max": 56.75,
+        "source_tick_interval_ms": 16.666666666666668
+      },
+      "transport_split": {
+        "scope": "test-only initial application exclusion from BUNDLE, TCP8006 retained",
+        "attempted": true,
+        "application_port": 58098,
+        "bundle_only": false,
+        "original_bundle_mids": [
+          "0",
+          "1",
+          "2"
+        ],
+        "application_mid": "2",
+        "distinct_data_transport": true,
+        "answer_bundle_mids": [
+          "0",
+          "1"
+        ]
+      },
+      "transport_facts": null
+    },
+    {
+      "run": "mac172-split120-pve",
+      "package": "exp154+diagnostic-split172",
+      "source_fps": 31.99053855583257,
+      "max_source_gap_ms": 151.30000001192093,
+      "glyph_ms": [
+        152.40000000596046,
+        149.40000000596046,
+        365.5
+      ],
+      "checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": false,
+        "no_long_video_gap": true,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": true
+      },
+      "sender_complete_fps": 50.13370110610503,
+      "credit_wait_seconds": 3.5210140314884484,
+      "source_age_ms": {
+        "samples": 1238,
+        "median": 261.45168696530163,
+        "p95": 341.828861366956,
+        "max": 473.8499719959997,
+        "clock_uncertainty_max": 125.75,
+        "source_tick_interval_ms": 16.666666666666668
+      },
+      "transport_split": {
+        "scope": "test-only initial application exclusion from BUNDLE, TCP8006 retained",
+        "attempted": true,
+        "application_port": 56447,
+        "bundle_only": false,
+        "original_bundle_mids": [
+          "0",
+          "1",
+          "2"
+        ],
+        "application_mid": "2",
+        "distinct_data_transport": true,
+        "answer_bundle_mids": [
+          "0",
+          "1"
+        ]
+      },
+      "transport_facts": null
+    },
+    {
+      "run": "mac173-split-repeat-pve",
+      "package": "exp154+diagnostic-split173",
+      "source_fps": 32.663194275422285,
+      "max_source_gap_ms": 134.90000000596046,
+      "glyph_ms": [
+        151.90000000596046,
+        350.19999998807907,
+        164.5
+      ],
+      "checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": false,
+        "no_long_video_gap": true,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": true
+      },
+      "sender_complete_fps": 50.13058908282304,
+      "credit_wait_seconds": 3.6260596849024296,
+      "source_age_ms": {
+        "samples": 1232,
+        "median": 240.68883387371898,
+        "p95": 313.93495580802266,
+        "max": 422.58701299627785,
+        "clock_uncertainty_max": 55.8500000089407,
+        "source_tick_interval_ms": 16.666666666666668
+      },
+      "transport_split": {
+        "scope": "test-only initial application exclusion from BUNDLE, TCP8006 retained",
+        "attempted": true,
+        "application_port": 57967,
+        "bundle_only": false,
+        "original_bundle_mids": [
+          "0",
+          "1",
+          "2"
+        ],
+        "application_mid": "2",
+        "distinct_data_transport": true,
+        "answer_bundle_mids": [
+          "0",
+          "1"
+        ]
+      },
+      "transport_facts": {
+        "same_dtls": false,
+        "video_dtls": "connected",
+        "data_dtls": "connected",
+        "video_ice": "connected",
+        "data_ice": "connected",
+        "pairs": [
+          {
+            "local_type": "relay",
+            "relay_protocol": "tcp",
+            "url": "turn:192.168.64.20:8006?transport=tcp"
+          },
+          {
+            "local_type": "relay",
+            "relay_protocol": "tcp",
+            "url": "turn:192.168.64.20:8006?transport=tcp"
+          }
+        ]
+      }
+    },
+    {
+      "run": "mac174-headed-split-pve",
+      "package": "exp154+diagnostic-headed-split174",
+      "source_fps": 33.606925176672384,
+      "max_source_gap_ms": 119.19999998807907,
+      "glyph_ms": [
+        149.5,
+        197.19999998807907,
+        168.5
+      ],
+      "checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": false,
+        "no_long_video_gap": true,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": true
+      },
+      "sender_complete_fps": 50.48713795236373,
+      "credit_wait_seconds": 3.6640386166982353,
+      "source_age_ms": {
+        "samples": 1282,
+        "median": 239.21389606160304,
+        "p95": 320.4029977942504,
+        "max": 404.45291005695697,
+        "clock_uncertainty_max": 107.95000000298023,
+        "source_tick_interval_ms": 16.666666666666668
+      },
+      "transport_split": {
+        "scope": "test-only initial application exclusion from BUNDLE, TCP8006 retained",
+        "attempted": true,
+        "application_port": 63846,
+        "bundle_only": false,
+        "original_bundle_mids": [
+          "0",
+          "1",
+          "2"
+        ],
+        "application_mid": "2",
+        "distinct_data_transport": true,
+        "answer_bundle_mids": [
+          "0",
+          "1"
+        ]
+      },
+      "transport_facts": {
+        "same_dtls": false,
+        "video_dtls": "connected",
+        "data_dtls": "connected",
+        "video_ice": "connected",
+        "data_ice": "connected",
+        "pairs": [
+          {
+            "local_type": "relay",
+            "relay_protocol": "tcp",
+            "url": "turn:192.168.64.20:8006?transport=tcp"
+          },
+          {
+            "local_type": "relay",
+            "relay_protocol": "tcp",
+            "url": "turn:192.168.64.20:8006?transport=tcp"
+          }
+        ]
+      }
+    },
+    {
+      "run": "mac175-headed-baseline-pve",
+      "package": "exp154",
+      "source_fps": 26.96516328376349,
+      "max_source_gap_ms": 170.7999999821186,
+      "glyph_ms": [
+        172.5,
+        164.80000001192093,
+        150.90000000596046
+      ],
+      "checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": false,
+        "no_long_video_gap": true,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": true
+      },
+      "sender_complete_fps": 42.02952351107622,
+      "credit_wait_seconds": 6.864121659658849,
+      "source_age_ms": {
+        "samples": 1266,
+        "median": 244.92973958452603,
+        "p95": 428.4798591708139,
+        "max": 542.813192370037,
+        "clock_uncertainty_max": 54.5,
+        "source_tick_interval_ms": 16.666666666666668
+      },
+      "transport_split": null,
+      "transport_facts": null
+    },
+    {
+      "run": "mac176-decoded-pve",
+      "package": "exp154+diagnostic-direct176",
+      "source_fps": 39.40867942849014,
+      "max_source_gap_ms": 232.5,
+      "glyph_ms": [
+        265.09999999403954,
+        311.59999999403954,
+        414.80000001192093
+      ],
+      "checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": false,
+        "no_long_video_gap": true,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": true
+      },
+      "sender_complete_fps": 45.97605313622221,
+      "credit_wait_seconds": 5.577741069253534,
+      "source_age_ms": {
+        "samples": 1260,
+        "median": 244.7083123493945,
+        "p95": 339.4353567933059,
+        "max": 520.8686902808637,
+        "clock_uncertainty_max": 110.1000000089407,
+        "source_tick_interval_ms": 16.666666666666668
+      },
+      "transport_split": {
+        "scope": "test-only initial application exclusion from BUNDLE, TCP8006 retained",
+        "attempted": true,
+        "application_port": 53750,
+        "bundle_only": false,
+        "original_bundle_mids": [
+          "0",
+          "1",
+          "2"
+        ],
+        "application_mid": "2",
+        "distinct_data_transport": true,
+        "answer_bundle_mids": [
+          "0",
+          "1"
+        ]
+      },
+      "transport_facts": {
+        "same_dtls": false,
+        "video_dtls": "connected",
+        "data_dtls": "connected",
+        "video_ice": "connected",
+        "data_ice": "connected",
+        "pairs": [
+          {
+            "local_type": "relay",
+            "relay_protocol": "tcp",
+            "url": "turn:192.168.64.20:8006?transport=tcp"
+          }
+        ]
+      },
+      "direct_decoded": {
+        "frames": 960,
+        "fps": 45.69122252578567,
+        "host_rtp_matches": 960,
+        "driver_errors": [],
+        "painted_all_time": 2103,
+        "missing_mapping_all_time": 2
+      }
+    }
+  ],
+  "transport_experiment": {
+    "change": "Private initial offer/answer declines application BUNDLE when offered application has its own nonzero port and no bundle-only attribute. RTP audio/video remain bundled; SCTP has an independent ICE/DTLS transport. No encoded bytes, rate policy, guest metadata, authorization or feedback schema change.",
+    "170_invalid_setup": "The first hook changed remote offer grouping only. aiortc1.11 createAnswer always adds every media section to BUNDLE, leaving no usable data channel. UI setup times out; no performance conclusion.",
+    "171_and_later": "Private hooks also remove the application MID from createAnswer.173/174 runtime proves two connected DTLS/ICE transports, both nominated relay/TCP pairs use turn:192.168.64.20:8006. Original product payloads remain byte-identical154.",
+    "observed_effect": "Headless sender39.18fps/control169 versus48.60/50.13fps in split171/173; glyph peaks537.7ms versus215.6/350.2ms. Sequential pilots are not randomized causal proof. Display remains22.78/control versus30.16/32.66fps; original45fps gate fails.120ms existing UI playout setting gives31.99fps; not promoted.",
+    "primary_reference": "https://www.rfc-editor.org/rfc/rfc8843.html#section-7.3.2"
+  },
+  "headed_control": {
+    "scope": "An owned normal Chrome174 window on the existing bob GUI session, display sleep assertion owned by that Chrome PID; original user browser profiles untouched.",
+    "result": "Headed split17433.607fps and headed baseline17526.965fps still fail45. Changing headless mode alone does not satisfy acceptance.",
+    "post_pilot_track_processor": {
+      "scope": "Post-pilot diagnostic only. Clone the already-decoded remote track; no second decoder or encoded payload work. Compare direct decoded-frame delivery to HTML video callbacks.",
+      "available": true,
+      "errors": [],
+      "videoFrameProperties": [
+        "format",
+        "timestamp",
+        "duration",
+        "codedWidth",
+        "codedHeight",
+        "codedRect",
+        "visibleRect",
+        "rotation",
+        "flip",
+        "displayWidth",
+        "displayHeight",
+        "colorSpace",
+        "allocationSize",
+        "clone",
+        "close",
+        "copyTo",
+        "metadata",
+        "constructor"
+      ],
+      "seconds": 10.018399999976157,
+      "direct_fps": 45.715882775801525,
+      "callback_fps": 39.22782080980349
+    },
+    "limit": "10s post-pilot cloned-track observation; independent of the measured pixel/input phase.45.716 decoded-frame deliveries versus39.228 HTML video callbacks, with445 unique marker IDs in458 direct frames. No extra VideoDecoder was instantiated."
+  },
+  "direct_decoded176": {
+    "change": "Private viewer consumes the already-decoded cloned remote track through MediaStreamTrackProcessor. VideoFrame.metadata().rtpTimestamp identifies each image for the existing host region/capture fences and exact compositor. Normal HTML callback painting is suspended while this driver is active. Latest image is retained for a matching late region map. No RTP/capture timestamp rewrite or second decoder.",
+    "result": "960/960 measured direct-frame RTP values match the independent host sender journal; source39.409fps, direct-frame deliveries45.691fps, sender45.976fps. All static/source-ID/input/glyph/gap/connectivity gates pass except original45 source-fps gate. New pipeline is not promoted.",
+    "independent_wire_decode": {
+      "scope": "Independent software decoding of every complete actual-wire H264 access unit from176; marker136x16 luma extraction, RTP indexed by server original packet journal. No browser cadence assumption.",
+      "frames": 966,
+      "invalid": 0,
+      "unique_source_frames": 937,
+      "duration": 21.010937958024442,
+      "actual_wire_unique_source_fps": 44.59581965697745
+    },
+    "interpretation": "Software decoding all actual transmitted H264 access units yields only44.596 unique source frames/s, already below45 before browser presentation; decoding receipt rate must not be substituted for true source cadence. Additional loss from44.596 actual-wire to39.409 composed source cadence remains.",
+    "implementation_limits": [
+      "Only a private prototype; lifecycle/fallback, old-frame retirement, API-negative paths and long-session ownership need production-quality implementation/tests before packaging.",
+      "No narrow/loss transition, hardcut fidelity or wider codec/browser acceptance is inferred from20s healthy pilots.",
+      "Next work must bound presentation pacing while also keeping actual encoded unique-source cadence above45; do not lower the gate or rewrite timestamps."
+    ],
+    "primary_api_reference": "https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/modules/webcodecs/video_frame_metadata.idl",
+    "primary_feature_reference": "https://chromium.googlesource.com/chromium/src/+/main/third_party/blink/renderer/platform/runtime_enabled_features.json5"
+  },
+  "cleanup": {
+    "mac_headless": {
+      "scope": "Only owned Chrome167 and its sleep assertion; original user browser profiles untouched",
+      "terminated": [
+        {
+          "pid": 34698,
+          "ownership_token": "--user-data-dir=/tmp/qsm-mac-qualification-20261029-167-rx-timeline/profile"
+        },
+        {
+          "pid": 34709,
+          "ownership_token": "caffeinate -i -w 34698"
+        }
+      ],
+      "remaining_owned_pids": [],
+      "debug_ports_open": []
+    },
+    "mac_headed": {
+      "scope": "Only owned headed Chrome174 and its own system/display sleep assertions; user browser profiles untouched",
+      "terminated": [
+        {
+          "pid": 35123,
+          "token": "--user-data-dir=/tmp/qsm-mac-qualification-20261029-174-headed/profile"
+        },
+        {
+          "pid": 35134,
+          "token": "caffeinate -i -w 35123"
+        },
+        {
+          "pid": 35179,
+          "token": "caffeinate -d -w 35123"
+        }
+      ],
+      "remaining_owned_pids": [],
+      "debug_ports_open": []
+    },
+    "native": {
+      "owned_qemu_pid": 3079308,
+      "guest_process_start_ticks": {
+        "828": 712,
+        "710": 607,
+        "675": 601,
+        "957": 821
+      },
+      "diagnostic_workers_remaining": [],
+      "production_gateway_absent": true
+    },
+    "pve": {
+      "production_package": "0.4.0+stock4.14~exp35",
+      "original_terminal_and_user_vm103_unchanged": true,
+      "owned_graphics_and_metadata_start_ticks": {
+        "444366": 241353958,
+        "444367": 241353959,
+        "444390": 241353968,
+        "3829222": 336885310,
+        "4091558": 340029304
+      },
+      "owned_fixture": {
+        "pid": 3829227,
+        "start_ticks": 336885318,
+        "executable": "python3",
+        "owned_script": [
+          "/opt/qsm-rdp-hybrid-20261028/fixture.py"
+        ]
+      },
+      "lxc_init": 875731,
+      "diagnostic_workers_remaining": []
+    },
+    "temporary_proxy": {
+      "owned_proxy_port": 18488,
+      "listeners_remaining": []
+    },
+    "capture": "Owned qsm-mac168-capture and direct-mac168 services stopped; PCAP and connection/chunk journals retained."
+  },
+  "production_changed": false,
+  "goal_complete": false,
+  "next_action": "Use the actual-wire source-ID journal to separate producer pauses/duplicates from browser display loss. Test a bounded decoded-frame presentation queue using real RTP metadata and existing capture/layout fences, with an independent true source-ID oracle and explicit lifecycle/API fallback. Recheck split-control benefits under matching repeated runs before any product promotion. Then package and complete native/LXC impaired latency/fidelity, supported codec/application/browser matrix, long sessions, matched RDP and all seven release/rollout artifacts."
+}

@@ -81,7 +81,7 @@
   ],
   "checkpoint": {
     "stage": "video-regions-and-queue",
-    "candidate": "Private154 recovery fix retained (211 bridge tests).163 QP32 experiment improves hardcut quality but fails both transition age gates and is reverted; production remains35. Native age/cadence and Mac timing remain open.",
+    "candidate": "Private154 recovery fix retained;211 bridge tests. No product change from167–176. Split control over two TCP8006 transports improves observed sender/glyph timing but all Mac45 source-fps gates remain open. Direct decoded17639.41 composed fps vs actual-wire44.60; no timestamp/cadence substitution.",
     "guest_extension_role": {
       "required_for_metadata_priority": "Expanded VM/LXC agents supply window geometry, stacking, visibility, focus and supported caret/input-component bounds over the existing guest transport.",
       "implemented_scope": "KWin session integration, optional Qt5/Qt6 input-geometry plugin and accessibility producers have documented checks; this does not establish universal toolkit or application coverage.",
@@ -277,7 +277,7 @@
       "149 corrects initial RDP/QSM video-content mismatch with SHA2561a0635... proved in both guests. Corrected RDP31.52/29.02/31.63fps,15chars once,952ms initial-cut glyph fails600; QSM14455.15/47.99/55.49fps and138ms. Separate144 hardcut50.78/52.41fps passes cadence but narrow SSIM0.885896 fails0.90. Original failures retained; no overall winner declared."
     ],
     "pending": [
-      "Instrument worker-generated receipt time, main-thread dispatch/channel bufferedAmount and server receipt on one owned Mac run. Distinguish browser/IPC stalls, SCTP feedback delay and packet-prefix credit holes using the already frozen passive trace; keep payloads untouched. Then test a causal change under original native/LXC/Mac age, cadence, fidelity and input gates. Direct PVE/TCP8006 Mac acceptance, remaining supported codecs/toolkits/occlusion, long sessions and release/rollout remain required.",
+      "Use the actual-wire source-ID journal to separate producer pauses/duplicates from browser display loss. Test a bounded decoded-frame presentation queue using real RTP metadata and existing capture/layout fences, with an independent true source-ID oracle and explicit lifecycle/API fallback. Recheck split-control benefits under matching repeated runs before any product promotion. Then package and complete native/LXC impaired latency/fidelity, supported codec/application/browser matrix, long sessions, matched RDP and all seven release/rollout artifacts.",
       "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
       "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
       "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
@@ -341,9 +341,10 @@
       "dist/rdp-hybrid/nvenc-qmax-exp163",
       "dist/rdp-hybrid/macos-counter-155-165",
       "dist/rdp-hybrid/headroom-156",
-      "dist/rdp-hybrid/macos-credit-capacity-166"
+      "dist/rdp-hybrid/macos-credit-capacity-166",
+      "dist/rdp-hybrid/macos-decoded-167-176"
     ],
-    "next_action": "Instrument worker-generated receipt time, main-thread dispatch/channel bufferedAmount and server receipt on one owned Mac run. Distinguish browser/IPC stalls, SCTP feedback delay and packet-prefix credit holes using the already frozen passive trace; keep payloads untouched. Then test a causal change under original native/LXC/Mac age, cadence, fidelity and input gates. Direct PVE/TCP8006 Mac acceptance, remaining supported codecs/toolkits/occlusion, long sessions and release/rollout remain required.",
+    "next_action": "Use the actual-wire source-ID journal to separate producer pauses/duplicates from browser display loss. Test a bounded decoded-frame presentation queue using real RTP metadata and existing capture/layout fences, with an independent true source-ID oracle and explicit lifecycle/API fallback. Recheck split-control benefits under matching repeated runs before any product promotion. Then package and complete native/LXC impaired latency/fidelity, supported codec/application/browser matrix, long sessions, matched RDP and all seven release/rollout artifacts.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -528,8 +529,8 @@
     "deferred_refresh": "docs/rdp-deferred-refresh-20261029.json",
     "priority_order": [
       {
-        "blocker": "Native initial-drop age/VAAPI cadence and Mac measurement interference",
-        "reason": "Remaining core and cross-platform acceptance failures; captured wire/feedback and measured observer cost allow targeted work before another broad live rewrite."
+        "blocker": "Native initial-drop age/VAAPI cadence and Mac production/presentation cadence",
+        "reason": "Actual-wire source IDs and decoded RTP metadata now separate producer, delivery and presentation losses; pursue a bounded presentation path plus adequate real source cadence before broad release work."
       },
       {
         "blocker": "Remaining supported encoder/application/browser and long-session/RDP qualification",
@@ -551,10 +552,10 @@
         "Firefox158.0.1",
         "Safari26.3"
       ],
-      "scope": "Owned Chrome155 headless profile and caffeinate retired with PID/profile guards; debug/forward ports28457/28458/28459 closed. Temporary native direct proxy and capacity listeners18486/18487 closed. Original user browser profiles and native/PVE sessions untouched.",
+      "scope": "Owned headless Chrome167 and headed Chrome174 profiles retired with PID/profile guards; system/display sleep assertions removed. Both default user browser profiles and original native/PVE sessions untouched; temporary direct168 proxy/capture stopped.",
       "alternative": "dima@10.30.0.35 is a VM with ordinary VGA; user warned it may distort results. Prefer the supplied bob receiver.",
-      "status": "Incomplete. Local MP4/rVFC57.86 and canvas48.10fps; remote sender36.60/34.95fps and rVFC31.59/27.05fps. Direct path RTT124ms does not restore45fps. Earlier pre-phase closures and duplicate-decoder observer perturbations retained.",
-      "evidence": "docs/rdp-macos-credit-20261029.json",
+      "status": "Incomplete. Actual PVE/TCP8006 NVENC pilot has exact pixels and input but source22.78fps; split-control repeats30.16/32.66, headed33.61. Direct decoded17639.41 vs actual transmitted44.60 unique fps still fails45. Received/decoded counts are not source cadence.",
+      "evidence": "docs/rdp-decoded-presentation-20261029.json",
       "observed_receiver_gpu": "Chrome ANGLE Metal UHD630, video-decode capability enabled; per-stream hardware decoder unproven"
     },
     "bursty_recovery": "docs/rdp-bursty-recovery-20261029.json",
@@ -571,7 +572,8 @@
     "nvenc_rate_quality": "docs/rdp-nvenc-rate-quality-20261029.json",
     "nvenc_qmax": "docs/rdp-nvenc-qmax-20261029.json",
     "macos_counter": "docs/rdp-macos-counter-20261029.json",
-    "macos_credit": "docs/rdp-macos-credit-20261029.json"
+    "macos_credit": "docs/rdp-macos-credit-20261029.json",
+    "decoded_presentation": "docs/rdp-decoded-presentation-20261029.json"
   },
   "deployment_nodes": [
     "192.168.64.20",
