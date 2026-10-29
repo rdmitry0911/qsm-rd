@@ -1,0 +1,140 @@
+{
+  "date": "2026-10-29",
+  "status": "private125_video_age_cadence_input_pass_final_rate_recovery_incomplete",
+  "source": {
+    "version": "0.4.0+stock4.14~exp125",
+    "deb_sha256": "65690c27181d3b95a3f2636a976db2613908ad4901b681c516394bd3167584c8",
+    "worker_sha256": "f433e3b2d244f046ba50574801f51fbbb519d2cd6c9d2251a36fba7346d0bc14",
+    "bridge_sha256": "b9040ea2ee1e412332f40dca8fa36c806ae3aaa070a7b20d22bf45fc0370aee0",
+    "transport_sha256": "437eae4b7c69a764c57abc73a2449bfdb972eba3860ad32ce0c5d80f81b94903",
+    "private_selector": 125,
+    "production_changed": false
+  },
+  "source_base_commit": "be42709",
+  "evidence_directory": "dist/rdp-hybrid/deferred-refresh-exp125",
+  "problem": "A confirmed-rate refresh request invalidated the live prediction chain immediately. If the codec quiet period deferred the replacement IDR, valid predictive pictures were discarded until it arrived, producing a934ms visible gap in124.",
+  "change": [
+    "Arm the token/rate/deadline on request and retain an intact prediction chain.",
+    "On arrival of the matching independent picture, atomically clear only uncommitted old work and advance the recovery serial.",
+    "Startup/overflow repair continues to wait for a valid independent picture; timeout retains independent-picture fallback for a broken chain.",
+    "An RTP frame whose dispatch has begun still completes. Media timestamps retain every produced sample."
+  ],
+  "tests": {
+    "before": "Delayed-codec-refresh regression times out on124 because old valid predictive frames are discarded.",
+    "after": "Same regression passes;34 packet-track/real-RTP bridge tests pass.",
+    "full_isolated_target_sdk_bridge_suite": {
+      "tests": 205,
+      "result": "pass",
+      "seconds": 6.86
+    },
+    "changed_existing_tests": "Replacement tests now deliver the confirmed IDR while an old AU is uncommitted or fragmented; they retain packet count/history/sequence and fragmented-frame assertions. A refresh request alone is no longer treated as a ready replacement."
+  },
+  "limitations": [
+    "Private candidate, not production or release qualification.",
+    "Latest QSV source-age gate passes; repeatability and broader codec/application/browser/long-session/RDP qualification remain open."
+  ],
+  "next_action": "Use saved125 packet evidence to address late recovery cuts without regressing current video/input bounds. Then repeat unchanged live profiles and complete remaining codec/application/browser/long-session/RDP qualification.",
+  "staging_note": "The inherited native staging log retains the literal label extracted123; versioned core paths and the asserted bridge/transport hashes identify the actual candidate.",
+  "live_runs": [
+    {
+      "result": "quality61-auto-lxc125-first-loss0p3-delay15-source-oracle/result.json",
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": false,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": false,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "additional_checks": {},
+      "source_age_excess_ms": 364.0125527357068,
+      "visible_glyph_peak_ms": 89,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 54.912360131944894,
+          "max_frame_gap_ms": 84,
+          "final_target": 8000
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 51.10209452790876,
+          "max_frame_gap_ms": 168,
+          "final_target": 3628
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 54.02219691150372,
+          "max_frame_gap_ms": 133,
+          "final_target": 3510
+        }
+      ]
+    },
+    {
+      "result": "intel125-native-full-vm-h264_qsv-virgl-capture-gpu-q/result.json",
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": false,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": true,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": false,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "additional_checks": {
+        "whole_profile_source_gap_at_most_500ms": true
+      },
+      "source_age_excess_ms": 364.31818211762135,
+      "visible_glyph_peak_ms": 299,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 49.073280126640725,
+          "max_frame_gap_ms": 65,
+          "final_target": 8000
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 46.9681963244195,
+          "max_frame_gap_ms": 100,
+          "final_target": 3363
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 48.63334972162058,
+          "max_frame_gap_ms": 100,
+          "final_target": 1772
+        }
+      ]
+    }
+  ],
+  "remaining_blocker": {
+    "observed": "Both125 profiles pass video cadence, gaps, exact static pixels, exactly-once input, and400ms source/presentation excess gates. Final rate-recovery gates still fail after later congestion signals.",
+    "lxc": "The path reaches8000 about20.48s after restoration, then drops to2808 about43.87s after restoration and finishes3510. The cut is a continuous TCP slowdown with66.5ms excess transit, not the isolated109ms interval fixed in124.",
+    "implication": "The severe-slowdown50ms queue exception plus30s growth cooldown remains the next controller question. Do not silently remove final recovery gates or claim the whole plan complete.",
+    "tradeoff": "Simply delaying every cut can worsen source age on real bandwidth drops. Preserve the now-passing video/input bounds while distinguishing transient TCP repair or improving evidence-based recovery.",
+    "qsv": "The late8000->1772 cut starts at98.3ms excess transit, reaches187.2ms, then drains to6.7ms after300ms. A100ms threshold alone would still cut this case. The30s cooldown and subsequent bounded probes keep the recovered phase below its configured target.",
+    "evidence": [
+      "lxc125-recovery-diagnosis.json",
+      "native125-recovery-diagnosis.json",
+      "packet125-repair-input.json"
+    ]
+  },
+  "production": "Post-run checks confirm original production exp35 package and user VM103/terminal processes, dedicated guest graphics/metadata processes, and native QEMU PID unchanged; no diagnostic workers remain."
+}

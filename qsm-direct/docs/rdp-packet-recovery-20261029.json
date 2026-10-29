@@ -1,0 +1,133 @@
+{
+  "date": "2026-10-29",
+  "status": "private124_both_rates_recover_but_video_age_gates_fail",
+  "source": {
+    "version": "0.4.0+stock4.14~exp124",
+    "deb_sha256": "1a37c08692b2a28b42a279e8f079f1a067df43eccdc68a88bf6addcb08daa5d1",
+    "worker_sha256": "f433e3b2d244f046ba50574801f51fbbb519d2cd6c9d2251a36fba7346d0bc14",
+    "bridge_sha256": "f904b31b9303a094ca48041d67190401bda930926fed723c3e01d108d0bcb074",
+    "transport_sha256": "437eae4b7c69a764c57abc73a2449bfdb972eba3860ad32ce0c5d80f81b94903",
+    "private_selector": 124,
+    "production_changed": false
+  },
+  "source_base_commit": "be42709",
+  "evidence_directory": "dist/rdp-hybrid/packet-recovery-exp124",
+  "problem": {
+    "observed": "On a recovered20 Mbit/s link with0.3% real TCP loss, one slow delivery interval reduced the8000 target to2398 and restarted a30s growth cooldown. Adjacent intervals were draining or normal.",
+    "timing_source": "Matched authenticated transport packet arrivals; two recorded windows from the same LXC/NVENC123 trial.",
+    "why_prioritized": "A persistent recovery/quality regression across live profiles is a larger blocker than marginal single-run cadence; the recorded failure admits a small isolated controller fix."
+  },
+  "change": [
+    "Require consecutive slow matched observations spanning at least25ms of receiver time before declaring a capacity queue.",
+    "Keep existing byte-volume, overuse, transit and severity requirements; normal delivery, draining or a broken continuous window cancels pending slowdown evidence.",
+    "Early frame holds, pacing, byte accounting, codec settings, input and guest metadata remain unchanged."
+  ],
+  "tests": {
+    "recorded_repair_before": "fails:8000->2398",
+    "recorded_repair_after": "passes:no rate change",
+    "recorded_real_capacity_drop": "passes before and after; first1678 target at the original feedback report, within5ms tolerance",
+    "full_isolated_target_sdk_bridge_suite": {
+      "tests": 204,
+      "result": "pass",
+      "seconds": 6.87
+    },
+    "fixture": "tests/fixtures/twcc-recovery-exp123.json",
+    "fixture_sha256": "8679e8624863d948322728a186647deec2ade6452bb6f521790c5d3fcfef0285"
+  },
+  "limitations": [
+    "One successful recorded replay is not full runtime qualification.",
+    "Original exp123 QSV source-age and rate-recovery failures remain valid.",
+    "No production package installation, user session restart, publication or release."
+  ],
+  "live_runs": [
+    {
+      "result": "quality61-auto-lxc124-first-loss0p3-delay15-source-oracle/result.json",
+      "checks": {
+        "no_long_video_gap": false,
+        "narrow_source_fps_at_least_45": false,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "source_age_excess_ms": 1215.2413307999516,
+      "glyph_peak_ms": 172,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 56.39365490449984,
+          "max_frame_gap_ms": 66,
+          "final_target": 8000
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 43.98846495119787,
+          "max_frame_gap_ms": 934,
+          "final_target": 1714
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 52.775346752592355,
+          "max_frame_gap_ms": 150,
+          "final_target": 8000
+        }
+      ]
+    },
+    {
+      "result": "intel124-native-full-vm-h264_qsv-virgl-capture-gpu-q/result.json",
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "source_age_excess_ms": 443.9629973688497,
+      "glyph_peak_ms": 394,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 50.24469820554649,
+          "max_frame_gap_ms": 83,
+          "final_target": 8000
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 46.772068511198945,
+          "max_frame_gap_ms": 133,
+          "final_target": 3472
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 50.49900995362064,
+          "max_frame_gap_ms": 116,
+          "final_target": 8000
+        }
+      ]
+    }
+  ],
+  "new_blocker": {
+    "symptom": "LXC934ms visible source-frame gap; max source-age excess1215ms",
+    "cause": "Confirmed-refresh request immediately clears the old queue while the worker codec quiet period has not expired.47 encoded AUs were observed around the gap; only the confirmed keyframe resumes RTP.",
+    "next_action": "Private125 defers retiring the live prediction chain until a matching independent picture is actually available. Keep startup/overflow loss repair and complete fragmented RTP frames intact."
+  },
+  "staging_note": "The inherited native staging log retains the literal label extracted123; versioned core paths and the asserted bridge/transport hashes identify the actual candidate."
+}

@@ -31,6 +31,7 @@ class DeliveryEstimator:
         self._window: deque[tuple[float, float, int]] = deque(maxlen=4096)
         self._baselines: deque[tuple[float, float]] = deque(maxlen=600)
         self._last_arrival = self._last_tie_sent = float('-inf')
+        self._slow_since: float | None = None
         self._total = 0
         self.updated = self.sent_at = float('-inf')
         self.serial = self.bytes = 0
@@ -62,6 +63,7 @@ class DeliveryEstimator:
                 # capacity interval across its silent part. Fresh packets
                 # rebuild the window while the existing flight bound holds.
                 self._window.clear()
+                self._slow_since = None
             if (gap > self.FRESH_AGE or now - self.updated >= self.FRESH_AGE) and not accepted:
                 self._filter = self._filter_type()
             self._filter.add(int(arrived * 1000), int(sent * 262144) & 0xffffff, cost, 1)
@@ -114,11 +116,26 @@ class DeliveryEstimator:
             self.offered_kbps = bits / max(.001, send_span)
             draining = (self.kbps >= self.offered_kbps * 1.05 and
                         transits[-1] <= round(first_arrived * 1e6) - round(first_sent * 1e6) - 5000)
+        # A repaired TCP flight can alternate draining and slow intervals.
+        # One isolated slow interval must not impose a new capacity followed
+        # by the controller's 30-second recovery cooldown. Require another
+        # matched slow observation across at least one 25ms delivery quantum;
+        # normal delivery, an invalid window or draining resets this evidence.
+        # A real capacity step can establish it before the overuse filter
+        # confirms the cut, so that path need not wait another feedback tick.
+        slower = (self.valid and not draining and self.queue_excess > .02 and
+                  self.kbps < self.offered_kbps * .85)
+        if not slower:
+            self._slow_since = None
+        elif self._slow_since is None:
+            self._slow_since = self._last_arrival
+        confirmed = (self._slow_since is not None and
+                     self._last_arrival - self._slow_since >= .025)
         # Keep the existing100ms queue allowance. A short TCP cwnd reduction
         # can deliver continuously at a lower rate while adding only50-85ms
         # of transit; a50ms threshold mistakes that repair for a new capacity.
         severe = self.kbps < self.offered_kbps * .5
-        self.queued = (self.valid and not draining and self.queue_excess > (.05 if severe else .1) and
+        self.queued = (confirmed and self.valid and not draining and self.queue_excess > (.05 if severe else .1) and
                        self.overusing and
                        self.kbps < self.offered_kbps * .85)
         return True

@@ -307,14 +307,20 @@ class _VideoPresentation:
                      self._serial > self._acknowledged)
             if rapid:
                 if frame_budget:
-                    # Reserve what pacing can emit during one feedback tick.
+                    # Reserve what pacing can emit during one media tick.
                     # A larger AU is serialized across subsequent ticks; its
                     # full cost here would add an RTT before that serialization
                     # even when the preceding flight already fits the path.
                     # Small AUs still reserve their complete actual wire cost.
                     rate = target * 1000 / 8
                     immediate = min(frame_budget, rate * .016)
-                    limit = rate * (value.presented_base + .016)
+                    # The disposable receipt has its own16ms cadence. Paying
+                    # the AU reservation from that same tick removes feedback
+                    # headroom, especially on a low-RTT link: a healthy next
+                    # picture then waits for a report despite fitting pacing.
+                    # Bound feedback and dispatch separately; rate, actual
+                    # delivery credit and the loss-repair deadline stay intact.
+                    limit = rate * (value.presented_base + .032)
                     if self._draining_limit:
                         if (packet_credit is None or at - self._draining_started >= 1.5 or
                                 delivered() >= self._draining_end):
@@ -1241,11 +1247,11 @@ class _PacketTrack(MediaStreamTrack):
             return
         if type(token) is not int or not 0 < token < 1 << 64 or type(maximum_rate) is not int or not 500 <= maximum_rate <= 100000:
             raise BridgeError('invalid confirmed refresh boundary')
-        self.recovery_serial += 1
         self._refresh_token, self._refresh_max_rate = token, maximum_rate
         self._refresh_deadline = time.monotonic() + 2
-        self._waiting_for_keyframe = True
-        self._clear_queue()
+        # The worker may still be inside its codec reset quiet period. Keep
+        # the existing prediction chain until a matching independent picture
+        # actually arrives; the request itself cannot create a display gap.
 
     def _clear_queue(self) -> None:
         while not self._queue.empty():
@@ -1286,6 +1292,21 @@ class _PacketTrack(MediaStreamTrack):
             self._pts = pts + 1
         else:
             self._pts += unit.duration
+        if self.kind == 'video' and self._refresh_token:
+            if time.monotonic() >= self._refresh_deadline:
+                self._refresh_token = self._refresh_max_rate = 0
+                self._last_recovery_request = float('-inf')
+            else:
+                full_picture = (unit.region is not None and
+                                unit.region[2:] == (0, 0, unit.region[0], unit.region[1]))
+                if (unit.keyframe and unit.refresh_token == self._refresh_token and
+                        (500 <= unit.codec_bitrate <= self._refresh_max_rate or full_picture)):
+                    # Retire only uncommitted old work, at the confirmed
+                    # replacement boundary. An RTP frame already in progress
+                    # still finishes; its sender observes the new serial next.
+                    self.recovery_serial += 1
+                    self._waiting_for_keyframe = True
+                    self._clear_queue()
         if self._queue.full():
             self.overflows += 1
             if self.kind == "video":

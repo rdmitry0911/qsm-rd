@@ -943,6 +943,31 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PacketTrackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_delayed_codec_refresh_keeps_the_existing_prediction_chain_live(self):
+        track = _PacketTrack('video', maximum_queue=4)
+        track.put_nowait(EncodedUnit(b'initial-IDR', True, 1500))
+        await track.recv()
+        track.require_confirmed_refresh(7, 1050)
+        # A worker can keep producing valid predictive pictures during its
+        # codec reset quiet period. A request alone cannot retire that chain.
+        for n in range(8):
+            payload = b'old-rate-P' + bytes([n])
+            track.put_nowait(EncodedUnit(payload, False, 1500,
+                              refresh_token=7, codec_bitrate=2450))
+            packet = await asyncio.wait_for(track.recv(), .03)
+            self.assertEqual(bytes(packet), payload)
+            self.assertEqual(track.current_recovery_serial, 0)
+            self.assertEqual(track._refresh_token, 7)
+        track.put_nowait(EncodedUnit(b'queued-old-P', False, 1500))
+        track.put_nowait(EncodedUnit(b'confirmed-IDR', True, 1500,
+                          refresh_token=7, codec_bitrate=1050))
+        packet = await asyncio.wait_for(track.recv(), .03)
+        self.assertEqual(bytes(packet), b'confirmed-IDR')
+        self.assertEqual(track.current_recovery_serial, 1)
+        self.assertEqual(track._refresh_token, 0)
+        self.assertEqual(track.dropped_units, 1)
+        track.end_nowait()
+
     async def test_confirmed_refresh_accepts_fresh_full_desktop_fallback_without_reducing_quality(self):
         track = _PacketTrack('video', maximum_queue=4)
         track.require_confirmed_refresh(7, 1050)
@@ -953,7 +978,7 @@ class PacketTrackTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(track._refresh_token, 0)
         track.end_nowait()
 
-    async def test_confirmed_refresh_rejects_old_or_high_rate_idrs_and_keeps_media_time(self):
+    async def test_only_a_confirmed_refresh_retires_queued_frames_and_keeps_media_time(self):
         track = _PacketTrack('video', maximum_queue=4)
         track.put_nowait(EncodedUnit(b'initial', True, 1500, capture=100))
         await track.recv()
@@ -962,7 +987,8 @@ class PacketTrackTests(unittest.IsolatedAsyncioTestCase):
         for data, key, token, rate in [(b'old-IDR', True, 6, 1050), (b'old-rate', True, 7, 5600),
                                         (b'new-P', False, 7, 1050)]:
             track.put_nowait(EncodedUnit(data, key, 1500, capture=100, refresh_token=token, codec_bitrate=rate))
-        self.assertTrue(track._queue.empty())
+        self.assertEqual(track._queue.qsize(), 4)
+        self.assertEqual(track._refresh_token, 7)
         # No new damage is needed for a still desktop; the token fences repair.
         track.put_nowait(EncodedUnit(b'fresh-IDR', True, 1500, capture=100, refresh_token=7, codec_bitrate=1050))
         packet = await asyncio.wait_for(track.recv(), .03)

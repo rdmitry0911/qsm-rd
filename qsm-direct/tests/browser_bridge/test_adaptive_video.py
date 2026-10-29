@@ -21,6 +21,33 @@ from extensions.browser_bridge.qsm_transport_feedback import DeliveryEstimator
 
 
 class PacketDeliveryTests(unittest.TestCase):
+    def recorded_delivery(self, name):
+        path = Path(__file__).parents[1] / 'fixtures' / 'twcc-recovery-exp123.json'
+        case = json.loads(path.read_text())[name]
+        changes = []
+        for report in case['reports']:
+            self.now = report['t']
+            before = self.rate.current_kbps
+            self.rate.transport_report('a', tuple(map(tuple, report['samples'])))
+            if self.rate.current_kbps != before:
+                changes.append((self.now, self.rate.current_kbps))
+        return case, changes
+
+    def test_recorded_tcp_repair_does_not_cut_recovered_capacity(self):
+        # Actual 20 Mbit/s path with 0.3% kernel TCP loss: a single
+        # slow interval between a drain and normal delivery cut 8000 to 2398.
+        _, changes = self.recorded_delivery('tcp_repair')
+        self.assertEqual(changes, [])
+        self.assertEqual(self.rate.current_kbps, 8000)
+
+    def test_recorded_capacity_drop_keeps_its_original_response_time(self):
+        # The same run's real 20 -> 2 Mbit/s cut already has a preceding
+        # slow interval; confirming delivery must not add a feedback tick.
+        case, changes = self.recorded_delivery('capacity_drop')
+        self.assertTrue(changes)
+        self.assertLess(changes[0][1], 2500)
+        self.assertLessEqual(changes[0][0], case['cut'] + .005)
+
     def test_early_packet_pressure_precedes_confirmed_cut_and_stays_clear_on_a_fast_link(self):
         estimator = DeliveryEstimator()
         for group in range(50):
@@ -977,8 +1004,10 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_frame_aware_credit_reserves_the_initial_paced_bytes(self):
         for target, base, outstanding, frame_size in (
-                (2000, .02, 10000, 4000), (8000, .11, 120000, 20000),
-                (2000, .02, 6000, 3500)):
+                (2000, .02, 10000, 4000), (8000, .11, 135000, 20000),
+                (2000, .02, 11000, 3500)):
+            # Each case fits the baseline+two-tick window before reserving
+            # the current AU, but exceeds the remaining paced-byte allowance.
             history = _VideoPresentation()
             now = time.monotonic()
             state = SimpleNamespace(presented_time=now, presented_base=base, presented_delay=base + .005,
@@ -997,6 +1026,23 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
             await history.wait_for_credit(lambda: outstanding, lambda: state,
                                           bitrate_kbps=target, frame_wire_bytes=frame_size)
             self.assertEqual(history.credit_waits, 1)
+
+    async def test_low_rtt_admission_keeps_feedback_credit_separate_from_current_au(self):
+        history = _VideoPresentation()
+        now = time.monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.0096352338,
+                                presented_delay=.0208847271, presented_kbps=6000,
+                                presented_offered_kbps=6000, feedback_kind='received',
+                                received_rapid_time=now)
+        history.sent(10, 100000)
+        # Actual closed-trace AU:24,880 bytes remain unacknowledged; the
+        # next14,946 bytes must repay pacing and leave one16ms feedback tick.
+        delivered = 75120
+        await asyncio.wait_for(history.wait_for_credit(lambda: 100000, lambda: state,
+            bitrate_kbps=8000, frame_wire_bytes=14946, packet_credit=lambda _: delivered), .02)
+        self.assertEqual(history.credit_waits, 0)
+        self.assertEqual(history._acknowledged_bytes, 0)
+        self.assertEqual(delivered, 75120, 'admission cannot invent packet or image delivery')
 
     async def test_large_paced_picture_does_not_wait_for_its_whole_wire_reservation(self):
         for target, base, outstanding, frame_size in (
@@ -1034,9 +1080,9 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
                                 presented_kbps=6400, presented_offered_kbps=6400,
                                 feedback_kind='received', received_rapid_time=now)
         history.sent(10, 50000)
-        history.sent(11, 120000)
+        history.sent(11, 140000)
         pending = asyncio.create_task(history.wait_for_credit(
-            lambda: 120000, lambda: state, bitrate_kbps=8000, frame_wire_bytes=20000,
+            lambda: 140000, lambda: state, bitrate_kbps=8000, frame_wire_bytes=20000,
             current_bitrate=lambda: target[0]))
         await asyncio.sleep(.005)
         self.assertFalse(pending.done())
@@ -1391,7 +1437,6 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
                 bridge.video_track.put_nowait(EncodedUnit(b'fresh P', False, 1500, capture=fresh + 1500, refresh_token=7, codec_bitrate=1150))
             def request(rate):
                 requests.append(rate)
-                asyncio.get_running_loop().call_soon(produce)
                 return 7
             bridge.input.request_video_refresh = request
             pending = asyncio.create_task(sender._run_rtp(SimpleNamespace(payloadType=99)))
@@ -1401,6 +1446,9 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(sent, [])
                 bridge._video_rate.current_kbps = 1700
                 bridge._video_rate_changed(1700)
+                # The replacement is now actually available while the old
+                # AU is uncommitted. A request alone preserves its chain.
+                produce()
                 history.acknowledge(123)
                 await asyncio.wait_for(done.wait(), .2)
                 self.assertEqual([packet.payload for packet in sent], [b'fresh IDR', b'fresh P'])
@@ -1441,6 +1489,9 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
                 if len(sent) == 1:
                     bridge._video_rate.current_kbps = 1700
                     bridge._video_rate_changed(1700)
+                    # Deliver the worker's queued confirmation during this
+                    # fragmented frame, before its remaining packets finish.
+                    await asyncio.sleep(0)
                 if len(sent) == 4:
                     done.set()
             sender.transport._send_rtp = wire
