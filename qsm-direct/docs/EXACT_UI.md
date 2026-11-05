@@ -272,9 +272,9 @@ Disabling exact UI, hiding or closing the console releases the reader, cloned
 track and retained pictures. Missing APIs, missing RTP identity, a stopped or
 stalled reader, or a drawing error fall back to HTML video. The original media
 track remains intact, and an older HTML picture cannot move the presentation
-fences backwards when that fallback takes over. Performance, audio/video sync
-and browser/codec qualification remain open in the RDP plan; this implementation
-is not a qualification or rollout claim.
+fences backwards when that fallback takes over. [Audio/video offset](rdp-av-sync-20261105.json)
+was measured on the container sound path. Performance and browser/codec qualification
+remain open in the RDP plan; this implementation is not a qualification or rollout claim.
 
 On an initial offer, the bridge can negotiate a separate SCTP transport for
 input and exact UI while keeping RTP audio/video bundled. It does so only when

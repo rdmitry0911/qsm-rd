@@ -1,0 +1,134 @@
+{
+ "date": "2026-11-05",
+ "status": "measured on exp214 on the real container sound path; no change needed in the product",
+ "production_changed": false,
+ "sign": "Positive means sound after the picture, at the browser's estimated audio output time.",
+ "correction": "An earlier summary said the container path carries no sound. It does: the lab fixture only lacked the session agent and --pcm-fd. Measured here with both, as a user had reported.",
+ "stand": {
+  "chain": "ffplay, owned PipeWire, repository qsm-clipboard-agent sound card, audio.sock, the terminal's framing into the worker's --pcm-fd, libopus, TURN over TCP, Chrome 157",
+  "server": "exp214 in PVE LXC108 with NVENC, H264",
+  "stimulus": "1280x720 60 fps moving test picture, a white frame and a 1 kHz tone of 50 ms every 2 s from the same clip clock",
+  "receiver": "AudioWorklet on the received track; the composed picture read at each animation frame"
+ },
+ "results": {
+  "20M_15ms": {
+   "direct_decode": {
+    "runs": [
+     "av2-direct",
+     "av3-direct"
+    ],
+    "median_ms": [
+     40.7,
+     41.9
+    ],
+    "range_ms": [
+     5.6,
+     73.7
+    ],
+    "pairs": [
+     35,
+     34
+    ]
+   },
+   "browser_decode_with_exact_ui": {
+    "run": "av3-reader",
+    "median_ms": -32.4,
+    "range_ms": [
+     -65.5,
+     -9.0
+    ],
+    "pairs": 35
+   },
+   "exact_ui_off": {
+    "run": "av3-noexact",
+    "median_ms": 8.7,
+    "range_ms": [
+     -23.4,
+     36.9
+    ],
+    "pairs": 35
+   }
+  },
+  "20M_100ms": {
+   "direct_decode": {
+    "run": "av100-direct",
+    "median_ms": 45.5,
+    "pairs": 31,
+    "settled_after_events": 10,
+    "first_ms": -176.0
+   },
+   "browser_decode_with_exact_ui": {
+    "run": "av100-reader",
+    "median_ms": -44.3,
+    "pairs": 30,
+    "settled_after_events": 10,
+    "first_ms": -315.4
+   },
+   "exact_ui_off": {
+    "run": "av100-noexact",
+    "median_ms": 25.6,
+    "pairs": 32,
+    "settled_after_events": 14,
+    "first_ms": -650.0
+   }
+  },
+  "2M_15ms_full_screen_motion": {
+   "direct_decode": {
+    "run": "av2m-direct",
+    "median_ms": -51.2,
+    "range_ms": [
+     -121.9,
+     81.9
+    ],
+    "pairs": "25 of 35"
+   },
+   "exact_ui_off": {
+    "run": "av2m-noexact",
+    "median_ms": -183.6,
+    "range_ms": [
+     -406.8,
+     -134.5
+    ],
+    "pairs": "29 of 35"
+   },
+   "worker_fps": [
+    15.9,
+    17.2
+   ]
+  },
+  "long_session": {
+   "run": "avlong-direct",
+   "minutes": 10,
+   "median_ms": 30.4,
+   "range_ms": [
+    -26.4,
+    82.4
+   ],
+   "pairs": "300 of 300",
+   "median_per_50_pairs_ms": [
+    34,
+    44,
+    29,
+    26,
+    25,
+    26
+   ],
+   "packets_lost": 0,
+   "concealed_share": 0.00011
+  }
+ },
+ "findings": [
+  "Direct decode keeps sound 30-46 ms after the picture on an open path and does not drift over 10 minutes. ITU-R BT.1359 puts the detectability limit at 125 ms for late sound and 45 ms for early sound.",
+  "At 2 Mbit/s with a full-screen moving picture, direct decode stays closer (-51 ms) than the browser's own path (-184 ms). There sound leads the picture, slightly beyond the 45 ms limit with direct decode and well beyond the 90 ms acceptability limit without it.",
+  "After a change of path the offset takes up to about 20-30 s to settle.",
+  "At 2 Mbit/s the worker sends about 16-17 frames per second of this synthetic full-screen picture, and 6-10 of the 35 three-frame flashes were not seen. The clip gates use a smaller picture, so they do not cover this case."
+ ],
+ "limits": [
+  "One player, ffplay, whose own A-V status read -16 to -28 ms. Other players and browsers in the guest may differ.",
+  "The speaker's latency is not included: the stand has a fake audio device reporting 32 ms.",
+  "The observer samples the picture at animation frames, so each pair carries about 16 ms of steps.",
+  "PVE with NVENC only: the Native lab VM has no audio device, and its path was not measured.",
+  "One or two runs per mode. One run's rc=1 was the harness reading ICE statistics at the end; the session had not failed."
+ ],
+ "evidence_directory": "dist/rdp-hybrid/av-sync-20261105"
+}

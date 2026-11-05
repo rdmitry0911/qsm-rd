@@ -581,7 +581,8 @@
     "narrow_path": "docs/rdp-narrow-path-20261105.json",
     "hevc_receiver": "docs/rdp-hevc-receiver-20261105.json",
     "remaining_after_20261105": [
-      "A/V offset with direct decode, on the container path where the user has heard sound; the lab fixture reported no audio submissions, which needs explaining",
+      "Full-screen moving picture at 2 Mbit/s: about 16-17 worker fps and sound ahead of the picture; decide whether this case needs a gate",
+      "A/V on a VM guest with an audio device",
       "Idle bytes: Opus DTX and capture stamps",
       "HEVC sender cadence and rate, if HEVC is wanted",
       "TCP-repair recut",
@@ -589,7 +590,8 @@
       "Packages, signed checksums/APT, qualified rollout"
     ],
     "candidate_record": "docs/rdp-candidate-214-20261105.json",
-    "window_shadow_decision": "User decision 2026-11-05: the console never turns shadows off automatically. qsm-desktop-effects stays a manual guest command."
+    "window_shadow_decision": "User decision 2026-11-05: the console never turns shadows off automatically. qsm-desktop-effects stays a manual guest command.",
+    "av_sync": "docs/rdp-av-sync-20261105.json"
   },
   "deployment_nodes": [
     "192.168.64.20",
