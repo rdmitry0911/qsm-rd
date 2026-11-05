@@ -45,6 +45,13 @@ the desktop. The helper authenticates each publisher against the focused
 compositor process, checks client dimensions and expires stale geometry.
 Without the plugin or usable AT-SPI data, ordinary pixel scheduling remains.
 
+On a narrow path, `qsm-desktop-effects reduce` turns off KWin's Breeze window
+shadows for the calling user, and `qsm-desktop-effects restore` brings back the
+previous setting. It applies at once and restarts nothing. A moving shadow over
+changing content costs more than the window itself; in measurements over
+2 Mbit/s with text behind the window this cut median drag lag from 300-426 ms to
+177-184 ms and removed pictures left behind after release. Nothing runs by itself.
+
 ## macOS guest
 
 The same agent and QSF1 wire protocol build for a macOS guest with

@@ -81,7 +81,7 @@
   ],
   "checkpoint": {
     "stage": "qualification",
-    "candidate": "Private213 source/package candidate: 200 plus flow control, protocol 7 pixel history, cursor cache and trim, nearly empty pictures not held behind pacer debt, shared capacity in target cuts, a worker rate that ignores the video target while video is idle, spaced viewer replies, key presses in the input response, VA-API VBR and QP floor on uncropped pictures, 120 Hz wlroots output, a video plane that does not flip on a drag, strips that wait for bandwidth with history and an exact window sized from delivery. See docs/rdp-pixel-history-20261105.json and docs/rdp-ui-responsiveness-20261104.json.",
+    "candidate": "0.4.0+stock4.14~exp214",
     "guest_extension_role": {
       "required_for_metadata_priority": "Expanded VM/LXC agents supply window geometry, stacking, visibility, focus and supported caret/input-component bounds over the existing guest transport.",
       "implemented_scope": "KWin session integration, optional Qt5/Qt6 input-geometry plugin and accessibility producers have documented checks; this does not establish universal toolkit or application coverage.",
@@ -576,7 +576,20 @@
     "decoded_presentation": "docs/rdp-decoded-presentation-20261029.json",
     "decoded_queue": "docs/rdp-decoded-queue-20261029.json",
     "handoff": "docs/rdp-handoff-20261029.json",
-    "work_state": "Private213 measured on PVE, native, AMD and the VM path; nothing deployed. Mac figures are exp209."
+    "work_state": "Private214 measured on PVE, Native and AMD; worker and bridge byte-identical to 213. Committed on the branch, nothing deployed. Mac figures are exp209.",
+    "virgl_hardware_decode": "docs/rdp-virgl-hardware-decode-20261105.json",
+    "narrow_path": "docs/rdp-narrow-path-20261105.json",
+    "hevc_receiver": "docs/rdp-hevc-receiver-20261105.json",
+    "remaining_after_20261105": [
+      "A/V offset with direct decode, on the container path where the user has heard sound; the lab fixture reported no audio submissions, which needs explaining",
+      "Idle bytes: Opus DTX and capture stamps",
+      "HEVC sender cadence and rate, if HEVC is wanted",
+      "TCP-repair recut",
+      "Chrome and macOS on a usable path (Mac on hold by user)",
+      "Packages, signed checksums/APT, qualified rollout"
+    ],
+    "candidate_record": "docs/rdp-candidate-214-20261105.json",
+    "window_shadow_decision": "User decision 2026-11-05: the console never turns shadows off automatically. qsm-desktop-effects stays a manual guest command."
   },
   "deployment_nodes": [
     "192.168.64.20",

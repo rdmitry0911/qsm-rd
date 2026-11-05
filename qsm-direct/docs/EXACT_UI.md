@@ -541,8 +541,19 @@ node tests/proxmox_pve9/test_exact_ui.mjs
 node tests/proxmox_pve9/test_decoded_presentation.mjs
 ```
 
+A moving window shadow over changing content is new blended pixels on every frame,
+which copy detection and pixel history cannot reuse. On a VM desktop with text behind
+the window and a 2 Mbit/s path, Breeze shadows raised median drag lag from 177-184 ms
+to 300-426 ms and left the picture behind after release. `qsm-desktop-effects reduce`
+in the guest turns them off and `restore` returns the user's setting; see
+[the record](rdp-narrow-path-20261105.json). Like the display effects Microsoft RDP
+offers to disable, this is the user's choice: the console never changes it alone.
+
 Release qualification must cover owned native Wayland LXC and QEMU VM capture,
 H.264/NVENC/QSV/VA-API, and HEVC with an actual Chromium hardware receiver.
+Hardware decoding inside a VirGL guest is not usable: see [the record](rdp-virgl-hardware-decode-20261105.json).
+HEVC decodes directly on a real Intel receiver but does not yet pass the clip gates:
+see [the record](rdp-hevc-receiver-20261105.json).
 Check real glyph appearance, exact source pixels, composed visible motion,
 scrolling, move/resize/close and old pixel resurrection. Compare identical shaped
 paths and video targets. There has been no measured comparison with Microsoft RDP.

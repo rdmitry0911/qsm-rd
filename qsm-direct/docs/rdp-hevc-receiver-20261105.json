@@ -1,0 +1,177 @@
+{
+ "date": "2026-11-05",
+ "status": "direct path works on a real receiver; HEVC does not pass the clip gates here and stays unqualified",
+ "production_changed": false,
+ "stand": {
+  "receiver": "Chrome 157 on Native, real Intel Iris Xe GL on an owned virtual KWin, iHD VA-API, no VM and no VirGL",
+  "server": "exp213 worker and bridge on the Native lab VM, repository viewer",
+  "gpu_guard": "Kernel GPU fault count before and after each run stayed 0; lab VM unchanged"
+ },
+ "route_limit": "The media goes from Native through the controller and back, so feedback delay is about 270 ms against about 125 ms on the Firefox reference. Absolute figures and the narrow-path gates are not comparable with other lanes; compare only within this table.",
+ "runs": {
+  "h264_qsv": {
+   "tags": [
+    "h264-base1",
+    "h264-base2"
+   ],
+   "source_fps_fast_narrow_recovered": [
+    [
+     45.4,
+     41.7,
+     41.2
+    ],
+    [
+     46.5,
+     42.3,
+     41.4
+    ]
+   ],
+   "max_gap_ms": [
+    202,
+    234
+   ],
+   "fast_kbps": [
+    1627,
+    1645
+   ],
+   "p_frame_bytes": [
+    3354,
+    2942
+   ],
+   "key_frame_bytes": [
+    26716,
+    27453
+   ],
+   "freezes": [
+    0,
+    0
+   ],
+   "chrome_video_engine_pct": [
+    4.6,
+    3.8
+   ]
+  },
+  "hevc_qsv": {
+   "tags": [
+    "hevc-direct2"
+   ],
+   "source_fps_fast_narrow_recovered": [
+    [
+     40.4,
+     36.8,
+     38.2
+    ]
+   ],
+   "max_gap_ms": [
+    316
+   ],
+   "fast_kbps": [
+    4822
+   ],
+   "p_frame_bytes": [
+    5865
+   ],
+   "key_frame_bytes": [
+    8141
+   ],
+   "freezes": [
+    3
+   ],
+   "chrome_video_engine_pct": [
+    1.4
+   ]
+  },
+  "hevc_qsv_floor_26_32": {
+   "tags": [
+    "hevc-q26",
+    "hevc-q32"
+   ],
+   "source_fps_fast_narrow_recovered": [
+    [
+     36.7,
+     38.3,
+     37.9
+    ],
+    [
+     37.5,
+     38.2,
+     40.0
+    ]
+   ],
+   "fast_kbps": [
+    4619,
+    4590
+   ],
+   "p_frame_bytes": [
+    5400,
+    5729
+   ],
+   "key_frame_bytes": [
+    8136,
+    8102
+   ],
+   "note": "Raising QSM_DIRECT_CROPPED_QMIN from 20 to 26 and 32 left the bytes unchanged: hevc_qsv did not act on the floor in this setup."
+  },
+  "h264_vaapi": {
+   "tags": [
+    "h264-va1"
+   ],
+   "source_fps_fast_narrow_recovered": [
+    [
+     46.4,
+     44.4,
+     45.2
+    ]
+   ],
+   "fast_kbps": [
+    1604
+   ],
+   "p_frame_bytes": [
+    3371
+   ],
+   "key_frame_bytes": [
+    16666
+   ],
+   "freezes": [
+    0
+   ]
+  },
+  "hevc_vaapi": {
+   "tags": [
+    "hevc-va1"
+   ],
+   "source_fps_fast_narrow_recovered": [
+    [
+     39.4,
+     39.3,
+     39.6
+    ]
+   ],
+   "fast_kbps": [
+    4679
+   ],
+   "p_frame_bytes": [
+    6424
+   ],
+   "key_frame_bytes": [
+    50236
+   ],
+   "freezes": [
+    2
+   ]
+  }
+ },
+ "receiver": "Every HEVC run: codec video/H265, direct decode active, no failure, 0-1 frames dropped, about 1 ms decode per frame.",
+ "findings": [
+  "The viewer now starts direct decode from an HEVC SPS. Before this it fell back to the browser path on any HEVC stream.",
+  "HEVC encoded fewer frames at the sender than H264 on both Intel encoders, about 40 against 46 per second, so the loss starts before the network. Why was not established.",
+  "HEVC used about three times the bytes on an open path. The H264 floor does not carry over."
+ ],
+ "not_measured": [
+  "hevc_nvenc and AMD HEVC against this receiver",
+  "Picture quality of HEVC (SSIM, PSNR)",
+  "A route without the controller hop"
+ ],
+ "recommendation": "Keep H264 as the default. Offer HEVC only as an unqualified option until the sender rate and frame cadence are solved.",
+ "evidence_directory": "dist/rdp-hybrid/hevc-receiver-20261105"
+}

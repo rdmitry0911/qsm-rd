@@ -1,0 +1,106 @@
+{
+ "date": "2026-11-05",
+ "status": "ended on the agreed stop rule",
+ "production_changed": false,
+ "question": "Does hardware video decoding work from inside a VM with a VirGL adapter?",
+ "answer": "The decoder runs on the host VCN, but the only configuration that uses it breaks the GL stream in the first frames. One such run hung the host GFX ring and reset the whole GPU. Without zero-copy the picture is correct, and decoding is in software.",
+ "stand": {
+  "host": "asrock, AMD Ryzen 7 7700 iGPU, pve-qemu 11.0.3, libvirglrenderer 1.1.0 linked with libva",
+  "vm": "owned QEMU, virtio-vga-gl, egl-headless, Debian 13, Mesa 25.0.7, weston headless GL, Chrome 157.0.8103.38",
+  "enabling": "LD_PRELOAD shim sets VIRGL_RENDERER_USE_VIDEO and get_drm_fd; libvirglrenderer was not rebuilt",
+  "server": "exp213 in LXC147 with h264_vaapi or hevc_vaapi",
+  "moving_source": "Owned Qt window with a per-frame 24-bit barcode, limited to about 47-50 fps by the fixture"
+ },
+ "gpu_incident": {
+  "time": "13:44:02",
+  "kernel": "ring gfx_0.0.0 timeout, Process qemu-system-x86 pid 310640, Ring gfx_0.0.0 reset failed, MODE2 reset, GPU reset(2) succeeded",
+  "effect_found": "None found: qsm-pve-direct-terminal active since 2026-10-27, VM 103 uptime 46 days, 8 of 8 LXC147 fixture processes alive. A brief fault for a process using the GPU at that second cannot be excluded.",
+  "not_established": "Why the ring hung. The kernel log shows one earlier reset on 2026-10-15, with process kvm; its owner was not determined."
+ },
+ "error_after_zero_copy": {
+  "text": "vrend_create_sampler_view: Invalid number of layers (0) or zero levels requested; context 5 failed to dispatch CREATE_OBJECT: 22; Illegal command buffer 394753",
+  "guarded_runs": [
+   {
+    "tag": "vmp2-h264v",
+    "exact_ui": false,
+    "zero_copy": true,
+    "result": "Watchdog stopped QEMU at 14:08:32 after 2 encoded frames; no GPU reset"
+   },
+   {
+    "tag": "vms-on-h264x",
+    "exact_ui": true,
+    "zero_copy": true,
+    "result": "Watchdog stopped QEMU at 14:26:07 after 2 encoded frames; no GPU reset"
+   }
+  ],
+  "ruled_out": "Fake camera flags and weston --debug were absent, and the moving window had not started.",
+  "correction": "The earlier vmc4 runs reported decoded frames and rc=0 with zero-copy on. qemu.log has no timestamps, so it cannot show that they were free of this error; do not cite them as clean."
+ },
+ "vcn_evidence": {
+  "zero_copy_on": "drm-engine-dec 56.56 s accumulated on the QEMU DRM clients across the earlier runs, not split by codec",
+  "zero_copy_off": "No drm-engine-dec entry after the moving runs: VCN unused"
+ },
+ "zero_copy_off_moving_h264": {
+  "vms-off-h264v": {
+   "exact_ui": false,
+   "source_fps": 46.9,
+   "decoded_fps": 46.6,
+   "dropped": 0,
+   "freezes": 0,
+   "decode_ms": 1.9,
+   "jitter_ms": 44.1,
+   "receive_to_display_ms_p50_p95": [
+    115.8,
+    129.2
+   ],
+   "visible_distinct_per_s": 43.6,
+   "max_gap_ms": 53.1,
+   "backward_steps": 0,
+   "patch_rgba": [
+    255,
+    0,
+    254,
+    255
+   ],
+   "chrome_cpu_core_pct": 33.4,
+   "qemu_cpu_core_pct": 51.1
+  },
+  "vms-off-h264x": {
+   "exact_ui": true,
+   "source_fps": 49.5,
+   "decoded_fps": 49.8,
+   "dropped": 0,
+   "freezes": 0,
+   "decode_ms": 1.83,
+   "jitter_ms": 48.5,
+   "receive_to_display_ms_p50_p95": [
+    120,
+    140.2
+   ],
+   "visible_distinct_per_s": 39.1,
+   "max_gap_ms": 70.6,
+   "backward_steps": 0,
+   "patch_rgba": [
+    255,
+    0,
+    253,
+    255
+   ],
+   "chrome_cpu_core_pct": 67.2,
+   "qemu_cpu_core_pct": 91.9
+  },
+  "webcodecs": "Direct decode failed with 'Decoding error.' under these forced VA-API flags, so the viewer stayed on its browser path.",
+  "limits": "One run each. The observer needs --disable-accelerated-2d-canvas and --disable-gpu-rasterization, so the exact UI CPU figures and its 39 visible fps include software canvas uploads through VirGL and do not describe a normal browser."
+ },
+ "harness_corrections": [
+  "An earlier black picture with 3 captured frames came from a garbage-collected test window, not from decoding (vmq-h264v)."
+ ],
+ "not_measured": [
+  "HEVC with zero-copy off",
+  "Hardware decoded picture correctness: every zero-copy run stopped first",
+  "Click and drag on this stand: the driver stayed 85 ms away",
+  "Chrome without forced VA-API flags"
+ ],
+ "recommendation": "Do not enable hardware decode for VirGL guests. Keep software decode there, and treat the guest's ability to hang the host GPU as a product risk.",
+ "evidence_directory": "dist/rdp-hybrid/virgl-hw-decode-20261105"
+}

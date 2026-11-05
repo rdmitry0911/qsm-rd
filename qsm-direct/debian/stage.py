@@ -83,6 +83,7 @@ def main(build, version):
     install(guest, "guest/qsm_desktop_metadata.py", "usr/lib/qsm-console/qsm_desktop_metadata.py")
     install(guest, "guest/qsm_kwin_metadata.js", "usr/lib/qsm-console/qsm_kwin_metadata.js")
     install(guest, "extensions/direct_guest/qsm_desktop_metadata.py", "usr/lib/qsm-console/qsm_desktop_metadata_schema.py")
+    install(guest, "guest/qsm_desktop_effects.py", "usr/bin/qsm-desktop-effects", True)
     install(guest, "packaging/lxc/qsm-display-sway.conf", "usr/share/qsm-console/sway.conf")
     for name in ("qsm-display@.service", "qsm-seat-keeper@.service", "qsm-login@.service", "qsm-consoles.service",
                  "qsm-native-seat-udev.service", "qsm-native-seat-control@.service", "qsm-native-sddm.service"):

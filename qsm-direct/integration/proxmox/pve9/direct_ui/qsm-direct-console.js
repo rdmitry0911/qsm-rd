@@ -123,6 +123,13 @@
             }
             this.enqueue(s, frame, rtp);
         }
+        // The worker restarts its decoder from the next key frame. The browser's path
+        // shows the stream until then, and the first new picture takes the display back.
+        directInterrupted(reason) {
+            this.directRestarts = (this.directRestarts ?? 0) + 1; this.directLastError = reason;
+            if (this.session?.source === DecodedVideoPresenter.DIRECT_DECODE) { this.stop(); }
+            this.onDirectFailed?.();
+        }
         directFailed(reason = 'silent') {
             this.directFailure ??= reason;
             this.failed.add(DecodedVideoPresenter.DIRECT_DECODE);
@@ -877,22 +884,59 @@
                     else if (event.data === 'show') showing = true;
                     else if (event.data === 'hide') showing = false;
                 };
-                // An optional presentation path: failure ends it permanently and
-                // leaves the unchanged RTP stream decoding in the browser.
+                // An optional presentation path: a lasting failure ends it and leaves
+                // the unchanged RTP stream decoding in the browser.
                 const directFail = reason => {
                     if (directOff) return;
                     directOff = true;
                     try { decoder?.close(); } catch (_error) { /* Already closed. */ }
                     decoder = null; self.postMessage({ op: 'direct-failed', reason: String(reason?.message ?? reason).slice(0, 120) });
                 };
-                // An H.264 key frame's SPS. Anything else (HEVC) stays on the browser path.
+                // A picture lost ahead of this decoder is a decode error at one stream
+                // position, not a lasting fault: resume at the next key frame. Errors that
+                // keep returning show the decoder cannot use this stream at all.
+                let restarts = [];
+                const directDecodeError = error => {
+                    const now = performance.now();
+                    restarts = restarts.filter(at => now - at < 60000);
+                    if ((error?.name !== 'EncodingError' && error?.name !== 'OperationError') || restarts.length >= 3) { directFail(error); return; }
+                    restarts.push(now);
+                    try { decoder?.close(); } catch (_error) { /* A decode error already closed it. */ }
+                    decoder = null; keyed = false; sps = ''; started.clear();
+                    self.postMessage({ op: 'direct-restart', reason: String(error?.message ?? error).slice(0, 120) });
+                };
+                const hex = n => n.toString(16).padStart(2, '0');
+                // The HEVC codec string from an SPS payload, per ISO/IEC 14496-15 annex E.
+                const hevcCodec = payload => {
+                    const raw = [];
+                    for (let i = 0; i < payload.length && raw.length < 13; i += 1) {
+                        // Zero runs are common in these fields, so emulation prevention must go first.
+                        if (i >= 2 && payload[i] === 3 && payload[i - 1] === 0 && payload[i - 2] === 0) continue;
+                        raw.push(payload[i]);
+                    }
+                    if (raw.length < 13) return null;
+                    let compatibility = 0;
+                    for (let bit = 0; bit < 32; bit += 1) {
+                        if (raw[2 + (bit >> 3)] & (0x80 >> (bit & 7))) compatibility += 2 ** bit;
+                    }
+                    const constraints = raw.slice(6, 12);
+                    while (constraints.length && constraints.at(-1) === 0) constraints.pop();
+                    return ['hvc1', ['', 'A', 'B', 'C'][raw[1] >> 6] + (raw[1] & 31), compatibility.toString(16),
+                        ((raw[1] & 32) ? 'H' : 'L') + raw[12], ...constraints.map(n => hex(n).toUpperCase())].join('.');
+                };
+                // A key frame's codec string and SPS identity, in Annex B for both codecs.
+                // A base-layer HEVC NAL header is even, so it cannot match the H.264 test.
                 const findSps = bytes => {
                     for (let i = 0; i + 7 < bytes.length; i += 1) {
-                        if (bytes[i] === 0 && bytes[i + 1] === 0 && bytes[i + 2] === 1 && (bytes[i + 3] & 31) === 7) {
-                            let end = i + 4;
-                            while (end + 2 < bytes.length && !(bytes[end] === 0 && bytes[end + 1] === 0 && bytes[end + 2] <= 1)) { end += 1; }
-                            return bytes.subarray(i + 4, end);
-                        }
+                        if (bytes[i] !== 0 || bytes[i + 1] !== 0 || bytes[i + 2] !== 1) continue;
+                        const hevc = bytes[i + 3] === 0x42 && bytes[i + 4] === 1;
+                        if (!hevc && (bytes[i + 3] & 31) !== 7) continue;
+                        const from = i + (hevc ? 5 : 4);
+                        let end = from;
+                        while (end + 2 < bytes.length && !(bytes[end] === 0 && bytes[end + 1] === 0 && bytes[end + 2] <= 1)) { end += 1; }
+                        const payload = bytes.subarray(from, end);
+                        const codec = hevc ? hevcCodec(payload) : (payload.length < 3 ? null : 'avc1.' + hex(payload[0]) + hex(payload[1]) + hex(payload[2]));
+                        return codec && { codec, text: String.fromCharCode(...payload) };
                     }
                     return null;
                 };
@@ -902,11 +946,9 @@
                     const bytes = new Uint8Array(frame.data);
                     if (key) {
                         const found = findSps(bytes);
-                        if (!found || found.length < 3) { directFail('no H.264 SPS'); return; }
-                        const text = String.fromCharCode(...found);
+                        if (!found) { directFail('no SPS in key frame'); return; }
                         // A cropped plane's size or profile arrives in-band with its IDR.
-                        if (text !== sps) {
-                            const hex = n => n.toString(16).padStart(2, '0');
+                        if (found.text !== sps) {
                             if (!decoder) {
                                 decoder = new VideoDecoder({
                                     output(picture) {
@@ -918,12 +960,11 @@
                                         try { self.postMessage({ op: 'frame', rtp: picture.timestamp, frame: picture }, [picture]); }
                                         catch (error) { picture.close(); directFail(error); }
                                     },
-                                    error: directFail,
+                                    error: directDecodeError,
                                 });
                             }
-                            decoder.configure({ codec: 'avc1.' + hex(found[0]) + hex(found[1]) + hex(found[2]),
-                                optimizeForLatency: true, hardwareAcceleration: 'no-preference' });
-                            sps = text;
+                            decoder.configure({ codec: found.codec, optimizeForLatency: true, hardwareAcceleration: 'no-preference' });
+                            sps = found.text;
                         }
                     }
                     // A hardware decoder can take a few hundred ms to start: only a backlog
@@ -970,6 +1011,7 @@
                     if (!value || typeof value !== 'object') { return; }
                     if (value.op === 'frame') { onDirect?.(value.frame, value.rtp); return; }
                     if (value.op === 'direct-failed') { onDirect?.(null, value.reason); return; }
+                    if (value.op === 'direct-restart') { onDirect?.(null, value.reason, true); return; }
                     if (value.op === 'ready') {
                         if (timer !== null) { scope.clearTimeout(timer); timer = null; }
                         if (url !== null) { scope.URL.revokeObjectURL(url); url = null; }
@@ -2059,8 +2101,9 @@
         let videoFeedbackChannel = null;
         const reportVideoPresented = createVideoPresentationFeedback(() => videoFeedbackChannel);
         let decodedPresentationAllowed = false;
-        const receiveFeedback = createVideoReceiveFeedback(popup, () => videoFeedbackChannel, (frame, rtp) => {
+        const receiveFeedback = createVideoReceiveFeedback(popup, () => videoFeedbackChannel, (frame, rtp, restarting = false) => {
             if (frame) { decodedPresenter.pushDirect(frame, rtp, decodedPresentationAllowed); }
+            else if (restarting) { decodedPresenter.directInterrupted(rtp); }
             else { decodedPresenter.directFailed(rtp); }
         });
         video.autoplay = true;

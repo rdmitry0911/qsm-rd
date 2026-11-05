@@ -34,6 +34,7 @@ install -m 0644 "$ROOT_DIR/guest/qsm_desktop_metadata.py" "$lib/qsm_desktop_meta
 install -m 0644 "$ROOT_DIR/guest/qsm_qt_input_geometry.py" "$lib/qsm_qt_input_geometry.py"
 install -m 0644 "$ROOT_DIR/guest/qsm_kwin_metadata.js" "$lib/qsm_kwin_metadata.js"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_desktop_metadata.py" "$lib/qsm_desktop_metadata_schema.py"
+install -D -m 0755 "$ROOT_DIR/guest/qsm_desktop_effects.py" "$stage/usr/bin/qsm-desktop-effects"
 install -m 0644 "$LXC_DIR/qsm-display-sway.conf" "$stage/usr/share/qsm-console/sway.conf"
 for unit in qsm-display@.service qsm-seat-keeper@.service qsm-login@.service qsm-consoles.service \
             qsm-native-seat-udev.service qsm-native-seat-control@.service qsm-native-sddm.service; do

@@ -197,6 +197,25 @@ for (const failure of ['api', 'constructor', 'metadata', 'bad-rtp', 'silence', '
     p.stop(); assert.equal(h.rafs.size + h.timers.size, 0);
     assert.ok(retired.length >= 2);
 }
+// An interrupted direct path lends the display to the browser and stays usable:
+// its next picture takes the display back from the track reader.
+{
+    const h = harness(), shown = [];
+    let updates = 0;
+    const p = new sandbox.Presenter(h.scope, (image, rtp) => { shown.push(rtp); });
+    p.onDirectFailed = () => { updates++; p.configure(h.sourceTrack, true); };
+    const first = frame(20); p.pushDirect(first, 20, true);
+    h.tick(16); assert.deepEqual(shown, [20]);
+    p.directInterrupted('Decoding error.');
+    assert.equal(first.closed, 1); assert.equal(updates, 1);
+    assert.equal(p.directUsable, true); assert.equal(p.directFailure, undefined);
+    assert.equal(p.directRestarts, 1); assert.equal(p.directLastError, 'Decoding error.');
+    assert.equal(h.readers.length, 1, 'the browser path presents meanwhile');
+    const next = frame(30); p.pushDirect(next, 30, true);
+    assert.equal(h.readers[0].cancellations, 1); assert.equal(p.active, true);
+    h.tick(16); assert.deepEqual(shown, [20, 30]);
+    p.stop(); assert.equal(next.closed, 1); assert.equal(h.rafs.size + h.timers.size, 0);
+}
 // Disabling presentation stops direct pictures and releases them.
 {
     const h = harness();
@@ -258,13 +277,36 @@ for (const failure of ['api', 'constructor', 'metadata', 'bad-rtp', 'silence', '
         const hidden = { timestamp: 3, closed: 0, close() { this.closed++; } };
         r.decoders[0].init.output(hidden); assert.equal(hidden.closed, 1);
     }
+    // HEVC starts the same direct path. Its profile fields are read past emulation
+    // prevention, and only a changed SPS reconfigures.
+    {
+        const hevcKey = (rtp, ptl) => ({ type: 'key', data: Uint8Array.from([0, 0, 0, 1, 0x40, 1, 0x0c, 1, 0, 0, 0, 1, 0x42, 1, ...ptl, 0, 0, 0, 1, 0x44, 1, 0xc0, 0, 0, 0, 1, 0x26, 1, 9]).buffer, getMetadata: () => ({ rtpTimestamp: rtp }) });
+        const main = [1, 1, 0x60, 0, 0, 3, 0, 0xb0, 0, 0, 3, 0, 0, 3, 0, 0x5d, 0xa0, 2, 0x80];
+        const main10High = [1, 0x22, 0x20, 0, 0, 3, 0, 0xb0, 0, 0, 3, 0, 0, 3, 0, 0x78, 0xa0, 2, 0x80];
+        const inner = [1, 1, 0x60, 0, 0, 3, 0, 0x90, 0, 0, 3, 0, 0x12, 0, 0x5d, 0xa0, 2, 0x80];
+        const frames = [hevcKey(2, main), delta(3), hevcKey(4, main), hevcKey(5, main10High), hevcKey(6, inner)];
+        const r = await run({ frames });
+        assert.deepEqual(r.outgoing, frames);
+        assert.equal(r.decoders.length, 1);
+        assert.deepEqual(r.decoders[0].configs.map(c => c.codec), ['hvc1.1.6.L93.B0', 'hvc1.2.4.H120.B0', 'hvc1.1.6.L93.90.00.00.00.12']);
+        assert.deepEqual(r.decoders[0].chunks.map(c => c.type), ['key', 'delta', 'key', 'key', 'key']);
+        assert.equal(directFailed(r), 0);
+    }
+    // A key frame with no SPS of either codec ends the optional path; frames still pass.
+    {
+        const bare = { type: 'key', data: Uint8Array.from([0, 0, 0, 1, 0x65, 1, 2, 3, 4, 5, 6, 7]).buffer, getMetadata: () => ({ rtpTimestamp: 1 }) };
+        const r = await run({ frames: [bare] });
+        assert.deepEqual(r.outgoing, [bare]);
+        assert.equal(r.decoders.length, 0);
+        assert.equal(directFailed(r), 1);
+    }
     // No decoder API: frames pass, nothing is reported as a failure.
     {
         const frames = [key(1, [0x42, 0xe0, 0x1f]), delta(2)];
         const r = await run({ noDecoder: true, frames });
         assert.deepEqual(r.outgoing, frames); assert.equal(directFailed(r), 0);
     }
-    // A key frame without an H.264 SPS (HEVC) ends direct decode once.
+    // A key frame with only a VPS has no SPS of either codec and ends direct decode once.
     {
         const hevc = { type: 'key', data: Uint8Array.from([0, 0, 0, 1, 0x40, 1, 2, 3, 4, 5, 6, 7]).buffer, getMetadata: () => ({ rtpTimestamp: 1 }) };
         const frames = [hevc, hevc, delta(2)];
@@ -276,6 +318,30 @@ for (const failure of ['api', 'constructor', 'metadata', 'bad-rtp', 'silence', '
         const frames = [key(1, [0x42, 0xe0, 0x1f]), delta(2), delta(3), delta(4)];
         const r = await run({ frames, onDecode });
         assert.deepEqual(r.outgoing, frames); assert.equal(directFailed(r), 1); assert.equal(r.decoders[0].closed, 1);
+    }
+    // A decode error restarts at the next key frame and media keeps flowing.
+    const decodeError = name => d => queueMicrotask(() => d.init.error(Object.assign(new Error('Decoding error.'), { name })));
+    const restarted = r => r.messages.filter(x => x.m.op === 'direct-restart').length;
+    {
+        const sps = [0x42, 0xe0, 0x1f];
+        const frames = [key(1, sps), delta(2), delta(3), delta(4), key(5, sps), delta(6)];
+        const r = await run({ frames, onDecode: (d, c) => { if (c.timestamp === 3) { decodeError('EncodingError')(d); } } });
+        assert.deepEqual(r.outgoing, frames);
+        assert.equal(directFailed(r), 0); assert.equal(restarted(r), 1);
+        assert.equal(r.decoders.length, 2, 'a closed decoder is replaced');
+        assert.deepEqual(r.decoders[0].chunks.map(c => c.timestamp), [1, 2, 3]);
+        assert.deepEqual(r.decoders[1].chunks.map(c => c.timestamp), [5, 6]);
+        assert.equal(r.decoders[1].configs.length, 1, 'the new decoder is configured again from the same SPS');
+    }
+    // Errors that keep returning end the path, and so does an unsupported stream.
+    {
+        const sps = [0x42, 0xe0, 0x1f];
+        const frames = [1, 2, 3, 4, 5, 6].map(n => key(n, sps));
+        const r = await run({ frames, onDecode: decodeError('EncodingError') });
+        assert.deepEqual(r.outgoing, frames);
+        assert.equal(restarted(r), 3); assert.equal(directFailed(r), 1); assert.equal(r.decoders.length, 4);
+        const unsupported = await run({ frames: [key(1, sps), key(2, sps)], onDecode: decodeError('NotSupportedError') });
+        assert.equal(restarted(unsupported), 0); assert.equal(directFailed(unsupported), 1);
     }
     // A picture decoded too late never reaches the page; a current one does.
     {

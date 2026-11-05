@@ -1,0 +1,259 @@
+{
+ "date": "2026-11-05",
+ "status": "measured on exp213 with the repository viewer; not deployed",
+ "production_changed": false,
+ "findings": {
+  "shadows_vm_text": {
+   "scope": "Native QEMU VM, KWin 6 Breeze, text behind the window, Chromium, 2 rounds at 2M-d15 and 20M-d15, 1 round at d100, no other change",
+   "profiles": {
+    "2M-d15": {
+     "lag_median_ms": {
+      "shadows": [
+       300,
+       426
+      ],
+      "none": [
+       177,
+       184
+      ]
+     },
+     "lag_p95_ms": {
+      "shadows": [
+       353,
+       714
+      ],
+      "none": [
+       194,
+       208
+      ]
+     },
+     "final_error_px_max": {
+      "shadows": [
+       220,
+       226
+      ],
+      "none": [
+       7,
+       7
+      ]
+     },
+     "positions_per_s": {
+      "shadows": [
+       24,
+       24
+      ],
+      "none": [
+       38,
+       39
+      ]
+     },
+     "transport_kb": {
+      "shadows": [
+       5700,
+       5759
+      ],
+      "none": [
+       3884,
+       4094
+      ]
+     }
+    },
+    "2M-d100": {
+     "lag_median_ms": {
+      "shadows": [
+       476
+      ],
+      "none": [
+       340
+      ]
+     },
+     "lag_p95_ms": {
+      "shadows": [
+       685
+      ],
+      "none": [
+       392
+      ]
+     },
+     "final_error_px_max": {
+      "shadows": [
+       300
+      ],
+      "none": [
+       7
+      ]
+     },
+     "positions_per_s": {
+      "shadows": [
+       8
+      ],
+      "none": [
+       35
+      ]
+     },
+     "transport_kb": {
+      "shadows": [
+       5036
+      ],
+      "none": [
+       4067
+      ]
+     }
+    },
+    "20M-d15": {
+     "lag_median_ms": {
+      "shadows": [
+       200,
+       228
+      ],
+      "none": [
+       182,
+       183
+      ]
+     },
+     "positions_per_s": {
+      "shadows": [
+       22,
+       23
+      ],
+      "none": [
+       36,
+       37
+      ]
+     },
+     "transport_kb": {
+      "shadows": [
+       9745,
+       9941
+      ],
+      "none": [
+       4100,
+       4287
+      ]
+     }
+    },
+    "20M-d100": {
+     "lag_median_ms": {
+      "shadows": [
+       306
+      ],
+      "none": [
+       263
+      ]
+     },
+     "positions_per_s": {
+      "shadows": [
+       22
+      ],
+      "none": [
+       37
+      ]
+     },
+     "transport_kb": {
+      "shadows": [
+       9719
+      ],
+      "none": [
+       4122
+      ]
+     }
+    }
+   },
+   "not_changed": "Typing, click and wheel medians stay within run spread: these touch no shadow.",
+   "limits": "Small run counts. No RDP run exists with text or shadows behind a window. The helper is manual and covers Breeze only.",
+   "helper": "qsm-desktop-effects: unit tests with fake KDE tools; live on the lab guest reduce, status, restore and a second restore behaved, and KWin stayed the same process."
+  },
+  "direct_decode_restart": {
+   "observed": "With shadows at 2 Mbit/s the direct decoder failed with 'Decoding error.' and stayed off until the session ended. It did not fail in the runs without shadows, or in 31 minutes on PVE.",
+   "change": "A decode error now restarts the decoder at the next key frame; the browser path shows the stream meanwhile. Unsupported streams, and a fourth error within 60 s, still end the path.",
+   "verified": "Unit tests with a fake decoder, then live: restart-t2, 3 rounds on the VM with shadows, 6 decode errors in about 20 minutes, direct decode returned each time and no session-long failure. restart-t1 had no error.",
+   "cause_not_established": "Whether the error follows pictures dropped ahead of the decoder has not been shown.",
+   "before": "Without the change the first error ended direct decode for the session (soak213-vm3, shon-t1, shon-t2)."
+  },
+  "long_sessions": {
+   "ui_pve": {
+    "tag": "soak213-r1",
+    "minutes": 31,
+    "rc": 0,
+    "worker_rss_mb": 200,
+    "js_heap_mb": 24,
+    "dropped": 0,
+    "note": "Lab probe on: bridge RSS 198 to 580 MB."
+   },
+   "clip_pve": {
+    "tag": "clipsoak213-r1",
+    "minutes": 30,
+    "rc": 0,
+    "keys": "893 of 893, none behind",
+    "worker_fps": {
+     "median": 60,
+     "min": 56.8
+    },
+    "decoded_fps_min": 60,
+    "dropped": 0,
+    "keyframes": 3,
+    "bridge_rss_mb": [
+     198,
+     188
+    ],
+    "worker_rss_mb": 200,
+    "js_heap_mb": [
+     23,
+     30
+    ],
+    "limits": "Worker and decoder counters, not source-ID cadence, so it does not replace the clip gates. Moving test pattern at about 1.2 Mbit/s."
+   },
+   "ui_vm": {
+    "tag": "soak213-vm3",
+    "minutes": 31,
+    "rc": 0,
+    "valid_rounds": 1,
+    "note": "A lagging picture made the bench grab the window off target, so later typing, click and wheel samples missed it. Drag samples stay valid. The bench now restores the layout before each profile; this soak was not rerun.",
+    "rerun": "restart-t2 with the layout restored before each profile: 3 rounds, no missing typing samples. Typing medians 160-170 ms at d15 and 245-254 ms at d100, including the VM route."
+   }
+  },
+  "viewer_regression_pve": {
+   "scope": "Repository viewer against the exp213 backend on PVE; worker and bridge unchanged",
+   "ui": {
+    "tag": "uibv-r2",
+    "type_ms": [
+     48,
+     43,
+     129,
+     136
+    ],
+    "click_ms": [
+     45,
+     45,
+     129,
+     144
+    ],
+    "drag_lag_ms": [
+     46,
+     57,
+     134,
+     142
+    ],
+    "final_error_px": 0,
+    "note": "Text behind the window; one round."
+   },
+   "clip": {
+    "tag": "lxcv213-second-loss0p3-delay15",
+    "source_fps": {
+     "fast": 57.0,
+     "narrow": 51.6,
+     "recovered": 55.8
+    },
+    "exp213_first": {
+     "fast": 58.6,
+     "narrow": 52.4,
+     "recovered": 55.8
+    },
+    "glyph_max_ms": 97,
+    "gates_failed": [],
+    "note": "One Firefox round. Direct decode is not exercised there; hardcut was not rerun."
+   }
+  }
+ },
+ "evidence_directory": "dist/rdp-hybrid/narrow-path-20261105"
+}

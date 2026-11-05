@@ -30,6 +30,7 @@ install -m 0644 "$ROOT_DIR/guest/qsm_qt_input_geometry.py" "$package_root/qsm_qt
 install -m 0644 "$ROOT_DIR/guest/qsm_kwin_metadata.js" "$package_root/qsm_kwin_metadata.js"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_desktop_metadata.py" "$package_root/qsm_desktop_metadata_schema.py"
 install -m 0755 "$ROOT_DIR/packaging/guest/qsm-desktop-agent-setup" "$stage_root/usr/bin/qsm-desktop-agent-setup"
+install -m 0755 "$ROOT_DIR/guest/qsm_desktop_effects.py" "$stage_root/usr/bin/qsm-desktop-effects"
 install -m 0644 "$ROOT_DIR/packaging/guest/qsm-desktop-agent@.service" "$stage_root/usr/lib/systemd/system/qsm-desktop-agent@.service"
 install -m 0644 "$ROOT_DIR/packaging/guest/qsm-desktop-clipboard.service" "$stage_root/usr/lib/systemd/user/qsm-desktop-clipboard.service"
 install -m 0644 "$ROOT_DIR/packaging/guest/qsm-desktop-metadata.service" "$stage_root/usr/lib/systemd/user/qsm-desktop-metadata.service"

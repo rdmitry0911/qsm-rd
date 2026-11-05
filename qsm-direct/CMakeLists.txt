@@ -268,6 +268,10 @@ if(BUILD_TESTING)
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_qsm_desktop_metadata.py -v)
         set_tests_properties(qsm_desktop_metadata PROPERTIES TIMEOUT 20)
+        add_test(NAME qsm_desktop_effects
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_desktop_effects.py -v)
+        set_tests_properties(qsm_desktop_effects PROPERTIES TIMEOUT 20)
         add_test(NAME qsm_qt_input_geometry
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_qt_input_geometry.py -v)
