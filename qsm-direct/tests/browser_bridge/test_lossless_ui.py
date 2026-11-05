@@ -1,13 +1,14 @@
 import asyncio
 from collections import OrderedDict
+from dataclasses import replace
 import struct
 import time
 import unittest
 from unittest.mock import patch as mock_patch
 import zlib
 from extensions.browser_bridge.qsm_lossless_ui import (
-    CLEAR, GAP, HEADER, HELLO, MAGIC, MAX_BUFFERED, PATCH, RESET, SCENE,
-    Peer, Source, Update, decode,
+    CLEAR, COPY, FEATURE_COPY, FEATURE_HISTORY, Flight, GAP, HEADER, HELLO, MAGIC, MAX_BUFFERED, MAX_COPY_SEGMENTS,
+    MAX_STREAM_BYTES, PATCH, RESET, SCENE, Peer, Source, Update, decode,
 )
 
 
@@ -322,6 +323,448 @@ class ExactUiTests(unittest.TestCase):
             p.drain()
             self.assertEqual(decode(p.channel.sent[-1]).x, 64)
             self.assertEqual(len(p.channel.sent), 3)
+
+
+class CopyProtocolTests(unittest.TestCase):
+    def setUp(self):
+        self.source = Source()
+        self.source.feed(Update(HELLO, payload=struct.pack('!I', FEATURE_COPY | 8 | 1)).wire(0, 0))
+        self.source.feed(Update(RESET, width=256, height=128).wire(1, 1))
+        self.serial = 1
+        self.resets = []
+        self.peer = Peer(self.source, lambda _: None, lambda: self.resets.append(1))
+        self.peer.version = 6
+        self.channel = Channel()
+        self.peer.channel = self.channel
+        self.peer.enable(True)
+        self.peer.credit = 1 << 20
+        self.peer._burst = lambda: 1 << 20
+        self.peer.drain()
+        self.channel.sent.clear()
+
+    def feed(self, update):
+        self.serial += 1
+        self.source.feed(replace(update, width=256, height=128).wire(1, self.serial, advanced=True))
+
+    def copy(self, x=64, y=0, sx=0, sy=0, w=64, h=64):
+        self.feed(Update(COPY, x=x, y=y, w=w, h=h, payload=struct.pack('!HH', sx, sy)))
+
+    def tile(self, x=0, value=9):
+        self.feed(Update(PATCH, x=x, w=64, h=64, payload=zlib.compress(bytes((value, 1, 2, 255)) * 4096)))
+
+    def ops(self):
+        return [decode(raw[:HEADER.size] + raw[HEADER.size:]).op if raw[4] < 6 or raw[4] == 10 else raw[4] for raw in self.channel.sent]
+
+    def test_validation_of_copy_geometry_and_flags(self):
+        good = Update(COPY, epoch=1, width=256, height=128, x=8, y=7, w=64, h=64, payload=struct.pack('!HH', 0, 0))
+        self.assertEqual(decode(good.wire(1, 2)).op, COPY)
+        for bad in (replace(good, payload=b'\0\0'), replace(good, w=0), replace(good, x=250),
+                    replace(good, payload=struct.pack('!HH', 200, 0)), replace(good, payload=struct.pack('!HH', 8, 7))):
+            with self.assertRaises(ValueError):
+                decode(bad.wire(1, 2))
+
+    def test_copy_without_negotiated_feature_invalidates_the_source(self):
+        s = source()
+        s.feed(Update(COPY, width=128, height=64, w=64, h=64, x=64, payload=b'\0\0\0\0').wire(1, 2))
+        self.assertTrue(s.awaiting_reset)
+
+    def test_copy_cannot_pass_older_tiles_and_later_tiles_stay_behind_it(self):
+        self.peer.credit = 0; self.peer._burst = lambda: 0
+        self.tile(0, 1)
+        self.copy()
+        self.tile(0, 2)
+        self.assertEqual(len(self.peer.segments), 1)
+        self.peer.drain()
+        self.assertEqual(self.ops(), [], 'tile without credit must hold back the copy')
+        self.peer._burst = lambda: 1 << 20; self.peer.credit = 1 << 20
+        self.peer.drain()
+        self.assertEqual([r[4] for r in self.channel.sent], [6, 10, 6])
+        self.assertEqual(self.channel.sent[0][-4], 1)
+        self.assertEqual(self.channel.sent[2][-4], 2)
+        self.assertFalse(self.peer.segments)
+        self.assertEqual(self.peer.copies, 1)
+        serials = [struct.unpack_from('!I', r, 12)[0] for r in self.channel.sent]
+        self.assertEqual(serials, sorted(serials))
+
+    def test_snapshot_after_copy_asks_the_worker_instead_of_replaying_stale_tiles(self):
+        self.copy()
+        self.peer.drain(); self.channel.sent.clear()
+        self.assertTrue(self.source.copied)
+        self.peer.enable(False); self.peer.enable(True)
+        self.peer.drain()
+        self.assertEqual(self.channel.sent, [], 'stale cache cannot seed a viewer')
+        self.assertEqual(len(self.resets), 1)
+        self.source.feed(Update(RESET, width=256, height=128).wire(2, 1))
+        self.assertFalse(self.source.copied)
+        self.peer.drain()
+        self.assertEqual(self.channel.sent[0][4], RESET)
+
+    def test_backlog_is_bounded_by_a_fresh_epoch(self):
+        self.peer.credit = 0; self.peer._burst = lambda: 0
+        self.tile(0, 1)
+        for _ in range(MAX_COPY_SEGMENTS + 1):
+            self.copy()
+        self.assertTrue(self.peer.snapshot)
+        self.assertFalse(self.peer.segments)
+        self.assertFalse(self.peer.pending)
+
+    def test_older_peer_never_receives_a_copy_or_unfenced_flag(self):
+        self.peer.version = 5
+        self.copy()
+        self.assertTrue(self.peer.snapshot)
+        self.assertFalse(self.peer.segments)
+        raw = Update(PATCH, epoch=1, width=256, height=128, w=64, h=64, unfenced=True, payload=zlib.compress(b'\1\2\3\xff' * 4096)).wire(1, 2, advanced=False)
+        self.assertEqual(raw[5], 0)
+
+    def test_recent_copy_lifts_the_band_share_and_expires(self):
+        self.assertEqual(self.peer._rate(), 8000 * 125 * .15)
+        self.copy()
+        self.assertEqual(self.peer._rate(), 8000 * 125 * .75)
+        self.source.copy_at = time.monotonic() - 1
+        self.assertEqual(self.peer._rate(), 8000 * 125 * .15)
+
+
+class DeliveredRateTests(unittest.TestCase):
+    def test_a_seen_queue_goes_straight_to_what_the_path_delivers(self) -> None:
+        flow = Flight()
+        flow.window = flow.MAX_WINDOW
+        serial, now = 0, 100.
+        # A fast path sets the base round trip.
+        for _ in range(4):
+            serial += 1; flow.on_send(serial, 1000, now); flow.on_ack(serial, now + .02); now += .03
+        # Now each record takes 200 ms more, at about 100 KB/s delivered: one round
+        # closes on old evidence, and the next one states the queue.
+        windows = []
+        for _ in range(40):
+            serial += 1; flow.on_send(serial, 1000, now); now += .01
+            flow.on_ack(serial, now + .2); windows.append(flow.window)
+            if flow.window < flow.MAX_WINDOW:
+                break
+        self.assertLess(flow.window, flow.MAX_WINDOW * .25, 'the first reduction reaches the path')
+        self.assertGreaterEqual(flow.window, flow.MIN_WINDOW)
+
+    def test_flight_reports_what_recent_records_took_of_the_path(self) -> None:
+        flow = Flight()
+        self.assertEqual(flow.delivered_rate(10.), 0)
+        for serial in range(1, 6):
+            flow.on_send(serial, 1000, 10.)
+        flow.on_ack(5, 10.1)
+        self.assertEqual(flow.delivered_rate(10.1), 5 * (1000 + flow.RECORD_OVERHEAD) / flow.DELIVERED_SECONDS)
+        # A repeated acknowledgement delivered nothing new, and old bytes age out.
+        flow.on_ack(5, 10.2)
+        self.assertEqual(flow.delivered_rate(10.2), 5 * (1000 + flow.RECORD_OVERHEAD) / flow.DELIVERED_SECONDS)
+        self.assertEqual(flow.delivered_rate(10.36), 0)
+        self.assertFalse(flow.delivered)
+
+
+class HistoryStreamTests(unittest.TestCase):
+    """History records reference what came before: none may be dropped, replaced or overtaken."""
+    FEATURES = 1 | 2 | 4 | 8 | 16 | FEATURE_COPY | FEATURE_HISTORY
+
+    def setUp(self):
+        self.s = Source()
+        self.s.feed(Update(HELLO, payload=struct.pack("!I", self.FEATURES)).wire(0, 0))
+        self.s.feed(self.reset(1))
+        self.serial = 1
+        self.resyncs = 0
+
+    def reset(self, epoch):
+        return Update(RESET, width=128, height=64).wire(epoch, 1, advanced=True)
+
+    def resync(self):
+        self.resyncs += 1
+
+    def peer(self, version=7):
+        p = Peer(self.s, lambda _: None, self.resync, bitrate=lambda: 20000); p.version = version
+        p.channel = Channel(); p.enable(True)
+        p._resync_at = float('-inf')
+        return p
+
+    def feed(self, update):
+        self.serial += 1
+        self.s.feed(update.wire(1, self.serial, advanced=True))
+
+    def history(self, x=0, marker=b'x'):
+        return Update(PATCH, 1, 0, 128, 64, x, 0, 64, 64, b'\0\0\0\x10' + marker * 8, history=True)
+
+    def wire_ops(self, p):
+        return [decode(r) for r in p.channel.sent]
+
+    def seeded(self, version=7):
+        # A viewer that was enabled before the worker's epoch began.
+        p = self.peer(version)
+        self.s.feed(self.reset(1))
+        self.serial = 1
+        return p
+
+    def test_feature_and_validation(self):
+        record = self.history()
+        self.assertTrue(decode(record.wire(1, 2, advanced=True)).history)
+        with self.assertRaises(ValueError):
+            decode(Update(PATCH, 1, 0, 128, 64, 0, 0, 64, 64, b'\0', history=True).wire(1, 2, advanced=True))
+        with self.assertRaises(ValueError):
+            decode(replace(record, encoding=1).wire(1, 2, advanced=True))
+        without = source()
+        without.feed(record.wire(1, 2, advanced=True))
+        self.assertTrue(without.awaiting_reset, 'an unrequested history record invalidates the source')
+
+    def test_same_tile_twice_is_not_coalesced_and_order_is_kept(self):
+        p = self.seeded()
+        self.feed(self.history(marker=b'a'))
+        self.feed(Update(COPY, 1, 0, 128, 64, 64, 0, 32, 32, struct.pack('!HH', 0, 0), capture=9))
+        self.feed(self.history(marker=b'b'))
+        self.feed(Update(CLEAR, 1, 0, 128, 64, 64, 0, 64, 64, capture=9))
+        self.feed(self.history(marker=b'c'))
+        p.drain()
+        sent = self.wire_ops(p)
+        self.assertEqual(sent[0].op, RESET)
+        self.assertEqual([u.op for u in sent[1:]], [PATCH, COPY, PATCH, CLEAR, PATCH])
+        self.assertEqual([u.payload[-1:] for u in sent[1:] if u.op == PATCH], [b'a', b'b', b'c'])
+        self.assertTrue(all(u.history for u in sent[1:] if u.op == PATCH))
+        serials = [struct.unpack_from('!I', r, 12)[0] for r in p.channel.sent]
+        self.assertEqual(serials, list(range(serials[0], serials[0] + len(serials))))
+        self.assertEqual(p.stream_bytes, 0)
+        self.assertEqual(self.resyncs, 0, 'a viewer holding the whole epoch needs no new one')
+
+    def test_stream_passes_no_bitmap_cache_or_pacing(self):
+        p = self.seeded()
+        p.credit = -1e9; p.credit_at = time.monotonic()
+        self.feed(self.history())
+        p.drain()
+        self.assertEqual(self.wire_ops(p)[-1].op, PATCH, 'the worker already paced these bytes')
+
+    def test_flow_window_and_decode_window_hold_the_head(self):
+        p = self.seeded()
+        p.drain()
+        p.ack_pending = 24
+        self.feed(self.history(marker=b'a'))
+        before = len(p.channel.sent)
+        p.drain()
+        self.assertEqual(len(p.channel.sent), before)
+        self.feed(Update(CLEAR, 1, 0, 128, 64, 64, 0, 64, 64, capture=9))
+        p.drain()
+        self.assertEqual(len(p.channel.sent), before, 'a later record cannot overtake a held patch')
+        p.ack_pending = 0
+        p.channel.bufferedAmount = MAX_BUFFERED
+        p.drain()
+        self.assertEqual(len(p.channel.sent), before)
+        p.channel.bufferedAmount = 0
+        p.drain()
+        self.assertEqual([u.op for u in self.wire_ops(p)[before:]], [PATCH, CLEAR])
+
+    def test_late_viewer_asks_for_a_new_epoch(self):
+        first = self.seeded(); first.drain()
+        self.feed(self.history()); first.drain()
+        late = self.peer()
+        self.assertTrue(late.snapshot and not late.synced)
+        late.drain()
+        self.assertEqual(self.resyncs, 1)
+        self.assertEqual(late.channel.sent, [])
+        self.feed(self.history(marker=b'b'))
+        late.drain()
+        self.assertEqual(late.channel.sent, [], 'it missed the start of this history')
+        self.s.feed(self.reset(2)); self.serial = 1
+        self.assertTrue(late.synced)
+        self.s.feed(self.history(marker=b'c').wire(2, 2, advanced=True))
+        late.drain()
+        self.assertEqual([u.op for u in self.wire_ops(late)], [RESET, PATCH])
+
+    def test_snapshot_stays_after_viewer_without_history_joins(self):
+        older = self.seeded(version=6); older.drain()
+        self.feed(self.history())
+        older.drain()
+        self.assertFalse(any(u.history for u in self.wire_ops(older)))
+        self.assertTrue(older.snapshot, 'it must wait for an epoch without history')
+
+    def test_overflow_restarts_the_epoch_rather_than_replaying_old_states(self):
+        p = self.seeded(); p.drain()
+        p.ack_pending = 24
+        big = Update(PATCH, 1, 0, 128, 64, 0, 0, 64, 64, b'\0\0\0\x10' + b'x' * 6000, history=True)
+        for _ in range(MAX_STREAM_BYTES // 6000 + 2):
+            self.feed(big)
+        self.assertEqual(p.overflows, 1)
+        self.assertFalse(p.stream); self.assertEqual(p.stream_bytes, 0)
+        self.assertTrue(p.snapshot and not p.synced)
+        p.drain()
+        self.assertEqual(self.resyncs, 1)
+
+    def test_copy_without_history_still_forces_a_new_epoch_for_snapshot(self):
+        # A viewer that supports history is not excused from a plain copied epoch.
+        p = self.seeded()
+        self.feed(Update(COPY, 1, 0, 128, 64, 64, 0, 32, 32, struct.pack('!HH', 0, 0), capture=9))
+        self.assertTrue(self.s.copied and not self.s.history)
+        p.drain()
+        self.assertEqual(self.resyncs, 1)
+        self.assertEqual(p.channel.sent, [])
+
+    def test_backlog_reports_capacity_and_reserves_video_budget(self):
+        demands = []
+        p = Peer(self.s, lambda _: None, self.resync, bitrate=lambda: 2000, demand=demands.append); p.version = 7
+        p.channel = Channel(); p.enable(True)
+        self.s.feed(self.reset(1)); self.serial = 1
+        p.drain()
+        p.ack_pending = 24
+        self.feed(self.history())
+        p._reservation()
+        self.assertTrue(demands and demands[-1] > 0)
+
+    def test_stream_unfenced_record_keeps_the_band_share(self):
+        p = self.seeded(); p.drain(); p.ack_pending = 24
+        self.s.copy_at = float('-inf')
+        self.assertLess(p._rate(), 20000 * 125 * .5)
+        p.stream.append(replace(self.history(), unfenced=True))
+        self.assertEqual(p._rate(), min(1024 * 1024, 20000 * 125 * .75))
+        p.stream.clear()
+
+
+class FlightTests(unittest.TestCase):
+    def test_jitter_does_not_shrink_the_window_but_a_standing_queue_does(self):
+        f = Flight(); t = 100.0; serial = 0
+        f.on_send(1, 100, t); t += .2; f.on_ack(1, t); serial = 1
+        before = f.window
+        # 200 ms path where some replies are late by 150 ms: the fastest stays at base.
+        for n in range(40):
+            for extra in (0.0, .15):
+                serial += 1; f.on_send(serial, 100, t)
+                t += .2 + extra; f.on_ack(serial, t)
+        self.assertEqual(f.window, before)
+        self.assertEqual(f.queued_at, -float('inf'))
+        for n in range(20):
+            serial += 1; f.on_send(serial, 100, t)
+            t += .2 + .15; f.on_ack(serial, t)
+        self.assertLess(f.window, before)
+        self.assertGreater(f.queued_at, 100.0)
+
+    def test_growing_acknowledgement_delay_shrinks_the_window(self):
+        f = Flight(); t = 100.0; serial = 0
+        # A quiet path: 20 ms acknowledgements while blocked grow the window.
+        for _ in range(40):
+            serial += 1; f.on_send(serial, 1000, t)
+            f.blocked = True
+            t += .02; f.on_ack(serial, t)
+            t += .05
+        grown = f.window
+        self.assertGreater(grown, Flight.START_WINDOW)
+        # The same path with a growing queue must back off below what it had.
+        for n in range(40):
+            serial += 1; f.on_send(serial, 1000, t)
+            t += .02 + .1 + n * .01; f.on_ack(serial, t)
+        self.assertLess(f.window, grown)
+        self.assertGreaterEqual(f.window, Flight.MIN_WINDOW)
+
+    def test_window_blocks_but_one_record_always_progresses_and_silence_expires(self):
+        f = Flight(); f.window = 10000
+        self.assertTrue(f.admits(50000, 1.0), 'an oversized record may go when nothing is in flight')
+        f.on_send(1, 9000, 1.0)
+        self.assertTrue(f.admits(1000, 1.1))
+        self.assertFalse(f.admits(1001, 1.1)); self.assertTrue(f.blocked)
+        self.assertTrue(f.admits(1001, 1.0 + Flight.LOST_SECONDS + .1), 'no acknowledgement cannot hold pixels forever')
+        self.assertEqual(f.flight, 0)
+
+    def test_rate_is_measured_only_while_the_window_holds_bytes_back(self):
+        f = Flight(); f.window = 1000; t = 50.0
+        f.on_send(1, 500, t); t += .3; f.on_ack(1, t)
+        self.assertEqual(f.rate, 0, 'sparse traffic does not describe the path')
+        f.on_send(2, 1000, t)
+        self.assertFalse(f.admits(1000, t))
+        t += .3; f.on_ack(2, t)
+        self.assertAlmostEqual(f.rate, 1000 / .3, places=3)
+        self.assertEqual(f.rate_time, t)
+        f.on_send(3, 100, t); t += .3; f.on_ack(3, t)
+        self.assertAlmostEqual(f.rate, 1000 / .3, places=3, msg='no update without blocking')
+
+    def test_ack_ignores_newer_serials_and_handles_wrap(self):
+        f = Flight(); f.on_send(0xffff_ffff, 100, 1.0); f.on_send(0, 100, 1.0); f.on_send(1, 100, 1.0)
+        f.on_ack(0, 1.05)
+        self.assertEqual(list(f.sent), [1]); self.assertEqual(f.flight, 100)
+
+
+class PeerFlowTests(CopyProtocolTests):
+    def setUp(self):
+        super().setUp()
+        self.capacity = []
+        self.peer.capacity = self.capacity.append
+
+    def test_blocked_tiles_wait_for_an_acknowledgement_and_copies_keep_their_order(self):
+        self.peer.flow.window = Flight.MIN_WINDOW
+        for x in range(0, 256, 64):
+            self.tile(x, 1)
+        self.copy()
+        self.peer.flow.reset(); self.channel.sent.clear()
+        self.peer.flow.on_send(self.peer.serial, Flight.MIN_WINDOW, time.monotonic())
+        self.peer.drain()
+        self.assertEqual(self.channel.sent, [])
+        self.assertTrue(self.peer.flow.blocked)
+        self.assertEqual(len(self.peer.segments), 1, 'the copy stays behind the blocked tiles')
+
+    def test_capacity_is_reported_only_while_the_path_is_the_limit(self):
+        self.peer.flow.rate = 100000.0; self.peer.flow.blocked_at = time.monotonic()
+        self.peer.flow.rate_time = time.monotonic()
+        self.peer.pending[(0, 0)] = Update(PATCH, x=0, w=64, h=64)
+        self.peer._report_capacity(time.monotonic())
+        self.assertEqual(self.capacity, [], 'a small window alone does not describe the path')
+        self.peer.flow.queued_at = time.monotonic()
+        self.peer._report_capacity(time.monotonic())
+        self.assertEqual(self.capacity, [90000])
+        self.peer.flow.rate = 95000.0
+        self.peer._report_capacity(time.monotonic())
+        self.assertEqual(self.capacity, [90000], 'small changes do not chatter')
+        self.peer.flow.blocked_at = time.monotonic() - 2
+        self.peer.pending.clear()
+        self.peer._report_capacity(time.monotonic())
+        self.assertEqual(self.capacity, [90000, 0])
+
+    def test_stale_rate_never_limits_the_worker(self):
+        self.peer.flow.rate = 8000.0; self.peer.flow.blocked_at = time.monotonic()
+        self.peer.flow.queued_at = time.monotonic()
+        self.peer.flow.rate_time = time.monotonic() - 5
+        self.peer.pending[(0, 0)] = Update(PATCH, x=0, w=64, h=64)
+        self.peer._report_capacity(time.monotonic())
+        self.assertEqual(self.capacity, [])
+
+    def test_keystroke_response_does_not_wait_behind_a_repaint(self):
+        self.peer.flow.window = Flight.MIN_WINDOW
+        self.peer.flow.on_send(1, Flight.MIN_WINDOW, time.monotonic())
+        plain = Update(PATCH, w=64, h=64, payload=b'x' * 100)
+        self.assertFalse(self.peer._flow_admits(plain, time.monotonic()))
+        self.assertTrue(self.peer._flow_admits(replace(plain, early=True), time.monotonic()))
+        self.peer.interactive = lambda: True
+        self.assertTrue(self.peer._flow_admits(plain, time.monotonic()))
+
+    def test_older_peer_has_no_flow_limit(self):
+        self.peer.version = 5
+        self.peer.flow.window = 1; self.peer.flow.on_send(1, 100000, time.monotonic())
+        self.assertTrue(self.peer._flow_admits(Update(PATCH, w=64, h=64), time.monotonic()))
+        self.peer.acknowledged(1)
+        self.assertEqual(self.peer.flow.flight, 100000)
+
+    def test_sctp_window_follows_the_flow_window_and_never_lowers(self):
+        class Transport: _cwnd = 3600
+        self.channel.transport = Transport()
+        self.peer.drain()
+        self.assertEqual(self.channel.transport._cwnd, Flight.START_WINDOW)
+        self.channel.transport._cwnd = 500000
+        self.peer.drain()
+        self.assertEqual(self.channel.transport._cwnd, 500000)
+
+
+class BandBacklogTests(CopyProtocolTests):
+    def test_queued_strips_keep_the_share_after_motion_stops(self):
+        self.peer.credit = 0; self.peer._burst = lambda: 0
+        self.feed(Update(PATCH, x=0, w=64, h=64, unfenced=True, payload=zlib.compress(b'\1\2\3\xff' * 4096)))
+        self.source.copy_at = time.monotonic() - 10
+        self.assertTrue(self.peer.pending)
+        self.assertEqual(self.peer._rate(), 8000 * 125 * .75)
+        self.peer.pending.clear()
+        self.assertEqual(self.peer._rate(), 8000 * 125 * .15)
+
+
+class InputResponseShareTests(CopyProtocolTests):
+    def test_unfenced_response_lifts_the_share_without_any_copy(self):
+        self.assertEqual(self.peer._rate(), 8000 * 125 * .15)
+        self.feed(Update(PATCH, x=0, w=64, h=64, unfenced=True, payload=zlib.compress(b'\1\2\3\xff' * 4096)))
+        self.assertEqual(self.peer._rate(), 8000 * 125 * .75)
+        self.assertFalse(self.source.copied, 'tile cache still describes the desktop')
 
 
 class LayoutProtocolTests(unittest.TestCase):

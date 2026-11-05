@@ -1,0 +1,1445 @@
+{
+  "date": "2026-11-04",
+  "status": "region_copy_candidate_measured_goal_open",
+  "goal_complete": false,
+  "production_changed": false,
+  "objective": "добиться отзывчивости microsoft rdp, сохранив качество и скорость воспроизведения графики/клипов и завершить план",
+  "evidence_directory": "dist/rdp-hybrid/region-copy-191-200",
+  "artifact_manifest_sha256": "c88157c3d511bfc6d91bd315bec670c17dba33093e49c9df0855a678172ff606",
+  "candidate": {
+    "version": "0.4.0+stock4.14~exp200",
+    "deb_sha256": "58e6a2916e27ee962b5bb8a57d160cb11f2272fae2174b8ec128a3730696522f",
+    "worker_source_sha256": "327e5783677834638d2bffa62557d11f98fe4a6d828ffb79d4e58267198391ff",
+    "worker_sha256": "2e5e11ee33ae92ccbb2ca6bbc93146d5d129172455ae0bcaf90f740279caa4e7",
+    "bridge_sha256": "673c61f16ae4d9547942c931963c8ff7e417fa9b0ddce826b31cd259164c210c",
+    "transport_sha256": "a68e52b02ca92ed9e751cf67f5c8156575035bb336a77bb3d912e4457d21b2ad",
+    "lossless_sha256": "1495fa60129eae2f2fc6da912297117a75872923074c4e805cc60177c6a7721c",
+    "viewer_sha256": "17403bb1be6cb0292f2d4a716afcbbde91f6e284158adb5f0fffd686494bed41"
+  },
+  "changes": {
+    "region_copy": "Worker finds one moved rectangle per capture and sends COPY=10. A per-pixel model of what the viewer holds decides which tiles the copy makes exact, so a wrong guess costs a repaint and late strips at an edge cannot stop the interior.",
+    "video_freeze": "After the first copy of an epoch, video keeps the last encoded value under tiles the viewer holds exactly, so moved pixels do not also consume bitrate.",
+    "strips": "Exposed strips and pixels returning from video need no settling or video fence. An isolated strip may wait 400 ms; under sustained copies it hands over to video after 120 ms, for 150 ms renewed by further changes.",
+    "input_response": "The first change per tile after a pointer press, release or wheel event, when at most 32 tiles changed, takes the same immediate path.",
+    "qp_floor_and_vbr": "Cropped NVENC, QSV and VA-API use a QP floor of 20 and no CBR.",
+    "exact_flight_control": "Exact bytes in flight are limited by viewer acknowledgement delay (8-256 KiB), and path-limited delivery rate is given to the worker, because the video target does not describe a path while video is idle.",
+    "minimum_crop": "Crops are at least 192x128: AMD VA-API refuses below 128 pixels and the failure stopped video."
+  },
+  "responsiveness_pve_nvenc_vs_rdp": {
+    "scope": "Flat backdrop and no media on both sides. Medians of per-run medians.",
+    "rdp": {
+      "20M-d15": {
+        "type_first_ms": 38.6,
+        "type_first_ms_runs": [
+          39.3,
+          37.8,
+          38.6
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 67.3,
+        "click_first_ms_runs": [
+          69.4,
+          66.7,
+          67.3
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 41.0,
+        "wheel_first_ms_runs": [
+          41.0,
+          38.8,
+          41.3
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 41.0,
+        "wheel_settled_ms_runs": [
+          41.0,
+          38.8,
+          41.3
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 43.4,
+        "burst_settled_ms_runs": [
+          43.4,
+          41.7,
+          50.4
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 67.3,
+        "burst_max_gap_ms_runs": [
+          67.4,
+          67.3,
+          63.9
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 91.9,
+        "drag_first_motion_ms_runs": [
+          91.9,
+          96.3,
+          80.4
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 48.1,
+        "drag_lag_ms_runs": [
+          48.1,
+          47.9,
+          50.1
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 62.3,
+        "drag_lag_p95_ms_runs": [
+          62.3,
+          58.2,
+          63.9
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 107
+      },
+      "2M-d15": {
+        "type_first_ms": 36.2,
+        "type_first_ms_runs": [
+          35.5,
+          39.0,
+          36.2
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 68.5,
+        "click_first_ms_runs": [
+          69.8,
+          66.2,
+          68.5
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 40.3,
+        "wheel_first_ms_runs": [
+          40.3,
+          40.4,
+          38.7
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 40.3,
+        "wheel_settled_ms_runs": [
+          40.3,
+          40.4,
+          38.7
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 32.7,
+        "burst_settled_ms_runs": [
+          30.7,
+          38.5,
+          32.7
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 65.9,
+        "burst_max_gap_ms_runs": [
+          65.9,
+          63.8,
+          78.3
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 86.8,
+        "drag_first_motion_ms_runs": [
+          94.3,
+          86.8,
+          77.9
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 49.7,
+        "drag_lag_ms_runs": [
+          50.1,
+          49.6,
+          49.7
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 61.5,
+        "drag_lag_p95_ms_runs": [
+          66.9,
+          61.5,
+          60.8
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 54
+      },
+      "20M-d100": {
+        "type_first_ms": 123.3,
+        "type_first_ms_runs": [
+          122.1,
+          123.9,
+          123.3
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 150.6,
+        "click_first_ms_runs": [
+          148.2,
+          150.6,
+          155.4
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 125.4,
+        "wheel_first_ms_runs": [
+          123.4,
+          125.7,
+          125.4
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 125.7,
+        "wheel_settled_ms_runs": [
+          124.1,
+          125.7,
+          128.6
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 129.0,
+        "burst_settled_ms_runs": [
+          129.0,
+          134.9,
+          124.4
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 64.8,
+        "burst_max_gap_ms_runs": [
+          66.5,
+          63.8,
+          64.8
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 170.5,
+        "drag_first_motion_ms_runs": [
+          170.5,
+          178.2,
+          162.2
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 134.0,
+        "drag_lag_ms_runs": [
+          134.0,
+          133.6,
+          134.7
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 148.7,
+        "drag_lag_p95_ms_runs": [
+          144.4,
+          152.7,
+          148.7
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 107
+      },
+      "2M-d100": {
+        "type_first_ms": 123.2,
+        "type_first_ms_runs": [
+          123.2,
+          122.7,
+          123.3
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 153.3,
+        "click_first_ms_runs": [
+          154.2,
+          151.6,
+          153.3
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 125.6,
+        "wheel_first_ms_runs": [
+          126.3,
+          125.5,
+          125.6
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 125.6,
+        "wheel_settled_ms_runs": [
+          126.3,
+          125.5,
+          125.6
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 125.8,
+        "burst_settled_ms_runs": [
+          124.3,
+          125.8,
+          135.1
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 67.1,
+        "burst_max_gap_ms_runs": [
+          67.1,
+          164.9,
+          67.1
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 185.2,
+        "drag_first_motion_ms_runs": [
+          173.0,
+          185.2,
+          187.0
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 134.5,
+        "drag_lag_ms_runs": [
+          134.5,
+          134.5,
+          134.6
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 148.0,
+        "drag_lag_p95_ms_runs": [
+          151.1,
+          148.0,
+          146.5
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 48
+      }
+    },
+    "exp190_one_round": {
+      "20M-d15": {
+        "type_first_ms": 60.0,
+        "type_first_ms_runs": [
+          60.0
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 127.0,
+        "click_first_ms_runs": [
+          127.0
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 146.0,
+        "wheel_first_ms_runs": [
+          146.0
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 629.5,
+        "wheel_settled_ms_runs": [
+          629.5
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 1145.5,
+        "burst_settled_ms_runs": [
+          1145.5
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 517,
+        "burst_max_gap_ms_runs": [
+          517
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 175.0,
+        "drag_first_motion_ms_runs": [
+          175.0
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 135.0,
+        "drag_lag_ms_runs": [
+          135.0
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 184.5,
+        "drag_lag_p95_ms_runs": [
+          184.5
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 25560
+      },
+      "2M-d15": {
+        "type_first_ms": 66.0,
+        "type_first_ms_runs": [
+          66.0
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 119.0,
+        "click_first_ms_runs": [
+          119.0
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 20.5,
+        "wheel_first_ms_runs": [
+          20.5
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 1144.0,
+        "wheel_settled_ms_runs": [
+          1144.0
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 1494.5,
+        "burst_settled_ms_runs": [
+          1494.5
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 267,
+        "burst_max_gap_ms_runs": [
+          267
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 408.5,
+        "drag_first_motion_ms_runs": [
+          408.5
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 163.5,
+        "drag_lag_ms_runs": [
+          163.5
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 368.0,
+        "drag_lag_p95_ms_runs": [
+          368.0
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 9443
+      },
+      "20M-d100": {
+        "type_first_ms": 146.5,
+        "type_first_ms_runs": [
+          146.5
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 211.0,
+        "click_first_ms_runs": [
+          211.0
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 212.5,
+        "wheel_first_ms_runs": [
+          212.5
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 920.0,
+        "wheel_settled_ms_runs": [
+          920.0
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 1220.5,
+        "burst_settled_ms_runs": [
+          1220.5
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 35,
+        "burst_max_gap_ms_runs": [
+          35
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 268.5,
+        "drag_first_motion_ms_runs": [
+          268.5
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 218.0,
+        "drag_lag_ms_runs": [
+          218.0
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 251.5,
+        "drag_lag_p95_ms_runs": [
+          251.5
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 21470
+      },
+      "2M-d100": {
+        "type_first_ms": 151.0,
+        "type_first_ms_runs": [
+          151.0
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 210.5,
+        "click_first_ms_runs": [
+          210.5
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 28.0,
+        "wheel_first_ms_runs": [
+          28.0
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 1129.5,
+        "wheel_settled_ms_runs": [
+          1129.5
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 1437.0,
+        "burst_settled_ms_runs": [
+          1437.0
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 304,
+        "burst_max_gap_ms_runs": [
+          304
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 494.0,
+        "drag_first_motion_ms_runs": [
+          494.0
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 259.0,
+        "drag_lag_ms_runs": [
+          259.0
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 434.0,
+        "drag_lag_p95_ms_runs": [
+          434.0
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 8903
+      }
+    },
+    "exp200": {
+      "20M-d15": {
+        "type_first_ms": 60.5,
+        "type_first_ms_runs": [
+          58.5,
+          60.5,
+          63.5
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 61.0,
+        "click_first_ms_runs": [
+          60.0,
+          61.0,
+          61.0
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 63.0,
+        "wheel_first_ms_runs": [
+          63.0,
+          62.5,
+          63.0
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 96.0,
+        "wheel_settled_ms_runs": [
+          96.0,
+          96.5,
+          96.0
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 127.0,
+        "burst_settled_ms_runs": [
+          127.5,
+          120.0,
+          127.0
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 1501,
+        "burst_max_gap_ms_runs": [
+          67,
+          1517,
+          1501
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 84.0,
+        "drag_first_motion_ms_runs": [
+          84.0,
+          83.5,
+          84.0
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 51.0,
+        "drag_lag_ms_runs": [
+          51.2,
+          51.0,
+          51.0
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 68.0,
+        "drag_lag_p95_ms_runs": [
+          68.0,
+          67.5,
+          68.0
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 9104
+      },
+      "2M-d15": {
+        "type_first_ms": 60.5,
+        "type_first_ms_runs": [
+          65.5,
+          60.0,
+          60.5
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 61.0,
+        "click_first_ms_runs": [
+          61.5,
+          61.0,
+          61.0
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 62.0,
+        "wheel_first_ms_runs": [
+          63.0,
+          62.0,
+          62.0
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 95.0,
+        "wheel_settled_ms_runs": [
+          104.5,
+          95.0,
+          95.0
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 672.0,
+        "burst_settled_ms_runs": [
+          672.0,
+          664.5,
+          679.0
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 67,
+        "burst_max_gap_ms_runs": [
+          67,
+          67,
+          99
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 166.0,
+        "drag_first_motion_ms_runs": [
+          151.5,
+          167.5,
+          166.0
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 51.8,
+        "drag_lag_ms_runs": [
+          51.5,
+          51.8,
+          52.0
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 76.0,
+        "drag_lag_p95_ms_runs": [
+          76.0,
+          68.0,
+          76.0
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 6754
+      },
+      "20M-d100": {
+        "type_first_ms": 147.5,
+        "type_first_ms_runs": [
+          147.5,
+          149.5,
+          145.0
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 160.0,
+        "click_first_ms_runs": [
+          151.5,
+          160.0,
+          160.0
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 146,
+        "wheel_first_ms_runs": [
+          146.0,
+          146,
+          162.0
+        ],
+        "wheel_first_ms_missing": 1,
+        "wheel_settled_ms": 311,
+        "wheel_settled_ms_runs": [
+          311.0,
+          311,
+          312.0
+        ],
+        "wheel_settled_ms_missing": 1,
+        "burst_settled_ms": 504.0,
+        "burst_settled_ms_runs": [
+          553.5,
+          363.5,
+          504.0
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 51,
+        "burst_max_gap_ms_runs": [
+          34,
+          1382,
+          51
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 227.0,
+        "drag_first_motion_ms_runs": [
+          227.0,
+          227.0,
+          234.5
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 150.0,
+        "drag_lag_ms_runs": [
+          149.5,
+          150.0,
+          150.0
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 152.0,
+        "drag_lag_p95_ms_runs": [
+          152.0,
+          152.0,
+          151.0
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 8172
+      },
+      "2M-d100": {
+        "type_first_ms": 150.5,
+        "type_first_ms_runs": [
+          155.5,
+          150.5,
+          146.5
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 159.5,
+        "click_first_ms_runs": [
+          159.5,
+          159.5,
+          161.0
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 154.0,
+        "wheel_first_ms_runs": [
+          154.0,
+          154.5,
+          146.0
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 196.0,
+        "wheel_settled_ms_runs": [
+          196.0,
+          196.0,
+          181.0
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 804.5,
+        "burst_settled_ms_runs": [
+          1129.0,
+          764.5,
+          804.5
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 117,
+        "burst_max_gap_ms_runs": [
+          101,
+          983,
+          117
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 301.5,
+        "drag_first_motion_ms_runs": [
+          268.5,
+          301.5,
+          343.5
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 150.0,
+        "drag_lag_ms_runs": [
+          150.0,
+          150.0,
+          150.0
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 225.5,
+        "drag_lag_p95_ms_runs": [
+          210.5,
+          225.5,
+          241.5
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 6698
+      }
+    }
+  },
+  "responsiveness_asrock_amd_vaapi": {
+    "scope": "Controller to host TCP RTT is about 85 ms against 0.25 ms for PVE, so absolute values are not comparable with RDP at equal netem delay. Native lane traffic shared the WAN route.",
+    "exp200": {
+      "20M-d15": {
+        "type_first_ms": 168.0,
+        "type_first_ms_runs": [
+          168.5,
+          161.5,
+          168.0
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 127.0,
+        "click_first_ms_runs": [
+          127.0,
+          127.0,
+          127.0
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 122.0,
+        "wheel_first_ms_runs": [
+          122.0,
+          116.0,
+          129.0
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 196.5,
+        "wheel_settled_ms_runs": [
+          196.5,
+          190.5,
+          229.5
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 256.5,
+        "burst_settled_ms_runs": [
+          256.5,
+          256.5,
+          296.5
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 35,
+        "burst_max_gap_ms_runs": [
+          35,
+          34,
+          50
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 210.5,
+        "drag_first_motion_ms_runs": [
+          210.5,
+          218.0,
+          209.0
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 134.0,
+        "drag_lag_ms_runs": [
+          134.0,
+          134.0,
+          134.0
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 150.5,
+        "drag_lag_p95_ms_runs": [
+          150.5,
+          149.5,
+          151.0
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 9481
+      },
+      "2M-d15": {
+        "type_first_ms": 171.0,
+        "type_first_ms_runs": [
+          171.0,
+          171.0,
+          173.5
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 127.0,
+        "click_first_ms_runs": [
+          127.0,
+          127.0,
+          127.0
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 129.0,
+        "wheel_first_ms_runs": [
+          124.5,
+          129.0,
+          129.0
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 163.0,
+        "wheel_settled_ms_runs": [
+          163.0,
+          164.0,
+          162.5
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 763.5,
+        "burst_settled_ms_runs": [
+          772.5,
+          737.0,
+          763.5
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 84,
+        "burst_max_gap_ms_runs": [
+          99,
+          84,
+          83
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 250.0,
+        "drag_first_motion_ms_runs": [
+          250.0,
+          234.5,
+          267.5
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 134.0,
+        "drag_lag_ms_runs": [
+          134.0,
+          134.0,
+          134.0
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 151.0,
+        "drag_lag_p95_ms_runs": [
+          151.5,
+          143.5,
+          151.0
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 6821
+      },
+      "20M-d100": {
+        "type_first_ms": 252.5,
+        "type_first_ms_runs": [
+          253.5,
+          252.5,
+          251.0
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 211.0,
+        "click_first_ms_runs": [
+          210.0,
+          211.0,
+          211.0
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 212.5,
+        "wheel_first_ms_runs": [
+          212.5,
+          213.0,
+          212.5
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 363.0,
+        "wheel_settled_ms_runs": [
+          387.5,
+          363.0,
+          313.0
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 480.0,
+        "burst_settled_ms_runs": [
+          738.5,
+          480.0,
+          430.5
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 52,
+        "burst_max_gap_ms_runs": [
+          52,
+          33,
+          134
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 293.5,
+        "drag_first_motion_ms_runs": [
+          285.0,
+          293.5,
+          294.5
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 217.0,
+        "drag_lag_ms_runs": [
+          217.0,
+          217.0,
+          217.5
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 234.0,
+        "drag_lag_p95_ms_runs": [
+          233.5,
+          234.0,
+          234.0
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 8527
+      },
+      "2M-d100": {
+        "type_first_ms": 257.0,
+        "type_first_ms_runs": [
+          254.0,
+          263.0,
+          257.0
+        ],
+        "type_first_ms_missing": 0,
+        "click_first_ms": 211.0,
+        "click_first_ms_runs": [
+          211.0,
+          210.5,
+          211.0
+        ],
+        "click_first_ms_missing": 0,
+        "wheel_first_ms": 212.0,
+        "wheel_first_ms_runs": [
+          212.0,
+          199.0,
+          212.0
+        ],
+        "wheel_first_ms_missing": 0,
+        "wheel_settled_ms": 247.5,
+        "wheel_settled_ms_runs": [
+          247.0,
+          247.5,
+          247.5
+        ],
+        "wheel_settled_ms_missing": 0,
+        "burst_settled_ms": 904.0,
+        "burst_settled_ms_runs": [
+          806.0,
+          904.0,
+          1281.0
+        ],
+        "burst_settled_ms_missing": 0,
+        "burst_max_gap_ms": 133,
+        "burst_max_gap_ms_runs": [
+          233,
+          133,
+          119
+        ],
+        "burst_max_gap_ms_missing": 0,
+        "drag_first_motion_ms": 383.5,
+        "drag_first_motion_ms_runs": [
+          360.5,
+          383.5,
+          401.0
+        ],
+        "drag_first_motion_ms_missing": 0,
+        "drag_lag_ms": 217.0,
+        "drag_lag_ms_runs": [
+          217.0,
+          217.0,
+          218.2
+        ],
+        "drag_lag_ms_missing": 0,
+        "drag_lag_p95_ms": 267.0,
+        "drag_lag_p95_ms_runs": [
+          266.0,
+          267.0,
+          326.5
+        ],
+        "drag_lag_p95_ms_missing": 0,
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "drag_final_error_max_px_missing": 0,
+        "transport_kb": 6927
+      }
+    },
+    "complete_rounds": 3
+  },
+  "clip_gates": {
+    "pve_nvenc_transition": {
+      "exp190": [
+        {
+          "run": "lxc190-first",
+          "failed": [
+            "full_source_excess_from_fast_p95_at_most_400ms"
+          ],
+          "fps": [
+            55.2,
+            48.9,
+            54.0
+          ],
+          "excess_ms": 484,
+          "narrow_age_max_ms": 672,
+          "max_gap_ms": 284,
+          "region": [
+            1280,
+            720,
+            320,
+            64,
+            960,
+            512
+          ]
+        },
+        {
+          "run": "lxc190-second",
+          "failed": [
+            "full_source_excess_from_fast_p95_at_most_400ms"
+          ],
+          "fps": [
+            54.4,
+            47.1,
+            53.5
+          ],
+          "excess_ms": 433,
+          "narrow_age_max_ms": 609,
+          "max_gap_ms": 268,
+          "region": [
+            1280,
+            720,
+            320,
+            64,
+            960,
+            512
+          ]
+        },
+        {
+          "run": "lxc190-third",
+          "failed": [
+            "full_source_excess_from_fast_p95_at_most_400ms"
+          ],
+          "fps": [
+            55.6,
+            48.2,
+            54.8
+          ],
+          "excess_ms": 516,
+          "narrow_age_max_ms": 696,
+          "max_gap_ms": 250,
+          "region": [
+            1280,
+            720,
+            320,
+            64,
+            960,
+            512
+          ]
+        }
+      ],
+      "exp200": [
+        {
+          "run": "lxc200-first",
+          "failed": [],
+          "fps": [
+            57.0,
+            52.8,
+            57.2
+          ],
+          "excess_ms": 383,
+          "narrow_age_max_ms": 537,
+          "max_gap_ms": 201,
+          "region": [
+            1280,
+            720,
+            0,
+            0,
+            1280,
+            720
+          ]
+        },
+        {
+          "run": "lxc200-second",
+          "failed": [
+            "full_source_excess_from_fast_p95_at_most_400ms"
+          ],
+          "fps": [
+            57.1,
+            52.7,
+            56.5
+          ],
+          "excess_ms": 400,
+          "narrow_age_max_ms": 549,
+          "max_gap_ms": 252,
+          "region": [
+            1280,
+            720,
+            448,
+            64,
+            832,
+            448
+          ]
+        },
+        {
+          "run": "lxc200-third",
+          "failed": [],
+          "fps": [
+            57.9,
+            52.4,
+            55.8
+          ],
+          "excess_ms": 384,
+          "narrow_age_max_ms": 540,
+          "max_gap_ms": 268,
+          "region": [
+            1280,
+            720,
+            448,
+            64,
+            832,
+            448
+          ]
+        }
+      ]
+    },
+    "pve_nvenc_hardcut": {
+      "exp190": [
+        {
+          "run": "hardcut190-first",
+          "failed": [
+            "quality_ssim"
+          ],
+          "narrow_min_ssim": 0.898,
+          "fps": {
+            "fast": 51.6,
+            "narrow": 47.6
+          }
+        },
+        {
+          "run": "hardcut190-second",
+          "failed": [],
+          "narrow_min_ssim": 0.904,
+          "fps": {
+            "fast": 51.5,
+            "narrow": 49.9
+          }
+        }
+      ],
+      "exp200": [
+        {
+          "run": "hardcut200-first",
+          "failed": [],
+          "narrow_min_ssim": 0.905,
+          "fps": {
+            "fast": 57.4,
+            "narrow": 49.4
+          }
+        },
+        {
+          "run": "hardcut200-second",
+          "failed": [],
+          "narrow_min_ssim": 0.903,
+          "fps": {
+            "fast": 57.8,
+            "narrow": 48.9
+          }
+        },
+        {
+          "run": "hardcut200-third",
+          "failed": [],
+          "narrow_min_ssim": 0.904,
+          "fps": {
+            "fast": 57.9,
+            "narrow": 48.7
+          }
+        }
+      ]
+    },
+    "native_intel_transition": {
+      "exp190": [
+        {
+          "run": "exp190 h264_qsv",
+          "failed": [
+            "presentation_excess_at_most_400ms",
+            "full_source_excess_from_fast_p95_at_most_400ms"
+          ],
+          "fps": [
+            50.4,
+            46.6,
+            49.9
+          ],
+          "excess_ms": 585
+        },
+        {
+          "run": "exp190 h264_vaapi",
+          "failed": [
+            "presentation_excess_at_most_400ms",
+            "full_source_excess_from_fast_p95_at_most_400ms"
+          ],
+          "fps": [
+            50.9,
+            47.7,
+            51.3
+          ],
+          "excess_ms": 581
+        }
+      ],
+      "exp200": [
+        {
+          "run": "exp200 h264_qsv",
+          "failed": [],
+          "fps": [
+            51.5,
+            47.6,
+            51.4
+          ],
+          "excess_ms": 248
+        },
+        {
+          "run": "exp200 h264_vaapi",
+          "failed": [],
+          "fps": [
+            52.7,
+            47.5,
+            51.6
+          ],
+          "excess_ms": 251
+        }
+      ]
+    }
+  },
+  "control_copy_disabled_exp192": [
+    {
+      "run": "lxc192-nocopy1",
+      "failed": [
+        "full_source_excess_from_fast_p95_at_most_400ms"
+      ],
+      "fps": [
+        55.3,
+        46.4,
+        54.8
+      ],
+      "excess_ms": 566,
+      "narrow_age_max_ms": 741,
+      "max_gap_ms": 249,
+      "region": [
+        1280,
+        720,
+        320,
+        64,
+        960,
+        512
+      ]
+    },
+    {
+      "run": "lxc192-nocopy2",
+      "failed": [],
+      "fps": [
+        55.1,
+        47.5,
+        53.8
+      ],
+      "excess_ms": 400,
+      "narrow_age_max_ms": 580,
+      "max_gap_ms": 251,
+      "region": [
+        1280,
+        720,
+        320,
+        64,
+        960,
+        512
+      ]
+    }
+  ],
+  "findings": [
+    "NVENC with qmin 0 spent 100-150 KB/s on a static crop at about 1.7 KB per picture; with a floor of 20 the same pictures cost about 50 bytes. It also removes bursts of 20-50 KB pictures for invisible detail, which had pushed the source below 50 fps at 8 Mbit/s.",
+    "The clip fps drop in exp192 was caused by enabling copies, shown by clean copy-disabled controls, but through encoder rate control on a different crop rather than through copy commands.",
+    "Removing CBR removed the native source-age failure: about 580 ms excess on QSV and VA-API became about 200-300 ms. The open question about the native 400 ms limit no longer blocks.",
+    "Once video idles, the estimator gets no signal that a path narrowed, so exact traffic alone could fill a 2 Mbit/s path and queue for seconds. Acknowledgement delay detects that independently of video.",
+    "aiortc SCTP starts at 3.6 KB and grows only while fully used, limiting sparse exact bursts to about one window per round trip."
+  ],
+  "corrections": [
+    "Earlier QSM responsiveness runs had the fixture page and a playing clip behind the bench window while RDP had neither; their figures are withdrawn. See docs/rdp-ui-responsiveness-20261104.json.",
+    "Control runs and one bench round overlapped on one guest after a chain script was stopped without its running child; those runs were discarded and lanes now hold a lock.",
+    "A version-number replacement in a generated script changed the PVE address, and scp tried 194.168.64.20 twice. TCP port 22 timed out, so nothing was transferred. Replacement now skips addresses and the chain refuses generated files with a wrong address."
+  ],
+  "limits": [
+    "Launch/ACL mocked; dedicated guests only. Firefox on Linux only: candidate behaviour on Chrome/macOS is unverified because the Mac stayed unreachable.",
+    "The bench backdrop is flat, a best case for exposed strips; text behind a moving window is covered by worker oracle tests, not by a live run.",
+    "One motion vector per capture. Fractional or animated scrolling stays on video and was not measured.",
+    "QP floor is not qualified on HEVC, and VM+LXC encoder matrix, long sessions and A/V remain open.",
+    "Exact UI stays off by default; these results apply only with it enabled.",
+    "Small run counts; the 400 ms excess limit is within spread of the PVE runs."
+  ],
+  "remaining": [
+    "Chrome and macOS verification when the Mac returns",
+    "Text behind a moving window live",
+    "HEVC and full VM+LXC encoder matrix",
+    "Typing and first-response gap of about 20 ms",
+    "Opus DTX for idle bytes",
+    "TCP-repair recut, long sessions, A/V",
+    "All packages, signed checksums/APT, docs, qualified rollout"
+  ]
+}

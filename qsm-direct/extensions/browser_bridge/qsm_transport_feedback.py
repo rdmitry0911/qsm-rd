@@ -22,6 +22,10 @@ class DeliveryEstimator:
     """
     MIN_BYTES = 1150 * 8
     FRESH_AGE = 1.5
+    # A flight-limited sender offers only what the path delivers, so a target
+    # above capacity shows no slower-than-offered interval: only standing age.
+    STANDING_QUEUE = .08
+    STANDING_TIME = 1.
 
     def __init__(self) -> None:
         # Keep the RTCP parser/history usable without optional media modules.
@@ -32,11 +36,14 @@ class DeliveryEstimator:
         self._baselines: deque[tuple[float, float]] = deque(maxlen=600)
         self._last_arrival = self._last_tie_sent = float('-inf')
         self._slow_since: float | None = None
+        self._high_queue_since: float | None = None
+        self._standing_since: float | None = None
+        self._standing_total = 0
         self._total = 0
         self.updated = self.sent_at = float('-inf')
         self.serial = self.bytes = 0
-        self.kbps = self.offered_kbps = self.queue_excess = 0.
-        self.valid = self.queued = self.overusing = False
+        self.kbps = self.offered_kbps = self.queue_excess = self.capacity_kbps = 0.
+        self.valid = self.queued = self.overusing = self.standing = self.step = False
         self.pressure = False
 
     def fresh(self, now: float) -> bool:
@@ -64,6 +71,7 @@ class DeliveryEstimator:
                 # rebuild the window while the existing flight bound holds.
                 self._window.clear()
                 self._slow_since = None
+                self._high_queue_since = None
             if (gap > self.FRESH_AGE or now - self.updated >= self.FRESH_AGE) and not accepted:
                 self._filter = self._filter_type()
             self._filter.add(int(arrived * 1000), int(sent * 262144) & 0xffffff, cost, 1)
@@ -106,7 +114,7 @@ class DeliveryEstimator:
         span = (round(self._last_arrival * 1e6) - round(first_arrived * 1e6)) / 1e6
         self.bytes = self._total - first_count
         self.valid = span >= .1 and self.bytes >= self.MIN_BYTES
-        self.kbps = self.offered_kbps = 0.
+        self.kbps = self.offered_kbps = recent_kbps = 0.
         draining = False
         if self.valid:
             bits = self.bytes * 8 / 1000
@@ -116,6 +124,13 @@ class DeliveryEstimator:
             self.offered_kbps = bits / max(.001, send_span)
             draining = (self.kbps >= self.offered_kbps * 1.05 and
                         transits[-1] <= round(first_arrived * 1e6) - round(first_sent * 1e6) - 5000)
+            # The newest interval alone can state a stepped capacity before
+            # the 100ms window stops mixing in the preceding faster link.
+            recent = next((row for row in reversed(self._window)
+                           if round((self._last_arrival - row[1]) * 1e6) >= 50000), None)
+            if recent is not None and self._total - recent[2] >= self.MIN_BYTES:
+                recent_kbps = ((self._total - recent[2]) * 8 / 1000 /
+                               ((round(self._last_arrival * 1e6) - round(recent[1] * 1e6)) / 1e6))
         # A repaired TCP flight can alternate draining and slow intervals.
         # One isolated slow interval must not impose a new capacity followed
         # by the controller's 30-second recovery cooldown. Require another
@@ -135,9 +150,45 @@ class DeliveryEstimator:
         # can deliver continuously at a lower rate while adding only50-85ms
         # of transit; a50ms threshold mistakes that repair for a new capacity.
         severe = self.kbps < self.offered_kbps * .5
-        self.queued = (confirmed and self.valid and not draining and self.queue_excess > (.05 if severe else .1) and
-                       self.overusing and
-                       self.kbps < self.offered_kbps * .85)
+        # A moderate TCP repair can cross100ms for one report and drain in
+        # the next. Confirm that high queue with new matched arrival time,
+        # rather than counting the earlier20ms pressure interval twice.
+        # Severe capacity loss keeps its immediate50ms queue response.
+        high = (self.valid and not draining and self.overusing and self.queue_excess > .1 and
+                self.kbps < self.offered_kbps * .85)
+        if not high:
+            self._high_queue_since = None
+        elif self._high_queue_since is None:
+            self._high_queue_since = self._last_arrival
+        high_confirmed = (self._high_queue_since is not None and
+                          self._last_arrival - self._high_queue_since >= .025)
+        # A collapse below half the offered load needs no trend confirmation:
+        # the next 50ms report costs three times its duration in queue at a
+        # tenfold step. The 25ms slow confirmation still excludes one interval.
+        self.queued = (confirmed and self.valid and not draining and
+                       self.kbps < self.offered_kbps * .85 and
+                       ((severe and self.queue_excess > .05) or high_confirmed))
+        # The flight-limited sawtooth alternates with draining intervals around
+        # an unchanged queue: only the queue actually leaving can end this.
+        if not self.valid or self.queue_excess <= .05:
+            self._standing_since = None
+        elif self._standing_since is None and self.queue_excess > self.STANDING_QUEUE:
+            self._standing_since = self._last_arrival
+            self._standing_total = self._total
+        standing_span = (self._last_arrival - self._standing_since
+                         if self._standing_since is not None else 0.)
+        self.standing = standing_span >= self.STANDING_TIME
+        # The capacity a reduction should state. Sawtooth arrivals make a short
+        # interval noisy, but a whole standing period averages over it. A fresh
+        # interval directly states a stepped link, already low while the queue
+        # forms, so `step` needs no further margin; a TCP stall cannot state
+        # less than half of the window, nor more than was actually offered.
+        self.capacity_kbps = self.kbps
+        self.step = self.queued and severe and recent_kbps > 0
+        if self.step:
+            self.capacity_kbps = min(max(recent_kbps, self.kbps * .5), self.offered_kbps)
+        elif self.standing and not self.queued:
+            self.capacity_kbps = (self._total - self._standing_total) * 8 / 1000 / standing_span
         return True
 
 

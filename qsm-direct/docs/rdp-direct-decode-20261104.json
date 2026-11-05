@@ -1,0 +1,423 @@
+{
+  "date": "2026-11-04",
+  "status": "direct_decode_in_candidate190_full_qualification_open",
+  "goal_complete": false,
+  "production_changed": false,
+  "evidence_directory": "dist/rdp-hybrid/direct-decode-189-190",
+  "artifact_manifest_sha256": "7c0e490a3e14c0455ad381ed576afe4921a2f66d9765fff5b8a9d42452184afa",
+  "candidate": {
+    "version": "0.4.0+stock4.14~exp190",
+    "deb_sha256": "0897723820275782f7d8b8b50b1af2a7b1095b31366d4e6b5e08b84cd2722395",
+    "worker_source_sha256": "798b08f3b388d2fadedc7042d4e8b9662e4fd6f1cfede89e7472475bf2f36f5e",
+    "worker_sha256": "d1755361d76220f21fb075ff52e79fc6d58db7cacdeab2061dc0e2fe47ef4ecd",
+    "bridge_sha256": "14a9437b14ef497a216f7eaba08f0eabbdbfbd1d3bc1543fe9f8fb5ee0120ffb",
+    "transport_sha256": "a68e52b02ca92ed9e751cf67f5c8156575035bb336a77bb3d912e4457d21b2ad",
+    "viewer_sha256": "561d306672ce217f431a8b1804f36982a3a7b9c5cd376217bad9fc5e90a83e90"
+  },
+  "design": "The receive transform decodes each assembled H.264 frame with WebCodecs ahead of the browser playout buffer and hands pictures to the bounded presenter. The original frame always continues into the unchanged browser path, which stays live as fallback. Pictures older than 200ms from decode are not shown; 150ms without fresh pictures lends the display to the browser path; 5s or a decoder error retires direct decode. HEVC and browsers without the API stay on the browser path. Applies only with exact UI enabled, which stays off by default in the package.",
+  "decisions": {
+    "keep_double_decode": "Cost measured at about 0.05-0.08 browser cores. Dropping the browser path risks repeated keyframe requests and loses the live fallback, so it was not attempted.",
+    "queue_depth_3": "Depth 2 lost clip FPS to arrival bursts; depth 4 gave back latency; depth 3 passes the FPS gates with most of the gain. Depth 3 and 4 latency comparison came from one bench run each before candidate 190.",
+    "backlog_limit_60": "A limit of 8 failed every Chrome session with decode backlog at startup."
+  },
+  "clip_gates_pve_nvenc": {
+    "candidate190": [
+      {
+        "run": "lxc190-first-loss0p3-delay15",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          55.25,
+          48.89,
+          54.02
+        ],
+        "fast_age_median_ms": 139,
+        "fast_age_p95_ms": 188,
+        "narrow_age_max_ms": 672,
+        "excess_ms": 483.7,
+        "glyph_max_ms": 116
+      },
+      {
+        "run": "lxc190-second-loss0p3-delay15",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          54.41,
+          47.15,
+          53.5
+        ],
+        "fast_age_median_ms": 142,
+        "fast_age_p95_ms": 176,
+        "narrow_age_max_ms": 609,
+        "excess_ms": 433.2,
+        "glyph_max_ms": 113
+      },
+      {
+        "run": "lxc190-third-loss0p3-delay15",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          55.6,
+          48.17,
+          54.75
+        ],
+        "fast_age_median_ms": 146,
+        "fast_age_p95_ms": 180,
+        "narrow_age_max_ms": 696,
+        "excess_ms": 515.6,
+        "glyph_max_ms": 144
+      }
+    ],
+    "control_no_direct_same_session_family": [
+      {
+        "run": "lxc189-nodirect-loss0p3-delay15",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          55.43,
+          48.0,
+          56.02
+        ],
+        "fast_age_median_ms": 195,
+        "fast_age_p95_ms": 211,
+        "narrow_age_max_ms": 642,
+        "excess_ms": 430.6,
+        "glyph_max_ms": 130
+      },
+      {
+        "run": "lxc189-hap1-loss0p3-delay15",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          53.72,
+          48.56,
+          55.57
+        ],
+        "fast_age_median_ms": 202,
+        "fast_age_p95_ms": 219,
+        "narrow_age_max_ms": 716,
+        "excess_ms": 496.9,
+        "glyph_max_ms": 130
+      }
+    ],
+    "depth2_rejected": [
+      {
+        "run": "lxc189-first-loss0p3-delay15",
+        "failed": [
+          "narrow_source_fps_at_least_45",
+          "recovered_source_fps_at_least_50",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          49.39,
+          43.95,
+          47.82
+        ],
+        "fast_age_median_ms": 128,
+        "fast_age_p95_ms": 178,
+        "narrow_age_max_ms": 711,
+        "excess_ms": 533.0,
+        "glyph_max_ms": 132
+      },
+      {
+        "run": "lxc189-second-loss0p3-delay15",
+        "failed": [
+          "narrow_source_fps_at_least_45",
+          "recovered_source_fps_at_least_50",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          47.77,
+          44.46,
+          46.18
+        ],
+        "fast_age_median_ms": 131,
+        "fast_age_p95_ms": 181,
+        "narrow_age_max_ms": 697,
+        "excess_ms": 516.7,
+        "glyph_max_ms": 131
+      },
+      {
+        "run": "lxc189-third-loss0p3-delay15",
+        "failed": [
+          "narrow_source_fps_at_least_45",
+          "recovered_source_fps_at_least_50",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          46.3,
+          44.23,
+          47.18
+        ],
+        "fast_age_median_ms": 134,
+        "fast_age_p95_ms": 183,
+        "narrow_age_max_ms": 650,
+        "excess_ms": 467.4,
+        "glyph_max_ms": 123
+      }
+    ]
+  },
+  "hardcut_pve_nvenc": {
+    "candidate190": [
+      {
+        "run": "hardcut190-first",
+        "failed": [
+          "quality_ssim"
+        ],
+        "narrow_min_ssim": 0.898,
+        "narrow_fps": 47.58
+      },
+      {
+        "run": "hardcut190-second",
+        "failed": [],
+        "narrow_min_ssim": 0.904,
+        "narrow_fps": 49.91
+      }
+    ],
+    "depth3_viewer": [
+      {
+        "run": "hardcut189-c1",
+        "failed": [],
+        "narrow_min_ssim": 0.905,
+        "narrow_fps": 49.81
+      },
+      {
+        "run": "hardcut189-c2",
+        "failed": [],
+        "narrow_min_ssim": 0.905,
+        "narrow_fps": 48.42
+      }
+    ]
+  },
+  "native_intel": {
+    "candidate190": [
+      {
+        "run": "intel190-full-h264_qsv-virgl-capture-gpu-w1",
+        "failed": [
+          "presentation_excess_at_most_400ms",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          50.37,
+          46.57,
+          49.94
+        ],
+        "fast_age_median_ms": 178,
+        "excess_ms": 584.9
+      },
+      {
+        "run": "intel190-full-h264_vaapi-virgl-capture-gpu-w1",
+        "failed": [
+          "presentation_excess_at_most_400ms",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          50.86,
+          47.69,
+          51.29
+        ],
+        "fast_age_median_ms": 191,
+        "excess_ms": 580.7
+      }
+    ]
+  },
+  "mac_chrome_viewer189c_alternating": [
+    {
+      "run": "mac189d-d1",
+      "completed": true,
+      "direct": true,
+      "failure": null,
+      "fps": 50.8,
+      "age_median_ms": 189,
+      "age_p95_ms": 590,
+      "age_max_ms": 3757,
+      "glyphs_ms": [
+        148,
+        157,
+        151,
+        317,
+        164
+      ],
+      "observer_skipped": 0,
+      "hidden": "hidden",
+      "failed_checks": []
+    },
+    {
+      "run": "mac189d-n1",
+      "completed": true,
+      "direct": false,
+      "failure": null,
+      "fps": 54.28,
+      "age_median_ms": 247,
+      "age_p95_ms": 279,
+      "age_max_ms": 362,
+      "glyphs_ms": [
+        171,
+        148,
+        181,
+        144,
+        166
+      ],
+      "observer_skipped": 0,
+      "hidden": "hidden",
+      "failed_checks": []
+    },
+    {
+      "run": "mac189d-d2",
+      "completed": false,
+      "direct": null,
+      "failure": null,
+      "fps": 0.0,
+      "age_median_ms": 0,
+      "age_p95_ms": 0,
+      "age_max_ms": 0,
+      "glyphs_ms": [
+        188,
+        182,
+        191,
+        315,
+        148
+      ],
+      "observer_skipped": 15,
+      "hidden": null,
+      "failed_checks": []
+    },
+    {
+      "run": "mac189d-n2",
+      "completed": true,
+      "direct": false,
+      "failure": null,
+      "fps": 54.42,
+      "age_median_ms": 237,
+      "age_p95_ms": 270,
+      "age_max_ms": 422,
+      "glyphs_ms": [
+        167,
+        181,
+        195,
+        175,
+        164
+      ],
+      "observer_skipped": 0,
+      "hidden": "hidden",
+      "failed_checks": []
+    },
+    {
+      "run": "mac189d-d3",
+      "completed": true,
+      "direct": true,
+      "failure": null,
+      "fps": 53.65,
+      "age_median_ms": 185,
+      "age_p95_ms": 233,
+      "age_max_ms": 416,
+      "glyphs_ms": [
+        148,
+        179,
+        156,
+        166,
+        317
+      ],
+      "observer_skipped": 0,
+      "hidden": "hidden",
+      "failed_checks": []
+    },
+    {
+      "run": "mac189d-n3",
+      "completed": false,
+      "direct": null,
+      "failure": null,
+      "fps": 0.0,
+      "age_median_ms": 0,
+      "age_p95_ms": 0,
+      "age_max_ms": 0,
+      "glyphs_ms": [
+        174,
+        186,
+        158,
+        252,
+        193
+      ],
+      "observer_skipped": 7,
+      "hidden": null,
+      "failed_checks": []
+    },
+    {
+      "run": "mac189d-d4",
+      "completed": true,
+      "direct": true,
+      "failure": null,
+      "fps": 53.15,
+      "age_median_ms": 189,
+      "age_p95_ms": 225,
+      "age_max_ms": 311,
+      "glyphs_ms": [
+        180,
+        338,
+        156,
+        162,
+        172
+      ],
+      "observer_skipped": 0,
+      "hidden": "hidden",
+      "failed_checks": []
+    },
+    {
+      "run": "mac189d-n4",
+      "completed": false,
+      "direct": null,
+      "failure": null,
+      "fps": 0.0,
+      "age_median_ms": 0,
+      "age_p95_ms": 0,
+      "age_max_ms": 0,
+      "glyphs_ms": [
+        187,
+        309,
+        204,
+        165,
+        184
+      ],
+      "observer_skipped": 8,
+      "hidden": null,
+      "failed_checks": []
+    }
+  ],
+  "mac_chrome_candidate190": [],
+  "browser_cores": {
+    "cpu189-b1": 0.7,
+    "cpu189-b2": 0.68,
+    "cpu189-b3": 0.69,
+    "cpu189-first": 0.67,
+    "cpu189-h264_qsv-w1": 0.76,
+    "cpu189-h264_qsv-w2": 0.77,
+    "cpu189-h264_vaapi-w1": 0.77,
+    "cpu189-nodirect": 0.6,
+    "cpu189-second": 0.64,
+    "cpu189-third": 0.65,
+    "cpu189b-h264_qsv-b1": 0.78,
+    "cpu189b-h264_vaapi-b1": 0.78,
+    "cpu190-first": 0.68,
+    "cpu190-h264_qsv-w1": 0.78,
+    "cpu190-h264_vaapi-w1": 0.79,
+    "cpu190-second": 0.66,
+    "cpu190-third": 0.68
+  },
+  "findings": [
+    "Excess is measured against the fast-phase p95, which direct decode lowers by about 30ms. Absolute narrow-phase peaks are unchanged within noise, 609-696ms against 642-716ms in controls, yet excess now fails the unchanged 400ms gate in all candidate 190 runs. Controls also failed it. The gate was not changed.",
+    "One candidate 190 hard cut measured SSIM 0.898 against the 0.90 gate. Quality-floor runs have little margin at that cut; 1 of 13 capped runs missed.",
+    "Packet arrival on the receiver clock is bunched: gaps of about 37ms take about 70% of the time, while sends stay smooth. Bypassing haproxy did not change it (0.70 against 0.72), so haproxy is ruled out. The native lane did not show it. Cause unproven; removing it could benefit every mode.",
+    "Mac transient stalls and observer skips occur with and without direct decode."
+  ],
+  "limits": [
+    "Late-picture drop and depth 3 are in candidate 190. Chrome direct-path evidence listed under viewer189c predates the late-picture drop; see mac_chrome_candidate190 for the package itself.",
+    "A Firefox/macOS run, Windows browsers and physical hardware decode proof remain outside this evidence.",
+    "Launch/ACL mocked, dedicated guests only, 40s Mac pilots."
+  ],
+  "next_action": "Region copy for scroll and window move; the packet bunching remains a separate lead."
+}

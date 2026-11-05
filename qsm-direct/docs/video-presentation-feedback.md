@@ -55,3 +55,50 @@ restores the complete target. Its maximum source-frame gap is 433 ms, but
 presentation age still peaks at 573 ms and a layout-only fallback glyph at
 712 ms. Two stricter transition gates fail. Full results and rejected
 intermediate experiments are in `rdp-video-feedback-20261028.json`.
+
+The packet estimator now confirms a moderate queue above 100 ms with another
+matched arrival interval spanning at least 25 ms. An earlier pressure interval
+above 20 ms cannot itself confirm that high queue. This preserves the existing
+early raw-admission bound while avoiding a bitrate/codec change for one repaired
+TCP interval that drains in the next report. A severe delivery decrease below
+half the offered load retains its existing 50 ms queue response. Invalid,
+draining or discontinuous delivery clears the confirmation evidence.
+
+The frozen exp181 regression records a late cut from 8000 to 3649 kbit/s after
+one 117 ms queue observation; the next pre-cut packet flight is already draining
+at 35 ms. The corrected estimator leaves that recorded prefix at 8000. The same
+run's real 20 → 2 Mbit/s cut still selects 1699 on its original first report.
+These prefix tests establish the decision, not counterfactual live performance;
+all original source-age, cadence, fidelity and recovery gates remain required.
+
+A collapse below half the offered load no longer waits for the overuse trend.
+At a tenfold step each 50 ms report costs roughly 150 ms of queue, and the report
+already shows it. The 25 ms slow confirmation still excludes a single interval.
+The newest 50 ms interval states the new capacity, because the 100 ms window can
+still mix in the preceding fast link. It takes no further margin: delivery is
+already low while the queue forms and the codec stays at 70% of the target.
+
+A sender limited by its flight window offers only what the path delivers, so a
+target above capacity never looks slower than offered. A queue above 80 ms held
+for one second now reduces the target as well. Only the queue falling to 50 ms
+ends that evidence, since this sawtooth alternates with draining intervals. A
+longer route raises age without any capacity limit, so the rule also requires
+frames actually waiting for the flight and delivery below 85% of the target. The
+reduction uses the mean rate over the whole period and then cannot repeat.
+
+Measured limits are in `rdp-candidates-183-188-20261104.json`. These rules do not
+remove the first queue after a tenfold step on a long path, where detection
+itself needs at least one round trip.
+
+With exact UI enabled, the receive transform also decodes each assembled H.264
+frame with WebCodecs, ahead of the browser's playout buffer, and hands the picture
+to the bounded presenter. The original frame always continues unchanged into the
+browser path, which stays live as the fallback. No extension or special API
+permission is involved. TCP delivers pictures in bursts, so this source keeps
+three pictures rather than two: two loses the third picture of a burst.
+
+A hardware decoder can take a few hundred milliseconds to start and hold pictures
+beyond its reported queue. A picture older than 200 ms since decode began is never
+shown. After 150 ms without a fresh picture the display returns to the browser
+path until fresh pictures resume. Five seconds of silence, a decoder error or a
+key frame without an H.264 SPS ends direct decode for that session.

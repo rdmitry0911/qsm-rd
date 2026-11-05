@@ -22,6 +22,131 @@ from extensions.browser_bridge.qsm_transport_feedback import DeliveryEstimator
 
 
 class PacketDeliveryTests(unittest.TestCase):
+    def recorded_transient181(self, name):
+        path = Path(__file__).parents[1] / 'fixtures' / 'twcc-transient-exp181.json.gz'
+        case = json.loads(gzip.decompress(path.read_bytes()))['cases'][name]
+        changes = []
+        for report in case['reports']:
+            self.now = report['t']
+            before = self.rate.current_kbps
+            self.rate.transport_report('a', tuple(map(tuple, report['samples'])))
+            if self.rate.current_kbps != before:
+                changes.append((self.now, self.rate.current_kbps))
+                # Recorded packets after a changed decision are not a live
+                # counterfactual sending schedule. Test only the prefix.
+                break
+        return case, changes
+
+    def test_recorded_late_tcp_repair_does_not_recut_full_capacity(self):
+        case, changes = self.recorded_transient181('late_tcp_repair')
+        self.assertFalse(changes, 'one117ms queue report must not recut8000 to3649')
+        self.assertGreater(case['reports'][-1]['t'], case['cut'])
+        self.assertTrue(all(sent <= case['cut'] for r in case['reports'] for sent, _, _ in r['samples']))
+        estimate = self.rate._receivers['a'].packet_delivery
+        self.assertLess(estimate.queue_excess, .04)
+        self.assertFalse(estimate.overusing)
+
+    def recorded_severe183(self, name):
+        path = Path(__file__).parents[1] / 'fixtures' / 'twcc-severe-exp183.json.gz'
+        case = json.loads(gzip.decompress(path.read_bytes()))['cases'][name]
+        for report in case['reports']:
+            self.now = report['t']
+            self.rate.transport_report('a', tuple(map(tuple, report['samples'])))
+            if self.rate.current_kbps != 8000:
+                # A changed decision ends the recorded prefix's validity.
+                return case, self.now, self.rate.current_kbps
+        return case, None, 8000
+
+    def test_recorded_step_cuts_before_the_overuse_trend_confirms(self):
+        for name in 'first', 'second':
+            with self.subTest(name):
+                self.setUp()
+                case, at, target = self.recorded_severe183(name)
+                self.assertIsNotNone(at, 'delivery below half the offered load must cut')
+                self.assertLess(at, case['cut'] - .03)
+                self.assertFalse(self.rate._receivers['a'].packet_delivery.overusing)
+                # Second run's 100ms window still mixes the previous fast link
+                # (2953 kbit/s); the newest interval states the real 2M step.
+                self.assertLess(target, 2000)
+                self.assertGreater(target, 1000)
+
+    def standing_queue(self, duration, *, start, kbps=1750, waits=False, transit=(.1, .104)):
+        """A flight-limited sender: offered load equals delivery around a sawtooth."""
+        spacing = 1200 * 8 / (kbps * 1000)
+        packets = int(.05 / spacing)
+        first = self.standing_sent
+        changes = []
+        for report in range(int(duration / .05)):
+            samples = []
+            for index in range(packets):
+                self.standing_sent += spacing
+                delay = (transit[0] if report % 2 else transit[1]) if type(transit) is tuple else transit
+                samples.append((self.standing_sent, 400 + self.standing_sent + delay, 1200))
+            self.now = self.standing_sent + (delay if not samples else samples[-1][1] - 400 - samples[-1][0]) + .02
+            before = self.rate.current_kbps
+            self.rate.transport_report('a', tuple(samples))
+            if waits and report % 2:
+                self.rate.presentation_backpressure('a', .05)
+            if self.rate.current_kbps != before:
+                changes.append((round(self.now - start, 3), self.rate.current_kbps))
+        self.assertGreater(self.standing_sent, first)
+        return changes
+
+    def begin_standing(self, target):
+        self.rate.current_kbps = target
+        self.standing_sent = 100.
+        self.assertEqual(self.standing_queue(1.5, start=0, transit=.005), [])
+        # A real queue builds gradually: delivery stays near the offered load.
+        for level in range(8, 76, 3):
+            self.assertEqual(self.standing_queue(.05, start=0, transit=level / 1000), [])
+        self.rate.current_kbps = target
+        self.rate._changed = self.now - 10
+        return self.now
+
+    def test_flight_limited_standing_queue_cuts_once_to_delivered_rate(self):
+        start = self.begin_standing(3000)
+        changes = self.standing_queue(2.5, start=start, waits=True)
+        self.assertEqual(len(changes), 1, changes)
+        at, target = changes[0]
+        self.assertGreaterEqual(at, .95, 'one second of age confirms the standing queue')
+        self.assertLess(at, 1.3)
+        self.assertLess(abs(target - 1750 * .9), 80)
+        # The reduced target is below delivery: an unchanged age cannot spiral.
+        self.assertEqual(self.standing_queue(3, start=start, waits=True), [])
+
+    def test_cut_counts_what_exact_records_took_of_the_path(self):
+        # Idle video delivers little of a path that exact records keep busy.
+        self.rate.add('a', lambda _: None, lambda: 600)
+        start = self.begin_standing(3000)
+        changes = self.standing_queue(2.5, start=start, waits=True)
+        self.assertLess(abs(changes[0][1] - (1750 * .9 + 600)), 80, changes)
+
+    def test_standing_age_without_flight_waits_keeps_target(self):
+        # A longer route raises age without any frame waiting for capacity.
+        start = self.begin_standing(3000)
+        self.assertEqual(self.standing_queue(3, start=start), [])
+        self.assertEqual(self.rate.current_kbps, 3000)
+
+    def test_standing_age_with_target_near_delivery_keeps_target(self):
+        start = self.begin_standing(1900)
+        self.assertEqual(self.standing_queue(3, start=start, waits=True), [])
+        self.assertEqual(self.rate.current_kbps, 1900)
+
+    def test_standing_confirmation_needs_uninterrupted_queue(self):
+        start = self.begin_standing(3000)
+        self.assertEqual(self.standing_queue(.8, start=start, waits=True), [])
+        for level in (60, 45, 45, 60, 75):
+            self.assertEqual(self.standing_queue(.05, start=start, waits=True, transit=level / 1000), [])
+        self.assertEqual(self.standing_queue(.8, start=start, waits=True), [])
+        self.assertEqual(self.rate.current_kbps, 3000)
+
+    def test_recorded_severe_capacity_drop_keeps_its_first_cut(self):
+        case, changes = self.recorded_transient181('capacity_drop')
+        self.assertEqual(len(changes), 1)
+        # Recorded 1699 was 90% of 1888; the newest interval directly states 1993.
+        self.assertEqual(changes[0][1], 1993)
+        self.assertLessEqual(changes[0][0], case['cut'] + .005)
+
     def probe_prefix(self, *, cooldown_offset=None):
         path = Path(__file__).parents[1] / 'fixtures' / 'twcc-probe-exp144.json.gz'
         case = json.loads(gzip.decompress(path.read_bytes()))
@@ -44,7 +169,8 @@ class PacketDeliveryTests(unittest.TestCase):
 
     def test_recorded_normal_queue_pulses_do_not_restart_probe_recovery(self):
         case, changes = self.probe_prefix()
-        self.assertEqual([(a, b) for _, a, b, _ in changes], [(8000, 1348), (1348, 1685)])
+        # The newest interval states the real 2M step, not the mixed 1498 window.
+        self.assertEqual([(a, b) for _, a, b, _ in changes], [(8000, 1912), (1912, 2390)])
         self.assertLessEqual(changes[0][0], case['cut'] + .005)
         self.assertGreaterEqual(changes[1][0], changes[0][0] + 6)
         self.assertLessEqual(changes[1][0], case['cut'] + 6.25)
@@ -112,7 +238,7 @@ class PacketDeliveryTests(unittest.TestCase):
         self.applied = []
         self.rate = AdaptiveVideoRate(8000, self.applied.append, clock=lambda: self.now)
 
-    def model(self, duration, capacity, *, demand=.7, offset=400., repair=None, delayed_frames=False):
+    def model(self, duration, capacity, *, demand=.7, offset=400., repair=None, delayed_frames=False, flight_waits=False):
         """Serialized link, receiver clock and 50ms RTCP, without fake estimates."""
         from collections import deque
         pending = deque()
@@ -131,6 +257,10 @@ class PacketDeliveryTests(unittest.TestCase):
             while pending and pending[0][1] - offset + .02 <= self.now:
                 batch.append(pending.popleft())
             self.rate.transport_report('a', tuple(batch))
+            state = self.rate._receivers.get('a')
+            if flight_waits and state and state.packet_delivery and state.packet_delivery.queue_excess > .05:
+                # The product's flight bound makes frames wait on such a queue.
+                self.rate.presentation_backpressure('a', .05)
             if delayed_frames and tick > 20:
                 # Frame-completion callbacks can lag even as actual packets
                 # arrive promptly. They retain image fences, not capacity.
@@ -150,6 +280,12 @@ class PacketDeliveryTests(unittest.TestCase):
         self.assertLess(max(age for t, _, age in steps if 8 <= t < 10), .4)
         self.assertEqual(steps[-1][1], 8000)
 
+    def test_persistent_moderate_capacity_step_is_still_bounded_and_recovers(self):
+        steps = self.model(40, lambda t: 4_000_000 if 8 <= t < 15 else 20_000_000)
+        self.assertLess(min(rate for t, rate, _ in steps if 8 <= t < 9), 6500)
+        self.assertLess(max(age for _, _, age in steps), .4)
+        self.assertEqual(steps[-1][1], 8000)
+
     def test_confirmed_transient_slowdown_recovers_without_a_fixed_thirty_second_hold(self):
         # Unlike a repair which the estimator can reject, this continuous
         # slowdown really requires a cut. Once fresh packet delivery clears,
@@ -160,7 +296,7 @@ class PacketDeliveryTests(unittest.TestCase):
         self.assertEqual(steps[-1][1], 8000)
 
     def test_failed_packet_probes_back_off_on_a_persistent_bottleneck(self):
-        steps = self.model(100, lambda t: 2_000_000 if t >= 8 else 20_000_000)
+        steps = self.model(100, lambda t: 2_000_000 if t >= 8 else 20_000_000, flight_waits=True)
         cuts = [(b[0], b[1]) for a, b in zip(steps, steps[1:]) if b[1] < a[1]]
         self.assertGreaterEqual(len(cuts), 3, 'active video must actually probe for recovery')
         self.assertLessEqual(len(cuts), 7, 'failed probes must not continuously reset the codec')
@@ -1216,6 +1352,46 @@ class PresentationCreditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(history._acknowledged_bytes, 0, 'packet credit cannot acknowledge pixels or complete frames')
         self.assertEqual(history.credit_waits, 1)
 
+    async def test_batched_frame_receipts_keep_flight_bounded_with_fresh_packet_credit(self):
+        from extensions.browser_bridge.qsm_transport_feedback import PacketHistory, Report
+        history = _VideoPresentation()
+        packets = PacketHistory({1})
+        for _ in range(16):
+            packets.sent(12500)
+        history.sent(10, 200000)
+        now = time.monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.11, presented_delay=.115,
+                                presented_kbps=6400, presented_offered_kbps=6400,
+                                feedback_kind='received', received_rapid_time=now-10,
+                                packet_delivery=DeliveryEstimator())
+        samples = tuple((now-.12+n*.01, 100+now-.10+n*.01, 1200) for n in range(12))
+        self.assertTrue(state.packet_delivery.add(samples, now))
+        pending = asyncio.create_task(history.wait_for_credit(
+            lambda: 200000, lambda: state, bitrate_kbps=8000,
+            frame_wire_bytes=20000, packet_credit=packets.credit))
+        await asyncio.sleep(.005)
+        self.assertFalse(pending.done(), 'slow complete-frame cadence cannot make fresh packet flight unlimited')
+        self.assertTrue(packets.receive(Report(1, 0, tuple((i, 0) for i in range(8)))))
+        history._wake.set()
+        await asyncio.wait_for(pending, .03)
+        self.assertEqual(history._acknowledged, 0)
+        self.assertEqual(history._acknowledged_bytes, 0)
+        self.assertEqual(history.credit_waits, 1)
+
+    async def test_stale_packet_credit_does_not_change_legacy_slow_receipt_admission(self):
+        history = _VideoPresentation()
+        now = time.monotonic()
+        state = SimpleNamespace(presented_time=now, presented_base=.11, presented_delay=.115,
+                                presented_kbps=6400, presented_offered_kbps=6400,
+                                feedback_kind='received', received_rapid_time=now-10,
+                                packet_delivery=DeliveryEstimator())
+        state.packet_delivery.updated = now-2
+        history.sent(10, 200000)
+        await asyncio.wait_for(history.wait_for_credit(
+            lambda: 200000, lambda: state, bitrate_kbps=8000,
+            frame_wire_bytes=20000, packet_credit=lambda _: 0), .03)
+        self.assertEqual(history.credit_waits, 0)
+
     async def test_only_matched_rapid_receipts_enable_early_admission(self):
         now = [1.]
         rate = AdaptiveVideoRate(8000, lambda _: None, clock=lambda: now[0])
@@ -1382,7 +1558,7 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual((held, requested), (True, [1700]),
                         'fresh packet evidence remains useful when complete frames arrive slowly')
                     self.assertEqual(bridge._video_received._draining_limit, 0,
-                        'the old-flight window still requires its original rapid-receipt contract')
+                        'no uncommitted bytes can become retained flight')
                     self.assertEqual(bridge._video_received._acknowledged_bytes, 0)
                     self.assertEqual(bridge.video_track._refresh_token, 7)
                     self.assertEqual(bridge._packet_hold_until, 0)
@@ -1600,7 +1776,7 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
             bridge = BrowserWebRtcBridge(Path(directory))
             now = time.monotonic()
             state = _ReceiverFeedback(now, presented_time=now, presented_base=.11,
-                                      feedback_kind='received', received_rapid_time=now)
+                                      feedback_kind='received', received_rapid_time=now-10)
             state.packet_delivery = DeliveryEstimator()
             state.packet_delivery.updated = now
             state.packet_delivery.queued = True

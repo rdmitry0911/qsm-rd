@@ -155,4 +155,150 @@ for (const failure of ['api', 'constructor', 'metadata', 'bad-rtp', 'silence', '
     assert.deepEqual(reports, [0xfffffffe, 1, 2]);
     assert.deepEqual(advances, reports); assert.equal(captures.length, reports.length);
 }
+// Pictures decoded ahead of the playout buffer replace the track reader, keep
+// its bounded queue and one draw per tick, close every picture and fall back.
+{
+    const h = harness(), shown = [], retired = [];
+    const p = new sandbox.Presenter(h.scope, (image, rtp) => { shown.push(rtp); }, () => retired.push(1));
+    let fallbacks = 0; p.onDirectFailed = () => { fallbacks++; p.configure(h.sourceTrack, true); };
+    p.configure(h.sourceTrack, true);
+    assert.equal(h.readers.length, 1);
+    const denied = frame(1); p.pushDirect(denied, 1, false);
+    assert.equal(denied.closed, 1); assert.equal(h.readers[0].cancellations, 0, 'a denied picture keeps the reader');
+    const invalid = frame(2); p.pushDirect(invalid, -1, true); assert.equal(invalid.closed, 1);
+    // A TCP burst of three keeps every picture; a fourth overflows the bound.
+    const images = [frame(3), frame(4), frame(5), frame(6)];
+    for (const [i, image] of images.entries()) { p.pushDirect(image, 3 + i, true); }
+    assert.equal(h.readers[0].cancellations, 1, 'first direct picture retires the track reader');
+    assert.equal(h.clones[0].stops, 1);
+    assert.equal(images[0].closed, 1, 'queue stays bounded to three pictures');
+    h.tick(16); h.tick(16); h.tick(16);
+    assert.deepEqual(shown, [4, 5, 6]); assert.equal(images[2].closed, 1); assert.equal(images[3].closed, 0);
+    // An older picture past the age bound is not drawn.
+    const stale = [frame(8), frame(9)];
+    p.pushDirect(stale[0], 8, true); h.tick(80); assert.equal(stale[0].closed, 1);
+    assert.deepEqual(shown, [4, 5, 6]);
+    p.configure(h.sourceTrack, true);
+    assert.equal(h.readers.length, 1, 'an active direct path is not replaced by the reader');
+    // Short silence lends the display to the browser path; fresh pictures return.
+    for (let i = 0; i < 4; ++i) { h.timeout(50); }
+    assert.equal(p.active, false, 'the browser path presents while direct is silent');
+    assert.equal(p.directUsable, true);
+    const fresh = frame(10); p.pushDirect(fresh, 10, true);
+    assert.equal(p.active, true, 'a fresh direct picture takes the display back');
+    h.tick(16); assert.deepEqual(shown.at(-1), 10);
+    // Long silence retires the path permanently and restores the browser's own picture.
+    for (let i = 0; i < 101; ++i) { h.timeout(50); }
+    assert.equal(fallbacks, 1); assert.equal(p.directUsable, false); assert.equal(p.directFailure, 'silent'); assert.equal(fresh.closed, 1); stale[1].close();
+    assert.equal(h.readers.length, 2);
+    const late = frame(6); p.pushDirect(late, 6, true);
+    assert.equal(late.closed, 1, 'a failed direct path never returns');
+    assert.equal(h.readers[1].cancellations, 0);
+    p.stop(); assert.equal(h.rafs.size + h.timers.size, 0);
+    assert.ok(retired.length >= 2);
+}
+// Disabling presentation stops direct pictures and releases them.
+{
+    const h = harness();
+    const p = new sandbox.Presenter(h.scope, () => {});
+    const image = frame(7); p.pushDirect(image, 7, true);
+    p.configure(h.sourceTrack, false);
+    assert.equal(image.closed, 1); assert.equal(p.active, false); assert.equal(h.rafs.size + h.timers.size, 0);
+}
+// The actual worker source against a fake decoder: the original frame always
+// passes unchanged; pictures follow the SPS; every failure leaves the browser path.
+{
+    const startAt = source.indexOf('const source = `', source.indexOf('createVideoReceiveFeedback')) + 'const source = `'.length;
+    const workerSource = source.slice(startAt, source.indexOf('`;', startAt));
+    assert.ok(!workerSource.includes('${'), 'worker source has no interpolation');
+    const run = async ({ noDecoder = false, frames, onDecode = null, show = true }) => {
+        const messages = [], decoders = [];
+        class FakeDecoder {
+            constructor(init) { this.init = init; this.configs = []; this.chunks = []; this.closed = 0; this.decodeQueueSize = 0; decoders.push(this); }
+            configure(config) { this.configs.push(config); }
+            decode(chunk) { this.chunks.push(chunk); onDecode?.(this, chunk); }
+            close() { this.closed++; }
+        }
+        const clock = { offset: 0 };
+        const context = vm.createContext({ TransformStream, performance: { now: () => performance.now() + clock.offset }, Map, String, Uint8Array, Number,
+            EncodedVideoChunk: class { constructor(v) { Object.assign(this, v); } },
+            self: { postMessage: (m, t) => messages.push({ m, t }) } });
+        if (!noDecoder) { context.VideoDecoder = FakeDecoder; }
+        vm.runInContext(workerSource, context);
+        const self = context.self;
+        self.onmessage({ data: show ? 'show' : 'hide' });
+        const outgoing = [], stream = new TransformStream();
+        const writable = new WritableStream({ write(frame) { outgoing.push(frame); } });
+        self.onrtctransform({ transformer: { readable: stream.readable, writable } });
+        const writer = stream.writable.getWriter();
+        for (const f of frames) { await writer.write(f); }
+        await writer.close();
+        for (let i = 0; i < 8; ++i) { await new Promise(r => setImmediate(r)); }
+        return { messages, decoders, outgoing, self, clock };
+    };
+    const key = (rtp, sps) => ({ type: 'key', data: Uint8Array.from([0, 0, 0, 1, 0x67, ...sps, 0, 0, 1, 0x68, 1, 0, 0, 1, 0x65, 9]).buffer, getMetadata: () => ({ rtpTimestamp: rtp }) });
+    const delta = rtp => ({ type: 'delta', data: Uint8Array.from([0, 0, 0, 1, 0x41, 7, 7, 7, 7, 7, 7, 7]).buffer, getMetadata: () => ({ rtpTimestamp: rtp }) });
+    const directFailed = r => r.messages.filter(x => x.m.op === 'direct-failed').length;
+    // Deltas before the first key frame cannot start a decoder; all still pass.
+    {
+        const frames = [delta(1), key(2, [0x42, 0xe0, 0x1f]), delta(3), key(4, [0x42, 0xe0, 0x1f]), key(5, [0x64, 0, 0x28, 1]), delta(6)];
+        const r = await run({ frames });
+        assert.deepEqual(r.outgoing, frames, 'originals pass unchanged and in order');
+        assert.equal(r.decoders.length, 1);
+        assert.deepEqual(r.decoders[0].chunks.map(c => [c.timestamp, c.type]), [[2, 'key'], [3, 'delta'], [4, 'key'], [5, 'key'], [6, 'delta']]);
+        assert.deepEqual(r.decoders[0].configs.map(c => c.codec), ['avc1.42e01f', 'avc1.640028'], 'only a changed SPS reconfigures');
+        assert.ok(r.decoders[0].configs.every(c => c.optimizeForLatency === true));
+        assert.equal(directFailed(r), 0);
+        // Decoded pictures reach the page by transfer, only while shown.
+        const picture = { timestamp: 2, closed: 0, close() { this.closed++; } };
+        r.decoders[0].init.output(picture);
+        assert.equal(r.messages.at(-1).m.op, 'frame'); assert.equal(r.messages.at(-1).m.rtp, 2);
+        assert.equal(r.messages.at(-1).t[0], picture); assert.equal(picture.closed, 0);
+        r.self.onmessage({ data: 'hide' });
+        const hidden = { timestamp: 3, closed: 0, close() { this.closed++; } };
+        r.decoders[0].init.output(hidden); assert.equal(hidden.closed, 1);
+    }
+    // No decoder API: frames pass, nothing is reported as a failure.
+    {
+        const frames = [key(1, [0x42, 0xe0, 0x1f]), delta(2)];
+        const r = await run({ noDecoder: true, frames });
+        assert.deepEqual(r.outgoing, frames); assert.equal(directFailed(r), 0);
+    }
+    // A key frame without an H.264 SPS (HEVC) ends direct decode once.
+    {
+        const hevc = { type: 'key', data: Uint8Array.from([0, 0, 0, 1, 0x40, 1, 2, 3, 4, 5, 6, 7]).buffer, getMetadata: () => ({ rtpTimestamp: 1 }) };
+        const frames = [hevc, hevc, delta(2)];
+        const r = await run({ frames });
+        assert.deepEqual(r.outgoing, frames); assert.equal(directFailed(r), 1); assert.equal(r.decoders.length, 0);
+    }
+    // A throwing decoder or a backlog falls back; media keeps flowing.
+    for (const onDecode of [() => { throw new Error('decode'); }, d => { d.decodeQueueSize = 61; }]) {
+        const frames = [key(1, [0x42, 0xe0, 0x1f]), delta(2), delta(3), delta(4)];
+        const r = await run({ frames, onDecode });
+        assert.deepEqual(r.outgoing, frames); assert.equal(directFailed(r), 1); assert.equal(r.decoders[0].closed, 1);
+    }
+    // A picture decoded too late never reaches the page; a current one does.
+    {
+        const r = await run({ frames: [key(100, [0x42, 0xe0, 0x1f]), delta(101)] });
+        r.clock.offset = 500;
+        const late = { timestamp: 100, closed: 0, close() { this.closed++; } };
+        const count = r.messages.length;
+        r.decoders[0].init.output(late);
+        r.clock.offset = 0;
+        assert.equal(late.closed, 1); assert.equal(r.messages.length, count);
+        assert.equal(directFailed(r), 0, 'a late picture alone is not a failure');
+        const current = { timestamp: 101, closed: 0, close() { this.closed++; } };
+        r.decoders[0].init.output(current);
+        assert.equal(current.closed, 0); assert.equal(r.messages.at(-1).m.op, 'frame');
+    }
+    // A picture that cannot be transferred closes and falls back.
+    {
+        const r = await run({ frames: [key(1, [0x42, 0xe0, 0x1f])] });
+        const post = r.self.postMessage;
+        r.self.postMessage = (m, t) => { if (t) { throw new Error('not transferable'); } post(m); };
+        const picture = { timestamp: 1, closed: 0, close() { this.closed++; } };
+        r.decoders[0].init.output(picture);
+        assert.equal(picture.closed, 1); assert.equal(r.decoders[0].closed, 1); assert.equal(directFailed(r), 1);
+    }
+}
 console.log('QSM_DECODED_PRESENTATION_OK');

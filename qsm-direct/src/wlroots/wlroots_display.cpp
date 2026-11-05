@@ -320,7 +320,10 @@ struct WlrootsDisplay::Impl {
         configuration = zwlr_output_manager_v1_create_configuration(output_manager, output_serial);
         zwlr_output_configuration_v1_add_listener(configuration, &configuration_listener, this);
         auto *head_config = zwlr_output_configuration_v1_enable_head(configuration, target->head);
-        const auto refresh = request->refresh_millihz == 0U ? 60000U : request->refresh_millihz;
+        // Nested compositors each wait for this output's next frame, on top of the
+        // capture's own wait for it, so its period counts several times in the latency
+        // of every input. Capture still starts at most at the requested rate.
+        const auto refresh = std::min(240000U, 2U * (request->refresh_millihz == 0U ? 60000U : request->refresh_millihz));
         zwlr_output_configuration_head_v1_set_custom_mode(
             head_config, static_cast<std::int32_t>(request->width), static_cast<std::int32_t>(request->height),
             static_cast<std::int32_t>(refresh));

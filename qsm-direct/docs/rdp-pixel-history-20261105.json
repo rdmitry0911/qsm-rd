@@ -1,0 +1,7051 @@
+{
+  "date": "2026-11-05",
+  "status": "container_interface_near_parity_vm_behind_goal_open",
+  "goal_complete": false,
+  "production_changed": false,
+  "objective": "добиться отзывчивости microsoft rdp, сохранив качество и скорость воспроизведения графики/клипов и завершить план",
+  "changes": {
+    "pixel_history": "Protocol 7: a PATCH may reference the exact pixels of earlier records by distance in a 4 M pixel ring. Text tiles cost about a quarter on the wire. Record order is strict per viewer, and any inconsistency disables the layer rather than painting wrong pixels.",
+    "cursor_cache": "A cursor image is cropped to its visible pixels and defined once per viewer. Compositors hand out a 64x64 buffer (22 KB encoded) and alternate a few images under new ids.",
+    "stamp_packets": "A packet of at most 256 bytes pays pacer debt but does not wait behind it. Holding nearly empty pictures overflowed the four-picture queue, whose repair was an independent picture of 80-100 KB over text.",
+    "shared_capacity": "A cut of the video target adds what exact records recently took of the path to the rate delivered to video. Idle video beside busy tiles had stated 663 kbit/s on a 2 Mbit/s path.",
+    "reply_spacing": "The viewer replies to records at most every 10 ms. One reply per record plus the SCTP acknowledgement it drew cost a narrow path more than a small record does.",
+    "vaapi_uncropped": "VA-API uses VBR and QP floor 20 for an uncropped picture while regions are on. AMD otherwise spent all 8 Mbit/s on a static picture when no crop had been selected (84 MB per bench profile, about 1 run in 12).",
+    "output_refresh": "On a wlroots source the worker asks for twice the capture rate on the output, up to 240 Hz; capture still starts at most at the requested rate. KWin nested in sway and the capture each wait for that output next frame.",
+    "key_input_response": "A key press arms the same immediate, unfenced first change per tile as a pointer event. The first key after a focus change had no exact tile of the current layout to replace early, and waited for its video picture: 104-173 ms against 26-60 ms for the following keys.",
+    "idle_video_rate": "With history, the worker rate for strips and input responses ignores the video target while no tile is busy. Only a delivery rate reported from acknowledgement delay binds it. Video has its own TCP connection, so its target could still reach 604 kbit/s on a 2 Mbit/s path.",
+    "video_envelope": "A window dragged across the screen widens the video plane and stays a plane that follows the path. Only motion that itself covers 80% of the desktop for a second selects the whole picture, for at least 5 s. It flipped between the two every 1-5 s before, with an independent picture each way and 8 Mbit/s of codec rate on a path of 990 kbit/s.",
+    "band_waits_with_history": "With history a late strip waits for bandwidth up to 2 s, re-encoded fresh, instead of being handed to video and then repainted, with a clear each way.",
+    "flight_window_from_delivery": "When a queue is seen the exact window goes directly to what the path delivers in a round trip, rather than losing a third per round."
+  },
+  "findings": [
+    "First drag motion at 2 Mbit/s was 151 ms against 84 ms at 20 Mbit/s because a 22-26 KB cursor definition went out ahead of the first copy, measured on the wire with a proxy trace. KWin changes the cursor at each drag, and any hover over an edge or text does the same.",
+    "Reducing the flight margin from 32 to 20 ms at high RTT did not move the clip peak (552 against 553 ms) and lowered hard-cut SSIM to 0.898-0.903 and narrow fps from 51 to 48-49. It was reverted. A trace of the 32 ms margin on a low-RTT link is what an existing test protects.",
+    "The clip source-age peak is at the first bandwidth cut: 70-80 KB already in flight plus a 40-48 KB refresh picture. Deferring the refresh cannot help, because age is measured on each displayed frame and a frozen picture ages equally.",
+    "Over a text backdrop at 2 Mbit/s the wire stayed full while records took a third of it. Replies and the SCTP acknowledgements they drew were most of the difference: spacing them moved the median drag lag from 106 to 59 ms.",
+    "RDP is polled at 1-2 ms on X11, the QSM observer at 16.7 ms by rAF, so about 8 ms of the remaining first-response gap is measurement.",
+    "The Firefox burst update gap of about 1500 ms is the bench: the span of notches itself grows from 966 to 2500 ms while rAF stays regular, and Chromium never shows it. A wheel call blocks in Playwright for Firefox.",
+    "120 Hz on the sway output took about 15 ms off every first response on the PVE container lane, more than the two half-periods expected, and clip gates held. It made no measurable difference on the AMD lane, whose click overhead over the round trip was already about 12 ms at 60 Hz; typing there stays about 33 ms behind clicks and is unexplained. VM sources are unaffected by this change.",
+    "A bad path alone does not prevent startup: under stalls of 0.5-3 s every 2-8 s from before page load, video started, every key arrived and all snapshots arrived late but complete. So TCP stalls do not explain the two Mac sessions in which video did not start.",
+    "At a target of 604 kbit/s tiles could not keep up over text at 2 Mbit/s and 100 ms, handed over to video and grew the crop, and a drag stayed visibly stuck mid-way for up to 3.4 s after release. After the idle-video rate change the final position error is 0 and settling fell from 186 to 98 ms.",
+    "One native QSV run of exp208 exceeded the source-age excess limit (450 ms) because its first target cut came 12 s into the narrow phase instead of the usual 1.4-1.6 s. Repeats gave 277 and 246, and exp209 gave 263. It is 1 of 10 QSV runs and its cause is not established.",
+    "On Mac a run of exp207 showed 42.9 fps with no overflows. When the path was calm exp208 and exp209 reached 54-55 fps, and for the first time since Nov 4 the whole lifecycle including a hidden tab passed. So the low figure was the path. A same-hour A/B was skipped automatically because the path was bad at that moment.",
+    "The 120 Hz output cost almost nothing in the guest: KWin 0.054 to 0.060 cores and sway 0.010 to 0.013 cores across a bench.",
+    "The VM path is 35-55 ms behind the container path on the same route: typing 164-170 ms against 118-120 ms at a round trip of about 115 ms. The first exact record arrives 138-184 ms after a key and the viewer adds about 10 ms, so the difference is in the guest and QEMU, and frame readback averages only 3.2 ms. Asking for 120 Hz has no effect there: QEMU Display1 has no refresh in SetUIInfo and the guest stays at the EDID default of 75 Hz.",
+    "The container fixtures have no window shadow, the VM desktop has the Breeze one. Over text a moving shadow gives new blended pixels each frame, which neither copy nor history can reuse: 358 bytes per record against 137, and about 1 MB/s for a drag. So the container text results are optimistic for a desktop with shadows.",
+    "A 31 minute session was stable: no errors, exact layer enabled, one epoch, 554 M history pixels (about 130 times the ring) with no checksum mismatch, worker at 200 MB, JS heap at 24-26 MB, latencies flat. Bridge RSS grew from 331 to 785 MB, but with the lab probe storing nothing it stayed at 273-305 MB over 18 minutes, so that growth is the probe."
+  ],
+  "corrections": [
+    "A candidate version bump changed the literal window coordinate 204 to 205 in the native harness, so both native runs of exp205 failed an assertion before measuring. They are kept as w1 and were rerun as w2 with the coordinate restored; the only damaged literal was found by normalized diffs against exp204.",
+    "An earlier note in this session attributed the Mac glyph spikes to flow control. An A/B with exp190 and an idle path probe showed the network path instead."
+  ],
+  "limits": [
+    "Launch/ACL mocked; dedicated guests only. Exact UI stays off by default; these results apply only with it enabled.",
+    "RDP client is FreeRDP on X11, not mstsc. Different OS, toolkit, compositor and encoder: not a single-variable backend comparison.",
+    "Text behind a moved window was run on QSM only: the RDP column is its flat backdrop.",
+    "Small run counts: 2 Chromium rounds, 1 text round and 1 Firefox round per candidate.",
+    "Text over a 2 Mbit/s path remains behind flat on AMD at a higher round trip: median drag lag 214-368 ms and one final error of 114 px.",
+    "The clip excess gate of 400 ms is within spread of the PVE runs. Across exp204-213, 2 of 19 runs exceeded it, at 416 and 401 ms.",
+    "A VM desktop with shadows and text behind a window stays weak at 2 Mbit/s: median drag lag 305-475 ms, and the first drag after the path narrows can stay stuck mid-way past the end of the measurement.",
+    "exp213 was not run on the Mac because its path was bad at that time; the Mac figures are exp209. Long-session figures are exp209 too.",
+    "No RDP run exists with text or shadows behind a window, and RDP was not measured against a VM guest here."
+  ],
+  "open_findings": {
+    "mac_input_stop": "On one Mac run of exp202 input snapshots and a key stopped reaching the bridge at the moment of a 1.5 s frame gap while the page stayed visible, focused and rendering, and the control channel was not closed. Not reproduced: 50 of 50 keys and all snapshots survived artificial stalls of 0.4-3.5 s on PVE, and no other session of 436 shows it. Data channels have their own DTLS and TURN/TCP connection, so a backed-off TCP connection is the leading untested explanation. A soak with per-transport and socket diagnostics is ready but could not run: the Mac path had p90 1.4-2 s and spikes up to 15 s with no session.",
+    "mac_startup": "On the degraded Mac path video did not start within 50 s in 2 attempts, with 35-185 keyframe requests. An emulated path with TCP stalls does not reproduce it (see startup_under_path_storm), so the cause is still unknown.",
+    "ice_failures_amd": "Two of 4 AMD runs of exp203 lost ICE at about 380 s of session age, in the same profile, while the shared WAN route showed spikes. No failure in the following 24 runs of exp203-209, so it was not reproduced.",
+    "qsv_late_first_cut": "See findings: 1 of 10 QSV runs, first cut 12 s late."
+  },
+  "remaining": [
+    "VM with shadows over text at 2 Mbit/s",
+    "Chrome and macOS on exp213 on a usable path",
+    "HEVC, which needs a client with an HEVC decoder (the Mac)",
+    "Typing on the AMD lane",
+    "Idle bytes: Opus DTX and capture stamps",
+    "TCP-repair recut, longer sessions on VM and with clips, A/V",
+    "Packages, signed checksums/APT, qualified rollout"
+  ],
+  "evidence_directory": "dist/rdp-hybrid/pixel-history-201-213",
+  "artifact_manifest_sha256": "46f579c942b8102f27b9e01f4a719e5bfe985eb770be6eb554ace61877d524fb",
+  "candidate": {
+    "version": "0.4.0+stock4.14~exp213",
+    "deb_sha256": "297cf6f36cfc2d6ac5bbe6efa23f207cad7f5fc72c1c03c3b5bf4618472ee1fd",
+    "worker_source_sha256": "61f8a0b5d21c1fae67ba3a232943ce98709da17d31bb9bb890c2062b97f9fa51",
+    "worker_sha256": "2da255104e5d5d8707874cf9123011619bdc0dbe44e7175dc54db5488c424a62",
+    "bridge_sha256": "d57826f7bfb8b580e303ea1009248bdd375c1d76375257ba802dd24cf6a6acd1",
+    "transport_sha256": "a68e52b02ca92ed9e751cf67f5c8156575035bb336a77bb3d912e4457d21b2ad",
+    "lossless_sha256": "7ffe9ab2a6ecaa5c7bb92fabf84da16b3839154da9008eb20ae923e33c6f6913",
+    "viewer_sha256": "7f138999b4c7f634bcac720dfb17599b0be65145701ffb1117d8bb41da80b6c5"
+  },
+  "responsiveness_chromium_pve_nvenc_vs_rdp": {
+    "scope": "Flat backdrop and no media on both sides. Medians of per-run medians.",
+    "rdp": {
+      "runs": 3,
+      "20M-d15": {
+        "type_first_ms": 38.6,
+        "type_first_ms_runs": [
+          39.3,
+          37.8,
+          38.6
+        ],
+        "click_first_ms": 67.3,
+        "click_first_ms_runs": [
+          69.4,
+          66.7,
+          67.3
+        ],
+        "wheel_first_ms": 41.0,
+        "wheel_first_ms_runs": [
+          41.0,
+          38.8,
+          41.3
+        ],
+        "wheel_settled_ms": 41.0,
+        "wheel_settled_ms_runs": [
+          41.0,
+          38.8,
+          41.3
+        ],
+        "burst_settled_ms": 43.4,
+        "burst_settled_ms_runs": [
+          43.4,
+          41.7,
+          50.4
+        ],
+        "drag_first_motion_ms": 91.9,
+        "drag_first_motion_ms_runs": [
+          91.9,
+          96.3,
+          80.4
+        ],
+        "drag_lag_ms": 48.1,
+        "drag_lag_ms_runs": [
+          48.1,
+          47.9,
+          50.1
+        ],
+        "drag_lag_p95_ms": 62.3,
+        "drag_lag_p95_ms_runs": [
+          62.3,
+          58.2,
+          63.9
+        ],
+        "drag_settled_ms": 41.2,
+        "drag_settled_ms_runs": [
+          42.2,
+          41.2,
+          33.0
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "transport_kb": 107
+      },
+      "2M-d15": {
+        "type_first_ms": 36.2,
+        "type_first_ms_runs": [
+          35.5,
+          39.0,
+          36.2
+        ],
+        "click_first_ms": 68.5,
+        "click_first_ms_runs": [
+          69.8,
+          66.2,
+          68.5
+        ],
+        "wheel_first_ms": 40.3,
+        "wheel_first_ms_runs": [
+          40.3,
+          40.4,
+          38.7
+        ],
+        "wheel_settled_ms": 40.3,
+        "wheel_settled_ms_runs": [
+          40.3,
+          40.4,
+          38.7
+        ],
+        "burst_settled_ms": 32.7,
+        "burst_settled_ms_runs": [
+          30.7,
+          38.5,
+          32.7
+        ],
+        "drag_first_motion_ms": 86.8,
+        "drag_first_motion_ms_runs": [
+          94.3,
+          86.8,
+          77.9
+        ],
+        "drag_lag_ms": 49.7,
+        "drag_lag_ms_runs": [
+          50.1,
+          49.6,
+          49.7
+        ],
+        "drag_lag_p95_ms": 61.5,
+        "drag_lag_p95_ms_runs": [
+          66.9,
+          61.5,
+          60.8
+        ],
+        "drag_settled_ms": 43.4,
+        "drag_settled_ms_runs": [
+          43.4,
+          36.4,
+          44.7
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "transport_kb": 54
+      },
+      "20M-d100": {
+        "type_first_ms": 123.3,
+        "type_first_ms_runs": [
+          122.1,
+          123.9,
+          123.3
+        ],
+        "click_first_ms": 150.6,
+        "click_first_ms_runs": [
+          148.2,
+          150.6,
+          155.4
+        ],
+        "wheel_first_ms": 125.4,
+        "wheel_first_ms_runs": [
+          123.4,
+          125.7,
+          125.4
+        ],
+        "wheel_settled_ms": 125.7,
+        "wheel_settled_ms_runs": [
+          124.1,
+          125.7,
+          128.6
+        ],
+        "burst_settled_ms": 129.0,
+        "burst_settled_ms_runs": [
+          129.0,
+          134.9,
+          124.4
+        ],
+        "drag_first_motion_ms": 170.5,
+        "drag_first_motion_ms_runs": [
+          170.5,
+          178.2,
+          162.2
+        ],
+        "drag_lag_ms": 134.0,
+        "drag_lag_ms_runs": [
+          134.0,
+          133.6,
+          134.7
+        ],
+        "drag_lag_p95_ms": 148.7,
+        "drag_lag_p95_ms_runs": [
+          144.4,
+          152.7,
+          148.7
+        ],
+        "drag_settled_ms": 124.1,
+        "drag_settled_ms_runs": [
+          124.1,
+          117.7,
+          126.4
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "transport_kb": 107
+      },
+      "2M-d100": {
+        "type_first_ms": 123.2,
+        "type_first_ms_runs": [
+          123.2,
+          122.7,
+          123.3
+        ],
+        "click_first_ms": 153.3,
+        "click_first_ms_runs": [
+          154.2,
+          151.6,
+          153.3
+        ],
+        "wheel_first_ms": 125.6,
+        "wheel_first_ms_runs": [
+          126.3,
+          125.5,
+          125.6
+        ],
+        "wheel_settled_ms": 125.6,
+        "wheel_settled_ms_runs": [
+          126.3,
+          125.5,
+          125.6
+        ],
+        "burst_settled_ms": 125.8,
+        "burst_settled_ms_runs": [
+          124.3,
+          125.8,
+          135.1
+        ],
+        "drag_first_motion_ms": 185.2,
+        "drag_first_motion_ms_runs": [
+          173.0,
+          185.2,
+          187.0
+        ],
+        "drag_lag_ms": 134.5,
+        "drag_lag_ms_runs": [
+          134.5,
+          134.5,
+          134.6
+        ],
+        "drag_lag_p95_ms": 148.0,
+        "drag_lag_p95_ms_runs": [
+          151.1,
+          148.0,
+          146.5
+        ],
+        "drag_settled_ms": 121.4,
+        "drag_settled_ms_runs": [
+          121.4,
+          127.2,
+          118.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "transport_kb": 48
+      }
+    },
+    "exp201": {
+      "runs": 2,
+      "20M-d15": {
+        "type_first_ms": 62.7,
+        "type_first_ms_runs": [
+          62.0,
+          63.4
+        ],
+        "click_first_ms": 61.7,
+        "click_first_ms_runs": [
+          61.5,
+          61.9
+        ],
+        "wheel_first_ms": 67.7,
+        "wheel_first_ms_runs": [
+          67.6,
+          67.7
+        ],
+        "wheel_settled_ms": 101.0,
+        "wheel_settled_ms_runs": [
+          101.0,
+          101.0
+        ],
+        "burst_settled_ms": 130.2,
+        "burst_settled_ms_runs": [
+          159.4,
+          100.9
+        ],
+        "drag_first_motion_ms": 83.9,
+        "drag_first_motion_ms_runs": [
+          83.6,
+          84.2
+        ],
+        "drag_lag_ms": 50.5,
+        "drag_lag_ms_runs": [
+          50.4,
+          50.5
+        ],
+        "drag_lag_p95_ms": 67.0,
+        "drag_lag_p95_ms_runs": [
+          67.0,
+          67.1
+        ],
+        "drag_settled_ms": -15.6,
+        "drag_settled_ms_runs": [
+          -14.5,
+          -16.6
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 6625
+      },
+      "2M-d15": {
+        "type_first_ms": 59.0,
+        "type_first_ms_runs": [
+          57.3,
+          60.6
+        ],
+        "click_first_ms": 61.6,
+        "click_first_ms_runs": [
+          61.5,
+          61.8
+        ],
+        "wheel_first_ms": 67.7,
+        "wheel_first_ms_runs": [
+          67.6,
+          67.7
+        ],
+        "wheel_settled_ms": 101.0,
+        "wheel_settled_ms_runs": [
+          101.0,
+          101.0
+        ],
+        "burst_settled_ms": 546.9,
+        "burst_settled_ms_runs": [
+          617.8,
+          476.0
+        ],
+        "drag_first_motion_ms": 151.3,
+        "drag_first_motion_ms_runs": [
+          150.8,
+          151.8
+        ],
+        "drag_lag_ms": 50.9,
+        "drag_lag_ms_runs": [
+          50.7,
+          51.1
+        ],
+        "drag_lag_p95_ms": 67.0,
+        "drag_lag_p95_ms_runs": [
+          67.0,
+          67.1
+        ],
+        "drag_settled_ms": -12.9,
+        "drag_settled_ms_runs": [
+          -6.9,
+          -19.0
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 4561
+      },
+      "20M-d100": {
+        "type_first_ms": 146.2,
+        "type_first_ms_runs": [
+          148.7,
+          143.8
+        ],
+        "click_first_ms": 149.2,
+        "click_first_ms_runs": [
+          153.3,
+          145.1
+        ],
+        "wheel_first_ms": 151.0,
+        "wheel_first_ms_runs": [
+          151.0,
+          151.0
+        ],
+        "wheel_settled_ms": 284.4,
+        "wheel_settled_ms_runs": [
+          284.4,
+          284.5
+        ],
+        "burst_settled_ms": 338.6,
+        "burst_settled_ms_runs": [
+          367.6,
+          309.5
+        ],
+        "drag_first_motion_ms": 218.2,
+        "drag_first_motion_ms_runs": [
+          217.6,
+          218.9
+        ],
+        "drag_lag_ms": 144.6,
+        "drag_lag_ms_runs": [
+          142.0,
+          147.1
+        ],
+        "drag_lag_p95_ms": 150.8,
+        "drag_lag_p95_ms_runs": [
+          150.6,
+          151.0
+        ],
+        "drag_settled_ms": 78.8,
+        "drag_settled_ms_runs": [
+          76.4,
+          81.1
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 6154
+      },
+      "2M-d100": {
+        "type_first_ms": 147.9,
+        "type_first_ms_runs": [
+          143.9,
+          151.8
+        ],
+        "click_first_ms": 149.1,
+        "click_first_ms_runs": [
+          145.1,
+          153.2
+        ],
+        "wheel_first_ms": 151.1,
+        "wheel_first_ms_runs": [
+          151.1,
+          151.1
+        ],
+        "wheel_settled_ms": 196.8,
+        "wheel_settled_ms_runs": [
+          201.0,
+          192.7
+        ],
+        "burst_settled_ms": 759.5,
+        "burst_settled_ms_runs": [
+          784.4,
+          734.5
+        ],
+        "drag_first_motion_ms": 280.1,
+        "drag_first_motion_ms_runs": [
+          267.5,
+          292.8
+        ],
+        "drag_lag_ms": 150.1,
+        "drag_lag_ms_runs": [
+          150.1,
+          150.1
+        ],
+        "drag_lag_p95_ms": 209.1,
+        "drag_lag_p95_ms_runs": [
+          184.2,
+          234.1
+        ],
+        "drag_settled_ms": 88.7,
+        "drag_settled_ms_runs": [
+          91.9,
+          85.4
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 4639
+      }
+    },
+    "exp202": {
+      "runs": 2,
+      "20M-d15": {
+        "type_first_ms": 60.0,
+        "type_first_ms_runs": [
+          56.8,
+          63.2
+        ],
+        "click_first_ms": 61.5,
+        "click_first_ms_runs": [
+          61.6,
+          61.4
+        ],
+        "wheel_first_ms": 67.8,
+        "wheel_first_ms_runs": [
+          67.7,
+          67.8
+        ],
+        "wheel_settled_ms": 84.5,
+        "wheel_settled_ms_runs": [
+          84.4,
+          84.5
+        ],
+        "burst_settled_ms": 79.2,
+        "burst_settled_ms_runs": [
+          73.9,
+          84.4
+        ],
+        "drag_first_motion_ms": 72.8,
+        "drag_first_motion_ms_runs": [
+          68.3,
+          77.2
+        ],
+        "drag_lag_ms": 50.8,
+        "drag_lag_ms_runs": [
+          50.9,
+          50.6
+        ],
+        "drag_lag_p95_ms": 67.0,
+        "drag_lag_p95_ms_runs": [
+          67.0,
+          67.0
+        ],
+        "drag_settled_ms": -8.6,
+        "drag_settled_ms_runs": [
+          -9.5,
+          -7.6
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3769
+      },
+      "2M-d15": {
+        "type_first_ms": 64.8,
+        "type_first_ms_runs": [
+          66.2,
+          63.4
+        ],
+        "click_first_ms": 61.8,
+        "click_first_ms_runs": [
+          61.7,
+          61.8
+        ],
+        "wheel_first_ms": 67.7,
+        "wheel_first_ms_runs": [
+          67.6,
+          67.7
+        ],
+        "wheel_settled_ms": 84.7,
+        "wheel_settled_ms_runs": [
+          84.7,
+          84.6
+        ],
+        "burst_settled_ms": 84.5,
+        "burst_settled_ms_runs": [
+          84.3,
+          84.8
+        ],
+        "drag_first_motion_ms": 151.4,
+        "drag_first_motion_ms_runs": [
+          150.9,
+          151.9
+        ],
+        "drag_lag_ms": 51.2,
+        "drag_lag_ms_runs": [
+          51.5,
+          51.0
+        ],
+        "drag_lag_p95_ms": 68.5,
+        "drag_lag_p95_ms_runs": [
+          69.2,
+          67.7
+        ],
+        "drag_settled_ms": -0.1,
+        "drag_settled_ms_runs": [
+          6.8,
+          -7.1
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3722
+      },
+      "20M-d100": {
+        "type_first_ms": 148.1,
+        "type_first_ms_runs": [
+          148.4,
+          147.8
+        ],
+        "click_first_ms": 145.8,
+        "click_first_ms_runs": [
+          145.6,
+          146.1
+        ],
+        "wheel_first_ms": 155.3,
+        "wheel_first_ms_runs": [
+          154.6,
+          156.1
+        ],
+        "wheel_settled_ms": 159.4,
+        "wheel_settled_ms_runs": [
+          162.3,
+          156.5
+        ],
+        "burst_settled_ms": 155.6,
+        "burst_settled_ms_runs": [
+          153.1,
+          158.2
+        ],
+        "drag_first_motion_ms": 219.4,
+        "drag_first_motion_ms_runs": [
+          217.1,
+          221.8
+        ],
+        "drag_lag_ms": 144.8,
+        "drag_lag_ms_runs": [
+          147.0,
+          142.7
+        ],
+        "drag_lag_p95_ms": 150.5,
+        "drag_lag_p95_ms_runs": [
+          150.5,
+          150.5
+        ],
+        "drag_settled_ms": 77.7,
+        "drag_settled_ms_runs": [
+          78.7,
+          76.7
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3741
+      },
+      "2M-d100": {
+        "type_first_ms": 152.0,
+        "type_first_ms_runs": [
+          152.6,
+          151.4
+        ],
+        "click_first_ms": 145.2,
+        "click_first_ms_runs": [
+          145.3,
+          145.2
+        ],
+        "wheel_first_ms": 152.9,
+        "wheel_first_ms_runs": [
+          153.6,
+          152.2
+        ],
+        "wheel_settled_ms": 167.9,
+        "wheel_settled_ms_runs": [
+          167.8,
+          167.9
+        ],
+        "burst_settled_ms": 167.9,
+        "burst_settled_ms_runs": [
+          184.2,
+          151.7
+        ],
+        "drag_first_motion_ms": 258.7,
+        "drag_first_motion_ms_runs": [
+          266.9,
+          250.5
+        ],
+        "drag_lag_ms": 148.0,
+        "drag_lag_ms_runs": [
+          150.2,
+          145.8
+        ],
+        "drag_lag_p95_ms": 196.9,
+        "drag_lag_p95_ms_runs": [
+          200.7,
+          193.1
+        ],
+        "drag_settled_ms": 82.8,
+        "drag_settled_ms_runs": [
+          84.5,
+          81.2
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3783
+      }
+    },
+    "exp203": {
+      "runs": 2,
+      "20M-d15": {
+        "type_first_ms": 65.2,
+        "type_first_ms_runs": [
+          68.1,
+          62.3
+        ],
+        "click_first_ms": 61.5,
+        "click_first_ms_runs": [
+          61.7,
+          61.3
+        ],
+        "wheel_first_ms": 60.5,
+        "wheel_first_ms_runs": [
+          67.8,
+          53.1
+        ],
+        "wheel_settled_ms": 84.4,
+        "wheel_settled_ms_runs": [
+          84.5,
+          84.3
+        ],
+        "burst_settled_ms": 76.0,
+        "burst_settled_ms_runs": [
+          84.2,
+          67.7
+        ],
+        "drag_first_motion_ms": 67.7,
+        "drag_first_motion_ms_runs": [
+          67.1,
+          68.3
+        ],
+        "drag_lag_ms": 51.2,
+        "drag_lag_ms_runs": [
+          51.8,
+          50.6
+        ],
+        "drag_lag_p95_ms": 67.0,
+        "drag_lag_p95_ms_runs": [
+          67.1,
+          67.0
+        ],
+        "drag_settled_ms": -11.2,
+        "drag_settled_ms_runs": [
+          -15.2,
+          -7.2
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3391
+      },
+      "2M-d15": {
+        "type_first_ms": 62.2,
+        "type_first_ms_runs": [
+          61.2,
+          63.1
+        ],
+        "click_first_ms": 61.5,
+        "click_first_ms_runs": [
+          61.5,
+          61.5
+        ],
+        "wheel_first_ms": 67.8,
+        "wheel_first_ms_runs": [
+          67.8,
+          67.8
+        ],
+        "wheel_settled_ms": 85.2,
+        "wheel_settled_ms_runs": [
+          85.8,
+          84.5
+        ],
+        "burst_settled_ms": 76.2,
+        "burst_settled_ms_runs": [
+          67.8,
+          84.5
+        ],
+        "drag_first_motion_ms": 69.0,
+        "drag_first_motion_ms_runs": [
+          70.2,
+          67.7
+        ],
+        "drag_lag_ms": 51.0,
+        "drag_lag_ms_runs": [
+          50.7,
+          51.2
+        ],
+        "drag_lag_p95_ms": 67.0,
+        "drag_lag_p95_ms_runs": [
+          67.0,
+          67.0
+        ],
+        "drag_settled_ms": -7.7,
+        "drag_settled_ms_runs": [
+          -7.2,
+          -8.1
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3380
+      },
+      "20M-d100": {
+        "type_first_ms": 144.8,
+        "type_first_ms_runs": [
+          144.1,
+          145.6
+        ],
+        "click_first_ms": 144.9,
+        "click_first_ms_runs": [
+          145.2,
+          144.7
+        ],
+        "wheel_first_ms": 155.9,
+        "wheel_first_ms_runs": [
+          155.1,
+          156.7
+        ],
+        "wheel_settled_ms": 162.4,
+        "wheel_settled_ms_runs": [
+          157.3,
+          167.6
+        ],
+        "burst_settled_ms": 152.6,
+        "burst_settled_ms_runs": [
+          152.4,
+          152.7
+        ],
+        "drag_first_motion_ms": 167.1,
+        "drag_first_motion_ms_runs": [
+          167.2,
+          167.0
+        ],
+        "drag_lag_ms": 139.4,
+        "drag_lag_ms_runs": [
+          142.0,
+          136.9
+        ],
+        "drag_lag_p95_ms": 150.5,
+        "drag_lag_p95_ms_runs": [
+          150.5,
+          150.5
+        ],
+        "drag_settled_ms": 74.2,
+        "drag_settled_ms_runs": [
+          76.0,
+          72.5
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3399
+      },
+      "2M-d100": {
+        "type_first_ms": 149.9,
+        "type_first_ms_runs": [
+          153.3,
+          146.6
+        ],
+        "click_first_ms": 153.3,
+        "click_first_ms_runs": [
+          153.5,
+          153.1
+        ],
+        "wheel_first_ms": 153.6,
+        "wheel_first_ms_runs": [
+          154.5,
+          152.7
+        ],
+        "wheel_settled_ms": 168.7,
+        "wheel_settled_ms_runs": [
+          169.1,
+          168.3
+        ],
+        "burst_settled_ms": 174.9,
+        "burst_settled_ms_runs": [
+          183.8,
+          166.1
+        ],
+        "drag_first_motion_ms": 159.9,
+        "drag_first_motion_ms_runs": [
+          166.8,
+          153.0
+        ],
+        "drag_lag_ms": 144.9,
+        "drag_lag_ms_runs": [
+          150.1,
+          139.7
+        ],
+        "drag_lag_p95_ms": 156.7,
+        "drag_lag_p95_ms_runs": [
+          161.0,
+          152.3
+        ],
+        "drag_settled_ms": 79.5,
+        "drag_settled_ms_runs": [
+          82.2,
+          76.7
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3426
+      }
+    },
+    "exp204": {
+      "runs": 2,
+      "20M-d15": {
+        "type_first_ms": 63.7,
+        "type_first_ms_runs": [
+          66.9,
+          60.5
+        ],
+        "click_first_ms": 61.6,
+        "click_first_ms_runs": [
+          61.6,
+          61.6
+        ],
+        "wheel_first_ms": 67.7,
+        "wheel_first_ms_runs": [
+          67.8,
+          67.6
+        ],
+        "wheel_settled_ms": 84.6,
+        "wheel_settled_ms_runs": [
+          84.7,
+          84.5
+        ],
+        "burst_settled_ms": 75.9,
+        "burst_settled_ms_runs": [
+          67.6,
+          84.3
+        ],
+        "drag_first_motion_ms": 76.0,
+        "drag_first_motion_ms_runs": [
+          68.5,
+          83.6
+        ],
+        "drag_lag_ms": 51.4,
+        "drag_lag_ms_runs": [
+          50.7,
+          52.0
+        ],
+        "drag_lag_p95_ms": 67.1,
+        "drag_lag_p95_ms_runs": [
+          67.1,
+          67.1
+        ],
+        "drag_settled_ms": -7.5,
+        "drag_settled_ms_runs": [
+          -8.0,
+          -7.1
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3390
+      },
+      "2M-d15": {
+        "type_first_ms": 65.3,
+        "type_first_ms_runs": [
+          61.6,
+          69.0
+        ],
+        "click_first_ms": 61.7,
+        "click_first_ms_runs": [
+          61.8,
+          61.6
+        ],
+        "wheel_first_ms": 67.7,
+        "wheel_first_ms_runs": [
+          67.7,
+          67.7
+        ],
+        "wheel_settled_ms": 84.8,
+        "wheel_settled_ms_runs": [
+          84.9,
+          84.8
+        ],
+        "burst_settled_ms": 71.8,
+        "burst_settled_ms_runs": [
+          67.7,
+          76.0
+        ],
+        "drag_first_motion_ms": 68.2,
+        "drag_first_motion_ms_runs": [
+          69.2,
+          67.2
+        ],
+        "drag_lag_ms": 51.0,
+        "drag_lag_ms_runs": [
+          51.4,
+          50.7
+        ],
+        "drag_lag_p95_ms": 67.0,
+        "drag_lag_p95_ms_runs": [
+          67.1,
+          67.0
+        ],
+        "drag_settled_ms": -8.0,
+        "drag_settled_ms_runs": [
+          -7.5,
+          -8.4
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3352
+      },
+      "20M-d100": {
+        "type_first_ms": 146.8,
+        "type_first_ms_runs": [
+          148.9,
+          144.6
+        ],
+        "click_first_ms": 145.0,
+        "click_first_ms_runs": [
+          145.2,
+          144.8
+        ],
+        "wheel_first_ms": 154.5,
+        "wheel_first_ms_runs": [
+          154.7,
+          154.3
+        ],
+        "wheel_settled_ms": 165.4,
+        "wheel_settled_ms_runs": [
+          163.4,
+          167.4
+        ],
+        "burst_settled_ms": 154.1,
+        "burst_settled_ms_runs": [
+          152.0,
+          156.2
+        ],
+        "drag_first_motion_ms": 163.5,
+        "drag_first_motion_ms_runs": [
+          167.0,
+          160.0
+        ],
+        "drag_lag_ms": 142.2,
+        "drag_lag_ms_runs": [
+          147.8,
+          136.5
+        ],
+        "drag_lag_p95_ms": 150.7,
+        "drag_lag_p95_ms_runs": [
+          150.4,
+          150.9
+        ],
+        "drag_settled_ms": 79.7,
+        "drag_settled_ms_runs": [
+          77.7,
+          81.7
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3389
+      },
+      "2M-d100": {
+        "type_first_ms": 147.8,
+        "type_first_ms_runs": [
+          148.0,
+          147.6
+        ],
+        "click_first_ms": 160.9,
+        "click_first_ms_runs": [
+          160.9,
+          160.9
+        ],
+        "wheel_first_ms": 154.8,
+        "wheel_first_ms_runs": [
+          154.6,
+          155.0
+        ],
+        "wheel_settled_ms": 168.2,
+        "wheel_settled_ms_runs": [
+          167.9,
+          168.5
+        ],
+        "burst_settled_ms": 164.6,
+        "burst_settled_ms_runs": [
+          162.2,
+          167.0
+        ],
+        "drag_first_motion_ms": 152.4,
+        "drag_first_motion_ms_runs": [
+          152.8,
+          152.0
+        ],
+        "drag_lag_ms": 145.7,
+        "drag_lag_ms_runs": [
+          150.1,
+          141.3
+        ],
+        "drag_lag_p95_ms": 164.6,
+        "drag_lag_p95_ms_runs": [
+          177.2,
+          151.9
+        ],
+        "drag_settled_ms": 83.1,
+        "drag_settled_ms_runs": [
+          91.0,
+          75.2
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3431
+      }
+    },
+    "exp205": {
+      "runs": 2,
+      "20M-d15": {
+        "type_first_ms": 64.8,
+        "type_first_ms_runs": [
+          67.6,
+          62.1
+        ],
+        "click_first_ms": 65.8,
+        "click_first_ms_runs": [
+          69.9,
+          61.7
+        ],
+        "wheel_first_ms": 67.8,
+        "wheel_first_ms_runs": [
+          67.7,
+          67.8
+        ],
+        "wheel_settled_ms": 84.5,
+        "wheel_settled_ms_runs": [
+          84.5,
+          84.5
+        ],
+        "burst_settled_ms": 72.0,
+        "burst_settled_ms_runs": [
+          68.0,
+          76.0
+        ],
+        "drag_first_motion_ms": 72.5,
+        "drag_first_motion_ms_runs": [
+          76.9,
+          68.0
+        ],
+        "drag_lag_ms": 50.9,
+        "drag_lag_ms_runs": [
+          51.1,
+          50.6
+        ],
+        "drag_lag_p95_ms": 67.0,
+        "drag_lag_p95_ms_runs": [
+          67.1,
+          67.0
+        ],
+        "drag_settled_ms": -6.4,
+        "drag_settled_ms_runs": [
+          -5.3,
+          -7.6
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3082
+      },
+      "2M-d15": {
+        "type_first_ms": 64.0,
+        "type_first_ms_runs": [
+          62.5,
+          65.5
+        ],
+        "click_first_ms": 62.0,
+        "click_first_ms_runs": [
+          62.0,
+          61.9
+        ],
+        "wheel_first_ms": 67.7,
+        "wheel_first_ms_runs": [
+          67.7,
+          67.6
+        ],
+        "wheel_settled_ms": 84.5,
+        "wheel_settled_ms_runs": [
+          84.6,
+          84.4
+        ],
+        "burst_settled_ms": 67.7,
+        "burst_settled_ms_runs": [
+          67.7,
+          67.7
+        ],
+        "drag_first_motion_ms": 68.7,
+        "drag_first_motion_ms_runs": [
+          68.8,
+          68.6
+        ],
+        "drag_lag_ms": 51.3,
+        "drag_lag_ms_runs": [
+          52.3,
+          50.4
+        ],
+        "drag_lag_p95_ms": 67.0,
+        "drag_lag_p95_ms_runs": [
+          67.1,
+          67.0
+        ],
+        "drag_settled_ms": -7.8,
+        "drag_settled_ms_runs": [
+          -9.0,
+          -6.6
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3070
+      },
+      "20M-d100": {
+        "type_first_ms": 150.8,
+        "type_first_ms_runs": [
+          151.1,
+          150.5
+        ],
+        "click_first_ms": 145.1,
+        "click_first_ms_runs": [
+          145.0,
+          145.2
+        ],
+        "wheel_first_ms": 154.1,
+        "wheel_first_ms_runs": [
+          153.6,
+          154.5
+        ],
+        "wheel_settled_ms": 161.3,
+        "wheel_settled_ms_runs": [
+          155.0,
+          167.7
+        ],
+        "burst_settled_ms": 152.2,
+        "burst_settled_ms_runs": [
+          153.1,
+          151.3
+        ],
+        "drag_first_motion_ms": 163.6,
+        "drag_first_motion_ms_runs": [
+          167.0,
+          160.2
+        ],
+        "drag_lag_ms": 144.6,
+        "drag_lag_ms_runs": [
+          147.0,
+          142.2
+        ],
+        "drag_lag_p95_ms": 150.6,
+        "drag_lag_p95_ms_runs": [
+          150.7,
+          150.4
+        ],
+        "drag_settled_ms": 76.2,
+        "drag_settled_ms_runs": [
+          77.5,
+          74.8
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3104
+      },
+      "2M-d100": {
+        "type_first_ms": 154.4,
+        "type_first_ms_runs": [
+          153.5,
+          155.3
+        ],
+        "click_first_ms": 145.3,
+        "click_first_ms_runs": [
+          145.0,
+          145.7
+        ],
+        "wheel_first_ms": 152.6,
+        "wheel_first_ms_runs": [
+          152.1,
+          153.0
+        ],
+        "wheel_settled_ms": 168.2,
+        "wheel_settled_ms_runs": [
+          168.4,
+          168.0
+        ],
+        "burst_settled_ms": 163.5,
+        "burst_settled_ms_runs": [
+          167.6,
+          159.4
+        ],
+        "drag_first_motion_ms": 163.4,
+        "drag_first_motion_ms_runs": [
+          166.9,
+          160.0
+        ],
+        "drag_lag_ms": 149.6,
+        "drag_lag_ms_runs": [
+          150.2,
+          148.9
+        ],
+        "drag_lag_p95_ms": 158.2,
+        "drag_lag_p95_ms_runs": [
+          164.8,
+          151.7
+        ],
+        "drag_settled_ms": 82.0,
+        "drag_settled_ms_runs": [
+          88.2,
+          75.8
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3122
+      }
+    },
+    "exp206": {
+      "runs": 2,
+      "20M-d15": {
+        "type_first_ms": 46.7,
+        "type_first_ms_runs": [
+          48.8,
+          44.6
+        ],
+        "click_first_ms": 44.7,
+        "click_first_ms_runs": [
+          44.7,
+          44.7
+        ],
+        "wheel_first_ms": 51.0,
+        "wheel_first_ms_runs": [
+          51.1,
+          50.9
+        ],
+        "wheel_settled_ms": 67.8,
+        "wheel_settled_ms_runs": [
+          67.9,
+          67.8
+        ],
+        "burst_settled_ms": 62.2,
+        "burst_settled_ms_runs": [
+          65.0,
+          59.5
+        ],
+        "drag_first_motion_ms": 59.6,
+        "drag_first_motion_ms_runs": [
+          60.0,
+          59.2
+        ],
+        "drag_lag_ms": 47.5,
+        "drag_lag_ms_runs": [
+          47.9,
+          47.2
+        ],
+        "drag_lag_p95_ms": 50.5,
+        "drag_lag_p95_ms_runs": [
+          50.5,
+          50.4
+        ],
+        "drag_settled_ms": -19.7,
+        "drag_settled_ms_runs": [
+          -22.0,
+          -17.4
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3002
+      },
+      "2M-d15": {
+        "type_first_ms": 46.9,
+        "type_first_ms_runs": [
+          49.9,
+          43.9
+        ],
+        "click_first_ms": 44.9,
+        "click_first_ms_runs": [
+          44.7,
+          45.0
+        ],
+        "wheel_first_ms": 51.0,
+        "wheel_first_ms_runs": [
+          51.0,
+          51.0
+        ],
+        "wheel_settled_ms": 68.4,
+        "wheel_settled_ms_runs": [
+          69.0,
+          67.8
+        ],
+        "burst_settled_ms": 59.3,
+        "burst_settled_ms_runs": [
+          51.1,
+          67.5
+        ],
+        "drag_first_motion_ms": 63.9,
+        "drag_first_motion_ms_runs": [
+          67.5,
+          60.2
+        ],
+        "drag_lag_ms": 45.5,
+        "drag_lag_ms_runs": [
+          42.6,
+          48.4
+        ],
+        "drag_lag_p95_ms": 50.4,
+        "drag_lag_p95_ms_runs": [
+          50.4,
+          50.4
+        ],
+        "drag_settled_ms": -20.2,
+        "drag_settled_ms_runs": [
+          -23.9,
+          -16.5
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 2977
+      },
+      "20M-d100": {
+        "type_first_ms": 135.6,
+        "type_first_ms_runs": [
+          136.2,
+          135.0
+        ],
+        "click_first_ms": 136.3,
+        "click_first_ms_runs": [
+          144.1,
+          128.6
+        ],
+        "wheel_first_ms": 138.6,
+        "wheel_first_ms_runs": [
+          138.6,
+          138.6
+        ],
+        "wheel_settled_ms": 140.8,
+        "wheel_settled_ms_runs": [
+          140.5,
+          141.2
+        ],
+        "burst_settled_ms": 137.8,
+        "burst_settled_ms_runs": [
+          138.5,
+          137.2
+        ],
+        "drag_first_motion_ms": 151.4,
+        "drag_first_motion_ms_runs": [
+          152.4,
+          150.4
+        ],
+        "drag_lag_ms": 133.5,
+        "drag_lag_ms_runs": [
+          133.5,
+          133.5
+        ],
+        "drag_lag_p95_ms": 134.1,
+        "drag_lag_p95_ms_runs": [
+          134.3,
+          133.8
+        ],
+        "drag_settled_ms": 61.4,
+        "drag_settled_ms_runs": [
+          57.2,
+          65.5
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3021
+      },
+      "2M-d100": {
+        "type_first_ms": 138.0,
+        "type_first_ms_runs": [
+          137.8,
+          138.2
+        ],
+        "click_first_ms": 141.1,
+        "click_first_ms_runs": [
+          137.1,
+          145.0
+        ],
+        "wheel_first_ms": 138.1,
+        "wheel_first_ms_runs": [
+          138.1,
+          138.2
+        ],
+        "wheel_settled_ms": 156.7,
+        "wheel_settled_ms_runs": [
+          152.4,
+          161.0
+        ],
+        "burst_settled_ms": 143.5,
+        "burst_settled_ms_runs": [
+          136.0,
+          151.0
+        ],
+        "drag_first_motion_ms": 151.2,
+        "drag_first_motion_ms_runs": [
+          150.2,
+          152.2
+        ],
+        "drag_lag_ms": 133.6,
+        "drag_lag_ms_runs": [
+          133.5,
+          133.6
+        ],
+        "drag_lag_p95_ms": 135.4,
+        "drag_lag_p95_ms_runs": [
+          135.3,
+          135.4
+        ],
+        "drag_settled_ms": 64.9,
+        "drag_settled_ms_runs": [
+          63.8,
+          66.1
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3065
+      }
+    },
+    "exp207": {
+      "runs": 2,
+      "20M-d15": {
+        "type_first_ms": 43.4,
+        "type_first_ms_runs": [
+          44.8,
+          42.0
+        ],
+        "click_first_ms": 44.6,
+        "click_first_ms_runs": [
+          44.5,
+          44.8
+        ],
+        "wheel_first_ms": 43.8,
+        "wheel_first_ms_runs": [
+          36.7,
+          50.9
+        ],
+        "wheel_settled_ms": 67.8,
+        "wheel_settled_ms_runs": [
+          67.9,
+          67.8
+        ],
+        "burst_settled_ms": 59.3,
+        "burst_settled_ms_runs": [
+          67.7,
+          50.9
+        ],
+        "drag_first_motion_ms": 63.6,
+        "drag_first_motion_ms_runs": [
+          60.2,
+          66.9
+        ],
+        "drag_lag_ms": 48.0,
+        "drag_lag_ms_runs": [
+          47.1,
+          48.8
+        ],
+        "drag_lag_p95_ms": 50.4,
+        "drag_lag_p95_ms_runs": [
+          50.4,
+          50.4
+        ],
+        "drag_settled_ms": -15.8,
+        "drag_settled_ms_runs": [
+          -15.5,
+          -16.1
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3009
+      },
+      "2M-d15": {
+        "type_first_ms": 43.3,
+        "type_first_ms_runs": [
+          46.5,
+          40.1
+        ],
+        "click_first_ms": 44.8,
+        "click_first_ms_runs": [
+          44.7,
+          44.9
+        ],
+        "wheel_first_ms": 36.8,
+        "wheel_first_ms_runs": [
+          36.6,
+          37.0
+        ],
+        "wheel_settled_ms": 67.7,
+        "wheel_settled_ms_runs": [
+          67.7,
+          67.7
+        ],
+        "burst_settled_ms": 54.6,
+        "burst_settled_ms_runs": [
+          58.3,
+          50.9
+        ],
+        "drag_first_motion_ms": 53.9,
+        "drag_first_motion_ms_runs": [
+          54.0,
+          53.7
+        ],
+        "drag_lag_ms": 47.3,
+        "drag_lag_ms_runs": [
+          47.0,
+          47.6
+        ],
+        "drag_lag_p95_ms": 50.8,
+        "drag_lag_p95_ms_runs": [
+          51.1,
+          50.4
+        ],
+        "drag_settled_ms": -24.2,
+        "drag_settled_ms_runs": [
+          -22.8,
+          -25.7
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 2988
+      },
+      "20M-d100": {
+        "type_first_ms": 133.3,
+        "type_first_ms_runs": [
+          136.0,
+          130.7
+        ],
+        "click_first_ms": 136.3,
+        "click_first_ms_runs": [
+          144.3,
+          128.3
+        ],
+        "wheel_first_ms": 137.2,
+        "wheel_first_ms_runs": [
+          137.0,
+          137.5
+        ],
+        "wheel_settled_ms": 150.9,
+        "wheel_settled_ms_runs": [
+          150.9,
+          150.8
+        ],
+        "burst_settled_ms": 139.8,
+        "burst_settled_ms_runs": [
+          144.1,
+          135.5
+        ],
+        "drag_first_motion_ms": 150.4,
+        "drag_first_motion_ms_runs": [
+          150.5,
+          150.3
+        ],
+        "drag_lag_ms": 133.5,
+        "drag_lag_ms_runs": [
+          133.5,
+          133.5
+        ],
+        "drag_lag_p95_ms": 134.0,
+        "drag_lag_p95_ms_runs": [
+          134.2,
+          133.8
+        ],
+        "drag_settled_ms": 69.2,
+        "drag_settled_ms_runs": [
+          65.1,
+          73.4
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3013
+      },
+      "2M-d100": {
+        "type_first_ms": 130.4,
+        "type_first_ms_runs": [
+          130.2,
+          130.6
+        ],
+        "click_first_ms": 136.6,
+        "click_first_ms_runs": [
+          128.8,
+          144.4
+        ],
+        "wheel_first_ms": 135.7,
+        "wheel_first_ms_runs": [
+          134.6,
+          136.8
+        ],
+        "wheel_settled_ms": 151.1,
+        "wheel_settled_ms_runs": [
+          150.9,
+          151.2
+        ],
+        "burst_settled_ms": 163.1,
+        "burst_settled_ms_runs": [
+          167.7,
+          158.4
+        ],
+        "drag_first_motion_ms": 151.7,
+        "drag_first_motion_ms_runs": [
+          150.4,
+          153.0
+        ],
+        "drag_lag_ms": 133.5,
+        "drag_lag_ms_runs": [
+          133.5,
+          133.5
+        ],
+        "drag_lag_p95_ms": 135.2,
+        "drag_lag_p95_ms_runs": [
+          134.9,
+          135.5
+        ],
+        "drag_settled_ms": 65.8,
+        "drag_settled_ms_runs": [
+          66.0,
+          65.6
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3012
+      }
+    },
+    "exp208": {
+      "runs": 2,
+      "20M-d15": {
+        "type_first_ms": 46.0,
+        "type_first_ms_runs": [
+          48.8,
+          43.2
+        ],
+        "click_first_ms": 45.0,
+        "click_first_ms_runs": [
+          45.4,
+          44.5
+        ],
+        "wheel_first_ms": 51.0,
+        "wheel_first_ms_runs": [
+          51.1,
+          51.0
+        ],
+        "wheel_settled_ms": 68.0,
+        "wheel_settled_ms_runs": [
+          68.0,
+          67.9
+        ],
+        "burst_settled_ms": 58.8,
+        "burst_settled_ms_runs": [
+          58.2,
+          59.3
+        ],
+        "drag_first_motion_ms": 60.3,
+        "drag_first_motion_ms_runs": [
+          59.9,
+          60.7
+        ],
+        "drag_lag_ms": 42.8,
+        "drag_lag_ms_runs": [
+          37.4,
+          48.1
+        ],
+        "drag_lag_p95_ms": 50.5,
+        "drag_lag_p95_ms_runs": [
+          50.5,
+          50.4
+        ],
+        "drag_settled_ms": -20.0,
+        "drag_settled_ms_runs": [
+          -23.5,
+          -16.5
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3005
+      },
+      "2M-d15": {
+        "type_first_ms": 48.5,
+        "type_first_ms_runs": [
+          54.2,
+          42.8
+        ],
+        "click_first_ms": 45.0,
+        "click_first_ms_runs": [
+          45.1,
+          45.0
+        ],
+        "wheel_first_ms": 51.0,
+        "wheel_first_ms_runs": [
+          51.0,
+          50.9
+        ],
+        "wheel_settled_ms": 67.8,
+        "wheel_settled_ms_runs": [
+          67.8,
+          67.9
+        ],
+        "burst_settled_ms": 62.9,
+        "burst_settled_ms_runs": [
+          59.3,
+          66.5
+        ],
+        "drag_first_motion_ms": 51.8,
+        "drag_first_motion_ms_runs": [
+          51.9,
+          51.8
+        ],
+        "drag_lag_ms": 49.2,
+        "drag_lag_ms_runs": [
+          50.1,
+          48.3
+        ],
+        "drag_lag_p95_ms": 50.5,
+        "drag_lag_p95_ms_runs": [
+          50.6,
+          50.5
+        ],
+        "drag_settled_ms": -17.4,
+        "drag_settled_ms_runs": [
+          -17.6,
+          -17.1
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3001
+      },
+      "20M-d100": {
+        "type_first_ms": 133.8,
+        "type_first_ms_runs": [
+          135.0,
+          132.7
+        ],
+        "click_first_ms": 128.4,
+        "click_first_ms_runs": [
+          128.3,
+          128.5
+        ],
+        "wheel_first_ms": 137.9,
+        "wheel_first_ms_runs": [
+          137.8,
+          137.9
+        ],
+        "wheel_settled_ms": 150.9,
+        "wheel_settled_ms_runs": [
+          150.8,
+          150.9
+        ],
+        "burst_settled_ms": 139.0,
+        "burst_settled_ms_runs": [
+          138.5,
+          139.5
+        ],
+        "drag_first_motion_ms": 143.4,
+        "drag_first_motion_ms_runs": [
+          143.6,
+          143.2
+        ],
+        "drag_lag_ms": 133.3,
+        "drag_lag_ms_runs": [
+          133.4,
+          133.2
+        ],
+        "drag_lag_p95_ms": 134.4,
+        "drag_lag_p95_ms_runs": [
+          133.8,
+          135.0
+        ],
+        "drag_settled_ms": 59.1,
+        "drag_settled_ms_runs": [
+          59.0,
+          59.2
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3027
+      },
+      "2M-d100": {
+        "type_first_ms": 131.3,
+        "type_first_ms_runs": [
+          129.4,
+          133.2
+        ],
+        "click_first_ms": 128.8,
+        "click_first_ms_runs": [
+          128.6,
+          129.0
+        ],
+        "wheel_first_ms": 136.6,
+        "wheel_first_ms_runs": [
+          136.6,
+          136.5
+        ],
+        "wheel_settled_ms": 151.9,
+        "wheel_settled_ms_runs": [
+          152.7,
+          151.1
+        ],
+        "burst_settled_ms": 155.3,
+        "burst_settled_ms_runs": [
+          150.7,
+          159.9
+        ],
+        "drag_first_motion_ms": 151.2,
+        "drag_first_motion_ms_runs": [
+          150.3,
+          152.1
+        ],
+        "drag_lag_ms": 133.6,
+        "drag_lag_ms_runs": [
+          133.5,
+          133.6
+        ],
+        "drag_lag_p95_ms": 143.4,
+        "drag_lag_p95_ms_runs": [
+          143.4,
+          143.4
+        ],
+        "drag_settled_ms": 71.1,
+        "drag_settled_ms_runs": [
+          75.1,
+          67.1
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3027
+      }
+    },
+    "exp209": {
+      "runs": 2,
+      "20M-d15": {
+        "type_first_ms": 45.5,
+        "type_first_ms_runs": [
+          43.2,
+          47.8
+        ],
+        "click_first_ms": 44.8,
+        "click_first_ms_runs": [
+          44.8,
+          44.8
+        ],
+        "wheel_first_ms": 47.5,
+        "wheel_first_ms_runs": [
+          51.0,
+          44.1
+        ],
+        "wheel_settled_ms": 68.5,
+        "wheel_settled_ms_runs": [
+          69.2,
+          67.7
+        ],
+        "burst_settled_ms": 58.5,
+        "burst_settled_ms_runs": [
+          66.0,
+          51.1
+        ],
+        "drag_first_motion_ms": 56.2,
+        "drag_first_motion_ms_runs": [
+          60.5,
+          52.0
+        ],
+        "drag_lag_ms": 48.9,
+        "drag_lag_ms_runs": [
+          49.2,
+          48.6
+        ],
+        "drag_lag_p95_ms": 50.4,
+        "drag_lag_p95_ms_runs": [
+          50.4,
+          50.4
+        ],
+        "drag_settled_ms": -24.5,
+        "drag_settled_ms_runs": [
+          -24.3,
+          -24.6
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3068
+      },
+      "2M-d15": {
+        "type_first_ms": 43.5,
+        "type_first_ms_runs": [
+          41.7,
+          45.2
+        ],
+        "click_first_ms": 45.0,
+        "click_first_ms_runs": [
+          45.2,
+          44.9
+        ],
+        "wheel_first_ms": 44.1,
+        "wheel_first_ms_runs": [
+          51.0,
+          37.2
+        ],
+        "wheel_settled_ms": 67.8,
+        "wheel_settled_ms_runs": [
+          67.8,
+          67.7
+        ],
+        "burst_settled_ms": 59.5,
+        "burst_settled_ms_runs": [
+          51.1,
+          67.9
+        ],
+        "drag_first_motion_ms": 63.2,
+        "drag_first_motion_ms_runs": [
+          59.4,
+          67.1
+        ],
+        "drag_lag_ms": 48.6,
+        "drag_lag_ms_runs": [
+          48.3,
+          48.9
+        ],
+        "drag_lag_p95_ms": 50.7,
+        "drag_lag_p95_ms_runs": [
+          50.5,
+          50.9
+        ],
+        "drag_settled_ms": -24.1,
+        "drag_settled_ms_runs": [
+          -23.0,
+          -25.1
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3038
+      },
+      "20M-d100": {
+        "type_first_ms": 135.1,
+        "type_first_ms_runs": [
+          139.0,
+          131.2
+        ],
+        "click_first_ms": 128.6,
+        "click_first_ms_runs": [
+          128.5,
+          128.6
+        ],
+        "wheel_first_ms": 137.2,
+        "wheel_first_ms_runs": [
+          137.2,
+          137.3
+        ],
+        "wheel_settled_ms": 139.1,
+        "wheel_settled_ms_runs": [
+          138.9,
+          139.2
+        ],
+        "burst_settled_ms": 140.8,
+        "burst_settled_ms_runs": [
+          145.8,
+          135.7
+        ],
+        "drag_first_motion_ms": 150.4,
+        "drag_first_motion_ms_runs": [
+          150.3,
+          150.4
+        ],
+        "drag_lag_ms": 133.5,
+        "drag_lag_ms_runs": [
+          133.5,
+          133.5
+        ],
+        "drag_lag_p95_ms": 134.0,
+        "drag_lag_p95_ms_runs": [
+          134.2,
+          133.8
+        ],
+        "drag_settled_ms": 62.8,
+        "drag_settled_ms_runs": [
+          65.1,
+          60.5
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3059
+      },
+      "2M-d100": {
+        "type_first_ms": 129.9,
+        "type_first_ms_runs": [
+          130.3,
+          129.4
+        ],
+        "click_first_ms": 136.6,
+        "click_first_ms_runs": [
+          128.5,
+          144.6
+        ],
+        "wheel_first_ms": 136.9,
+        "wheel_first_ms_runs": [
+          136.2,
+          137.7
+        ],
+        "wheel_settled_ms": 150.8,
+        "wheel_settled_ms_runs": [
+          151.0,
+          150.7
+        ],
+        "burst_settled_ms": 155.2,
+        "burst_settled_ms_runs": [
+          159.7,
+          150.8
+        ],
+        "drag_first_motion_ms": 146.8,
+        "drag_first_motion_ms_runs": [
+          150.3,
+          143.3
+        ],
+        "drag_lag_ms": 133.6,
+        "drag_lag_ms_runs": [
+          133.6,
+          133.5
+        ],
+        "drag_lag_p95_ms": 142.8,
+        "drag_lag_p95_ms_runs": [
+          150.0,
+          135.7
+        ],
+        "drag_settled_ms": 67.1,
+        "drag_settled_ms_runs": [
+          71.7,
+          62.5
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3071
+      }
+    },
+    "exp210": {
+      "runs": 0
+    },
+    "exp211": {
+      "runs": 0
+    },
+    "exp212": {
+      "runs": 0
+    },
+    "exp213": {
+      "runs": 2,
+      "20M-d15": {
+        "type_first_ms": 47.8,
+        "type_first_ms_runs": [
+          46.2,
+          49.4
+        ],
+        "click_first_ms": 45.0,
+        "click_first_ms_runs": [
+          44.9,
+          45.0
+        ],
+        "wheel_first_ms": 51.0,
+        "wheel_first_ms_runs": [
+          51.0,
+          51.0
+        ],
+        "wheel_settled_ms": 68.4,
+        "wheel_settled_ms_runs": [
+          69.0,
+          67.8
+        ],
+        "burst_settled_ms": 59.4,
+        "burst_settled_ms_runs": [
+          59.4,
+          59.4
+        ],
+        "drag_first_motion_ms": 59.2,
+        "drag_first_motion_ms_runs": [
+          66.9,
+          51.6
+        ],
+        "drag_lag_ms": 47.8,
+        "drag_lag_ms_runs": [
+          47.9,
+          47.7
+        ],
+        "drag_lag_p95_ms": 50.5,
+        "drag_lag_p95_ms_runs": [
+          50.6,
+          50.5
+        ],
+        "drag_settled_ms": -20.5,
+        "drag_settled_ms_runs": [
+          -23.6,
+          -17.3
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 2996
+      },
+      "2M-d15": {
+        "type_first_ms": 48.2,
+        "type_first_ms_runs": [
+          47.2,
+          49.2
+        ],
+        "click_first_ms": 45.0,
+        "click_first_ms_runs": [
+          45.0,
+          45.0
+        ],
+        "wheel_first_ms": 44.1,
+        "wheel_first_ms_runs": [
+          37.2,
+          51.0
+        ],
+        "wheel_settled_ms": 67.8,
+        "wheel_settled_ms_runs": [
+          67.8,
+          67.8
+        ],
+        "burst_settled_ms": 59.5,
+        "burst_settled_ms_runs": [
+          51.1,
+          67.8
+        ],
+        "drag_first_motion_ms": 56.4,
+        "drag_first_motion_ms_runs": [
+          52.5,
+          60.3
+        ],
+        "drag_lag_ms": 49.0,
+        "drag_lag_ms_runs": [
+          49.2,
+          48.7
+        ],
+        "drag_lag_p95_ms": 50.5,
+        "drag_lag_p95_ms_runs": [
+          50.4,
+          50.5
+        ],
+        "drag_settled_ms": -27.1,
+        "drag_settled_ms_runs": [
+          -31.1,
+          -23.1
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 2993
+      },
+      "20M-d100": {
+        "type_first_ms": 131.8,
+        "type_first_ms_runs": [
+          135.6,
+          128.0
+        ],
+        "click_first_ms": 128.4,
+        "click_first_ms_runs": [
+          128.6,
+          128.2
+        ],
+        "wheel_first_ms": 137.9,
+        "wheel_first_ms_runs": [
+          137.8,
+          138.0
+        ],
+        "wheel_settled_ms": 148.2,
+        "wheel_settled_ms_runs": [
+          145.5,
+          151.0
+        ],
+        "burst_settled_ms": 144.4,
+        "burst_settled_ms_runs": [
+          150.5,
+          138.4
+        ],
+        "drag_first_motion_ms": 150.7,
+        "drag_first_motion_ms_runs": [
+          151.1,
+          150.3
+        ],
+        "drag_lag_ms": 133.5,
+        "drag_lag_ms_runs": [
+          133.5,
+          133.5
+        ],
+        "drag_lag_p95_ms": 134.2,
+        "drag_lag_p95_ms_runs": [
+          133.9,
+          134.5
+        ],
+        "drag_settled_ms": 62.1,
+        "drag_settled_ms_runs": [
+          57.2,
+          67.0
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3037
+      },
+      "2M-d100": {
+        "type_first_ms": 136.2,
+        "type_first_ms_runs": [
+          136.4,
+          136.0
+        ],
+        "click_first_ms": 132.7,
+        "click_first_ms_runs": [
+          128.4,
+          136.9
+        ],
+        "wheel_first_ms": 135.6,
+        "wheel_first_ms_runs": [
+          136.2,
+          135.0
+        ],
+        "wheel_settled_ms": 156.8,
+        "wheel_settled_ms_runs": [
+          161.5,
+          152.0
+        ],
+        "burst_settled_ms": 167.4,
+        "burst_settled_ms_runs": [
+          150.4,
+          184.5
+        ],
+        "drag_first_motion_ms": 147.1,
+        "drag_first_motion_ms_runs": [
+          143.9,
+          150.3
+        ],
+        "drag_lag_ms": 133.6,
+        "drag_lag_ms_runs": [
+          133.6,
+          133.5
+        ],
+        "drag_lag_p95_ms": 137.1,
+        "drag_lag_p95_ms_runs": [
+          136.6,
+          137.5
+        ],
+        "drag_settled_ms": 71.4,
+        "drag_settled_ms_runs": [
+          66.7,
+          76.1
+        ],
+        "drag_final_error_max_px": 0.0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0
+        ],
+        "transport_kb": 3082
+      }
+    }
+  },
+  "responsiveness_text_behind_window_chromium": {
+    "scope": "Same bench with text behind the moved window: QSM only, RDP was not run on it.",
+    "exp202": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 62.1,
+        "type_first_ms_runs": [
+          62.1
+        ],
+        "click_first_ms": 61.5,
+        "click_first_ms_runs": [
+          61.5
+        ],
+        "wheel_first_ms": 67.6,
+        "wheel_first_ms_runs": [
+          67.6
+        ],
+        "wheel_settled_ms": 84.4,
+        "wheel_settled_ms_runs": [
+          84.4
+        ],
+        "burst_settled_ms": 67.7,
+        "burst_settled_ms_runs": [
+          67.7
+        ],
+        "drag_first_motion_ms": 84.8,
+        "drag_first_motion_ms_runs": [
+          84.8
+        ],
+        "drag_lag_ms": 62.7,
+        "drag_lag_ms_runs": [
+          62.7
+        ],
+        "drag_lag_p95_ms": 75.3,
+        "drag_lag_p95_ms_runs": [
+          75.3
+        ],
+        "drag_settled_ms": 1.6,
+        "drag_settled_ms_runs": [
+          1.6
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 5193
+      },
+      "2M-d15": {
+        "type_first_ms": 59.8,
+        "type_first_ms_runs": [
+          59.8
+        ],
+        "click_first_ms": 61.6,
+        "click_first_ms_runs": [
+          61.6
+        ],
+        "wheel_first_ms": 67.7,
+        "wheel_first_ms_runs": [
+          67.7
+        ],
+        "wheel_settled_ms": 86.3,
+        "wheel_settled_ms_runs": [
+          86.3
+        ],
+        "burst_settled_ms": 67.5,
+        "burst_settled_ms_runs": [
+          67.5
+        ],
+        "drag_first_motion_ms": 167.5,
+        "drag_first_motion_ms_runs": [
+          167.5
+        ],
+        "drag_lag_ms": 133.8,
+        "drag_lag_ms_runs": [
+          133.8
+        ],
+        "drag_lag_p95_ms": 185.0,
+        "drag_lag_p95_ms_runs": [
+          185.0
+        ],
+        "drag_settled_ms": 144.0,
+        "drag_settled_ms_runs": [
+          144.0
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 5377
+      },
+      "20M-d100": {
+        "type_first_ms": 152.8,
+        "type_first_ms_runs": [
+          152.8
+        ],
+        "click_first_ms": 145.9,
+        "click_first_ms_runs": [
+          145.9
+        ],
+        "wheel_first_ms": 155.2,
+        "wheel_first_ms_runs": [
+          155.2
+        ],
+        "wheel_settled_ms": 156.3,
+        "wheel_settled_ms_runs": [
+          156.3
+        ],
+        "burst_settled_ms": 151.4,
+        "burst_settled_ms_runs": [
+          151.4
+        ],
+        "drag_first_motion_ms": 234.0,
+        "drag_first_motion_ms_runs": [
+          234.0
+        ],
+        "drag_lag_ms": 150.2,
+        "drag_lag_ms_runs": [
+          150.2
+        ],
+        "drag_lag_p95_ms": 168.3,
+        "drag_lag_p95_ms_runs": [
+          168.3
+        ],
+        "drag_settled_ms": 79.1,
+        "drag_settled_ms_runs": [
+          79.1
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 5973
+      },
+      "2M-d100": {
+        "type_first_ms": 153.1,
+        "type_first_ms_runs": [
+          153.1
+        ],
+        "click_first_ms": 145.2,
+        "click_first_ms_runs": [
+          145.2
+        ],
+        "wheel_first_ms": 153.1,
+        "wheel_first_ms_runs": [
+          153.1
+        ],
+        "wheel_settled_ms": 168.6,
+        "wheel_settled_ms_runs": [
+          168.6
+        ],
+        "burst_settled_ms": 184.1,
+        "burst_settled_ms_runs": [
+          184.1
+        ],
+        "drag_first_motion_ms": 300.3,
+        "drag_first_motion_ms_runs": [
+          300.3
+        ],
+        "drag_lag_ms": 301.3,
+        "drag_lag_ms_runs": [
+          301.3
+        ],
+        "drag_lag_p95_ms": 433.6,
+        "drag_lag_p95_ms_runs": [
+          433.6
+        ],
+        "drag_settled_ms": 491.3,
+        "drag_settled_ms_runs": [
+          491.3
+        ],
+        "drag_final_error_max_px": 160,
+        "drag_final_error_max_px_runs": [
+          160
+        ],
+        "transport_kb": 5420
+      }
+    },
+    "exp203": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 60.1,
+        "type_first_ms_runs": [
+          60.1
+        ],
+        "click_first_ms": 61.7,
+        "click_first_ms_runs": [
+          61.7
+        ],
+        "wheel_first_ms": 67.7,
+        "wheel_first_ms_runs": [
+          67.7
+        ],
+        "wheel_settled_ms": 84.4,
+        "wheel_settled_ms_runs": [
+          84.4
+        ],
+        "burst_settled_ms": 84.2,
+        "burst_settled_ms_runs": [
+          84.2
+        ],
+        "drag_first_motion_ms": 75.3,
+        "drag_first_motion_ms_runs": [
+          75.3
+        ],
+        "drag_lag_ms": 59.8,
+        "drag_lag_ms_runs": [
+          59.8
+        ],
+        "drag_lag_p95_ms": 75.2,
+        "drag_lag_p95_ms_runs": [
+          75.2
+        ],
+        "drag_settled_ms": -14.6,
+        "drag_settled_ms_runs": [
+          -14.6
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 4824
+      },
+      "2M-d15": {
+        "type_first_ms": 62.2,
+        "type_first_ms_runs": [
+          62.2
+        ],
+        "click_first_ms": 61.6,
+        "click_first_ms_runs": [
+          61.6
+        ],
+        "wheel_first_ms": 67.7,
+        "wheel_first_ms_runs": [
+          67.7
+        ],
+        "wheel_settled_ms": 84.5,
+        "wheel_settled_ms_runs": [
+          84.5
+        ],
+        "burst_settled_ms": 67.7,
+        "burst_settled_ms_runs": [
+          67.7
+        ],
+        "drag_first_motion_ms": 93.1,
+        "drag_first_motion_ms_runs": [
+          93.1
+        ],
+        "drag_lag_ms": 108.7,
+        "drag_lag_ms_runs": [
+          108.7
+        ],
+        "drag_lag_p95_ms": 204.3,
+        "drag_lag_p95_ms_runs": [
+          204.3
+        ],
+        "drag_settled_ms": 148.3,
+        "drag_settled_ms_runs": [
+          148.3
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 4753
+      },
+      "20M-d100": {
+        "type_first_ms": 143.6,
+        "type_first_ms_runs": [
+          143.6
+        ],
+        "click_first_ms": 153.9,
+        "click_first_ms_runs": [
+          153.9
+        ],
+        "wheel_first_ms": 155.9,
+        "wheel_first_ms_runs": [
+          155.9
+        ],
+        "wheel_settled_ms": 157.2,
+        "wheel_settled_ms_runs": [
+          157.2
+        ],
+        "burst_settled_ms": 152.2,
+        "burst_settled_ms_runs": [
+          152.2
+        ],
+        "drag_first_motion_ms": 167.4,
+        "drag_first_motion_ms_runs": [
+          167.4
+        ],
+        "drag_lag_ms": 149.3,
+        "drag_lag_ms_runs": [
+          149.3
+        ],
+        "drag_lag_p95_ms": 158.7,
+        "drag_lag_p95_ms_runs": [
+          158.7
+        ],
+        "drag_settled_ms": 74.2,
+        "drag_settled_ms_runs": [
+          74.2
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 4795
+      },
+      "2M-d100": {
+        "type_first_ms": 149.4,
+        "type_first_ms_runs": [
+          149.4
+        ],
+        "click_first_ms": 161.0,
+        "click_first_ms_runs": [
+          161.0
+        ],
+        "wheel_first_ms": 152.3,
+        "wheel_first_ms_runs": [
+          152.3
+        ],
+        "wheel_settled_ms": 167.5,
+        "wheel_settled_ms_runs": [
+          167.5
+        ],
+        "burst_settled_ms": 183.9,
+        "burst_settled_ms_runs": [
+          183.9
+        ],
+        "drag_first_motion_ms": 175.6,
+        "drag_first_motion_ms_runs": [
+          175.6
+        ],
+        "drag_lag_ms": 268.0,
+        "drag_lag_ms_runs": [
+          268.0
+        ],
+        "drag_lag_p95_ms": 568.6,
+        "drag_lag_p95_ms_runs": [
+          568.6
+        ],
+        "drag_settled_ms": 497.3,
+        "drag_settled_ms_runs": [
+          497.3
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 4766
+      }
+    },
+    "exp204": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 70.0,
+        "type_first_ms_runs": [
+          70.0
+        ],
+        "click_first_ms": 61.6,
+        "click_first_ms_runs": [
+          61.6
+        ],
+        "wheel_first_ms": 67.7,
+        "wheel_first_ms_runs": [
+          67.7
+        ],
+        "wheel_settled_ms": 84.4,
+        "wheel_settled_ms_runs": [
+          84.4
+        ],
+        "burst_settled_ms": 67.7,
+        "burst_settled_ms_runs": [
+          67.7
+        ],
+        "drag_first_motion_ms": 76.8,
+        "drag_first_motion_ms_runs": [
+          76.8
+        ],
+        "drag_lag_ms": 59.6,
+        "drag_lag_ms_runs": [
+          59.6
+        ],
+        "drag_lag_p95_ms": 75.4,
+        "drag_lag_p95_ms_runs": [
+          75.4
+        ],
+        "drag_settled_ms": 2.4,
+        "drag_settled_ms_runs": [
+          2.4
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 4831
+      },
+      "2M-d15": {
+        "type_first_ms": 64.1,
+        "type_first_ms_runs": [
+          64.1
+        ],
+        "click_first_ms": 61.7,
+        "click_first_ms_runs": [
+          61.7
+        ],
+        "wheel_first_ms": 67.8,
+        "wheel_first_ms_runs": [
+          67.8
+        ],
+        "wheel_settled_ms": 84.3,
+        "wheel_settled_ms_runs": [
+          84.3
+        ],
+        "burst_settled_ms": 75.9,
+        "burst_settled_ms_runs": [
+          75.9
+        ],
+        "drag_first_motion_ms": 92.0,
+        "drag_first_motion_ms_runs": [
+          92.0
+        ],
+        "drag_lag_ms": 105.7,
+        "drag_lag_ms_runs": [
+          105.7
+        ],
+        "drag_lag_p95_ms": 175.8,
+        "drag_lag_p95_ms_runs": [
+          175.8
+        ],
+        "drag_settled_ms": 108.2,
+        "drag_settled_ms_runs": [
+          108.2
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 4808
+      },
+      "20M-d100": {
+        "type_first_ms": 149.2,
+        "type_first_ms_runs": [
+          149.2
+        ],
+        "click_first_ms": 145.7,
+        "click_first_ms_runs": [
+          145.7
+        ],
+        "wheel_first_ms": 154.8,
+        "wheel_first_ms_runs": [
+          154.8
+        ],
+        "wheel_settled_ms": 167.7,
+        "wheel_settled_ms_runs": [
+          167.7
+        ],
+        "burst_settled_ms": 154.9,
+        "burst_settled_ms_runs": [
+          154.9
+        ],
+        "drag_first_motion_ms": 167.2,
+        "drag_first_motion_ms_runs": [
+          167.2
+        ],
+        "drag_lag_ms": 150.1,
+        "drag_lag_ms_runs": [
+          150.1
+        ],
+        "drag_lag_p95_ms": 159.4,
+        "drag_lag_p95_ms_runs": [
+          159.4
+        ],
+        "drag_settled_ms": 76.2,
+        "drag_settled_ms_runs": [
+          76.2
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 4890
+      },
+      "2M-d100": {
+        "type_first_ms": 154.3,
+        "type_first_ms_runs": [
+          154.3
+        ],
+        "click_first_ms": 161.0,
+        "click_first_ms_runs": [
+          161.0
+        ],
+        "wheel_first_ms": 153.5,
+        "wheel_first_ms_runs": [
+          153.5
+        ],
+        "wheel_settled_ms": 167.9,
+        "wheel_settled_ms_runs": [
+          167.9
+        ],
+        "burst_settled_ms": 160.0,
+        "burst_settled_ms_runs": [
+          160.0
+        ],
+        "drag_first_motion_ms": 175.3,
+        "drag_first_motion_ms_runs": [
+          175.3
+        ],
+        "drag_lag_ms": 229.1,
+        "drag_lag_ms_runs": [
+          229.1
+        ],
+        "drag_lag_p95_ms": 333.4,
+        "drag_lag_p95_ms_runs": [
+          333.4
+        ],
+        "drag_settled_ms": 266.8,
+        "drag_settled_ms_runs": [
+          266.8
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 5132
+      }
+    },
+    "exp205": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 62.4,
+        "type_first_ms_runs": [
+          62.4
+        ],
+        "click_first_ms": 61.4,
+        "click_first_ms_runs": [
+          61.4
+        ],
+        "wheel_first_ms": 67.6,
+        "wheel_first_ms_runs": [
+          67.6
+        ],
+        "wheel_settled_ms": 84.3,
+        "wheel_settled_ms_runs": [
+          84.3
+        ],
+        "burst_settled_ms": 67.7,
+        "burst_settled_ms_runs": [
+          67.7
+        ],
+        "drag_first_motion_ms": 83.8,
+        "drag_first_motion_ms_runs": [
+          83.8
+        ],
+        "drag_lag_ms": 58.8,
+        "drag_lag_ms_runs": [
+          58.8
+        ],
+        "drag_lag_p95_ms": 69.1,
+        "drag_lag_p95_ms_runs": [
+          69.1
+        ],
+        "drag_settled_ms": -11.1,
+        "drag_settled_ms_runs": [
+          -11.1
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3881
+      },
+      "2M-d15": {
+        "type_first_ms": 65.5,
+        "type_first_ms_runs": [
+          65.5
+        ],
+        "click_first_ms": 61.5,
+        "click_first_ms_runs": [
+          61.5
+        ],
+        "wheel_first_ms": 67.6,
+        "wheel_first_ms_runs": [
+          67.6
+        ],
+        "wheel_settled_ms": 87.0,
+        "wheel_settled_ms_runs": [
+          87.0
+        ],
+        "burst_settled_ms": 84.4,
+        "burst_settled_ms_runs": [
+          84.4
+        ],
+        "drag_first_motion_ms": 84.6,
+        "drag_first_motion_ms_runs": [
+          84.6
+        ],
+        "drag_lag_ms": 59.1,
+        "drag_lag_ms_runs": [
+          59.1
+        ],
+        "drag_lag_p95_ms": 75.8,
+        "drag_lag_p95_ms_runs": [
+          75.8
+        ],
+        "drag_settled_ms": -2.4,
+        "drag_settled_ms_runs": [
+          -2.4
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3936
+      },
+      "20M-d100": {
+        "type_first_ms": 150.0,
+        "type_first_ms_runs": [
+          150.0
+        ],
+        "click_first_ms": 145.4,
+        "click_first_ms_runs": [
+          145.4
+        ],
+        "wheel_first_ms": 155.0,
+        "wheel_first_ms_runs": [
+          155.0
+        ],
+        "wheel_settled_ms": 157.9,
+        "wheel_settled_ms_runs": [
+          157.9
+        ],
+        "burst_settled_ms": 151.8,
+        "burst_settled_ms_runs": [
+          151.8
+        ],
+        "drag_first_motion_ms": 166.9,
+        "drag_first_motion_ms_runs": [
+          166.9
+        ],
+        "drag_lag_ms": 150.1,
+        "drag_lag_ms_runs": [
+          150.1
+        ],
+        "drag_lag_p95_ms": 152.8,
+        "drag_lag_p95_ms_runs": [
+          152.8
+        ],
+        "drag_settled_ms": 78.2,
+        "drag_settled_ms_runs": [
+          78.2
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3963
+      },
+      "2M-d100": {
+        "type_first_ms": 153.2,
+        "type_first_ms_runs": [
+          153.2
+        ],
+        "click_first_ms": 145.2,
+        "click_first_ms_runs": [
+          145.2
+        ],
+        "wheel_first_ms": 153.4,
+        "wheel_first_ms_runs": [
+          153.4
+        ],
+        "wheel_settled_ms": 167.8,
+        "wheel_settled_ms_runs": [
+          167.8
+        ],
+        "burst_settled_ms": 152.5,
+        "burst_settled_ms_runs": [
+          152.5
+        ],
+        "drag_first_motion_ms": 175.3,
+        "drag_first_motion_ms_runs": [
+          175.3
+        ],
+        "drag_lag_ms": 168.3,
+        "drag_lag_ms_runs": [
+          168.3
+        ],
+        "drag_lag_p95_ms": 250.2,
+        "drag_lag_p95_ms_runs": [
+          250.2
+        ],
+        "drag_settled_ms": 174.5,
+        "drag_settled_ms_runs": [
+          174.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3961
+      }
+    },
+    "exp206": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 42.0,
+        "type_first_ms_runs": [
+          42.0
+        ],
+        "click_first_ms": 45.0,
+        "click_first_ms_runs": [
+          45.0
+        ],
+        "wheel_first_ms": 44.5,
+        "wheel_first_ms_runs": [
+          44.5
+        ],
+        "wheel_settled_ms": 67.8,
+        "wheel_settled_ms_runs": [
+          67.8
+        ],
+        "burst_settled_ms": 51.2,
+        "burst_settled_ms_runs": [
+          51.2
+        ],
+        "drag_first_motion_ms": 60.5,
+        "drag_first_motion_ms_runs": [
+          60.5
+        ],
+        "drag_lag_ms": 49.5,
+        "drag_lag_ms_runs": [
+          49.5
+        ],
+        "drag_lag_p95_ms": 58.8,
+        "drag_lag_p95_ms_runs": [
+          58.8
+        ],
+        "drag_settled_ms": -21.2,
+        "drag_settled_ms_runs": [
+          -21.2
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3886
+      },
+      "2M-d15": {
+        "type_first_ms": 43.8,
+        "type_first_ms_runs": [
+          43.8
+        ],
+        "click_first_ms": 45.0,
+        "click_first_ms_runs": [
+          45.0
+        ],
+        "wheel_first_ms": 51.0,
+        "wheel_first_ms_runs": [
+          51.0
+        ],
+        "wheel_settled_ms": 67.8,
+        "wheel_settled_ms_runs": [
+          67.8
+        ],
+        "burst_settled_ms": 51.1,
+        "burst_settled_ms_runs": [
+          51.1
+        ],
+        "drag_first_motion_ms": 77.0,
+        "drag_first_motion_ms_runs": [
+          77.0
+        ],
+        "drag_lag_ms": 50.1,
+        "drag_lag_ms_runs": [
+          50.1
+        ],
+        "drag_lag_p95_ms": 67.0,
+        "drag_lag_p95_ms_runs": [
+          67.0
+        ],
+        "drag_settled_ms": -21.5,
+        "drag_settled_ms_runs": [
+          -21.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3869
+      },
+      "20M-d100": {
+        "type_first_ms": 130.9,
+        "type_first_ms_runs": [
+          130.9
+        ],
+        "click_first_ms": 128.6,
+        "click_first_ms_runs": [
+          128.6
+        ],
+        "wheel_first_ms": 139.0,
+        "wheel_first_ms_runs": [
+          139.0
+        ],
+        "wheel_settled_ms": 146.3,
+        "wheel_settled_ms_runs": [
+          146.3
+        ],
+        "burst_settled_ms": 138.8,
+        "burst_settled_ms_runs": [
+          138.8
+        ],
+        "drag_first_motion_ms": 150.3,
+        "drag_first_motion_ms_runs": [
+          150.3
+        ],
+        "drag_lag_ms": 133.5,
+        "drag_lag_ms_runs": [
+          133.5
+        ],
+        "drag_lag_p95_ms": 142.6,
+        "drag_lag_p95_ms_runs": [
+          142.6
+        ],
+        "drag_settled_ms": 70.1,
+        "drag_settled_ms_runs": [
+          70.1
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3879
+      },
+      "2M-d100": {
+        "type_first_ms": 138.3,
+        "type_first_ms_runs": [
+          138.3
+        ],
+        "click_first_ms": 128.8,
+        "click_first_ms_runs": [
+          128.8
+        ],
+        "wheel_first_ms": 137.2,
+        "wheel_first_ms_runs": [
+          137.2
+        ],
+        "wheel_settled_ms": 151.4,
+        "wheel_settled_ms_runs": [
+          151.4
+        ],
+        "burst_settled_ms": 151.0,
+        "burst_settled_ms_runs": [
+          151.0
+        ],
+        "drag_first_motion_ms": 167.5,
+        "drag_first_motion_ms_runs": [
+          167.5
+        ],
+        "drag_lag_ms": 191.9,
+        "drag_lag_ms_runs": [
+          191.9
+        ],
+        "drag_lag_p95_ms": 258.7,
+        "drag_lag_p95_ms_runs": [
+          258.7
+        ],
+        "drag_settled_ms": 203.9,
+        "drag_settled_ms_runs": [
+          203.9
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 4416
+      }
+    },
+    "exp207": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 49.0,
+        "type_first_ms_runs": [
+          49.0
+        ],
+        "click_first_ms": 45.0,
+        "click_first_ms_runs": [
+          45.0
+        ],
+        "wheel_first_ms": 50.9,
+        "wheel_first_ms_runs": [
+          50.9
+        ],
+        "wheel_settled_ms": 67.7,
+        "wheel_settled_ms_runs": [
+          67.7
+        ],
+        "burst_settled_ms": 59.5,
+        "burst_settled_ms_runs": [
+          59.5
+        ],
+        "drag_first_motion_ms": 68.2,
+        "drag_first_motion_ms_runs": [
+          68.2
+        ],
+        "drag_lag_ms": 43.3,
+        "drag_lag_ms_runs": [
+          43.3
+        ],
+        "drag_lag_p95_ms": 58.7,
+        "drag_lag_p95_ms_runs": [
+          58.7
+        ],
+        "drag_settled_ms": -29.3,
+        "drag_settled_ms_runs": [
+          -29.3
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3882
+      },
+      "2M-d15": {
+        "type_first_ms": 44.4,
+        "type_first_ms_runs": [
+          44.4
+        ],
+        "click_first_ms": 45.2,
+        "click_first_ms_runs": [
+          45.2
+        ],
+        "wheel_first_ms": 51.0,
+        "wheel_first_ms_runs": [
+          51.0
+        ],
+        "wheel_settled_ms": 67.7,
+        "wheel_settled_ms_runs": [
+          67.7
+        ],
+        "burst_settled_ms": 58.7,
+        "burst_settled_ms_runs": [
+          58.7
+        ],
+        "drag_first_motion_ms": 75.2,
+        "drag_first_motion_ms_runs": [
+          75.2
+        ],
+        "drag_lag_ms": 50.2,
+        "drag_lag_ms_runs": [
+          50.2
+        ],
+        "drag_lag_p95_ms": 58.8,
+        "drag_lag_p95_ms_runs": [
+          58.8
+        ],
+        "drag_settled_ms": -23.3,
+        "drag_settled_ms_runs": [
+          -23.3
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3921
+      },
+      "20M-d100": {
+        "type_first_ms": 130.2,
+        "type_first_ms_runs": [
+          130.2
+        ],
+        "click_first_ms": 128.1,
+        "click_first_ms_runs": [
+          128.1
+        ],
+        "wheel_first_ms": 136.8,
+        "wheel_first_ms_runs": [
+          136.8
+        ],
+        "wheel_settled_ms": 145.8,
+        "wheel_settled_ms_runs": [
+          145.8
+        ],
+        "burst_settled_ms": 138.1,
+        "burst_settled_ms_runs": [
+          138.1
+        ],
+        "drag_first_motion_ms": 158.9,
+        "drag_first_motion_ms_runs": [
+          158.9
+        ],
+        "drag_lag_ms": 133.5,
+        "drag_lag_ms_runs": [
+          133.5
+        ],
+        "drag_lag_p95_ms": 150.3,
+        "drag_lag_p95_ms_runs": [
+          150.3
+        ],
+        "drag_settled_ms": 63.8,
+        "drag_settled_ms_runs": [
+          63.8
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3986
+      },
+      "2M-d100": {
+        "type_first_ms": 134.0,
+        "type_first_ms_runs": [
+          134.0
+        ],
+        "click_first_ms": 136.6,
+        "click_first_ms_runs": [
+          136.6
+        ],
+        "wheel_first_ms": 137.7,
+        "wheel_first_ms_runs": [
+          137.7
+        ],
+        "wheel_settled_ms": 151.0,
+        "wheel_settled_ms_runs": [
+          151.0
+        ],
+        "burst_settled_ms": 160.8,
+        "burst_settled_ms_runs": [
+          160.8
+        ],
+        "drag_first_motion_ms": 159.1,
+        "drag_first_motion_ms_runs": [
+          159.1
+        ],
+        "drag_lag_ms": 183.7,
+        "drag_lag_ms_runs": [
+          183.7
+        ],
+        "drag_lag_p95_ms": 242.7,
+        "drag_lag_p95_ms_runs": [
+          242.7
+        ],
+        "drag_settled_ms": 116.0,
+        "drag_settled_ms_runs": [
+          116.0
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 4169
+      }
+    },
+    "exp208": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 46.6,
+        "type_first_ms_runs": [
+          46.6
+        ],
+        "click_first_ms": 44.8,
+        "click_first_ms_runs": [
+          44.8
+        ],
+        "wheel_first_ms": 51.0,
+        "wheel_first_ms_runs": [
+          51.0
+        ],
+        "wheel_settled_ms": 67.7,
+        "wheel_settled_ms_runs": [
+          67.7
+        ],
+        "burst_settled_ms": 67.5,
+        "burst_settled_ms_runs": [
+          67.5
+        ],
+        "drag_first_motion_ms": 67.0,
+        "drag_first_motion_ms_runs": [
+          67.0
+        ],
+        "drag_lag_ms": 50.1,
+        "drag_lag_ms_runs": [
+          50.1
+        ],
+        "drag_lag_p95_ms": 65.5,
+        "drag_lag_p95_ms_runs": [
+          65.5
+        ],
+        "drag_settled_ms": -8.0,
+        "drag_settled_ms_runs": [
+          -8.0
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3897
+      },
+      "2M-d15": {
+        "type_first_ms": 46.7,
+        "type_first_ms_runs": [
+          46.7
+        ],
+        "click_first_ms": 44.7,
+        "click_first_ms_runs": [
+          44.7
+        ],
+        "wheel_first_ms": 36.7,
+        "wheel_first_ms_runs": [
+          36.7
+        ],
+        "wheel_settled_ms": 67.6,
+        "wheel_settled_ms_runs": [
+          67.6
+        ],
+        "burst_settled_ms": 51.7,
+        "burst_settled_ms_runs": [
+          51.7
+        ],
+        "drag_first_motion_ms": 75.3,
+        "drag_first_motion_ms_runs": [
+          75.3
+        ],
+        "drag_lag_ms": 50.2,
+        "drag_lag_ms_runs": [
+          50.2
+        ],
+        "drag_lag_p95_ms": 67.1,
+        "drag_lag_p95_ms_runs": [
+          67.1
+        ],
+        "drag_settled_ms": -7.9,
+        "drag_settled_ms_runs": [
+          -7.9
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3863
+      },
+      "20M-d100": {
+        "type_first_ms": 128.4,
+        "type_first_ms_runs": [
+          128.4
+        ],
+        "click_first_ms": 136.8,
+        "click_first_ms_runs": [
+          136.8
+        ],
+        "wheel_first_ms": 137.2,
+        "wheel_first_ms_runs": [
+          137.2
+        ],
+        "wheel_settled_ms": 140.1,
+        "wheel_settled_ms_runs": [
+          140.1
+        ],
+        "burst_settled_ms": 136.0,
+        "burst_settled_ms_runs": [
+          136.0
+        ],
+        "drag_first_motion_ms": 150.4,
+        "drag_first_motion_ms_runs": [
+          150.4
+        ],
+        "drag_lag_ms": 133.5,
+        "drag_lag_ms_runs": [
+          133.5
+        ],
+        "drag_lag_p95_ms": 144.0,
+        "drag_lag_p95_ms_runs": [
+          144.0
+        ],
+        "drag_settled_ms": 57.9,
+        "drag_settled_ms_runs": [
+          57.9
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3872
+      },
+      "2M-d100": {
+        "type_first_ms": 130.0,
+        "type_first_ms_runs": [
+          130.0
+        ],
+        "click_first_ms": 144.4,
+        "click_first_ms_runs": [
+          144.4
+        ],
+        "wheel_first_ms": 135.9,
+        "wheel_first_ms_runs": [
+          135.9
+        ],
+        "wheel_settled_ms": 162.1,
+        "wheel_settled_ms_runs": [
+          162.1
+        ],
+        "burst_settled_ms": 151.2,
+        "burst_settled_ms_runs": [
+          151.2
+        ],
+        "drag_first_motion_ms": 167.0,
+        "drag_first_motion_ms_runs": [
+          167.0
+        ],
+        "drag_lag_ms": 159.6,
+        "drag_lag_ms_runs": [
+          159.6
+        ],
+        "drag_lag_p95_ms": 285.3,
+        "drag_lag_p95_ms_runs": [
+          285.3
+        ],
+        "drag_settled_ms": 185.8,
+        "drag_settled_ms_runs": [
+          185.8
+        ],
+        "drag_final_error_max_px": 149,
+        "drag_final_error_max_px_runs": [
+          149
+        ],
+        "transport_kb": 4184
+      }
+    },
+    "exp209": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 40.0,
+        "type_first_ms_runs": [
+          40.0
+        ],
+        "click_first_ms": 44.7,
+        "click_first_ms_runs": [
+          44.7
+        ],
+        "wheel_first_ms": 36.0,
+        "wheel_first_ms_runs": [
+          36.0
+        ],
+        "wheel_settled_ms": 67.7,
+        "wheel_settled_ms_runs": [
+          67.7
+        ],
+        "burst_settled_ms": 51.0,
+        "burst_settled_ms_runs": [
+          51.0
+        ],
+        "drag_first_motion_ms": 66.9,
+        "drag_first_motion_ms_runs": [
+          66.9
+        ],
+        "drag_lag_ms": 50.0,
+        "drag_lag_ms_runs": [
+          50.0
+        ],
+        "drag_lag_p95_ms": 59.1,
+        "drag_lag_p95_ms_runs": [
+          59.1
+        ],
+        "drag_settled_ms": -26.9,
+        "drag_settled_ms_runs": [
+          -26.9
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3868
+      },
+      "2M-d15": {
+        "type_first_ms": 45.3,
+        "type_first_ms_runs": [
+          45.3
+        ],
+        "click_first_ms": 45.0,
+        "click_first_ms_runs": [
+          45.0
+        ],
+        "wheel_first_ms": 51.7,
+        "wheel_first_ms_runs": [
+          51.7
+        ],
+        "wheel_settled_ms": 69.3,
+        "wheel_settled_ms_runs": [
+          69.3
+        ],
+        "burst_settled_ms": 66.3,
+        "burst_settled_ms_runs": [
+          66.3
+        ],
+        "drag_first_motion_ms": 75.4,
+        "drag_first_motion_ms_runs": [
+          75.4
+        ],
+        "drag_lag_ms": 50.2,
+        "drag_lag_ms_runs": [
+          50.2
+        ],
+        "drag_lag_p95_ms": 60.5,
+        "drag_lag_p95_ms_runs": [
+          60.5
+        ],
+        "drag_settled_ms": -11.2,
+        "drag_settled_ms_runs": [
+          -11.2
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3860
+      },
+      "20M-d100": {
+        "type_first_ms": 139.2,
+        "type_first_ms_runs": [
+          139.2
+        ],
+        "click_first_ms": 128.3,
+        "click_first_ms_runs": [
+          128.3
+        ],
+        "wheel_first_ms": 139.2,
+        "wheel_first_ms_runs": [
+          139.2
+        ],
+        "wheel_settled_ms": 150.9,
+        "wheel_settled_ms_runs": [
+          150.9
+        ],
+        "burst_settled_ms": 136.2,
+        "burst_settled_ms_runs": [
+          136.2
+        ],
+        "drag_first_motion_ms": 160.2,
+        "drag_first_motion_ms_runs": [
+          160.2
+        ],
+        "drag_lag_ms": 133.5,
+        "drag_lag_ms_runs": [
+          133.5
+        ],
+        "drag_lag_p95_ms": 142.5,
+        "drag_lag_p95_ms_runs": [
+          142.5
+        ],
+        "drag_settled_ms": 61.0,
+        "drag_settled_ms_runs": [
+          61.0
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3907
+      },
+      "2M-d100": {
+        "type_first_ms": 132.5,
+        "type_first_ms_runs": [
+          132.5
+        ],
+        "click_first_ms": 128.5,
+        "click_first_ms_runs": [
+          128.5
+        ],
+        "wheel_first_ms": 135.7,
+        "wheel_first_ms_runs": [
+          135.7
+        ],
+        "wheel_settled_ms": 151.2,
+        "wheel_settled_ms_runs": [
+          151.2
+        ],
+        "burst_settled_ms": 151.1,
+        "burst_settled_ms_runs": [
+          151.1
+        ],
+        "drag_first_motion_ms": 167.0,
+        "drag_first_motion_ms_runs": [
+          167.0
+        ],
+        "drag_lag_ms": 149.7,
+        "drag_lag_ms_runs": [
+          149.7
+        ],
+        "drag_lag_p95_ms": 218.6,
+        "drag_lag_p95_ms_runs": [
+          218.6
+        ],
+        "drag_settled_ms": 97.8,
+        "drag_settled_ms_runs": [
+          97.8
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3950
+      }
+    },
+    "exp210": {
+      "runs": 0
+    },
+    "exp211": {
+      "runs": 0
+    },
+    "exp212": {
+      "runs": 0
+    },
+    "exp213": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 48.3,
+        "type_first_ms_runs": [
+          48.3
+        ],
+        "click_first_ms": 45.1,
+        "click_first_ms_runs": [
+          45.1
+        ],
+        "wheel_first_ms": 50.9,
+        "wheel_first_ms_runs": [
+          50.9
+        ],
+        "wheel_settled_ms": 67.8,
+        "wheel_settled_ms_runs": [
+          67.8
+        ],
+        "burst_settled_ms": 51.0,
+        "burst_settled_ms_runs": [
+          51.0
+        ],
+        "drag_first_motion_ms": 68.2,
+        "drag_first_motion_ms_runs": [
+          68.2
+        ],
+        "drag_lag_ms": 50.2,
+        "drag_lag_ms_runs": [
+          50.2
+        ],
+        "drag_lag_p95_ms": 60.7,
+        "drag_lag_p95_ms_runs": [
+          60.7
+        ],
+        "drag_settled_ms": -28.8,
+        "drag_settled_ms_runs": [
+          -28.8
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3886
+      },
+      "2M-d15": {
+        "type_first_ms": 47.0,
+        "type_first_ms_runs": [
+          47.0
+        ],
+        "click_first_ms": 45.0,
+        "click_first_ms_runs": [
+          45.0
+        ],
+        "wheel_first_ms": 51.0,
+        "wheel_first_ms_runs": [
+          51.0
+        ],
+        "wheel_settled_ms": 67.7,
+        "wheel_settled_ms_runs": [
+          67.7
+        ],
+        "burst_settled_ms": 51.1,
+        "burst_settled_ms_runs": [
+          51.1
+        ],
+        "drag_first_motion_ms": 67.2,
+        "drag_first_motion_ms_runs": [
+          67.2
+        ],
+        "drag_lag_ms": 50.2,
+        "drag_lag_ms_runs": [
+          50.2
+        ],
+        "drag_lag_p95_ms": 66.9,
+        "drag_lag_p95_ms_runs": [
+          66.9
+        ],
+        "drag_settled_ms": -26.1,
+        "drag_settled_ms_runs": [
+          -26.1
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3861
+      },
+      "20M-d100": {
+        "type_first_ms": 128.5,
+        "type_first_ms_runs": [
+          128.5
+        ],
+        "click_first_ms": 128.3,
+        "click_first_ms_runs": [
+          128.3
+        ],
+        "wheel_first_ms": 137.7,
+        "wheel_first_ms_runs": [
+          137.7
+        ],
+        "wheel_settled_ms": 146.0,
+        "wheel_settled_ms_runs": [
+          146.0
+        ],
+        "burst_settled_ms": 136.8,
+        "burst_settled_ms_runs": [
+          136.8
+        ],
+        "drag_first_motion_ms": 150.2,
+        "drag_first_motion_ms_runs": [
+          150.2
+        ],
+        "drag_lag_ms": 133.6,
+        "drag_lag_ms_runs": [
+          133.6
+        ],
+        "drag_lag_p95_ms": 142.2,
+        "drag_lag_p95_ms_runs": [
+          142.2
+        ],
+        "drag_settled_ms": 70.5,
+        "drag_settled_ms_runs": [
+          70.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3906
+      },
+      "2M-d100": {
+        "type_first_ms": 129.0,
+        "type_first_ms_runs": [
+          129.0
+        ],
+        "click_first_ms": 144.4,
+        "click_first_ms_runs": [
+          144.4
+        ],
+        "wheel_first_ms": 136.5,
+        "wheel_first_ms_runs": [
+          136.5
+        ],
+        "wheel_settled_ms": 151.2,
+        "wheel_settled_ms_runs": [
+          151.2
+        ],
+        "burst_settled_ms": 159.8,
+        "burst_settled_ms_runs": [
+          159.8
+        ],
+        "drag_first_motion_ms": 160.0,
+        "drag_first_motion_ms_runs": [
+          160.0
+        ],
+        "drag_lag_ms": 159.8,
+        "drag_lag_ms_runs": [
+          159.8
+        ],
+        "drag_lag_p95_ms": 226.0,
+        "drag_lag_p95_ms_runs": [
+          226.0
+        ],
+        "drag_settled_ms": 141.6,
+        "drag_settled_ms_runs": [
+          141.6
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 4153
+      }
+    }
+  },
+  "responsiveness_firefox_pve_nvenc": {
+    "exp213": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 42.5,
+        "type_first_ms_runs": [
+          42.5
+        ],
+        "click_first_ms": 44.0,
+        "click_first_ms_runs": [
+          44.0
+        ],
+        "wheel_first_ms": 47.0,
+        "wheel_first_ms_runs": [
+          47.0
+        ],
+        "wheel_settled_ms": 63.0,
+        "wheel_settled_ms_runs": [
+          63.0
+        ],
+        "burst_settled_ms": 54.0,
+        "burst_settled_ms_runs": [
+          54.0
+        ],
+        "drag_first_motion_ms": 67.0,
+        "drag_first_motion_ms_runs": [
+          67.0
+        ],
+        "drag_lag_ms": 48.2,
+        "drag_lag_ms_runs": [
+          48.2
+        ],
+        "drag_lag_p95_ms": 51.0,
+        "drag_lag_p95_ms_runs": [
+          51.0
+        ],
+        "drag_settled_ms": -27.5,
+        "drag_settled_ms_runs": [
+          -27.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 5193
+      },
+      "2M-d15": {
+        "type_first_ms": 42.0,
+        "type_first_ms_runs": [
+          42.0
+        ],
+        "click_first_ms": 44.0,
+        "click_first_ms_runs": [
+          44.0
+        ],
+        "wheel_first_ms": 46.0,
+        "wheel_first_ms_runs": [
+          46.0
+        ],
+        "wheel_settled_ms": 63.0,
+        "wheel_settled_ms_runs": [
+          63.0
+        ],
+        "burst_settled_ms": 80.0,
+        "burst_settled_ms_runs": [
+          80.0
+        ],
+        "drag_first_motion_ms": 67.0,
+        "drag_first_motion_ms_runs": [
+          67.0
+        ],
+        "drag_lag_ms": 49.0,
+        "drag_lag_ms_runs": [
+          49.0
+        ],
+        "drag_lag_p95_ms": 51.0,
+        "drag_lag_p95_ms_runs": [
+          51.0
+        ],
+        "drag_settled_ms": -26.5,
+        "drag_settled_ms_runs": [
+          -26.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 5163
+      },
+      "20M-d100": {
+        "type_first_ms": 135.0,
+        "type_first_ms_runs": [
+          135.0
+        ],
+        "click_first_ms": 142.5,
+        "click_first_ms_runs": [
+          142.5
+        ],
+        "wheel_first_ms": 130.0,
+        "wheel_first_ms_runs": [
+          130.0
+        ],
+        "wheel_settled_ms": 146.0,
+        "wheel_settled_ms_runs": [
+          146.0
+        ],
+        "burst_settled_ms": 161.5,
+        "burst_settled_ms_runs": [
+          161.5
+        ],
+        "drag_first_motion_ms": 150.5,
+        "drag_first_motion_ms_runs": [
+          150.5
+        ],
+        "drag_lag_ms": 133.0,
+        "drag_lag_ms_runs": [
+          133.0
+        ],
+        "drag_lag_p95_ms": 135.0,
+        "drag_lag_p95_ms_runs": [
+          135.0
+        ],
+        "drag_settled_ms": 72.5,
+        "drag_settled_ms_runs": [
+          72.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 5160
+      },
+      "2M-d100": {
+        "type_first_ms": 134.5,
+        "type_first_ms_runs": [
+          134.5
+        ],
+        "click_first_ms": 143.5,
+        "click_first_ms_runs": [
+          143.5
+        ],
+        "wheel_first_ms": 138.5,
+        "wheel_first_ms_runs": [
+          138.5
+        ],
+        "wheel_settled_ms": 161.5,
+        "wheel_settled_ms_runs": [
+          161.5
+        ],
+        "burst_settled_ms": 201.5,
+        "burst_settled_ms_runs": [
+          201.5
+        ],
+        "drag_first_motion_ms": 152.0,
+        "drag_first_motion_ms_runs": [
+          152.0
+        ],
+        "drag_lag_ms": 134.0,
+        "drag_lag_ms_runs": [
+          134.0
+        ],
+        "drag_lag_p95_ms": 143.0,
+        "drag_lag_p95_ms_runs": [
+          143.0
+        ],
+        "drag_settled_ms": 72.5,
+        "drag_settled_ms_runs": [
+          72.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 5160
+      }
+    }
+  },
+  "responsiveness_asrock_amd_vaapi": {
+    "scope": "Controller to host TCP RTT is about 85 ms against 0.25 ms for PVE, so absolute values are not comparable with RDP at equal netem delay.",
+    "exp213": {
+      "runs": 3,
+      "20M-d15": {
+        "type_first_ms": 119.5,
+        "type_first_ms_runs": [
+          123.0,
+          119.0,
+          119.5
+        ],
+        "click_first_ms": 127.0,
+        "click_first_ms_runs": [
+          127.0,
+          127.0,
+          127.0
+        ],
+        "wheel_first_ms": 115.0,
+        "wheel_first_ms_runs": [
+          115.0,
+          115.5,
+          114.0
+        ],
+        "wheel_settled_ms": 139.0,
+        "wheel_settled_ms_runs": [
+          131.0,
+          147.0,
+          139.0
+        ],
+        "burst_settled_ms": 131.0,
+        "burst_settled_ms_runs": [
+          131.0,
+          130.5,
+          132.5
+        ],
+        "drag_first_motion_ms": 151.5,
+        "drag_first_motion_ms_runs": [
+          150.5,
+          152.0,
+          151.5
+        ],
+        "drag_lag_ms": 126.0,
+        "drag_lag_ms_runs": [
+          132.0,
+          122.8,
+          126.0
+        ],
+        "drag_lag_p95_ms": 135.0,
+        "drag_lag_p95_ms_runs": [
+          135.0,
+          135.0,
+          136.0
+        ],
+        "drag_settled_ms": 64.5,
+        "drag_settled_ms_runs": [
+          64.5,
+          58.5,
+          66.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "transport_kb": 5263
+      },
+      "2M-d15": {
+        "type_first_ms": 122.0,
+        "type_first_ms_runs": [
+          124.0,
+          117.5,
+          122.0
+        ],
+        "click_first_ms": 127.0,
+        "click_first_ms_runs": [
+          127.0,
+          128.0,
+          127.0
+        ],
+        "wheel_first_ms": 114.0,
+        "wheel_first_ms_runs": [
+          114.0,
+          114.0,
+          114.0
+        ],
+        "wheel_settled_ms": 147.0,
+        "wheel_settled_ms_runs": [
+          147.0,
+          147.0,
+          147.0
+        ],
+        "burst_settled_ms": 139.0,
+        "burst_settled_ms_runs": [
+          139.0,
+          140.0,
+          139.0
+        ],
+        "drag_first_motion_ms": 150.5,
+        "drag_first_motion_ms_runs": [
+          151.0,
+          144.0,
+          150.5
+        ],
+        "drag_lag_ms": 127.0,
+        "drag_lag_ms_runs": [
+          127.0,
+          119.0,
+          132.8
+        ],
+        "drag_lag_p95_ms": 135.5,
+        "drag_lag_p95_ms_runs": [
+          136.0,
+          135.0,
+          135.5
+        ],
+        "drag_settled_ms": 60.5,
+        "drag_settled_ms_runs": [
+          60.5,
+          58.5,
+          66.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "transport_kb": 5229
+      },
+      "20M-d100": {
+        "type_first_ms": 204.0,
+        "type_first_ms_runs": [
+          203.5,
+          204.0,
+          204.0
+        ],
+        "click_first_ms": 210.0,
+        "click_first_ms_runs": [
+          210.0,
+          210.0,
+          210.5
+        ],
+        "wheel_first_ms": 206.0,
+        "wheel_first_ms_runs": [
+          198.0,
+          206.0,
+          213.0
+        ],
+        "wheel_settled_ms": 231.0,
+        "wheel_settled_ms_runs": [
+          215.0,
+          231.0,
+          231.0
+        ],
+        "burst_settled_ms": 237.0,
+        "burst_settled_ms_runs": [
+          231.0,
+          237.0,
+          253.0
+        ],
+        "drag_first_motion_ms": 235.5,
+        "drag_first_motion_ms_runs": [
+          234.0,
+          235.5,
+          235.5
+        ],
+        "drag_lag_ms": 217.0,
+        "drag_lag_ms_runs": [
+          216.8,
+          218.0,
+          217.0
+        ],
+        "drag_lag_p95_ms": 219.0,
+        "drag_lag_p95_ms_runs": [
+          219.0,
+          220.0,
+          219.0
+        ],
+        "drag_settled_ms": 150.5,
+        "drag_settled_ms_runs": [
+          151.0,
+          150.5,
+          147.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "transport_kb": 5227
+      },
+      "2M-d100": {
+        "type_first_ms": 206.0,
+        "type_first_ms_runs": [
+          206.0,
+          204.0,
+          207.0
+        ],
+        "click_first_ms": 211.0,
+        "click_first_ms_runs": [
+          210.5,
+          211.0,
+          211.0
+        ],
+        "wheel_first_ms": 212.5,
+        "wheel_first_ms_runs": [
+          212.5,
+          213.0,
+          206.0
+        ],
+        "wheel_settled_ms": 231.5,
+        "wheel_settled_ms_runs": [
+          231.0,
+          247.5,
+          231.5
+        ],
+        "burst_settled_ms": 231.5,
+        "burst_settled_ms_runs": [
+          231.5,
+          255.0,
+          231.0
+        ],
+        "drag_first_motion_ms": 235.5,
+        "drag_first_motion_ms_runs": [
+          235.5,
+          235.5,
+          234.5
+        ],
+        "drag_lag_ms": 217.0,
+        "drag_lag_ms_runs": [
+          217.5,
+          217.0,
+          217.0
+        ],
+        "drag_lag_p95_ms": 221.0,
+        "drag_lag_p95_ms_runs": [
+          233.5,
+          220.0,
+          221.0
+        ],
+        "drag_settled_ms": 149.5,
+        "drag_settled_ms_runs": [
+          156.5,
+          149.0,
+          149.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0,
+          0,
+          0
+        ],
+        "transport_kb": 5203
+      }
+    },
+    "exp213_text": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 124.5,
+        "type_first_ms_runs": [
+          124.5
+        ],
+        "click_first_ms": 127.0,
+        "click_first_ms_runs": [
+          127.0
+        ],
+        "wheel_first_ms": 114.5,
+        "wheel_first_ms_runs": [
+          114.5
+        ],
+        "wheel_settled_ms": 146.0,
+        "wheel_settled_ms_runs": [
+          146.0
+        ],
+        "burst_settled_ms": 131.0,
+        "burst_settled_ms_runs": [
+          131.0
+        ],
+        "drag_first_motion_ms": 152.0,
+        "drag_first_motion_ms_runs": [
+          152.0
+        ],
+        "drag_lag_ms": 133.5,
+        "drag_lag_ms_runs": [
+          133.5
+        ],
+        "drag_lag_p95_ms": 143.0,
+        "drag_lag_p95_ms_runs": [
+          143.0
+        ],
+        "drag_settled_ms": 60.5,
+        "drag_settled_ms_runs": [
+          60.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 6481
+      },
+      "2M-d15": {
+        "type_first_ms": 119.0,
+        "type_first_ms_runs": [
+          119.0
+        ],
+        "click_first_ms": 127.0,
+        "click_first_ms_runs": [
+          127.0
+        ],
+        "wheel_first_ms": 130.5,
+        "wheel_first_ms_runs": [
+          130.5
+        ],
+        "wheel_settled_ms": 147.0,
+        "wheel_settled_ms_runs": [
+          147.0
+        ],
+        "burst_settled_ms": 139.5,
+        "burst_settled_ms_runs": [
+          139.5
+        ],
+        "drag_first_motion_ms": 159.5,
+        "drag_first_motion_ms_runs": [
+          159.5
+        ],
+        "drag_lag_ms": 217.5,
+        "drag_lag_ms_runs": [
+          217.5
+        ],
+        "drag_lag_p95_ms": 350.5,
+        "drag_lag_p95_ms_runs": [
+          350.5
+        ],
+        "drag_settled_ms": 291.0,
+        "drag_settled_ms_runs": [
+          291.0
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 6481
+      },
+      "20M-d100": {
+        "type_first_ms": 203.0,
+        "type_first_ms_runs": [
+          203.0
+        ],
+        "click_first_ms": 212.0,
+        "click_first_ms_runs": [
+          212.0
+        ],
+        "wheel_first_ms": 198.0,
+        "wheel_first_ms_runs": [
+          198.0
+        ],
+        "wheel_settled_ms": 215.0,
+        "wheel_settled_ms_runs": [
+          215.0
+        ],
+        "burst_settled_ms": 231.5,
+        "burst_settled_ms_runs": [
+          231.5
+        ],
+        "drag_first_motion_ms": 234.0,
+        "drag_first_motion_ms_runs": [
+          234.0
+        ],
+        "drag_lag_ms": 217.0,
+        "drag_lag_ms_runs": [
+          217.0
+        ],
+        "drag_lag_p95_ms": 219.5,
+        "drag_lag_p95_ms_runs": [
+          219.5
+        ],
+        "drag_settled_ms": 148.5,
+        "drag_settled_ms_runs": [
+          148.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 6466
+      },
+      "2M-d100": {
+        "type_first_ms": 202.0,
+        "type_first_ms_runs": [
+          202.0
+        ],
+        "click_first_ms": 211.0,
+        "click_first_ms_runs": [
+          211.0
+        ],
+        "wheel_first_ms": 213.5,
+        "wheel_first_ms_runs": [
+          213.5
+        ],
+        "wheel_settled_ms": 248.0,
+        "wheel_settled_ms_runs": [
+          248.0
+        ],
+        "burst_settled_ms": 239.5,
+        "burst_settled_ms_runs": [
+          239.5
+        ],
+        "drag_first_motion_ms": 251.0,
+        "drag_first_motion_ms_runs": [
+          251.0
+        ],
+        "drag_lag_ms": 342.0,
+        "drag_lag_ms_runs": [
+          342.0
+        ],
+        "drag_lag_p95_ms": 533.5,
+        "drag_lag_p95_ms_runs": [
+          533.5
+        ],
+        "drag_settled_ms": 472.5,
+        "drag_settled_ms_runs": [
+          472.5
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 6448
+      }
+    }
+  },
+  "clip_gates": {
+    "pve_nvenc_transition": {
+      "exp201": [
+        {
+          "run": "lxc201-first",
+          "failed": [],
+          "fps": [
+            57.2,
+            52.5,
+            55.2
+          ],
+          "excess_ms": 383,
+          "narrow_age_max_ms": 534,
+          "max_gap_ms": 235
+        },
+        {
+          "run": "lxc201-second",
+          "failed": [],
+          "fps": [
+            57.7,
+            52.4,
+            56.1
+          ],
+          "excess_ms": 366,
+          "narrow_age_max_ms": 506,
+          "max_gap_ms": 283
+        },
+        {
+          "run": "lxc201-third",
+          "failed": [
+            "full_source_excess_from_fast_p95_at_most_400ms"
+          ],
+          "fps": [
+            58.1,
+            52.9,
+            57.1
+          ],
+          "excess_ms": 432,
+          "narrow_age_max_ms": 573,
+          "max_gap_ms": 232
+        }
+      ],
+      "exp202": [
+        {
+          "run": "lxc202-first",
+          "failed": [
+            "full_source_excess_from_fast_p95_at_most_400ms"
+          ],
+          "fps": [
+            58.6,
+            52.2,
+            56.1
+          ],
+          "excess_ms": 416,
+          "narrow_age_max_ms": 553,
+          "max_gap_ms": 283
+        },
+        {
+          "run": "lxc202-second",
+          "failed": [],
+          "fps": [
+            57.1,
+            53.2,
+            56.9
+          ],
+          "excess_ms": 367,
+          "narrow_age_max_ms": 522,
+          "max_gap_ms": 269
+        },
+        {
+          "run": "lxc202-third",
+          "failed": [],
+          "fps": [
+            57.0,
+            52.3,
+            56.7
+          ],
+          "excess_ms": 385,
+          "narrow_age_max_ms": 540,
+          "max_gap_ms": 267
+        }
+      ],
+      "exp203": [
+        {
+          "run": "lxc203-first",
+          "failed": [
+            "full_source_excess_from_fast_p95_at_most_400ms"
+          ],
+          "fps": [
+            57.7,
+            52.3,
+            55.6
+          ],
+          "excess_ms": 416,
+          "narrow_age_max_ms": 552,
+          "max_gap_ms": 284
+        },
+        {
+          "run": "lxc203-second",
+          "failed": [],
+          "fps": [
+            58.3,
+            52.4,
+            56.4
+          ],
+          "excess_ms": 383,
+          "narrow_age_max_ms": 524,
+          "max_gap_ms": 283
+        },
+        {
+          "run": "lxc203-third",
+          "failed": [],
+          "fps": [
+            58.1,
+            52.5,
+            55.1
+          ],
+          "excess_ms": 366,
+          "narrow_age_max_ms": 507,
+          "max_gap_ms": 300
+        }
+      ],
+      "exp204": [
+        {
+          "run": "lxc204-first",
+          "failed": [],
+          "fps": [
+            56.5,
+            52.8,
+            56.0
+          ],
+          "excess_ms": 383,
+          "narrow_age_max_ms": 526,
+          "max_gap_ms": 266
+        },
+        {
+          "run": "lxc204-second",
+          "failed": [],
+          "fps": [
+            56.8,
+            54.5,
+            56.4
+          ],
+          "excess_ms": 366,
+          "narrow_age_max_ms": 516,
+          "max_gap_ms": 217
+        },
+        {
+          "run": "lxc204-third",
+          "failed": [],
+          "fps": [
+            57.3,
+            52.2,
+            56.0
+          ],
+          "excess_ms": 384,
+          "narrow_age_max_ms": 532,
+          "max_gap_ms": 267
+        }
+      ],
+      "exp205": [
+        {
+          "run": "lxc205-first",
+          "failed": [],
+          "fps": [
+            56.6,
+            52.2,
+            55.9
+          ],
+          "excess_ms": 351,
+          "narrow_age_max_ms": 507,
+          "max_gap_ms": 300
+        },
+        {
+          "run": "lxc205-second",
+          "failed": [],
+          "fps": [
+            56.8,
+            52.8,
+            56.7
+          ],
+          "excess_ms": 366,
+          "narrow_age_max_ms": 518,
+          "max_gap_ms": 250
+        },
+        {
+          "run": "lxc205-third",
+          "failed": [],
+          "fps": [
+            57.7,
+            52.9,
+            54.8
+          ],
+          "excess_ms": 333,
+          "narrow_age_max_ms": 479,
+          "max_gap_ms": 219
+        }
+      ],
+      "exp206": [
+        {
+          "run": "lxc206-first",
+          "failed": [],
+          "fps": [
+            58.0,
+            52.8,
+            55.8
+          ],
+          "excess_ms": 366,
+          "narrow_age_max_ms": 499,
+          "max_gap_ms": 299
+        }
+      ],
+      "exp207": [
+        {
+          "run": "lxc207-first",
+          "failed": [],
+          "fps": [
+            58.3,
+            53.0,
+            55.7
+          ],
+          "excess_ms": 383,
+          "narrow_age_max_ms": 525,
+          "max_gap_ms": 250
+        },
+        {
+          "run": "lxc207-second",
+          "failed": [],
+          "fps": [
+            56.9,
+            52.7,
+            57.9
+          ],
+          "excess_ms": 382,
+          "narrow_age_max_ms": 515,
+          "max_gap_ms": 301
+        },
+        {
+          "run": "lxc207-third",
+          "failed": [],
+          "fps": [
+            57.8,
+            52.9,
+            56.0
+          ],
+          "excess_ms": 383,
+          "narrow_age_max_ms": 525,
+          "max_gap_ms": 249
+        }
+      ],
+      "exp208": [
+        {
+          "run": "lxc208-first",
+          "failed": [],
+          "fps": [
+            58.6,
+            52.2,
+            56.9
+          ],
+          "excess_ms": 399,
+          "narrow_age_max_ms": 518,
+          "max_gap_ms": 300
+        },
+        {
+          "run": "lxc208-second",
+          "failed": [],
+          "fps": [
+            56.9,
+            54.0,
+            57.6
+          ],
+          "excess_ms": 349,
+          "narrow_age_max_ms": 483,
+          "max_gap_ms": 217
+        },
+        {
+          "run": "lxc208-third",
+          "failed": [],
+          "fps": [
+            57.4,
+            53.8,
+            55.9
+          ],
+          "excess_ms": 367,
+          "narrow_age_max_ms": 501,
+          "max_gap_ms": 300
+        }
+      ],
+      "exp209": [
+        {
+          "run": "lxc209-first",
+          "failed": [
+            "full_source_excess_from_fast_p95_at_most_400ms"
+          ],
+          "fps": [
+            57.9,
+            53.3,
+            56.6
+          ],
+          "excess_ms": 416,
+          "narrow_age_max_ms": 547,
+          "max_gap_ms": 299
+        },
+        {
+          "run": "lxc209-second",
+          "failed": [],
+          "fps": [
+            57.5,
+            53.6,
+            57.1
+          ],
+          "excess_ms": 367,
+          "narrow_age_max_ms": 511,
+          "max_gap_ms": 249
+        },
+        {
+          "run": "lxc209-third",
+          "failed": [],
+          "fps": [
+            57.3,
+            53.7,
+            56.6
+          ],
+          "excess_ms": 399,
+          "narrow_age_max_ms": 532,
+          "max_gap_ms": 234
+        }
+      ],
+      "exp210": [],
+      "exp211": [],
+      "exp212": [],
+      "exp213": [
+        {
+          "run": "lxc213-first",
+          "failed": [],
+          "fps": [
+            58.6,
+            52.4,
+            55.8
+          ],
+          "excess_ms": 383,
+          "narrow_age_max_ms": 510,
+          "max_gap_ms": 267
+        },
+        {
+          "run": "lxc213-second",
+          "failed": [],
+          "fps": [
+            58.5,
+            52.2,
+            56.7
+          ],
+          "excess_ms": 350,
+          "narrow_age_max_ms": 483,
+          "max_gap_ms": 250
+        },
+        {
+          "run": "lxc213-third",
+          "failed": [
+            "full_source_excess_from_fast_p95_at_most_400ms"
+          ],
+          "fps": [
+            57.3,
+            53.2,
+            56.7
+          ],
+          "excess_ms": 401,
+          "narrow_age_max_ms": 535,
+          "max_gap_ms": 250
+        }
+      ]
+    },
+    "pve_nvenc_hardcut": {
+      "exp201": [
+        {
+          "run": "hardcut201-first",
+          "failed": [],
+          "narrow_min_ssim": 0.904,
+          "fps": {
+            "fast": 56.6,
+            "narrow": 49.1
+          }
+        },
+        {
+          "run": "hardcut201-second",
+          "failed": [],
+          "narrow_min_ssim": 0.904,
+          "fps": {
+            "fast": 56.9,
+            "narrow": 49.3
+          }
+        },
+        {
+          "run": "hardcut201-third",
+          "failed": [],
+          "narrow_min_ssim": 0.905,
+          "fps": {
+            "fast": 58.0,
+            "narrow": 47.8
+          }
+        }
+      ],
+      "exp202": [
+        {
+          "run": "hardcut202-first",
+          "failed": [],
+          "narrow_min_ssim": 0.905,
+          "fps": {
+            "fast": 57.6,
+            "narrow": 51.5
+          }
+        },
+        {
+          "run": "hardcut202-second",
+          "failed": [],
+          "narrow_min_ssim": 0.906,
+          "fps": {
+            "fast": 56.2,
+            "narrow": 50.8
+          }
+        },
+        {
+          "run": "hardcut202-third",
+          "failed": [],
+          "narrow_min_ssim": 0.914,
+          "fps": {
+            "fast": 57.9,
+            "narrow": 51.1
+          }
+        }
+      ],
+      "exp203": [
+        {
+          "run": "hardcut203-first",
+          "failed": [
+            "quality_ssim"
+          ],
+          "narrow_min_ssim": 0.898,
+          "fps": {
+            "fast": 56.8,
+            "narrow": 48.3
+          }
+        },
+        {
+          "run": "hardcut203-second",
+          "failed": [],
+          "narrow_min_ssim": 0.903,
+          "fps": {
+            "fast": 57.7,
+            "narrow": 49.2
+          }
+        },
+        {
+          "run": "hardcut203-third",
+          "failed": [],
+          "narrow_min_ssim": 0.903,
+          "fps": {
+            "fast": 56.7,
+            "narrow": 48.4
+          }
+        }
+      ],
+      "exp204": [
+        {
+          "run": "hardcut204-first",
+          "failed": [],
+          "narrow_min_ssim": 0.906,
+          "fps": {
+            "fast": 57.7,
+            "narrow": 48.8
+          }
+        },
+        {
+          "run": "hardcut204-second",
+          "failed": [],
+          "narrow_min_ssim": 0.903,
+          "fps": {
+            "fast": 56.3,
+            "narrow": 48.0
+          }
+        },
+        {
+          "run": "hardcut204-third",
+          "failed": [],
+          "narrow_min_ssim": 0.906,
+          "fps": {
+            "fast": 56.5,
+            "narrow": 49.4
+          }
+        }
+      ],
+      "exp205": [
+        {
+          "run": "hardcut205-first",
+          "failed": [],
+          "narrow_min_ssim": 0.905,
+          "fps": {
+            "fast": 56.1,
+            "narrow": 51.1
+          }
+        },
+        {
+          "run": "hardcut205-second",
+          "failed": [],
+          "narrow_min_ssim": 0.903,
+          "fps": {
+            "fast": 56.8,
+            "narrow": 48.8
+          }
+        },
+        {
+          "run": "hardcut205-third",
+          "failed": [],
+          "narrow_min_ssim": 0.905,
+          "fps": {
+            "fast": 57.1,
+            "narrow": 51.6
+          }
+        }
+      ],
+      "exp206": [
+        {
+          "run": "hardcut206-first",
+          "failed": [],
+          "narrow_min_ssim": 0.905,
+          "fps": {
+            "fast": 57.2,
+            "narrow": 49.9
+          }
+        }
+      ],
+      "exp207": [
+        {
+          "run": "hardcut207-first",
+          "failed": [],
+          "narrow_min_ssim": 0.904,
+          "fps": {
+            "fast": 57.5,
+            "narrow": 47.4
+          }
+        },
+        {
+          "run": "hardcut207-second",
+          "failed": [],
+          "narrow_min_ssim": 0.904,
+          "fps": {
+            "fast": 57.9,
+            "narrow": 49.9
+          }
+        },
+        {
+          "run": "hardcut207-third",
+          "failed": [],
+          "narrow_min_ssim": 0.903,
+          "fps": {
+            "fast": 58.3,
+            "narrow": 51.6
+          }
+        }
+      ],
+      "exp208": [
+        {
+          "run": "hardcut208-first",
+          "failed": [],
+          "narrow_min_ssim": 0.906,
+          "fps": {
+            "fast": 57.0,
+            "narrow": 47.9
+          }
+        },
+        {
+          "run": "hardcut208-second",
+          "failed": [],
+          "narrow_min_ssim": 0.905,
+          "fps": {
+            "fast": 58.0,
+            "narrow": 51.9
+          }
+        },
+        {
+          "run": "hardcut208-third",
+          "failed": [],
+          "narrow_min_ssim": 0.903,
+          "fps": {
+            "fast": 57.0,
+            "narrow": 50.9
+          }
+        }
+      ],
+      "exp209": [
+        {
+          "run": "hardcut209-first",
+          "failed": [],
+          "narrow_min_ssim": 0.903,
+          "fps": {
+            "fast": 58.1,
+            "narrow": 49.9
+          }
+        },
+        {
+          "run": "hardcut209-second",
+          "failed": [],
+          "narrow_min_ssim": 0.903,
+          "fps": {
+            "fast": 57.9,
+            "narrow": 49.2
+          }
+        },
+        {
+          "run": "hardcut209-third",
+          "failed": [],
+          "narrow_min_ssim": 0.905,
+          "fps": {
+            "fast": 58.1,
+            "narrow": 49.3
+          }
+        }
+      ],
+      "exp210": [],
+      "exp211": [],
+      "exp212": [],
+      "exp213": [
+        {
+          "run": "hardcut213-first",
+          "failed": [],
+          "narrow_min_ssim": 0.903,
+          "fps": {
+            "fast": 56.3,
+            "narrow": 49.1
+          }
+        },
+        {
+          "run": "hardcut213-second",
+          "failed": [],
+          "narrow_min_ssim": 0.903,
+          "fps": {
+            "fast": 57.6,
+            "narrow": 48.8
+          }
+        },
+        {
+          "run": "hardcut213-third",
+          "failed": [],
+          "narrow_min_ssim": 0.904,
+          "fps": {
+            "fast": 58.4,
+            "narrow": 49.9
+          }
+        }
+      ]
+    },
+    "native_intel_transition": {
+      "exp201": [
+        {
+          "run": "exp201 h264_qsv w1",
+          "failed": [],
+          "fps": [
+            51.4,
+            48.3,
+            51.6
+          ],
+          "excess_ms": 253
+        },
+        {
+          "run": "exp201 h264_vaapi w1",
+          "failed": [],
+          "fps": [
+            52.8,
+            48.5,
+            51.0
+          ],
+          "excess_ms": 317
+        }
+      ],
+      "exp202": [
+        {
+          "run": "exp202 h264_qsv w1",
+          "failed": [],
+          "fps": [
+            50.3,
+            48.8,
+            51.1
+          ],
+          "excess_ms": 281
+        },
+        {
+          "run": "exp202 h264_vaapi w1",
+          "failed": [],
+          "fps": [
+            50.6,
+            46.5,
+            51.0
+          ],
+          "excess_ms": 214
+        }
+      ],
+      "exp203": [
+        {
+          "run": "exp203 h264_qsv w1",
+          "failed": [],
+          "fps": [
+            51.5,
+            47.4,
+            50.8
+          ],
+          "excess_ms": 247
+        },
+        {
+          "run": "exp203 h264_vaapi w1",
+          "failed": [],
+          "fps": [
+            52.9,
+            47.5,
+            50.8
+          ],
+          "excess_ms": 217
+        }
+      ],
+      "exp204": [
+        {
+          "run": "exp204 h264_qsv w1",
+          "failed": [],
+          "fps": [
+            50.9,
+            47.4,
+            50.9
+          ],
+          "excess_ms": 214
+        },
+        {
+          "run": "exp204 h264_vaapi w1",
+          "failed": [],
+          "fps": [
+            50.5,
+            48.9,
+            51.9
+          ],
+          "excess_ms": 267
+        }
+      ],
+      "exp205": [
+        {
+          "run": "exp205 h264_qsv w2",
+          "failed": [],
+          "fps": [
+            51.9,
+            48.5,
+            50.9
+          ],
+          "excess_ms": 299
+        },
+        {
+          "run": "exp205 h264_vaapi w2",
+          "failed": [],
+          "fps": [
+            51.3,
+            48.6,
+            51.2
+          ],
+          "excess_ms": 233
+        }
+      ],
+      "exp207": [
+        {
+          "run": "exp207 h264_qsv w1",
+          "failed": [],
+          "fps": [
+            48.7,
+            48.0,
+            49.7
+          ],
+          "excess_ms": 232
+        },
+        {
+          "run": "exp207 h264_vaapi w1",
+          "failed": [],
+          "fps": [
+            53.1,
+            48.4,
+            51.6
+          ],
+          "excess_ms": 249
+        }
+      ],
+      "exp208": [
+        {
+          "run": "exp208 h264_qsv w1",
+          "failed": [
+            "presentation_excess_at_most_400ms",
+            "full_source_excess_from_fast_p95_at_most_400ms"
+          ],
+          "fps": [
+            51.7,
+            47.7,
+            51.3
+          ],
+          "excess_ms": 450
+        },
+        {
+          "run": "exp208 h264_vaapi w1",
+          "failed": [],
+          "fps": [
+            50.9,
+            48.1,
+            51.3
+          ],
+          "excess_ms": 264
+        }
+      ],
+      "exp209": [
+        {
+          "run": "exp209 h264_qsv w1",
+          "failed": [],
+          "fps": [
+            52.2,
+            47.0,
+            49.3
+          ],
+          "excess_ms": 263
+        },
+        {
+          "run": "exp209 h264_vaapi w1",
+          "failed": [],
+          "fps": [
+            50.8,
+            48.9,
+            51.8
+          ],
+          "excess_ms": 216
+        }
+      ],
+      "exp213": [
+        {
+          "run": "exp213 h264_qsv w1",
+          "failed": [],
+          "fps": [
+            51.1,
+            47.5,
+            50.3
+          ],
+          "excess_ms": 234
+        },
+        {
+          "run": "exp213 h264_vaapi w1",
+          "failed": [],
+          "fps": [
+            52.3,
+            48.7,
+            50.9
+          ],
+          "excess_ms": 264
+        }
+      ]
+    },
+    "native_qsv_exp208_repeats": [
+      {
+        "run": "exp208 h264_qsv w2",
+        "failed": [],
+        "fps": [
+          51.3,
+          47.9,
+          49.9
+        ],
+        "excess_ms": 277
+      },
+      {
+        "run": "exp208 h264_qsv w3",
+        "failed": [],
+        "fps": [
+          51.6,
+          47.3,
+          50.3
+        ],
+        "excess_ms": 246
+      }
+    ]
+  },
+  "startup_under_path_storm": {
+    "scope": "PVE, Chromium, 45 ms delay, stalls of 0.5-3 s every 2-8 s from before the page loads, 2 sessions of 120 s on exp206.",
+    "sessions": [
+      {
+        "cycles": 13,
+        "keys_delivered": 13,
+        "final_snapshots_received": 1999,
+        "final_snapshots_sent": 1999
+      },
+      {
+        "cycles": 16,
+        "keys_delivered": 16,
+        "final_snapshots_received": 2119,
+        "final_snapshots_sent": 2119
+      }
+    ],
+    "note": "A row flagged by the detector is snapshots delayed by a stall: totals sent and received matched exactly at the end of both sessions."
+  },
+  "mac_chrome_real_path": {
+    "scope": "Real Chrome 156 on macOS through the actual PVE TCP/8006 path. Glyph limit 600 ms, source fps limit 45.",
+    "runs": [
+      {
+        "run": "mac209-r1",
+        "fps": 54.0,
+        "max_gap_ms": 216,
+        "glyph_ms": [
+          264,
+          173,
+          356,
+          177,
+          363
+        ],
+        "input_leg_ms": [
+          50,
+          49,
+          226,
+          53,
+          248
+        ],
+        "display_leg_ms": [
+          214,
+          124,
+          130,
+          123,
+          115
+        ],
+        "lifecycle_steps_passed": [
+          "after_resume_source_advances",
+          "disabled",
+          "hidden",
+          "last_visibility_probe",
+          "reenabled",
+          "tab_windows",
+          "visible_resumed"
+        ]
+      },
+      {
+        "run": "mac209-r2",
+        "fps": 54.3,
+        "max_gap_ms": 132,
+        "glyph_ms": [
+          182,
+          178,
+          178,
+          132,
+          238
+        ],
+        "input_leg_ms": [
+          50,
+          49,
+          50,
+          49,
+          50
+        ],
+        "display_leg_ms": [
+          131,
+          129,
+          128,
+          84,
+          189
+        ],
+        "lifecycle_steps_passed": [
+          "after_resume_source_advances",
+          "disabled",
+          "hidden",
+          "last_visibility_probe",
+          "reenabled",
+          "tab_windows",
+          "visible_resumed"
+        ]
+      }
+    ],
+    "idle_path_probe_before_runs": "n 109 min 93 p50 95 p90 102 p99 1419 max 1689 over200 3 over400 3",
+    "exp213": "Not run: the gate on the idle path skipped it. n 23 min 94 p50 664 p90 1970 p99 2407 max 2407 over200 12 over400 12"
+  },
+  "responsiveness_vm_path_qemu_virgl": {
+    "scope": "Same bench and Qt fixture in the owned Debian 13 KWin 6 VM on the native Intel host, QEMU Display1, H264 QSV, Chromium. Controller to host round trip is about 85 ms on top of the netem delay, like the AMD lane, so compare it with that lane rather than with RDP. Unlike the container fixtures this desktop draws window shadows.",
+    "exp209": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 161.9,
+        "type_first_ms_runs": [
+          161.9
+        ],
+        "click_first_ms": 169.4,
+        "click_first_ms_runs": [
+          169.4
+        ],
+        "wheel_first_ms": 157.0,
+        "wheel_first_ms_runs": [
+          157.0
+        ],
+        "wheel_settled_ms": 186.2,
+        "wheel_settled_ms_runs": [
+          186.2
+        ],
+        "burst_settled_ms": 184.8,
+        "burst_settled_ms_runs": [
+          184.8
+        ],
+        "drag_first_motion_ms": 200.5,
+        "drag_first_motion_ms_runs": [
+          200.5
+        ],
+        "drag_lag_ms": 167.1,
+        "drag_lag_ms_runs": [
+          167.1
+        ],
+        "drag_lag_p95_ms": 186.1,
+        "drag_lag_p95_ms_runs": [
+          186.1
+        ],
+        "drag_settled_ms": 92.5,
+        "drag_settled_ms_runs": [
+          92.5
+        ],
+        "drag_final_error_max_px": 7,
+        "drag_final_error_max_px_runs": [
+          7
+        ],
+        "transport_kb": 3111
+      },
+      "2M-d15": {
+        "type_first_ms": 169.8,
+        "type_first_ms_runs": [
+          169.8
+        ],
+        "click_first_ms": 161.5,
+        "click_first_ms_runs": [
+          161.5
+        ],
+        "wheel_first_ms": 161.5,
+        "wheel_first_ms_runs": [
+          161.5
+        ],
+        "wheel_settled_ms": 185.1,
+        "wheel_settled_ms_runs": [
+          185.1
+        ],
+        "burst_settled_ms": 184.9,
+        "burst_settled_ms_runs": [
+          184.9
+        ],
+        "drag_first_motion_ms": 184.7,
+        "drag_first_motion_ms_runs": [
+          184.7
+        ],
+        "drag_lag_ms": 166.9,
+        "drag_lag_ms_runs": [
+          166.9
+        ],
+        "drag_lag_p95_ms": 183.7,
+        "drag_lag_p95_ms_runs": [
+          183.7
+        ],
+        "drag_settled_ms": 115.2,
+        "drag_settled_ms_runs": [
+          115.2
+        ],
+        "drag_final_error_max_px": 0,
+        "drag_final_error_max_px_runs": [
+          0
+        ],
+        "transport_kb": 3078
+      },
+      "20M-d100": {
+        "type_first_ms": 255.5,
+        "type_first_ms_runs": [
+          255.5
+        ],
+        "click_first_ms": 245.2,
+        "click_first_ms_runs": [
+          245.2
+        ],
+        "wheel_first_ms": 254.5,
+        "wheel_first_ms_runs": [
+          254.5
+        ],
+        "wheel_settled_ms": 272.0,
+        "wheel_settled_ms_runs": [
+          272.0
+        ],
+        "burst_settled_ms": 269.0,
+        "burst_settled_ms_runs": [
+          269.0
+        ],
+        "drag_first_motion_ms": 292.2,
+        "drag_first_motion_ms_runs": [
+          292.2
+        ],
+        "drag_lag_ms": 251.8,
+        "drag_lag_ms_runs": [
+          251.8
+        ],
+        "drag_lag_p95_ms": 276.5,
+        "drag_lag_p95_ms_runs": [
+          276.5
+        ],
+        "drag_settled_ms": 200.8,
+        "drag_settled_ms_runs": [
+          200.8
+        ],
+        "drag_final_error_max_px": 7,
+        "drag_final_error_max_px_runs": [
+          7
+        ],
+        "transport_kb": 3069
+      },
+      "2M-d100": {
+        "type_first_ms": 248.2,
+        "type_first_ms_runs": [
+          248.2
+        ],
+        "click_first_ms": 253.5,
+        "click_first_ms_runs": [
+          253.5
+        ],
+        "wheel_first_ms": 251.9,
+        "wheel_first_ms_runs": [
+          251.9
+        ],
+        "wheel_settled_ms": 268.0,
+        "wheel_settled_ms_runs": [
+          268.0
+        ],
+        "burst_settled_ms": 276.4,
+        "burst_settled_ms_runs": [
+          276.4
+        ],
+        "drag_first_motion_ms": 291.9,
+        "drag_first_motion_ms_runs": [
+          291.9
+        ],
+        "drag_lag_ms": 250.4,
+        "drag_lag_ms_runs": [
+          250.4
+        ],
+        "drag_lag_p95_ms": 277.5,
+        "drag_lag_p95_ms_runs": [
+          277.5
+        ],
+        "drag_settled_ms": 199.9,
+        "drag_settled_ms_runs": [
+          199.9
+        ],
+        "drag_final_error_max_px": 7,
+        "drag_final_error_max_px_runs": [
+          7
+        ],
+        "transport_kb": 2977
+      }
+    },
+    "exp213": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 170.4,
+        "type_first_ms_runs": [
+          170.4
+        ],
+        "click_first_ms": 161.2,
+        "click_first_ms_runs": [
+          161.2
+        ],
+        "wheel_first_ms": 154.9,
+        "wheel_first_ms_runs": [
+          154.9
+        ],
+        "wheel_settled_ms": 188.7,
+        "wheel_settled_ms_runs": [
+          188.7
+        ],
+        "burst_settled_ms": 199.8,
+        "burst_settled_ms_runs": [
+          199.8
+        ],
+        "drag_first_motion_ms": 216.9,
+        "drag_first_motion_ms_runs": [
+          216.9
+        ],
+        "drag_lag_ms": 167.5,
+        "drag_lag_ms_runs": [
+          167.5
+        ],
+        "drag_lag_p95_ms": 186.1,
+        "drag_lag_p95_ms_runs": [
+          186.1
+        ],
+        "drag_settled_ms": 98.0,
+        "drag_settled_ms_runs": [
+          98.0
+        ],
+        "drag_final_error_max_px": 7,
+        "drag_final_error_max_px_runs": [
+          7
+        ],
+        "transport_kb": 3428
+      },
+      "2M-d15": {
+        "type_first_ms": 164.1,
+        "type_first_ms_runs": [
+          164.1
+        ],
+        "click_first_ms": 161.3,
+        "click_first_ms_runs": [
+          161.3
+        ],
+        "wheel_first_ms": 155.7,
+        "wheel_first_ms_runs": [
+          155.7
+        ],
+        "wheel_settled_ms": 187.9,
+        "wheel_settled_ms_runs": [
+          187.9
+        ],
+        "burst_settled_ms": 192.7,
+        "burst_settled_ms_runs": [
+          192.7
+        ],
+        "drag_first_motion_ms": 208.8,
+        "drag_first_motion_ms_runs": [
+          208.8
+        ],
+        "drag_lag_ms": 166.9,
+        "drag_lag_ms_runs": [
+          166.9
+        ],
+        "drag_lag_p95_ms": 184.1,
+        "drag_lag_p95_ms_runs": [
+          184.1
+        ],
+        "drag_settled_ms": 107.3,
+        "drag_settled_ms_runs": [
+          107.3
+        ],
+        "drag_final_error_max_px": 7,
+        "drag_final_error_max_px_runs": [
+          7
+        ],
+        "transport_kb": 3113
+      },
+      "20M-d100": {
+        "type_first_ms": 251.9,
+        "type_first_ms_runs": [
+          251.9
+        ],
+        "click_first_ms": 246.2,
+        "click_first_ms_runs": [
+          246.2
+        ],
+        "wheel_first_ms": 253.1,
+        "wheel_first_ms_runs": [
+          253.1
+        ],
+        "wheel_settled_ms": 284.7,
+        "wheel_settled_ms_runs": [
+          284.7
+        ],
+        "burst_settled_ms": 268.3,
+        "burst_settled_ms_runs": [
+          268.3
+        ],
+        "drag_first_motion_ms": 283.6,
+        "drag_first_motion_ms_runs": [
+          283.6
+        ],
+        "drag_lag_ms": 250.3,
+        "drag_lag_ms_runs": [
+          250.3
+        ],
+        "drag_lag_p95_ms": 268.7,
+        "drag_lag_p95_ms_runs": [
+          268.7
+        ],
+        "drag_settled_ms": 182.0,
+        "drag_settled_ms_runs": [
+          182.0
+        ],
+        "drag_final_error_max_px": 7,
+        "drag_final_error_max_px_runs": [
+          7
+        ],
+        "transport_kb": 3239
+      },
+      "2M-d100": {
+        "type_first_ms": 261.4,
+        "type_first_ms_runs": [
+          261.4
+        ],
+        "click_first_ms": 245.9,
+        "click_first_ms_runs": [
+          245.9
+        ],
+        "wheel_first_ms": 246.4,
+        "wheel_first_ms_runs": [
+          246.4
+        ],
+        "wheel_settled_ms": 284.6,
+        "wheel_settled_ms_runs": [
+          284.6
+        ],
+        "burst_settled_ms": 260.2,
+        "burst_settled_ms_runs": [
+          260.2
+        ],
+        "drag_first_motion_ms": 285.0,
+        "drag_first_motion_ms_runs": [
+          285.0
+        ],
+        "drag_lag_ms": 250.4,
+        "drag_lag_ms_runs": [
+          250.4
+        ],
+        "drag_lag_p95_ms": 267.0,
+        "drag_lag_p95_ms_runs": [
+          267.0
+        ],
+        "drag_settled_ms": 170.5,
+        "drag_settled_ms_runs": [
+          170.5
+        ],
+        "drag_final_error_max_px": 7,
+        "drag_final_error_max_px_runs": [
+          7
+        ],
+        "transport_kb": 3123
+      }
+    },
+    "exp209_text": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 165.3,
+        "type_first_ms_runs": [
+          165.3
+        ],
+        "click_first_ms": 161.1,
+        "click_first_ms_runs": [
+          161.1
+        ],
+        "wheel_first_ms": 168.8,
+        "wheel_first_ms_runs": [
+          168.8
+        ],
+        "wheel_settled_ms": 201.2,
+        "wheel_settled_ms_runs": [
+          201.2
+        ],
+        "burst_settled_ms": 184.0,
+        "burst_settled_ms_runs": [
+          184.0
+        ],
+        "drag_first_motion_ms": 210.8,
+        "drag_first_motion_ms_runs": [
+          210.8
+        ],
+        "drag_lag_ms": 201.0,
+        "drag_lag_ms_runs": [
+          201.0
+        ],
+        "drag_lag_p95_ms": 291.0,
+        "drag_lag_p95_ms_runs": [
+          291.0
+        ],
+        "drag_settled_ms": 111.8,
+        "drag_settled_ms_runs": [
+          111.8
+        ],
+        "drag_final_error_max_px": 2,
+        "drag_final_error_max_px_runs": [
+          2
+        ],
+        "transport_kb": 10016
+      },
+      "2M-d15": {
+        "type_first_ms": 169.5,
+        "type_first_ms_runs": [
+          169.5
+        ],
+        "click_first_ms": 161.8,
+        "click_first_ms_runs": [
+          161.8
+        ],
+        "wheel_first_ms": 170.5,
+        "wheel_first_ms_runs": [
+          170.5
+        ],
+        "wheel_settled_ms": 201.4,
+        "wheel_settled_ms_runs": [
+          201.4
+        ],
+        "burst_settled_ms": 169.2,
+        "burst_settled_ms_runs": [
+          169.2
+        ],
+        "drag_first_motion_ms": 233.7,
+        "drag_first_motion_ms_runs": [
+          233.7
+        ],
+        "drag_lag_ms": 362.8,
+        "drag_lag_ms_runs": [
+          362.8
+        ],
+        "drag_lag_p95_ms": 783.4,
+        "drag_lag_p95_ms_runs": [
+          783.4
+        ],
+        "drag_settled_ms": 286.7,
+        "drag_settled_ms_runs": [
+          286.7
+        ],
+        "drag_final_error_max_px": 788,
+        "drag_final_error_max_px_runs": [
+          788
+        ],
+        "transport_kb": 5428
+      },
+      "20M-d100": {
+        "type_first_ms": 78.0,
+        "type_first_ms_runs": [
+          78.0
+        ],
+        "click_first_ms": null,
+        "click_first_ms_runs": [],
+        "wheel_first_ms": null,
+        "wheel_first_ms_runs": [],
+        "wheel_settled_ms": null,
+        "wheel_settled_ms_runs": [],
+        "burst_settled_ms": null,
+        "burst_settled_ms_runs": [],
+        "drag_first_motion_ms": 309.3,
+        "drag_first_motion_ms_runs": [
+          309.3
+        ],
+        "drag_lag_ms": 338.0,
+        "drag_lag_ms_runs": [
+          338.0
+        ],
+        "drag_lag_p95_ms": 616.4,
+        "drag_lag_p95_ms_runs": [
+          616.4
+        ],
+        "drag_settled_ms": 392.6,
+        "drag_settled_ms_runs": [
+          392.6
+        ],
+        "drag_final_error_max_px": 6,
+        "drag_final_error_max_px_runs": [
+          6
+        ],
+        "transport_kb": 5546
+      },
+      "2M-d100": {
+        "type_first_ms": 22.2,
+        "type_first_ms_runs": [
+          22.2
+        ],
+        "click_first_ms": null,
+        "click_first_ms_runs": [],
+        "wheel_first_ms": null,
+        "wheel_first_ms_runs": [],
+        "wheel_settled_ms": null,
+        "wheel_settled_ms_runs": [],
+        "burst_settled_ms": null,
+        "burst_settled_ms_runs": [],
+        "drag_first_motion_ms": 292.1,
+        "drag_first_motion_ms_runs": [
+          292.1
+        ],
+        "drag_lag_ms": 358.7,
+        "drag_lag_ms_runs": [
+          358.7
+        ],
+        "drag_lag_p95_ms": 740.3,
+        "drag_lag_p95_ms_runs": [
+          740.3
+        ],
+        "drag_settled_ms": 433.5,
+        "drag_settled_ms_runs": [
+          433.5
+        ],
+        "drag_final_error_max_px": 257,
+        "drag_final_error_max_px_runs": [
+          257
+        ],
+        "transport_kb": 4896
+      }
+    },
+    "exp213_text": {
+      "runs": 1,
+      "20M-d15": {
+        "type_first_ms": 164.7,
+        "type_first_ms_runs": [
+          164.7
+        ],
+        "click_first_ms": 160.6,
+        "click_first_ms_runs": [
+          160.6
+        ],
+        "wheel_first_ms": 156.5,
+        "wheel_first_ms_runs": [
+          156.5
+        ],
+        "wheel_settled_ms": 196.5,
+        "wheel_settled_ms_runs": [
+          196.5
+        ],
+        "burst_settled_ms": 196.2,
+        "burst_settled_ms_runs": [
+          196.2
+        ],
+        "drag_first_motion_ms": 208.7,
+        "drag_first_motion_ms_runs": [
+          208.7
+        ],
+        "drag_lag_ms": 211.9,
+        "drag_lag_ms_runs": [
+          211.9
+        ],
+        "drag_lag_p95_ms": 321.4,
+        "drag_lag_p95_ms_runs": [
+          321.4
+        ],
+        "drag_settled_ms": 161.6,
+        "drag_settled_ms_runs": [
+          161.6
+        ],
+        "drag_final_error_max_px": 2,
+        "drag_final_error_max_px_runs": [
+          2
+        ],
+        "transport_kb": 10417
+      },
+      "2M-d15": {
+        "type_first_ms": 167.9,
+        "type_first_ms_runs": [
+          167.9
+        ],
+        "click_first_ms": 161.3,
+        "click_first_ms_runs": [
+          161.3
+        ],
+        "wheel_first_ms": 154.6,
+        "wheel_first_ms_runs": [
+          154.6
+        ],
+        "wheel_settled_ms": 201.3,
+        "wheel_settled_ms_runs": [
+          201.3
+        ],
+        "burst_settled_ms": 193.1,
+        "burst_settled_ms_runs": [
+          193.1
+        ],
+        "drag_first_motion_ms": 258.8,
+        "drag_first_motion_ms_runs": [
+          258.8
+        ],
+        "drag_lag_ms": 305.3,
+        "drag_lag_ms_runs": [
+          305.3
+        ],
+        "drag_lag_p95_ms": 766.9,
+        "drag_lag_p95_ms_runs": [
+          766.9
+        ],
+        "drag_settled_ms": 291.0,
+        "drag_settled_ms_runs": [
+          291.0
+        ],
+        "drag_final_error_max_px": 240,
+        "drag_final_error_max_px_runs": [
+          240
+        ],
+        "transport_kb": 5789
+      },
+      "20M-d100": {
+        "type_first_ms": 248.1,
+        "type_first_ms_runs": [
+          248.1
+        ],
+        "click_first_ms": 244.5,
+        "click_first_ms_runs": [
+          244.5
+        ],
+        "wheel_first_ms": 254.4,
+        "wheel_first_ms_runs": [
+          254.4
+        ],
+        "wheel_settled_ms": 284.5,
+        "wheel_settled_ms_runs": [
+          284.5
+        ],
+        "burst_settled_ms": 277.1,
+        "burst_settled_ms_runs": [
+          277.1
+        ],
+        "drag_first_motion_ms": 308.5,
+        "drag_first_motion_ms_runs": [
+          308.5
+        ],
+        "drag_lag_ms": 300.6,
+        "drag_lag_ms_runs": [
+          300.6
+        ],
+        "drag_lag_p95_ms": 408.2,
+        "drag_lag_p95_ms_runs": [
+          408.2
+        ],
+        "drag_settled_ms": 215.0,
+        "drag_settled_ms_runs": [
+          215.0
+        ],
+        "drag_final_error_max_px": 7,
+        "drag_final_error_max_px_runs": [
+          7
+        ],
+        "transport_kb": 13086
+      },
+      "2M-d100": {
+        "type_first_ms": 247.4,
+        "type_first_ms_runs": [
+          247.4
+        ],
+        "click_first_ms": 244.8,
+        "click_first_ms_runs": [
+          244.8
+        ],
+        "wheel_first_ms": 238.8,
+        "wheel_first_ms_runs": [
+          238.8
+        ],
+        "wheel_settled_ms": 271.0,
+        "wheel_settled_ms_runs": [
+          271.0
+        ],
+        "burst_settled_ms": 269.4,
+        "burst_settled_ms_runs": [
+          269.4
+        ],
+        "drag_first_motion_ms": 375.3,
+        "drag_first_motion_ms_runs": [
+          375.3
+        ],
+        "drag_lag_ms": 475.0,
+        "drag_lag_ms_runs": [
+          475.0
+        ],
+        "drag_lag_p95_ms": 992.5,
+        "drag_lag_p95_ms_runs": [
+          992.5
+        ],
+        "drag_settled_ms": 514.2,
+        "drag_settled_ms_runs": [
+          514.2
+        ],
+        "drag_final_error_max_px": 260,
+        "drag_final_error_max_px_runs": [
+          260
+        ],
+        "transport_kb": 5862
+      }
+    },
+    "exp213_vaapi": {
+      "runs": 0
+    }
+  },
+  "long_session": {
+    "soak209-r1": {
+      "scope": "exp209 for 31 minutes with text behind the window, 5 rounds of all 4 profiles, lab probe on",
+      "samples": [
+        {
+          "minutes": 0.0,
+          "profile": "20M-d15",
+          "rss_mb": {
+            "bridge": 331,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 30019584,
+          "type": 46.4,
+          "wheel_settled": 67.9,
+          "burst_settled": 59.2,
+          "drag_lag": 50.1
+        },
+        {
+          "minutes": 1.6,
+          "profile": "2M-d15",
+          "rss_mb": {
+            "bridge": 375,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 57901056,
+          "type": 49.5,
+          "wheel_settled": 67.8,
+          "burst_settled": 59.2,
+          "drag_lag": 50.2
+        },
+        {
+          "minutes": 3.2,
+          "profile": "20M-d100",
+          "rss_mb": {
+            "bridge": 416,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 85782528,
+          "type": 137.2,
+          "wheel_settled": 151.0,
+          "burst_settled": 140.4,
+          "drag_lag": 133.5
+        },
+        {
+          "minutes": 4.9,
+          "profile": "2M-d100",
+          "rss_mb": {
+            "bridge": 460,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 112754688,
+          "type": 129.9,
+          "wheel_settled": 155.2,
+          "burst_settled": 150.8,
+          "drag_lag": 225.2
+        },
+        {
+          "minutes": 6.5,
+          "profile": "20M-d15",
+          "rss_mb": {
+            "bridge": 495,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 140636160,
+          "type": 42.6,
+          "wheel_settled": 67.7,
+          "burst_settled": 66.2,
+          "drag_lag": 50.1
+        },
+        {
+          "minutes": 8.1,
+          "profile": "2M-d15",
+          "rss_mb": {
+            "bridge": 529,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 168517632,
+          "type": 39.7,
+          "wheel_settled": 67.8,
+          "burst_settled": 51.1,
+          "drag_lag": 50.3
+        },
+        {
+          "minutes": 9.7,
+          "profile": "20M-d100",
+          "rss_mb": {
+            "bridge": 561,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 196399104,
+          "type": 137.9,
+          "wheel_settled": 142.0,
+          "burst_settled": 140.1,
+          "drag_lag": 133.6
+        },
+        {
+          "minutes": 11.4,
+          "profile": "2M-d100",
+          "rss_mb": {
+            "bridge": 594,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 224280576,
+          "type": 129.1,
+          "wheel_settled": 152.0,
+          "burst_settled": 152.4,
+          "drag_lag": 159.2
+        },
+        {
+          "minutes": 13.0,
+          "profile": "20M-d15",
+          "rss_mb": {
+            "bridge": 626,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 252162048,
+          "type": 40.5,
+          "wheel_settled": 68.2,
+          "burst_settled": 59.3,
+          "drag_lag": 49.7
+        },
+        {
+          "minutes": 14.6,
+          "profile": "2M-d15",
+          "rss_mb": {
+            "bridge": 658,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 280043520,
+          "type": 43.6,
+          "wheel_settled": 68.0,
+          "burst_settled": 58.8,
+          "drag_lag": 57.5
+        },
+        {
+          "minutes": 16.2,
+          "profile": "20M-d100",
+          "rss_mb": {
+            "bridge": 687,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 307924992,
+          "type": 134.2,
+          "wheel_settled": 141.8,
+          "burst_settled": 136.6,
+          "drag_lag": 133.6
+        },
+        {
+          "minutes": 17.9,
+          "profile": "2M-d100",
+          "rss_mb": {
+            "bridge": 713,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 333324288,
+          "type": 129.6,
+          "wheel_settled": 151.5,
+          "burst_settled": 151.1,
+          "drag_lag": 308.2
+        },
+        {
+          "minutes": 19.5,
+          "profile": "20M-d15",
+          "rss_mb": {
+            "bridge": 733,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 361115648,
+          "type": 52.9,
+          "wheel_settled": 67.7,
+          "burst_settled": 59.2,
+          "drag_lag": 49.2
+        },
+        {
+          "minutes": 21.1,
+          "profile": "2M-d15",
+          "rss_mb": {
+            "bridge": 755,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 26,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 388997120,
+          "type": 40.5,
+          "wheel_settled": 68.2,
+          "burst_settled": 50.8,
+          "drag_lag": 50.2
+        },
+        {
+          "minutes": 22.7,
+          "profile": "20M-d100",
+          "rss_mb": {
+            "bridge": 761,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 26,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 416878592,
+          "type": 132.6,
+          "wheel_settled": 146.6,
+          "burst_settled": 136.3,
+          "drag_lag": 133.5
+        },
+        {
+          "minutes": 24.4,
+          "profile": "2M-d100",
+          "rss_mb": {
+            "bridge": 767,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 26,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 443318272,
+          "type": 135.7,
+          "wheel_settled": 151.6,
+          "burst_settled": 150.6,
+          "drag_lag": 288.6
+        },
+        {
+          "minutes": 26.0,
+          "profile": "20M-d15",
+          "rss_mb": {
+            "bridge": 771,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 26,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 471199744,
+          "type": 44.1,
+          "wheel_settled": 67.8,
+          "burst_settled": 59.4,
+          "drag_lag": 49.6
+        },
+        {
+          "minutes": 27.6,
+          "profile": "2M-d15",
+          "rss_mb": {
+            "bridge": 776,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 26,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 499081216,
+          "type": 43.1,
+          "wheel_settled": 67.8,
+          "burst_settled": 57.9,
+          "drag_lag": 50.2
+        },
+        {
+          "minutes": 29.2,
+          "profile": "20M-d100",
+          "rss_mb": {
+            "bridge": 781,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 26,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 526962688,
+          "type": 134.0,
+          "wheel_settled": 145.5,
+          "burst_settled": 136.7,
+          "drag_lag": 133.5
+        },
+        {
+          "minutes": 30.9,
+          "profile": "2M-d100",
+          "rss_mb": {
+            "bridge": 785,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 26,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 554360832,
+          "type": 137.7,
+          "wheel_settled": 152.6,
+          "burst_settled": 168.4,
+          "drag_lag": 141.8
+        }
+      ]
+    },
+    "noprobe209-r1": {
+      "scope": "exp209 for 18 minutes with the lab probe storing nothing: only the product",
+      "samples": [
+        {
+          "minutes": 0.0,
+          "profile": "20M-d15",
+          "rss_mb": {
+            "bridge": 288,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 30019584,
+          "type": 40.5,
+          "wheel_settled": 68.4,
+          "burst_settled": 51.3,
+          "drag_lag": 50.1
+        },
+        {
+          "minutes": 1.6,
+          "profile": "2M-d15",
+          "rss_mb": {
+            "bridge": 294,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 57901056,
+          "type": 47.5,
+          "wheel_settled": 68.1,
+          "burst_settled": 59.0,
+          "drag_lag": 50.3
+        },
+        {
+          "minutes": 3.2,
+          "profile": "20M-d100",
+          "rss_mb": {
+            "bridge": 298,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 85782528,
+          "type": 124.9,
+          "wheel_settled": 139.6,
+          "burst_settled": 144.6,
+          "drag_lag": 133.4
+        },
+        {
+          "minutes": 4.9,
+          "profile": "2M-d100",
+          "rss_mb": {
+            "bridge": 301,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 113664000,
+          "type": 134.3,
+          "wheel_settled": 151.2,
+          "burst_settled": 159.2,
+          "drag_lag": 160.2
+        },
+        {
+          "minutes": 6.5,
+          "profile": "20M-d15",
+          "rss_mb": {
+            "bridge": 305,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 141545472,
+          "type": 45.9,
+          "wheel_settled": 67.7,
+          "burst_settled": 59.3,
+          "drag_lag": 50.1
+        },
+        {
+          "minutes": 8.1,
+          "profile": "2M-d15",
+          "rss_mb": {
+            "bridge": 295,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 169426944,
+          "type": 45.7,
+          "wheel_settled": 67.8,
+          "burst_settled": 66.5,
+          "drag_lag": 50.2
+        },
+        {
+          "minutes": 9.7,
+          "profile": "20M-d100",
+          "rss_mb": {
+            "bridge": 273,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 197308416,
+          "type": 129.5,
+          "wheel_settled": 146.9,
+          "burst_settled": 138.0,
+          "drag_lag": 133.5
+        },
+        {
+          "minutes": 11.3,
+          "profile": "2M-d100",
+          "rss_mb": {
+            "bridge": 275,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 225181696,
+          "type": 138.7,
+          "wheel_settled": 151.0,
+          "burst_settled": 152.3,
+          "drag_lag": 165.8
+        },
+        {
+          "minutes": 13.0,
+          "profile": "20M-d15",
+          "rss_mb": {
+            "bridge": 275,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 253063168,
+          "type": 53.8,
+          "wheel_settled": 67.8,
+          "burst_settled": 51.3,
+          "drag_lag": 50.2
+        },
+        {
+          "minutes": 14.6,
+          "profile": "2M-d15",
+          "rss_mb": {
+            "bridge": 276,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 280944640,
+          "type": 44.8,
+          "wheel_settled": 67.8,
+          "burst_settled": 51.1,
+          "drag_lag": 50.2
+        },
+        {
+          "minutes": 16.2,
+          "profile": "20M-d100",
+          "rss_mb": {
+            "bridge": 276,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 308826112,
+          "type": 125.3,
+          "wheel_settled": 151.4,
+          "burst_settled": 145.7,
+          "drag_lag": 133.5
+        },
+        {
+          "minutes": 17.8,
+          "profile": "2M-d100",
+          "rss_mb": {
+            "bridge": 277,
+            "turn": 25,
+            "worker": 200
+          },
+          "js_heap_mb": 24,
+          "exact_enabled": true,
+          "epoch": 2,
+          "history_position": 336707584,
+          "type": 136.2,
+          "wheel_settled": 160.1,
+          "burst_settled": 166.6,
+          "drag_lag": 142.0
+        }
+      ]
+    }
+  },
+  "guest_cpu_cores_by_process": {
+    "uib205c": {
+      "wall_s": 408,
+      "cores": [
+        [
+          0.149,
+          "python3"
+        ],
+        [
+          0.144,
+          "fixture.py"
+        ],
+        [
+          0.054,
+          "kwin_wayland"
+        ],
+        [
+          0.038,
+          "ffmpeg"
+        ],
+        [
+          0.022,
+          "dbus-daemon"
+        ],
+        [
+          0.01,
+          "sway"
+        ],
+        [
+          0.006,
+          "qsm-native-seat"
+        ],
+        [
+          0.005,
+          "sddm-greeter"
+        ],
+        [
+          0.001,
+          "systemd-logind"
+        ],
+        [
+          0.001,
+          "polkitd"
+        ]
+      ]
+    },
+    "uib213c": {
+      "wall_s": 816,
+      "cores": [
+        [
+          0.154,
+          "python3"
+        ],
+        [
+          0.151,
+          "fixture.py"
+        ],
+        [
+          0.06,
+          "kwin_wayland"
+        ],
+        [
+          0.039,
+          "ffmpeg"
+        ],
+        [
+          0.022,
+          "dbus-daemon"
+        ],
+        [
+          0.012,
+          "sway"
+        ],
+        [
+          0.006,
+          "qsm-native-seat"
+        ],
+        [
+          0.005,
+          "sddm-greeter"
+        ],
+        [
+          0.001,
+          "systemd-logind"
+        ],
+        [
+          0.001,
+          "polkitd"
+        ]
+      ]
+    },
+    "lxc213": {
+      "wall_s": 168,
+      "cores": [
+        [
+          0.166,
+          "fixture.py"
+        ],
+        [
+          0.165,
+          "python3"
+        ],
+        [
+          0.098,
+          "kwin_wayland"
+        ],
+        [
+          0.04,
+          "ffmpeg"
+        ],
+        [
+          0.037,
+          "sway"
+        ],
+        [
+          0.023,
+          "dbus-daemon"
+        ],
+        [
+          0.007,
+          "qsm-native-seat"
+        ],
+        [
+          0.005,
+          "sddm-greeter"
+        ],
+        [
+          0.001,
+          "polkitd"
+        ]
+      ]
+    }
+  },
+  "input_under_path_stalls": {
+    "scope": "PVE, Chromium, 45 ms delay, 0.3% loss, 20 Mbit/s; 0.4-3.5 s stalls in either or both directions with a key press inside or after each.",
+    "cycles": 50,
+    "failure": null,
+    "keys_delivered": 50
+  }
+}

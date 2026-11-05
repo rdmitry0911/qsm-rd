@@ -21,6 +21,7 @@
 #include "core/resize_coalescer.hpp"
 #include "core/video_budget.hpp"
 #include "core/cropped_video_rate.hpp"
+#include "core/video_envelope.hpp"
 #include "core/capture_frame_queue.hpp"
 #include "core/lossless_ui.hpp"
 #include "interfaces/media_adapter.hpp"
@@ -119,6 +120,8 @@ constexpr std::uint8_t input_video_refresh = 15U;
 constexpr std::uint8_t input_key_tap = 8U;
 constexpr std::uint8_t input_mouse_action = 9U;
 constexpr std::uint8_t input_lossless_ui = 10U;
+constexpr std::uint8_t input_ui_copy = 16U;
+constexpr std::uint8_t input_ui_capacity = 17U;
 constexpr std::uint8_t input_ui_budget = 11U;
 constexpr std::uint8_t input_video_regions = 12U;
 constexpr std::uint8_t input_desktop_hint = 13U;
@@ -446,6 +449,16 @@ std::uint64_t capture_clock() noexcept {
     return static_cast<std::uint64_t>(us) * 90U / 1000U;
 }
 
+constexpr std::uint32_t minimum_crop_width = 192U, minimum_crop_height = 128U;
+
+// Private diagnostic override; the default is the qualified floor.
+inline int cropped_qmin() noexcept {
+    const char *value = std::getenv("QSM_DIRECT_CROPPED_QMIN");
+    if (!value || !*value) { return 20; }
+    const int parsed = std::atoi(value);
+    return parsed >= 0 && parsed <= 32 ? parsed : 20;
+}
+
 struct VideoRegion {
     std::uint16_t surface_width {}, surface_height {}, x {}, y {}, width {}, height {};
 };
@@ -723,10 +736,10 @@ public:
     LibavVideoEncoder(std::uint32_t width, std::uint32_t height, std::uint32_t fps,
                      const std::string &encoder, std::uint32_t bitrate_kbps = 8000U,
                      const std::string &device = {}, AVBufferRef *shared_device = nullptr,
-                     bool cropped = false)
+                     bool cropped = false, bool variable_rate = false)
         : width_(width), height_(height), fps_(fps), encoder_(encoder),
           vaapi_(std::string_view(encoder).ends_with("_vaapi")),
-          qsv_(std::string_view(encoder).ends_with("_qsv")), cropped_(cropped) {
+          qsv_(std::string_view(encoder).ends_with("_qsv")), cropped_(cropped), variable_rate_(variable_rate) {
         if (width == 0U || height == 0U || width > static_cast<std::uint32_t>(INT_MAX) ||
             height > static_cast<std::uint32_t>(INT_MAX) || fps == 0U ||
             fps > static_cast<std::uint32_t>(INT_MAX) || !supports(encoder)) {
@@ -903,11 +916,13 @@ private:
         context_->bit_rate = static_cast<std::int64_t>(bitrate_kbps) * 1000;
         context_->rc_max_rate = context_->bit_rate;
         context_->rc_buffer_size = static_cast<int>(qmdp::CroppedVideoRate::buffer_bits(bitrate_kbps, fps_, cropped_));
-        if (encoder_ == "hevc_qsv") {
+        if (encoder_ == "hevc_qsv" || (qsv_ && cropped_)) {
             // Intel HEVC CBR can exhaust FFmpeg's output buffer on static
             // pictures. VBR enables LowDelayBRC/MaxFrameSize; one extra kbit/s
             // selects it without materially raising the target. At least a
             // two-frame VBV leaves room for headers and small overshoots.
+            // A cropped H.264 plane uses it as well: its CBR queues whole pictures
+            // behind a narrowing path, which decides the peak source age.
             context_->rc_max_rate += 1000;
             context_->rc_buffer_size = std::max(context_->rc_buffer_size,
                 static_cast<int>(context_->bit_rate / fps_ * 2));
@@ -939,19 +954,42 @@ private:
             (void) av_dict_set(&options, "delay", "0", 0);
             (void) av_dict_set(&options, "rc-lookahead", "0", 0);
             (void) av_dict_set(&options, "rc", "vbr", 0);
+            if (cropped_ && encoder_ == "h264_nvenc") {
+                // Preserve scene-cut detail at the low cropped-plane rates.
+                // FFmpeg enables NVENC's maximum QP only with both bounds. A
+                // lower initial QP would inflate each post-retune IDR, whose
+                // serialization then decides the transition's peak source age.
+                // VBR/VBV and actual-byte pacing still repay the extra bits.
+                // Below this floor NVENC keeps refining a static crop at a few
+                // KB per picture, and a detailed scene alternates between tiny
+                // and huge pictures. Nobody sees that detail: the exact layer
+                // carries text, and these bytes delay it and later pictures.
+                context_->qmin = cropped_qmin();
+                context_->qmax = 32;
+                (void) av_dict_set(&options, "init_qpP", "32", 0);
+                (void) av_dict_set(&options, "init_qpI", "32", 0);
+                (void) av_dict_set(&options, "init_qpB", "32", 0);
+            }
         } else if (qsv_) {
             (void) av_dict_set(&options, "preset", "veryfast", 0);
             (void) av_dict_set(&options, "async_depth", "1", 0);
             (void) av_dict_set(&options, "look_ahead", "0", 0);
             (void) av_dict_set(&options, "forced_idr", "1", 0);
-            if (encoder_ == "hevc_qsv") {
+            if (cropped_) { context_->qmin = cropped_qmin(); }
+            if (encoder_ == "hevc_qsv" || cropped_) {
                 (void) av_dict_set(&options, "low_delay_brc", "1", 0);
                 (void) av_dict_set_int(&options, "max_frame_size", cropped_
                     ? context_->rc_buffer_size / 8 : context_->bit_rate / fps_ / 8, 0);
             }
         } else if (vaapi_) {
             (void) av_dict_set(&options, "async_depth", "1", 0);
-            (void) av_dict_set(&options, "rc_mode", "CBR", 0);
+            // AMD pads CBR with filler up to the target even for a static picture,
+            // which is what delays exact pixels on a shared path. VBR at the
+            // same maximum keeps the VBV bound without that padding. A desktop
+            // under exact tiles may stay uncropped until something moves.
+            (void) av_dict_set(&options, "rc_mode", cropped_ || variable_rate_ ? "VBR" : "CBR", 0);
+            // Without a floor VBR spends its whole maximum refining a static picture.
+            if (cropped_ || variable_rate_) { context_->qmin = cropped_qmin(); }
         } else {
             (void) av_dict_set(&options, "preset", "ultrafast", 0);
             (void) av_dict_set(&options, "tune", "zerolatency", 0);
@@ -1003,7 +1041,7 @@ private:
 
     std::uint32_t width_, height_, fps_;
     std::string encoder_;
-    bool vaapi_, qsv_, cropped_;
+    bool vaapi_, qsv_, cropped_, variable_rate_;
     const AVCodec *codec_ {};
     AVCodecContext *context_ {};
     AVFrame *frame_ {}, *upload_ {};
@@ -1150,12 +1188,44 @@ public:
                 ui_probe_.store(mode);
                 if (mode >= 4) { ui_v2_.store(true); }
                 if (mode >= 5) { ui_v3_.store(true); }
+                if (mode >= 6) { ui_v4_.store(true); }
+                if (mode >= 7) { ui_v5_.store(true); }
             }
             else {
                 const bool was_enabled = ui_enabled_.exchange(mode != 0);
                 if (mode == 2 || was_enabled != (mode != 0)) { pending_raw_video_.clear(); }
                 if (mode == 2 || (mode == 1 && !was_enabled)) { ui_resync_.store(true); }
             }
+            ++ui_revision_;
+        }
+        ui_cv_.notify_one();
+    }
+
+    // 0: neither, 1: copies, 2: copies and pixel history.
+    void request_ui_copy(std::uint8_t mode) noexcept {
+        {
+            std::lock_guard lock(video_mutex_);
+            ui_copy_.store(mode >= 1U && ui_v4_.load());
+            ui_history_.store(mode >= 2U && ui_v5_.load());
+            ++ui_revision_;
+        }
+        ui_cv_.notify_one();
+    }
+
+    void ui_capacity(std::uint32_t bytes_per_second) noexcept {
+        {
+            std::lock_guard lock(video_mutex_);
+            ui_delivery_limit_ = bytes_per_second;
+            ++ui_revision_;
+        }
+        ui_cv_.notify_one();
+    }
+
+    void input_activity() noexcept {
+        {
+            std::lock_guard lock(video_mutex_);
+            ++ui_input_generation_;
+            ui_input_until_ = std::chrono::steady_clock::now() + qmdp::LosslessUi::input_response;
             ++ui_revision_;
         }
         ui_cv_.notify_one();
@@ -1304,6 +1374,8 @@ private:
         qmdp::LosslessUi ui;
         std::optional<std::chrono::steady_clock::time_point> deadline;
         std::uint64_t observed = std::numeric_limits<std::uint64_t>::max();
+        std::uint64_t logged_copies = 0U;
+        std::chrono::steady_clock::time_point logged_copies_at {};
         std::unique_lock lock(video_mutex_);
         while (running_.load()) {
             const auto changed = [this, &observed] {
@@ -1318,6 +1390,9 @@ private:
             const auto capture = latest_capture_;
             const auto focus = ui_focus_;
             const auto focus_until = ui_focus_until_;
+            const auto input_generation = ui_input_generation_;
+            const auto input_until = ui_input_until_;
+            const auto delivery_limit = ui_delivery_limit_;
             const auto now = std::chrono::steady_clock::now();
             const bool desktop_fresh = desktop_mode_ && now - desktop_received_ < 3s;
             const bool desktop_stable = desktop_fresh && now - desktop_changed_ >= 120ms &&
@@ -1352,7 +1427,7 @@ private:
             // A delayed reply can overlap a lower-version fallback probe.
             // Advertise the format already enabled for this connection.
             const bool retry_probe = probe && !sink_.send_ui(qmdp::LosslessUi::greeting(
-                ui_v3_.load() ? 31U : ui_v2_.load() ? 7U : 0U));
+                ui_v5_.load() ? 127U : ui_v4_.load() ? 63U : ui_v3_.load() ? 31U : ui_v2_.load() ? 7U : 0U));
             bool retry_update = false;
             if (retry_probe) { ui_probe_.store(probe); }
             if (!enabled) {
@@ -1362,6 +1437,10 @@ private:
                 try {
                     ui.capture(ui_v2_.load() ? capture : 0);
                     ui.advanced(ui_v3_.load());
+                    ui.copies(ui_copy_.load());
+                    ui.history(ui_history_.load());
+                    ui.input_event(input_generation, input_until);
+                    ui.delivery_limit(delivery_limit);
                     ui.layout(layout, static_cast<bool>(text_focus) && interactive);
                     ui.prioritize(text_focus ? text_focus : focus, text_focus ? now + 1s : focus_until, interactive);
                     ui.update(std::move(pixels), width, height, std::chrono::steady_clock::now(),
@@ -1384,8 +1463,16 @@ private:
                 if (!deadline || retry < *deadline) { deadline = retry; }
             }
             const auto region = ui.motion_region();
+            auto exact_mask = ui_freeze_ ? ui.exact_mask() : qmdp::LosslessUi::Mask {};
+            if (ui.stats().copies != logged_copies && now - logged_copies_at >= 5s) {
+                logged_copies = ui.stats().copies; logged_copies_at = now;
+                std::cerr << "QSM_DIRECT_MEDIA_UI_COPY copies=" << logged_copies
+                          << " tiles=" << ui.stats().copied_tiles << " freeze=" << ui_freeze_
+                          << " mask=" << static_cast<bool>(exact_mask) << '\n' << std::flush;
+            }
             lock.lock();
             ui_region_ = region; ui_region_width_ = width; ui_region_height_ = height;
+            ui_exact_mask_ = std::move(exact_mask);
         }
     }
 
@@ -1471,34 +1558,40 @@ private:
                 region.surface_width = region.surface_height = 0;
             }
             const bool region_mode = regions_enabled_.load() && ui_enabled_.load();
+            // Exact tiles moved by copy commands cover their video pixels. Do
+            // not spend the path re-encoding them: they keep the last encoded
+            // value until the tile stops being exact. Capture stamps continue.
+            if (region_mode && ui_exact_mask_ && !ui_exact_mask_->empty() && video_base_ && ui_region_width_ == width &&
+                ui_region_height_ == height && video_base_->size() == bgra->size() && bgra->size() == static_cast<std::size_t>(width) * height * 4U) {
+                const std::uint32_t edge = qmdp::LosslessUi::tile_edge, cols = (width + edge - 1U) / edge;
+                if (ui_exact_mask_->size() == static_cast<std::size_t>(cols) * ((height + edge - 1U) / edge)) {
+                    auto frozen = std::make_shared<std::vector<std::uint8_t>>(*bgra);
+                    for (std::size_t i = 0; i < ui_exact_mask_->size(); ++i) {
+                        if (!(*ui_exact_mask_)[i]) { continue; }
+                        const auto x = static_cast<std::uint32_t>(i % cols) * edge, y = static_cast<std::uint32_t>(i / cols) * edge;
+                        const auto w = std::min(edge, width - x), h = std::min(edge, height - y);
+                        for (std::uint32_t row = y; row < y + h; ++row) {
+                            const auto at = (static_cast<std::size_t>(row) * width + x) * 4U;
+                            std::memcpy(frozen->data() + at, video_base_->data() + at, static_cast<std::size_t>(w) * 4U);
+                        }
+                    }
+                    bgra = frozen;
+                }
+            }
+            video_base_ = region_mode ? bgra : decltype(bgra) {};
             if (!region_mode || crop_surface_width_ != width || crop_surface_height_ != height) {
-                video_region_.reset(); crop_surface_width_ = width; crop_surface_height_ = height;
+                video_envelope_.reset(); crop_surface_width_ = width; crop_surface_height_ = height;
             }
-            std::optional<qmdp::LosslessUi::Region> selected = video_region_;
-            if (region_mode && ui_region_ && ui_region_width_ == width && ui_region_height_ == height) {
-                auto area = *ui_region_;
-                if (video_region_) {
-                    const auto left = std::min(area.x, video_region_->x), top = std::min(area.y, video_region_->y);
-                    const auto right = std::max(area.x + area.width, video_region_->x + video_region_->width);
-                    const auto bottom = std::max(area.y + area.height, video_region_->y + video_region_->height);
-                    area = {left, top, right - left, bottom - top};
-                }
-                const auto pixels = static_cast<std::uint64_t>(area.width) * area.height;
-                if (pixels * 5 < static_cast<std::uint64_t>(width) * height * 4 &&
-                    (video_region_ || pixels >= 4U * 64U * 64U)) {
-                    // Grow the envelope, never shrink it as motion touches
-                    // fewer tile rows. This avoids repeated encoder resets
-                    // on a fixed-position playing clip. Mode/desktop changes
-                    // discard the envelope and negotiate a fresh full frame.
-                    video_region_ = area; selected = area;
-                } else if (pixels * 5 >= static_cast<std::uint64_t>(width) * height * 4) {
-                    selected.reset();  // All busy pixels must be covered.
-                }
-            }
+            const auto selected = region_mode
+                ? video_envelope_.select(std::chrono::steady_clock::now(),
+                                         ui_region_width_ == width && ui_region_height_ == height ? ui_region_ : std::nullopt,
+                                         width, height, minimum_crop_width, minimum_crop_height)
+                : std::nullopt;
+            bool plane = false;
             if (region_mode && selected) {
                 const auto& area = *selected;
                 const auto crop_width = area.width, crop_height = area.height;
-                if (crop_width >= 64 && crop_height >= 64 && crop_width % 2 == 0 && crop_height % 2 == 0) {
+                if (crop_width >= minimum_crop_width && crop_height >= minimum_crop_height && crop_width % 2 == 0 && crop_height % 2 == 0) {
                     auto crop = std::make_shared<std::vector<std::uint8_t>>(
                         static_cast<std::size_t>(crop_width) * crop_height * 4U);
                     for (std::uint32_t row = 0; row < crop_height; ++row) {
@@ -1509,6 +1602,7 @@ private:
                     bgra = crop; width = crop_width; height = crop_height;
                     region.x = static_cast<std::uint16_t>(area.x); region.y = static_cast<std::uint16_t>(area.y);
                     region.width = static_cast<std::uint16_t>(width); region.height = static_cast<std::uint16_t>(height);
+                    plane = true;
                 }
             }
             const auto refresh = pending_refresh_token_;
@@ -1518,9 +1612,11 @@ private:
             lock.unlock();
             try {
                 bool force_idr = force_idr_.exchange(false);
-                const bool cropped = region_mode &&
-                    (region.width < region.surface_width || region.height < region.surface_height);
-                const bool opening = width_ != width || height_ != height || encoder_cropped_ != cropped;
+                const bool cropped = plane;
+                const bool variable_rate = region_mode && std::string_view(encoder_).ends_with("_vaapi");
+                const bool opening = width_ != width || height_ != height || encoder_cropped_ != cropped ||
+                    encoder_variable_rate_ != variable_rate;
+                encoder_variable_rate_ = variable_rate;
                 const auto previous_access_unit_bytes = last_video_access_unit_bytes_.load();
                 const auto codec_bitrate = cropped_video_rate_.update(tick, cropped,
                     requested_bitrate, video_bitrate_kbps_, opening,
@@ -1656,7 +1752,7 @@ private:
             // Explicit I-frame requests go straight to libavcodec/NVENC.
             // Restarting an ffmpeg process for PLI pauses capture, emits a
             // bootstrap burst, and can trigger another bounded-queue overrun.
-            libav_encoder_ = std::make_unique<LibavVideoEncoder>(width, height, fps_, encoder_, bitrate_kbps, vaapi_device_.value_or(""), encoder_device_, cropped);
+            libav_encoder_ = std::make_unique<LibavVideoEncoder>(width, height, fps_, encoder_, bitrate_kbps, vaapi_device_.value_or(""), encoder_device_, cropped, encoder_variable_rate_);
             width_ = width;
             height_ = height;
             encoder_bitrate_kbps_ = bitrate_kbps;
@@ -1720,6 +1816,10 @@ private:
                                                    // padding an idle desktop with CBR filler NALs.
                                                    "-rc", "vbr",
                                                    "-g", std::to_string(INT_MAX), "-bf", "0"});
+                if (cropped && encoder_ == "h264_nvenc") {
+                    arguments.insert(arguments.end(), {"-qmin", std::to_string(cropped_qmin()), "-qmax", "32",
+                                                       "-init_qpP", "32", "-init_qpI", "32", "-init_qpB", "32"});
+                }
             } else if (encoder_ == "libx264") {
                 // Keep software H.264 on slice, rather than frame, threads.
                 // Frame threading retains several pictures before emitting the
@@ -1972,6 +2072,7 @@ private:
     std::string encoder_;
     std::optional<std::string> fallback_encoder_;
     bool encoder_cropped_ {};
+    bool encoder_variable_rate_ {};
     std::optional<std::string> vaapi_device_;
     std::uint32_t fps_ {};
     std::uint32_t video_bitrate_kbps_ {};
@@ -1987,13 +2088,21 @@ private:
     std::atomic<unsigned> ui_budget_ {0};
     std::atomic<bool> ui_v2_ {false};
     std::atomic<bool> ui_v3_ {false};
+    std::atomic<bool> ui_v4_ {false}, ui_copy_ {false}, ui_v5_ {false}, ui_history_ {false};
+    qmdp::LosslessUi::Mask ui_exact_mask_;
+    // Private diagnostic: encode copied pixels instead of freezing them.
+    const bool ui_freeze_ {std::getenv("QSM_DIRECT_UI_FREEZE") == nullptr || std::string_view(std::getenv("QSM_DIRECT_UI_FREEZE")) != "0"};
+    std::uint32_t ui_delivery_limit_ {};
+    std::uint64_t ui_input_generation_ {};
+    std::chrono::steady_clock::time_point ui_input_until_ {};
+    std::shared_ptr<const std::vector<std::uint8_t>> video_base_;
     std::uint64_t latest_capture_ {};
     std::mutex video_capture_mutex_;
     std::deque<CapturedVideo> video_captures_;
     std::atomic<bool> region_protocol_ {false}, regions_enabled_ {false};
     std::optional<qmdp::LosslessUi::Region> ui_region_;
     std::uint32_t ui_region_width_ {}, ui_region_height_ {};
-    std::optional<qmdp::LosslessUi::Region> video_region_;
+    qmdp::VideoEnvelope video_envelope_;
     std::uint32_t crop_surface_width_ {}, crop_surface_height_ {};
     std::optional<qmdp::LosslessUi::Region> ui_focus_;
     std::chrono::steady_clock::time_point ui_focus_until_ {};
@@ -2087,6 +2196,9 @@ private:
 
     void prioritize_keyboard() noexcept {
         media_.keyboard_activity();
+        // The first key after a focus change has no exact tile of the current layout
+        // to replace early, so it would otherwise wait for its video picture.
+        media_.input_activity();
         const auto& point = ui_focus_pointer_ ? ui_focus_pointer_ : ui_pointer_;
         if (point) { media_.keyboard_focus((*point)[0], (*point)[1], (*point)[2], (*point)[3]); }
     }
@@ -2161,6 +2273,7 @@ private:
             const auto button = static_cast<std::uint8_t>(payload[0] - 1U);
             const auto down = payload[1] == 1U;
             if (down) { ui_focus_pointer_ = ui_pointer_; }
+            media_.input_activity();
             session_.button(qemu_button(button), down);
             pressed_buttons_[button] = down;
         } else if (op == input_mouse_action && payload.size() >= 10U && payload.size() <= 26U && payload.size() % 2U == 0U) {
@@ -2186,6 +2299,7 @@ private:
             }
             ui_pointer_ = std::array{x, y, width, height};
             if (action != 0U) { ui_focus_pointer_ = ui_pointer_; }
+            media_.input_activity();
             set_pointer(x, y);
             if (action == 0U) {
                 if (pressed_buttons_[button]) { session_.button(qemu_button(button), false); }
@@ -2237,6 +2351,7 @@ private:
                 pressed_keys_.erase(*it);
             }
         } else if (op == input_scroll && payload.size() == 4U) {
+            media_.input_activity();
             const auto vertical = read_i16(payload, 0U);
             // Display1 represents wheel movement with QEMU's InputButton
             // numbers: 3 is wheel-up, 4 is wheel-down.  A browser WheelEvent
@@ -2267,8 +2382,12 @@ private:
         } else if (op == input_video_refresh && payload.size() == 12U) {
             const auto token = (static_cast<std::uint64_t>(read_u32(payload, 4)) << 32U) | read_u32(payload, 8);
             media_.request_confirmed_refresh(read_u32(payload, 0), token);
-        } else if (op == input_lossless_ui && payload.size() == 1U && payload[0] <= 5U) {
+        } else if (op == input_lossless_ui && payload.size() == 1U && payload[0] <= 7U) {
             media_.request_lossless_ui(payload[0]);
+        } else if (op == input_ui_copy && payload.size() == 1U && payload[0] <= 2U) {
+            media_.request_ui_copy(payload[0]);
+        } else if (op == input_ui_capacity && payload.size() == 4U) {
+            media_.ui_capacity(read_u32(payload, 0U));
         } else if (op == input_ui_budget && payload.size() == 1U && payload[0] <= 50U) {
             media_.reserve_ui_budget(payload[0]);
         } else if (op == input_video_regions && payload.size() == 1U && payload[0] <= 2U) {

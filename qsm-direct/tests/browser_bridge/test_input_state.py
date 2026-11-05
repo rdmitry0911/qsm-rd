@@ -32,6 +32,12 @@ class InputStateTests(unittest.TestCase):
             self.assertEqual(len(packets), before)
             egress.probe_lossless_ui(); egress.probe_lossless_ui()
             self.assertEqual(len(packets), before + 1)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x07')
+            egress._ui_probe_at -= 2
+            egress.probe_lossless_ui()
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x06')
+            egress._ui_probe_at -= 2
+            egress.probe_lossless_ui()
             self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x05')
             egress._ui_probe_at -= 2
             egress.probe_lossless_ui()
@@ -41,6 +47,46 @@ class InputStateTests(unittest.TestCase):
             self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x03')
             with self.assertRaises(BridgeError):
                 egress.encode_browser_message('{"op":"qsm_ui_mode","enabled":true}')
+
+    def test_ui_capacity_paces_for_the_slowest_viewer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            egress = UnixInputEgress(Path(directory)); packets = []
+            egress._send_packet = lambda p: packets.append(p) or True
+            a, b = object(), object()
+            egress.set_ui_capacity(a, 200000)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], (200000).to_bytes(4, 'big'))
+            egress.set_ui_capacity(b, 90000)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], (90000).to_bytes(4, 'big'))
+            before = len(packets)
+            egress.set_ui_capacity(a, 300000)
+            self.assertEqual(len(packets), before, 'the slowest viewer has not changed')
+            egress.set_ui_capacity(b, 0)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], (300000).to_bytes(4, 'big'))
+            egress.set_ui_capacity(a, 0)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], (0).to_bytes(4, 'big'))
+
+    def test_copy_requires_every_exact_viewer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            egress = UnixInputEgress(Path(directory)); packets = []
+            egress._send_packet = lambda p: packets.append(p) or True
+            a, b = object(), object()
+            egress.set_ui_copy(a, True)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x01')
+            egress.set_ui_copy(b, False)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x00')
+            before = len(packets)
+            egress.set_ui_copy(b, False, remove=True)
+            self.assertEqual(len(packets), before + 1)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x01')
+            egress.set_ui_copy(a, False, remove=True)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x00')
+            # History needs every viewer too: one with copies only limits both.
+            egress.set_ui_copy(a, 2)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x02')
+            egress.set_ui_copy(b, 1)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x01')
+            egress.set_ui_copy(b, 0, remove=True)
+            self.assertEqual(packets[-1][INPUT_HEADER.size:], b'\x02')
 
     def test_region_capture_requires_every_viewer_and_a_presented_full_frame(self):
         with tempfile.TemporaryDirectory() as directory:

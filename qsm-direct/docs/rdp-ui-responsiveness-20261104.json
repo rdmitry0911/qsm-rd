@@ -1,0 +1,237 @@
+{
+  "date": "2026-11-05",
+  "status": "ui_responsiveness_near_parity_gap_open",
+  "goal_complete": false,
+  "production_changed": false,
+  "scope": "Interface responsiveness only, per user instruction: scrolling, window dragging, clicks, typing. Clips are not compared with RDP. Same native-widget fixture geometry on a flat backdrop with no media on both sides, same owned netem/shaper parameters on one host, serial runs. Medians of per-run medians.",
+  "correction": "The exp186 and first exp190 QSM runs recorded here earlier were not comparable: the fixture page and a playing clip stayed visible behind the bench window while the RDP side had a flat backdrop and no media. Their byte and latency figures are withdrawn; this file previously said no media was playing, which was wrong. The bench now refuses to measure unless the backdrop is flat and stable.",
+  "evidence_directory": "dist/rdp-hybrid/ui-responsiveness",
+  "artifact_manifest_sha256": "88b09f9bd7c1f2d400ab4e0809973b2380f8d2fd660f1d996bae56313d42d09f",
+  "systems": {
+    "rdp": "Windows Server 2025 RDS; FreeRDP3 software X11 +window-drag; X11 root pixels polled at 1-2ms",
+    "qsm190": "exp190 packaged viewer/worker/bridge, exact UI on, LXC108 KWin5 NVENC H264; headless Firefox 157; one round only",
+    "qsm_final": "exp213 with region copy, pixel history, cursor cache, 120 Hz wlroots output and spaced replies; LXC108 KWin5 NVENC H264 container; headless Chromium 156, same fixture"
+  },
+  "profiles": "Label is path rate and one-way netem delay; 3ms jitter; 0.3% loss at 2M only.",
+  "summary": {
+    "rdp": {
+      "20M-d15": {
+        "type_first_ms": 38.6,
+        "click_first_ms": 67.3,
+        "wheel_first_ms": 41.0,
+        "wheel_settled_ms": 41.0,
+        "burst_first_ms": 41.5,
+        "burst_settled_ms": 43.4,
+        "drag_first_motion_ms": 91.9,
+        "drag_positions_per_s": 32.1,
+        "drag_lag_ms": 48.1,
+        "drag_settled_ms": 41.2,
+        "transport_kb": 107,
+        "wheel_idle_changes": [
+          0,
+          0,
+          0
+        ]
+      },
+      "2M-d15": {
+        "type_first_ms": 36.2,
+        "click_first_ms": 68.5,
+        "wheel_first_ms": 40.3,
+        "wheel_settled_ms": 40.3,
+        "burst_first_ms": 33.5,
+        "burst_settled_ms": 32.7,
+        "drag_first_motion_ms": 86.8,
+        "drag_positions_per_s": 32.1,
+        "drag_lag_ms": 49.7,
+        "drag_settled_ms": 43.4,
+        "transport_kb": 54,
+        "wheel_idle_changes": [
+          0,
+          0,
+          0
+        ]
+      },
+      "20M-d100": {
+        "type_first_ms": 123.3,
+        "click_first_ms": 150.6,
+        "wheel_first_ms": 125.4,
+        "wheel_settled_ms": 125.7,
+        "burst_first_ms": 127.7,
+        "burst_settled_ms": 129.0,
+        "drag_first_motion_ms": 170.5,
+        "drag_positions_per_s": 32.0,
+        "drag_lag_ms": 134.0,
+        "drag_settled_ms": 124.1,
+        "transport_kb": 107,
+        "wheel_idle_changes": [
+          0,
+          0,
+          0
+        ]
+      },
+      "2M-d100": {
+        "type_first_ms": 123.2,
+        "click_first_ms": 153.3,
+        "wheel_first_ms": 125.6,
+        "wheel_settled_ms": 125.6,
+        "burst_first_ms": 132.5,
+        "burst_settled_ms": 125.8,
+        "drag_first_motion_ms": 185.2,
+        "drag_positions_per_s": 32.0,
+        "drag_lag_ms": 134.5,
+        "drag_settled_ms": 121.4,
+        "transport_kb": 48,
+        "wheel_idle_changes": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    "qsm190": {
+      "20M-d15": {
+        "type_first_ms": 60.0,
+        "click_first_ms": 127.0,
+        "wheel_first_ms": 146.0,
+        "wheel_settled_ms": 629.5,
+        "burst_first_ms": 137.0,
+        "burst_settled_ms": 1145.5,
+        "drag_first_motion_ms": 175.0,
+        "drag_positions_per_s": 44.0,
+        "drag_lag_ms": 135.0,
+        "drag_settled_ms": 60.5,
+        "transport_kb": 25560,
+        "wheel_idle_changes": [
+          0
+        ]
+      },
+      "2M-d15": {
+        "type_first_ms": 66.0,
+        "click_first_ms": 119.0,
+        "wheel_first_ms": 20.5,
+        "wheel_settled_ms": 1144.0,
+        "burst_first_ms": 11.0,
+        "burst_settled_ms": 1494.5,
+        "drag_first_motion_ms": 408.5,
+        "drag_positions_per_s": 37.4,
+        "drag_lag_ms": 163.5,
+        "drag_settled_ms": 80.5,
+        "transport_kb": 9443,
+        "wheel_idle_changes": [
+          2
+        ]
+      },
+      "20M-d100": {
+        "type_first_ms": 146.5,
+        "click_first_ms": 211.0,
+        "wheel_first_ms": 212.5,
+        "wheel_settled_ms": 920.0,
+        "burst_first_ms": 220.0,
+        "burst_settled_ms": 1220.5,
+        "drag_first_motion_ms": 268.5,
+        "drag_positions_per_s": 45.2,
+        "drag_lag_ms": 218.0,
+        "drag_settled_ms": 143.5,
+        "transport_kb": 21470,
+        "wheel_idle_changes": [
+          1
+        ]
+      },
+      "2M-d100": {
+        "type_first_ms": 151.0,
+        "click_first_ms": 210.5,
+        "wheel_first_ms": 28.0,
+        "wheel_settled_ms": 1129.5,
+        "burst_first_ms": 53.5,
+        "burst_settled_ms": 1437.0,
+        "drag_first_motion_ms": 494.0,
+        "drag_positions_per_s": 28.6,
+        "drag_lag_ms": 259.0,
+        "drag_settled_ms": 166.0,
+        "transport_kb": 8903,
+        "wheel_idle_changes": [
+          2
+        ]
+      }
+    },
+    "qsm_final": {
+      "20M-d15": {
+        "type_first_ms": 47.8,
+        "click_first_ms": 45.0,
+        "wheel_first_ms": 51.0,
+        "wheel_settled_ms": 68.4,
+        "burst_first_ms": 51.8,
+        "burst_settled_ms": 59.4,
+        "drag_first_motion_ms": 59.2,
+        "drag_positions_per_s": 48.2,
+        "drag_lag_ms": 47.8,
+        "drag_settled_ms": -20.5,
+        "transport_kb": 2996,
+        "wheel_idle_changes": [
+          0,
+          0
+        ]
+      },
+      "2M-d15": {
+        "type_first_ms": 48.2,
+        "click_first_ms": 45.0,
+        "wheel_first_ms": 44.1,
+        "wheel_settled_ms": 67.8,
+        "burst_first_ms": 47.5,
+        "burst_settled_ms": 59.5,
+        "drag_first_motion_ms": 56.4,
+        "drag_positions_per_s": 48.3,
+        "drag_lag_ms": 49.0,
+        "drag_settled_ms": -27.1,
+        "transport_kb": 2993,
+        "wheel_idle_changes": [
+          0,
+          0
+        ]
+      },
+      "20M-d100": {
+        "type_first_ms": 131.8,
+        "click_first_ms": 128.4,
+        "wheel_first_ms": 137.9,
+        "wheel_settled_ms": 148.2,
+        "burst_first_ms": 139.3,
+        "burst_settled_ms": 144.4,
+        "drag_first_motion_ms": 150.7,
+        "drag_positions_per_s": 49.4,
+        "drag_lag_ms": 133.5,
+        "drag_settled_ms": 62.1,
+        "transport_kb": 3037,
+        "wheel_idle_changes": [
+          0,
+          0
+        ]
+      },
+      "2M-d100": {
+        "type_first_ms": 136.2,
+        "click_first_ms": 132.7,
+        "wheel_first_ms": 135.6,
+        "wheel_settled_ms": 156.8,
+        "burst_first_ms": 134.6,
+        "burst_settled_ms": 167.4,
+        "drag_first_motion_ms": 147.1,
+        "drag_positions_per_s": 47.9,
+        "drag_lag_ms": 133.6,
+        "drag_settled_ms": 71.4,
+        "transport_kb": 3082,
+        "wheel_idle_changes": [
+          0,
+          0
+        ]
+      }
+    }
+  },
+  "limits": [
+    "Client is FreeRDP, not mstsc. Different OS, toolkit, compositor and encoder: not a single-variable backend comparison.",
+    "QSM observer is rAF-quantized (about +8ms mean) against 1-2ms X11 polling.",
+    "The flat backdrop is a best case for exposed strips. Text behind a moving window was run live on QSM only and is recorded in docs/rdp-pixel-history-20261105.json.",
+    "updates/positions per second count every pixel change, including refinement, so higher QSM values are not an advantage by themselves.",
+    "Transport bytes include constant Opus audio on the QSM side.",
+    "See docs/rdp-pixel-history-20261105.json for clip gates, text behind a window and the other lanes."
+  ],
+  "next_action": "See docs/rdp-pixel-history-20261105.json."
+}

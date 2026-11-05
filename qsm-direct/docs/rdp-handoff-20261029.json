@@ -1,0 +1,520 @@
+{
+  "date": "2026-10-29",
+  "requested_status": "paused",
+  "reason": "Пользователь явно попросил: «Подготовь передачу дел другому агенту и останови работу». Не возобновлять автоматически до нового указания пользователя.",
+  "objective": "добиться отзывчивости microsoft rdp, сохранив качество и скорость воспроизведения графики/клипов и завершить план",
+  "goal_complete": false,
+  "previous_turn_classification": "progress: implemented source, real-media evidence, frozen regressions; this handoff turn stops work at explicit user request",
+  "entry_points": [
+    "docs/rdp-next-plan.json",
+    "docs/rdp-decoded-queue-20261029.json",
+    "docs/rdp-decoded-presentation-20261029.json",
+    "docs/EXACT_UI.md",
+    "docs/video-presentation-feedback.md"
+  ],
+  "workspace": {
+    "cwd": "/home/dima/Projects/q-sunshine",
+    "branch": "main",
+    "head": "9d9c66b6d03d00629bf7ac2c4aa404bb4e36b553",
+    "last_commit": "9d9c66b Bound decoded RTP presentation and wake paused video admission",
+    "staged_wip_files_before_handoff": [
+      "qsm-direct/docs/EXACT_UI.md",
+      "qsm-direct/docs/video-presentation-feedback.md",
+      "qsm-direct/extensions/browser_bridge/qsm_browser_bridge.py",
+      "qsm-direct/extensions/browser_bridge/qsm_transport_feedback.py",
+      "qsm-direct/tests/browser_bridge/test_adaptive_video.py",
+      "qsm-direct/tests/browser_bridge/test_browser_bridge.py",
+      "qsm-direct/tests/fixtures/twcc-transient-exp181.json.gz"
+    ],
+    "wip_patch": "dist/rdp-hybrid/handoff-182-183/worktree.patch",
+    "unrelated_untracked": "QEMU build symlinks/files, qsm-direct/dima@..., run-lab.sh and upstream drafts were present before this work. Do not stage/delete/reset them. No new commit was made during this continuation; runtime183 changes are staged WIP."
+  },
+  "rules": [
+    "Wall time: независимые блоки выполнять параллельно; общий GPU и SDK использовать последовательно. Не компилировать на контроллере во время измерений медиа. Не повторять пройденные проверки без новой причины.",
+    "Парето: приоритет = размер устраняемого блокера / стоимость реализации и проверки. Сначала анализировать сохранённые трассы, затем проверять конкретное изменение; не тратить прогоны на случайные настройки.",
+    "Не сужать цель до текущих удачных тестов. Порог45 уникальных исходных кадров/с, glyph<=600ms, gap<=500ms, source-age excess<=400ms, нулевые CRC/static-pixel ошибки, input exactly once, восстановление8000 и fidelity gates сохраняются.",
+    "Не подменять source-ID FPS количеством полученных/декодированных кадров, не переписывать RTP/capture/clock timestamps и не выдавать counterfactual replay за живой прогон.",
+    "Один проброшенный TCP-порт8006 остаётся достаточным; несколько TCP-соединений через тот же порт допустимы, UDP необязателен.",
+    "Не перезапускать/останавливать производственные узлы, гостевые ОС, исходные графические сессии, терминалы и сохранённые fixture-процессы. Private candidates только извлекать в отдельные каталоги, не устанавливать поверх production.",
+    "Не публиковать/развёртывать/подписывать релиз до полной квалификации. Все7 пакетов, подписи/APT/docs/qualified rollout/авторизованные обсуждения остаются в полном плане.",
+    "Пароли Windows/ICE credentials не печатать и не архивировать. Не отправлять внешние сообщения без явной авторизации.",
+    "Субагенты не запускались. Действующее developer-правило запрещает запускать их без явного запроса пользователя или применимого AGENTS/skill. Параллелизм выполнялся независимыми tool calls.",
+    "Russian concise commentary during work, at least every60s. No new user questions are pending. No applicable AGENTS.md or coding skill was found in the previous context."
+  ],
+  "candidate183": {
+    "version": "0.4.0+stock4.14~exp183",
+    "production_changed": false,
+    "deb_sha256": "5243127bfeb9c1050f976db3b876556c24bcc25c929af1cb62124ab19d7869f6",
+    "worker_source_sha256": "ce640e2765d43dfe177b491a254474e02afb92185e35f0b2e651351d1e80ccb8",
+    "worker_sha256": "3bf9202ce2681cbb891da3f8c9dec9b4b1c209b726fd2e316e11212ab0807479",
+    "bridge_sha256": "f8f81815ac0e8786f2f581e1bb0fc08244a24a7e51bc43cbc3bb06fb376bab7c",
+    "transport_sha256": "be54994641f8382b85fe8a72ca250ff38b2f39fca55302805222ce566309af37",
+    "viewer_sha256": "44b8a57dc1b4399b5c97ee8326d18ae2956f206d508fb76e710edda815d5dd8d"
+  },
+  "candidate182": {
+    "version": "0.4.0+stock4.14~exp182",
+    "production_changed": false,
+    "deb_sha256": "f6a43e02c88e8e8bf07b2b3a7997e2c42ddb69d96e4a6947ecd1eec0f8f72411",
+    "worker_source_sha256": "ce640e2765d43dfe177b491a254474e02afb92185e35f0b2e651351d1e80ccb8",
+    "worker_sha256": "3bf9202ce2681cbb891da3f8c9dec9b4b1c209b726fd2e316e11212ab0807479",
+    "bridge_sha256": "2a0db2ac30ad0feb60596b9a4911dfb99fb923783ba14a510017c7127b67e662",
+    "transport_sha256": "be54994641f8382b85fe8a72ca250ff38b2f39fca55302805222ce566309af37",
+    "viewer_sha256": "44b8a57dc1b4399b5c97ee8326d18ae2956f206d508fb76e710edda815d5dd8d"
+  },
+  "changes": {
+    "committed181": "Bounded decoded RTP presenter (FIFO2, one draw/RAF, drop queue age>50ms, cancellation/API/error/timeout fallback, retained image for late mapping, no undrawn ACK, U32 order guard). Worker wakes raw-budget wait on explicit release using shared mutex, without bypassing debt/UI reserve/cadence. Commit9d9c66b; previous evidence219 artifacts in decoded-queue-178-181.",
+    "wip182": "Product initial SDP application exclusion from BUNDLE when legal (nonzero own port, no bundle-only, unique MID/group; audio/video stay bundled). Applies consistently to internal remote description and answer; no private SDP hooks remain in gtk182-product-backend. Real SCTP messaging/cleanup and mandatory-BUNDLE tests pass. DeliveryEstimator requires another25ms matched high-queue observation for a moderate>100ms episode, while severe<half-delivery keeps50ms queue cut. Frozen181 regression prevents late8000->3649 recut while preserving real20->2 cut1699 on the same first report.",
+    "wip183": "Newest change: fresh matched packet credit keeps frame admission bounded even when complete-frame receipts coalesce at~50ms and received_rapid_time becomes old. Before this, current PVE182 trace had fresh frame receipts but rapid_age10.396s at the first cut, disabling the early flight bound. Retained old flight after a large packet-confirmed cut now also works with received feedback of slow cadence. Legacy/stale/no-packet behavior remains tested. Also hoisted known_mids set to avoid quadratic validation.",
+    "viewer_and_worker_unchanged_in182_183": "Worker183 and viewer183 are byte-identical181. New work changes bridge/transport/tests/docs only. No QP ceiling, timestamp rewrite, extra VideoDecoder or guest protocol change."
+  },
+  "tests": {
+    "182": {
+      "bridge_tests": 217,
+      "seconds": 9.031,
+      "passed": true
+    },
+    "183": {
+      "bridge_tests": 219,
+      "seconds": 9.089,
+      "passed": true,
+      "real_media_run": false
+    },
+    "old_regressions": {
+      "rate182-old-regression.log": "Valid: late-repair test fails old181, severe-capacity test passes.",
+      "packet183-old-regression-v2.log": "Valid: old182 fails bounded-batched-flight and retained-flight tests; stale/legacy case passes.",
+      "packet183-old-regression.log": "Invalid initial unittest class name; do not treat as implementation failure."
+    },
+    "browser_tests": "All Node browser suites passed for the unchanged181 viewer in the prior committed turn. No repeated Node test was needed for unchanged JS."
+  },
+  "live_runs": [
+    {
+      "run": "quality61-auto-mac182-shipped-r1-pve-source-oracle",
+      "package": "exp182",
+      "scope": "Actual packaged182 viewer/worker/bridge/transport. Product independent SCTP SDP negotiation, no private SDP hooks or rate commands; passive RTP/source-ID observers. Owned Mac182 headed Chrome; original45fps/600ms/pixel/input gates through actual PVE TCP8006. Launch/ACL mocked;20s healthy media only, not full qualification.",
+      "checks": {
+        "pixel_worker_complete": true,
+        "static_pixels_exact": true,
+        "source_ids_valid": true,
+        "source_fps_at_least_45": true,
+        "no_long_video_gap": true,
+        "same_connected_stream": true,
+        "full_rate_ceiling": true,
+        "input_delivered_once": true,
+        "glyph_peak_at_most_600ms": true
+      },
+      "page_errors": [],
+      "transport_split": {
+        "scope": "Passive observation of packaged182 SDP negotiation; no offer/answer mutation",
+        "production_negotiation": true,
+        "application_mid": "2",
+        "application_port": 59348,
+        "original_bundle_mids": [
+          "0",
+          "1",
+          "2"
+        ],
+        "answer_bundle_mids": [
+          "0",
+          "1"
+        ],
+        "distinct_data_transport": true
+      },
+      "transport_facts": {
+        "same_dtls": false,
+        "video_dtls": "connected",
+        "data_dtls": "connected",
+        "video_ice": "connected",
+        "data_ice": "connected",
+        "pairs": [
+          {
+            "local_type": "relay",
+            "relay_protocol": "tcp",
+            "url": "turn:192.168.64.20:8006?transport=tcp"
+          },
+          {
+            "local_type": "relay",
+            "relay_protocol": "tcp",
+            "url": "turn:192.168.64.20:8006?transport=tcp"
+          }
+        ]
+      },
+      "real_visibility": {
+        "visibility": "visible",
+        "focus": false
+      },
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 47.19008771973918,
+          "max_frame_gap_ms": 165.59999999403954,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 1270,
+            "median": 256.7350759636611,
+            "p95": 342.7092977489039,
+            "max": 460.63714511692666,
+            "clock_uncertainty_max": 116.1499999910593,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        167.09999999403954,
+        149.90000000596046,
+        177
+      ],
+      "guest_characters": 3
+    },
+    {
+      "run": "quality61-auto-mac182-shipped-r2-pve-source-oracle",
+      "package": "exp182",
+      "scope": "Actual packaged182 viewer/worker/bridge/transport. Product independent SCTP SDP negotiation, no private SDP hooks or rate commands; passive RTP/source-ID observers. Owned Mac182 headed Chrome; original45fps/600ms/pixel/input gates through actual PVE TCP8006. Launch/ACL mocked;40s healthy media only, not full qualification.",
+      "checks": null,
+      "page_errors": [],
+      "transport_split": {
+        "scope": "Passive observation of packaged182 SDP negotiation; no offer/answer mutation",
+        "production_negotiation": true
+      },
+      "transport_facts": null,
+      "real_visibility": {
+        "visibility": "visible",
+        "focus": false
+      },
+      "measurement": "No measured media phase; startup wait timed out. Not a cadence/fidelity result."
+    },
+    {
+      "run": "quality61-auto-mac182-shipped-r3-pve-source-oracle",
+      "package": "exp182",
+      "scope": "Actual packaged182 viewer/worker/bridge/transport. Product independent SCTP SDP negotiation, no private SDP hooks or rate commands; passive RTP/source-ID observers. Owned Mac182 headed Chrome; original45fps/600ms/pixel/input gates through actual PVE TCP8006. Launch/ACL mocked;40s healthy media only, not full qualification.",
+      "checks": null,
+      "page_errors": [],
+      "transport_split": {
+        "scope": "Passive observation of packaged182 SDP negotiation; no offer/answer mutation",
+        "production_negotiation": true
+      },
+      "transport_facts": null,
+      "real_visibility": {
+        "visibility": "visible",
+        "focus": false
+      },
+      "measurement": "No measured media phase; startup wait timed out. Not a cadence/fidelity result."
+    },
+    {
+      "run": "intel182-full-h264_qsv-virgl-capture-gpu-w1",
+      "package": "exp182",
+      "scope": "Packaged182 automatic decoded presenter with HTML fallback; byte-identical181 worker, product independent control SDP and transient queue confirmation. Firefox157 is the API-negative control. Owned KWin6/guest83 native VM, actual QSV/TURN with declared kernel loss/jitter and20M/2M/20M transition. PVE launch/ACL mocked; no production or original-session restart.",
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_45": true,
+        "fast_source_fps_at_least_45": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": false,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true,
+        "metadata_mode3": true,
+        "valid_source_ids": true
+      },
+      "page_errors": [],
+      "transport_split": null,
+      "transport_facts": null,
+      "real_visibility": null,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 48.22201810785986,
+          "max_frame_gap_ms": 51,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 915,
+            "median": 183.88330174299483,
+            "p95": 201.21663520112776,
+            "max": 220.27739857633932,
+            "clock_uncertainty_max": 48.79585,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 45.65284448949015,
+          "max_frame_gap_ms": 183,
+          "initial_target": 8000,
+          "final_target": 1537,
+          "full_source_age_ms": {
+            "samples": 2723,
+            "median": 251.20629171530595,
+            "p95": 518.9073552687944,
+            "max": 748.6330577327572,
+            "clock_uncertainty_max": 50.79585,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 49.56113600806131,
+          "max_frame_gap_ms": 83,
+          "initial_target": 1537,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4526,
+            "median": 218.02450520142003,
+            "p95": 285.886447535205,
+            "max": 347.58127303794595,
+            "clock_uncertainty_max": 50.79585,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        312,
+        241,
+        245,
+        249,
+        242,
+        243,
+        311,
+        280,
+        260,
+        275,
+        262,
+        238,
+        263,
+        263,
+        230
+      ],
+      "guest_characters": 15,
+      "source_age_excess_ms": 547.4164225316295
+    },
+    {
+      "run": "quality61-auto-lxc182-first-loss0p3-delay15-source-oracle",
+      "package": "exp182",
+      "scope": "real LXC108/KWin5 capture, NVENC/H264, Firefox/Linux, TURN TCP8006; launch/ACL mocked",
+      "checks": {
+        "no_long_video_gap": true,
+        "narrow_source_fps_at_least_45": true,
+        "recovered_source_fps_at_least_50": true,
+        "full_rate_recovered": true,
+        "presentation_excess_at_most_400ms": true,
+        "glyph_peak_at_most_600ms": true,
+        "full_source_excess_from_fast_p95_at_most_400ms": false,
+        "no_observed_rtp_loss": true,
+        "narrowed": true,
+        "recovered_some": true,
+        "static_pixels_exact": true,
+        "input_delivered_once": true,
+        "same_connected_stream": true
+      },
+      "page_errors": [],
+      "transport_split": null,
+      "transport_facts": null,
+      "real_visibility": null,
+      "phases": [
+        {
+          "name": "fast",
+          "unique_fps": 57.01158351129231,
+          "max_frame_gap_ms": 84,
+          "initial_target": 8000,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 927,
+            "median": 208.14967714250088,
+            "p95": 225.14967750758075,
+            "max": 272.78017066419125,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "narrow",
+          "unique_fps": 49.57160342717258,
+          "max_frame_gap_ms": 217,
+          "initial_target": 8000,
+          "final_target": 1726,
+          "full_source_age_ms": {
+            "samples": 2745,
+            "median": 241.48357287049294,
+            "p95": 304.52634394168854,
+            "max": 790.0501151879631,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        },
+        {
+          "name": "recovered",
+          "unique_fps": 54.64394029692611,
+          "max_frame_gap_ms": 150,
+          "initial_target": 1726,
+          "final_target": 8000,
+          "full_source_age_ms": {
+            "samples": 4530,
+            "median": 207.9952093462083,
+            "p95": 241.88771517947316,
+            "max": 422.8523951023817,
+            "clock_uncertainty_max": 1.5,
+            "source_tick_interval_ms": 16.666666666666668
+          }
+        }
+      ],
+      "glyph_ms": [
+        75,
+        54,
+        96,
+        75,
+        118,
+        109,
+        109,
+        104,
+        87,
+        74,
+        70,
+        71,
+        61,
+        72,
+        79
+      ],
+      "guest_characters": 15,
+      "source_age_excess_ms": 564.9004376803823
+    }
+  ],
+  "critical_findings": [
+    "Mac182 packaged healthy20s pilot PASS all9 original gates:47.1901 true source fps, glyph167.1/149.9/177ms, pixel/source CRC errors0. Actual PVE TURN TCP8006, both nominated connections relay/TCP, distinct media/control ICE/DTLS; no private offer/answer mutation. Launch/ACL still mocked. Not full qualification.",
+    "Mac182 r2 (reused Chrome182) and r3 (fresh Chrome184) failed the initial videoWidth1280/connected wait before any measurement. r3 backend logs have no completed offer; last browser snapshot was already closed. The cause is UNPROVEN. Do not call these low-FPS or decoder failures.",
+    "Mac focus/visibility: Playwright1.64 forces focus emulation. Earlier181 actual-hidden probes never observed hidden, even after disabling emulation and attempting window minimization. Current182 harness disabled emulation before initial ICE negotiation; first pilot passed, later setups failed. Next diagnostic should sample signaling/ICE/status/request failures before closure, and keep default focus through connection before disabling it for real visibility proof.",
+    "Prepared mac182-shipped-r3 harness contains a same-window CDP Target.createTarget(newWindow:false) tab lifecycle test, disable/re-enable, frame/clone cleanup, and source advancement after resume. It never reached that block because startup failed. Do not claim hidden-tab acceptance.",
+    "Local canvas/H264 loopback probes183/184 had no usable control: both normal and delayed-worker cases stayed connection=new with no decoded frames.183 additionally had unbound timer / incomplete ICE setup.184 bound timers and waited gathering but still never connected. These probes DO NOT prove an optional transform timeout bug. Viewer was not changed based on them.",
+    "PVE182 full profile:57.01/49.57/54.64fps; glyph max118ms, target ends8000.12/13 gates pass; source-age excess564.90ms FAIL400. At peak, capture->last-send134.73ms, last-send->receive478.39ms, browser-after-receive6.66ms, then134.34ms held canvas until source sample.",
+    "Native182 QSV full profile:48.22/45.65/49.56fps, glyph max312ms, target recovers8000. Source-age excess547.42ms and presentation excess fail400. At peak, capture->last-send229.46ms, last-send->receive442.01ms, browser-after-receive10.62ms, then50.38ms canvas hold.",
+    "Initial flight analysis183: Native182 outstanding143896B before cut, retained125629B, frame receipt base109.63ms, rapid age142ms. PVE182 outstanding119464B, base42.76ms, rapid age10.396s; no retained flight because rapid-cadence heuristic expired. PVE181/179 controls had outstanding50015/66526B and rapid ages91/164ms. New183 policy directly addresses the PVE fallback, but native bound was already active, so native improvement is not established."
+  ],
+  "paths": {
+    "temporary_root": "/tmp/qsm-rdp-hybrid-20261028",
+    "durable_current_evidence": "dist/rdp-hybrid/handoff-182-183",
+    "artifact_manifest_sha256": "eb860953345298a64780c19bd238592824410647b9a06daf3c5d3f32780fd94a",
+    "artifact_count": 133,
+    "artifact_bytes": 34587490,
+    "prior_committed_evidence": "dist/rdp-hybrid/decoded-queue-178-181",
+    "sdk": "/var/tmp/qsm-dev-trixie",
+    "builder": "/tmp/qsm-lossless-ui-20261026/build-current69-pilot.py",
+    "frozen_source_tars": "/tmp/qsm-lossless-ui-20261026/source-exp182.tar and source-exp183.tar",
+    "build_logs": "/tmp/qsm-lossless-ui-20261026/debian-exp182-build.log and debian-exp183-build.log"
+  },
+  "nodes": {
+    "pve": {
+      "ssh": "root@192.168.64.20",
+      "production": "exp35, unchanged",
+      "private_root": "/root/qsm-rdp-hybrid-20261028",
+      "private183": "candidate183 already extracted; gtk183-product-backend.py, gtk183-transition-backend.py and lxc probes copied; no183 media run",
+      "protected": "VM103 PID495374/start297084425; terminal577033/start332808379; LXC108 init875731; fixture3829227/start336885318; other GUI/metadata identities in pre-lxc121-state.json and latest stop proof. Never restart them.",
+      "verifier": "/tmp/qsm-rdp-hybrid-20261028/verify-lxc154.py"
+    },
+    "native_intel": {
+      "ssh": "dima@172.16.16.200 (sudo -n)",
+      "private_root": "/var/tmp/qsm-rdp-hybrid-intel-20261028",
+      "protected_qemu": 3079308,
+      "protected_guest_start_ticks": {
+        "828": 712,
+        "710": 607,
+        "675": 601,
+        "957": 821
+      },
+      "private183": "core183, backend183.py, native_probe183.py, worker-wrapper183.sh already staged; worker-exp183 extracted under /var/tmp/qsm-rdp-qual-20261027/intel-runtime; no183 media run",
+      "turn": "private127.0.0.1:13486; no production gateway installed",
+      "verifier": "/tmp/qsm-rdp-hybrid-20261028/verify-runtime127.py pre|post"
+    },
+    "mac": {
+      "preferred_ssh": "bob@10.90.10.22",
+      "alternative": "dima@10.30.0.35 is a VM/ordinary VGA by user warning, SSH authentication did not work. Do not silently substitute.",
+      "observed": "macOS26.3 build25D125, x86_64, Chrome156.0.8078.49; reported MacBookPro15,2 conflicts with LGGram/Intel identifiers. Physical Apple model/hardware decoding are NOT proven. GUI /dev/console user bob.",
+      "state": "All owned Chrome178/182/183/184 and their caffeinate processes retired with PID/profile checks. No active CDP/web/TURN reverse ports. User default browser profiles untouched.",
+      "do_not_reuse": "Old PIDs/ports/profiles are dead. start-mac182.py/183.py/184.py assert root absence and cannot be rerun; choose a fresh root/ports and guard any cleanup using exact profile/PID. Latest owned184 was36759/caffeinate36770, both now stopped."
+    },
+    "amd_node": {
+      "ssh": "root@10.30.0.240",
+      "last_known_readonly": "Production exp26; AMD Raphael1002:164e/renderD128. No owned fixture exists there. No modification made; do not assume exp35 or an authorized existing guest."
+    },
+    "windows_reference": {
+      "user_context": "User had no ready Windows RDP node; previous goal work created an isolated reference, not a user production VM.",
+      "node": "PVE192.168.64.20",
+      "root": "/var/tmp/qsm-rdp-reference-20261029",
+      "unit": "qsm-rdp-reference-20261029",
+      "verified_stop_inventory": "ActiveState=active, MainPID1213118; left ready/idle.4vCPU8GB70GB,stdVGA,NAT,loopback13389->3389 NLA. Do not restart original user VMs.",
+      "credentials": "Root0600 admin credential file remains private in reference area; never print or archive it. Existing scripts read it.",
+      "matching_source_sha256": "1a063574ef752a5d0c0ffa855d5dded6fc361f68a771b523e8ff0cf23b6f5886",
+      "source": "hardcut68/quality60.rgb,640x360 RGB600 frames. Root B/quality60.rgb has a different SHA and is NOT the same source.",
+      "prior_result": "Corrected149 comparison ~31.5/29fps, first glyph952ms (FAIL600), SSIM.960875; AVC444 not established. Matched impaired/repeated/fidelity/soak comparison remains open. Use corrected rdp-proxy152.py shutdown order."
+    }
+  },
+  "stop_proof": {
+    "pve": {
+      "production_package": "0.4.0+stock4.14~exp35",
+      "original_terminal_and_user_vm103_unchanged": true,
+      "owned_graphics_and_metadata_start_ticks": {
+        "444366": 241353958,
+        "444367": 241353959,
+        "444390": 241353968,
+        "3829222": 336885310,
+        "4091558": 340029304
+      },
+      "owned_fixture": {
+        "pid": 3829227,
+        "start_ticks": 336885318,
+        "executable": "python3",
+        "owned_script": [
+          "/opt/qsm-rdp-hybrid-20261028/fixture.py"
+        ]
+      },
+      "lxc_init": 875731,
+      "diagnostic_workers_remaining": []
+    },
+    "native": {
+      "owned_qemu_pid": 3079308,
+      "guest_process_start_ticks": {
+        "828": 712,
+        "710": 607,
+        "675": 601,
+        "957": 821
+      },
+      "diagnostic_workers_remaining": [],
+      "production_gateway_absent": true
+    },
+    "mac": {
+      "scope": "Only owned headed Chrome184 and its own system/display sleep assertion; original user browser profiles untouched",
+      "terminated": [
+        {
+          "pid": 36759,
+          "token": "--user-data-dir=/tmp/qsm-mac-qualification-20261029-184-fresh/profile"
+        },
+        {
+          "pid": 36770,
+          "token": "caffeinate -i -d -w 36759"
+        }
+      ],
+      "remaining_owned_pids": [],
+      "debug_ports_open": [],
+      "remaining_profile_processes": []
+    }
+  },
+  "commands_when_explicitly_resumed": {
+    "first_private183_pve_profile": "uv run --offline --no-project --python /usr/bin/python3 --with playwright --with pillow --with numpy python /tmp/qsm-rdp-hybrid-20261028/netem-quality183-first.py > /tmp/qsm-rdp-hybrid-20261028/netem183-first.log 2>&1",
+    "private183_native_profile": "QSM_NATIVE_TAG=w1 uv run --offline --no-project --python /usr/bin/python3 --with playwright --with pillow --with numpy python /tmp/qsm-rdp-hybrid-20261028/intel183-full-browser.py h264_qsv > /tmp/qsm-rdp-hybrid-20261028/intel183-full-qsv-w1.log 2>&1",
+    "new_build_only_after_source_change": "python3 /tmp/qsm-lossless-ui-20261026/build-current69-pilot.py 0.4.0+stock4.14~expNEW > /tmp/qsm-rdp-hybrid-20261028/buildNEW.log 2>&1",
+    "important": "Do not rerun prepare182.py, prepare183.py, stage-native182.py, stage-native183.py or old media scripts whose output/trace directories already exist. Existing183 media scripts have not run; first check local/remote output absence and host identity. Freeze failure artifacts; never overwrite a measured package/source/trace."
+  },
+  "next_actions_after_resume": [
+    "Verify current worktree and219-test183 source/payload fingerprints. Read original plan unchanged in scope. New183 is prepared but has no live validation.",
+    "Run the existing183 NVIDIA full profile to check the specific packet-credit fix against the unchanged source-age/cadence/quality/recovery gates. While media runs, analyze saved traces or Mac startup independently; shared GPU/SDK/compiler work stays serialized.",
+    "Investigate Native182 peak independently: current bound was already active, so183 may not fix its547ms source-age excess. Use native182-packet183.json.gz and initial-flight183.json before trying smaller windows; an earlier16ms headroom variant156 with old worker was rejected and is not proof for the new worker. Do not recursively cap by own paused offered rate, waive FPS, change timestamps or sacrifice fidelity.",
+    "For Mac, instrument actual pre-close page/ICE/gathering/request/status state before another expensive run. Last snapshots were too late. Keep Playwright default focus through setup, then explicitly disable it for a genuine same-window tab hidden/visible proof. The prepared r3 script shows the intended Target.createTarget newWindow:false test, but it has never executed.",
+    "Once setup is reliable, repeat shipped healthy and impaired Mac runs, validate real hidden/visible cleanup and continued source motion. Recreate only a fresh owned Chrome profile and clean it by exact PID/profile; all previous owned browsers are stopped.",
+    "Complete low-rate hardcut SSIM>=.90 / quality / frame cadence, VM+LXC NVENC/QSV/VAAPI supported H264/HEVC, Firefox/macOS and A/V, toolkit/occlusion/fallback/lifecycle, long sessions, matched RDP. Current successful short pilots do not complete these.",
+    "Only after full qualification build/publish all7 matching-source packages, signed checksums/APT, upgrade/rollback documentation, qualified rollout to requested nodes and explicitly authorized discussion delivery. Do not mark the goal complete on a subset."
+  ]
+}

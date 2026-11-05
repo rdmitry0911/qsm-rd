@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 import socket
 import tempfile
@@ -24,6 +25,9 @@ from aiortc.rtp import RTCP_PSFB_PLI, RtcpPsfbPacket
 from extensions.browser_bridge.qsm_browser_bridge import (
     AUDIO_TIME_BASE,
     BrowserWebRtcBridge,
+    OLD_VIEWER_CURSOR_SHAPES,
+    VIEWER_CURSOR_SHAPES,
+    _trim_cursor,
     BridgeError,
     CURSOR_HAS_SHAPE,
     CURSOR_HEADER,
@@ -64,10 +68,36 @@ from extensions.browser_bridge.qsm_browser_bridge import (
     _VideoAssembler,
     _VideoPacer,
     VIDEO_PACING_BURST_BYTES,
+    _independent_application_mid,
+    _exclude_bundle_mid,
 )
 
 
 class BrowserBridgeAssemblerTests(unittest.TestCase):
+    def test_initial_control_split_preserves_mandatory_or_ambiguous_bundle(self):
+        sdp = ('v=0\r\na=group:BUNDLE video audio data\r\n'
+               'm=video 9 UDP/TLS/RTP/SAVPF 102\r\na=mid:video\r\n'
+               'm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=mid:audio\r\n'
+               'm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:data\r\n')
+        self.assertEqual(_independent_application_mid(sdp), 'data')
+        separated = _exclude_bundle_mid(sdp, 'data')
+        self.assertIn('a=group:BUNDLE video audio\r\n', separated)
+        self.assertEqual(separated.split('m=', 1)[1], sdp.split('m=', 1)[1],
+                         'moving control cannot rewrite media/ICE/codec attributes')
+        for candidate in [
+            sdp + 'a=bundle-only\r\n',
+            sdp.replace('m=application 9 ', 'm=application 0 '),
+            sdp.replace('BUNDLE video audio data', 'BUNDLE data video audio'),
+            sdp.replace('BUNDLE video audio data', 'BUNDLE video audio'),
+            sdp.replace('BUNDLE video audio data', 'BUNDLE video video data'),
+            sdp.replace('a=mid:data', 'a=mid:video'),
+            sdp.replace('a=mid:data', 'a=mid:data\r\na=mid:other'),
+            sdp + 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=mid:other\r\n',
+            sdp.replace('a=group:BUNDLE', 'a=group:OTHER'),
+        ]:
+            with self.subTest(sdp=candidate):
+                self.assertIsNone(_independent_application_mid(candidate))
+
     def test_confirmed_refresh_metadata_stays_with_the_fragmented_picture(self) -> None:
         import struct
         from extensions.browser_bridge.qsm_browser_bridge import PACKET_CAPTURE_TIME, PACKET_REGION, PACKET_REFRESH
@@ -324,6 +354,60 @@ class BrowserBridgeAssemblerTests(unittest.TestCase):
 
 
 class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
+    async def assert_control_transport(self, *, bundle_only):
+        with tempfile.TemporaryDirectory(prefix='qsm-control-transport.') as directory:
+            browser = RTCPeerConnection()
+            bridge = BrowserWebRtcBridge(Path(directory), fps=60)
+            browser.addTransceiver('video', direction='recvonly')
+            browser.addTransceiver('audio', direction='recvonly')
+            control = browser.createDataChannel('qsm-control', ordered=True)
+            received = asyncio.get_running_loop().create_future()
+
+            @bridge._pc.on('datachannel')
+            def observe(channel):
+                @channel.on('message')
+                def message(value):
+                    if value == 'transport-probe' and not received.done():
+                        received.set_result(value)
+            try:
+                await browser.setLocalDescription(await browser.createOffer())
+                offer = browser.localDescription.sdp
+                if bundle_only:
+                    # A mandatory BUNDLE application must keep the original
+                    # transport and still carry real authenticated SCTP data.
+                    offer = re.sub(r'm=application \d+ ', 'm=application 0 ', offer)
+                    offer += 'a=bundle-only\r\n'
+                bridge.start_taps()
+                answer = await bridge.answer_offer(offer)
+                await browser.setRemoteDescription(RTCSessionDescription(**answer))
+                deadline = time.monotonic() + 5
+                while control.readyState != 'open' and time.monotonic() < deadline:
+                    await asyncio.sleep(.01)
+                self.assertEqual(control.readyState, 'open')
+                self.assertEqual(browser.connectionState, 'connected')
+                self.assertEqual(bridge.connection_state, 'connected')
+                for peer in [browser, bridge._pc]:
+                    video = next(t for t in peer.getTransceivers() if t.kind == 'video').receiver.transport
+                    audio = next(t for t in peer.getTransceivers() if t.kind == 'audio').receiver.transport
+                    self.assertIs(video, audio, 'RTP audio/video remain bundled')
+                    self.assertEqual(video is peer.sctp.transport, bundle_only)
+                control.send('transport-probe')
+                self.assertEqual(await asyncio.wait_for(received, 2), 'transport-probe')
+                data_transport = bridge._pc.sctp.transport
+                media_transport = bridge._pc.getTransceivers()[0].receiver.transport
+                await bridge.close()
+                self.assertEqual(data_transport.state, 'closed')
+                self.assertEqual(media_transport.state, 'closed')
+            finally:
+                await browser.close()
+                await bridge.close()
+
+    async def test_initial_offer_uses_independent_control_and_real_sctp_messages(self):
+        await self.assert_control_transport(bundle_only=False)
+
+    async def test_mandatory_application_bundle_keeps_real_sctp_messages(self):
+        await self.assert_control_transport(bundle_only=True)
+
     async def test_frame_metadata_backpressure_does_not_grow_control_history(self):
         from types import SimpleNamespace
         with tempfile.TemporaryDirectory() as directory:
@@ -745,6 +829,100 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(channel.messages[-1]["visible"])
             finally:
                 await bridge.close()
+
+    async def test_cursor_images_are_trimmed_and_defined_once(self) -> None:
+        class Channel:
+            readyState = "open"
+            bufferedAmount = 0
+            def __init__(self):
+                self.messages = []
+            def send(self, data):
+                self.messages.append(json.loads(data))
+
+        def image(x: int, y: int, size: int = 4) -> bytes:
+            """A 64x64 buffer whose only visible pixels are a square at (x, y)."""
+            pixels = bytearray(64 * 64 * 4)
+            for row in range(y, y + size):
+                for column in range(x, x + size):
+                    pixels[(row * 64 + column) * 4:(row * 64 + column + 1) * 4] = b"\x10\x20\x30\xff"
+            return bytes(pixels)
+
+        def cursor(shape_id: int, pixels: bytes, hotspot=(10, 20)) -> GuestCursor:
+            return GuestCursor(sequence=shape_id, shape_id=shape_id, visible=True, x=shape_id, y=7, width=64, height=64,
+                               hotspot_x=hotspot[0], hotspot_y=hotspot[1], bgra=pixels)
+
+        with tempfile.TemporaryDirectory(prefix="qsm-browser-cursor-cache.") as directory:
+            bridge = BrowserWebRtcBridge(Path(directory), fps=60)
+            control, positions = Channel(), Channel()
+            bridge._control_channel, bridge._cursor_channel = control, positions
+            bridge._ui_peer.version = 7
+            arrow, hand = image(10, 20), image(30, 30)
+            try:
+                bridge._receive_cursor(cursor(1, arrow))
+                bridge._receive_cursor(cursor(2, hand))
+                self.assertEqual([m["shape_id"] for m in control.messages], [1, 2])
+                first = control.messages[0]
+                self.assertEqual((first["width"], first["height"], first["hotspot_x"], first["hotspot_y"]), (4, 4, 0, 0))
+                self.assertEqual(base64.b64decode(first["bgra_b64"]), b"\x10\x20\x30\xff" * 16)
+                # A hotspot outside the visible pixels stays inside the image: a viewer requires it.
+                self.assertEqual((control.messages[1]["width"], control.messages[1]["hotspot_x"], control.messages[1]["hotspot_y"]), (24, 0, 0))
+                # The worker numbers every change; the image is already in the viewer.
+                bridge._receive_cursor(cursor(3, arrow))
+                bridge._receive_cursor(cursor(4, hand))
+                self.assertEqual(len(control.messages), 2)
+                self.assertEqual([m["shape_id"] for m in positions.messages], [1, 2, 1, 2])
+                # Movement of the current image keeps its id without another lookup.
+                bridge._receive_cursor(replace(cursor(4, hand), x=99))
+                self.assertEqual(positions.messages[-1]["shape_id"], 2)
+
+                # Eviction mirrors the viewer, so an image it dropped is defined again.
+                for n in range(VIEWER_CURSOR_SHAPES):
+                    bridge._receive_cursor(cursor(10 + n, image(n % 60, 0, 1 + n // 60)))
+                sent = len(control.messages)
+                bridge._receive_cursor(cursor(100, arrow))
+                self.assertEqual(len(control.messages), sent + 1)
+                self.assertEqual(positions.messages[-1]["shape_id"], 100)
+
+                # An older viewer keeps only four.
+                bridge._viewer_cursors.clear()
+                bridge._ui_peer.version = 6
+                for n in range(5):
+                    bridge._receive_cursor(cursor(200 + n, image(n, 0)))
+                self.assertEqual(len(bridge._viewer_cursors), OLD_VIEWER_CURSOR_SHAPES)
+                sent = len(control.messages)
+                bridge._receive_cursor(cursor(300, image(0, 0)))
+                self.assertEqual(len(control.messages), sent + 1)
+
+                # An invisible image has no pixels to keep but must stay a valid shape.
+                self.assertEqual(_trim_cursor(cursor(400, bytes(64 * 64 * 4), (5, 6)))[:4], (1, 1, 0, 0))
+            finally:
+                await bridge.close()
+
+    async def test_nearly_empty_picture_does_not_wait_behind_exact_tile_debt(self) -> None:
+        from types import SimpleNamespace
+        from aiortc.rtp import RtpPacket, HeaderExtensionsMap
+        clock = [100.0]
+        sent = []
+        async def advance(seconds):
+            clock[0] += seconds + .000001
+        async def forward(data):
+            sent.append((clock[0], len(data)))
+        sender = SimpleNamespace(_ssrc=1, _rtx_ssrc=2,
+                                 _RTCRtpSender__rtp_header_extensions_map=HeaderExtensionsMap())
+        stamp = RtpPacket(payload_type=102, ssrc=1, payload=b"v" * 65).serialize()
+        picture = RtpPacket(payload_type=102, ssrc=1, payload=b"v" * 1150).serialize()
+        with patch("extensions.browser_bridge.qsm_browser_bridge.time.monotonic", side_effect=lambda: clock[0]), \
+             patch("extensions.browser_bridge.qsm_browser_bridge.asyncio.sleep", side_effect=advance):
+            pacer = _VideoPacer(1000)
+            pacer.account_auxiliary(60000)
+            debt = pacer._tokens
+            start = clock[0]
+            await pacer.send(stamp, sender, forward)
+            self.assertEqual(sent[-1][0], start)
+            # It still pays, and anything larger still waits for the whole debt.
+            self.assertEqual(pacer._tokens, debt - len(stamp) - 64)
+            await pacer.send(picture, sender, forward)
+            self.assertGreaterEqual(sent[-1][0] - start, -debt / pacer._rate)
 
     async def test_one_worker_media_ingress_fans_out_to_two_browser_tracks(self) -> None:
         with tempfile.TemporaryDirectory(prefix="qsm-browser-fanout.") as directory:

@@ -93,6 +93,8 @@ INPUT_VIDEO_BITRATE = 7
 INPUT_KEY_TAP = 8
 INPUT_MOUSE_ACTION = 9
 INPUT_LOSSLESS_UI = 10
+INPUT_UI_COPY = 16
+INPUT_UI_CAPACITY = 17
 INPUT_VIDEO_BACKPRESSURE = 14
 INPUT_VIDEO_REFRESH = 15
 SOURCE_CONFIRMED_REFRESH = 16
@@ -101,6 +103,8 @@ MAX_FRAGMENT_BYTES = 256 * 1024
 MAX_ACCESS_UNIT_BYTES = 4 * 1024 * 1024
 MAX_CURSOR_EDGE = 64
 MAX_CURSOR_BYTES = MAX_CURSOR_EDGE * MAX_CURSOR_EDGE * 4
+VIEWER_CURSOR_SHAPES = 32
+OLD_VIEWER_CURSOR_SHAPES = 4
 MAX_SDP_BYTES = 128 * 1024
 MAX_CONTROL_MESSAGE_BYTES = 1024
 # The optional guest channel accepts up to 1 MiB of UTF-8 clipboard text. Its
@@ -117,6 +121,7 @@ VIDEO_DELIVERY_MIN_BYTES = VIDEO_RTP_PAYLOAD_MAX * 8
 # Default encoder ceiling is 8 Mbps. Allow RTP/SRTP/IP overhead and recovery,
 # but never flush a whole IDR at LAN speed into a routed VPN's small queue.
 VIDEO_PACING_BURST_BYTES = 2400
+VIDEO_STAMP_PACKET_BYTES = 256
 VIDEO_TIME_BASE = Fraction(1, 90_000)
 AUDIO_TIME_BASE = Fraction(1, 48_000)
 # The matching worker requests the same node-local socket capacity.  It holds
@@ -202,7 +207,10 @@ class _VideoPacer:
                 self._tokens = min(self._burst,
                                    self._tokens + (now - self._updated) * self._rate)
                 self._updated = now
-                if self._tokens >= cost:
+                # A nearly empty picture only keeps capture stamps moving. It adds
+                # nothing to the path, while holding it behind exact tiles' debt
+                # overflows the queue, whose repair is a whole independent picture.
+                if self._tokens >= cost or len(data) <= VIDEO_STAMP_PACKET_BYTES:
                     self._tokens -= cost
                     break
                 await asyncio.sleep((cost - self._tokens) / self._rate)
@@ -298,14 +306,20 @@ class _VideoPresentation:
 
         def allowance(value: _ReceiverFeedback, at: float) -> tuple[float | None, bool]:
             target = current_bitrate() if current_bitrate is not None else bitrate_kbps
+            packet_delivery = getattr(value, 'packet_delivery', None)
+            packet_bound = (packet_credit is not None and packet_delivery is not None and
+                            packet_delivery.fresh(at))
             # Use the path target, not an offered rate which already includes
             # our own admission pauses. The latter can recursively throttle a
             # healthy clip after startup or an app-limited interval.
             rapid = (getattr(value, 'feedback_kind', None) == 'received' and
-                     at - getattr(value, 'received_rapid_time', float('-inf')) < 1.5 and
+                     (packet_bound or at - getattr(value, 'received_rapid_time', float('-inf')) < 1.5) and
                      type(target) is int and 500 <= target <= 100000 and
                      self._serial > self._acknowledged)
             if rapid:
+                # Coalesced frame receipts can look like an old45ms client.
+                # Fresh matched packet credit still bounds actual wire flight
+                # and can release it without acknowledging a complete image.
                 if frame_budget:
                     # Reserve what pacing can emit during one media tick.
                     # A larger AU is serialized across subsequent ticks; its
@@ -456,13 +470,18 @@ class AdaptiveVideoRate:
         self._last_packet_probe = float('-inf')
         self._receivers: dict[object, _ReceiverFeedback] = {}
         self._listeners: dict[object, Callable[[int], None]] = {}
+        self._shared_kbps: dict[object, Callable[[], int]] = {}
 
-    def add(self, peer: object, listener: Callable[[int], None]) -> None:
+    def add(self, peer: object, listener: Callable[[int], None],
+            shared_kbps: Callable[[], int] | None = None) -> None:
         self._listeners[peer] = listener
+        if shared_kbps is not None:
+            self._shared_kbps[peer] = shared_kbps
         listener(self.current_kbps)
 
     def remove(self, peer: object) -> None:
         self._listeners.pop(peer, None)
+        self._shared_kbps.pop(peer, None)
         self._receivers.pop(peer, None)
 
     def receiver_report(self, peer: object, report: object, rtt: float | None,
@@ -667,7 +686,15 @@ class AdaptiveVideoRate:
         if self._packet_fresh(state, now):
             # Host receipt/display scheduling cannot override actual packet
             # arrival intervals, including the first interval after TCP repair.
-            return state.packet_delivery.queued
+            delivery = state.packet_delivery
+            if delivery.queued:
+                return True
+            # A flight-limited sender hides an excessive target from the
+            # offered/delivered comparison. Standing age alone can also be a
+            # longer route, so require frames actually waiting for that flight
+            # and a target above delivery; the resulting cut ends both.
+            return (delivery.standing and delivery.capacity_kbps < self.current_kbps * .85 and
+                    sum(d for t, d in state.credit_samples if now - t < .6) >= .1)
         credit = [(t, d) for t, d in state.credit_samples if now - t < .6]
         # After a path decrease, old flight can still be much older than
         # baseline while the already reduced target is draining it. Matched
@@ -760,10 +787,17 @@ class AdaptiveVideoRate:
             factor = .5 if max((s.loss for s in pending if now - s.loss_time < 6), default=0.) >= .12 else .75
             for state in fresh:
                 if state in pending and self._presentation_queued(state, now):
+                    # Video's receipts state only its own part of the path. Exact
+                    # records shared it, and this target has to pay for both.
+                    shared = next((self._shared_kbps[peer]() for peer, value in self._receivers.items()
+                                   if value is state and peer in self._shared_kbps), 0)
                     if self._packet_fresh(state, now):
-                        ceiling = min(ceiling, max(500, int(state.packet_delivery.kbps * .9)))
+                        delivery = state.packet_delivery
+                        # The codec stays at 70% of this target: a stepped link's
+                        # margin here would only slow the following IDR's pacing.
+                        ceiling = min(ceiling, max(500, int(delivery.capacity_kbps * (1 if delivery.step else .9)) + shared))
                     elif state.presented_bytes >= VIDEO_DELIVERY_MIN_BYTES:
-                        ceiling = min(ceiling, max(500, int(state.presented_kbps * .9)))
+                        ceiling = min(ceiling, max(500, int(state.presented_kbps * .9) + shared))
                 elif not self._delivery_fresh(state, now) and now - state.remb_time < 5:
                     ceiling = min(ceiling, max(500, int(state.remb * .8 / 1000) - 128))
             target = min(ceiling, int(target * factor))
@@ -1067,6 +1101,55 @@ def _apply_h265_offer(parameters: dict[str, str], payload_type: int | None) -> N
                 codec.parameters = {"apt": hevc.payloadType}
 
 
+def _independent_application_mid(sdp: str) -> str | None:
+    """Select an initial SCTP section which permits declining BUNDLE.
+
+    Keep RTP audio/video together. A bundle-only/rejected application, an
+    application tag, or ambiguous MID/grouping retains the offered layout.
+    The caller has already bounded and validated this single-use offer.
+    """
+    sections: list[list[str]] = []
+    session: list[str] = []
+    for line in sdp.splitlines():
+        if line.startswith('m='):
+            sections.append([line])
+        elif sections:
+            sections[-1].append(line)
+        else:
+            session.append(line)
+    applications = [s for s in sections if s[0].startswith('m=application ')]
+    if len(applications) != 1:
+        return None
+    app = applications[0]
+    fields = app[0].split()
+    if (len(fields) < 3 or not fields[1].isdigit() or not 0 < int(fields[1]) <= 65535 or
+            'a=bundle-only' in app):
+        return None
+    mids = [[line[6:] for line in section if line.startswith('a=mid:')] for section in sections]
+    if any(len(values) != 1 or not values[0] or any(c.isspace() for c in values[0]) for values in mids):
+        return None
+    known_mids = {values[0] for values in mids}
+    if len(known_mids) != len(mids):
+        return None
+    mid = mids[sections.index(app)][0]
+    groups = [line.split()[1:] for line in session if line.startswith('a=group:BUNDLE ')]
+    grouped = [value for group in groups for value in group]
+    if len(grouped) != len(set(grouped)) or any(value not in known_mids for value in grouped):
+        return None
+    containing = [group for group in groups if mid in group]
+    if len(containing) != 1 or containing[0][0] == mid or containing[0].count(mid) != 1:
+        return None
+    return mid
+
+
+def _exclude_bundle_mid(sdp: str, mid: str) -> str:
+    lines = sdp.splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith('a=group:BUNDLE '):
+            lines[index] = 'a=group:BUNDLE ' + ' '.join(value for value in line.split()[1:] if value != mid)
+    return '\r\n'.join(lines) + '\r\n'
+
+
 class BridgeError(RuntimeError):
     """A local bridge configuration or packet was invalid."""
 
@@ -1103,6 +1186,17 @@ class GuestCursor:
     hotspot_x: int
     hotspot_y: int
     bgra: bytes
+
+
+def _trim_cursor(cursor: GuestCursor) -> tuple[int, int, int, int, bytes]:
+    """Crop to the visible pixels and hotspot: compositors hand out a fixed 64x64 buffer."""
+    width, stride, bgra = cursor.width, cursor.width * 4, cursor.bgra
+    rows = [y for y in range(cursor.height) if any(bgra[y * stride + 3:(y + 1) * stride:4])]
+    columns = [x for x in range(width) if any(bgra[x * 4 + 3::stride])]
+    left, right = min(columns + [cursor.hotspot_x]), max(columns + [cursor.hotspot_x])
+    top, bottom = min(rows + [cursor.hotspot_y]), max(rows + [cursor.hotspot_y])
+    pixels = b"".join(bgra[y * stride + left * 4:y * stride + (right + 1) * 4] for y in range(top, bottom + 1))
+    return right - left + 1, bottom - top + 1, cursor.hotspot_x - left, cursor.hotspot_y - top, pixels
 
 
 class _VideoAssembler:
@@ -1773,6 +1867,8 @@ class UnixInputEgress:
         self._ui_probe_attempts = 0
         self._ui_budgets: dict[object, int] = {}
         self._region_owners: dict[object, tuple[bool, bool]] = {}
+        self._copy_owners: dict[object, bool] = {}
+        self._ui_capacities: dict[object, int] = {}
         self._video_backpressure: dict[object, float] = {}
         self._refresh_sequence = 0
         self._refresh_rate = 0
@@ -2123,6 +2219,34 @@ class UnixInputEgress:
             if before != after:
                 self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, 12, 1) + bytes([after]))
 
+    def set_ui_copy(self, owner: object, supported: int, *, remove: bool = False) -> None:
+        # Copies read each viewer's own canvas and history records need its own
+        # history: every exact viewer must apply them. 1: copies, 2: and history.
+        def mode():
+            return min(self._copy_owners.values(), default=0)
+        with self._input_state_lock:
+            before = mode()
+            if remove:
+                self._copy_owners.pop(owner, None)
+            else:
+                self._copy_owners[owner] = int(supported)
+            if before != mode():
+                self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_UI_COPY, 1) + bytes([mode()]))
+
+    def set_ui_capacity(self, owner: object, bytes_per_second: int) -> None:
+        # The worker's single source serves every viewer: pace for the slowest.
+        def lowest():
+            return min(self._ui_capacities.values(), default=0)
+        with self._input_state_lock:
+            before = lowest()
+            if bytes_per_second:
+                self._ui_capacities[owner] = min(bytes_per_second, 0xffff_ffff)
+            else:
+                self._ui_capacities.pop(owner, None)
+            after = lowest()
+            if before != after:
+                self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_UI_CAPACITY, 4) + after.to_bytes(4, 'big'))
+
     def set_ui_budget(self, owner: object, percent: int) -> None:
         if type(percent) is not int or not 0 <= percent <= 50:
             raise BridgeError("invalid UI budget")
@@ -2143,7 +2267,7 @@ class UnixInputEgress:
             now = time.monotonic()
             if now - self._ui_probe_at >= 1:
                 if self._send_packet(INPUT_HEADER.pack(INPUT_MAGIC, INPUT_VERSION, INPUT_LOSSLESS_UI, 1) +
-                                     bytes([5 if self._ui_probe_attempts == 0 else 4 if self._ui_probe_attempts == 1 else 3])):
+                                     bytes([max(3, 7 - self._ui_probe_attempts)])):
                     self._ui_probe_at = now
                     self._ui_probe_attempts += 1
 
@@ -2475,6 +2599,8 @@ class BrowserWebRtcBridge:
         self._sent_cursor_state: tuple | None = None
         self._cursor_sent_at = float("-inf")
         self._sent_cursor_shape_id: int | None = None
+        self._viewer_cursor_id = 0
+        self._viewer_cursors: dict[tuple[int, int, int, int, bytes], int] = {}
         self._cursor_channel: object | None = None
         self._control_channel: object | None = None
         self._cursor_listener = self._receive_cursor
@@ -2512,6 +2638,7 @@ class BrowserWebRtcBridge:
                                       lambda: self._video_rate.current_kbps,
                                       default_enabled=os.environ.get("QSM_DIRECT_EXACT_UI_DEFAULT") == "1",
                                       demand=lambda percent: self.input.set_ui_budget(self, percent),
+                                      capacity=lambda rate: self.input.set_ui_capacity(self, rate),
                                       account=lambda size: self._video_pacer.account_auxiliary(size),
                                       interactive=lambda: time.monotonic() - self._input_state.last_key_at < 1)
         self._input_watchdog: asyncio.Task[None] | None = None
@@ -2520,7 +2647,7 @@ class BrowserWebRtcBridge:
         self._video_rate = video_rate or AdaptiveVideoRate(video_bitrate_kbps, self.input.set_video_bitrate)
         self._video_pacer = _VideoPacer(video_bitrate_kbps)
         self._video_rate_sequence = 0
-        self._video_rate.add(self, self._video_rate_changed)
+        self._video_rate.add(self, self._video_rate_changed, self._ui_peer.delivered_kbps)
         self.video_track.on_keyframe_required = self._request_video_keyframe
         self._queue_pause_active = False
         self._queue_pause_refreshed = float('-inf')
@@ -2601,7 +2728,10 @@ class BrowserWebRtcBridge:
                   f"ui_pending={len(self._ui_peer.pending)} ui_clears={len(self._ui_peer.invalidations)} "
                   f"ui_decode_pending={self._ui_peer.ack_pending} "
                   f"ui_buffered={getattr(self._ui_peer.channel, 'bufferedAmount', 0)} "
-                  f"ui_gaps={self._ui_source.gaps} regions={int(self._regions_eligible)} "
+                  f"ui_gaps={self._ui_source.gaps} ui_copies={self._ui_peer.copies} "
+                  f"ui_overflows={self._ui_peer.overflows} ui_flow_lost={self._ui_peer.flow.lost} "
+                  f"ui_stream={self._ui_peer.stream_bytes} ui_window={self._ui_peer.flow.window} ui_rate={int(self._ui_peer.flow.rate)} "
+                  f"ui_capacity={self._ui_peer.capacity_sent} regions={int(self._regions_eligible)} "
                   f"input_leased={int(self._input_state.leased)} input_snapshots={self._input_state.snapshots} "
                   f"input_expired_keys={self._input_state.expired_keys} "
                   f"input_hold_max_ms={self._input_state.max_hold_ms} "
@@ -2670,6 +2800,36 @@ class BrowserWebRtcBridge:
         self._latest_cursor = cursor
         self._publish_cursor()
 
+    def _viewer_cursor_shape(self, cursor: GuestCursor) -> int:
+        """Return the id this viewer knows the image by, defining it only once.
+
+        The worker numbers every change while a compositor alternates a few
+        images, and one definition costs a narrow path as much as a screen of
+        text. The viewer evicts in definition order, so this mirror of its
+        cache never claims an image the viewer has dropped.
+        """
+        if not cursor.shape_id:
+            return cursor.shape_id
+        if cursor.shape_id == self._sent_cursor_shape_id:
+            return self._viewer_cursor_id
+        key = cursor.width, cursor.height, cursor.hotspot_x, cursor.hotspot_y, cursor.bgra
+        shape_id = self._viewer_cursors.get(key)
+        if shape_id is None:
+            width, height, hotspot_x, hotspot_y, bgra = _trim_cursor(cursor)
+            if not self._send_control({
+                    "op": "qsm_guest_cursor_shape", "shape_id": cursor.shape_id,
+                    "width": width, "height": height,
+                    "hotspot_x": hotspot_x, "hotspot_y": hotspot_y,
+                    "bgra_b64": base64.b64encode(bgra).decode("ascii"),
+            }):
+                return cursor.shape_id
+            shape_id = self._viewer_cursors[key] = cursor.shape_id
+            limit = VIEWER_CURSOR_SHAPES if self._ui_peer.version >= 7 else OLD_VIEWER_CURSOR_SHAPES
+            while len(self._viewer_cursors) > limit:
+                del self._viewer_cursors[next(iter(self._viewer_cursors))]
+        self._sent_cursor_shape_id, self._viewer_cursor_id = cursor.shape_id, shape_id
+        return shape_id
+
     def _publish_cursor(self) -> None:
         cursor = self._latest_cursor
         if self._closed or cursor is None:
@@ -2678,18 +2838,11 @@ class BrowserWebRtcBridge:
         # movements then use an unordered/unreliable server-created channel.
         # Thus an H.264 decoder or an SCTP retransmit cannot
         # make a new host mouse location wait behind an obsolete one.
-        if cursor.shape_id and cursor.shape_id != self._sent_cursor_shape_id:
-            if self._send_control({
-                    "op": "qsm_guest_cursor_shape", "shape_id": cursor.shape_id,
-                    "width": cursor.width, "height": cursor.height,
-                    "hotspot_x": cursor.hotspot_x, "hotspot_y": cursor.hotspot_y,
-                    "bgra_b64": base64.b64encode(cursor.bgra).decode("ascii"),
-            }):
-                self._sent_cursor_shape_id = cursor.shape_id
+        shape_id = self._viewer_cursor_shape(cursor)
         channel = self._cursor_channel
         if channel is None or getattr(channel, "readyState", None) != "open":
             return
-        state = cursor.shape_id, cursor.visible, cursor.x, cursor.y
+        state = shape_id, cursor.visible, cursor.x, cursor.y
         now = time.monotonic()
         # Display1 can repeat an identical MouseSet on every scanout update.
         # Hundreds of redundant SCTP records/second consume narrow-link
@@ -2702,7 +2855,7 @@ class BrowserWebRtcBridge:
         try:
             data = json.dumps({
                 "op": "qsm_guest_cursor", "sequence": cursor.sequence,
-                "shape_id": cursor.shape_id, "visible": cursor.visible,
+                "shape_id": shape_id, "visible": cursor.visible,
                 "x": cursor.x, "y": cursor.y,
             }, separators=(",", ":"), ensure_ascii=True)
             channel.send(data)
@@ -2814,6 +2967,7 @@ class BrowserWebRtcBridge:
             @channel.on("open")
             def on_control_open() -> None:
                 self._sent_cursor_shape_id = None
+                self._viewer_cursors.clear()
                 self._publish_cursor()
                 self._video_rate_changed(self._video_rate.current_kbps)
                 try:
@@ -2849,7 +3003,7 @@ class BrowserWebRtcBridge:
                         if isinstance(ui_request, dict) and ui_request.get("op") == "qsm_ui_mode":
                             if (set(ui_request) not in ({"op", "enabled"}, {"op", "enabled", "version"}) or
                                     type(ui_request["enabled"]) is not bool or
-                                    type(ui_request.get("version", 1)) is not int or ui_request.get("version", 1) not in (1, 2, 3, 4, 5)):
+                                    type(ui_request.get("version", 1)) is not int or ui_request.get("version", 1) not in (1, 2, 3, 4, 5, 6, 7)):
                                 raise BridgeError("invalid exact UI mode")
                             self._ui_peer.version = ui_request.get("version", 1)
                             self._set_lossless_ui(ui_request["enabled"])
@@ -2872,6 +3026,7 @@ class BrowserWebRtcBridge:
                             if ui_request["epoch"] == self._ui_peer.epoch and 0 <= ui_request["serial"] <= self._ui_peer.serial:
                                 self._ui_peer.ack_serial = max(self._ui_peer.ack_serial, ui_request["serial"])
                                 self._ui_peer.ack_pending = ui_request["pending"]
+                                self._ui_peer.acknowledged(ui_request["serial"])
                                 self._ui_peer.confirm_cache(ui_request.get("cached", []))
                                 self._ui_peer.wake()
                             return
@@ -2905,6 +3060,16 @@ class BrowserWebRtcBridge:
                                       os.environ.get("QSM_DIRECT_VIDEO_REGIONS") == "1")
         self._regions_ready = False
         self.input.set_video_regions(self, self._regions_eligible)
+        if enabled:
+            copying = bool(self._regions_eligible and self._ui_peer.version >= 6 and
+                           self._ui_source.features & exact_ui.FEATURE_COPY and
+                           os.environ.get("QSM_DIRECT_UI_COPY", "1") != "0")
+            history = bool(copying and self._ui_peer.version >= 7 and
+                           self._ui_source.features & exact_ui.FEATURE_HISTORY and
+                           os.environ.get("QSM_DIRECT_UI_HISTORY", "1") != "0")
+            self.input.set_ui_copy(self, 2 if history else 1 if copying else 0)
+        else:
+            self.input.set_ui_copy(self, False, remove=True)
 
     async def _watch_input(self) -> None:
         while not self._closed:
@@ -3048,10 +3213,9 @@ class BrowserWebRtcBridge:
             # A confirmed repair must not wait behind its advisory early hold.
             self._packet_hold_until = 0.
             self._packet_hold_armed = False
-            # Flight-window arithmetic retains its rapid-frame contract.
-            # A fresh packet-confirmed repair itself needs no frame cadence:
-            # complete-frame receipts naturally slow down on a narrow link.
-            if state.feedback_kind == 'received' and now - state.received_rapid_time < 1.5:
+            # Fresh matched packets keep the bounded flight contract even
+            # when complete-frame receipts are batched at a slower cadence.
+            if state.feedback_kind == 'received':
                 history = self._video_received
                 sent = self._video_pacer.sent_bytes
                 delivered = self._twcc_history.credit(history._acknowledged_bytes)
@@ -3391,6 +3555,13 @@ class BrowserWebRtcBridge:
             # The terminal's negotiation lease still bounds an absent peer.
             ice_offer = "\r\n".join(line for line in sdp.splitlines()
                                     if line != "a=end-of-candidates") + "\r\n"
+        # RFC8843 section7.3.2 permits declining initial application BUNDLE
+        # when it has its own nonzero port and is not bundle-only. Separate
+        # SCTP ICE/DTLS keeps input/exact UI independent of RTP's TCP flight.
+        # Both relay connections still use the existing single TCP8006 port.
+        application_mid = _independent_application_mid(ice_offer)
+        if application_mid is not None:
+            ice_offer = _exclude_bundle_mid(ice_offer, application_mid)
         await self._pc.setRemoteDescription(RTCSessionDescription(sdp=ice_offer, type=sdp_type))
         # BUNDLE may replace the sender's DTLS transport during the remote
         # description. Hook its final transport before the local answer can
@@ -3537,6 +3708,10 @@ class BrowserWebRtcBridge:
             self._ui_peer.opened(ui_channel)
 
         answer = await self._pc.createAnswer()
+        if application_mid is not None:
+            # aiortc1.11 createAnswer groups every section again, even though
+            # setRemoteDescription has already created independent transports.
+            answer = RTCSessionDescription(sdp=_exclude_bundle_mid(answer.sdp, application_mid), type=answer.type)
         # One fixed-format journal line per session naming the negotiated
         # video codec and its fmtp: a browser that decodes nothing is then
         # diagnosable from the node without the browser's own statistics.
@@ -3594,6 +3769,7 @@ class BrowserWebRtcBridge:
         self._update_video_backpressure()
         self._set_lossless_ui(False)
         self.input.set_video_regions(self, False, remove=True)
+        self.input.set_ui_copy(self, False, remove=True)
         await self._ui_peer.close()
         # Release this browser's authority before any asynchronous teardown,
         # including when the shared producer stays alive for another viewer.

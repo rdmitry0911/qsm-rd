@@ -1,0 +1,690 @@
+{
+  "date": "2026-11-04",
+  "status": "candidate186_retained_full_qualification_open",
+  "goal_complete": false,
+  "production_changed": false,
+  "objective": "добиться отзывчивости microsoft rdp, сохранив качество и скорость воспроизведения графики/клипов и завершить план",
+  "evidence_directory": "dist/rdp-hybrid/candidates-183-188",
+  "artifact_manifest_sha256": "34741e2b18ca869744f3f2712947e5023c75ac151368aa9a8c5dcf393686b411",
+  "retained_candidate": {
+    "version": "0.4.0+stock4.14~exp186",
+    "deb_sha256": "99199c3a125553aeda05808d7b5b6a9316919ebe0928c6421c1fad1065714301",
+    "worker_source_sha256": "798b08f3b388d2fadedc7042d4e8b9662e4fd6f1cfede89e7472475bf2f36f5e",
+    "worker_sha256": "d1755361d76220f21fb075ff52e79fc6d58db7cacdeab2061dc0e2fe47ef4ecd",
+    "bridge_sha256": "14a9437b14ef497a216f7eaba08f0eabbdbfbd1d3bc1543fe9f8fb5ee0120ffb",
+    "transport_sha256": "a68e52b02ca92ed9e751cf67f5c8156575035bb336a77bb3d912e4457d21b2ad",
+    "viewer_sha256": "44b8a57dc1b4399b5c97ee8326d18ae2956f206d508fb76e710edda815d5dd8d"
+  },
+  "changes_retained": {
+    "exp183": "Fresh matched packet credit keeps flight admission bound when frame receipts coalesce (prepared by the previous agent; validated live here).",
+    "exp184_severe_step": "Delivery below half the offered load with >50ms queue and 25ms slow confirmation no longer waits for the overuse trend. Offline: one 50ms report earlier on PVE; live peak packet queue was 255-272ms.",
+    "exp184_standing_queue": "A flight-limited sender offers only what is delivered, hiding a target above capacity from the offered/delivered test. Queue >80ms held >=1s (ending only at <=50ms) with >=100ms of real flight waits per 600ms and delivery below 85% of target now reduces to 90% of the mean rate over that period.",
+    "exp185_quality_floor": "Cropped H264 NVENC qmin0/qmax32 with init QP32. Previously rejected with init QP26; that record itself stated causality was unproven. Fixes the sporadic first-cut SSIM miss.",
+    "exp186_step_capacity": "A severe step states its capacity from the newest 50ms interval without the 90% margin. The codec stays at 70% of target; the margin only slowed the following IDR."
+  },
+  "rejected": {
+    "exp187_deferred_floor": "Open without the QP floor on a confirmed cut and restore it after 1s. FFmpeg can only change NVENC QP bounds by reopening, measured at 230-304ms of blocked encoding; uncapped IDR was still 34.5KB. Worker/core source restored.",
+    "exp188_no_refresh_in_place_retune": "NVENC without confirmed refresh or retune IDR. Excess 413-595ms: confirmed refresh is genuinely valuable. Source restored.",
+    "ssh_forward_artifact_hypothesis": "Native base delay is not an SSH artifact: TCP connect RTT to that node is ~85ms."
+  },
+  "transition_full_profile_pve_nvenc": {
+    "exp183": [
+      {
+        "run": "quality61-auto-lxc183-first-loss0p3-delay15-source-oracle",
+        "failed": [],
+        "fps": [
+          55.8,
+          48.13,
+          55.31
+        ],
+        "excess_ms": 333.6,
+        "max_gap_ms": 233,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 115
+      },
+      {
+        "run": "quality61-auto-lxc183-second-loss0p3-delay15-source-oracle",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          56.79,
+          48.95,
+          54.03
+        ],
+        "excess_ms": 414.1,
+        "max_gap_ms": 234,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 152
+      }
+    ],
+    "exp184": [
+      {
+        "run": "quality61-auto-lxc184-first-loss0p3-delay15-source-oracle",
+        "failed": [],
+        "fps": [
+          57.0,
+          49.08,
+          55.13
+        ],
+        "excess_ms": 332.0,
+        "max_gap_ms": 233,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 97
+      },
+      {
+        "run": "quality61-auto-lxc184-second-loss0p3-delay15-source-oracle",
+        "failed": [],
+        "fps": [
+          52.87,
+          47.76,
+          55.25
+        ],
+        "excess_ms": 397.5,
+        "max_gap_ms": 166,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 123
+      }
+    ],
+    "exp185": [
+      {
+        "run": "quality61-auto-lxc185-first-loss0p3-delay15-source-oracle",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          56.21,
+          48.81,
+          55.56
+        ],
+        "excess_ms": 446.7,
+        "max_gap_ms": 335,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 115
+      },
+      {
+        "run": "quality61-auto-lxc185-second-loss0p3-delay15-source-oracle",
+        "failed": [],
+        "fps": [
+          55.42,
+          50.33,
+          55.35
+        ],
+        "excess_ms": 365.0,
+        "max_gap_ms": 266,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 99
+      }
+    ],
+    "exp186": [
+      {
+        "run": "quality61-auto-lxc186-first-loss0p3-delay15-source-oracle",
+        "failed": [
+          "full_rate_recovered"
+        ],
+        "fps": [
+          56.5,
+          51.25,
+          53.87
+        ],
+        "excess_ms": 379.9,
+        "max_gap_ms": 217,
+        "recovered_end_kbps": 4160,
+        "glyph_max_ms": 126
+      },
+      {
+        "run": "quality61-auto-lxc186-second-loss0p3-delay15-source-oracle",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          56.09,
+          47.53,
+          55.64
+        ],
+        "excess_ms": 481.6,
+        "max_gap_ms": 215,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 133
+      },
+      {
+        "run": "quality61-auto-lxc186-third-loss0p3-delay15-source-oracle",
+        "failed": [],
+        "fps": [
+          53.79,
+          49.4,
+          55.87
+        ],
+        "excess_ms": 396.4,
+        "max_gap_ms": 200,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 120
+      }
+    ],
+    "exp187": [
+      {
+        "run": "quality61-auto-lxc187-first-loss0p3-delay15-source-oracle",
+        "failed": [],
+        "fps": [
+          56.66,
+          48.35,
+          56.65
+        ],
+        "excess_ms": 398.9,
+        "max_gap_ms": 368,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 122
+      },
+      {
+        "run": "quality61-auto-lxc187-second-loss0p3-delay15-source-oracle",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          55.02,
+          47.66,
+          54.88
+        ],
+        "excess_ms": 446.7,
+        "max_gap_ms": 366,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 106
+      },
+      {
+        "run": "quality61-auto-lxc187-third-loss0p3-delay15-source-oracle",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          55.37,
+          48.01,
+          56.05
+        ],
+        "excess_ms": 511.0,
+        "max_gap_ms": 366,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 138
+      },
+      {
+        "run": "quality61-auto-lxc187-fourth-loss0p3-delay15-source-oracle",
+        "failed": [
+          "full_rate_recovered"
+        ],
+        "fps": [
+          56.08,
+          47.88,
+          54.67
+        ],
+        "excess_ms": 395.6,
+        "max_gap_ms": 366,
+        "recovered_end_kbps": 6757,
+        "glyph_max_ms": 114
+      }
+    ],
+    "exp188": [
+      {
+        "run": "quality61-auto-lxc188-first-loss0p3-delay15-source-oracle",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          54.19,
+          48.83,
+          54.13
+        ],
+        "excess_ms": 580.2,
+        "max_gap_ms": 267,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 140
+      },
+      {
+        "run": "quality61-auto-lxc188-second-loss0p3-delay15-source-oracle",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          55.88,
+          48.1,
+          54.94
+        ],
+        "excess_ms": 583.9,
+        "max_gap_ms": 216,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 114
+      },
+      {
+        "run": "quality61-auto-lxc188-third-loss0p3-delay15-source-oracle",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          54.88,
+          46.77,
+          54.57
+        ],
+        "excess_ms": 413.3,
+        "max_gap_ms": 233,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 145
+      },
+      {
+        "run": "quality61-auto-lxc188-fourth-loss0p3-delay15-source-oracle",
+        "failed": [
+          "full_rate_recovered",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          52.85,
+          48.11,
+          54.11
+        ],
+        "excess_ms": 595.4,
+        "max_gap_ms": 201,
+        "recovered_end_kbps": 2573,
+        "glyph_max_ms": 125
+      }
+    ]
+  },
+  "hardcut_pve_nvenc": {
+    "exp183": [
+      {
+        "run": "hardcut183-first",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.907,
+        "narrow_source_fps": 50.32
+      }
+    ],
+    "exp184": [
+      {
+        "run": "hardcut184-first",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.908,
+        "narrow_source_fps": 49.25
+      },
+      {
+        "run": "hardcut184-second",
+        "failed": [
+          "quality_ssim"
+        ],
+        "narrow_first_cut_min_ssim": 0.85,
+        "narrow_source_fps": 47.08
+      },
+      {
+        "run": "hardcut184-third",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.915,
+        "narrow_source_fps": 48.65
+      },
+      {
+        "run": "hardcut184-fourth",
+        "failed": [
+          "quality_ssim"
+        ],
+        "narrow_first_cut_min_ssim": 0.897,
+        "narrow_source_fps": 48.05
+      }
+    ],
+    "exp185": [
+      {
+        "run": "hardcut185-first",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.903,
+        "narrow_source_fps": 49.25
+      },
+      {
+        "run": "hardcut185-second",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.903,
+        "narrow_source_fps": 49.91
+      },
+      {
+        "run": "hardcut185-third",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.906,
+        "narrow_source_fps": 49.01
+      }
+    ],
+    "exp186": [
+      {
+        "run": "hardcut186-first",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.904,
+        "narrow_source_fps": 49.51
+      },
+      {
+        "run": "hardcut186-second",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.903,
+        "narrow_source_fps": 50.05
+      }
+    ],
+    "exp187": [
+      {
+        "run": "hardcut187-first",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.903,
+        "narrow_source_fps": 48.15
+      },
+      {
+        "run": "hardcut187-second",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.903,
+        "narrow_source_fps": 48.45
+      },
+      {
+        "run": "hardcut187-third",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.905,
+        "narrow_source_fps": 48.15
+      }
+    ],
+    "exp188": [
+      {
+        "run": "hardcut188-first",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.903,
+        "narrow_source_fps": 49.48
+      },
+      {
+        "run": "hardcut188-second",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.903,
+        "narrow_source_fps": 49.25
+      },
+      {
+        "run": "hardcut188-third",
+        "failed": [],
+        "narrow_first_cut_min_ssim": 0.905,
+        "narrow_source_fps": 50.91
+      }
+    ]
+  },
+  "transition_full_profile_native_intel": {
+    "exp183": [
+      {
+        "run": "intel183-full-h264_qsv-virgl-capture-gpu-w1",
+        "failed": [
+          "narrow_source_fps_at_least_45",
+          "presentation_excess_at_most_400ms",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          51.64,
+          42.86,
+          49.49
+        ],
+        "excess_ms": 491.3,
+        "max_gap_ms": 135,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 330
+      },
+      {
+        "run": "intel183-full-h264_vaapi-virgl-capture-gpu-w1",
+        "failed": [
+          "narrow_source_fps_at_least_45",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          48.87,
+          44.23,
+          49.73
+        ],
+        "excess_ms": 478.4,
+        "max_gap_ms": 150,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 314
+      }
+    ],
+    "exp184": [
+      {
+        "run": "intel184-full-h264_qsv-virgl-capture-gpu-w1",
+        "failed": [
+          "presentation_excess_at_most_400ms",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          51.89,
+          47.03,
+          47.92
+        ],
+        "excess_ms": 510.9,
+        "max_gap_ms": 200,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 279
+      },
+      {
+        "run": "intel184-full-h264_qsv-virgl-capture-gpu-w2",
+        "failed": [
+          "narrow_source_fps_at_least_45",
+          "presentation_excess_at_most_400ms",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          50.99,
+          44.82,
+          49.18
+        ],
+        "excess_ms": 559.7,
+        "max_gap_ms": 117,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 341
+      },
+      {
+        "run": "intel184-full-h264_vaapi-virgl-capture-gpu-w1",
+        "failed": [
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          50.62,
+          46.16,
+          48.85
+        ],
+        "excess_ms": 449.3,
+        "max_gap_ms": 168,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 309
+      }
+    ],
+    "exp186": [
+      {
+        "run": "intel186-full-h264_qsv-virgl-capture-gpu-w1",
+        "failed": [
+          "presentation_excess_at_most_400ms",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          50.53,
+          47.57,
+          49.53
+        ],
+        "excess_ms": 560.3,
+        "max_gap_ms": 117,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 321
+      },
+      {
+        "run": "intel186-full-h264_qsv-virgl-capture-gpu-w2",
+        "failed": [
+          "presentation_excess_at_most_400ms",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          49.59,
+          45.73,
+          49.65
+        ],
+        "excess_ms": 464.7,
+        "max_gap_ms": 132,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 312
+      },
+      {
+        "run": "intel186-full-h264_vaapi-virgl-capture-gpu-w1",
+        "failed": [
+          "presentation_excess_at_most_400ms",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          46.74,
+          46.72,
+          50.86
+        ],
+        "excess_ms": 493.5,
+        "max_gap_ms": 183,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 295
+      }
+    ],
+    "exp187": [
+      {
+        "run": "intel187-full-h264_qsv-virgl-capture-gpu-w1",
+        "failed": [
+          "presentation_excess_at_most_400ms",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          48.79,
+          47.6,
+          47.41
+        ],
+        "excess_ms": 561.8,
+        "max_gap_ms": 201,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 309
+      },
+      {
+        "run": "intel187-full-h264_vaapi-virgl-capture-gpu-w1",
+        "failed": [
+          "presentation_excess_at_most_400ms",
+          "full_source_excess_from_fast_p95_at_most_400ms"
+        ],
+        "fps": [
+          51.14,
+          46.15,
+          49.61
+        ],
+        "excess_ms": 577.5,
+        "max_gap_ms": 199,
+        "recovered_end_kbps": 8000,
+        "glyph_max_ms": 295
+      }
+    ]
+  },
+  "mac_real_hidden_healthy": {
+    "mac183-real-hidden-r1": {
+      "failed": [],
+      "gates": 9,
+      "source_fps": 56.29,
+      "glyph_max_ms": 260,
+      "hidden_visibility": "hidden",
+      "after_resume_source_advances": true,
+      "nominated_pairs": [
+        {
+          "local_type": "relay",
+          "relay_protocol": "tcp",
+          "url": "turn:192.168.64.20:8006?transport=tcp"
+        },
+        {
+          "local_type": "relay",
+          "relay_protocol": "tcp",
+          "url": "turn:192.168.64.20:8006?transport=tcp"
+        }
+      ],
+      "ice": {
+        "type": "relay",
+        "protocol": "tcp"
+      },
+      "distinct_control_transport": true
+    },
+    "mac184-real-hidden-r2": {
+      "failed": [],
+      "gates": 9,
+      "source_fps": 56.53,
+      "glyph_max_ms": 170,
+      "hidden_visibility": "hidden",
+      "after_resume_source_advances": true,
+      "nominated_pairs": [
+        {
+          "local_type": "relay",
+          "relay_protocol": "tcp",
+          "url": "turn:192.168.64.20:8006?transport=tcp"
+        },
+        {
+          "local_type": "relay",
+          "relay_protocol": "tcp",
+          "url": "turn:192.168.64.20:8006?transport=tcp"
+        }
+      ],
+      "ice": {
+        "type": "relay",
+        "protocol": "tcp"
+      },
+      "distinct_control_transport": true
+    },
+    "mac186-real-hidden-r1": {
+      "failed": [],
+      "gates": 9,
+      "source_fps": 56.42,
+      "glyph_max_ms": 253,
+      "hidden_visibility": "hidden",
+      "after_resume_source_advances": true,
+      "nominated_pairs": [
+        {
+          "local_type": "relay",
+          "relay_protocol": "tcp",
+          "url": "turn:192.168.64.20:8006?transport=tcp"
+        },
+        {
+          "local_type": "relay",
+          "relay_protocol": "tcp",
+          "url": "turn:192.168.64.20:8006?transport=tcp"
+        }
+      ],
+      "ice": {
+        "type": null,
+        "protocol": null
+      },
+      "distinct_control_transport": true
+    },
+    "mac188-real-hidden-r1": {
+      "failed": [],
+      "gates": 9,
+      "source_fps": 56.9,
+      "glyph_max_ms": 162,
+      "hidden_visibility": "hidden",
+      "after_resume_source_advances": true,
+      "nominated_pairs": [],
+      "ice": {
+        "type": "relay",
+        "protocol": "tcp"
+      },
+      "distinct_control_transport": true
+    }
+  },
+  "findings": [
+    "exp186 passes hard-cut SSIM in all measured runs, while no-floor exp183/184 miss in 2 of 5. With the floor, PVE source-age excess straddles 400ms (see runs): the two gates still conflict by tens of milliseconds at a 10:1 step.",
+    "The conflict is one picture: a refresh IDR is ~44KB with the floor against 21-28KB without, ~240ms against ~130ms of pacing at the reduced target.",
+    "Native FPS now passes in all exp186 runs (it fell to 42.86 on exp183) because a target above capacity no longer persists for ~16s.",
+    "Every remaining native failure is one event: the first ~0.8s after the 10:1 step. Native TCP RTT ~85ms plus 15ms netem. Each ms of detection adds ~2-3ms of queue at this step, so peak packet queue is ~450ms before any reduction; the path alone leaves little of the 400ms budget. Not waived: reported as an open decision.",
+    "Playwright enables Emulation.setFocusEmulationEnabled in its own CDP session; each session holds its own capturer count, so a second session cannot release it. connect_over_cdp(no_defaults=True) on the default context gives genuine focus/visibility. First real hidden-tab proof.",
+    "\"Target page, context or browser has been closed\" in earlier Mac reports was a harness artifact (finally runs after async_playwright exits), not evidence of a browser failure."
+  ],
+  "open_defects": [
+    "full_rate_recovered failed in exp186 first (4160 at window end) and similar runs: existing high_confirmed path cuts 8000 to ~2700 on a TCP repair under 0.3% loss at 20M; recovery then takes ~12s. Not caused by these changes (also present in exp181/183 traces), but a real quality drop.",
+    "Mac harness: Settings click \"waiting for element to be visible, enabled and stable\" timed out in 1 of 5 no-emulation runs (exp187); stale tabs caused another (fixed by closing them). r2/r3 startup failure of 2026-10-29 did not reproduce; its cause remains unproven."
+  ],
+  "limits": [
+    "Launch/ACL mocked; dedicated guests only. Mac runs are 40s healthy pilots, not transition/fidelity/long-session. Physical Mac model and hardware decoding remain unproven.",
+    "PVE and native lanes sometimes ran concurrently on the shared controller; other agents also loaded it.",
+    "Offline estimator replays show decisions on recorded prefixes, not counterfactual live outcomes. Small run counts: excess spread is about +-60ms, so differences below that between variants are not established."
+  ],
+  "remaining": [
+    "QSV/VAAPI hard-cut fidelity; HEVC and full VM+LXC encoder matrix",
+    "Mac impaired and Firefox/macOS, A/V",
+    "Toolkit/occlusion/fallback/lifecycle coverage",
+    "Long sessions",
+    "Matched RDP impaired/fidelity/soak comparison",
+    "All 7 packages, signed checksums/APT, docs, qualified rollout, authorized discussion delivery"
+  ],
+  "next_action": "Decide the native 400ms question, then the TCP-repair recut; then the remaining matrix in independent lanes."
+}

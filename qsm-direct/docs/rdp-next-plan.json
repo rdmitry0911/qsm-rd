@@ -80,8 +80,8 @@
     "Do not mark the objective complete based on tests narrower than the requirements"
   ],
   "checkpoint": {
-    "stage": "video-regions-and-queue",
-    "candidate": "Private181 source/package candidate: mutex-protected raw-release wake plus automatic bounded decoded RTP presentation and lifecycle/fallback tests. Bridge154 and transport127 unchanged; Mac positive results still require PRIVATE split171 hooks, not shipped end-to-end qualification. Full source age/native and wider fidelity/matrix gates remain open.",
+    "stage": "qualification",
+    "candidate": "Private213 source/package candidate: 200 plus flow control, protocol 7 pixel history, cursor cache and trim, nearly empty pictures not held behind pacer debt, shared capacity in target cuts, a worker rate that ignores the video target while video is idle, spaced viewer replies, key presses in the input response, VA-API VBR and QP floor on uncropped pictures, 120 Hz wlroots output, a video plane that does not flip on a drag, strips that wait for bandwidth with history and an exact window sized from delivery. See docs/rdp-pixel-history-20261105.json and docs/rdp-ui-responsiveness-20261104.json.",
     "guest_extension_role": {
       "required_for_metadata_priority": "Expanded VM/LXC agents supply window geometry, stacking, visibility, focus and supported caret/input-component bounds over the existing guest transport.",
       "implemented_scope": "KWin session integration, optional Qt5/Qt6 input-geometry plugin and accessibility producers have documented checks; this does not establish universal toolkit or application coverage.",
@@ -89,7 +89,7 @@
       "rendering": "The browser composes actual guest pixels; this plan does not introduce OCR, text-content transfer, font substitution or a drawing-command protocol.",
       "remaining": "Complete application/toolkit, overlapping-input, occlusion and lifecycle acceptance together with host scheduling and video queue qualification. The measured queue issue is not evidence that another guest protocol expansion is required."
     },
-    "evidence_directory": "dist/rdp-hybrid/decoded-queue-178-181",
+    "evidence_directory": "dist/rdp-hybrid/pixel-history-201-213",
     "implemented": [
       "KWin geometry, real stack, visibility, focus, conservative caret areas",
       "Optional QSF1 metadata on VM and LXC agents; strict bounds, leases, replay protection and old-agent fallback",
@@ -155,7 +155,12 @@
       "Small-frame windows do not invent congestion; valid demanding packet delivery is still required for growth, and resumed stale flow restarts healthy evidence (private127).",
       "Worker-paced encoded receipt reports retain valid newer IPC catch-up samples; remove only redundant main-clock resampling (private144).",
       "Raw budget admission wakes on explicit release with wait-mutex protection; byte debt/UI reserve and negotiated cadence remain authoritative.",
-      "Capability-detected bounded decoded RTP presentation, shared capture/layout fences, no-undrawn-ACK and old-HTML guards, cancellation/timeout/API-negative fallback tests; private181 qualification remains incomplete."
+      "Capability-detected bounded decoded RTP presentation, shared capture/layout fences, no-undrawn-ACK and old-HTML guards, cancellation/timeout/API-negative fallback tests; private181 qualification remains incomplete.",
+      "Fresh matched packet credit keeps complete-frame flight admission bounded when frame receipts coalesce at a slower cadence.",
+      "A delivery collapse below half the offered load with a 50ms queue reduces without waiting for the overuse trend; its capacity comes from the newest 50ms interval without an extra margin.",
+      "A flight-limited standing queue held for one second, with actual flight waits and delivery below 85% of target, reduces to 90% of the rate delivered over that period.",
+      "Cropped H264 NVENC scene cuts keep a QP32 floor with init QP32; other encoders and full-desktop paths are unchanged.",
+      "With exact UI, the receive transform decodes assembled H.264 frames with WebCodecs ahead of the playout buffer; the unchanged browser path remains live as fallback, stale pictures are dropped and silence lends the display back."
     ],
     "verified": [
       "Live isolated KWin5 geometry, stacking, visibility and native Qt caret geometry",
@@ -279,16 +284,7 @@
       "149 corrects initial RDP/QSM video-content mismatch with SHA2561a0635... proved in both guests. Corrected RDP31.52/29.02/31.63fps,15chars once,952ms initial-cut glyph fails600; QSM14455.15/47.99/55.49fps and138ms. Separate144 hardcut50.78/52.41fps passes cadence but narrow SSIM0.885896 fails0.90. Original failures retained; no overall winner declared."
     ],
     "pending": [
-      "Diagnose181 late recut after recovery (8000 reached at9.75s; recut to3649 at69.85s; ends4561) using frozen rate/packet traces against179 control; stabilize native impaired source age<=400ms excess and true source cadence>=45 while retaining low-rate hardcut fidelity. Replace the private Mac split-control SDP hook with bounded, tested production negotiation before claiming packaged Mac acceptance. Complete actual hidden-window lifecycle/A-V, codec/application/browser/soak and matched RDP qualification, then all seven signed release/APT/documentation/qualified-rollout artifacts.",
-      "Final component/GTK/mode-toggle/full-desktop fallback and long/resource repeats, including the retained49.885fps concurrent-build observation; source/binary proofs do not replace runtime scope.",
-      "Broader browser/application verification and native LXC GTK/PAM environment coverage; current GTK media proof uses the owned nested KWin session",
-      "Broader component/GTK metadata acceptance and additional cold-restoration profiles; current narrow mode-switch recovery is about4.1seconds rather than instantaneous",
-      "Broader application/toolkit coverage, including explicit unsupported/legacy behavior",
-      "Complete component-aware text-over-video move/resize/scroll/close, occlusion and lifecycle acceptance",
-      "Hard-cut video fidelity, repeated network profiles and broader real-loss/jitter coverage",
-      "Supported VM/LXC NVENC/QSV/VAAPI H264/HEVC matrix, long encoded mixed sessions and resource checks",
-      "Firefox/macOS acceptance; extend the corrected149 same-content RDP comparison to impaired fidelity, codec proof, repeats and longer scenarios",
-      "Publish matching final source/debs/signed sums/APT and installation/rollback docs; qualified rollout and discussion updates"
+      "See remaining and open_findings in docs/rdp-pixel-history-20261105.json"
     ],
     "production_node_20": "Host remains exp35; no worker or user desktop restart",
     "video_scheduling_changed": true,
@@ -347,7 +343,7 @@
       "dist/rdp-hybrid/macos-decoded-167-176",
       "dist/rdp-hybrid/decoded-queue-178-181"
     ],
-    "next_action": "Diagnose181 late recut after recovery (8000 reached at9.75s; recut to3649 at69.85s; ends4561) using frozen rate/packet traces against179 control; stabilize native impaired source age<=400ms excess and true source cadence>=45 while retaining low-rate hardcut fidelity. Replace the private Mac split-control SDP hook with bounded, tested production negotiation before claiming packaged Mac acceptance. Complete actual hidden-window lifecycle/A-V, codec/application/browser/soak and matched RDP qualification, then all seven signed release/APT/documentation/qualified-rollout artifacts.",
+    "next_action": "Decide next by size of blocker over cost among: VM with shadows over text at 2 Mbit/s; Chrome/macOS on exp213 when its idle path probe passes; HEVC through a client with a decoder; AMD typing; idle bytes; longer sessions with clips and on the VM; then release artifacts. See remaining in docs/rdp-pixel-history-20261105.json.",
     "adaptive_feedback_pilot": {
       "candidate": "0.4.0+stock4.14~exp51",
       "scope": "Owned LXC108, nested KWin5, NVENC H264, Linux Firefox, TURN over TCP8006; bandwidth shaping without manual bitrate commands",
@@ -532,16 +528,16 @@
     "deferred_refresh": "docs/rdp-deferred-refresh-20261029.json",
     "priority_order": [
       {
-        "blocker": "Native impaired source age/cadence, late post-recovery recut, shipped Mac transport and actual visibility/A-V acceptance",
-        "reason": "Automatic decoded FIFO now has47.36/47.92 true source-fps healthy Mac media proofs with private split hooks. Investigate remaining frozen failing rate/packet traces before repeating broad profiles; preserve original gates and fidelity."
+        "blocker": "VM with shadows over text at 2 Mbit/s",
+        "reason": "The only interface scenario still far behind; a drag needs about 1 MB/s there."
       },
       {
-        "blocker": "Remaining supported encoder/application/browser and long-session/RDP qualification",
-        "reason": "Large missing coverage; parallelize independent environments after the shared controller is stable."
+        "blocker": "Mac on exp213, HEVC, longer sessions with clips and on the VM",
+        "reason": "Coverage for qualification; parallelize independent environments."
       },
       {
-        "blocker": "Release, APT, qualified rollout and discussion updates",
-        "reason": "Depends on qualification; existing production remains the working baseline."
+        "blocker": "Release, APT, qualified rollout",
+        "reason": "Depends on qualification."
       }
     ],
     "active_recovery": "docs/rdp-active-recovery-20261029.json",
@@ -578,7 +574,9 @@
     "macos_counter": "docs/rdp-macos-counter-20261029.json",
     "macos_credit": "docs/rdp-macos-credit-20261029.json",
     "decoded_presentation": "docs/rdp-decoded-presentation-20261029.json",
-    "decoded_queue": "docs/rdp-decoded-queue-20261029.json"
+    "decoded_queue": "docs/rdp-decoded-queue-20261029.json",
+    "handoff": "docs/rdp-handoff-20261029.json",
+    "work_state": "Private213 measured on PVE, native, AMD and the VM path; nothing deployed. Mac figures are exp209."
   },
   "deployment_nodes": [
     "192.168.64.20",

@@ -88,16 +88,60 @@
     // original RTP identity. A two-picture FIFO absorbs short delivery bursts
     // without adding another decoder or an unbounded presentation backlog.
     class DecodedVideoPresenter {
+        static DIRECT_DECODE = Object.freeze({ direct: true });
         constructor(scope, present, retire = () => {}) {
             this.scope = scope; this.present = present; this.retire = retire;
             this.session = null; this.failed = new WeakSet();
         }
         get active() { return this.session?.active === true; }
+        get directUsable() { return !this.failed.has(DecodedVideoPresenter.DIRECT_DECODE); }
+        // Pictures decoded ahead of the browser's playout buffer. Takes over
+        // from the track reader on its first frame; the same bounded queue,
+        // draw and order guards apply, and silence falls back to that reader.
+        pushDirect(frame, rtp, allowed) {
+            if (!allowed || this.failed.has(DecodedVideoPresenter.DIRECT_DECODE) || !Number.isInteger(rtp) || rtp < 0 || rtp > 0xffffffff) {
+                frame.close(); return;
+            }
+            let s = this.session;
+            if (s?.source !== DecodedVideoPresenter.DIRECT_DECODE) {
+                this.stop();
+                // No playout buffer smooths these: TCP delivers pictures in short
+                // bursts, which one draw per tick can absorb with a little depth.
+                s = { source: DecodedVideoPresenter.DIRECT_DECODE, queue: [], current: null, active: false, raf: null, timer: null,
+                    lastArrival: this.scope.performance.now(), depth: 3, maxAge: 50 };
+                this.session = s;
+                const watchdog = () => {
+                    if (this.session !== s) { return; }
+                    const silent = this.scope.performance.now() - s.lastArrival;
+                    // Idle desktops still send pictures. A short silence lends the
+                    // display to the browser's live path until fresh pictures return.
+                    if (silent >= 150) { s.active = false; }
+                    if (silent >= 5000) { this.directFailed(); }
+                    else { s.timer = this.scope.setTimeout(watchdog, 50); }
+                };
+                s.timer = this.scope.setTimeout(watchdog, 50);
+            }
+            this.enqueue(s, frame, rtp);
+        }
+        directFailed(reason = 'silent') {
+            this.directFailure ??= reason;
+            this.failed.add(DecodedVideoPresenter.DIRECT_DECODE);
+            if (this.session?.source === DecodedVideoPresenter.DIRECT_DECODE) { this.stop(); }
+            this.onDirectFailed?.();
+        }
+        enqueue(s, frame, rtp) {
+            s.active = true; s.lastArrival = this.scope.performance.now();
+            s.queue.push({ frame, rtp, at: s.lastArrival, closed: false });
+            while (s.queue.length > (s.depth ?? 2)) { this.release(s.queue.shift()); }
+            if (s.raf === null) {
+                s.raf = this.scope.requestAnimationFrame(now => this.draw(s, now));
+            }
+        }
         release(item) {
             if (item && !item.closed) { item.closed = true; item.frame.close(); }
         }
         configure(source, enabled) {
-            if (enabled && this.session?.source === source) { return; }
+            if (enabled && (this.session?.source === source || this.session?.source === DecodedVideoPresenter.DIRECT_DECODE)) { return; }
             this.stop();
             if (!enabled || !source || this.failed.has(source) || source.readyState === 'ended' ||
                 typeof source.clone !== 'function' ||
@@ -120,6 +164,7 @@
         }
         fail(s) {
             if (this.session !== s) { return; }
+            if (s.source === DecodedVideoPresenter.DIRECT_DECODE) { this.directFailed(); return; }
             this.failed.add(s.source); this.stop();
         }
         stop() {
@@ -136,7 +181,7 @@
             if (s.reader) {
                 try { Promise.resolve(s.reader.cancel()).catch(() => {}); } catch (_error) { /* closed reader */ }
             }
-            s.track?.stop();
+            s.track?.stop?.();
         }
         async read(s) {
             try {
@@ -151,19 +196,14 @@
                     if (!Number.isInteger(rtp) || rtp < 0 || rtp > 0xffffffff) {
                         frame.close(); this.fail(s); return;
                     }
-                    s.active = true; s.lastArrival = this.scope.performance.now();
-                    s.queue.push({ frame, rtp, at: s.lastArrival, closed: false });
-                    while (s.queue.length > 2) { this.release(s.queue.shift()); }
-                    if (s.raf === null) {
-                        s.raf = this.scope.requestAnimationFrame(now => this.draw(s, now));
-                    }
+                    this.enqueue(s, frame, rtp);
                 }
             } catch (_error) { this.fail(s); }
         }
         draw(s, now) {
             if (this.session !== s) { return; }
             s.raf = null;
-            while (s.queue.length && now - s.queue[0].at > 50) { this.release(s.queue.shift()); }
+            while (s.queue.length && now - s.queue[0].at > (s.maxAge ?? 50)) { this.release(s.queue.shift()); }
             const item = s.queue.shift();
             if (item) {
                 const previous = s.current;
@@ -273,18 +313,77 @@
         }
     }
 
+    // Inverse of core/pixel_history.hpp. Pixels are 0xBBGGRR.
+    const decodePixelHistory = (history, tokens, count) => {
+        const CAPACITY = 1 << 22, MASK = CAPACITY - 1, { ring } = history;
+        const view = new DataView(tokens.buffer, tokens.byteOffset, tokens.byteLength);
+        const opsSize = view.getUint16(4), distancesSize = view.getUint16(6);
+        const distancesAt = 8 + opsSize, literalsAt = distancesAt + distancesSize;
+        const literalBytes = tokens.length - literalsAt;
+        if (literalBytes < 0 || literalBytes % 3) { throw Error('Invalid exact UI history tokens'); }
+        const literals = literalBytes / 3;
+        let op = 8, distance = distancesAt, literal = 0, produced = 0, position = history.position;
+        const varint = (at, end) => {
+            let value = 0, shift = 0, byte;
+            do {
+                if (at >= end || shift > 21) { throw Error('Invalid exact UI history varint'); }
+                byte = tokens[at++]; value |= (byte & 127) << shift; shift += 7;
+            } while (byte & 128);
+            varint.at = at;
+            return value;
+        };
+        while (produced < count) {
+            const run = varint(op, distancesAt); op = varint.at;
+            if (run > count - produced || literal + run > literals) { throw Error('Invalid exact UI history literals'); }
+            for (let i = 0; i < run; ++i, ++literal) {
+                const red = tokens[literalsAt + literal];
+                ring[(position + produced + i) & MASK] = red |
+                    (((tokens[literalsAt + literals + literal] + red) & 255) << 8) |
+                    (((tokens[literalsAt + 2 * literals + literal] + red) & 255) << 16);
+            }
+            produced += run;
+            if (produced >= count) { break; }
+            const length = varint(op, distancesAt); op = varint.at;
+            const back = varint(distance, literalsAt); distance = varint.at;
+            if (!length || length > count - produced || !back || back > position + produced || back > CAPACITY - 4096) {
+                throw Error('Invalid exact UI history match');
+            }
+            for (let i = 0; i < length; ++i) {
+                const at = position + produced + i;
+                ring[at & MASK] = ring[(at - back) & MASK];
+            }
+            produced += length;
+        }
+        if (op !== distancesAt || distance !== literalsAt || literal !== literals) { throw Error('Trailing exact UI history tokens'); }
+        const pixels = new Uint32Array(count);
+        let sum = 2166136261;
+        for (let i = 0; i < count; ++i) {
+            const value = ring[(position + i) & MASK];
+            pixels[i] = value;
+            sum = Math.imul(sum ^ value, 16777619);
+        }
+        // Wrong pixels here would stay on screen as if exact, and corrupt later records.
+        if ((sum >>> 0) !== view.getUint32(0)) { throw Error('Exact UI history checksum mismatch'); }
+        history.position = position + count;
+        return pixels;
+    };
+
     class ExactUiRenderer {
         constructor(canvas, inflate, failed = () => {}, acknowledge = () => {}, canPresent = () => true, painted = () => {}) {
             this.canvas = canvas;
             this.inflate = inflate;
             this.failed = failed;
             this.acknowledge = acknowledge;
+            this.ackAt = -Infinity;
             this.canPresent = canPresent;
             this.painted = painted;
             this.active = new Map();
             this.cache = new Map(); this.cached = [];
             this.clears = new Map();
             this.videoFrames = new Map();
+            this.barrier = [];
+            this.copying = false;
+            this.copies = 0;
             this.videoCapture = 0;
             this.presentedRtp = null;
             this.scene = null; this.baseLayout = 0;
@@ -308,6 +407,8 @@
         }
         clear() {
             this.generation += 1;
+            this.barrier = []; this.copying = false;
+            this.history = null;
             this.scene = null; this.baseLayout = 0;
             this.epoch = this.serial = null;
             this.wanted.clear();
@@ -324,15 +425,20 @@
         report() {
             if (this.ackQueued) { return; }
             this.ackQueued = true;
-            queueMicrotask(() => {
+            const send = () => {
                 this.ackQueued = false;
                 if (this.enabled && this.epoch !== null) {
+                    this.ackAt = performance.now();
                     this.acknowledge({ op: 'qsm_ui_ack', epoch: this.epoch, serial: this.serial,
-                        pending: this.pending.size + this.inflight + this.ready.size,
+                        pending: this.pending.size + this.inflight + this.ready.size + this.barrier.length,
                         cached: this.cached.splice(0, 32).filter(id => this.cache.get(id)?.image) });
                     if (this.cached.length) { this.report(); }
                 }
-            });
+            };
+            // A reply and the SCTP acknowledgement it draws back cost a narrow path
+            // more than a small record does, so one follows many records at a burst.
+            const wait = this.ackAt + 10 - performance.now();
+            if (wait > 0) { setTimeout(send, wait); } else { queueMicrotask(send); }
         }
         mapVideoFrame(rtp, capture, region = null) {
             if (!Number.isInteger(rtp) || rtp < 0 || rtp > 0xffffffff ||
@@ -382,13 +488,15 @@
                 // a focus/layout boundary and will not be sent again.
                 if (job.early && this.scene && job.layout !== this.scene.layout && this.videoCapture >= this.scene.capture &&
                     job.capture <= this.scene.capture) { this.ready.delete(key); changed = true; continue; }
-                if (job.capture > this.videoCapture && !this.canPresentEarly(key, job)) { continue; }
+                if (!job.unfenced && job.capture > this.videoCapture && !this.canPresentEarly(key, job)) { continue; }
                 this.ready.delete(key); changed = true;
                 if (job.generation !== this.generation || this.wanted.get(key) !== job.serial) { continue; }
                 this.context.putImageData(job.image, job.x, job.y);
                 const { epoch, serial, x, y, w, h, capture, layout, image } = job;
                 this.active.set(key, { epoch, serial, x, y, w, h, capture, layout, image,
-                    earlyPainted: capture > this.videoCapture }); this.clears.delete(key);
+                    // Only a leading layout-dependent bitmap may be retired by a
+                    // later layout, because only those are published again.
+                    earlyPainted: capture > this.videoCapture && !job.unfenced }); this.clears.delete(key);
                 this.patches += 1; this.bytes += job.bytes;
             }
             if (changed) { this.report(); this.painted(); }
@@ -429,17 +537,76 @@
             else { this.context.clearRect(job.x, job.y, job.w, job.h); this.active.delete(key); }
             this.report(); this.painted();
         }
+        // A copy reads the canvas, so it must observe every earlier record and
+        // none later, although tile inflation is asynchronous and out of order.
+        settled() {
+            return !this.pending.size && !this.inflight;
+        }
+        releaseBarrier() {
+            while (this.copying && this.settled()) {
+                const copy = this.copying; this.copying = false;
+                this.applyCopy(copy);
+                const queued = this.barrier; this.barrier = [];
+                for (const data of queued) {
+                    if (this.copying) { this.barrier.push(data); } else { void this.receive(data); }
+                }
+            }
+        }
+        applyCopy({ generation, serial, epoch, x, y, w, h, sx, sy, capture, layout }) {
+            if (generation !== this.generation || !this.enabled) { return; }
+            const dx = x - sx, dy = y - sy;
+            // Tiles still waiting for their video fence are part of the pixels
+            // this copy moves. The worker already counts them as displayed.
+            const overlaps = (t, ax, ay) => t.x < ax + w && ax < t.x + t.w && t.y < ay + h && ay < t.y + t.h;
+            for (const [key, job] of this.ready) {
+                if (!overlaps(job, sx, sy) && !overlaps(job, x, y)) { continue; }
+                this.ready.delete(key);
+                if (job.generation !== this.generation || this.wanted.get(key) !== job.serial) { continue; }
+                this.context.putImageData(job.image, job.x, job.y);
+                this.active.set(key, { epoch: job.epoch, serial: job.serial, x: job.x, y: job.y, w: job.w, h: job.h,
+                    capture: job.capture, layout: job.layout, image: job.image, earlyPainted: !!job.early && job.capture > this.videoCapture });
+                this.clears.delete(key);
+            }
+            // Transparent source pixels must remain transparent, so this copy
+            // replaces its destination rather than compositing over it. The
+            // canvas specification defines an overlapping self-draw as if the
+            // source were read first.
+            const ctx = this.context;
+            ctx.save();
+            ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+            ctx.globalCompositeOperation = 'copy';
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(this.canvas, sx, sy, w, h, x, y, w, h);
+            ctx.restore();
+            for (let ty = Math.floor(y / 64) * 64; ty < y + h; ty += 64) {
+                for (let tx = Math.floor(x / 64) * 64; tx < x + w; tx += 64) {
+                    const key = `${tx}:${ty}`;
+                    this.wanted.set(key, serial);
+                    this.ready.delete(key); this.clears.delete(key);
+                    // The bitmap is no longer known here, so it cannot justify
+                    // presenting a later sparse update ahead of its fence.
+                    this.active.set(key, { epoch, serial, x: tx, y: ty, w: Math.min(64, this.width - tx),
+                        h: Math.min(64, this.height - ty), capture, layout, image: null, earlyPainted: false });
+                }
+            }
+            this.copies += 1;
+            this.report(); this.painted();
+        }
         async receive(data) {
             if (!this.enabled) { return; }
+            if (this.copying) {
+                if (this.barrier.length >= 4096) { this.configure(false); this.failed(Error('Exact UI copy backlog')); return; }
+                this.barrier.push(data); return;
+            }
             const operationGeneration = this.generation;
             try {
                 if (!(data instanceof ArrayBuffer) || data.byteLength < 28 || data.byteLength > 6200) {
                     throw Error('Invalid exact UI record');
                 }
                 const v = new DataView(data);
-                const flags = v.getUint8(5), encoding = flags & 1, early = !!(flags & 2);
+                const flags = v.getUint8(5), encoding = flags & 1, early = !!(flags & 2), unfenced = !!(flags & 4), history = !!(flags & 8);
                 const stampSize = v.getUint16(6);
-                if (v.getUint32(0) !== 0x51554931 || (flags & ~3) ||
+                if (v.getUint32(0) !== 0x51554931 || (flags & ~15) ||
                     ![0, 8, 16].includes(stampSize) || data.byteLength < 28 + stampSize) {
                     throw Error('Unsupported exact UI record');
                 }
@@ -478,6 +645,7 @@
                     }
                     this.scene = { layout, capture };
                     this.baseLayout = capture <= this.videoCapture ? layout : 0;
+                    this.history = null;
                     this.epoch = epoch; this.serial = serial; this.report();
                     return;
                 }
@@ -490,6 +658,17 @@
                     this.serial = serial; this.scene = { layout, capture };
                     this.baseLayout = capture <= this.videoCapture ? layout : 0;
                     this.retireEarlyLayout(); this.presentReady(); this.report(); return;
+                }
+                if (op === 10) {
+                    if (flags || data.byteLength !== payloadAt + 4 || !w || !h || x + w > width || y + h > height) {
+                        throw Error('Invalid exact UI copy');
+                    }
+                    const sx = v.getUint16(payloadAt), sy = v.getUint16(payloadAt + 2);
+                    if (sx + w > width || sy + h > height) { throw Error('Invalid exact UI copy source'); }
+                    this.serial = serial;
+                    this.copying = { generation: this.generation, serial, epoch, x, y, w, h, sx, sy, capture, layout };
+                    this.releaseBarrier();
+                    return;
                 }
                 if (![2, 3, 6, 7, 8, 9].includes(op) || x >= width || y >= height || x % 64 || y % 64 ||
                     w !== Math.min(64, width - x) || h !== Math.min(64, height - y) ||
@@ -520,6 +699,13 @@
                     this.cache.set(cacheId, { w, h, image: null });
                     if (this.cache.size > 256) { this.cache.delete(this.cache.keys().next().value); }
                 }
+                // Every history record extends what later ones refer to, even
+                // when a newer patch of this tile will replace its pixels.
+                let decoded = null;
+                if (history) {
+                    if (op !== 2 || encoding || data.byteLength < payloadAt + 5) { throw Error('Invalid exact UI history record'); }
+                    decoded = this.decodeHistory(data, payloadAt, w * h);
+                }
                 const previous = this.pending.get(key);
                 if (previous) { previous.done(); this.pending.delete(key); }
                 if (op === 3) { this.erase(key, { epoch, x, y, w, h, capture, serial }); return; }
@@ -528,7 +714,7 @@
                 // inflations instead of disabling the layer on a short burst.
                 await new Promise(done => {
                     this.pending.set(key, { key, serial, generation: this.generation,
-                        data, op, cacheId, reference, shift, encoding, payloadAt, capture, layout, early, x, y, w, h, done });
+                        data, op, cacheId, reference, shift, encoding, payloadAt, capture, layout, early, unfenced, x, y, w, h, decoded, done });
                     this.pump();
                 });
             } catch (error) {
@@ -545,15 +731,34 @@
                     if (job.generation !== this.generation) { return; }
                     this.configure(false); this.failed(error);
                 }).finally(() => {
-                    this.inflight -= 1; job.done(); this.pump(); this.report();
+                    this.inflight -= 1; job.done(); this.pump(); this.releaseBarrier(); this.report();
                 });
             }
         }
+        // Inflation runs concurrently and may finish in any order; history
+        // grows strictly in record order, which starts here, before any await.
+        decodeHistory(data, payloadAt, count) {
+            const size = new DataView(data).getUint32(payloadAt);
+            if (size < 8 || size > 65536) { throw Error('Invalid exact UI history size'); }
+            const inflated = this.inflate(new Uint8Array(data, payloadAt + 4), size);
+            const history = this.history || (this.history = { ring: new Uint32Array(1 << 22), position: 0, tail: Promise.resolve() });
+            const decoded = history.tail.then(() => inflated).then(tokens => decodePixelHistory(history, tokens, count));
+            // Whichever job waits reports a failure; a replaced job must not raise one on its own.
+            history.tail = decoded.then(() => {});
+            decoded.catch(() => {}); history.tail.catch(() => {});
+            return decoded;
+        }
         async decode(job) {
             const { key, serial, generation, data, op, cacheId, reference, shift,
-                encoding, payloadAt, capture, layout, early, x, y, w, h } = job;
+                encoding, payloadAt, capture, layout, early, unfenced, x, y, w, h, decoded } = job;
             const image = this.context.createImageData(w, h);
-            if (op === 6) {
+            if (decoded) {
+                const pixels = await decoded, out = image.data;
+                for (let i = 0, at = 0; i < pixels.length; ++i, at += 4) {
+                    const value = pixels[i];
+                    out[at] = value & 255; out[at + 1] = (value >>> 8) & 255; out[at + 2] = (value >>> 16) & 255; out[at + 3] = 255;
+                }
+            } else if (op === 6) {
                 const color = new Uint8Array(data, payloadAt, 4);
                 if (color[3] !== 255) { throw Error('Invalid fill alpha'); }
                 // Read/write native words through the same representation;
@@ -603,7 +808,7 @@
             // otherwise turn fades and pointer-triggered transitions into
             // old/new 64-pixel squares. One latest bitmap per tile is retained;
             // the ACK decode window includes these presentation waiters.
-            this.ready.set(key, { epoch: this.epoch, serial, generation, capture, layout, early, x, y, w, h,
+            this.ready.set(key, { epoch: this.epoch, serial, generation, capture, layout, early, unfenced, x, y, w, h,
                 image, bytes: data.byteLength });
             this.presentReady();
         }
@@ -642,7 +847,8 @@
 
     // Optional encoded-frame arrival feedback. Frames pass through unchanged;
     // this does not acknowledge presentation or authorize an exact-UI paint.
-    const createVideoReceiveFeedback = (scope, channelForFeedback) => {
+    const createVideoReceiveFeedback = (scope, channelForFeedback, onDirect = null) => {
+        let showing = false;
         let permitted = false, closed = false, failed = false;
         let receiver = null, worker = null, transform = null, timer = null, url = null;
         let previous = null, reports = 0;
@@ -662,10 +868,72 @@
                 !('transform' in receiver) || receiver.transform !== null) { return; }
             const source = `
                 let pending = false, unsupported = false, permitted = false;
+                let decoder = null, keyed = false, directOff = typeof VideoDecoder !== 'function', showing = false, sps = '';
+                const started = new Map();
                 self.onmessage = event => {
                     if (event.data === 'next') pending = false;
                     else if (event.data === 'allow') permitted = true;
                     else if (event.data === 'deny') permitted = false;
+                    else if (event.data === 'show') showing = true;
+                    else if (event.data === 'hide') showing = false;
+                };
+                // An optional presentation path: failure ends it permanently and
+                // leaves the unchanged RTP stream decoding in the browser.
+                const directFail = reason => {
+                    if (directOff) return;
+                    directOff = true;
+                    try { decoder?.close(); } catch (_error) { /* Already closed. */ }
+                    decoder = null; self.postMessage({ op: 'direct-failed', reason: String(reason?.message ?? reason).slice(0, 120) });
+                };
+                // An H.264 key frame's SPS. Anything else (HEVC) stays on the browser path.
+                const findSps = bytes => {
+                    for (let i = 0; i + 7 < bytes.length; i += 1) {
+                        if (bytes[i] === 0 && bytes[i + 1] === 0 && bytes[i + 2] === 1 && (bytes[i + 3] & 31) === 7) {
+                            let end = i + 4;
+                            while (end + 2 < bytes.length && !(bytes[end] === 0 && bytes[end + 1] === 0 && bytes[end + 2] <= 1)) { end += 1; }
+                            return bytes.subarray(i + 4, end);
+                        }
+                    }
+                    return null;
+                };
+                const decodeDirect = frame => {
+                    const key = frame.type === 'key';
+                    if (directOff || (!keyed && !key)) return;
+                    const bytes = new Uint8Array(frame.data);
+                    if (key) {
+                        const found = findSps(bytes);
+                        if (!found || found.length < 3) { directFail('no H.264 SPS'); return; }
+                        const text = String.fromCharCode(...found);
+                        // A cropped plane's size or profile arrives in-band with its IDR.
+                        if (text !== sps) {
+                            const hex = n => n.toString(16).padStart(2, '0');
+                            if (!decoder) {
+                                decoder = new VideoDecoder({
+                                    output(picture) {
+                                        const queued = started.get(picture.timestamp);
+                                        started.delete(picture.timestamp);
+                                        // A decoder still catching up must not show old pictures:
+                                        // the browser's parallel path stays live meanwhile.
+                                        if (!showing || (queued !== undefined && performance.now() - queued > 200)) { picture.close(); return; }
+                                        try { self.postMessage({ op: 'frame', rtp: picture.timestamp, frame: picture }, [picture]); }
+                                        catch (error) { picture.close(); directFail(error); }
+                                    },
+                                    error: directFail,
+                                });
+                            }
+                            decoder.configure({ codec: 'avc1.' + hex(found[0]) + hex(found[1]) + hex(found[2]),
+                                optimizeForLatency: true, hardwareAcceleration: 'no-preference' });
+                            sps = text;
+                        }
+                    }
+                    // A hardware decoder can take a few hundred ms to start: only a backlog
+                    // this long shows it cannot keep up, and old pictures would be useless anyway.
+                    if (decoder.decodeQueueSize > 60) { directFail('decode backlog'); return; }
+                    const rtp = frame.getMetadata().rtpTimestamp;
+                    started.set(rtp, performance.now());
+                    if (started.size > 256) { started.delete(started.keys().next().value); }
+                    decoder.decode(new EncodedVideoChunk({ type: key ? 'key' : 'delta', timestamp: rtp, data: bytes }));
+                    keyed = true;
                 };
                 self.onrtctransform = event => {
                     const t = event.transformer; let last = -Infinity;
@@ -684,6 +952,7 @@
                                 if (!unsupported) { unsupported = true; self.postMessage({ op: 'unsupported' }); }
                             }
                         }
+                        try { decodeDirect(frame); } catch (error) { directFail(error); }
                         controller.enqueue(frame);
                     }})).pipeTo(t.writable).catch(() => self.postMessage({ op: 'failed' }));
                 };
@@ -699,6 +968,8 @@
                     if (closed || worker !== candidate || receiver !== target) { return; }
                     const value = event.data;
                     if (!value || typeof value !== 'object') { return; }
+                    if (value.op === 'frame') { onDirect?.(value.frame, value.rtp); return; }
+                    if (value.op === 'direct-failed') { onDirect?.(null, value.reason); return; }
                     if (value.op === 'ready') {
                         if (timer !== null) { scope.clearTimeout(timer); timer = null; }
                         if (url !== null) { scope.URL.revokeObjectURL(url); url = null; }
@@ -732,6 +1003,7 @@
                 transform = new scope.RTCRtpScriptTransform(candidate);
                 receiver.transform = transform;
                 candidate.postMessage(permitted ? 'allow' : 'deny');
+                candidate.postMessage(showing ? 'show' : 'hide');
             } catch (_error) { disable(); }
         };
         return {
@@ -740,6 +1012,10 @@
                 if (worker && !failed) { worker.postMessage(permitted ? 'allow' : 'deny'); }
             },
             attach(value) { if (receiver !== value) { end(); receiver = value; } start(); },
+            show(value) {
+                showing = value === true;
+                if (worker && !failed) { worker.postMessage(showing ? 'show' : 'hide'); }
+            },
             close() { closed = true; end(); },
             get active() { return transform !== null; },
             get reports() { return reports; },
@@ -1782,7 +2058,11 @@
         const video = document.createElement('video');
         let videoFeedbackChannel = null;
         const reportVideoPresented = createVideoPresentationFeedback(() => videoFeedbackChannel);
-        const receiveFeedback = createVideoReceiveFeedback(popup, () => videoFeedbackChannel);
+        let decodedPresentationAllowed = false;
+        const receiveFeedback = createVideoReceiveFeedback(popup, () => videoFeedbackChannel, (frame, rtp) => {
+            if (frame) { decodedPresenter.pushDirect(frame, rtp, decodedPresentationAllowed); }
+            else { decodedPresenter.directFailed(rtp); }
+        });
         video.autoplay = true;
         video.playsInline = true;
         // Mobile engines (Android Chrome, Samsung Internet) honour the HTML
@@ -1894,9 +2174,12 @@
             () => videoRegions.retireDecoded());
         const updateDecodedPresentation = () => {
             const track = video.srcObject?.getVideoTracks()[0];
-            decodedPresenter.configure(track, !closed && !document.hidden && exactRenderer.enabled &&
-                exactFrameSupport === true && videoRegions.width > 0);
+            decodedPresentationAllowed = !closed && !document.hidden && exactRenderer.enabled &&
+                exactFrameSupport === true && videoRegions.width > 0;
+            receiveFeedback.show(decodedPresentationAllowed && popup.QSM_DIRECT_DECODE !== false && decodedPresenter.directUsable);
+            decodedPresenter.configure(track, decodedPresentationAllowed);
         };
+        decodedPresenter.onDirectFailed = updateDecodedPresentation;
         document.addEventListener('visibilitychange', updateDecodedPresentation);
         if (typeof video.requestVideoFrameCallback === 'function') {
             const presented = (_now, metadata) => {
@@ -1939,7 +2222,7 @@
             exactUiInput.checked = settings.exactUi;
             exactUiInput.disabled = !supported || !exactUiPolicy.available;
             const wanted = supported && exactUiPolicy.available && settings.exactUi;
-            const version = exactFrameSupport ? Math.min(exactUiPolicy.features & 8 ? 5 : 4, exactUiPolicy.max_version || 1) : 1;
+            const version = exactFrameSupport ? Math.min(exactUiPolicy.features & 64 ? 7 : exactUiPolicy.features & 32 ? 6 : exactUiPolicy.features & 8 ? 5 : 4, exactUiPolicy.max_version || 1) : 1;
             exactRenderer.configure(wanted);
             syncExactGeometry();
             if (control && control.readyState === 'open' && (exactUiRequested !== wanted || exactUiVersionRequested !== version) &&
@@ -3310,9 +3593,9 @@
                 hotspot_x: message.hotspot_x, hotspot_y: message.hotspot_y,
                 cursor_url: guestCursor.toDataURL('image/png'),
             });
-            // Keep a bounded cache in case a compositor switches cursor
-            // types while a late, unordered position is in flight.
-            while (guestCursorShapes.size > 4) {
+            // A bridge sends each image once and reuses its id, so the cache is
+            // what makes a change of cursor free. It mirrors this eviction order.
+            while (guestCursorShapes.size > 32) {
                 guestCursorShapes.delete(guestCursorShapes.keys().next().value);
             }
             placeGuestCursor();

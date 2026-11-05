@@ -53,8 +53,17 @@ control messages, cursor updates and audio/RTCP. Those updates stay immediate;
 subsequent video repays their conservative wire cost, including for an already
 encoded large picture. Changing the video target retains outstanding debt.
 Large clipboard/result transfers are outside this small-control accounting.
+A packet of at most 256 bytes pays too but does not wait: a nearly empty picture
+only keeps capture stamps moving, and holding it overflows the four-picture queue,
+whose repair is a whole independent picture (80–100 KB over text, 370 ms at 2 Mbit/s).
 Repeated identical VM cursor notifications are suppressed; the bridge refreshes
 the final unreliable cursor position at most four times/s to repair loss.
+
+A cursor image is cropped to its visible pixels and hotspot, since compositors hand
+out a fixed 64×64 buffer (22 KB once encoded), and defined only once per viewer. The
+worker numbers every change while a compositor alternates a few images, so the
+bridge reuses the id the viewer already holds. It mirrors the viewer's eviction: 32
+images for version 7 and 4 for older viewers.
 
 For VirGL capture, a pending `ScanoutDMABUF` and its following `UpdateDMABUF`
 share one GPU readback. A five-ms deadline starts readback if no damage call
@@ -267,13 +276,135 @@ fences backwards when that fallback takes over. Performance, audio/video sync
 and browser/codec qualification remain open in the RDP plan; this implementation
 is not a qualification or rollout claim.
 
+On an initial offer, the bridge can negotiate a separate SCTP transport for
+input and exact UI while keeping RTP audio/video bundled. It does so only when
+the application section has a nonzero port, unique MID and no `bundle-only`
+requirement, as permitted by [RFC 8843 section 7.3.2](https://www.rfc-editor.org/rfc/rfc8843.html#section-7.3.2).
+Mandatory BUNDLE and ambiguous layouts retain the offered grouping. The gateway
+already leases all negotiated ICE transports; both relay connections use the
+existing TCP/8006 listener, so one forwarded TCP port remains sufficient. UI and
+video still share the same byte budget. This avoids placing guest input behind
+an unrelated RTP TCP flight without changing its authentication or protocol.
+
 Protocol version 3 adds bounded opaque fills, acknowledged bitmap references,
 and vertical scroll copies. Scroll commands read an immutable cached bitmap and
 send only newly exposed rows. Copies that overlap therefore cannot read earlier
 writes. The per-viewer cache holds at most 256 bitmaps (at most 4 MiB of RGBA);
 it is discarded on an epoch change. An unconfirmed bitmap is never referenced.
 
+Protocol version 6 adds region copy (private candidate, not qualified). When
+scrolled or dragged pixels already displayed exactly reappear at a new position,
+the worker sends one COPY=10 record instead of repainting the area. A hash search
+and an axis search only propose a motion vector. The worker keeps a per-pixel
+model of what the viewer holds after every record. A tile relies on the copy only
+after its new pixels compare equal to that model moved by the vector, and every
+pixel it needs is known to be opaque there. A wrong guess therefore costs a repaint
+and cannot display wrong pixels, and a late strip at a window's edge cannot stop
+the interior from moving by copy.
+
+Ordering is strict because a copy reads the viewer's canvas. The bridge holds a
+copy behind older tile work for that viewer and coalesces later tiles only behind
+that copy; more than 128 waiting copies request a fresh epoch. The browser waits
+for earlier inflations, paints bitmaps still waiting for a video fence if the
+copy touches them, performs the copy, then resumes queued records. A copy is not
+fenced by video. Strip tiles exposed by a copy carry flag 4 and are also unfenced,
+skip the 120 ms settling delay and may use the 50% share for 300 ms. Other exact
+tiles keep their capture fences.
+
+After a copy the bridge's compressed tile cache no longer describes the desktop,
+so a new or recovering viewer requests a fresh worker epoch instead of replaying
+it. Copy requires version 6 on every exact viewer, region mode and source feature
+32 (probe 6, private opcode 16). `QSM_DIRECT_UI_COPY=0` disables it for new
+sessions. After the first copy of an epoch, video keeps the last encoded value
+under tiles the viewer holds exactly, so moved pixels do not also consume video
+bitrate; capture stamps continue and a tile is released as soon as it stops being
+exact. One motion vector is used per capture. Fractional or animated motion, and
+motion faster than the exposed strips can be sent, remain on the video path.
+
+With history a strip waits for bandwidth for up to 2 s instead of reaching video, since
+it is re-encoded fresh at low cost while video would be paid for on top of the repaint.
+Without history an exposed strip may wait up to 400 ms when the copy was isolated.
+While copies keep arriving it hands over to video after the ordinary 120 ms, for
+150 ms renewed by each further change, so scrolled pixels return to exact soon
+after motion stops rather than after a clip's one-second hold. A pointer press, release, wheel event or key press gives the first change of each
+tile up to 300 ms the same immediate, unfenced path when at most 32 tiles changed.
+A second change during that event, or a larger repaint, keeps the ordinary path and
+its capture fence, so an animation or a clip started by that click still reaches
+video and a large repaint cannot appear as mixed 64-pixel squares.
+
+The video target says nothing about a path while video is idle, and SCTP over
+TURN/TCP sees no loss. Version 6 therefore limits exact bytes in flight from the
+viewer's own acknowledgements: when even the fastest acknowledgement of a round
+exceeds the 30-second minimum by more than 60 ms the window shrinks, directly to what
+the path delivers in one round trip, and being blocked without a queue grows it, within
+16–256 KiB. The fastest one is used because a real
+path has jitter and a busy viewer delays some replies, while only a standing queue
+delays them all. One record always makes progress, keystroke responses are never held
+back and silence expires after two seconds. After a seen queue, while this limit holds
+tiles back, private opcode 17 gives the worker the measured delivery rate, so strips
+it cannot afford reach video instead of queueing. A window that is merely small does
+not count, because it limits the rate it measures.
+The worker uses the slowest viewer's rate. aiortc's SCTP window is kept at least
+as large, since it would otherwise stay near 3.6 KB per round trip for sparse bursts.
+The viewer replies at most every 10 ms. Each reply draws an SCTP acknowledgement back,
+and one pair per record cost a narrow path more than a small record does.
+A cut of the video target adds what exact records recently took of the path to video's
+own delivered rate. Idle video beside busy tiles otherwise states a small part of the
+path as all of it (663 kbit/s on 2 Mbit/s). Video has its own TCP connection, so even
+this can be low, and with history the worker's rate for strips and input responses
+ignores the target while no tile is busy: only a delivery rate reported above binds it.
+
+Protocol version 7 adds pixel history (private candidate, not qualified). A text
+tile deflated alone costs about 1.3 KB at 64×64, although the same glyphs and whole
+rows have usually been sent already: its rows repeat at a fixed distance, only
+across messages. With flag 8 a PATCH references the exact pixels of earlier records
+by distance, in a ring of 4 M pixels (about four 720p screens). Its payload is a u32
+inflated size and a deflated `checksum, ops size, distances size, ops, distances,
+R…, G−R…, B−R…`, and `src/core/pixel_history.hpp` documents the tokens. Measured on
+a 660×290 text region: 85 KB became about 20 KB for the benchmark's repeated lines,
+and 150 KB about 45 KB for prose that does not repeat. FILL, STORE, REFERENCE and
+SCROLL are unnecessary then, because a repeated or uniform tile is one match.
+
+Decoding depends on every earlier record, so record order is the same for every
+viewer and nothing may be dropped, replaced or overtaken. Once an epoch has a history
+record the bridge queues everything for that viewer strictly in order, without its
+tile map or its bitmap cache. The worker already paced those bytes; the bridge adds
+only the flow window, the decode window and SCTP's buffer, since a second pacer would
+build a queue that cannot be coalesced. More than 256 KiB or 2048 queued records
+request a new epoch. A viewer that holds everything since the worker's RESET may
+start immediately; a later one must wait for a new epoch, since these bytes mean
+nothing without their history. A viewer without version 7 lowers the whole session
+to version 6 and its plain records through opcode 16 (mode 2 is copies and history).
+
+The browser starts inflation immediately and applies tokens in record order, before
+any paint decision, so a tile replaced or cleared before it paints still extends what
+later records reference. A checksum over each tile's pixels, like any other
+inconsistency, disables the layer rather than painting wrong pixels. Worker and viewer
+restart history at every RESET. Source feature 64 and probe 7 negotiate it;
+`QSM_DIRECT_UI_HISTORY=0` disables it for new sessions.
+
+On a wlroots source the worker asks for twice the capture rate on the output, up to
+240 Hz, and capture still starts at most at the requested rate. The nested compositor
+and the capture each wait for that output's next frame, so its period counts more than
+once in the latency of every input: 120 Hz took about 15 ms off every first response
+on the PVE container lane. VM sources keep their own display rate.
+
+Cropped hardware encoders have a QP floor of 20 and do not use CBR: NVENC and QSV
+would otherwise keep refining a static crop at a few KB per picture and emit bursts
+of large pictures for invisible detail, and AMD VA-API pads CBR up to its target.
+VA-API also uses VBR and this floor for an uncropped picture while regions are on, since
+a desktop under exact tiles may stay uncropped until something moves: AMD otherwise
+spends all 8 Mbit/s on a static picture.
+Crops are at least 192×128 because AMD VA-API refuses to encode below 128 pixels.
+`QSM_DIRECT_CROPPED_QMIN` and `QSM_DIRECT_UI_FREEZE=0` are private diagnostics.
+
 ## Optional cropped video
+
+The video plane grows with the area in motion and does not shrink, since reopening an
+encoder costs an independent picture. Only motion that itself covers 80% of the desktop
+for a second leaves the plane for the whole picture at original quality, for at least 5
+seconds. A window dragged across the screen only widens the envelope, up to all of it,
+and stays a plane that follows the path. See `src/core/video_envelope.hpp`.
 
 An additional, separately opt-in experiment is available in the same terminal
 service drop-in:

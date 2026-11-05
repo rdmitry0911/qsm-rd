@@ -7,7 +7,7 @@ const source = fs.readFileSync(process.env.QSM_EXACT_UI_SOURCE || new URL('../..
 const begin = source.indexOf('    class ExactUiRenderer {');
 const end = source.indexOf('    const defaultConsoleSettings', begin);
 assert.ok(begin > 0 && end > begin);
-const sandbox = vm.createContext({ ArrayBuffer, DataView, Uint8Array, Map, Error, Number, queueMicrotask });
+const sandbox = vm.createContext({ ArrayBuffer, DataView, Uint8Array, Map, Error, Number, queueMicrotask, performance, setTimeout });
 const regionBegin = source.indexOf('    class VideoRegionRenderer {');
 vm.runInContext(source.slice(regionBegin, end) + '\nglobalThis.Renderer = ExactUiRenderer; globalThis.Region = VideoRegionRenderer; globalThis.Compositor = ExactUiCompositor;', sandbox);
 const record = (op, { epoch = 1, serial = 1, width = 64, height = 64, x = 0, y = 0, w = 0, h = 0, pixels, encoding = 0, capture = 0, layout = null, early = false } = {}) => {
@@ -326,3 +326,235 @@ await normal.receive(record(3,{serial:6,w:64,h:64,capture:500,layout:9}));
 normal.mapVideoFrame(3,500);normal.videoFrame(3);
 assert.equal(normalPaints.length,1,'newer invalidation still cancels an old queued ordinary tile');
 assert.equal(normal.active.size,0);
+
+// A copy reads the canvas: earlier inflations finish first, later records wait.
+{
+    const ops = [], inflations = [];
+    const ctx = { createImageData: (w, h) => ({ data: new Uint8Array(w * h * 4) }),
+        putImageData: (image, x, y) => ops.push(['paint', image.data[0], x, y]), clearRect: (...a) => ops.push(['clear', ...a]),
+        save: () => ops.push(['save']), restore: () => ops.push(['restore']), beginPath() {}, clip() {},
+        rect: (...a) => ops.push(['rect', ...a]), drawImage: (source, ...a) => ops.push(['draw', source === copyCanvas, ctx.globalCompositeOperation, ...a]) };
+    const copyCanvas = { width: 0, height: 0, style: {}, getContext: () => ctx };
+    const errors = [];
+    const renderer = new sandbox.Renderer(copyCanvas, data => new Promise(resolve => inflations.push(() => resolve(zlib.inflateSync(data)))), e => errors.push(e));
+    renderer.configure(true);
+    const copy = (serial, x, y, w, h, sx, sy, capture = 100, flags = 0) => {
+        const buffer = new ArrayBuffer(28 + 16 + 4), v = new DataView(buffer);
+        v.setUint32(0, 0x51554931); v.setUint8(4, 10); v.setUint8(5, flags); v.setUint16(6, 16);
+        v.setUint32(8, 1); v.setUint32(12, serial);
+        [256, 128, x, y, w, h].forEach((n, i) => v.setUint16(16 + 2 * i, n));
+        v.setUint32(32, capture); v.setUint16(44, sx); v.setUint16(46, sy);
+        return buffer;
+    };
+    const solid = value => { const p = new Uint8Array(64 * 64 * 4); for (let i = 0; i < p.length; i += 4) { p.set([value, value, value, 255], i); } return p; };
+    const tile = (serial, x, value, extra = {}) => { const b = record(2, { serial, width: 256, height: 128, x, y: 0, w: 64, h: 64, pixels: solid(value), capture: 50, layout: 0, ...extra }); return b; };
+    await renderer.receive(record(1, { width: 256, height: 128 }));
+    renderer.mapVideoFrame(1, 1000); renderer.videoFrame(1);
+    const first = renderer.receive(tile(2, 0, 7));
+    assert.equal(inflations.length, 1);
+    await renderer.receive(copy(3, 64, 0, 64, 64, 0, 0));
+    const later = renderer.receive(tile(4, 128, 9));
+    assert.equal(ops.filter(o => o[0] === 'draw').length, 0, 'a copy waits for earlier inflation');
+    assert.equal(inflations.length, 1, 'a later record cannot start before the copy');
+    assert.equal(renderer.serial, 3);
+    inflations.shift()(); await first;
+    assert.deepEqual(ops.slice(0, 3).map(o => o[0]), ['paint', 'save', 'rect'], 'the earlier tile is painted, then copied');
+    const draw = ops.find(o => o[0] === 'draw');
+    assert.deepEqual(draw, ['draw', true, 'copy', 0, 0, 64, 64, 64, 0, 64, 64], 'replace destination with an integer same-size self copy');
+    assert.equal(ctx.imageSmoothingEnabled, false);
+    assert.equal(renderer.active.get('64:0').image, null, 'a copied bitmap is unknown, so it cannot bypass a fence');
+    assert.equal(renderer.copies, 1);
+    await new Promise(resolve => setTimeout(resolve));
+    assert.equal(inflations.length, 1, 'the queued record starts after the copy');
+    inflations.shift()(); await later;
+    assert.equal(ops.at(-1)[0], 'paint');
+    assert.equal(ops.at(-1)[2], 128);
+    // A tile waiting for its video fence is part of what a copy moves.
+    const fenced = renderer.receive(tile(5, 0, 11, { capture: 5000 }));
+    inflations.shift()(); await fenced;
+    const paintsBefore = ops.filter(o => o[0] === 'paint').length;
+    assert.ok(renderer.ready.has('0:0'), 'an ordinary tile still waits for its capture');
+    await renderer.receive(copy(6, 64, 0, 64, 64, 0, 0));
+    assert.equal(ops.filter(o => o[0] === 'paint').length, paintsBefore + 1);
+    assert.equal(renderer.ready.size, 0);
+    // A band record presents without waiting for video; others keep the fence.
+    const band = record(2, { serial: 7, width: 256, height: 128, x: 0, y: 64, w: 64, h: 64, pixels: solid(13), capture: 9000, layout: 0 });
+    new DataView(band).setUint8(5, 4);
+    const paintsBand = ops.filter(o => o[0] === 'paint').length;
+    const banded = renderer.receive(band);
+    inflations.shift()(); await banded;
+    assert.equal(ops.filter(o => o[0] === 'paint').length, paintsBand + 1, 'a copy band is not fenced');
+    // A layout boundary retires only leading layout-dependent bitmaps. The worker
+    // does not publish a copy band again, so erasing it would leave stale pixels.
+    assert.equal(renderer.active.get('0:64').earlyPainted, false);
+    const clearsBefore = ops.filter(o => o[0] === 'clear').length;
+    renderer.scene = { layout: 77, capture: 1 }; renderer.retireEarlyLayout();
+    assert.equal(ops.filter(o => o[0] === 'clear').length, clearsBefore, 'a band survives a layout change');
+    assert.ok(renderer.active.has('0:64'));
+    // Invalid geometry disables the layer rather than drawing.
+    await renderer.receive(copy(8, 250, 0, 64, 64, 0, 0));
+    assert.equal(errors.length, 1);
+    assert.equal(renderer.enabled, false);
+}
+console.log('QSM_EXACT_UI_COPY_OK');
+{
+    // History records reference pixels of earlier records, in record order.
+    const paints = [], errors = [], deferred = [];
+    const canvas = { width: 0, height: 0, style: {}, getContext: () => ({
+        createImageData: (w, h) => ({ data: new Uint8Array(w * h * 4) }),
+        putImageData: (image, x, y) => paints.push({ x, y, pixels: new Uint8Array(image.data) }),
+        clearRect: () => {},
+    }) };
+    let hold = false;
+    const inflate = data => hold ? new Promise(resolve => deferred.push(() => resolve(zlib.inflateSync(data))))
+        : Promise.resolve(zlib.inflateSync(data));
+    const fresh = () => {
+        const renderer = new sandbox.Renderer(canvas, inflate, e => errors.push(e));
+        renderer.configure(true);
+        return renderer;
+    };
+    const varint = n => { const o = []; while (n >= 128) { o.push((n & 127) | 128); n >>>= 7; } o.push(n); return o; };
+    const checksum = pixels => { let s = 2166136261; for (const v of pixels) { s = Math.imul(s ^ v, 16777619); } return s >>> 0; };
+    // plan: [literals, matchLength, distance, literals, matchLength, distance, ..., literals]
+    const tokens = (pixels, plan, { sum = checksum(pixels), extra = [] } = {}) => {
+        const ops = [], distances = [], literals = [];
+        let at = 0;
+        for (let n = 0; n < plan.length; n += 3) {
+            ops.push(...varint(plan[n]));
+            for (let i = 0; i < plan[n]; ++i) { literals.push(pixels[at + i]); }
+            at += plan[n];
+            if (n + 1 < plan.length) { ops.push(...varint(plan[n + 1])); distances.push(...varint(plan[n + 2])); at += plan[n + 1]; }
+        }
+        ops.push(...extra);
+        const out = Buffer.alloc(8 + ops.length + distances.length + literals.length * 3);
+        out.writeUInt32BE(sum); out.writeUInt16BE(ops.length, 4); out.writeUInt16BE(distances.length, 6);
+        out.set(ops, 8); out.set(distances, 8 + ops.length);
+        const base = 8 + ops.length + distances.length;
+        literals.forEach((v, i) => {
+            const r = v & 255;
+            out[base + i] = r;
+            out[base + literals.length + i] = ((v >>> 8) - r) & 255;
+            out[base + 2 * literals.length + i] = ((v >>> 16) - r) & 255;
+        });
+        return out;
+    };
+    const historyRecord = (serial, inflated, { x = 0, flags = 8 } = {}) => {
+        const data = Buffer.concat([Buffer.alloc(4), zlib.deflateSync(inflated)]);
+        data.writeUInt32BE(inflated.length);
+        const base = record(2, { serial, width: 128, height: 64, x, w: 64, h: 64 });
+        const out = new Uint8Array(base.byteLength + data.length);
+        out.set(new Uint8Array(base)); out.set(data, base.byteLength);
+        new DataView(out.buffer).setUint8(5, flags);
+        return out.buffer;
+    };
+    const reset = serial => record(1, { serial, width: 128, height: 64 });
+    const rgba = pixels => { const o = new Uint8Array(pixels.length * 4); pixels.forEach((v, i) => o.set([v & 255, (v >>> 8) & 255, (v >>> 16) & 255, 255], i * 4)); return o; };
+    const noise = seed => Array.from({ length: 4096 }, (_, i) => (Math.imul(i + seed, 2654435761) >>> 8) & 0xffffff);
+    const renderer = fresh();
+    await renderer.receive(reset(1));
+    // A uniform tile: one pixel, then a match overlapping itself.
+    const uniform = new Array(4096).fill(0x332211);
+    await renderer.receive(historyRecord(2, tokens(uniform, [1, 4095, 1])));
+    assert.deepEqual(paints.at(-1).pixels, rgba(uniform));
+    // Literals, in all channels.
+    const first = noise(1);
+    await renderer.receive(historyRecord(3, tokens(first, [4096]), { x: 64 }));
+    assert.deepEqual(paints.at(-1).pixels, rgba(first));
+    assert.equal(paints.at(-1).x, 64);
+    // The same pixels again, wherever they are, take one match.
+    await renderer.receive(historyRecord(4, tokens(first, [0, 4096, 4096])));
+    assert.deepEqual(paints.at(-1).pixels, rgba(first));
+    assert.equal(tokens(first, [0, 4096, 4096]).length < 16, true);
+    // Reference only part of them, then literals.
+    const mixed = [...first.slice(1000, 3000), ...noise(2).slice(0, 2096)];
+    await renderer.receive(historyRecord(5, tokens(mixed, [0, 2000, 4096 + 3096, 2096])));
+    assert.deepEqual(paints.at(-1).pixels, rgba(mixed));
+    // Inflation finishing in the other order cannot change which pixels are referenced.
+    hold = true;
+    const older = noise(3), newer = [...older];
+    const a = renderer.receive(historyRecord(6, tokens(older, [4096])));
+    const b = renderer.receive(historyRecord(7, tokens(newer, [0, 4096, 4096]), { x: 64 }));
+    deferred.pop()(); await new Promise(resolve => setTimeout(resolve, 5));
+    deferred.pop()(); hold = false;
+    await a; await b;
+    assert.deepEqual(paints.at(-1).pixels, rgba(newer));
+    assert.deepEqual(paints.at(-2).pixels, rgba(older));
+    // A clear drops a tile's paint, not what later records refer to.
+    hold = true;
+    const replaced = noise(4);
+    const dropped = renderer.receive(historyRecord(8, tokens(replaced, [4096])));
+    await renderer.receive(record(3, { serial: 9, width: 128, height: 64, w: 64, h: 64 }));
+    const paintsBefore = paints.length;
+    deferred.shift()(); hold = false; await dropped;
+    assert.equal(paints.length, paintsBefore, 'a cleared tile is not painted');
+    await renderer.receive(historyRecord(10, tokens(replaced, [0, 4096, 4096]), { x: 64 }));
+    assert.deepEqual(paints.at(-1).pixels, rgba(replaced));
+    assert.equal(errors.length, 0);
+    // A new epoch restarts history: older pixels are gone.
+    await renderer.receive(record(1, { epoch: 2, serial: 1, width: 128, height: 64 }));
+    assert.equal(renderer.history, null);
+    const mismatch = { epoch: 2 };
+    const stale = historyRecord(2, tokens(replaced, [0, 4096, 4096]));
+    new DataView(stale).setUint32(8, mismatch.epoch);
+    await renderer.receive(stale);
+    assert.equal(errors.length, 1, 'a source before the epoch cannot decode');
+    assert.equal(renderer.enabled, false);
+    // Whatever disagrees disables the layer rather than showing wrong pixels.
+    for (const [name, inflated] of [
+        ['checksum', tokens(first, [4096], { sum: 12345 })],
+        ['too few pixels', tokens(first.slice(0, 4095), [4095])],
+        ['trailing ops', tokens(first, [4096], { extra: [1] })],
+        ['match past the start', tokens(uniform, [1, 4095, 2])],
+        ['zero distance', tokens(uniform, [1, 4095, 0])],
+        ['overlong varint', Buffer.concat([tokens(uniform.slice(0, 1), [1]).subarray(0, 4), Buffer.from([0, 6, 0, 0, 255, 255, 255, 255, 255, 1])])],
+        ['literal bytes', Buffer.concat([tokens(first, [4096]), Buffer.from([1])])],
+    ]) {
+        const count = errors.length, target = fresh();
+        await target.receive(reset(1));
+        await target.receive(historyRecord(2, inflated));
+        assert.equal(errors.length, count + 1, name);
+        assert.equal(target.enabled, false, name);
+    }
+    {
+        // Unknown flags and a history flag on anything else are not accepted.
+        const count = errors.length, target = fresh();
+        await target.receive(reset(1));
+        await target.receive(historyRecord(2, tokens(first, [4096]), { flags: 24 }));
+        assert.equal(errors.length, count + 1);
+        const other = fresh();
+        await other.receive(reset(1));
+        const cleared = record(3, { serial: 2, width: 128, height: 64, w: 64, h: 64 });
+        new DataView(cleared).setUint8(5, 8);
+        await other.receive(cleared);
+        assert.equal(errors.length, count + 2);
+    }
+    // A failed reference still fails later ones waiting behind it.
+    {
+        const target = fresh(), count = errors.length;
+        await target.receive(reset(1));
+        await Promise.all([target.receive(historyRecord(2, tokens(first, [4096], { sum: 1 }))),
+            target.receive(historyRecord(3, tokens(first, [4096]), { x: 64 }))]);
+        assert.ok(errors.length > count);
+        assert.equal(target.enabled, false);
+    }
+}
+{
+    // A burst of records is answered by far fewer replies: each one draws an SCTP
+    // acknowledgement over the same narrow path. An isolated record is answered at once.
+    const replies = [];
+    const renderer = new sandbox.Renderer(raster(64, 64), async d => d, () => {}, reply => replies.push(reply));
+    renderer.enabled = true; renderer.epoch = 1; renderer.serial = 1;
+    renderer.report();
+    await Promise.resolve();
+    assert.equal(replies.length, 1);
+    for (const serial of [2, 3, 4, 5]) { renderer.serial = serial; renderer.report(); await Promise.resolve(); }
+    assert.equal(replies.length, 1, 'no reply within the spacing');
+    await new Promise(resolve => setTimeout(resolve, 15));
+    assert.equal(replies.length, 2);
+    assert.equal(replies[1].serial, 5, 'the delayed reply states the newest record');
+    await new Promise(resolve => setTimeout(resolve, 15));
+    renderer.serial = 6; renderer.report();
+    await Promise.resolve();
+    assert.equal(replies.length, 3, 'a record after a pause is answered at once');
+}
+console.log('QSM_EXACT_UI_HISTORY_OK');
