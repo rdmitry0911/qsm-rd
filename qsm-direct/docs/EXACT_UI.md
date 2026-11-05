@@ -541,6 +541,11 @@ node tests/proxmox_pve9/test_exact_ui.mjs
 node tests/proxmox_pve9/test_decoded_presentation.mjs
 ```
 
+With exact UI the codec target follows the path even when motion covers the whole
+picture. At a fixed target a full-screen clip at 2 Mbit/s fell to 12 frames per second
+with each picture as large as on an open path; it now holds about 43. Without exact UI
+the target stays fixed. See [the record](rdp-full-screen-narrow-20261105.json).
+
 A moving window shadow over changing content is new blended pixels on every frame,
 which copy detection and pixel history cannot reuse. On a VM desktop with text behind
 the window and a 2 Mbit/s path, Breeze shadows raised median drag lag from 177-184 ms

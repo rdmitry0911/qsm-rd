@@ -81,7 +81,7 @@
   ],
   "checkpoint": {
     "stage": "qualification",
-    "candidate": "0.4.0+stock4.14~exp214",
+    "candidate": "0.4.0+stock4.14~exp215",
     "guest_extension_role": {
       "required_for_metadata_priority": "Expanded VM/LXC agents supply window geometry, stacking, visibility, focus and supported caret/input-component bounds over the existing guest transport.",
       "implemented_scope": "KWin session integration, optional Qt5/Qt6 input-geometry plugin and accessibility producers have documented checks; this does not establish universal toolkit or application coverage.",
@@ -576,22 +576,24 @@
     "decoded_presentation": "docs/rdp-decoded-presentation-20261029.json",
     "decoded_queue": "docs/rdp-decoded-queue-20261029.json",
     "handoff": "docs/rdp-handoff-20261029.json",
-    "work_state": "Private214 measured on PVE, Native and AMD; worker and bridge byte-identical to 213. Committed on the branch, nothing deployed. Mac figures are exp209.",
+    "work_state": "Private215 measured on PVE, Native and AMD; bridge byte-identical to 214, worker changed. Nothing deployed. Mac figures are exp209.",
     "virgl_hardware_decode": "docs/rdp-virgl-hardware-decode-20261105.json",
     "narrow_path": "docs/rdp-narrow-path-20261105.json",
     "hevc_receiver": "docs/rdp-hevc-receiver-20261105.json",
     "remaining_after_20261105": [
-      "Full-screen moving picture at 2 Mbit/s: about 16-17 worker fps and sound ahead of the picture; decide whether this case needs a gate",
-      "A/V on a VM guest with an audio device",
+      "Decide whether exact UI becomes the default: every result here needs it, and without it a full-screen clip at 2 Mbit/s stays near 15 fps with sound 200 ms ahead",
+      "Hardcut SSIM gate margin: median 0.904 against 0.90, with occasional 0.898",
+      "A/V on a VM guest with an audio device; full-screen clips on QSV and VA-API",
       "Idle bytes: Opus DTX and capture stamps",
       "HEVC sender cadence and rate, if HEVC is wanted",
       "TCP-repair recut",
       "Chrome and macOS on a usable path (Mac on hold by user)",
       "Packages, signed checksums/APT, qualified rollout"
     ],
-    "candidate_record": "docs/rdp-candidate-214-20261105.json",
+    "candidate_record": "docs/rdp-candidate-215-20261105.json",
     "window_shadow_decision": "User decision 2026-11-05: the console never turns shadows off automatically. qsm-desktop-effects stays a manual guest command.",
-    "av_sync": "docs/rdp-av-sync-20261105.json"
+    "av_sync": "docs/rdp-av-sync-20261105.json",
+    "full_screen_narrow": "docs/rdp-full-screen-narrow-20261105.json"
   },
   "deployment_nodes": [
     "192.168.64.20",

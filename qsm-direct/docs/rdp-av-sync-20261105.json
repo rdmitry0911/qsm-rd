@@ -130,5 +130,12 @@
   "PVE with NVENC only: the Native lab VM has no audio device, and its path was not measured.",
   "One or two runs per mode. One run's rc=1 was the harness reading ICE statistics at the end; the session had not failed."
  ],
- "evidence_directory": "dist/rdp-hybrid/av-sync-20261105"
+ "evidence_directory": "dist/rdp-hybrid/av-sync-20261105",
+ "exp215_update": {
+  "record": "docs/rdp-full-screen-narrow-20261105.json",
+  "direct_2_mbit_ms": 34.7,
+  "direct_open_ms": 32.1,
+  "exact_ui_off_2_mbit_ms": -199.6,
+  "note": "The full-screen narrow case in the findings above is exp214. With exp215 direct decode keeps sound after the picture there as well."
+ }
 }

@@ -1,0 +1,102 @@
+{
+ "date": "2026-11-05",
+ "status": "fixed with exact UI in exp215; not deployed",
+ "production_changed": false,
+ "problem": "With exact UI, once motion covered the whole picture the encoder used the full-desktop policy: a fixed 8000 kbit/s target and a one-frame VBV. A narrow path could only lower the frame rate, while each picture stayed as large as on an open path.",
+ "evidence_of_cause": "exp214 live: encoder pictures of about 14 KB at both 20 and 2 Mbit/s, at 9-14 fps on the narrow path. Offline NVENC on the same clip at the same budget held 60 fps. The cropped plane already followed the path, so the clip gates never saw this.",
+ "change": "With exact UI the codec target and rate control now follow the path for a whole picture too. The separate VA-API variable-rate flag became redundant and was removed. Without exact UI nothing changed.",
+ "stand": {
+  "server": "PVE LXC108, NVENC, H264",
+  "receiver": "Chrome 157",
+  "source": "Big Buck Bunny 720p60 with a 12-bit frame barcode, full screen through ffplay with sound",
+  "phases": "20 Mbit/s 30 s, 2 Mbit/s with 0.3% loss 60 s, 20 Mbit/s 30 s, all at 15 ms",
+  "cadence": "Distinct source frame numbers in the composed picture",
+  "quality": "SSIM on an 8x8 box against the source frame named by the barcode"
+ },
+ "source_fps": {
+  "exp214": {
+   "tag": "clipfs2-direct",
+   "fast": 43.7,
+   "narrow": 12.4,
+   "recovered": 29.0,
+   "max_gap_ms": 434
+  },
+  "exp215": [
+   {
+    "tag": "clipfs215-r1",
+    "fast": 49.7,
+    "narrow": 43.1,
+    "recovered": 42.4,
+    "max_gap_ms": 350
+   },
+   {
+    "tag": "clipfs215-r2",
+    "fast": 49.9,
+    "narrow": 43.3,
+    "recovered": 41.9,
+    "max_gap_ms": 400
+   }
+  ],
+  "exp215_exact_ui_off": {
+   "tag": "clipfs215-noexact",
+   "fast": 43.1,
+   "narrow": 15.4,
+   "recovered": 42.5,
+   "max_gap_ms": 350
+  }
+ },
+ "narrow_ssim": {
+  "exp214": {
+   "median": 0.973,
+   "min": 0.958
+  },
+  "exp215": [
+   {
+    "median": 0.956,
+    "min": 0.941
+   },
+   {
+    "median": 0.967,
+    "min": 0.95
+   }
+  ],
+  "exp215_exact_ui_off": {
+   "median": 0.974,
+   "min": 0.954
+  }
+ },
+ "av_at_2_mbit_ms": {
+  "sign": "Positive means sound after the picture",
+  "exp214_direct": -51.2,
+  "exp215_direct": 34.7,
+  "exp215_direct_range": [
+   -10.7,
+   96.6
+  ],
+  "exp215_exact_ui_off": -199.6,
+  "exp215_open_path_direct": 32.1
+ },
+ "costs": [
+  "More key frames and short freezes on the narrow path: 12 key frames and 11-12 freezes totalling about 2.5 s over the run, against 7 and 7 totalling about 2 s, because the codec target follows a swinging path estimate.",
+  "The fixture's own limit is about 50 fps on an open path."
+ ],
+ "gates_exp215": {
+  "record": "docs/rdp-candidate-215-20261105.json",
+  "clip_pve_excess_ms": [
+   382,
+   366,
+   383
+  ],
+  "clip_native_excess_ms": {
+   "qsv": 183,
+   "vaapi": 218
+  },
+  "hardcut": "6 of 7 passed; one run at 0.898 against the 0.90 gate, median 0.904"
+ },
+ "limits": [
+  "One clip and one lane, two runs. QSV and VA-API full-screen were not run with this stand, though the ordinary gates passed there.",
+  "The barcode samples at animation frames, and the clip is limited by software SDL output in the guest.",
+  "Without exact UI this case still gives about 15 fps with sound 200 ms ahead, and exact UI is off by default."
+ ],
+ "evidence_directory": "dist/rdp-hybrid/full-screen-narrow-20261105"
+}

@@ -736,10 +736,10 @@ public:
     LibavVideoEncoder(std::uint32_t width, std::uint32_t height, std::uint32_t fps,
                      const std::string &encoder, std::uint32_t bitrate_kbps = 8000U,
                      const std::string &device = {}, AVBufferRef *shared_device = nullptr,
-                     bool cropped = false, bool variable_rate = false)
+                     bool cropped = false)
         : width_(width), height_(height), fps_(fps), encoder_(encoder),
           vaapi_(std::string_view(encoder).ends_with("_vaapi")),
-          qsv_(std::string_view(encoder).ends_with("_qsv")), cropped_(cropped), variable_rate_(variable_rate) {
+          qsv_(std::string_view(encoder).ends_with("_qsv")), cropped_(cropped) {
         if (width == 0U || height == 0U || width > static_cast<std::uint32_t>(INT_MAX) ||
             height > static_cast<std::uint32_t>(INT_MAX) || fps == 0U ||
             fps > static_cast<std::uint32_t>(INT_MAX) || !supports(encoder)) {
@@ -985,11 +985,10 @@ private:
             (void) av_dict_set(&options, "async_depth", "1", 0);
             // AMD pads CBR with filler up to the target even for a static picture,
             // which is what delays exact pixels on a shared path. VBR at the
-            // same maximum keeps the VBV bound without that padding. A desktop
-            // under exact tiles may stay uncropped until something moves.
-            (void) av_dict_set(&options, "rc_mode", cropped_ || variable_rate_ ? "VBR" : "CBR", 0);
+            // same maximum keeps the VBV bound without that padding.
+            (void) av_dict_set(&options, "rc_mode", cropped_ ? "VBR" : "CBR", 0);
             // Without a floor VBR spends its whole maximum refining a static picture.
-            if (cropped_ || variable_rate_) { context_->qmin = cropped_qmin(); }
+            if (cropped_) { context_->qmin = cropped_qmin(); }
         } else {
             (void) av_dict_set(&options, "preset", "ultrafast", 0);
             (void) av_dict_set(&options, "tune", "zerolatency", 0);
@@ -1041,7 +1040,7 @@ private:
 
     std::uint32_t width_, height_, fps_;
     std::string encoder_;
-    bool vaapi_, qsv_, cropped_, variable_rate_;
+    bool vaapi_, qsv_, cropped_;
     const AVCodec *codec_ {};
     AVCodecContext *context_ {};
     AVFrame *frame_ {}, *upload_ {};
@@ -1521,8 +1520,8 @@ private:
             }
 
             // Always account complete access units before admitting another
-            // raw picture. Full-desktop video keeps fixed codec quality;
-            // only a cropped plane with exact UI may adjust its codec rate.
+            // raw picture. Without exact UI video keeps fixed codec quality;
+            // with it the codec rate follows the path as well.
             // The latest raw scanout stays replaceable while budget drains.
             const auto tick = std::chrono::steady_clock::now();
             const auto requested_bitrate = requested_bitrate_kbps_.load();
@@ -1587,7 +1586,6 @@ private:
                                          ui_region_width_ == width && ui_region_height_ == height ? ui_region_ : std::nullopt,
                                          width, height, minimum_crop_width, minimum_crop_height)
                 : std::nullopt;
-            bool plane = false;
             if (region_mode && selected) {
                 const auto& area = *selected;
                 const auto crop_width = area.width, crop_height = area.height;
@@ -1602,7 +1600,6 @@ private:
                     bgra = crop; width = crop_width; height = crop_height;
                     region.x = static_cast<std::uint16_t>(area.x); region.y = static_cast<std::uint16_t>(area.y);
                     region.width = static_cast<std::uint16_t>(width); region.height = static_cast<std::uint16_t>(height);
-                    plane = true;
                 }
             }
             const auto refresh = pending_refresh_token_;
@@ -1612,11 +1609,12 @@ private:
             lock.unlock();
             try {
                 bool force_idr = force_idr_.exchange(false);
-                const bool cropped = plane;
-                const bool variable_rate = region_mode && std::string_view(encoder_).ends_with("_vaapi");
-                const bool opening = width_ != width || height_ != height || encoder_cropped_ != cropped ||
-                    encoder_variable_rate_ != variable_rate;
-                encoder_variable_rate_ = variable_rate;
+                // With exact UI the pixels that must stay sharp do not depend on this
+                // encoder. A whole picture adapts like a plane: at a fixed target a
+                // narrow path only lowers the frame rate, and each picture stays as
+                // large as on an open path.
+                const bool cropped = region_mode;
+                const bool opening = width_ != width || height_ != height || encoder_cropped_ != cropped;
                 const auto previous_access_unit_bytes = last_video_access_unit_bytes_.load();
                 const auto codec_bitrate = cropped_video_rate_.update(tick, cropped,
                     requested_bitrate, video_bitrate_kbps_, opening,
@@ -1752,7 +1750,7 @@ private:
             // Explicit I-frame requests go straight to libavcodec/NVENC.
             // Restarting an ffmpeg process for PLI pauses capture, emits a
             // bootstrap burst, and can trigger another bounded-queue overrun.
-            libav_encoder_ = std::make_unique<LibavVideoEncoder>(width, height, fps_, encoder_, bitrate_kbps, vaapi_device_.value_or(""), encoder_device_, cropped, encoder_variable_rate_);
+            libav_encoder_ = std::make_unique<LibavVideoEncoder>(width, height, fps_, encoder_, bitrate_kbps, vaapi_device_.value_or(""), encoder_device_, cropped);
             width_ = width;
             height_ = height;
             encoder_bitrate_kbps_ = bitrate_kbps;
@@ -2072,7 +2070,6 @@ private:
     std::string encoder_;
     std::optional<std::string> fallback_encoder_;
     bool encoder_cropped_ {};
-    bool encoder_variable_rate_ {};
     std::optional<std::string> vaapi_device_;
     std::uint32_t fps_ {};
     std::uint32_t video_bitrate_kbps_ {};

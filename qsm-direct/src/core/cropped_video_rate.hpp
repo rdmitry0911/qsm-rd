@@ -8,8 +8,9 @@
 
 namespace qmdp {
 
-// Only a separate video plane may trade codec quality for motion cadence.
-// Full-desktop video retains its original quality and adapts raw admission.
+// Only video under exact UI may trade codec quality for motion cadence: exact
+// tiles keep static pixels sharp. Without exact UI video retains its original
+// quality and adapts raw admission.
 // The exact UI uses the same path budget, so leave 20% for UI and 12% for
 // video transport: .70 * 1.12 < .80. The byte pacer remains authoritative.
 class CroppedVideoRate {
@@ -20,8 +21,8 @@ public:
     // the path. A cropped plane may borrow at most 450 ms for a complex
     // picture; VideoBudget and the RTP pacer still pay every emitted byte
     // before admitting another picture. This is codec burst capacity, not
-    // permission to queue future frames. The full-desktop fallback retains
-    // its original one-frame codec budget.
+    // permission to queue future frames. Video without exact UI retains its
+    // original one-frame codec budget.
     static std::uint32_t buffer_bits(std::uint32_t bitrate_kbps,
                                      std::uint32_t fps, bool cropped) {
         const auto bits = static_cast<std::uint64_t>(std::clamp(bitrate_kbps, 500U, 100'000U)) * 1000U;
