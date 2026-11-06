@@ -5,20 +5,16 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
-Current preview: **0.4.0+stock4.13** preserves modifier key-down order
-when a modifier-only chord commits on release. Meta-then-Shift stays in
-that order even when Meta is released first. One-off modifier sends use
-Shift last. All 11 editable host defaults and Guest overrides are retained.
-Guest layout shortcuts must match the guest's actual configured binding.
-Exact mouse/trackpad clicks are the
-default too: complete clicks include their position and modifiers. Confirmed
-drags remain ordered and guarded; fractional two-axis scrolling is retained.
-Exact typing is the default: one complete
-key action per client press/repeat prevents delayed releases from creating
-extra guest repeats. Physical holds/Raw remain available. The stock4.1 video
-reference-detail fix is retained. Update all installed QSM profiles together,
-reload PVE with cache bypass and reopen/reload consoles. VM/LXC reboot or
-desktop reprovisioning is not needed.
+Current preview: **0.4.0+stock4.14~exp216** turns the exact UI layer on by
+default. Text, menus and other UI areas arrive as the guest's own pixels,
+losslessly, above video cropped to what is moving. Turn it off per browser in
+Console settings > Exact UI, or per node with QSM_DIRECT_EXACT_UI_DEFAULT=0 in a
+terminal service drop-in. Exact typing, exact clicks, host shortcuts and modifier
+order from stock4.13 are retained. Guest layout shortcuts must still match the
+guest's actual configured binding. Update all installed QSM profiles together,
+reload PVE with cache bypass and reopen/reload consoles. VM/LXC reboot or desktop
+reprovisioning is not needed. Limits and measurements are in the release notes:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261106-stock4.14-exp216
 
 Project sponsor: Takt — https://taktcycles.com/
 
@@ -43,7 +39,7 @@ https://github.com/rdmitry0911/qsm-rd/blob/main/qsm-direct/packaging/debian/READ
     gpg --show-keys --with-fingerprint /usr/share/keyrings/qsm-archive-keyring.gpg
 
 Compare the primary fingerprint above before continuing. Configure a scoped
-key and limit this hostname to the six listed QSM packages:
+key and limit this hostname to the listed QSM packages:
 
     cat > /etc/apt/sources.list.d/qsm-direct.sources <<'EOF'
     Types: deb
@@ -112,8 +108,18 @@ or convert dbus-display VM configurations automatically.
     apt install --only-upgrade qsm-archive-keyring qsm-pve-direct qsm-pve-direct-standalone
 
 Add qsm-pve-direct-lxc and qsm-pve-direct-gateway to that transaction when they
-are installed. Profiles depend on the exact core version. Enabled gateway
+are installed. A plain apt upgrade also picks up a new QSM version, and restarting
+QSM services interrupts open consoles. Profiles depend on the exact core version. Enabled gateway
 configuration is retained; installing an inactive profile does not enable it.
+
+To return to stock4.13, downgrade every installed QSM host package in one
+transaction, naming the version of each. APT removes an installed profile that
+the command leaves out, so read its plan before confirming. With all profiles:
+
+    apt install --allow-downgrades qsm-pve-direct=0.4.0+stock4.13 \
+      qsm-pve-direct-standalone=0.4.0+stock4.13 \
+      qsm-pve-direct-gateway=0.4.0+stock4.13 \
+      qsm-pve-direct-lxc=0.4.0+stock4.13
 
 To stop receiving updates, remove /etc/apt/sources.list.d/qsm-direct.sources
 and /etc/apt/preferences.d/qsm-direct.pref, then run apt update. Installed

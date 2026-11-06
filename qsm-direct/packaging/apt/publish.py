@@ -77,11 +77,16 @@ def validate_manifest(manifest):
                 raise ValueError("invalid SHA256")
 
 
+def github_asset_name(filename):
+    # GitHub stores "~" in an asset name as "."; the pool keeps the package's name.
+    return filename.replace("~", ".")
+
+
 def fetch_asset(release, asset, cache):
     path = cache / asset["filename"]
     if not path.exists():
         url = ("https://github.com/rdmitry0911/qsm-rd/releases/download/"
-               f"{release['tag']}/{asset['filename']}")
+               f"{release['tag']}/{github_asset_name(asset['filename'])}")
         with urlopen(url, timeout=120) as response:
             data = response.read(40 * 1024 * 1024 + 1)
         if len(data) > 40 * 1024 * 1024:

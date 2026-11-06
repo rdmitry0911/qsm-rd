@@ -4,7 +4,17 @@ Proxmox takes no pull requests: patches go to `pve-devel@lists.proxmox.com`
 with `git send-email`, and every contributor signs a CLA first
 ([developer documentation](https://pve.proxmox.com/wiki/Developer_Documentation)).
 
-## Current status (2026-10-27)
+## Current status (2026-11-06)
+
+[Stock4.14~exp216](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261106-stock4.14-exp216)
+is the current signed APT preview, with the exact UI layer on by default. Its
+[release notes](release-stock4.14-exp216-2026-11-06.md) give the measurements and
+limits, including the RDP comparison, which used FreeRDP and not mstsc. The
+[forum text](forum-stock4.14-exp216-update-2026-11-06.txt) is for topic 187042.
+The pve-devel thread, Bugzilla and the Debian reports have not been updated for it.
+The native shared per-VM D-Bus/API/UI proposal remains pending review.
+
+## Status on 2026-10-27
 
 The separate [experimental exact UI source1 release](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027-exact-ui-exp6-source1)
 adds opt-in lossless pixel tiles above the existing video. It includes the

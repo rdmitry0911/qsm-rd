@@ -8,12 +8,10 @@ permission. Nothing to install on the client.
 
 Project sponsor: [Takt](https://taktcycles.com/).
 
-The source tree also contains an [exact UI layer](docs/EXACT_UI.md), on by default in its development packages,
-for lossless text/UI tiles above video. The separate [experimental source and debs](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027-exact-ui-exp6-source1)
-are not part of the stable stock4.13 release linked below.
-Development now also includes presentation fences, acknowledged bitmap/scroll
-commands and optional cropped video/UDP. These changes are described in the
-source documentation; the linked exp6 binaries precede them.
+The [exact UI layer](docs/EXACT_UI.md) is on by default since
+[stock4.14~exp216](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261106-stock4.14-exp216):
+text and other UI areas arrive as the guest's own pixels, losslessly, above video
+cropped to what is moving. Turn it off in Console settings → Exact UI.
 
 On a tablet, slide one finger to move the cursor and tap to click. Hold
 for half a second before moving to select or drag; hold and lift without
@@ -24,8 +22,9 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.13 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261025-stock4.13)
-preserve static reference detail when the working network target changes.
+[Stock4.14~exp216 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261106-stock4.14-exp216)
+are the current preview, also on the [signed APT repository](https://rdmitry0911.github.io/qsm-rd/).
+Since stock4.1, releases preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
 fix to genuine rate changes, for the common VM/LXC path. The per-guest maximum

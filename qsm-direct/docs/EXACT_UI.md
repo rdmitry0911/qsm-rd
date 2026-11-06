@@ -23,7 +23,7 @@ Environment=QSM_DIRECT_EXACT_UI_DEFAULT=0
 Apply with `systemctl daemon-reload` and a restart of
 `qsm-pve-direct-terminal.service`; existing QSM consoles must reconnect. Guests
 continue running. Remove the environment setting to restore the package default.
-Stable stock4.13 does not implement this mode.
+Stock4.13 and earlier do not implement this mode; stock4.14~exp216 is the first release with it on by default.
 
 ## Delivery and scheduling
 
@@ -293,7 +293,7 @@ send only newly exposed rows. Copies that overlap therefore cannot read earlier
 writes. The per-viewer cache holds at most 256 bitmaps (at most 4 MiB of RGBA);
 it is discarded on an epoch change. An unconfirmed bitmap is never referenced.
 
-Protocol version 6 adds region copy (private candidate, not qualified). When
+Protocol version 6 adds region copy, released in stock4.14~exp216. When
 scrolled or dragged pixels already displayed exactly reappear at a new position,
 the worker sends one COPY=10 record instead of repainting the area. A hash search
 and an axis search only propose a motion vector. The worker keeps a per-pixel
@@ -355,7 +355,7 @@ path as all of it (663 kbit/s on 2 Mbit/s). Video has its own TCP connection, so
 this can be low, and with history the worker's rate for strips and input responses
 ignores the target while no tile is busy: only a delivery rate reported above binds it.
 
-Protocol version 7 adds pixel history (private candidate, not qualified). A text
+Protocol version 7 adds pixel history, released in stock4.14~exp216. A text
 tile deflated alone costs about 1.3 KB at 64×64, although the same glyphs and whole
 rows have usually been sent already: its rows repeat at a fixed distance, only
 across messages. With flag 8 a PATCH references the exact pixels of earlier records

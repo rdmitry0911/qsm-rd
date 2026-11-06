@@ -1,0 +1,42 @@
+Hi guys, the mixed-content mode from my last post is now on by default, and this version is on the signed APT repository: 0.4.0+stock4.14~exp216.
+
+Text, menus and other UI areas no longer wait for the video encoder. They arrive as the guest's own pixels, losslessly, and video is cropped to what is actually moving. Scrolling and window drags reuse pixels the browser already has instead of sending them again.
+
+I measured interface responsiveness against RDP, because that is the feel people expect. PVE container with NVENC in Chromium, against Windows Server 2025 RDS with FreeRDP, on a flat backdrop, with QSM first and RDP second:
+
+20 Mbit/s, 15 ms one-way delay:
+- typing 45 / 39 ms
+- click 45 / 67 ms
+- first drag movement 54 / 92 ms
+- drag lag 44 / 48 ms
+- wheel, settled 68 / 41 ms
+
+2 Mbit/s gives almost the same numbers. At 100 ms delay, typing and wheel are 6-28 ms behind RDP, click and the start of a drag are 14-35 ms ahead, and drag lag is equal.
+
+Please read those with the limits. The client was FreeRDP, not mstsc, and OS, toolkit and compositor all differ, so this is not a clean single-variable test. A flat backdrop is the best case: at 2 Mbit/s and 100 ms, with text behind the moved window, drag lag rises to about 290 ms. QSM also used about 3 MB where RDP used 50-107 KB in the same run.
+
+VMs are not at this level yet. In my QEMU test guest with KWin, the same type, click and wheel actions take about 155-175 ms, and dragging over text at 2 Mbit/s reaches about 400 ms. Removing window shadows took that from 300-426 ms to about 180 ms. The guest package has a small helper for it, qsm-desktop-effects reduce. It only runs if you run it, since it changes how the desktop looks.
+
+Clips hold up too. A real 720p60 clip, full screen, at 2 Mbit/s runs at about 44 fps on NVENC in a container and 49-51 fps on Intel QSV/VA-API in a VM, with median SSIM around 0.95. These are distinct source frames, not received frames. On the container sound path, sound follows the picture by about 30-40 ms. There is no A/V measurement on a VM yet, because my test VM has no audio device.
+
+Known problems: with the mode turned off, a full-screen clip at 2 Mbit/s stays near 15 fps with sound about 200 ms ahead. HEVC works but gives fewer frames for three times the bytes, so I still recommend H.264. Automated runs of this version did not cover a Mac, a phone or a tablet.
+
+One warning: do not enable hardware video decoding inside a VirGL guest. With zero-copy the guest hit an illegal command buffer at the first frames, and one run reset the host's AMD GPU. Software decoding in the guest works correctly.
+
+To update, include every QSM profile you have installed:
+
+apt update
+apt install --only-upgrade qsm-archive-keyring qsm-pve-direct qsm-pve-direct-standalone
+
+Add qsm-pve-direct-lxc and qsm-pve-direct-gateway if you use them. Then reload PVE with cache bypass and reopen your consoles. Restarting the QSM services interrupts open consoles, but guests keep running and don't need an update or a reboot. To turn the mode off, use Console settings > Exact UI.
+
+Release notes, source, debs and raw test runs:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261106-stock4.14-exp216
+
+APT repository:
+https://rdmitry0911.github.io/qsm-rd/
+
+Reports from VMs, Macs, phones and higher-latency links would be the most useful right now. Please include the browser, guest type, encoder and whether you are on direct UDP or the TCP 8006 gateway.
+
+Project sponsor: Takt (https://taktcycles.com/).
+Thank you, Dmitry

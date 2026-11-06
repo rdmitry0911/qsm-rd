@@ -1232,7 +1232,7 @@
  },
  "package_sha256": "4e227a5fe37875112c96339fd13be6ca50b225169cd298c78c3c11c0084f8862",
  "limits": [
-  "Launch/ACL mocked; dedicated guests only. Exact UI stays off by default.",
+  "Launch/ACL mocked; dedicated guests only.",
   "RDP client is FreeRDP on X11, not mstsc. The RDP reference was not rerun.",
   "Small run counts. No Mac run: the user asked to leave the Mac out for now.",
   "Direct decode is not exercised by the Firefox clip runs.",

@@ -34,6 +34,18 @@ class GuestManifestTests(unittest.TestCase):
         publisher.validate_manifest(self.manifest)
         publisher.validate_manifest(self.extended())
 
+    def test_tilde_version_downloads_under_the_name_github_stores(self):
+        version = '0.4.0+stock4.14~exp216'
+        value = self.extended()
+        for asset in value['releases'][-1]['assets']:
+            asset['version'] = version
+            asset['filename'] = f"{asset['package']}_{version}_{asset['architecture']}.deb"
+        publisher.validate_manifest(value)
+        self.assertEqual(publisher.github_asset_name(f'qsm-pve-direct_{version}_amd64.deb'),
+            'qsm-pve-direct_0.4.0+stock4.14.exp216_amd64.deb')
+        self.assertEqual(publisher.github_asset_name('qsm-pve-direct_0.4.0+stock4.13_amd64.deb'),
+            'qsm-pve-direct_0.4.0+stock4.13_amd64.deb')
+
     def test_partial_guest_pair_and_unapproved_packages_are_rejected(self):
         for missing in ('qsm-desktop-agent','qsm-qt-input-geometry'):
             value = self.extended()
