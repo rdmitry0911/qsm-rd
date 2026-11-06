@@ -6,17 +6,18 @@ video. It uses neither OCR nor substituted fonts. Capture is shared by the VM
 and LXC backends. The pixel-based path works with existing guest tools; optional
 expanded guest metadata improves input-field priority and window tracking.
 
-The option remains experimental and **off by default** in the package. Open
-**Console settings → Experimental exact UI** in a supported browser. An explicit
-browser choice persists, including an unchecked choice overriding an administrator
-default. The checkbox requests the mode; the status reports Off, Enabling or Active
-from the server acknowledgement. Reload the Proxmox page before opening a new
-console to load updated viewer code. Administrators can choose the default in a terminal
-service drop-in:
+The option is **on by default** in the package, in browsers that support it. Turn it
+off in **Console settings → Exact UI**. An explicit browser choice persists, and it
+overrides an administrator default. The checkbox requests the mode; the status
+reports Off, Enabling or Active from the server acknowledgement. An internal failure
+turns the layer off for that console only, shown as Off after an error; it is not
+saved as a choice, and the next console tries again. Reload the Proxmox page before
+opening a new console to load updated viewer code. Administrators can turn the
+default off in a terminal service drop-in:
 
 ```ini
 [Service]
-Environment=QSM_DIRECT_EXACT_UI_DEFAULT=1
+Environment=QSM_DIRECT_EXACT_UI_DEFAULT=0
 ```
 
 Apply with `systemctl daemon-reload` and a restart of
@@ -406,13 +407,12 @@ for a second leaves the plane for the whole picture at original quality, for at 
 seconds. A window dragged across the screen only widens the envelope, up to all of it,
 and stays a plane that follows the path. See `src/core/video_envelope.hpp`.
 
-An additional, separately opt-in experiment is available in the same terminal
-service drop-in:
+Separate video regions are on by default with exact UI. To turn them off, use the
+same terminal service drop-in:
 
 ```ini
 [Service]
-Environment=QSM_DIRECT_EXACT_UI_DEFAULT=1
-Environment=QSM_DIRECT_VIDEO_REGIONS=1
+Environment=QSM_DIRECT_VIDEO_REGIONS=0
 ```
 
 With version 4 viewers, the worker can encode one bounding region containing
@@ -427,9 +427,8 @@ acknowledged a presented full desktop. A legacy viewer, disabled exact layer or
 new unready viewer restores full video. Invalid, large, empty or odd-sized crop
 candidates use full video. The region grows to retain coverage and does not shrink with per-frame tile
 classification; mode or desktop changes reset it. Changing crop dimensions
-requires a fresh encoder picture and can briefly reduce video cadence. Leave this experiment disabled
-for installations that have not qualified those transitions. A separate
-`QSM_DIRECT_VIDEO_REGIONS=0` override disables it for new sessions. Even full
+requires a fresh encoder picture and can briefly reduce video cadence.
+`QSM_DIRECT_VIDEO_REGIONS=0` turns regions off for new sessions. Even full
 fallback in a primed region session uses a browser canvas; native video plus
 exact UI is the current conservative configuration for the Firefox/macOS
 regression. Reopen the console after changing the service environment.

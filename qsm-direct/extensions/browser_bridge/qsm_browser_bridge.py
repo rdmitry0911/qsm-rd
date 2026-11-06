@@ -2636,7 +2636,7 @@ class BrowserWebRtcBridge:
         self._ui_peer = exact_ui.Peer(self._ui_source, self._send_control, self.input.request_ui_snapshot,
                                       self.input.probe_lossless_ui,
                                       lambda: self._video_rate.current_kbps,
-                                      default_enabled=os.environ.get("QSM_DIRECT_EXACT_UI_DEFAULT") == "1",
+                                      default_enabled=os.environ.get("QSM_DIRECT_EXACT_UI_DEFAULT", "1") != "0",
                                       demand=lambda percent: self.input.set_ui_budget(self, percent),
                                       capacity=lambda rate: self.input.set_ui_capacity(self, rate),
                                       account=lambda size: self._video_pacer.account_auxiliary(size),
@@ -3057,7 +3057,7 @@ class BrowserWebRtcBridge:
             enabled = False
         self._ui_peer.enable(enabled)
         self._regions_eligible = bool(enabled and self._ui_peer.version >= 4 and self._ui_source.features & 4 and
-                                      os.environ.get("QSM_DIRECT_VIDEO_REGIONS") == "1")
+                                      os.environ.get("QSM_DIRECT_VIDEO_REGIONS", "1") != "0")
         self._regions_ready = False
         self.input.set_video_regions(self, self._regions_eligible)
         if enabled:

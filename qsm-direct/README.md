@@ -8,9 +8,9 @@ permission. Nothing to install on the client.
 
 Project sponsor: [Takt](https://taktcycles.com/).
 
-The source tree also contains an opt-in [experimental exact UI layer](docs/EXACT_UI.md)
+The source tree also contains an [exact UI layer](docs/EXACT_UI.md), on by default in its development packages,
 for lossless text/UI tiles above video. The separate [experimental source and debs](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261027-exact-ui-exp6-source1)
-are off by default and are not part of the stable stock4.13 release linked below.
+are not part of the stable stock4.13 release linked below.
 Development now also includes presentation fences, acknowledged bitmap/scroll
 commands and optional cropped video/UDP. These changes are described in the
 source documentation; the linked exp6 binaries precede them.

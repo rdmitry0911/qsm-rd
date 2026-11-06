@@ -2179,11 +2179,12 @@
         let exactUiPolicy = { available: false, enabled: false };
         let exactUiRequested = null, exactUiVersionRequested = null;
         let exactFrameSupport = null;
+        // An internal failure ends the layer for this console only. It is not the
+        // user's choice, so it is not saved and the next console tries again.
+        let exactUiFailed = false;
         const exactRenderer = new ExactUiRenderer(exactCanvas, inflateExactPixels, () => {
-            settings.exactUi = false;
-            settings.exactUiPreferenceSet = true;
-            exactUiInput.checked = false;
-            applyConsoleSettings();
+            exactUiFailed = true;
+            updateExactPreference();
         }, ack => {
             if (control && control.readyState === 'open' && exactUiPolicy.max_version >= 2) {
                 control.send(JSON.stringify(ack));
@@ -2262,9 +2263,10 @@
         const updateExactPreference = () => {
             applyExactUiDefault(settings, exactUiPolicy);
             const supported = typeof DecompressionStream === 'function';
-            exactUiInput.checked = settings.exactUi;
+            const requested = settings.exactUi && !exactUiFailed;
+            exactUiInput.checked = requested;
             exactUiInput.disabled = !supported || !exactUiPolicy.available;
-            const wanted = supported && exactUiPolicy.available && settings.exactUi;
+            const wanted = supported && exactUiPolicy.available && requested;
             const version = exactFrameSupport ? Math.min(exactUiPolicy.features & 64 ? 7 : exactUiPolicy.features & 32 ? 6 : exactUiPolicy.features & 8 ? 5 : 4, exactUiPolicy.max_version || 1) : 1;
             exactRenderer.configure(wanted);
             syncExactGeometry();
@@ -2277,7 +2279,7 @@
             }
             exactUiStatus.textContent = !supported ? gettext('This browser cannot use exact UI.') :
                 !exactUiPolicy.available ? gettext('Waiting for exact UI support…') :
-                !wanted ? `${gettext('Exact UI')}: ${gettext('Off')}` :
+                !wanted ? `${gettext('Exact UI')}: ${exactUiFailed ? gettext('Off after an error') : gettext('Off')}` :
                 !exactUiPolicy.enabled ? `${gettext('Exact UI')}: ${gettext('Enabling…')}` :
                 `${gettext('Exact UI')}: ${gettext('Active')} · ${exactRenderer.patches} ${gettext('updates')}`;
         };
@@ -2756,13 +2758,14 @@
         exactUiInput.type = 'checkbox'; exactUiInput.id = 'qsm-direct-exact-ui';
         exactUiInput.checked = settings.exactUi; exactUiInput.disabled = true;
         const exactUiText = document.createElement('span');
-        exactUiText.textContent = gettext('Experimental exact UI');
+        exactUiText.textContent = gettext('Exact UI');
         exactUiLabel.append(exactUiInput, exactUiText);
         const exactUiStatus = document.createElement('div');
         exactUiStatus.style.cssText = 'color:#cbd5e1;font-size:12px;margin:0 0 12px';
         exactUiInput.addEventListener('change', () => {
             settings.exactUi = exactUiInput.checked;
             settings.exactUiPreferenceSet = true;
+            exactUiFailed = false;
             applyConsoleSettings();
         });
         settingsForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:center';

@@ -3,6 +3,7 @@
 import asyncio
 import gzip
 import json
+import os
 import socket
 import struct
 import tempfile
@@ -1652,6 +1653,26 @@ class BridgeTests(unittest.IsolatedAsyncioTestCase):
         bridge._regions_ready = bridge._regions_eligible = True
         bridge.video_track.current_region = (1280, 768, 0, 64, 1280, 512)
         return state
+
+    async def test_exact_ui_and_regions_are_on_unless_the_node_turns_them_off(self):
+        names = ("QSM_DIRECT_EXACT_UI_DEFAULT", "QSM_DIRECT_VIDEO_REGIONS")
+        for values, expected in (({}, True), (dict.fromkeys(names, "1"), True), (dict.fromkeys(names, "0"), False)):
+            with patch.dict(os.environ, values), tempfile.TemporaryDirectory() as directory:
+                for name in names:
+                    if name not in values:
+                        os.environ.pop(name, None)
+                bridge = BrowserWebRtcBridge(Path(directory))
+                try:
+                    self.assertEqual(bridge._ui_peer.default_enabled, expected)
+                    bridge._ui_source.available = True
+                    bridge._ui_source.features = 31
+                    bridge._ui_peer.version = 4
+                    with patch.object(bridge.input, "set_lossless_ui", return_value=False), \
+                            patch.object(bridge.input, "set_video_regions"), patch.object(bridge.input, "set_ui_copy"):
+                        bridge._set_lossless_ui(True)
+                    self.assertEqual(bridge._regions_eligible, expected)
+                finally:
+                    await bridge.close()
 
     async def test_replaced_frame_never_enters_real_rtp_history_or_counters(self):
         from aiortc.rtp import RtpPacket
