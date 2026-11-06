@@ -1,0 +1,76 @@
+{
+ "date": "2026-11-06",
+ "status": "installed on one node at the user's request; not published",
+ "node": "192.168.64.20",
+ "version": "0.4.0+stock4.14~exp216",
+ "source_commit": "4a7e1bd",
+ "packages_installed": [
+  "qsm-pve-direct",
+  "qsm-pve-direct-standalone",
+  "qsm-pve-direct-gateway",
+  "qsm-pve-direct-lxc"
+ ],
+ "packages_sha256": {
+  "qsm-console-guest_0.4.0+stock4.14~exp216_all.deb": "43f9860328c04145aec4df37e1fa8a3ddabfde02597a58f8a8b46670b2b3ed42",
+  "qsm-desktop-agent_0.4.0+stock4.14~exp216_amd64.deb": "8ac3fb1e6a144977fc5ca98c10a1ae7c9b5dc9957678c79b08160fb4868e084f",
+  "qsm-pve-direct-gateway_0.4.0+stock4.14~exp216_all.deb": "0bf66afc22e0915546be24897267723f4eb47f2df5cc920c085391494677ea24",
+  "qsm-pve-direct-lxc_0.4.0+stock4.14~exp216_amd64.deb": "67a48f6608f5603cb824fdb0dc4d76a6f2f70b4d9c486e5a327aac43e7221f2d",
+  "qsm-pve-direct-standalone_0.4.0+stock4.14~exp216_all.deb": "4ccc03e88880b1439a5ddeaf072a709a670e574bef845371359e00af61c37e34",
+  "qsm-pve-direct_0.4.0+stock4.14~exp216_amd64.deb": "4e227a5fe37875112c96339fd13be6ca50b225169cd298c78c3c11c0084f8862",
+  "qsm-qt-input-geometry_0.4.0+stock4.14~exp216_amd64.deb": "2a89e0215eea25382e94f6cf90832c7cd728307986b668b1152d2112024171e5"
+ },
+ "core_package_is_the_tested_build": true,
+ "configuration_changed": {
+  "removed": "/etc/systemd/system/qsm-pve-direct-terminal.service.d/90-rdp-qualified-regions.conf, which set QSM_DIRECT_VIDEO_REGIONS=0 and would have kept the node out of the qualified mode",
+  "kept": "exact-ui-default.conf, QSM_DIRECT_EXACT_UI_DEFAULT=1"
+ },
+ "effect": {
+  "restarted": "qsm-pve-direct-terminal and qsm-pve-direct-signal, including the idle worker of VM 104; no viewer was connected on 8006",
+  "unchanged": "Boot, every VM and CT with its PID and start time, pveproxy and pvedaemon, pve-manager, dpkg audit empty",
+  "guest_packages": "Not installed in any guest. qsm-desktop-effects needs the new guest package."
+ },
+ "install_note": "A single dpkg -i of all four failed for the LXC package, whose Breaks on the older core is order sensitive, and a second dpkg -i of it succeeded. The node was mismatched for a few minutes. apt install of the local files orders them correctly and is what the simulation showed.",
+ "installed_path_check": {
+  "method": "Normal PVE ticket login, QSM menu, signalling and TURN over TCP 8006, on the owned LXC 108 only, libx264 as that guest is configured",
+  "chrome_157_clean_profile": {
+   "checked_with_no_click": true,
+   "status": "Active",
+   "saved_before_click": null,
+   "video_plane": [
+    768,
+    192
+   ],
+   "relay": true,
+   "page_errors": 0,
+   "other_node_ports": 0,
+   "opt_out_persisted": true,
+   "reenable": true
+  },
+  "firefox_157_old_implicit_false": {
+   "checked_with_no_click": true,
+   "status": "Active",
+   "relay": true,
+   "page_errors": 0,
+   "other_node_ports": 0,
+   "opt_out_persisted": true,
+   "reenable": true
+  }
+ },
+ "not_checked": [
+  "Consoles of user guests: VM 103, VM 104 and the other CTs were not opened",
+  "NVENC on this path: LXC 108 is configured for libx264 here; NVENC was qualified in the private lane",
+  "Mac, phone or tablet"
+ ],
+ "rollback": {
+  "where": "/root/qsm-exp216-install-20261106/rollback on the node",
+  "steps": [
+   "cd /root/qsm-exp216-install-20261106/rollback",
+   "apt install --allow-downgrades ./qsm-pve-direct*exp35*.deb",
+   "cp 90-rdp-qualified-regions.conf /etc/systemd/system/qsm-pve-direct-terminal.service.d/",
+   "systemctl daemon-reload && systemctl restart qsm-pve-direct-terminal",
+   "Reload the PVE page with cache bypass and reopen consoles"
+  ],
+  "not_rehearsed": true
+ },
+ "user_steps": "Reload the PVE page with cache bypass and reopen consoles to get the new viewer."
+}
