@@ -1,0 +1,12 @@
+=== live: documented update command, profiles not named
+  4 upgraded, 0 newly installed, 0 to remove and 201 not upgraded.
+  Inst qsm-pve-direct-gateway [0.4.0+stock4.13] (0.4.0+stock4.14~exp216 QSM Direct preview:trixie [all
+  Inst qsm-pve-direct-standalone [0.4.0+stock4.13] (0.4.0+stock4.14~exp216 QSM Direct preview:trixie [
+  Inst qsm-pve-direct [0.4.0+stock4.13] (0.4.0+stock4.14~exp216 QSM Direct preview:trixie [amd64]) [qs
+  Inst qsm-pve-direct-lxc [0.4.0+stock4.13] (0.4.0+stock4.14~exp216 QSM Direct preview:trixie [amd64])
+=== live: documented rollback, all four named
+  0 upgraded, 0 newly installed, 4 downgraded, 0 to remove and 201 not upgraded.
+  Inst qsm-pve-direct-gateway [0.4.0+stock4.14~exp216] (0.4.0+stock4.13 QSM Direct preview:trixie [all
+  Inst qsm-pve-direct-standalone [0.4.0+stock4.14~exp216] (0.4.0+stock4.13 QSM Direct preview:trixie [
+  Inst qsm-pve-direct-lxc [0.4.0+stock4.14~exp216] (0.4.0+stock4.13 QSM Direct preview:trixie [all]) [
+  Inst qsm-pve-direct [0.4.0+stock4.14~exp216] (0.4.0+stock4.13 QSM Direct preview:trixie [amd64])

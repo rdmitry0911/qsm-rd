@@ -576,13 +576,14 @@
     "decoded_presentation": "docs/rdp-decoded-presentation-20261029.json",
     "decoded_queue": "docs/rdp-decoded-queue-20261029.json",
     "handoff": "docs/rdp-handoff-20261029.json",
-    "work_state": "Private216 qualified on PVE, Native and AMD with exact UI on by default, and installed on 192.168.64.20 only. Not published. Mac figures are exp209.",
+    "work_state": "Exp216 published on 2026-11-06: GitHub release and signed APT, exact UI on by default, installed on 192.168.64.20. Forum post waits for the user. Mac figures are exp209.",
     "virgl_hardware_decode": "docs/rdp-virgl-hardware-decode-20261105.json",
     "narrow_path": "docs/rdp-narrow-path-20261105.json",
     "hevc_receiver": "docs/rdp-hevc-receiver-20261105.json",
     "remaining_after_20261105": [
-      "Check default-on from a Mac and a phone or tablet against 192.168.64.20",
-      "Then the other nodes and the signed APT publication, on the user's word",
+      "Post the prepared text in forum topic 187042, which needs the user's forum account",
+      "Other nodes, on the user's word",
+      "Default-on on a Mac, phone or tablet as an automated run",
       "A/V on a VM guest with an audio device",
       "Hardcut SSIM gate margin: median 0.903-0.904 against 0.90",
       "Exact UI off path: full-screen narrow-path cadence, which stays as it was",
@@ -595,7 +596,8 @@
     "av_sync": "docs/rdp-av-sync-20261105.json",
     "full_screen_narrow": "docs/rdp-full-screen-narrow-20261105.json",
     "exact_ui_default_decision": "User decision 2026-11-05: exact UI and video regions are on by default; the user's checkbox and node settings can turn them off.",
-    "deployment": "docs/rdp-deployment-exp216-20261106.json"
+    "deployment": "docs/rdp-deployment-exp216-20261106.json",
+    "publication": "docs/rdp-publication-exp216-20261106.json"
   },
   "deployment_nodes": [
     "192.168.64.20",

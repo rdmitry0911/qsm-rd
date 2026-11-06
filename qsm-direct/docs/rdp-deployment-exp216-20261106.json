@@ -1,9 +1,10 @@
 {
  "date": "2026-11-06",
- "status": "installed on one node at the user's request; not published",
+ "status": "installed on one node at the user's request; published later, see rdp-publication-exp216-20261106.json",
  "node": "192.168.64.20",
  "version": "0.4.0+stock4.14~exp216",
  "source_commit": "4a7e1bd",
+  "source_commit_on_public_main": "d4b9763",
  "packages_installed": [
   "qsm-pve-direct",
   "qsm-pve-direct-standalone",

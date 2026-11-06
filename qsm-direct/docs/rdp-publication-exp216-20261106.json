@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-06",
+  "status": "published at the user's request",
+  "version": "0.4.0+stock4.14~exp216",
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261106-stock4.14-exp216",
+  "apt_repository": "https://rdmitry0911.github.io/qsm-rd/",
+  "workflow_run": 42222881534,
+  "binaries": "The seven debs that were qualified, unchanged. Core package SHA256 4e227a5fe37875112c96339fd13be6ca50b225169cd298c78c3c11c0084f8862.",
+  "public_history": {
+    "decision": "The agent left qsm-direct/dist/rdp-hybrid out of public main. It is 419 MB against a 22 MB repository and dist/ is in .gitignore. Adding it later stays possible; removing it from public history would not be.",
+    "how": "upstream/review-stock4.14-exp216-2026-11-06/public-history-filter.sh rewrites the local commits without that directory. Unchanged commits keep their public hash between runs.",
+    "local_full_evidence": "Branch qsm-pixel-history-exp213 keeps every run.",
+    "commit_map_local_to_public": {
+      "4a7e1bd": "d4b9763",
+      "ffc448b": "5a52a9a",
+      "e4398ef": "66355fc"
+    },
+    "evidence_on_the_release": "review-stock4.14-exp216-20261106.tar.gz, 39 MB, the runs behind the release notes. About 380 MB of earlier development runs are not public."
+  },
+  "checks_before_publication": {
+    "secrets": "Every unpublished blob and 2.8 GB of logs inside its archives, no credentials found. Values were not printed.",
+    "source_against_build": "1373 of 1377 tracked files identical on the build host; see BUILD-PROVENANCE.json for the other four.",
+    "ctest": "37 of 38 in the isolated environment; qsm_desktop_metadata_wire needs a pty and passes outside it."
+  },
+  "checks_after_publication": {
+    "release_download": "All 20 assets identical to the uploaded files; signature and checksums verified with the public key.",
+    "live_apt": "verify.py against the live URL: signed update, all 78 packages downloaded and matched, tampered metadata and a changed deb rejected.",
+    "live_simulation": "On a copy of the package state of 192.168.64.20, with the README preferences: the documented update upgrades all four host packages and removes nothing, including when the profiles are not named. The documented rollback downgrades all four."
+  },
+  "findings": [
+    "GitHub stores ~ in asset names as ., so the publisher could not fetch a tilde version. Fixed in publish.py with a test.",
+    "A rollback that names only the core and standalone makes APT remove the gateway and LXC profiles. The first README example did that; it was corrected before publication.",
+    "The push of the manifest commit went out while a new manifest test was failing, because the command chain did not stop on it. The failure was the test itself: it used the now published version and the duplicate check fired. Fixed in the next commit. The workflow does not run this test."
+  ],
+  "not_done": {
+    "forum": "Not posted. The text is ready in upstream/forum-stock4.14-exp216-update-2026-11-06.txt; the agent has no forum session.",
+    "other_nodes": "172.16.16.17 and 10.30.0.240 not updated; not requested.",
+    "other_channels": "pve-devel, Bugzilla and Debian not updated; not requested.",
+    "live_apt_update": "No node has updated through the repository yet. 192.168.64.20 got the same debs with dpkg and has no QSM source configured."
+  }
+}
