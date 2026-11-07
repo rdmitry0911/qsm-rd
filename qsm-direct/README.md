@@ -348,7 +348,11 @@ feel.
   allow-listed per `pve-manager` version and template checksum: after a
   `pve-manager` upgrade the package knows nothing about, the stock page is
   restored and VMs show the ordinary noVNC console until a package update
-  adds that version (`qsm-pve-direct-ui status` tells which state is active).
+  adds that version. The script tag is rendered by the shared
+  [pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays) package
+  (a dependency) from `/usr/share/pve-ui-overlays/overlays.d/qsm-pve-direct.json`,
+  so other PVE UI add-ons coexist in any install order
+  (`pve-ui-overlays status` tells which state is active).
 - **Browser:** any browser whose WebRTC offers H.264 and Opus — Chrome, Edge,
   Chromium with proprietary codecs, Safari; Firefox with its OpenH264 plugin
   enabled. A browser without H.264 is refused (the reason is logged in the
@@ -398,9 +402,9 @@ qsm-pve-direct-ui status
 
 What it changes on the node: two new systemd services —
 `qsm-pve-direct-terminal` (Unix sockets only, no listening port) and
-`qsm-pve-direct-signal` (one configured HTTPS port, using the node certificate); a
-patched `index.html.tpl` that adds one script tag (the stock template is
-restored on removal and on an unknown `pve-manager` version); and a per-VM
+`qsm-pve-direct-signal` (one configured HTTPS port, using the node certificate); one
+script tag in `index.html.tpl`, rendered by `pve-ui-overlays` (the stock
+template is restored on removal and on an unknown `pve-manager` version); and a per-VM
 policy directory `/etc/qsm-pve-direct/instances.d`. It does **not** modify
 `pveproxy`, `pvedaemon` or any PVE Perl file. Removing the package restores
 the template and stops both services. The optional gateway additionally

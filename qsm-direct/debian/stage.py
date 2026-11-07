@@ -37,7 +37,6 @@ def main(build, version):
         for name in names:
             install(core, f"extensions/{directory}/{name}", f"{lib}/{destination}/{name}")
     install(core, "extensions/signal/qsm_gateway.py", f"{lib}/browser_bridge/qsm_gateway.py")
-    install(core, "extensions/signal/qsm_direct_endpoint.py", f"{lib}/pve9-ui/qsm_direct_endpoint.py")
     for name, directory in (("qsm-pve-direct-terminal", "usr/bin"),
                             ("qsm-pve-direct-signal", "usr/bin"),
                             ("qsm-pve-direct-ui", "usr/sbin"),
@@ -49,9 +48,11 @@ def main(build, version):
         name = f"qsm-pve-direct-{name}"
         install(core, f"packaging/debian/{name}", f"usr/lib/systemd/system/{name}")
     ui = "integration/proxmox/pve9/direct_ui"
-    install(core, f"{ui}/qsm_pve_direct_ui.py", f"{lib}/pve9-ui/qsm_pve_direct_ui.py", True)
+    # the page itself is rendered by pve-ui-overlays from this descriptor
+    install(core, "packaging/debian/qsm-pve-direct-overlay.json",
+            "usr/share/pve-ui-overlays/overlays.d/qsm-pve-direct.json")
     install(core, f"{ui}/pve-manager-index-template.sha256",
-            "usr/share/qsm-pve-direct/pve9-ui/pve-manager-index-template.sha256")
+            "usr/share/pve-ui-overlays/manifest.d/qsm-pve-direct.sha256")
     for destination in ("usr/share/pve-manager/js/qsm-pve-direct-console.js",
                         "usr/share/pve-webrtc-console/qsm-direct-console.js"):
         install(core, f"{ui}/qsm-direct-console.js", destination)

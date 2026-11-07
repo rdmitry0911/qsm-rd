@@ -12,10 +12,8 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / 'integration/proxmox/pve9/direct_ui'))
 from extensions.signal.qsm_direct_endpoint import SignalEndpoint, bind_socket, read_endpoint
 from extensions.signal.qsm_direct_endpoint_cli import apply_endpoint, free_endpoint
-from qsm_pve_direct_ui import render_patched_template, ANCHOR
 
 
 class EndpointTests(unittest.TestCase):
@@ -108,14 +106,19 @@ class EndpointTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), previous)
             self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
 
-    def test_template_publishes_only_browser_metadata_before_client(self):
+    def test_overlay_descriptor_publishes_only_browser_metadata(self):
+        # The PVE page is rendered by pve-ui-overlays from this descriptor: the
+        # global it publishes must carry exactly the browser metadata (never the
+        # listen address) and precede the console script.
+        descriptor = json.loads((ROOT / 'packaging/debian/qsm-pve-direct-overlay.json').read_text())
+        self.assertEqual(descriptor['id'], 'qsm-pve-direct')
+        self.assertEqual(descriptor['scripts'], ['/pve2/js/qsm-pve-direct-console.js'])
+        spec = descriptor['globals']['QSM_DIRECT_ENDPOINT']
+        self.assertEqual(spec['file'], '/etc/qsm-pve-direct/signal.json')
         endpoint = SignalEndpoint('0.0.0.0', 18019, 'https://pve.example.org:28019')
-        rendered = render_patched_template(ANCHOR, 'a' * 64, endpoint.browser_config())
-        self.assertLess(rendered.index(b'window.QSM_DIRECT_ENDPOINT'),
-                        rendered.index(b'src="/pve2/js/qsm-pve-direct-console.js'))
-        self.assertIn(b'"port":18019', rendered)
-        self.assertIn(b'https://pve.example.org:28019', rendered)
-        self.assertNotIn(b'0.0.0.0', rendered)
+        self.assertEqual(set(spec['keys']), {'port', 'public_url', 'gateway'})
+        self.assertTrue(set(endpoint.browser_config()) <= set(spec['keys']))
+        self.assertNotIn('listen', spec['keys'])
 
 
 if __name__ == '__main__':

@@ -1,0 +1,9 @@
+{
+  "id": "qsm-pve-direct",
+  "order": 40,
+  "description": "QSM Direct: WebRTC console entry for VMs and containers",
+  "scripts": ["/pve2/js/qsm-pve-direct-console.js"],
+  "globals": {
+    "QSM_DIRECT_ENDPOINT": {"file": "/etc/qsm-pve-direct/signal.json", "keys": ["port", "public_url", "gateway"]}
+  }
+}

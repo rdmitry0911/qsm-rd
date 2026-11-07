@@ -1,4 +1,15 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
+# Compatibility front-end: the PVE page is managed by pve-ui-overlays (shared
+# with other PVE UI add-ons); this package only ships the overlay descriptor
+# /usr/share/pve-ui-overlays/overlays.d/qsm-pve-direct.json.
 set -eu
-exec /usr/bin/python3 /usr/lib/qsm-pve-direct/pve9-ui/qsm_pve_direct_ui.py "$@"
+case "${1:-}" in
+    install|reconcile) exec /usr/sbin/pve-ui-overlays reconcile ;;
+    status) exec /usr/sbin/pve-ui-overlays status ;;
+    remove)
+        echo "qsm-pve-direct-ui: the overlay leaves the page with the package (pve-ui-overlays re-renders it);" \
+             "to switch it off while installed: pve-ui-overlays disable qsm-pve-direct" >&2
+        exit 0 ;;
+    *) echo "usage: qsm-pve-direct-ui install|reconcile|status|remove  (see pve-ui-overlays --help)" >&2; exit 2 ;;
+esac

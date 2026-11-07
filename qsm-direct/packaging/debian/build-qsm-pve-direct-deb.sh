@@ -48,6 +48,7 @@ for required in \
     "$PACKAGE_DIR/qsm-pve-direct-terminal" \
     "$PACKAGE_DIR/qsm-pve-direct-terminal.service" \
     "$PACKAGE_DIR/qsm-pve-direct-ui" \
+    "$PACKAGE_DIR/qsm-pve-direct-overlay.json" \
     "$PACKAGE_DIR/qsm-pve-direct-postinst" \
     "$PACKAGE_DIR/qsm-pve-direct-prerm" \
     "$PACKAGE_DIR/README.qsm-pve-direct" \
@@ -84,9 +85,10 @@ done
 package_name=qsm-pve-direct
 package_root="$stage_root/usr/lib/$package_name"
 install -d "$package_root/bin" "$package_root/browser_bridge" "$package_root/direct_terminal" "$package_root/direct_guest" \
-    "$package_root/signal_service" "$package_root/pve9-ui" \
+    "$package_root/signal_service" \
     "$stage_root/usr/bin" "$stage_root/usr/sbin" "$stage_root/usr/share/doc/$package_name" \
-    "$stage_root/usr/share/pve-manager/js" "$stage_root/usr/share/$package_name/pve9-ui" \
+    "$stage_root/usr/share/pve-manager/js" \
+    "$stage_root/usr/share/pve-ui-overlays/overlays.d" "$stage_root/usr/share/pve-ui-overlays/manifest.d" \
     "$stage_root/usr/lib/systemd/system" \
     "$stage_root/DEBIAN"
 install -m 0755 "$worker" "$package_root/bin/qsm-direct-media-worker"
@@ -122,8 +124,6 @@ install -m 0644 "$ROOT_DIR/extensions/signal/qsm_direct_endpoint.py" \
     "$package_root/signal_service/qsm_direct_endpoint.py"
 install -m 0644 "$ROOT_DIR/extensions/signal/qsm_direct_endpoint_cli.py" \
     "$package_root/signal_service/qsm_direct_endpoint_cli.py"
-install -m 0644 "$ROOT_DIR/extensions/signal/qsm_direct_endpoint.py" \
-    "$package_root/pve9-ui/qsm_direct_endpoint.py"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-endpoint" \
     "$stage_root/usr/sbin/qsm-pve-direct-endpoint"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-signal" "$stage_root/usr/bin/qsm-pve-direct-signal"
@@ -148,14 +148,15 @@ install -m 0644 "$ROOT_DIR/packaging/webrtc-viewer/index.html.tpl" \
 install -m 0644 "$ROOT_DIR/integration/proxmox/pve9/direct_ui/qsm-direct-console.js" \
     "$stage_root/usr/share/pve-webrtc-console/qsm-direct-console.js"
 
-# The guarded diversion manager owns only the direct Console asset and its
-# direct-specific state paths.
-install -m 0755 "$ROOT_DIR/integration/proxmox/pve9/direct_ui/qsm_pve_direct_ui.py" \
-    "$package_root/pve9-ui/qsm_pve_direct_ui.py"
+# The PVE page itself is managed by pve-ui-overlays (a dependency shared with
+# other PVE UI add-ons): this package ships the console script, an overlay
+# descriptor and its own allow-list rows for pve-manager templates.
 install -m 0644 "$ROOT_DIR/integration/proxmox/pve9/direct_ui/qsm-direct-console.js" \
     "$stage_root/usr/share/pve-manager/js/qsm-pve-direct-console.js"
+install -m 0644 "$PACKAGE_DIR/qsm-pve-direct-overlay.json" \
+    "$stage_root/usr/share/pve-ui-overlays/overlays.d/qsm-pve-direct.json"
 install -m 0644 "$ROOT_DIR/integration/proxmox/pve9/direct_ui/pve-manager-index-template.sha256" \
-    "$stage_root/usr/share/$package_name/pve9-ui/pve-manager-index-template.sha256"
+    "$stage_root/usr/share/pve-ui-overlays/manifest.d/qsm-pve-direct.sha256"
 
 cat > "$stage_root/DEBIAN/control" <<EOF
 Package: $package_name
@@ -164,7 +165,7 @@ Section: net
 Priority: optional
 Architecture: amd64
 Maintainer: Dmitry R <rdmitry0911@gmail.com>
-Depends: libc6 (>= 2.38), libopus0 (>= 1.3), zlib1g, libstdc++6 (>= 13), libsystemd0, libavcodec61, libavutil59, libswscale8, libwayland-client0, libxkbcommon0, dbus, ffmpeg, python3, python3-aiortc, python3-av, pve-manager, qemu-server
+Depends: libc6 (>= 2.38), libopus0 (>= 1.3), zlib1g, libstdc++6 (>= 13), libsystemd0, libavcodec61, libavutil59, libswscale8, libwayland-client0, libxkbcommon0, dbus, ffmpeg, python3, python3-aiortc, python3-av, pve-manager, qemu-server, pve-ui-overlays (>= 0.1.0)
 Description: WebRTC graphical console for Proxmox VE 9 (media worker and service)
  qsm-pve-direct streams the display of a VM (QEMU D-Bus display) or of an LXC
  container console to the browser over WebRTC, hardware-encoded (NVENC,
@@ -178,8 +179,6 @@ install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-postinst" "$stage_root/DEBIAN/posti
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-prerm" "$stage_root/DEBIAN/prerm"
 printf '%s\n' '#!/bin/sh' 'set -e' 'systemctl daemon-reload >/dev/null 2>&1 || true' > "$stage_root/DEBIAN/postrm"
 chmod 0755 "$stage_root/DEBIAN/postrm"
-printf '%s\n' 'interest-noawait /usr/share/pve-manager/index.html.tpl' \
-    > "$stage_root/DEBIAN/triggers"
 
 # A direct build must be semantically independent as well as dependency-free.
 # This catches accidental staging of compatibility transport code or old UI

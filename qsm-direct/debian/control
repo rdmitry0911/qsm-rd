@@ -36,7 +36,8 @@ Architecture: amd64
 Depends: ${shlibs:Depends}, ${python3:Depends}, ${misc:Depends},
  dbus, ffmpeg, python3-aiortc, python3-av,
  pve-manager (>= 9), pve-manager (<< 10),
- qemu-server (>= 9), qemu-server (<< 10)
+ qemu-server (>= 9), qemu-server (<< 10),
+ pve-ui-overlays (>= 0.1.0)
 Description: WebRTC graphical console for Proxmox VE
  Streams QEMU D-Bus displays and optional LXC desktops to a browser using
  software or optional hardware video encoding, audio and interactive input.

@@ -237,7 +237,7 @@ def restore():
     (ETC / 'gateway.json').unlink(missing_ok=True)
     (STATE / 'turn-udp.conf').unlink(missing_ok=True)
     subprocess.run(['nft', 'delete', 'table', 'inet', TABLE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    run('/usr/sbin/qsm-pve-direct-ui', 'reconcile')
+    run('/usr/sbin/pve-ui-overlays', 'reconcile')
     run('systemctl', 'restart', 'pveproxy')
     if saved['signal_active']:
         run('systemctl', 'restart', 'qsm-pve-direct-signal')
@@ -291,7 +291,7 @@ def enable(address):
         run('haproxy', '-c', '-f', str(STATE / 'haproxy.cfg'), stdout=subprocess.DEVNULL)
         run('nft', '-f', '-', input=firewall(account.pw_uid).encode())
         atomic(PVE, updated, 0o644)
-        run('/usr/sbin/qsm-pve-direct-ui', 'reconcile')
+        run('/usr/sbin/pve-ui-overlays', 'reconcile')
         run('systemctl', 'restart', 'pveproxy')
         run('systemctl', 'restart', 'qsm-pve-direct-signal')
         for unit in reversed(UNITS):

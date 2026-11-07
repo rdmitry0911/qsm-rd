@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
 if [ "${1:-}" = remove ]; then
-    qsm-pve-direct-ui remove
+    : # the page is re-rendered by pve-ui-overlays once dpkg removed the overlay descriptor
 fi
 #DEBHELPER#

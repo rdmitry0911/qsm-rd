@@ -56,7 +56,7 @@ def apply_endpoint(endpoint: SignalEndpoint, *, path: Path = CONFIG_PATH,
     data = (json.dumps(endpoint.as_dict(), indent=2) + '\n').encode('ascii')
     write_config(path, data)
     try:
-        subprocess.run(['/usr/sbin/qsm-pve-direct-ui', 'reconcile'], check=True)
+        subprocess.run(['/usr/sbin/pve-ui-overlays', 'reconcile'], check=True)
         if restart and systemd:
             subprocess.run(['systemctl', 'restart', 'qsm-pve-direct-signal.service'], check=True)
     except BaseException:
@@ -64,7 +64,7 @@ def apply_endpoint(endpoint: SignalEndpoint, *, path: Path = CONFIG_PATH,
             path.unlink(missing_ok=True)
         else:
             write_config(path, old)
-        subprocess.run(['/usr/sbin/qsm-pve-direct-ui', 'reconcile'], check=False)
+        subprocess.run(['/usr/sbin/pve-ui-overlays', 'reconcile'], check=False)
         if restart and systemd:
             subprocess.run(['systemctl', 'restart' if active else 'stop',
                             'qsm-pve-direct-signal.service'], check=False)
@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 if args.initialize and CONFIG_PATH.exists():
                     endpoint = read_endpoint()
-                    subprocess.run(['/usr/sbin/qsm-pve-direct-ui', 'reconcile'], check=True)
+                    subprocess.run(['/usr/sbin/pve-ui-overlays', 'reconcile'], check=True)
                 else:
                     if args.initialize:
                         if any((args.listen is not None, args.port is not None, args.public_url is not None)):

@@ -80,10 +80,13 @@ Install:
     qsm-pve-direct-endpoint --show
     qsm-pve-direct-ui status
 
-The PVE web page gets one script tag (a diverted `index.html.tpl`) only for
-the `pve-manager` versions and template checksums the package knows; on any
-other version the stock page stays and VMs keep the noVNC console until a
-package update adds it.  `qsm-pve-direct-ui status` shows the state.
+The PVE web page gets one script tag, rendered into `index.html.tpl` by the
+shared `pve-ui-overlays` package (a dependency; it owns the template's single
+diversion, so other PVE UI add-ons coexist in any install order) only for the
+`pve-manager` versions and template checksums in the allow-list; on any other
+version the stock page stays and VMs keep the noVNC console until a package
+update adds it.  `pve-ui-overlays status` shows the state
+(`qsm-pve-direct-ui status` still works as a front-end).
 
 The service reads PVE's saved VM configuration and creates the private
 Display1 bus before the VM is started. No per-VM policy file is required: the
