@@ -2546,7 +2546,8 @@
 
         async pick() {
             try {
-                const root = await this.manager.win.showDirectoryPicker({ mode: 'readwrite', id: 'qsm-files' });
+                // Chrome refuses Downloads itself but not a folder in it, which this dialog can make.
+                const root = await this.manager.win.showDirectoryPicker({ mode: 'readwrite', id: 'qsm-files', startIn: 'downloads' });
                 this.source = new QfmLocalFolders(root);
                 await this.manager.guarded(this, () => this.load());
                 this.manager.setPaneMode();
@@ -2564,7 +2565,11 @@
             if (!this.source) {
                 this.location.textContent = '';
                 this.setEntries([]);
-                this.showMessage(gettext('Choose a folder on this computer to browse it and to receive files.'));
+                this.showMessage(gettext([
+                    'Choose a folder on this computer to browse it and to receive files.',
+                    'Chrome and Edge do not let a web page open your home folder, the Desktop, Documents or Downloads folder itself, or a system folder, and say that it contains system files. A folder inside Desktop, Documents or Downloads is allowed.',
+                    'The dialog opens in Downloads. Make a new folder there, for example QSM, and choose it.',
+                ].join('\n\n')));
                 return;
             }
             await this.move(undefined, () => {});
