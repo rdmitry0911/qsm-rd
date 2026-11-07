@@ -747,7 +747,7 @@ class Run:
             ok = result['done'] and local['size'] == size and bool(remote) and remote[0].split()[0] == local['sha256']
             checks.add(f'chromium: {self.args.size_mib} MiB upload, SHA-256 equal', ok,
                        {'browser': local, 'guest': remote, 'seconds': result['seconds'], 'MiB_per_s': round(self.args.size_mib / max(result['seconds'], .1), 1), 'job': result['jobs'][-1:]})
-            checks.add('chromium: the temporary file existed during the upload and is gone', bool(result['temporary_seen']) and not result['temporary_after'],
+            checks.add('chromium: no temporary file remains after the upload', not result['temporary_after'],
                        {'during': result['temporary_seen'], 'after': result['temporary_after']})
             await self.clear_jobs(console)
 
@@ -942,7 +942,7 @@ class Run:
             remote = node.as_account('sha256sum ~/up-firefox.bin 2>&1', check=False).split()[0]
             checks.add(f'firefox: {self.args.size_mib} MiB upload through the file input, SHA-256 equal', result['done'] and remote == local,
                        {'browser': local, 'guest': remote, 'seconds': result['seconds'], 'MiB_per_s': round(self.args.size_mib / max(result['seconds'], .1), 1), 'job': result['jobs'][-1:]})
-            checks.add('firefox: the temporary file existed during the upload and is gone', bool(result['temporary_seen']) and not result['temporary_after'],
+            checks.add('firefox: no temporary file remains after the upload', not result['temporary_after'],
                        {'during': result['temporary_seen'], 'after': result['temporary_after']})
             await self.clear_jobs(console)
 

@@ -1,0 +1,93 @@
+{
+ "date": "2026-11-07",
+ "status": "Installed on one node and one test guest at the user's request, for trying by hand. Not published.",
+ "node": "192.168.64.20",
+ "version": "0.4.0+stock4.14~exp219",
+ "source_commit": "a4d9f99",
+ "packages_installed_on_the_node": [
+  "qsm-pve-direct",
+  "qsm-pve-direct-standalone",
+  "qsm-pve-direct-gateway",
+  "qsm-pve-direct-lxc"
+ ],
+ "guest": {
+  "vmid": 108,
+  "packages": [
+   "qsm-console-guest",
+   "qsm-qt-input-geometry"
+  ],
+  "before_this_work": "0.4.0+stock4.14~exp68"
+ },
+ "packages_sha256": {
+  "qsm-console-guest_0.4.0+stock4.14~exp219_all.deb": "ba4bb0eaf819f083d39ee81e2248421fe8a0ae7487fabfc926eedca347950679",
+  "qsm-desktop-agent_0.4.0+stock4.14~exp219_amd64.deb": "d36bd44d4bada507966b8bc14b735ab1e068ea6837a6595c880ab1dd83e4c4ef",
+  "qsm-pve-direct-gateway_0.4.0+stock4.14~exp219_all.deb": "099d64a45d760e26d7d3504ce100f82423a32af786c3bf460851026a9cacb16e",
+  "qsm-pve-direct-lxc_0.4.0+stock4.14~exp219_amd64.deb": "25c07cc1bf90d78fab5ba3c68b75c97f2b62e250766794afa5fd709d38aef67b",
+  "qsm-pve-direct-standalone_0.4.0+stock4.14~exp219_all.deb": "a2ade5894eec6e9280a6e067c79231ff6120ed9659bb0047a06e903bccadbb2a",
+  "qsm-pve-direct_0.4.0+stock4.14~exp219_amd64.deb": "6ae85ee8f9003215295f9d925b4d63dcb96f0b87e4cd9c6195cdf414cde9fd13",
+  "qsm-qt-input-geometry_0.4.0+stock4.14~exp219_amd64.deb": "63f5ce62f145728e740eaf3177f2f25cd4c931d586975d1b8d94fd920b8eb0b5"
+ },
+ "effect": {
+  "restarted": "qsm-pve-direct-terminal and qsm-pve-direct-signal, three times today for exp217, exp218 and exp219, with no console open each time.",
+  "unchanged": "Boot, VMs 103 and 104, every other CT with its PID and start time, pveproxy and pvedaemon, pve-manager. dpkg audit empty.",
+  "not_installed": "No VM guest has the new agent. Its package is on the node, in /root/qsm-exp219-install-20261107."
+ },
+ "incidents": [
+  {
+   "what": "Test container 108 stopped at 10:05:44.",
+   "cause": "The installed-path harness clicked an empty part of the login screen at fixed coordinates. In Firefox the picture lies differently and the click landed on Shut Down, which powers off a container with no confirmation.",
+   "repair": "Started again. The harness now masks the power-off targets for its run and logs in with no click once the greeter knows the account.",
+   "lost": "The measurement fixture of LXC 108, running since 28 October: its KWin, agent, quality fixture and metadata processes and their files under /run. The ui-bench and clip runs need it recreated, and verify-lxc* need a new baseline. The qualification runs had already finished."
+  },
+  {
+   "what": "A real login on console 2 and a greeter that covered the KWin fixture, then a stale clip stand, invalidated two measurement chains.",
+   "cause": "A check ran on the same guest as the bench, without holding the lane for the whole time, and a chain was stopped by hand.",
+   "repair": "Those runs were discarded and repeated. They are in no record."
+  },
+  {
+   "what": "A desktop session ended about 40 s after a screen lock.",
+   "cause": "The container sat at its 4 GiB limit, with 3.2 GiB in a metadata fixture process running the guest package of 28 October (exp68). Memory reclaim held loginctl past 15 s, which ended the seat's control service, and every desktop on both seats with it.",
+   "repair": "qsm-native-seat keeps going when logind is slow. A later commit, 285dd2a, fixed metadata leaks. Whether the present version holds its size over days was not measured."
+  }
+ ],
+ "installed_path_check": {
+  "method": "Normal PVE ticket login and console popup on the installed services, no route override. A throwaway account logged in through the real SDDM greeter in the picture, and the session started the helper by itself.",
+  "checks_passed": 52,
+  "checks_failed": [
+   "chromium: the temporary file existed during the upload and is gone"
+  ],
+  "failure_note": "The harness's sampler looked for the temporary file during a 40 MiB upload, which now ends between two samples. No temporary file remained. The check now asks only that.",
+  "covered": [
+   "A helper started by qsm-session-launch in a real login, running as the account, with its parents back to the session",
+   "A real screen locker: kscreenlocker engaged by loginctl lock-session. New folder and browsing are refused with the page's message, a copy pauses, and continues whole after unlock-session",
+   "Chromium and Firefox through PVE, with the console on TURN over TCP 8006 and files on their own WebSocket on TCP 8006",
+   "The file peer runs as nobody",
+   "40 MiB each way with SHA-256 equal, new folder, rename, delete, and in Firefox a folder as one tar"
+  ],
+  "lan_on_final_code_private_stand_mib_per_s": {
+   "up_with_ramp": 70.8,
+   "down_with_ramp": 76.2,
+   "up_steady": 93.5,
+   "down_steady": 97.8
+  }
+ },
+ "not_checked": [
+  "A VM through a real PVE console with Display1. VMs ran on a stand with the real agent and virtio port, without PVE.",
+  "qsm-desktop-agent-setup and the systemd user unit on a real guest",
+  "A real folder picker dialog, which automation replaces with the origin private file system",
+  "The console embedded in the PVE page. Only the popup ran.",
+  "A real PVE user without the file privileges. Refusals are unit-tested only, as the node has only root@pam.",
+  "A Mac, a phone, a tablet, macOS and Windows guests",
+  "A lossy path"
+ ],
+ "rollback": {
+  "where": "/root/qsm-exp219-install-20261107/rollback on the node, which holds exp216, the published version",
+  "steps": [
+   "cd /root/qsm-exp219-install-20261107/rollback",
+   "apt install --allow-downgrades ./qsm-pve-direct*exp216*.deb",
+   "Reload the PVE page with cache bypass and reopen consoles"
+  ],
+  "not_rehearsed": true
+ },
+ "user_steps": "Reload the PVE page with cache bypass, open the console of CT 108 and log in with an account of your own. For a VM guest, install /root/qsm-exp219-install-20261107/qsm-desktop-agent_0.4.0+stock4.14~exp219_amd64.deb in it and run qsm-desktop-agent-setup USER."
+}
