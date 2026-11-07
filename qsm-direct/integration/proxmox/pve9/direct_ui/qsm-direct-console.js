@@ -1547,10 +1547,13 @@
             this.win.document.body.append(link);
             link.click();
             link.remove();
+            // The pane lists it, and for these ten minutes it can go back to the guest from there.
+            // After that only its name and size are left: the copy is in the Downloads folder.
             this.win.setTimeout(() => {
                 this.win.URL.revokeObjectURL(url);
                 if (this.handle) { this.directory.removeEntry(this.spoolName).catch(() => {}); }
             }, 600000);
+            return { name: this.name, file };
         }
 
         async abort() {
@@ -1611,7 +1614,10 @@
             this.kind = 'staged';
         }
 
-        get location() { return this.stack.map((item) => item.name).join('/') || gettext('Added items'); }
+        get location() {
+            return this.stack.map((item) => item.name).join('/') ||
+                gettext('Added here, and downloaded from the guest into your Downloads folder');
+        }
         get atRoot() { return this.stack.length === 1; }
 
         add(path, file) {
@@ -1633,6 +1639,13 @@
         enter(entry) { this.stack.push(entry); }
         up() { if (!this.atRoot) { this.stack.pop(); } }
         async remove(entry) { this.stack[this.stack.length - 1].children.delete(entry.name); }
+
+        // A file saved to the Downloads folder: listed at the top, as a page cannot see that folder.
+        delivered({ name, file }) {
+            this.add(name, file);
+            const entry = this.root.children.get(name);
+            if (entry && entry.file === file) { entry.mtime = Date.now(); }
+        }
     }
 
     const qfmReadDroppedEntry = async (entry, path, staged) => {
@@ -1692,9 +1705,10 @@
 
     // Copies one job. It knows the link and two sources, and nothing of the page.
     class QfmTransfers {
-        constructor({ link, now, sleep, ask, notify, spool, relink = null }) {
+        constructor({ link, now, sleep, ask, notify, spool, relink = null, delivered = null }) {
             this.link = link;
             this.relink = relink;
+            this.delivered = delivered;
             this.now = now;
             this.sleep = sleep;
             this.ask = ask;
@@ -2110,7 +2124,7 @@
                     spool = await this.spool(task.relative[task.relative.length - 1]);
                     return {
                         write: async (position, data) => { await spool.append(data); },
-                        close: () => spool.finish(),
+                        close: async () => { this.deliver(await spool.finish()); },
                         abort: () => spool.abort(),
                     };
                 })).catch(async (error) => {
@@ -2156,7 +2170,11 @@
                 return;
             }
             await spool.pad(1024);
-            await spool.finish();
+            this.deliver(await spool.finish());
+        }
+
+        deliver(saved) {
+            if (saved && saved.file && this.delivered) { this.delivered(saved); }
         }
     }
 
@@ -2562,7 +2580,7 @@
             this.location.textContent = source.location;
             this.setEntries(entries, directory === undefined);
             if (entries.length) { this.showMessage(''); } else if (source.kind === 'staged') {
-                this.showMessage(gettext('This browser cannot open a local folder. Drop files here, or add them above, to send them to the guest. Files from the guest go to the Downloads folder.'));
+                this.showMessage(gettext('This browser does not let a web page see the folders of this computer, so this side lists only what you add here and what you download. To send files to the guest, add files or a folder above, or drop them here. Files from the guest are saved to your Downloads folder and appear here. Chrome and Edge show a real folder on this side.'));
             } else { this.showMessage(gettext('This folder is empty.')); }
         }
 
@@ -2589,6 +2607,12 @@
         }
 
         async removeEntry(entry) { await this.source.remove(entry); }
+
+        delivered(saved) {
+            if (!this.source || this.source.kind !== 'staged') { return; }
+            this.source.delivered(saved);
+            if (this.source.atRoot) { this.manager.guarded(this, () => this.load()); }
+        }
     }
 
     const QFM_STYLE = `
@@ -2905,6 +2929,7 @@
         transfers() {
             return new QfmTransfers({
                 link: () => this.link,
+                delivered: (saved) => this.local.delivered(saved),
                 now: () => this.win.performance.now(),
                 sleep: (ms) => new Promise((resolve) => this.win.setTimeout(resolve, ms)),
                 ask: async (path) => {

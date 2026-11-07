@@ -1021,5 +1021,33 @@ await (async () => {
     assert.ok(Buffer.concat(finished[0].bytes).equals(blob(400000)));
 })();
 
+// Without a folder picker, what was saved to Downloads is listed on this side and can go back.
+await (async () => {
+    const helper = new Helper();
+    helper.files.set('/home/u/report.pdf', blob(70000, 4));
+    const link = await openLink(helper);
+    const staged = new QfmStagedFiles();
+    staged.add('mine.txt', new File([blob(10)], 'mine.txt', { lastModified: 1 }));
+    const transfers = new QfmTransfers({ link: () => link, now: () => performance.now(), sleep: async () => {},
+        ask: async () => ({ choice: 'skip', all: false }), notify: () => {},
+        delivered: (saved) => staged.delivered(saved),
+        spool: async (name) => {
+            const parts = [];
+            return { append: async (data) => { parts.push(Buffer.from(data)); }, pad: async () => {}, abort: async () => {},
+                finish: async () => ({ name, file: new File([Buffer.concat(parts)], name, { lastModified: 2 }) }) };
+        } });
+    const job = new QfmJob('down', 'down');
+    await transfers.downloadToSpool(job, [{ entry: { name: 'report.pdf', type: 'f', size: 70000 }, path: '/home/u/report.pdf' }], 'x.tar');
+    same(job.errors, []);
+    const listed = (await staged.readdir()).map((entry) => entry.name).sort();
+    same(listed, ['mine.txt', 'report.pdf']);
+    const entry = (await staged.readdir()).find((item) => item.name === 'report.pdf');
+    assert.ok(Buffer.from(await (await staged.file(entry)).arrayBuffer()).equals(blob(70000, 4)));
+    const back = new QfmJob('up', 'up');
+    await transfers.upload(back, staged, [entry], '/home/u/again');
+    same(back.errors, []);
+    assert.ok(helper.files.get('/home/u/again/report.pdf').equals(blob(70000, 4)));
+})();
+
 console.log('file manager tests passed');
 process.exit(0);
