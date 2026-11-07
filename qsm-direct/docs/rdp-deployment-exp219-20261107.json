@@ -127,5 +127,22 @@
   "unchanged": "Boot, every VM and CT with its PID, pveproxy, pvedaemon, pve-manager",
   "checked": "Firefox on the local stand: a downloaded file is listed on this side and can be sent back to the guest. The Firefox scenarios pass. Not run through PVE.",
   "rollback": "/root/qsm-exp221-install-20261107/rollback holds exp216"
+ },
+ "node_update_exp222": {
+  "why": "The empty side for this computer in Firefox explains Add files, Add folder and downloads, and Capture keyboard and Files are ordinary buttons.",
+  "source_commit": "f631fb7",
+  "installed": "The four node packages 0.4.0+stock4.14~exp222. The guests keep exp219.",
+  "packages_sha256": {
+   "qsm-console-guest_0.4.0+stock4.14~exp222_all.deb": "eabd979e72fc3a7e61462941575658209d6051e709be56d55c2a5af366d2f9f2",
+   "qsm-desktop-agent_0.4.0+stock4.14~exp222_amd64.deb": "9a01d1aeecf21c9012758bc761257373b9676aee088e39cd1536a5d16d3b81d2",
+   "qsm-pve-direct-gateway_0.4.0+stock4.14~exp222_all.deb": "81d31ea7991a5f3bf947266603f6b46b79f347fe5b8779d584ea7597d9fa6f55",
+   "qsm-pve-direct-lxc_0.4.0+stock4.14~exp222_amd64.deb": "e991b14493c89c2ca9ff78c307a2003ee4a2a54a4f03992ece3e75373b13060e",
+   "qsm-pve-direct-standalone_0.4.0+stock4.14~exp222_all.deb": "448e6b7bcaf32fbbd16a1ae84f401306d82679dcd23997397a530e3306cc0b4a",
+   "qsm-pve-direct_0.4.0+stock4.14~exp222_amd64.deb": "28c372a1dcffe39a3e7522126aee280775b45cf60493c911ad98b77691587847",
+   "qsm-qt-input-geometry_0.4.0+stock4.14~exp222_amd64.deb": "bba57b8b0efb0f2caff59cce071aa88431b28135fe7213daa9c7acad746e4d29"
+  },
+  "restarted": "qsm-pve-direct-terminal and qsm-pve-direct-signal after the user closed the console of VM 103. Its idle media worker ended with them.",
+  "checked": "Before the install, through a private stand on the real PVE: the console's buttons are of one size, and the Firefox hint shows in paragraphs. Not run through the installed services.",
+  "rollback": "/root/qsm-exp222-install-20261107/rollback holds exp216"
  }
 }
