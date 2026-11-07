@@ -109,5 +109,23 @@
    "backup": "/root/qsm-desktop-agent-git115-files.tar.gz and /root/qsm-desktop-agent-git115-dpkg-info.tar.gz in the VM",
    "not_checked": "A transfer through the console. That would have opened a console on a desktop in use."
   }
+ },
+ "node_update_exp221": {
+  "why": "In Firefox the side for this computer stayed empty, and downloads did not appear there, though they reached the Downloads folder.",
+  "source_commit": "9648a65",
+  "installed": "qsm-pve-direct, -standalone, -gateway and -lxc 0.4.0+stock4.14~exp221 on the node only. The guests keep exp219, which is the same on their side.",
+  "packages_sha256": {
+   "qsm-console-guest_0.4.0+stock4.14~exp221_all.deb": "57962207baa76ae4f0b659b82cf02126dbe008c49e28d253f21f4625bcdabe45",
+   "qsm-desktop-agent_0.4.0+stock4.14~exp221_amd64.deb": "6706825672c7758d00c672d28ffcc1d1352186c1661110b4992d6b073b1f9c1f",
+   "qsm-pve-direct-gateway_0.4.0+stock4.14~exp221_all.deb": "63c462b93c03aed073cdde5f35ce8775703526b432b8fc051efb38c0d2110416",
+   "qsm-pve-direct-lxc_0.4.0+stock4.14~exp221_amd64.deb": "c6074b2ddf83e48222cd7757318ca40fe4d556b240d7dc57f1b5faac68160330",
+   "qsm-pve-direct-standalone_0.4.0+stock4.14~exp221_all.deb": "0dfc70f9f5957e6dc3435b871c27cb9ab4d3ca19b576a5c4cdbe97490f63b91f",
+   "qsm-pve-direct_0.4.0+stock4.14~exp221_amd64.deb": "99db8afd27a54e154f877722a74501990f878da75fd79e5152c5b86bdc880d7a",
+   "qsm-qt-input-geometry_0.4.0+stock4.14~exp221_amd64.deb": "ff1674b2792957dc9de9a6e9ba73597e33c1e57110e9c04df54905fe16ccaf9e"
+  },
+  "restarted": "qsm-pve-direct-terminal and qsm-pve-direct-signal, with no console open",
+  "unchanged": "Boot, every VM and CT with its PID, pveproxy, pvedaemon, pve-manager",
+  "checked": "Firefox on the local stand: a downloaded file is listed on this side and can be sent back to the guest. The Firefox scenarios pass. Not run through PVE.",
+  "rollback": "/root/qsm-exp221-install-20261107/rollback holds exp216"
  }
 }
