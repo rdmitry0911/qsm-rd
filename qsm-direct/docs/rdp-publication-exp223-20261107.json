@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-07",
+  "status": "published at the user's request",
+  "version": "0.4.0+stock4.14~exp223",
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223",
+  "apt_repository": "https://rdmitry0911.github.io/qsm-rd/",
+  "workflow_run": 42368992597,
+  "what": "The two-pane file manager on a WebSocket, with the Firefox, Chrome and toolbar changes made after the user tried it by hand.",
+  "binaries": "The seven debs installed on 192.168.64.20 as exp223, unchanged. Core package SHA256 ec09dbb60aa3ee476e35a14cd6a2f10c6984a751c5a1ec74068123790428ada1. The guest side is the same source as exp219, which runs in CT 105, CT 108 and VM 103.",
+  "qualification_behind_it": {
+    "records": [
+      "docs/file-manager-websocket-qualification-20261107.json",
+      "docs/rdp-deployment-exp219-20261107.json"
+    ],
+    "after_the_measured_code": "exp221 to exp223 changed only the page: the Firefox listing, the hints, the toolbar buttons and the Chrome dialog start. Checked by scenario tests and by hand, not by a new measurement run."
+  },
+  "public_history": {
+    "how": "The same filter as for exp216, upstream/review-stock4.14-exp223-2026-11-07/public-history-filter.sh. Unchanged commits kept their public hash, and public main descends from the exp216 publication.",
+    "commit_map_local_to_public": {
+      "0d2d926": "f87ffee",
+      "cb0761a": "6a7f7e8",
+      "97b5a45": "a88130e"
+    },
+    "evidence_on_the_release": "review-stock4.14-exp223-20261107.tar.gz, 0.5 MB: dist/rdp-hybrid/file-manager-20261107 and deployment-exp219-20261107."
+  },
+  "checks_before_publication": {
+    "secrets": "Every blob added since the exp216 record, no credentials. The only password hits are a harness that makes a random one at run time. Release assets: 1497 files, no matches. Values were not printed.",
+    "source_against_build": "1398 of 1400 tracked files identical on the build host; the other two could not be read by the unprivileged check, as for exp216. All 30 guest library inputs match.",
+    "ctest": "40 of 41 in the isolated environment after two test fixes; qsm_desktop_metadata_wire needs a pty and passes outside it. Every Python test file and 16 node tests pass on the controller."
+  },
+  "checks_after_publication": {
+    "release_download": "All 20 assets identical to the uploaded files; signature and checksums verified with the public key.",
+    "live_apt": "verify.py against the live URL: signed update, all 85 packages downloaded and matched, tampered metadata and a changed deb rejected. The 7 indexed exp223 debs match the signed release checksums; exp216 stays indexed.",
+    "live_simulation": "On a copy of the package state of 192.168.64.20 with exp216, the documented update upgrades all four host packages and removes nothing, including when the profiles are not named. On its present state with exp223, the documented rollback downgrades all four."
+  },
+  "findings": [
+    "test_qsm_desktop_wire.py still expected the old 32768-byte chunk. CTest hid it, as that gate fails without a pty in the isolated environment. Fixed in the release commit.",
+    "The non-UTF-8 name test cannot create its file on ZFS with utf8only=on, which the build host uses. It skips there now. The helper itself is unchanged.",
+    "The install guides still called Capture keyboard a text button. Corrected."
+  ],
+  "not_done": {
+    "forum": "Not posted. The text is ready in upstream/forum-stock4.14-exp223-update-2026-11-07.txt; the agent has no forum session. The topic had 12 posts, the latest the exp216 text of November 6, and no new external report.",
+    "other_nodes": "172.16.16.17 and 10.30.0.240 not updated; not requested.",
+    "other_channels": "pve-devel, Bugzilla and Debian not updated; not requested.",
+    "live_apt_update": "No node has updated through the repository. 192.168.64.20 runs the same debs, installed from files.",
+    "guests": "Guests keep exp219, which is the same guest-side source. VM 104 and the other containers have no file manager support yet."
+  }
+}

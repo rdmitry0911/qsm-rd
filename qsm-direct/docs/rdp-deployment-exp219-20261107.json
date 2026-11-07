@@ -1,6 +1,6 @@
 {
  "date": "2026-11-07",
- "status": "Installed on one node and one test guest at the user's request, for trying by hand. Not published.",
+ "status": "Installed on one node and one test guest at the user's request, for trying by hand. Exp223 was published later, see rdp-publication-exp223-20261107.json.",
  "node": "192.168.64.20",
  "version": "0.4.0+stock4.14~exp219",
  "source_commit": "a4d9f99",

@@ -286,7 +286,7 @@
   "pending": [
    "See remaining and open_findings in docs/rdp-pixel-history-20261105.json"
   ],
-  "production_node_20": "0.4.0+stock4.14~exp216 since 2026-11-06, with rollback material on the node. See docs/rdp-deployment-exp216-20261106.json.",
+  "production_node_20": "0.4.0+stock4.14~exp223 since 2026-11-07, the published version, with rollback material for exp216 on the node. See docs/rdp-deployment-exp219-20261107.json, node_update_exp223.",
   "video_scheduling_changed": true,
   "rollout_gate": "Keep the working production baseline until automatic bandwidth transitions and mixed-content acceptance confirm bounded text/video latency, exact static pixels and video quality; weak pilot booleans and unit checks alone are insufficient",
   "evidence_directories": [
@@ -576,12 +576,14 @@
   "decoded_presentation": "docs/rdp-decoded-presentation-20261029.json",
   "decoded_queue": "docs/rdp-decoded-queue-20261029.json",
   "handoff": "docs/rdp-handoff-20261029.json",
-  "work_state": "Exp216 published on 2026-11-06: GitHub release and signed APT, exact UI on by default, installed on 192.168.64.20. Forum post waits for the user. Mac figures are exp209.",
+  "work_state": "Exp223 published on 2026-11-07: GitHub release and signed APT, with the two-pane file manager. Installed on 192.168.64.20; guests CT 105, CT 108 and VM 103 run exp219, the same guest-side source. Forum post waits for the user.",
   "virgl_hardware_decode": "docs/rdp-virgl-hardware-decode-20261105.json",
   "narrow_path": "docs/rdp-narrow-path-20261105.json",
   "hevc_receiver": "docs/rdp-hevc-receiver-20261105.json",
   "remaining_after_20261105": [
-   "Post the prepared text in forum topic 187042, which needs the user's forum account",
+   "Post the prepared exp223 text in forum topic 187042, which needs the user's forum account",
+   "Recreate the LXC 108 fixture before the next ui-bench or clip run",
+   "File manager: resume of an interrupted file, 10 Gbit/s (a worker in the browser), a lossy path, a VM through a real PVE console in an automated run, Russian texts",
    "Other nodes, on the user's word",
    "Default-on on a Mac, phone or tablet as an automated run",
    "A/V on a VM guest with an audio device",
@@ -596,10 +598,10 @@
   "av_sync": "docs/rdp-av-sync-20261105.json",
   "full_screen_narrow": "docs/rdp-full-screen-narrow-20261105.json",
   "exact_ui_default_decision": "User decision 2026-11-05: exact UI and video regions are on by default; the user's checkbox and node settings can turn them off.",
-  "deployment": "docs/rdp-deployment-exp216-20261106.json",
-  "publication": "docs/rdp-publication-exp216-20261106.json",
+  "deployment": "docs/rdp-deployment-exp219-20261107.json",
+  "publication": "docs/rdp-publication-exp223-20261107.json",
   "file_manager": {
-   "state": "Installed on 192.168.64.20 and CT 108 as exp219 for trying by hand; not published.",
+   "state": "Published as exp223 on 2026-11-07. See docs/rdp-publication-exp223-20261107.json.",
    "records": [
     "docs/file-manager-websocket-qualification-20261107.json",
     "docs/rdp-deployment-exp219-20261107.json"

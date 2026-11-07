@@ -1,0 +1,18 @@
+=== live: documented update from exp216, profiles not named
+  4 upgraded, 0 newly installed, 0 to remove and 201 not upgraded.
+  Inst qsm-pve-direct-gateway [0.4.0+stock4.14~exp216] (0.4.0+stock4.14~exp223 QSM Direct preview:trix
+  Inst qsm-pve-direct-standalone [0.4.0+stock4.14~exp216] (0.4.0+stock4.14~exp223 QSM Direct preview:t
+  Inst qsm-pve-direct [0.4.0+stock4.14~exp216] (0.4.0+stock4.14~exp223 QSM Direct preview:trixie [amd6
+  Inst qsm-pve-direct-lxc [0.4.0+stock4.14~exp216] (0.4.0+stock4.14~exp223 QSM Direct preview:trixie [
+=== live: plain apt upgrade from exp216
+  200 upgraded, 0 newly installed, 0 to remove and 5 not upgraded.
+  Inst qsm-pve-direct-gateway [0.4.0+stock4.14~exp216] (0.4.0+stock4.14~exp223 QSM Direct preview:trix
+  Inst qsm-pve-direct-standalone [0.4.0+stock4.14~exp216] (0.4.0+stock4.14~exp223 QSM Direct preview:t
+  Inst qsm-pve-direct [0.4.0+stock4.14~exp216] (0.4.0+stock4.14~exp223 QSM Direct preview:trixie [amd6
+  Inst qsm-pve-direct-lxc [0.4.0+stock4.14~exp216] (0.4.0+stock4.14~exp223 QSM Direct preview:trixie [
+=== live: documented rollback from exp223, all four named
+  0 upgraded, 0 newly installed, 4 downgraded, 0 to remove and 201 not upgraded.
+  Inst qsm-pve-direct-gateway [0.4.0+stock4.14~exp223] (0.4.0+stock4.14~exp216 QSM Direct preview:trix
+  Inst qsm-pve-direct-standalone [0.4.0+stock4.14~exp223] (0.4.0+stock4.14~exp216 QSM Direct preview:t
+  Inst qsm-pve-direct-lxc [0.4.0+stock4.14~exp223] (0.4.0+stock4.14~exp216 QSM Direct preview:trixie [
+  Inst qsm-pve-direct [0.4.0+stock4.14~exp223] (0.4.0+stock4.14~exp216 QSM Direct preview:trixie [amd6
