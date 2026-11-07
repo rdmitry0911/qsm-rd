@@ -144,5 +144,22 @@
   "restarted": "qsm-pve-direct-terminal and qsm-pve-direct-signal after the user closed the console of VM 103. Its idle media worker ended with them.",
   "checked": "Before the install, through a private stand on the real PVE: the console's buttons are of one size, and the Firefox hint shows in paragraphs. Not run through the installed services.",
   "rollback": "/root/qsm-exp222-install-20261107/rollback holds exp216"
+ },
+ "node_update_exp223": {
+  "why": "In Chrome no folder could be chosen: Chrome refuses home, Desktop, Documents and Downloads themselves and system folders, which are the folders one tries first.",
+  "source_commit": "0d2d926",
+  "installed": "The four node packages 0.4.0+stock4.14~exp223. The guests keep exp219.",
+  "packages_sha256": {
+   "qsm-console-guest_0.4.0+stock4.14~exp223_all.deb": "112781f58491ce8aa3d4a61bef3e16c34c2c2df368cda394ad1442aab5a4840c",
+   "qsm-desktop-agent_0.4.0+stock4.14~exp223_amd64.deb": "74477f72c66852625be906721bf4031060db3bc22132ff62aedb1c1542daf156",
+   "qsm-pve-direct-gateway_0.4.0+stock4.14~exp223_all.deb": "94b4270a747901c722f280545d38d83d1d5db2cd5c4b0e0d6173c6cda90b6442",
+   "qsm-pve-direct-lxc_0.4.0+stock4.14~exp223_amd64.deb": "6cf9072bcfe59637048546992f2d5adf87c6cda144c19e4ba75a517e29052cd4",
+   "qsm-pve-direct-standalone_0.4.0+stock4.14~exp223_all.deb": "0e71b7adbcfc174030f3ffd0d8cd34444b015f2020724d458bb539c703a56e21",
+   "qsm-pve-direct_0.4.0+stock4.14~exp223_amd64.deb": "ec09dbb60aa3ee476e35a14cd6a2f10c6984a751c5a1ec74068123790428ada1",
+   "qsm-qt-input-geometry_0.4.0+stock4.14~exp223_amd64.deb": "12fa36e43b7c305ca3934a0084ddff83502abce92b230ac83a8afe593785541e"
+  },
+  "restarted": "qsm-pve-direct-terminal and qsm-pve-direct-signal, with no console open",
+  "checked": "Chromium scenarios on the local stand. Chrome's refusal itself happens in its own dialog, which automation cannot drive.",
+  "rollback": "/root/qsm-exp223-install-20261107/rollback holds exp216"
  }
 }
