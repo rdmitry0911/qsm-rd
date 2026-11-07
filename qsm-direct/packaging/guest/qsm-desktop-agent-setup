@@ -2,14 +2,25 @@
 set -eu
 
 usage() {
-    echo "usage: qsm-desktop-agent-setup USER" >&2
+    echo "usage: qsm-desktop-agent-setup [--no-files] USER" >&2
     exit 2
 }
 
+# The file manager helper is on unless --no-files says otherwise. The package's
+# postinst passes --keep-files: an upgrade must not change that choice.
+files=enable
+if [ "$#" = 2 ]; then
+    case "$1" in
+        --no-files) files=remove ;;
+        --keep-files) files=keep ;;
+        *) usage ;;
+    esac
+    shift
+fi
 [ "$#" = 1 ] || usage
 user=$1
 case "$user" in
-    *[!A-Za-z0-9._-]*|'') usage ;;
+    *[!A-Za-z0-9._-]*|''|-*) usage ;;
 esac
 id "$user" >/dev/null 2>&1 || { echo "qsm desktop setup: user does not exist" >&2; exit 1; }
 usermod -a -G qsm-desktop "$user"
@@ -53,6 +64,15 @@ metadata_wants="$user_home/.config/systemd/user/graphical-session.target.wants"
 install -d -m 0700 -o "$user" -g "$user" "$metadata_wants"
 ln -sfn /usr/lib/systemd/user/qsm-desktop-metadata.service "$metadata_wants/qsm-desktop-metadata.service"
 chown -h "$user:$user" "$metadata_wants/qsm-desktop-metadata.service"
+case "$files" in
+    enable)
+        ln -sfn /usr/lib/systemd/user/qsm-desktop-files.service "$metadata_wants/qsm-desktop-files.service"
+        chown -h "$user:$user" "$metadata_wants/qsm-desktop-files.service"
+        ;;
+    remove)
+        rm -f -- "$metadata_wants/qsm-desktop-files.service"
+        ;;
+esac
 # The template has a portable /home/USER default.  Keep arbitrary local
 # account homes confined to their one writable exchange directory instead of
 # accidentally using systemd's %%h (PID 1's /root).

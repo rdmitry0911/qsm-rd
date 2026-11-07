@@ -31,6 +31,7 @@ for script in qsm-login qsm-greeter qsm-session-launch qsm-seat-keeper qsm-conso
 done
 install -m 0644 "$LXC_DIR/qsm_native_keyboard.py" "$lib/qsm_native_keyboard.py"
 install -m 0644 "$ROOT_DIR/guest/qsm_desktop_metadata.py" "$lib/qsm_desktop_metadata.py"
+install -m 0644 "$ROOT_DIR/guest/qsm_desktop_files.py" "$lib/qsm_desktop_files.py"
 install -m 0644 "$ROOT_DIR/guest/qsm_qt_input_geometry.py" "$lib/qsm_qt_input_geometry.py"
 install -m 0644 "$ROOT_DIR/guest/qsm_kwin_metadata.js" "$lib/qsm_kwin_metadata.js"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_desktop_metadata.py" "$lib/qsm_desktop_metadata_schema.py"

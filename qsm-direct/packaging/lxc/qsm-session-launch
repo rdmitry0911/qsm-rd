@@ -49,9 +49,12 @@ systemctl --user unset-environment DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_SESSIO
 systemctl --user set-environment QSM_OUTER_DISPLAY="$QSM_OUTER_DISPLAY"
 
 export XDG_CURRENT_DESKTOP=KDE XDG_SESSION_DESKTOP=KDE
-# The session's clipboard, bridged to the browser console (via Klipper).
+# The session's clipboard, bridged to the browser console (via Klipper), and
+# its files for the console's file manager. Both listen in the directory
+# qsm-login created for this session and end with the session's unit.
 if [ -n "${QSM_CLIPBOARD_SOCKET:-}" ]; then
     /usr/bin/python3 /usr/lib/qsm-console/qsm-clipboard-agent &
+    /usr/bin/python3 /usr/lib/qsm-console/qsm_desktop_files.py --listen "${QSM_CLIPBOARD_SOCKET%/*}/files.sock" &
 fi
 case "$type" in
 wayland)

@@ -264,10 +264,20 @@ if(BUILD_TESTING)
                 -v
         )
         set_tests_properties(qsm_direct_guest_channel PROPERTIES TIMEOUT 20)
+        add_test(
+            NAME qsm_file_session
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_file_session.py
+        )
+        set_tests_properties(qsm_file_session PROPERTIES TIMEOUT 90)
         add_test(NAME qsm_desktop_metadata
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_qsm_desktop_metadata.py -v)
         set_tests_properties(qsm_desktop_metadata PROPERTIES TIMEOUT 20)
+        add_test(NAME qsm_desktop_files
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_qsm_desktop_files.py -v)
+        set_tests_properties(qsm_desktop_files PROPERTIES TIMEOUT 240)
         add_test(NAME qsm_desktop_effects
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/direct_guest/test_desktop_effects.py -v)
@@ -344,7 +354,7 @@ if(BUILD_TESTING)
                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_direct_console_overlay.mjs
             )
             set_tests_properties(qsm_direct_pve_console_overlay PROPERTIES TIMEOUT 20)
-            foreach(browser_test exact_ui decoded_presentation local_cursor receiver_playout video_presentation video_received pointer_pacing touch_gestures keyboard_state keyboard_capture mouse_state host_shortcuts)
+            foreach(browser_test file_manager exact_ui decoded_presentation local_cursor receiver_playout video_presentation video_received pointer_pacing touch_gestures keyboard_state keyboard_capture mouse_state host_shortcuts)
                 add_test(NAME qsm_${browser_test}
                     COMMAND ${QSM_DIRECT_NODE_EXECUTABLE}
                         ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_${browser_test}.mjs)

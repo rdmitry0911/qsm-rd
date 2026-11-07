@@ -1,0 +1,15 @@
+[Unit]
+Description=QSM Desktop Agent file manager helper
+After=graphical-session-pre.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/lib/qsm-desktop-agent/qsm_desktop_files.py --listen %h/.local/share/qsm-desktop-agent/files.sock
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=%t/bus
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=graphical-session.target

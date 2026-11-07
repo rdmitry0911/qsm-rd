@@ -49,6 +49,8 @@ from .qsm_direct_endpoint import CONFIG_PATH, SignalEndpoint, read_endpoint
 
 PROTOCOL_VERSION = 1
 PVE_OPERATION = "pve_acl_webrtc"
+FILES_OPERATION = "pve_acl_files"
+_FILE_TOKEN = re.compile(r"\A[0-9a-f]{32}\Z")
 MAX_BODY_BYTES = 128 * 1024
 MAX_TICKET_BYTES = 8192
 REQUEST_TIMEOUT_SECONDS = 30.0
@@ -58,7 +60,7 @@ _USER = re.compile(r"\A[^\s@/:\\\x00-\x1f]{1,64}@[A-Za-z0-9][A-Za-z0-9._-]{0,63}
 _CODEC = re.compile(r"\A(?:auto|h264|hevc)\Z")
 _ENCODER = re.compile(r"\A(?:auto|hardware|software)\Z")
 _ROUTE = re.compile(
-    r"\A/nodes/(?P<node>[^/]+)/(?P<kind>qemu|lxc)/(?P<vmid>[0-9]+)/(?P<action>qsm-direct|qsm-direct-settings|qsm-direct-ice)\Z")
+    r"\A/nodes/(?P<node>[^/]+)/(?P<kind>qemu|lxc)/(?P<vmid>[0-9]+)/(?P<action>qsm-direct|qsm-direct-settings|qsm-direct-ice|qsm-direct-files)\Z")
 
 
 class SignalError(Exception):
@@ -129,11 +131,20 @@ class TerminalClient:
 
     def create_transport(self, node: str, vmid: int, subject: str, sdp: str,
                          width: int, height: int, fps: int) -> dict[str, str]:
-        request = {
+        return self._request({
             "version": PROTOCOL_VERSION, "op": PVE_OPERATION, "node": node, "vmid": vmid,
             "subject": subject, "sdp": sdp, "sdp_type": "offer",
             "width": width, "height": height, "fps": fps,
-        }
+        })
+
+    def create_files(self, node: str, vmid: int, subject: str, rights: str, token: str,
+                     sdp: str) -> dict[str, str]:
+        return self._request({
+            "version": PROTOCOL_VERSION, "op": FILES_OPERATION, "node": node, "vmid": vmid,
+            "subject": subject, "rights": rights, "token": token, "sdp": sdp, "sdp_type": "offer",
+        })
+
+    def _request(self, request: dict[str, Any]) -> dict[str, str]:
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
                 connection.settimeout(REQUEST_TIMEOUT_SECONDS)
@@ -375,6 +386,28 @@ def handle_request(config: SignalConfig, method: str, path: str,
             raise SignalError(400, "invalid request")
         result = config.terminal.create_transport(node, vmid, subject, sdp, width, height, fps)
         return {"data": {"type": result["type"], "sdp": result["sdp"]}}
+
+    if action == "qsm-direct-files" and method == "POST":
+        subject = config.authority.authorize(username, ticket, vmid, "VM.Console")
+        try:
+            config.authority.authorize(username, ticket, vmid, "VM.GuestAgent.FileRead")
+        except SignalError as error:
+            if error.status == 401:
+                raise SignalError(403, "file access is not permitted") from error
+            raise
+        try:
+            config.authority.authorize(username, ticket, vmid, "VM.GuestAgent.FileWrite")
+            rights = "rw"
+        except SignalError as error:
+            if error.status != 401:
+                raise
+            rights = "r"
+        sdp, token = body.get("sdp"), body.get("token")
+        if (not isinstance(sdp, str) or not sdp.isascii() or not 1 <= len(sdp) <= MAX_BODY_BYTES or
+                not isinstance(token, str) or not _FILE_TOKEN.fullmatch(token)):
+            raise SignalError(400, "invalid request")
+        result = config.terminal.create_files(node, vmid, subject, rights, token, sdp)
+        return {"data": {"type": result["type"], "sdp": result["sdp"], "rights": rights}}
 
     if action == "qsm-direct-settings" and method == "GET":
         config.authority.authorize(username, ticket, vmid, "VM.Console")

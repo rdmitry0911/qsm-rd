@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -87,6 +90,97 @@ class QsmDesktopPackageTests(unittest.TestCase):
         watcher = (ROOT / "guest/qsf_state_watcher.c").read_text(encoding="utf-8")
         self.assertIn('inotify_init1(IN_CLOEXEC)', watcher)
         self.assertIn('IN_MOVED_TO', watcher)
+
+    def test_package_installs_the_file_helper_and_its_unit(self) -> None:
+        build = (ROOT / "packaging/guest/build-qsm-desktop-agent-deb.sh").read_text(encoding="utf-8")
+        self.assertIn('"$ROOT_DIR/guest/qsm_desktop_files.py" "$package_root/qsm_desktop_files.py"', build)
+        self.assertIn('packaging/guest/qsm-desktop-files.service" "$stage_root/usr/lib/systemd/user/qsm-desktop-files.service"', build)
+
+    def test_file_helper_unit_runs_in_the_session_with_normal_file_modes(self) -> None:
+        unit = (ROOT / "packaging/guest/qsm-desktop-files.service").read_text(encoding="utf-8")
+        self.assertIn("PartOf=graphical-session.target", unit)
+        self.assertIn("WantedBy=graphical-session.target", unit)
+        self.assertIn("NoNewPrivileges=yes", unit)
+        self.assertNotIn("UMask", unit)
+        self.assertIn("/usr/lib/qsm-desktop-agent/qsm_desktop_files.py --listen %h/.local/share/qsm-desktop-agent/files.sock", unit)
+
+    def test_readme_is_honest_about_the_file_helper(self) -> None:
+        readme = (ROOT / "packaging/guest/README.qsm-desktop-agent").read_text(encoding="utf-8")
+        self.assertNotIn("never exposes", readme.replace("\n", " "))
+        self.assertIn("qsm-desktop-files.service", readme)
+        self.assertIn("--no-files", readme)
+
+    def test_package_upgrades_do_not_change_the_file_helper_choice(self) -> None:
+        build = (ROOT / "packaging/guest/build-qsm-desktop-agent-deb.sh").read_text(encoding="utf-8")
+        postinst = build[build.index('cat > "$stage_root/DEBIAN/postinst"'):build.index('chmod 0755 "$stage_root/DEBIAN/postinst"')]
+        calls = [line.strip() for line in postinst.splitlines() if "/usr/bin/qsm-desktop-agent-setup" in line]
+        self.assertEqual(len(calls), 2)
+        for call in calls:
+            self.assertIn("--keep-files", call)
+        self.assertNotIn("qsm-desktop-files", postinst)
+
+    def run_setup(self, home: Path, *arguments: str) -> subprocess.CompletedProcess:
+        """The real script, with its privileged commands and /etc path replaced."""
+        base = home.parent
+        (base / "etc").mkdir(exist_ok=True)
+        tools = base / "tools"
+        tools.mkdir(exist_ok=True)
+        stubs = {
+            "id": "exit 0",
+            "usermod": "exit 0",
+            "chown": "exit 0",
+            "systemctl": "exit 0",
+            "getent": f'echo "dima:x:1000:1000::{home}:/bin/sh"',
+            # Only -d is used: create the last argument, ignoring owner and mode.
+            "install": 'for last; do :; done; exec mkdir -p "$last"',
+        }
+        for name, body in stubs.items():
+            (tools / name).write_text(f"#!/bin/sh\n{body}\n")
+            os.chmod(tools / name, 0o755)
+        script = (ROOT / "packaging/guest/qsm-desktop-agent-setup").read_text(encoding="utf-8")
+        copy = base / "setup"
+        copy.write_text(script.replace("/etc/systemd/system", str(base / "etc")))
+        return subprocess.run(["/bin/sh", str(copy), *arguments], capture_output=True, text=True, timeout=30,
+                              env={**os.environ, "PATH": f"{tools}:{os.environ['PATH']}"})
+
+    def test_setup_enables_removes_and_keeps_the_file_helper_link(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / "home"
+            home.mkdir()
+            wants = home / ".config/systemd/user/graphical-session.target.wants"
+            link = wants / "qsm-desktop-files.service"
+            metadata = wants / "qsm-desktop-metadata.service"
+
+            # A plain upgrade of a configured user must not turn the helper on.
+            self.assertEqual(self.run_setup(home, "--keep-files", "dima").returncode, 0)
+            self.assertTrue(metadata.is_symlink())
+            self.assertFalse(link.is_symlink())
+
+            self.assertEqual(self.run_setup(home, "dima").returncode, 0)
+            self.assertEqual(os.readlink(link), "/usr/lib/systemd/user/qsm-desktop-files.service")
+
+            # Nor change it once an administrator has turned it on...
+            self.assertEqual(self.run_setup(home, "--keep-files", "dima").returncode, 0)
+            self.assertTrue(link.is_symlink())
+
+            self.assertEqual(self.run_setup(home, "--no-files", "dima").returncode, 0)
+            self.assertFalse(link.is_symlink())
+            self.assertTrue(metadata.is_symlink())
+            self.assertEqual(self.run_setup(home, "--no-files", "dima").returncode, 0)
+
+            # ... or off.
+            self.assertEqual(self.run_setup(home, "--keep-files", "dima").returncode, 0)
+            self.assertFalse(link.is_symlink())
+
+    def test_setup_rejects_bad_arguments(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary) / "home"
+            home.mkdir()
+            for arguments in ((), ("--no-files",), ("--keep-files",), ("--nonsense", "dima"), ("--no-files", "a b"),
+                              ("--no-files", "--keep-files"), ("--no-files", "dima", "extra"), ("dima", "--no-files")):
+                with self.subTest(arguments=arguments):
+                    self.assertEqual(self.run_setup(home, *arguments).returncode, 2)
+            self.assertFalse((home / ".config").exists())
 
 
 if __name__ == "__main__":

@@ -11,10 +11,19 @@
 #define _POSIX_C_SOURCE 200809L
 
 /* The retained QSF test endpoint has a constrained exchange-folder protocol.
- * qsm-desktop-agent is compiled clipboard-only: its browser transport has no
- * Files UI or file API, so the binary must not expose those commands either. */
+ * qsm-desktop-agent is compiled clipboard-only: it has no file API, so the
+ * binary must not expose those commands. The file manager's FS lines only pass
+ * through it, unparsed, to the helper in the logged-in user's session
+ * (guest/qsm_desktop_files.py); this binary touches no file on their behalf. */
 #ifndef QSM_DESKTOP_CLIPBOARD_ONLY
 #define QSM_DESKTOP_CLIPBOARD_ONLY 0
+#endif
+
+/* macOS guests have no file manager and keep rejecting FS_CAPS. */
+#if defined(__APPLE__)
+#define QSM_FILE_RELAY 0
+#else
+#define QSM_FILE_RELAY 1
 #endif
 
 #include <ctype.h>
@@ -40,6 +49,10 @@ int qsm_macos_clipboard_write(const uint8_t *data, size_t size);
 #else
 #include <sys/inotify.h>
 #endif
+#if QSM_FILE_RELAY
+#include <sys/socket.h>
+#include <sys/un.h>
+#endif
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
@@ -64,6 +77,15 @@ enum {
    * virtio port after a short bounded pause instead of treating a terminal
    * worker restart as a guest shutdown. */
   agent_reconnect_pause_ns = 100L * 1000L * 1000L,
+  port_read_bytes = 64 * 1024,
+#if QSM_FILE_RELAY
+  /* One frame of at most 64 KiB in base64, plus the short FS prefix. */
+  max_file_line_bytes = 128 * 1024,
+  /* Below the host's 5 s clipboard request timeout, which would otherwise
+   * drop the whole channel when a request queues behind a stuck helper. */
+  file_helper_send_timeout_ms = 2000,
+  file_traffic_check_interval_ms = 50,
+#endif
 };
 
 /* A generation makes a compositor acknowledgement unambiguously belong to
@@ -78,8 +100,21 @@ struct connection_profile {
   const char *codec;
 };
 
+#if QSM_FILE_RELAY
+struct file_relay {
+  int fd;
+  char *partial_line;
+  size_t partial_size;
+  bool traffic;
+  struct timespec last_checks;
+};
+#endif
+
 struct agent_state {
   int fd;
+#if QSM_FILE_RELAY
+  struct file_relay files;
+#endif
   char state_dir[512];
   char clipboard_path[640];
   char clipboard_generation_path[640];
@@ -1197,8 +1232,202 @@ static void handle_command(struct agent_state *state, char *line) {
   write_line(state->fd, "ERR ", "UNKNOWN_COMMAND");
 }
 
+#if QSM_FILE_RELAY
+static void file_relay_close(struct agent_state *state) {
+  if (state->files.fd >= 0) {
+    close(state->files.fd);
+    state->files.fd = -1;
+  }
+  free(state->files.partial_line);
+  state->files.partial_line = NULL;
+  state->files.partial_size = 0U;
+}
+
+static void file_relay_lost(struct agent_state *state) {
+  file_relay_close(state);
+  write_line(state->fd, "FS * C ", "gone");
+}
+
+static bool file_relay_connect(struct agent_state *state) {
+  struct sockaddr_un address;
+  memset(&address, 0, sizeof(address));
+  address.sun_family = AF_UNIX;
+  const int length = snprintf(address.sun_path, sizeof(address.sun_path), "%s/files.sock", state->state_dir);
+  if (length < 0 || (size_t) length >= sizeof(address.sun_path)) {
+    return false;
+  }
+  const int helper = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+  if (helper < 0) {
+    return false;
+  }
+  char *partial_line = malloc(max_file_line_bytes + 1U);
+  if (partial_line == NULL || connect(helper, (const struct sockaddr *) &address, sizeof(address)) != 0) {
+    free(partial_line);
+    close(helper);
+    return false;
+  }
+  state->files.fd = helper;
+  state->files.partial_line = partial_line;
+  state->files.partial_size = 0U;
+  return true;
+}
+
+static long long monotonic_ms(void) {
+  struct timespec now;
+  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+    return 0LL;
+  }
+  return (long long) now.tv_sec * 1000LL + (long long) now.tv_nsec / 1000000LL;
+}
+
+/* One deadline for the whole line: the helper reads continuously, so a socket
+ * that stays full this long belongs to a stuck helper. */
+static bool file_relay_send(const struct agent_state *state, const char *data, size_t size) {
+  const long long deadline = monotonic_ms() + file_helper_send_timeout_ms;
+  size_t offset = 0U;
+  while (offset < size) {
+    const ssize_t amount = send(state->files.fd, data + offset, size - offset, MSG_NOSIGNAL);
+    if (amount > 0) {
+      offset += (size_t) amount;
+      continue;
+    }
+    if (amount < 0 && errno == EINTR) {
+      continue;
+    }
+    if (amount >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+      return false;
+    }
+    const long long remaining = deadline - monotonic_ms();
+    if (remaining <= 0LL) {
+      return false;
+    }
+    struct pollfd waiter = {.fd = state->files.fd, .events = POLLOUT, .revents = 0};
+    if (poll(&waiter, 1U, (int) remaining) < 0 && errno != EINTR) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/* The agent reads only the session id, and only to answer for it when no
+ * helper can. The rest of the line is the helper's business. */
+static size_t file_session_id_length(const char *id, size_t available) {
+  size_t length = 0U;
+  while (length < available && length < 16U &&
+         ((id[length] >= '0' && id[length] <= '9') || (id[length] >= 'a' && id[length] <= 'f'))) {
+    ++length;
+  }
+  return length < available && id[length] == ' ' ? length : 0U;
+}
+
+/* True if the line belonged to the file relay. The line buffer has room for
+ * the newline, which is put back for the helper. */
+static bool file_relay_handle_line(struct agent_state *state, char *line, size_t size) {
+  if (strcmp(line, "FS_CAPS") == 0) {
+    write_line(state->fd, "OK ", "FS_CAPS 1");
+    return true;
+  }
+  if (size < 3U || memcmp(line, "FS ", 3U) != 0) {
+    return false;
+  }
+  state->files.traffic = true;
+  /* A new host: sessions of an earlier one that this agent missed the end of must go. */
+  if (size == 6U && memcmp(line, "FS * C", 6U) == 0) {
+    file_relay_close(state);
+    return true;
+  }
+  const size_t id_length = file_session_id_length(line + 3U, size - 3U);
+  if (id_length == 0U) {
+    return true;
+  }
+  if (size > max_file_line_bytes) {
+    if (state->files.fd >= 0) {
+      file_relay_lost(state);
+    }
+    return true;
+  }
+  if (state->files.fd < 0 && !file_relay_connect(state)) {
+    char reply[48];
+    const int length = snprintf(reply, sizeof(reply), "FS %.*s C nohelper\n", (int) id_length, line + 3U);
+    if (length > 0 && (size_t) length < sizeof(reply)) {
+      (void) write_all(state->fd, reply, (size_t) length);
+    }
+    return true;
+  }
+  line[size] = '\n';
+  if (!file_relay_send(state, line, size + 1U)) {
+    file_relay_lost(state);
+  }
+  return true;
+}
+
+/* The helper greets every connection and could say anything; only its FS
+ * lines reach the host, each written whole by this single thread. */
+static void file_relay_read(struct agent_state *state) {
+  char buffer[port_read_bytes];
+  const ssize_t amount = recv(state->files.fd, buffer, sizeof(buffer), 0);
+  if (amount < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+    return;
+  }
+  if (amount <= 0) {
+    file_relay_lost(state);
+    return;
+  }
+  state->files.traffic = true;
+  const char *cursor = buffer;
+  size_t left = (size_t) amount;
+  while (left > 0U) {
+    const char *newline = memchr(cursor, '\n', left);
+    const size_t piece = newline != NULL ? (size_t) (newline - cursor) : left;
+    if (state->files.partial_size + piece > max_file_line_bytes) {
+      file_relay_lost(state);
+      return;
+    }
+    char *partial = state->files.partial_line;
+    memcpy(partial + state->files.partial_size, cursor, piece);
+    state->files.partial_size += piece;
+    if (newline == NULL) {
+      return;
+    }
+    if (state->files.partial_size >= 3U && memcmp(partial, "FS ", 3U) == 0) {
+      partial[state->files.partial_size] = '\n';
+      (void) write_all(state->fd, partial, state->files.partial_size + 1U);
+    }
+    state->files.partial_size = 0U;
+    cursor = newline + 1;
+    left -= piece + 1U;
+  }
+}
+
+/* Each iteration of the agent's loop stats the clipboard and may open the
+ * metadata file. File frames can make thousands of iterations a second, so
+ * only those are limited: an iteration without them, or one woken by a change
+ * in the state directory, runs the checks exactly as an idle agent does. */
+static bool periodic_checks_due(struct agent_state *state, bool state_changed) {
+  const bool traffic = state->files.traffic;
+  state->files.traffic = false;
+  if (!traffic || state_changed) {
+    return true;
+  }
+  struct timespec now;
+  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+    return true;
+  }
+  const long long elapsed_ms = ((long long) now.tv_sec - (long long) state->files.last_checks.tv_sec) * 1000LL +
+    ((long long) now.tv_nsec - (long long) state->files.last_checks.tv_nsec) / 1000000LL;
+  if (elapsed_ms < file_traffic_check_interval_ms) {
+    return false;
+  }
+  state->files.last_checks = now;
+  return true;
+}
+#endif /* QSM_FILE_RELAY */
+
 static int initialize_state(struct agent_state *state, const char *device, const char *state_dir) {
   memset(state, 0, sizeof(*state));
+#if QSM_FILE_RELAY
+  state->files.fd = -1;
+#endif
   if (strlen(state_dir) >= sizeof(state->state_dir) ||
       snprintf(state->clipboard_path, sizeof(state->clipboard_path), "%s/qsf-clipboard.txt", state_dir) >= (int) sizeof(state->clipboard_path) ||
       snprintf(state->clipboard_generation_path, sizeof(state->clipboard_generation_path), "%s/qsf-clipboard-generation", state_dir) >= (int) sizeof(state->clipboard_generation_path) ||
@@ -1316,11 +1545,16 @@ static bool serve_transport(struct agent_state *state) {
   const int metadata_watch = -1;
 #endif
   for (;;) {
-    struct pollfd descriptors[2] = {
+    struct pollfd descriptors[3] = {
       {.fd = state->fd, .events = POLLIN, .revents = 0},
       {.fd = metadata_watch, .events = POLLIN, .revents = 0},
+#if QSM_FILE_RELAY
+      {.fd = state->files.fd, .events = POLLIN, .revents = 0},
+#else
+      {.fd = -1, .events = 0, .revents = 0},
+#endif
     };
-    const int ready = poll(descriptors, 2U, 250);
+    const int ready = poll(descriptors, 3U, 250);
     if (ready < 0 && errno == EINTR) {
       continue;
     }
@@ -1328,7 +1562,7 @@ static bool serve_transport(struct agent_state *state) {
       break;
     }
     if (ready > 0 && (descriptors[0].revents & POLLIN) != 0) {
-      char buffer[4096];
+      char buffer[port_read_bytes];
       const ssize_t amount = read(state->fd, buffer, sizeof(buffer));
       if (amount <= 0) {
         break;
@@ -1336,7 +1570,12 @@ static bool serve_transport(struct agent_state *state) {
       for (ssize_t index = 0; index < amount; ++index) {
         if (buffer[index] == '\n') {
           line[line_size] = '\0';
-          handle_command(state, line);
+#if QSM_FILE_RELAY
+          if (!file_relay_handle_line(state, line, line_size))
+#endif
+          {
+            handle_command(state, line);
+          }
           line_size = 0;
         } else if (line_size < max_wire_bytes) {
           line[line_size++] = buffer[index];
@@ -1346,16 +1585,31 @@ static bool serve_transport(struct agent_state *state) {
         }
       }
     }
-#if !defined(__APPLE__)
+#if QSM_FILE_RELAY
+    /* Handling the port above may have dropped or replaced the helper. The
+     * socket does not block, so a stale event on a reused number is harmless. */
+    if (descriptors[2].revents != 0 && state->files.fd >= 0) {
+      file_relay_read(state);
+    }
+    bool state_changed = false;
     if ((descriptors[1].revents & POLLIN) != 0) {
       char events[4096];
       while (read(metadata_watch, events, sizeof(events)) > 0) {
       }
+      state_changed = true;
     }
-    emit_desktop(state, false);
-#endif
+    if (periodic_checks_due(state, state_changed)) {
+      emit_desktop(state, false);
+      poll_guest_clipboard(state);
+    }
+#else
     poll_guest_clipboard(state);
+#endif
   }
+#if QSM_FILE_RELAY
+  /* The host is gone: the helper ends these sessions when the socket closes. */
+  file_relay_close(state);
+#endif
   if (metadata_watch >= 0) {
     close(metadata_watch);
   }

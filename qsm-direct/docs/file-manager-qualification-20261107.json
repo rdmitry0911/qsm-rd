@@ -1,0 +1,192 @@
+{
+ "date": "2026-11-07",
+ "status": "qualified on owned stands only; nothing installed, committed or published",
+ "requirement": "A transfer takes all the bandwidth the console leaves free, and gives way to the console.",
+ "transfer_mbit_and_console_ms": {
+  "note": "Shaped TURN over TCP with the file manager closed, so the console in view. Console figures are medians: two unloaded baselines, then with a download, then with an upload. Transfer rates include the ramp at the start of each 99 s profile.",
+  "20M_15ms": {
+   "down": 13.6,
+   "up": 17.4,
+   "type": [
+    43.0,
+    45.7,
+    42.7,
+    43.7
+   ],
+   "click": [
+    44.8,
+    44.8,
+    45.0,
+    45.0
+   ],
+   "wheel_settled": [
+    68.5,
+    68.6,
+    67.7,
+    67.8
+   ],
+   "drag_lag": [
+    49.5,
+    41.9,
+    50.2,
+    50.1
+   ]
+  },
+  "2M_15ms": {
+   "down": 1.4,
+   "up": 1.7,
+   "type": [
+    51.5,
+    40.6,
+    52.2,
+    70.2
+   ],
+   "click": [
+    45.2,
+    44.8,
+    61.1,
+    61.4
+   ],
+   "wheel_settled": [
+    68.1,
+    68.0,
+    84.3,
+    84.5
+   ],
+   "drag_lag": [
+    47.8,
+    47.4,
+    50.3,
+    67.6
+   ]
+  },
+  "20M_100ms": {
+   "down": 13.8,
+   "up": 12.9,
+   "type": [
+    131.1,
+    127.4,
+    135.1,
+    133.2
+   ],
+   "click": [
+    128.2,
+    128.6,
+    128.7,
+    129.8
+   ],
+   "wheel_settled": [
+    151.0,
+    151.7,
+    151.0,
+    151.9
+   ],
+   "drag_lag": [
+    133.2,
+    133.5,
+    133.6,
+    133.6
+   ]
+  },
+  "2M_100ms": {
+   "down": 0.9,
+   "up": 1.6,
+   "type": [
+    125.2,
+    133.9,
+    138.5,
+    146.4
+   ],
+   "click": [
+    137.1,
+    128.5,
+    144.3,
+    145.2
+   ],
+   "wheel_settled": [
+    153.0,
+    151.1,
+    162.3,
+    167.6
+   ],
+   "drag_lag": [
+    133.4,
+    133.6,
+    133.7,
+    142.0
+   ]
+  },
+  "listing_a_folder_during_a_transfer_ms": "median about 34-52 at 15 ms, 118-130 at 100 ms; worst 1669 at 2 Mbit/s"
+ },
+ "clip_distinct_fps": {
+  "note": "Real 720p60 clip full screen. fast 20 Mbit/s, narrow 2 Mbit/s with 0.3% loss, recovered 20 Mbit/s.",
+  "baseline_a": {
+   "fast": 47.4,
+   "narrow": 43.2,
+   "recovered": 48.6,
+   "freeze_s": 1.54
+  },
+  "baseline_b": {
+   "fast": 46.8,
+   "narrow": 42.4,
+   "recovered": 45.1,
+   "freeze_s": 2.28
+  },
+  "with_download": {
+   "fast": 47.9,
+   "narrow": 42.0,
+   "recovered": 44.1,
+   "freeze_s": 2.98,
+   "file_mib_per_s": 0.52
+  },
+  "with_upload": {
+   "fast": 46.7,
+   "narrow": 41.2,
+   "recovered": 39.9,
+   "freeze_s": 2.94,
+   "file_mib_per_s": 1.02
+  },
+  "limit": "Recovered with an upload is below the baselines: the video target had reached 3602 of 8000 kbit/s by the end of that phase."
+ },
+ "fast_path_ceiling_mib_per_s": {
+  "note": "This is below the path, so here a transfer does not take all that is free. aiortc costs a core at about 12 MiB/s.",
+  "through_real_pve_and_turn_tcp_on_a_10_gbit_lan": "80 MiB with the file manager open: up median 6.2 (2.8-7.0, 40 runs), down median 4.5 (3.0-8.5, 35 runs)",
+  "direct_udp_on_loopback": "up 8.8, down 16.1 (64 MiB in Firefox through the spool 7.5)",
+  "real_vm_virtio_port": "out of the VM 10.1, into it 11.9"
+ },
+ "small_files_per_s": {
+  "direct": 1185,
+  "real_vm": 1184
+ },
+ "end_to_end": {
+  "chromium_and_firefox_direct_helper": "53 checks passed",
+  "chromium_real_agent_over_pty": "44 checks passed; one upload took 41.5 s for 64 MiB in a run sharing the machine with two others, unexplained, possibly a retry",
+  "real_vm_qemu_kvm_debian13_real_agent_virtio": "6 checks passed, with SHA-256 of 256 MiB both ways",
+  "real_pve_login_popup_turn_terminal_signal_lxc108": "all checks passed: private terminal and signal, installed services' PIDs unchanged, peer runs as nobody, a stopped peer is replaced and the file arrives whole 33 s later, closing the console removes the unfinished file"
+ },
+ "defects_found_by_these_runs": [
+  "PR_SET_PDEATHSIG followed the request thread and killed the peer at once",
+  "A first click re-created the rows, so a double click did nothing",
+  "A delete could act on a folder other than the one shown after a failed navigation",
+  "A finished refresh reset the selection to the first row, so Copy took another item",
+  "aiortc: a FORWARD-TSN discards received fragments of a large reliable message, which stops the ordered channel for good",
+  "aiortc: after a timeout the SCTP window stays at one packet under a paced sender",
+  "The rate controller collapsed in several different ways, each seen on a real path and not in the first model"
+ ],
+ "open": [
+  "The ordered channel stopped in 2 of 44 uploads of 80 MiB through TURN after the FORWARD-TSN fix, then in 0 of 32 with no change of cause in between. Stream sequence stuck, fragments held, cumulative TSN advancing. Cause not found. A watchdog replaces the connection and restarts the file.",
+  "No fast path yet, so a fast LAN is not filled.",
+  "A download takes less of a narrow path than an upload (0.9-1.4 against 1.6-1.7 of 2 Mbit/s).",
+  "On 2 Mbit/s a transfer costs the console about 10-20 ms."
+ ],
+ "not_covered": [
+  "A VM through a real PVE console with Display1. The VM runs covered the agent and virtio port with a stand-in for PVE.",
+  "A helper started by qsm-session-launch or the systemd unit in a real login, and qsm-desktop-agent-setup on a real guest. The helper was started by hand.",
+  "A real screen locker. Lock tests use a state file and stubbed busctl and loginctl.",
+  "A real folder picker dialog. Automation uses the origin private file system.",
+  "The embedded console frame. Only the popup ran.",
+  "A real PVE user without VM.GuestAgent.FileRead or FileWrite. Refusals are unit-tested only, because the node has only root@pam.",
+  "Firefox through PVE and TURN, a Mac, a phone, a tablet, macOS and Windows guests."
+ ],
+ "evidence": "dist/rdp-hybrid/file-manager-20261107"
+}

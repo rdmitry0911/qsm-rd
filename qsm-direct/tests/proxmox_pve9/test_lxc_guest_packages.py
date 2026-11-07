@@ -34,5 +34,14 @@ class GuestPackageTest(unittest.TestCase):
                 for call in ct.call_args_list:
                     self.assertNotIn('systemctl restart',call.args[1]);self.assertNotIn('systemctl stop',call.args[1])
 
+    def test_console_guest_carries_and_starts_the_file_helper(self):
+        build=(ROOT/'packaging/lxc/build-qsm-console-guest-deb.sh').read_text()
+        self.assertIn('"$ROOT_DIR/guest/qsm_desktop_files.py" "$lib/qsm_desktop_files.py"',build)
+        launch=(ROOT/'packaging/lxc/qsm-session-launch').read_text()
+        started=launch.index('--listen "${QSM_CLIPBOARD_SOCKET%/*}/files.sock" &')
+        self.assertIn('/usr/lib/qsm-console/qsm_desktop_files.py',launch)
+        self.assertLess(launch.index('if [ -n "${QSM_CLIPBOARD_SOCKET:-}" ]'),started)
+        self.assertLess(started,launch.index('case "$type" in'))
+
 
 if __name__=='__main__':unittest.main()

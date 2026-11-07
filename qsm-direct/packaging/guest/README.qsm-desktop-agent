@@ -15,9 +15,27 @@ This package is installed **inside a Linux VM**, not on Proxmox.
 
 The Desktop Agent complements the standard `qemu-guest-agent`; it handles
 the logged-in desktop's plain UTF-8 clipboard (up to 1 MiB) and optional
-desktop geometry. It never exposes
-the guest filesystem. `wl-clipboard` is required for the Wayland clipboard
+desktop geometry. `wl-clipboard` is required for the Wayland clipboard
 bridge; install it with `sudo apt install wl-clipboard`.
+
+The `qsm-desktop-files.service` user unit runs a helper for the console's file
+manager. It does expose the guest filesystem to the browser console, within
+these limits. It runs only inside the logged-in desktop session and with that
+user's permissions, so nothing is served before login and it reaches what that
+user can reach. While the session is locked it refuses new work; transfers
+already open finish. It learns of a lock from `org.freedesktop.ScreenSaver`,
+`org.gnome.ScreenSaver` or logind's LockedHint, so a screen locker that publishes
+none of these counts as no lock at all. It listens on a private socket, `files.sock` in the agent's
+state directory, which only that user can open. The virtio agent forwards to
+this socket and has no file access of its own, and no network port is opened.
+PVE decides who may use the file manager at all.
+
+`qsm-desktop-agent-setup USER` enables the helper from the next desktop login.
+To leave it off, or to turn it off again and remove the link:
+`sudo qsm-desktop-agent-setup --no-files USER`. A session that is already
+running keeps its helper until logout or
+`systemctl --user stop qsm-desktop-files`. A package upgrade does not enable
+the helper by itself and does not turn it off.
 
 On KDE Plasma Wayland, the bridge uses Klipper's user-session D-Bus interface
 and inotify notifications. It does not poll the Wayland clipboard while idle,

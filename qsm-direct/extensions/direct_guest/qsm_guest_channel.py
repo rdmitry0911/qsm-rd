@@ -10,6 +10,8 @@ from __future__ import annotations
 import base64
 import binascii
 import copy
+import re
+import select
 import socket
 import threading
 import time
@@ -26,6 +28,10 @@ MAX_AGENT_LINE = 4 * 1024 * 1024
 # console appear frozen for half a minute after Copy or Paste.
 REQUEST_TIMEOUT_SECONDS = 5.0
 DESKTOP_LEASE_SECONDS = 3.0
+# A file frame is 64 KiB at most, and a stalled guest must end the session
+# rather than hold a thread. The socket's own 1 s timeout suits short requests.
+FILE_SEND_TIMEOUT_SECONDS = 10.0
+_FILE_SESSION = re.compile(rb"\A[0-9a-f]{1,16}\Z")
 
 
 class GuestChannelError(RuntimeError):
@@ -71,13 +77,18 @@ class QsmGuestChannel:
 
     def __init__(self, path: Path | None = None, *,
                  connector: Callable[[float], socket.socket] | None = None,
-                 keep_connected: bool = False) -> None:
+                 keep_connected: bool = False, files: bool | None = None) -> None:
         """``path``: the QEMU chardev socket of the QSM desktop agent.
 
         ``connector`` instead returns a connected stream speaking the same
         protocol (raising OSError while none is available) -- the media
         worker's bridge to QEMU's D-Bus clipboard, or the clipboard agent in
         a container's console session.
+
+        ``files`` says whether the peer may understand FS lines. It defaults
+        to true only for the agent's chardev: the D-Bus clipboard bridge has no
+        reply to an unknown command, and timing out there would end a one-shot
+        connection for good.
         """
         if (path is None) == (connector is None):
             raise ValueError("exactly one of path or connector is required")
@@ -87,6 +98,10 @@ class QsmGuestChannel:
         self._stopped = threading.Event()
         self._condition = threading.Condition()
         self._request_lock = threading.Lock()
+        self._write_lock = threading.Lock()
+        self._files_allowed = path is not None if files is None else files
+        self._files_reset_generation = -1
+        self._file_listeners: dict[bytes, Callable[[str, bytes], None]] = {}
         self._socket: socket.socket | None = None
         self._reader: threading.Thread | None = None
         self._generation = 0
@@ -248,6 +263,7 @@ class QsmGuestChannel:
             self._listeners.clear()
             self._desktop_listeners.clear()
             self._condition.notify_all()
+        self._end_file_sessions()
         if channel is not None:
             try:
                 channel.shutdown(socket.SHUT_RDWR)
@@ -272,6 +288,7 @@ class QsmGuestChannel:
         except OSError:
             pass
         self._invalidate_desktop()
+        self._end_file_sessions()
         self._keeper_wake.set()
 
     def _publish_clipboard(self, encoded: str) -> None:
@@ -307,6 +324,9 @@ class QsmGuestChannel:
                 while b"\n" in buffered:
                     raw, _, trailing = buffered.partition(b"\n")
                     buffered = bytearray(trailing)
+                    if raw.startswith(b"FS "):
+                        self._publish_file_line(bytes(raw))
+                        continue
                     try:
                         line = raw.decode("ascii")
                     except UnicodeDecodeError:
@@ -326,6 +346,7 @@ class QsmGuestChannel:
                             self._desktop_probe_generation = -1
                             self._desktop_enabled = False
                         self._invalidate_desktop(generation)
+                        self._end_file_sessions()
                         self._keeper_wake.set()
                         continue
                     if line.startswith("EVENT_CLIP "):
@@ -397,7 +418,7 @@ class QsmGuestChannel:
         try:
             channel, generation = self._connect(deadline)
             try:
-                channel.sendall(command.encode("ascii") + b"\n")
+                self._send_all(channel, command.encode("ascii") + b"\n", deadline)
             except OSError as error:
                 self._disconnect(channel, generation)
                 raise GuestChannelError("guest channel was interrupted; retry") from error
@@ -420,6 +441,114 @@ class QsmGuestChannel:
                     self._condition.wait(remaining)
         finally:
             self._request_lock.release()
+
+    def files_capable(self) -> bool:
+        """Whether the peer forwards file frames. An older agent rejects this."""
+        if not self._files_allowed:
+            return False
+        try:
+            self._request("FS_CAPS", "OK FS_CAPS")
+            with self._condition:
+                fresh = self._files_reset_generation != self._generation
+                self._files_reset_generation = self._generation
+            # An agent blocked on the port can miss that the last host went away.
+            # Only now is it known to understand this line.
+            if fresh:
+                self._send_file_line(b"FS * C\n")
+        except GuestChannelError:
+            return False
+        return True
+
+    def open_file_session(self, session: str, rights: str,
+                          listener: Callable[[str, bytes], None]) -> None:
+        """Open a guest file session. ``listener(kind, rest)`` must not block.
+
+        Its kinds are R (ready), D (one base64 frame) and C (ended, reason).
+        It runs on the channel's reader, or on whoever lost the channel.
+        """
+        encoded = session.encode("ascii")
+        if not self._files_allowed or not _FILE_SESSION.fullmatch(encoded) or rights not in ("r", "rw"):
+            raise GuestChannelError("guest file session is invalid")
+        with self._condition:
+            if self._stopped.is_set():
+                raise GuestChannelError("guest side channel is closed")
+            self._file_listeners[encoded] = listener
+        try:
+            self._send_file_line(b"FS %s O %s\n" % (encoded, rights.encode("ascii")))
+        except GuestChannelError:
+            with self._condition:
+                self._file_listeners.pop(encoded, None)
+            raise
+
+    def send_file_frame(self, session: str, frame: bytes) -> None:
+        """``frame`` is base64 already; a stalled guest raises GuestChannelError."""
+        self._send_file_line(b"FS %s D %s\n" % (session.encode("ascii"), frame))
+
+    def close_file_session(self, session: str) -> None:
+        encoded = session.encode("ascii")
+        with self._condition:
+            known = self._file_listeners.pop(encoded, None) is not None
+        if known:
+            try:
+                self._send_file_line(b"FS %s C\n" % encoded)
+            except GuestChannelError:
+                pass  # The guest removes its temporary files when the link ends too.
+
+    def _send_file_line(self, line: bytes) -> None:
+        with self._condition:
+            channel, generation = self._socket, self._generation
+        if channel is None:
+            try:
+                channel, generation = self._connect(time.monotonic() + 1.0)
+            except GuestChannelError as error:
+                raise GuestChannelError("guest channel is not connected") from error
+        try:
+            self._send_all(channel, line, time.monotonic() + FILE_SEND_TIMEOUT_SECONDS)
+        except (OSError, ValueError) as error:
+            self._disconnect(channel, generation)
+            raise GuestChannelError("guest channel was interrupted") from error
+
+    def _send_all(self, channel: socket.socket, data: bytes, deadline: float) -> None:
+        """Whole lines, one at a time. The socket's own 1 s timeout would end every session."""
+        view = memoryview(data)
+        with self._write_lock:
+            while view:
+                try:
+                    view = view[channel.send(view, socket.MSG_DONTWAIT):]
+                except (BlockingIOError, socket.timeout):
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0 or not select.select((), (channel,), (), remaining)[1]:
+                        raise TimeoutError("guest did not take a line") from None
+
+    def _publish_file_line(self, line: bytes) -> None:
+        parts = line.split(b" ", 3)
+        if len(parts) < 3:
+            return
+        session, kind = parts[1], parts[2].decode("ascii", "replace")
+        rest = parts[3] if len(parts) == 4 else b""
+        if session == b"*":
+            if kind == "C":
+                self._end_file_sessions(rest or b"gone")
+            return
+        with self._condition:
+            listener = self._file_listeners.get(session)
+            if listener is not None and kind == "C":
+                del self._file_listeners[session]
+        if listener is not None:
+            try:
+                listener(kind, rest)
+            except Exception:
+                pass  # One viewer's session must not poison the VM's guest port.
+
+    def _end_file_sessions(self, reason: bytes = b"gone") -> None:
+        with self._condition:
+            listeners = tuple(self._file_listeners.values())
+            self._file_listeners.clear()
+        for listener in listeners:
+            try:
+                listener("C", reason)
+            except Exception:
+                pass
 
     def dispatch(self, payload: Any) -> dict[str, Any]:
         if not isinstance(payload, dict):

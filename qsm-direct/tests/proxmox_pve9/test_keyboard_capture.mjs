@@ -6,11 +6,13 @@ const factory=new Function('env',`
     const {popup,document,video,kbInput,settings,keyboardCaptureStatus,captureKeyboard,captureKeyboardSettings,releaseKeyboardSettings,
         keyboardPriorityInput,applyConsoleSettings,releaseHeldInput}=env;
     const KEYBOARD_PRIORITY={client:'client-first',guest:'guest-first'},gettext=value=>value;
-    let closed=false,settingsPanelOpen=false,restoreClientFocusAfterFullscreen=false;
+    let closed=false,settingsPanelOpen=false,filesPanelOpen=false,restoreClientFocusAfterFullscreen=false;
+    const consolePanelOpen=()=>settingsPanelOpen||filesPanelOpen;
     const setSettingsPanelOpen=open=>{settingsPanelOpen=open;updateGuestKeyboardLock();};
     ${section('let keyboardLockGeneration =','const bytesToB64 =')}
     return {updateGuestKeyboardLock,releaseGuestKeyboardLock,enterConsoleFullscreen,captureGuestKeyboard,
-        openSettings:open=>{settingsPanelOpen=open;updateGuestKeyboardLock();},close:()=>{closed=true;releaseGuestKeyboardLock();},
+        openSettings:open=>{settingsPanelOpen=open;updateGuestKeyboardLock();},
+        openFiles:open=>{filesPanelOpen=open;updateGuestKeyboardLock();},close:()=>{closed=true;releaseGuestKeyboardLock();},
         restore:()=>restoreClientFocusAfterFullscreen};
 `);
 const target=()=>({listeners:{},style:{},attrs:{},addEventListener(name,fn){this.listeners[name]=fn;},setAttribute(n,v){this.attrs[n]=v;},focus(){}});
@@ -42,6 +44,13 @@ function harness({keyboard=null,topKeyboard=keyboard,option=true,reject=false,pr
  assert.equal(h.captureKeyboard.attrs['aria-pressed'],'true');assert.match(h.status.textContent,/Settings is open/);
  h.document.activeElement=h.video;h.openSettings(false);assert.match(h.status.textContent,/capture active/);
  assert.ok(!h.calls.some(v=>Array.isArray(v)&&v[0]==='fullscreen'),'closing Settings resumes the existing capture');
+}
+{
+ const h=harness();h.captureKeyboard.listeners.click();await tick();
+ h.calls.length=0;h.document.activeElement={};h.openFiles(true);
+ assert.ok(h.calls.includes('release'),'opening the file manager releases held guest input');
+ assert.ok(h.document.fullscreenElement,'and keeps fullscreen-bound capture');
+ h.document.activeElement=h.video;h.openFiles(false);assert.match(h.status.textContent,/capture active/);
 }
 {
  const calls=[];const keyboard={lock:(...args)=>{calls.push(['lock',...args]);return Promise.resolve();},unlock:()=>calls.push(['unlock'])};

@@ -35,6 +35,11 @@ class FakeTerminal:
                               "sdp": sdp, "width": width, "height": height, "fps": fps})
         return {"type": "answer", "sdp": "v=0\r\nanswer\r\n"}
 
+    def create_files(self, node, vmid, subject, rights, token, sdp):
+        self.requests.append({"node": node, "vmid": vmid, "subject": subject, "rights": rights,
+                              "token": token, "sdp": sdp})
+        return {"type": "answer", "sdp": "v=0\r\nfiles\r\n"}
+
 
 def config(tmp: Path, allow, node="lab") -> tuple[SignalConfig, FakeTerminal, FakeAuthority]:
     authority = FakeAuthority(allow=allow)
@@ -86,6 +91,47 @@ class SignalCoreTests(unittest.TestCase):
                             "width": 1281, "height": 800, "fps": 60})
         self.assertEqual(raised.exception.status, 400)
         self.assertEqual(terminal.requests, [])
+
+    def test_files_need_console_and_file_read_and_write_decides_the_rights(self) -> None:
+        user = "alice@pve"
+        console = (user, 200, "VM.Console")
+        read = (user, 200, "VM.GuestAgent.FileRead")
+        write = (user, 200, "VM.GuestAgent.FileWrite")
+        path = "/nodes/lab/qemu/200/qsm-direct-files"
+        body = {"user": user, "ticket": "good", "sdp": "v=0\r\n", "token": "a" * 32}
+        with tempfile.TemporaryDirectory() as directory:
+            for allow, status in (({read, write}, 401), ({console}, 403), ({console, write}, 403)):
+                with self.subTest(allow=sorted(item[2] for item in allow)):
+                    settings, terminal, _ = config(Path(directory), allow)
+                    with self.assertRaises(SignalError) as caught:
+                        handle_request(settings, "POST", path, dict(body))
+                    self.assertEqual(caught.exception.status, status)
+                    self.assertEqual(terminal.requests, [])
+            settings, terminal, _ = config(Path(directory), {console, read})
+            self.assertEqual(handle_request(settings, "POST", path, dict(body))["data"]["rights"], "r")
+            self.assertEqual(terminal.requests[-1]["rights"], "r")
+            settings, terminal, _ = config(Path(directory), {console, read, write})
+            data = handle_request(settings, "POST", path, dict(body))["data"]
+            self.assertEqual(data, {"type": "answer", "sdp": "v=0\r\nfiles\r\n", "rights": "rw"})
+            self.assertEqual(terminal.requests[-1]["subject"], user)
+            self.assertEqual(terminal.requests[-1]["token"], "a" * 32)
+
+    def test_files_reject_invalid_tokens_and_offers(self) -> None:
+        user = "alice@pve"
+        allow = {(user, 200, "VM.Console"), (user, 200, "VM.GuestAgent.FileRead")}
+        path = "/nodes/lab/lxc/200/qsm-direct-files"
+        with tempfile.TemporaryDirectory() as directory:
+            settings, terminal, _ = config(Path(directory), allow)
+            for fields in ({"sdp": "v=0", "token": "short"}, {"sdp": "v=0", "token": "A" * 32},
+                           {"sdp": "v=0"}, {"token": "a" * 32}, {"sdp": "\u00e9", "token": "a" * 32},
+                           {"sdp": 7, "token": "a" * 32}, {"sdp": "v=0", "token": ["a" * 32]}):
+                with self.subTest(fields=fields), self.assertRaises(SignalError) as caught:
+                    handle_request(settings, "POST", path, {"user": user, "ticket": "good", **fields})
+                self.assertEqual(caught.exception.status, 400)
+            with self.assertRaises(SignalError) as caught:
+                handle_request(settings, "GET", path, {"user": user, "ticket": "good"})
+            self.assertEqual(caught.exception.status, 405)
+            self.assertEqual(terminal.requests, [])
 
     def test_wrong_node_is_not_found(self) -> None:
         cfg, _, _ = config(self.tmp, {("u@pve", 106, "VM.Console")}, node="lab")

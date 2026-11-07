@@ -28,12 +28,14 @@ for required in \
     "$ROOT_DIR/tools/qsm_direct_media_worker.cpp" \
     "$ROOT_DIR/extensions/browser_bridge/qsm_browser_bridge.py" \
     "$ROOT_DIR/extensions/browser_bridge/qsm_transport_feedback.py" \
+    "$ROOT_DIR/extensions/browser_bridge/qsm_file_peer.py" \
     "$ROOT_DIR/extensions/direct_guest/__init__.py" \
     "$ROOT_DIR/extensions/direct_guest/qsm_guest_channel.py" \
     "$ROOT_DIR/extensions/direct_guest/qsm_desktop_metadata.py" \
     "$ROOT_DIR/extensions/direct_terminal/qsm_direct_encoder_probe.py" \
     "$ROOT_DIR/extensions/direct_terminal/qsm_direct_terminal.py" \
     "$ROOT_DIR/extensions/direct_terminal/qsm_shared_migration.py" \
+    "$ROOT_DIR/extensions/direct_terminal/qsm_file_session.py" \
     "$PACKAGE_DIR/qsm-pve-direct-migrate" \
     "$ROOT_DIR/extensions/signal/qsm_direct_signal.py" \
     "$ROOT_DIR/extensions/signal/qsm_direct_endpoint.py" \
@@ -92,6 +94,7 @@ install -m 0644 "$ROOT_DIR/extensions/browser_bridge/__init__.py" "$package_root
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/qsm_browser_bridge.py" "$package_root/browser_bridge/qsm_browser_bridge.py"
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/qsm_lossless_ui.py" "$package_root/browser_bridge/qsm_lossless_ui.py"
 install -m 0644 "$ROOT_DIR/extensions/browser_bridge/qsm_transport_feedback.py" "$package_root/browser_bridge/qsm_transport_feedback.py"
+install -m 0755 "$ROOT_DIR/extensions/browser_bridge/qsm_file_peer.py" "$package_root/browser_bridge/qsm_file_peer.py"
 install -m 0644 "$ROOT_DIR/extensions/signal/qsm_gateway.py" "$package_root/browser_bridge/qsm_gateway.py"
 install -m 0644 "$ROOT_DIR/extensions/signal/qsm_gateway.py" "$package_root/signal_service/qsm_gateway.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/__init__.py" "$package_root/direct_guest/__init__.py"
@@ -100,6 +103,7 @@ install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_desktop_metadata.py" "$pa
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_desktop_priority.py" "$package_root/direct_guest/qsm_desktop_priority.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_terminal/qsm_direct_encoder_probe.py" "$package_root/direct_terminal/qsm_direct_encoder_probe.py"
 install -m 0644 "$ROOT_DIR/extensions/direct_terminal/qsm_shared_migration.py" "$package_root/direct_terminal/qsm_shared_migration.py"
+install -m 0644 "$ROOT_DIR/extensions/direct_terminal/qsm_file_session.py" "$package_root/direct_terminal/qsm_file_session.py"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-migrate" "$stage_root/usr/sbin/qsm-pve-direct-migrate"
 install -m 0755 "$ROOT_DIR/extensions/direct_terminal/qsm_direct_terminal.py" "$package_root/direct_terminal/qsm_direct_terminal.py"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-terminal" "$stage_root/usr/bin/qsm-pve-direct-terminal"

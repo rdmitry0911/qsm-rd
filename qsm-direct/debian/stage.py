@@ -27,9 +27,9 @@ def main(build, version):
     lib = "usr/lib/qsm-pve-direct"
     install(core, f"{build}/qsm-direct-media-worker", f"{lib}/bin/qsm-direct-media-worker", True)
     modules = {
-        "browser_bridge": ("__init__.py", "qsm_browser_bridge.py", "qsm_lossless_ui.py"),
+        "browser_bridge": ("__init__.py", "qsm_browser_bridge.py", "qsm_lossless_ui.py", "qsm_file_peer.py"),
         "direct_guest": ("__init__.py", "qsm_guest_channel.py", "qsm_desktop_metadata.py", "qsm_desktop_priority.py"),
-        "direct_terminal": ("qsm_direct_terminal.py", "qsm_direct_encoder_probe.py", "qsm_shared_migration.py"),
+        "direct_terminal": ("qsm_direct_terminal.py", "qsm_direct_encoder_probe.py", "qsm_shared_migration.py", "qsm_file_session.py"),
         "signal": ("__init__.py", "qsm_direct_signal.py", "qsm_direct_endpoint.py", "qsm_direct_endpoint_cli.py", "qsm_gateway.py"),
     }
     for directory, names in modules.items():
@@ -81,6 +81,7 @@ def main(build, version):
         install(guest, f"packaging/lxc/{name}", f"usr/lib/qsm-console/{name}", True)
     install(guest, "packaging/lxc/qsm_native_keyboard.py", "usr/lib/qsm-console/qsm_native_keyboard.py")
     install(guest, "guest/qsm_desktop_metadata.py", "usr/lib/qsm-console/qsm_desktop_metadata.py")
+    install(guest, "guest/qsm_desktop_files.py", "usr/lib/qsm-console/qsm_desktop_files.py")
     install(guest, "guest/qsm_kwin_metadata.js", "usr/lib/qsm-console/qsm_kwin_metadata.js")
     install(guest, "extensions/direct_guest/qsm_desktop_metadata.py", "usr/lib/qsm-console/qsm_desktop_metadata_schema.py")
     install(guest, "guest/qsm_desktop_effects.py", "usr/bin/qsm-desktop-effects", True)

@@ -821,6 +821,2270 @@
         }
     }
 
+    // QSM_FILES_BEGIN: the two-pane file manager, docs/FILE_MANAGER.md.
+    const QFM_CHUNK = 32768;
+    const QFM_ROW = 26;
+    const QFM_WORKERS = 4;
+    const QFM_MAX_LIST = 200000;
+
+    const qfmFormat = (text, ...values) => text.replace(/\{(\d+)\}/g, (_match, index) => String(values[index]));
+
+    class QfmError extends Error {
+        constructor(code, message = '') {
+            super(message || code);
+            this.code = code;
+        }
+    }
+
+    const qfmErrorText = (error) => {
+        const code = error && error.code;
+        const text = {
+            ENOENT: gettext('It no longer exists'),
+            EACCES: gettext('Permission denied in the guest'),
+            EPERM: gettext('Not permitted in the guest'),
+            EEXIST: gettext('It already exists'),
+            ENOTDIR: gettext('A part of the path is not a folder'),
+            EISDIR: gettext('It is a folder'),
+            ENOTEMPTY: gettext('The folder is not empty'),
+            ENOSPC: gettext('The disk is full'),
+            EDQUOT: gettext('The disk quota is exceeded'),
+            EROFS: gettext('The file system is read-only'),
+            ELOCKED: gettext('The guest screen is locked'),
+            ERIGHTS: gettext('Your PVE role does not allow this (VM.GuestAgent.FileWrite)'),
+            ENOTREG: gettext('It is not a regular file'),
+            ECANCELED: gettext('Cancelled'),
+            EBUSY: gettext('The guest is busy with too many requests'),
+            ENAMETOOLONG: gettext('The name is too long'),
+            ELINK: gettext('The connection to the guest ended'),
+            ELOCAL: gettext('This browser could not read or write the local file'),
+            ECHANGED: gettext('The file changed during the transfer, so this copy was not kept'),
+            ESTALLED: gettext('The transfer stopped making progress'),
+            ETRUNCATED: gettext('This folder is too large to copy completely'),
+            EPROTO: gettext('The guest sent something invalid'),
+            ENOHELPER: gettext('The file service is not running in the guest'),
+        }[code];
+        return text || (error && error.message) || gettext('The operation failed');
+    };
+
+    // A frame is u16be header length, ASCII JSON and a payload. JSON.stringify
+    // writes a lone surrogate as \udcXX, which keeps a non-UTF-8 guest name intact.
+    const qfmEncode = (header, payload = null) => {
+        const json = JSON.stringify(header).replace(/[\u0080-￿]/g,
+            (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
+        const size = payload ? payload.byteLength : 0;
+        const frame = new Uint8Array(2 + json.length + size);
+        new DataView(frame.buffer).setUint16(0, json.length);
+        for (let index = 0; index < json.length; index += 1) { frame[2 + index] = json.charCodeAt(index); }
+        if (size) { frame.set(new Uint8Array(payload), 2 + json.length); }
+        return frame.buffer;
+    };
+
+    const qfmDecode = (buffer) => {
+        if (Object.prototype.toString.call(buffer) !== '[object ArrayBuffer]' || buffer.byteLength < 2) { throw new QfmError('EPROTO'); }
+        const size = new DataView(buffer).getUint16(0);
+        if (2 + size > buffer.byteLength) { throw new QfmError('EPROTO'); }
+        const header = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 2, size)));
+        if (!header || typeof header !== 'object' || Array.isArray(header)) { throw new QfmError('EPROTO'); }
+        return { header, payload: buffer.byteLength > 2 + size ? new Uint8Array(buffer, 2 + size) : null };
+    };
+
+    // A guest chooses these names. One that could leave the chosen folder never
+    // reaches the browser's file APIs or a tar header.
+    const qfmSafeName = (name) => typeof name === 'string' && name.length > 0 && name.length <= 4096 &&
+        name !== '.' && name !== '..' && !/[/\\\u0000-\u001f]/.test(name);
+
+    const qfmValidEntries = (part) => {
+        if (!Array.isArray(part)) { throw new QfmError('EPROTO'); }
+        const entries = [];
+        for (const row of part) {
+            if (!Array.isArray(row) || row.length !== 6) { continue; }
+            const [name, type, size, mtime, mode, target] = row;
+            if (typeof name !== 'string' || name.length === 0 || name.length > 4096 || name.includes('/') ||
+                name.includes('\u0000') || !['f', 'd', 'l', 'o'].includes(type)) { continue; }
+            entries.push({ name, type, size: Number.isSafeInteger(size) && size >= 0 ? size : 0,
+                mtime: Number.isFinite(mtime) ? mtime : 0, mode: Number.isInteger(mode) ? mode : 0,
+                target: ['f', 'd', 'o', 'x'].includes(target) ? target : null });
+        }
+        return entries;
+    };
+
+    const qfmJoin = (directory, name) => (directory === '/' ? `/${name}` : `${directory}/${name}`);
+    const qfmParent = (path) => {
+        const cut = path.lastIndexOf('/');
+        return cut <= 0 ? '/' : path.slice(0, cut);
+    };
+    const qfmSize = (bytes) => {
+        if (!Number.isFinite(bytes)) { return ''; }
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let value = bytes;
+        let unit = 0;
+        while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+        return `${unit && value < 100 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+    };
+
+    // Keeps the extra round-trip time near a target, as LEDBAT does, so that a
+    // transfer leaves the queue to keys, tiles and video. See the design note.
+    class QfmRate {
+        static MIN = 16 * 1024;
+        // Below this a transfer is not the cause of a queue on any path it would share with
+        // a console, and giving way frees nothing. On TURN over TCP a slow flow also reads tens
+        // of ms higher (Nagle and delayed ACKs), so that a low rate looks like its own queue.
+        static HARMLESS = 64 * 1024;
+        static START = 256 * 1024;
+        static MAX = 256 * 1024 * 1024;
+        static TARGET_BACKGROUND = 25;
+        static TARGET_FOREGROUND = 100;
+        // An echo every so many ms while a transfer runs, the lowest of how many counts,
+        // and the time a cut takes to show in the echoes.
+        static SAMPLE_MS = 100;
+        static FILTER = 5;
+        static HOLD_MS = 400;
+        // The path's own delay is only seen with the queue empty, and it can change. So the
+        // transfer steps aside now and then, which costs about 2.5% of what it carries.
+        static DRAIN_EVERY_MS = 15000;
+        static DRAIN_MS = 500;
+        static EARLIEST_DRAIN_MS = 5000;
+
+        constructor() {
+            this.rate = QfmRate.START;
+            this.target = QfmRate.TARGET_BACKGROUND;
+            this.bases = [];
+            this.recent = [];
+            this.unanswered = null;
+            this.lastSample = null;
+            this.arrived = 0;
+            this.history = [];
+            this.holdUntil = 0;
+            this.capacity = null;
+            this.probing = 0;
+            this.drainUntil = 0;
+            this.nextDrain = null;
+            this.draining = false;
+            this.drainLow = Infinity;
+            this.lastDrain = -Infinity;
+            this.cuts = 0;
+            this.floorDelay = Infinity;
+            this.standingAside = false;
+            this.offered = 0;
+        }
+
+        // What to send at now. this.rate stays what the path is thought to take.
+        current() {
+            if (this.standingAside) { return QfmRate.MIN; }
+            return this.draining ? Math.max(QfmRate.MIN, this.rate * .25) : this.rate;
+        }
+
+        startDrain(now) {
+            this.draining = true;
+            this.drainUntil = now + QfmRate.DRAIN_MS;
+            this.lastDrain = now;
+            this.nextDrain = now + QfmRate.DRAIN_EVERY_MS;
+            this.drainLow = Infinity;
+            this.cuts = 0;
+        }
+
+        // Bytes the far end has really taken. On a full path this is what the path carries
+        // beside the console, which is the one number that says how fast to go.
+        deliver(bytes) { this.arrived += bytes; }
+
+        delivered(now) {
+            this.history.push([now, this.arrived, this.current()]);
+            this.arrived = 0;
+            // Long enough to hold many frames: at a low rate a short window is all chance.
+            const span = Math.min(2000, Math.max(500, 16 * this.chunk() / this.rate * 1000));
+            while (now - this.history[0][0] > 2000) { this.history.shift(); }
+            const recent = this.history.filter((item) => now - item[0] <= span);
+            const bytes = recent.reduce((sum, item) => sum + item[1], 0);
+            // What was asked over the same time, since the rate may just have changed.
+            this.offered = recent.reduce((sum, item) => sum + item[2], 0) / recent.length;
+            return bytes * 1000 / Math.max(QfmRate.SAMPLE_MS, now - recent[0][0] + QfmRate.SAMPLE_MS);
+        }
+
+        sample(rtt, now) {
+            this.floorDelay = Math.min(this.floorDelay, rtt);
+            // An echo waits for this page's main thread, so one sample says little: a busy
+            // page delays many of them, while a queue on the path delays all of them.
+            const previous = this.recent.length ? this.recent[this.recent.length - 1] : rtt;
+            this.recent.push(rtt);
+            if (this.recent.length > QfmRate.FILTER) { this.recent.shift(); }
+            const base = this.floorDelay;
+            const excess = Math.min(...this.recent) - base;
+            // Far too much on two echoes in a row does not wait for the filter: the path has
+            // just become much narrower, and the queue is growing fast.
+            const sudden = Math.min(rtt, previous) - base;
+            const pressure = sudden >= 4 * this.target ? Math.max(sudden, excess) : excess;
+            this.unanswered = null;
+            // A hidden tab samples once a second at best: growth follows time, not samples.
+            const steps = this.lastSample === null ? 1 : Math.min(10, (now - this.lastSample) / QfmRate.SAMPLE_MS);
+            this.lastSample = now;
+            const delivered = this.delivered(now);
+            // What arrives while standing aside says nothing about the path either.
+            if (this.standingAside) { return excess; }
+            if (this.draining) {
+                // The queue is gone by the end of a drain, so what is left is the path itself.
+                if (now > this.drainUntil - QfmRate.DRAIN_MS / 2) { this.drainLow = Math.min(this.drainLow, rtt); }
+                if (now < this.drainUntil) { return excess; }
+                this.draining = false;
+                if (Number.isFinite(this.drainLow)) { this.floorDelay = this.drainLow; }
+                this.recent = [this.floorDelay];
+                // What arrived during the drain says nothing about the path.
+                this.holdUntil = now + 500;
+            }
+            if (now < this.holdUntil) { return excess; }
+            if (delivered > 0 && this.nextDrain !== null && now >= this.nextDrain) {
+                this.startDrain(now);
+                return excess;
+            }
+            if (this.nextDrain === null) { this.nextDrain = now + QfmRate.DRAIN_EVERY_MS; }
+            // A pace that has just changed and whole frames keep arrivals about 10% under what
+            // was asked even on an open path, so this has to be a clear shortfall.
+            const full = delivered > 0 && delivered < this.offered * .75;
+            const harmless = this.rate < QfmRate.HARMLESS && !full;
+            if (pressure >= this.target && !harmless) {
+                const factor = Math.max(.6, .95 - .05 * (pressure / this.target - 1));
+                if (full || this.capacity === null) {
+                    // This is the path's width, as far as can be seen beside the console.
+                    const width = delivered > 0 ? Math.min(delivered, this.rate) : this.rate;
+                    this.capacity = width >= QfmRate.HARMLESS ? width : null;
+                    this.rate = width * factor;
+                } else {
+                    // It nearly all arrives: a slightly full path, a burst from the console, or
+                    // a busy page. Give way a little and learn nothing about the path's width.
+                    this.rate *= factor;
+                }
+                this.probing = 0;
+                this.holdUntil = now + QfmRate.HOLD_MS;
+                // Cut after cut with no effect: the queue is deep, or the delay is the path's
+                // own and has just grown. A drain settles which, and now rather than later.
+                this.cuts += 1;
+                if (this.cuts >= 3 && now - this.lastDrain >= QfmRate.EARLIEST_DRAIN_MS) { this.startDrain(now); }
+            } else {
+                if (pressure < this.target) { this.cuts = 0; }
+                this.grow(delivered, steps, harmless ? 1 : 1 - Math.max(0, excess) / this.target);
+            }
+            this.clamp();
+            return excess;
+        }
+
+        grow(delivered, steps, room) {
+            // A rate far above what is really sent would only store up a burst for later.
+            if (this.rate >= Math.max(QfmRate.START, delivered * 2)) {
+                if (delivered * 4 < this.rate) { this.rate *= .98 ** steps; }
+                return;
+            }
+            if (this.capacity === null || this.rate < QfmRate.HARMLESS) {
+                this.rate *= (1 + .05 * room) ** steps;
+            } else if (this.rate < this.capacity * .95) {
+                // Back to what the path was seen to carry, quickly: that much is known to fit.
+                this.rate = Math.min(this.capacity * .95, this.rate * (1 + .1 * room) ** steps);
+            } else {
+                // Past it nothing is known: the console may have stopped using its share, so
+                // the probe starts small and doubles every two seconds while the path holds.
+                this.probing += steps;
+                this.rate *= (1 + room * Math.min(.05, .002 * 2 ** (this.probing / 20))) ** steps;
+            }
+        }
+
+        pinged(now) { if (this.unanswered === null) { this.unanswered = now; } }
+
+        // An echo that does not come back is the narrow path's other signal: half a second
+        // of queue, or a loss. Time since the last echo would not do, because in a hidden tab
+        // pings themselves are a second apart.
+        tick(now) {
+            const patience = Number.isFinite(this.floorDelay) ? Math.max(300, 3 * this.floorDelay) : 1000;
+            if (this.unanswered !== null && now - this.unanswered > patience) {
+                const delivered = this.delivered(now);
+                // On a path that has just narrowed what still arrives tells its new width.
+                this.rate = delivered > 0 ? Math.min(this.rate * .7, delivered * .9) : this.rate * .7;
+                this.unanswered = now;
+                this.clamp();
+            }
+        }
+
+        clamp() { this.rate = Math.min(QfmRate.MAX, Math.max(QfmRate.MIN, this.rate)); }
+        window() { return Math.min(4 * 1024 * 1024, Math.max(64 * 1024, Math.round(this.rate * .5))); }
+        queueLimit(hidden) { return Math.max(16 * 1024, Math.round(this.current() * (hidden ? 1 : .05))); }
+        burst(hidden, size) { return this.current() * (hidden ? 1 : .05) + size; }
+        // A frame is a burst on the wire, and whatever comes next waits behind it.
+        chunk() { return Math.min(QFM_CHUNK, Math.max(2048, Math.round(this.rate * .02))); }
+    }
+
+    // A strict priority, where it can be had: video the path is holding back goes first. A
+    // desktop that is idle after a narrow spell sends next to nothing and holds nothing up.
+    class QfmConsoleDemand {
+        constructor({ videoRate, stats, now }) {
+            this.videoRate = videoRate;
+            this.stats = stats;
+            this.now = now;
+            this.last = null;
+            this.seconds = 0;
+        }
+
+        async wants() {
+            const rate = this.videoRate();
+            const report = await this.stats();
+            let bytes = 0;
+            report.forEach((item) => { if (item.type === 'inbound-rtp' && item.kind === 'video') { bytes += item.bytesReceived || 0; } });
+            const now = this.now();
+            const last = this.last;
+            this.last = { bytes, now };
+            if (!rate || !last || now <= last.now || rate.bitrate >= rate.maximum * .9) {
+                this.seconds = 0;
+                return false;
+            }
+            // An idle desktop still sends a few hundred kbit/s, and a key frame or a repaint is a
+            // brief burst on top. Only video that keeps going is waiting for the path.
+            // A clip that a transfer has pushed down sends little and is still waiting, so
+            // what it did recently counts: a long-running clip keeps its claim for seconds.
+            const sending = (bytes - last.bytes) * 8 / (now - last.now) > Math.max(rate.bitrate * .4, 600);
+            this.seconds = sending ? Math.min(15, this.seconds + 1) : Math.max(0, this.seconds - 1);
+            return this.seconds >= 3;
+        }
+    }
+
+    // The file session's own WebRTC connection, its requests and its pacing.
+    class QfmLink {
+        static STALL_MS = 20000;
+
+        constructor({ createPeer, offer, timers, isHidden, onEnd, demand = null }) {
+            this.createPeer = createPeer;
+            this.offer = offer;
+            this.timers = timers;
+            this.isHidden = isHidden;
+            this.onEnd = onEnd;
+            this.demand = demand;
+            this.downloads = 0;
+            this.lastProgress = 0;
+            this.rate = new QfmRate();
+            this.pending = new Map();
+            this.nextRequest = 1;
+            this.waiters = [];
+            this.tokens = 0;
+            this.tokensAt = 0;
+            this.inflight = 0;
+            this.pumpTimer = null;
+            this.pingTimer = null;
+            this.closed = false;
+            this.info = null;
+            this.sentRate = 0;
+        }
+
+        now() { return this.timers.now(); }
+
+        async open() {
+            const peer = await this.createPeer();
+            this.peer = peer;
+            this.files = peer.createDataChannel('qsm-files', { ordered: true });
+            this.files.binaryType = 'arraybuffer';
+            // Echoes are retransmitted though nobody needs a late one. With a limit on
+            // retransmission a lost echo brings a FORWARD-TSN, on which aiortc also discards
+            // received fragments of a large message on the reliable channel. The sender counts
+            // those as delivered, and that channel then stops for good.
+            this.rtt = peer.createDataChannel('qsm-files-rtt', { ordered: false });
+            const ready = new Promise((resolve, reject) => { this.readyWaiter = { resolve, reject }; });
+            ready.catch(() => {}); // An offer can fail before anything waits on this.
+            this.files.addEventListener('message', (event) => this.receive(event.data));
+            this.files.addEventListener('bufferedamountlow', () => this.pump());
+            this.files.addEventListener('close', () => this.end('ELINK'));
+            this.rtt.addEventListener('message', (event) => this.receiveRtt(event.data));
+            peer.addEventListener('connectionstatechange', () => {
+                if (peer.connectionState === 'failed' || peer.connectionState === 'closed') { this.end('ELINK'); }
+            });
+            await peer.setLocalDescription(await peer.createOffer());
+            await waitForIce(peer);
+            const answer = await this.offer(peer.localDescription.sdp);
+            await peer.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
+            this.timeoutTimer = this.timers.setTimeout(() => {
+                if (this.readyWaiter) { this.readyWaiter.reject(new QfmError('ELINK')); }
+            }, 20000);
+            await ready;
+            this.timers.clearTimeout(this.timeoutTimer);
+            this.pingTimer = this.timers.setInterval(() => this.ping(), QfmRate.SAMPLE_MS);
+            let helloTimer;
+            try {
+                this.info = await Promise.race([this.call('hello'), new Promise((_resolve, reject) => {
+                    helloTimer = this.timers.setTimeout(() => reject(new QfmError('ELINK')), 20000);
+                })]);
+            } finally { this.timers.clearTimeout(helloTimer); }
+            return this.info;
+        }
+
+        ping() {
+            const now = this.now();
+            const busy = this.pending.size > 0 || this.waiters.length > 0 || this.inflight > 0;
+            this.pingCount = (this.pingCount || 0) + 1;
+            if (this.pingCount % 10 === 0) { this.checkDemand(); }
+            if (!busy && this.pingCount % 10) { return; }
+            // After a stall of this page its echoes are still waiting to be read: not a loss.
+            const punctual = now - (this.lastPing || now) < 250;
+            this.lastPing = now;
+            if (busy && punctual) { this.rate.tick(now); } else if (!busy) { this.rate.unanswered = null; }
+            // Data on its way and nothing back for this long: whatever holds it (a stuck SCTP
+            // association, a stopped process), a new connection is the way on.
+            if ((this.inflight > 0 || this.downloads > 0) && now - this.lastProgress > QfmLink.STALL_MS) {
+                this.end('ESTALLED');
+                return;
+            }
+            if (this.rtt.readyState === 'open') {
+                this.rate.pinged(now);
+                this.rtt.send(JSON.stringify({ t: now }));
+                // This channel may lose a message, so it is repeated even if nothing changed.
+                const rate = Math.round(this.rate.current());
+                if (Math.abs(rate - this.sentRate) > this.sentRate * .05 || this.pingCount % 10 === 0) {
+                    this.sentRate = rate;
+                    this.rtt.send(JSON.stringify({ rate }));
+                }
+            }
+            this.pump();
+        }
+
+        // Only a download shares its direction with video, and with the file manager
+        // covering the console nobody is watching that video.
+        checkDemand() {
+            const asked = this.demand && this.downloads > 0 && this.rate.target <= QfmRate.TARGET_BACKGROUND;
+            if (!asked) {
+                this.rate.standingAside = false;
+                return;
+            }
+            this.demand.wants().then((wants) => { this.rate.standingAside = wants && this.downloads > 0; }, () => {});
+        }
+
+        receiveRtt(data) {
+            let value;
+            try { value = JSON.parse(data); } catch (_error) { return; }
+            if (value && Number.isFinite(value.t)) {
+                const now = this.now();
+                if (value.t <= now) { this.rate.sample(now - value.t, now); }
+            }
+        }
+
+        receive(data) {
+            if (typeof data === 'string') {
+                let status;
+                try { status = JSON.parse(data); } catch (_error) { return; }
+                if (status && status.op === 'status') {
+                    if (status.state === 'ready' && this.readyWaiter) {
+                        this.readyWaiter.resolve();
+                    } else if (status.state === 'closed') {
+                        const reason = status.reason === 'nohelper' ? 'ENOHELPER' : 'ELINK';
+                        if (this.readyWaiter) { this.readyWaiter.reject(new QfmError(reason)); }
+                        this.end(reason);
+                    }
+                }
+                return;
+            }
+            let frame;
+            try { frame = qfmDecode(data); } catch (_error) { this.end('ELINK'); return; }
+            const { header, payload } = frame;
+            if (payload) { this.rate.deliver(payload.byteLength); }
+            if (payload || header.ack !== undefined) { this.lastProgress = this.now(); }
+            const request = this.pending.get(header.id);
+            if (!request) { return; }
+            if (header.ok === true) {
+                this.pending.delete(header.id);
+                request.resolve(header);
+            } else if (header.ok === false) {
+                this.pending.delete(header.id);
+                request.reject(new QfmError(typeof header.err === 'string' ? header.err : 'EIO',
+                    typeof header.msg === 'string' ? header.msg : ''));
+            } else if (request.onFrame) {
+                try { request.onFrame(header, payload); } catch (error) { request.reject(error); this.pending.delete(header.id); }
+            }
+        }
+
+        id() {
+            const value = this.nextRequest;
+            this.nextRequest = value >= 0x7fffffff ? 1 : value + 1;
+            return value;
+        }
+
+        track(id, onFrame = null) {
+            return new Promise((resolve, reject) => {
+                if (this.closed) { reject(new QfmError(this.endReason || 'ELINK')); return; }
+                this.pending.set(id, { resolve, reject, onFrame });
+            });
+        }
+
+        // Tells the guest and stops waiting for it: a hung mount or a hostile guest never answers.
+        abandon(id, error = new QfmError('ECANCELED')) {
+            const request = this.pending.get(id);
+            if (!request) { return; }
+            this.pending.delete(id);
+            try { this.send({ op: 'cancel', id }); } catch (_error) { /* Link closed. */ }
+            request.reject(error);
+        }
+
+        send(header, payload = null) {
+            if (this.closed || this.files.readyState !== 'open') { throw new QfmError('ELINK'); }
+            this.files.send(qfmEncode(header, payload));
+        }
+
+        // With a job, its cancel reaches this request too, even if the guest never answers.
+        call(op, fields = {}, payload = null, onFrame = null, job = null) {
+            const id = this.id();
+            const result = this.track(id, onFrame);
+            try { this.send({ op, id, ...fields }, payload); } catch (error) {
+                this.pending.delete(id);
+                result.catch(() => {});
+                return Promise.reject(error);
+            }
+            if (!job) { return result; }
+            const abort = () => this.abandon(id);
+            job.aborts.add(abort);
+            if (job.cancelled) { abort(); }
+            return result.finally(() => job.aborts.delete(abort));
+        }
+
+        async list(path, job = null) {
+            const entries = [];
+            let truncated = false;
+            const result = await this.call('list', { path }, null, (header) => {
+                if (!header.part) { return; }
+                const rows = qfmValidEntries(header.part);
+                const room = QFM_MAX_LIST - entries.length;
+                if (rows.length > room) { truncated = true; }
+                for (const row of rows.slice(0, room)) { entries.push(row); }
+            }, job);
+            return { entries, path: typeof result.path === 'string' ? result.path : path,
+                truncated: truncated || result.truncated === true };
+        }
+
+        // Resolves once `size` bytes may be sent: window, queue and rate all agree.
+        acquire(size) {
+            return new Promise((resolve, reject) => {
+                if (this.closed) { reject(new QfmError(this.endReason || 'ELINK')); return; }
+                this.waiters.push({ size, resolve, reject });
+                this.pump();
+            });
+        }
+
+        release(size) {
+            this.inflight = Math.max(0, this.inflight - size);
+            this.pump();
+        }
+
+        pump() {
+            if (this.pumpTimer !== null) { this.timers.clearTimeout(this.pumpTimer); this.pumpTimer = null; }
+            while (this.waiters.length && !this.closed) {
+                const head = this.waiters[0];
+                const hidden = this.isHidden();
+                const now = this.now();
+                this.tokens = Math.min(this.rate.burst(hidden, head.size),
+                    this.tokens + Math.max(0, now - this.tokensAt) / 1000 * this.rate.current());
+                this.tokensAt = now;
+                if (this.inflight > 0 && this.inflight + head.size > this.rate.window()) { return; }
+                const limit = this.rate.queueLimit(hidden);
+                if (this.files.bufferedAmount > limit) {
+                    this.files.bufferedAmountLowThreshold = Math.floor(limit / 2);
+                    return;
+                }
+                if (this.tokens < head.size) {
+                    const wait = (head.size - this.tokens) / this.rate.current() * 1000;
+                    this.pumpTimer = this.timers.setTimeout(() => { this.pumpTimer = null; this.pump(); }, Math.max(1, Math.min(50, wait)));
+                    return;
+                }
+                this.tokens -= head.size;
+                if (this.inflight === 0) { this.lastProgress = now; }
+                this.inflight += head.size;
+                this.waiters.shift();
+                head.resolve();
+            }
+        }
+
+        end(reason) {
+            if (this.closed) { return; }
+            this.closed = true;
+            this.endReason = reason;
+            this.timers.clearInterval(this.pingTimer);
+            this.timers.clearTimeout(this.pumpTimer);
+            this.timers.clearTimeout(this.timeoutTimer);
+            const error = new QfmError(reason);
+            if (this.readyWaiter) { this.readyWaiter.reject(error); }
+            for (const waiter of this.waiters.splice(0)) { waiter.reject(error); }
+            for (const request of this.pending.values()) { request.reject(error); }
+            this.pending.clear();
+            try { this.peer.close(); } catch (_error) { /* Already closing. */ }
+            if (this.onEnd) { this.onEnd(reason); }
+        }
+
+        close() { this.end('ELINK'); }
+    }
+
+    // One tar stream, for a browser that can hand over only one file per folder.
+    const qfmTarHeader = (name, size, mtimeMs, type) => {
+        const encoder = new TextEncoder();
+        const bytes = (text) => encoder.encode(text);
+        const block = (path, length, flag) => {
+            const header = new Uint8Array(512);
+            const put = (text, offset, max) => { header.set(bytes(text).subarray(0, max), offset); };
+            const octal = (value, width) => value.toString(8).padStart(width - 1, '0');
+            put(path, 0, 100);
+            put(flag === '5' ? '0000755' : '0000644', 100, 7);
+            put('0000000', 108, 7);
+            put('0000000', 116, 7);
+            put(octal(length, 12), 124, 11);
+            put(octal(Math.max(0, Math.floor(mtimeMs / 1000)), 12), 136, 11);
+            put('        ', 148, 8);
+            put(flag, 156, 1);
+            put('ustar', 257, 6);
+            put('00', 263, 2);
+            let sum = 0;
+            for (const value of header) { sum += value; }
+            put(`${sum.toString(8).padStart(6, '0')}\0 `, 148, 8);
+            return header;
+        };
+        const encoded = bytes(name);
+        // Long or non-ASCII names, and a size past ustar's 8 GiB, take a PAX record.
+        const pax = [];
+        if (encoded.length > 100 || /[^ -~]/.test(name)) { pax.push(['path', name]); }
+        if (size >= 8589934592) { pax.push(['size', String(size)]); }
+        const parts = [];
+        if (pax.length) {
+            let text = '';
+            for (const [key, value] of pax) {
+                const body = ` ${key}=${value}\n`;
+                let length = bytes(body).length;
+                length += String(length + String(length).length).length;
+                text += `${length}${body}`;
+            }
+            const record = bytes(text);
+            parts.push(block('qsm-pax', record.length, 'x'));
+            const padded = new Uint8Array(Math.ceil(record.length / 512) * 512);
+            padded.set(record);
+            parts.push(padded);
+        }
+        parts.push(block(encoded.length > 100 || /[^ -~]/.test(name) ? 'qsm-long-name' : name,
+            size >= 8589934592 ? 0 : size, type));
+        const total = parts.reduce((sum, part) => sum + part.length, 0);
+        const result = new Uint8Array(total);
+        let offset = 0;
+        for (const part of parts) { result.set(part, offset); offset += part.length; }
+        return result;
+    };
+
+    // Downloads for a browser without a folder picker: spooled, then handed to
+    // its Downloads folder. A memory fallback covers browsers without OPFS writes.
+    class QfmSpool {
+        static MEMORY_LIMIT = 1024 * 1024 * 1024;
+
+        constructor(win, name) {
+            this.win = win;
+            this.name = name;
+            this.parts = [];
+            this.size = 0;
+            this.position = 0;
+        }
+
+        async open() {
+            const storage = this.win.navigator.storage;
+            if (storage && typeof storage.getDirectory === 'function') {
+                try {
+                    this.directory = await storage.getDirectory();
+                    // A tab closed before its download was cleaned up leaves its spool behind.
+                    for await (const name of this.directory.keys()) {
+                        const match = /^qsm-spool-(\d+)-/.exec(name);
+                        if (match && Date.now() - Number(match[1]) > 86400000) {
+                            await this.directory.removeEntry(name).catch(() => {});
+                        }
+                    }
+                    this.spoolName = `qsm-spool-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                    this.handle = await this.directory.getFileHandle(this.spoolName, { create: true });
+                    if (typeof this.handle.createWritable === 'function') {
+                        this.writer = await this.handle.createWritable();
+                        return this;
+                    }
+                    await this.directory.removeEntry(this.spoolName);
+                } catch (_error) { /* Fall back to memory below. */ }
+                this.handle = null;
+            }
+            return this;
+        }
+
+        async append(data) {
+            if (this.writer) {
+                await this.writer.write({ type: 'write', position: this.position, data });
+            } else {
+                if (this.size + data.byteLength > QfmSpool.MEMORY_LIMIT) { throw new QfmError('ELOCAL', gettext('Too large for this browser without a folder picker')); }
+                this.parts.push(new Uint8Array(data));
+            }
+            this.position += data.byteLength;
+            this.size += data.byteLength;
+        }
+
+        async pad(count) { if (count) { await this.append(new Uint8Array(count)); } }
+
+        async finish() {
+            let file;
+            if (this.writer) {
+                await this.writer.close();
+                this.writer = null;
+                file = await this.handle.getFile();
+            } else {
+                file = new this.win.Blob(this.parts);
+            }
+            const url = this.win.URL.createObjectURL(file);
+            const link = this.win.document.createElement('a');
+            link.href = url;
+            link.download = this.name;
+            link.style.display = 'none';
+            this.win.document.body.append(link);
+            link.click();
+            link.remove();
+            this.win.setTimeout(() => {
+                this.win.URL.revokeObjectURL(url);
+                if (this.handle) { this.directory.removeEntry(this.spoolName).catch(() => {}); }
+            }, 600000);
+        }
+
+        async abort() {
+            try {
+                if (this.writer) { await this.writer.abort(); }
+                if (this.handle) { await this.directory.removeEntry(this.spoolName); }
+            } catch (_error) { /* Nothing left to remove. */ }
+            this.writer = null;
+            this.parts = [];
+        }
+    }
+
+    // Local panes share readdir/file. Folder handles (Chromium) browse real
+    // folders; the staged tree holds what a user dropped or picked elsewhere.
+    class QfmLocalFolders {
+        constructor(root) {
+            this.stack = [{ name: root.name, handle: root }];
+            this.writable = true;
+            this.kind = 'folder';
+        }
+
+        get location() { return this.stack.map((item) => item.name).join('/'); }
+        get atRoot() { return this.stack.length === 1; }
+        get handle() { return this.stack[this.stack.length - 1].handle; }
+
+        async readdir(directory = this.handle) {
+            const entries = [];
+            for await (const [name, handle] of directory.entries()) {
+                if (handle.kind === 'directory') {
+                    entries.push({ name, type: 'd', size: 0, mtime: 0, handle });
+                } else {
+                    let file = null;
+                    try { file = await handle.getFile(); } catch (_error) { /* Shown without details. */ }
+                    entries.push({ name, type: 'f', size: file ? file.size : 0, mtime: file ? file.lastModified : 0, handle });
+                }
+            }
+            return entries;
+        }
+
+        async file(entry) { return entry.handle.getFile(); }
+        directoryOf(entry) { return entry.handle; }
+        parentDirectory() { return this.stack[this.stack.length - 2].handle; }
+        enter(entry) { this.stack.push({ name: entry.name, handle: entry.handle }); }
+        up() { if (!this.atRoot) { this.stack.pop(); } }
+        async mkdir(name) { await this.handle.getDirectoryHandle(name, { create: true }); }
+        async remove(entry) { await this.handle.removeEntry(entry.name, { recursive: true }); }
+        async rename(entry, name) {
+            if (entry.type !== 'f' || typeof entry.handle.move !== 'function') { throw new QfmError('ELOCAL', gettext('This browser cannot rename a local folder')); }
+            await entry.handle.move(name);
+        }
+    }
+
+    class QfmStagedFiles {
+        constructor() {
+            this.root = { name: '', type: 'd', children: new Map() };
+            this.stack = [this.root];
+            this.writable = false;
+            this.kind = 'staged';
+        }
+
+        get location() { return this.stack.map((item) => item.name).join('/') || gettext('Added items'); }
+        get atRoot() { return this.stack.length === 1; }
+
+        add(path, file) {
+            const parts = path.split('/').filter((part) => part && part !== '.' && part !== '..');
+            let node = this.root;
+            for (const part of parts.slice(0, -1)) {
+                if (!node.children.has(part)) { node.children.set(part, { name: part, type: 'd', children: new Map(), size: 0, mtime: 0 }); }
+                node = node.children.get(part);
+            }
+            const name = parts[parts.length - 1];
+            if (name && file) { node.children.set(name, { name, type: 'f', file, size: file.size, mtime: file.lastModified }); }
+            if (name && !file && !node.children.has(name)) { node.children.set(name, { name, type: 'd', children: new Map(), size: 0, mtime: 0 }); }
+        }
+
+        async readdir(directory = this.stack[this.stack.length - 1]) { return [...directory.children.values()]; }
+        async file(entry) { return entry.file; }
+        directoryOf(entry) { return entry; }
+        parentDirectory() { return this.stack[this.stack.length - 2]; }
+        enter(entry) { this.stack.push(entry); }
+        up() { if (!this.atRoot) { this.stack.pop(); } }
+        async remove(entry) { this.stack[this.stack.length - 1].children.delete(entry.name); }
+    }
+
+    const qfmReadDroppedEntry = async (entry, path, staged) => {
+        const target = path ? `${path}/${entry.name}` : entry.name;
+        if (entry.isFile) {
+            const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+            staged.add(target, file);
+            return;
+        }
+        staged.add(target, null);
+        const reader = entry.createReader();
+        for (;;) {
+            const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+            if (!batch.length) { return; }
+            for (const child of batch) { await qfmReadDroppedEntry(child, target, staged); }
+        }
+    };
+
+    // One user action. Its worker pool shares the link's window with other jobs.
+    class QfmJob {
+        constructor(label, direction) {
+            this.label = label;
+            this.direction = direction;
+            this.state = 'queued';
+            this.total = 0;
+            this.done = 0;
+            this.files = 0;
+            this.filesDone = 0;
+            this.skipped = 0;
+            this.errors = [];
+            this.cancelled = false;
+            this.policy = null;
+            this.started = 0;
+            this.samples = [];
+            this.aborts = new Set();
+            this.halted = false;
+        }
+
+        cancel() {
+            this.cancelled = true;
+            for (const abort of this.aborts) { abort(); }
+        }
+
+        add(bytes, now) {
+            this.done += bytes;
+            this.samples.push([now, this.done]);
+            while (this.samples.length > 2 && now - this.samples[0][0] > 5000) { this.samples.shift(); }
+        }
+
+        speed() {
+            if (this.samples.length < 2) { return 0; }
+            const [startAt, start] = this.samples[0];
+            const [endAt, end] = this.samples[this.samples.length - 1];
+            return endAt > startAt ? (end - start) * 1000 / (endAt - startAt) : 0;
+        }
+    }
+
+    // Copies one job. It knows the link and two sources, and nothing of the page.
+    class QfmTransfers {
+        constructor({ link, now, sleep, ask, notify, spool, relink = null }) {
+            this.link = link;
+            this.relink = relink;
+            this.now = now;
+            this.sleep = sleep;
+            this.ask = ask;
+            this.notify = notify;
+            this.spool = spool;
+            this.activeGets = 0;
+        }
+
+        guestStep(job, action) {
+            const attempt = async () => {
+                let stalls = 0;
+                for (;;) {
+                    try { return await action(); } catch (error) {
+                        if (error && (error.code === 'ESTALLED' || error.code === 'ELINK') && this.relink && !job.cancelled && stalls < 3) {
+                            // A connection that stopped or went away, and the path may well be
+                            // back. The file starts over on a new connection; its temporary file
+                            // went with the old session.
+                            stalls += 1;
+                            await this.relink();
+                            continue;
+                        }
+                        if (!error || error.code !== 'ELOCKED' || job.cancelled) { throw error; }
+                        job.state = 'locked';
+                        this.notify();
+                        await this.sleep(2000);
+                        if (job.cancelled) { throw new QfmError('ECANCELED'); }
+                        const hello = await this.link().call('hello');
+                        if (!hello.locked) { job.state = 'running'; this.notify(); }
+                    }
+                }
+            };
+            return attempt();
+        }
+
+        async pool(job, tasks, workers, run) {
+            let next = 0;
+            const worker = async () => {
+                while (next < tasks.length && !job.cancelled && !job.halted) {
+                    const task = tasks[next];
+                    next += 1;
+                    try {
+                        await run(task);
+                    } catch (error) {
+                        if (error && error.code === 'ECANCELED') { continue; }
+                        job.errors.push({ path: task.path || task.name, error });
+                        this.notify();
+                        // The rest of the job cannot arrive over a closed link.
+                        if (error && (error.code === 'ELINK' || error.code === 'ENOHELPER' || error.code === 'ESTALLED')) { job.halted = true; }
+                    }
+                }
+            };
+            await Promise.all(Array.from({ length: workers }, worker));
+        }
+
+        async conflict(job, path) {
+            if (job.policy) { return job.policy; }
+            if (!this.conflictLock) { this.conflictLock = Promise.resolve(); }
+            const previous = this.conflictLock;
+            let release;
+            this.conflictLock = new Promise((resolve) => { release = resolve; });
+            await previous;
+            try {
+                if (job.policy) { return job.policy; }
+                const { choice, all } = await this.ask(path);
+                if (choice === 'cancel') { job.cancel(); throw new QfmError('ECANCELED'); }
+                if (all) { job.policy = choice; }
+                return choice;
+            } finally { release(); }
+        }
+
+        static alternative(path, attempt) {
+            const cut = path.lastIndexOf('/');
+            const name = path.slice(cut + 1);
+            const dot = name.lastIndexOf('.');
+            const stem = dot > 0 ? name.slice(0, dot) : name;
+            const extension = dot > 0 ? name.slice(dot) : '';
+            return `${path.slice(0, cut + 1)}${stem} (${attempt})${extension}`;
+        }
+
+        // ---- browser to guest
+        async planUpload(job, source, entries, destination) {
+            const directories = [];
+            const files = [];
+            const visit = async (entry, target) => {
+                if (job.cancelled) { return; }
+                if (entry.type === 'd') {
+                    directories.push(target);
+                    for (const child of await source.readdir(entry.children ? entry : entry.handle)) {
+                        if (qfmSafeName(child.name)) { await visit(child, qfmJoin(target, child.name)); } else { job.skipped += 1; }
+                    }
+                } else if (entry.type === 'f') {
+                    files.push({ entry, path: target });
+                    job.total += entry.size;
+                    job.files += 1;
+                    this.notify();
+                } else { job.skipped += 1; }
+            };
+            for (const entry of entries) { await visit(entry, qfmJoin(destination, entry.name)); }
+            return { directories, files };
+        }
+
+        async upload(job, source, entries, destination) {
+            const plan = await this.planUpload(job, source, entries, destination);
+            job.state = 'running';
+            this.notify();
+            for (const directory of plan.directories) {
+                if (job.cancelled) { return; }
+                try {
+                    await this.guestStep(job, () => this.link().call('mkdir', { path: directory, parents: true }, null, null, job));
+                } catch (error) {
+                    if (!error || error.code !== 'ECANCELED') { job.errors.push({ path: directory, error }); }
+                }
+            }
+            await this.pool(job, plan.files, QFM_WORKERS, async (task) => {
+                const file = await source.file(task.entry).catch(() => { throw new QfmError('ELOCAL'); });
+                let path = task.path;
+                let overwrite = job.policy === 'replace' ? 'replace' : 'fail';
+                for (let attempt = 1; ; attempt += 1) {
+                    try {
+                        await this.guestStep(job, () => this.putFile(job, file, path, overwrite));
+                        job.filesDone += 1;
+                        this.notify();
+                        return;
+                    } catch (error) {
+                        if (!error || error.code !== 'EEXIST' || overwrite === 'replace') { throw error; }
+                        const choice = await this.conflict(job, path);
+                        if (choice === 'skip') { job.skipped += 1; job.total -= file.size; this.notify(); return; }
+                        if (choice === 'replace') { overwrite = 'replace'; } else { path = QfmTransfers.alternative(task.path, attempt); }
+                    }
+                }
+            });
+        }
+
+        async putFile(job, file, path, overwrite) {
+            if (job.cancelled) { throw new QfmError('ECANCELED'); }
+            const link = this.link();
+            const size = file.size;
+            const fields = { path, size, overwrite };
+            if (Number.isFinite(file.lastModified) && file.lastModified > 0) { fields.mtime = Math.round(file.lastModified); }
+            if (size <= link.rate.chunk()) {
+                const data = await file.arrayBuffer().catch(() => { throw new QfmError('ELOCAL'); });
+                await link.acquire(data.byteLength + 256);
+                try {
+                    await link.call('put', { ...fields, last: true }, data, null, job);
+                } finally { link.release(data.byteLength + 256); }
+                link.rate.deliver(data.byteLength);
+                job.add(data.byteLength, this.now());
+                this.notify();
+                return;
+            }
+            const id = link.id();
+            let acked = 0;
+            let sent = 0;
+            let failure = null;
+            const abort = () => link.abandon(id);
+            job.aborts.add(abort);
+            const final = link.track(id, (header) => {
+                if (Number.isSafeInteger(header.ack) && header.ack > acked && header.ack <= sent) {
+                    const delta = header.ack - acked;
+                    acked = header.ack;
+                    link.release(delta);
+                    link.rate.deliver(delta);
+                    job.add(delta, this.now());
+                    this.notify();
+                }
+            }).catch((error) => {
+                failure = error;
+                // A stalled window must not outlive the upload it belonged to.
+                link.release(sent - acked);
+                job.done = Math.max(0, job.done - acked);
+                sent = 0;
+                acked = 0;
+                throw error;
+            });
+            final.catch(() => {});
+            try {
+                link.send({ op: 'put', id, ...fields });
+                let offset = 0;
+                while (offset < size && !failure && !job.cancelled) {
+                    const length = Math.min(link.rate.chunk(), size - offset);
+                    await link.acquire(length);
+                    if (failure) { link.release(length); break; }
+                    let data = null;
+                    let local = null;
+                    try {
+                        data = await file.slice(offset, offset + length).arrayBuffer();
+                        if (data.byteLength !== length) { local = 'ECHANGED'; }
+                    } catch (_error) { local = 'ELOCAL'; }
+                    if (failure || local) {
+                        link.release(length);
+                        if (local && !failure) { abort(); await final.catch(() => {}); throw new QfmError(local); }
+                        break;
+                    }
+                    sent += length;
+                    link.send({ op: 'data', id, o: offset }, data);
+                    offset += length;
+                }
+                if (!failure) {
+                    // A cancel can come by the dialog of another file, with this one idle.
+                    if (job.cancelled) { abort(); } else { link.send({ op: 'end', id, size }); }
+                }
+                await final;
+                if (acked < size) { job.add(size - acked, this.now()); }
+            } finally {
+                job.aborts.delete(abort);
+                link.release(sent - acked);
+                sent = acked;
+            }
+        }
+
+        // ---- guest to browser
+        async planDownload(job, entries, destinationName) {
+            const directories = [];
+            const files = [];
+            const visit = async (entry, path, relative, top) => {
+                if (job.cancelled) { return; }
+                const type = entry.type === 'l' && top ? entry.target : entry.type;
+                if (type === 'd') {
+                    directories.push(relative);
+                    const listing = await this.guestStep(job, () => this.link().list(path, job));
+                    if (listing.truncated) { job.errors.push({ path, error: new QfmError('ETRUNCATED') }); }
+                    for (const child of listing.entries) {
+                        if (!qfmSafeName(child.name)) { job.skipped += 1; continue; }
+                        await visit(child, qfmJoin(path, child.name), [...relative, child.name], false);
+                    }
+                } else if (type === 'f') {
+                    files.push({ entry, path, relative });
+                    job.total += entry.size;
+                    job.files += 1;
+                    this.notify();
+                } else { job.skipped += 1; }
+            };
+            for (const item of entries) {
+                if (!qfmSafeName(item.entry.name)) { job.skipped += 1; continue; }
+                await visit(item.entry, item.path, destinationName ? [destinationName, item.entry.name] : [item.entry.name], true);
+            }
+            return { directories, files };
+        }
+
+        async getFile(job, path, sink) {
+            const link = this.link();
+            const id = link.id();
+            let written = 0;
+            let granted = Math.min(link.rate.window(), 128 * 1024);
+            let declared = null;
+            let writer = null;
+            let chain = Promise.resolve();
+            let failure = null;
+            const fail = (error) => {
+                if (!failure) {
+                    failure = error;
+                    link.abandon(id, error);
+                }
+            };
+            const queue = (step) => { chain = chain.then(() => (failure ? undefined : step())).catch(fail); };
+            const abort = () => fail(new QfmError('ECANCELED'));
+            job.aborts.add(abort);
+            this.activeGets += 1;
+            if (link.downloads === 0) { link.lastProgress = link.now(); }
+            link.downloads += 1;
+            const final = link.track(id, (header, payload) => {
+                if (header.meta === true) {
+                    if (!Number.isSafeInteger(header.size) || header.size < 0) { fail(new QfmError('EPROTO')); return; }
+                    declared = header.size;
+                    queue(async () => { writer = await sink(header); });
+                } else if (Number.isSafeInteger(header.o) && payload) {
+                    if (job.cancelled) { fail(new QfmError('ECANCELED')); return; }
+                    // More than was granted is a guest filling this disk, not a transfer.
+                    if (declared === null || header.o + payload.byteLength > granted) { fail(new QfmError('EPROTO')); return; }
+                    queue(async () => {
+                        if (!writer || header.o !== written) { throw new QfmError('EIO'); }
+                        if (written + payload.byteLength > declared) { throw new QfmError('ECHANGED'); }
+                        await writer.write(header.o, payload);
+                        written += payload.byteLength;
+                        job.add(payload.byteLength, this.now());
+                        this.notify();
+                        const wanted = Math.max(64 * 1024, Math.floor(link.rate.window() / Math.max(1, this.activeGets)));
+                        const outstanding = granted - written;
+                        if (outstanding < wanted / 2) {
+                            const grant = wanted - outstanding;
+                            granted += grant;
+                            link.send({ op: 'credit', id, n: grant, chunk: link.rate.chunk() });
+                        }
+                    });
+                }
+            });
+            final.catch(() => {});
+            try {
+                link.send({ op: 'get', id, path, credit: granted, chunk: link.rate.chunk() });
+                const result = await final;
+                await chain;
+                if (failure) { throw failure; }
+                if (!writer) { writer = await sink({ size: 0, mtime: 0 }); }
+                // A torn copy must not replace a good file or pass for one.
+                if (result.changed === true) { throw new QfmError('ECHANGED'); }
+                await writer.close(written);
+            } catch (error) {
+                await chain;
+                job.done = Math.max(0, job.done - written);
+                if (writer) { await writer.abort().catch(() => {}); }
+                throw failure && error.code === 'ECANCELED' ? failure : error;
+            } finally {
+                this.activeGets -= 1;
+                link.downloads -= 1;
+                job.aborts.delete(abort);
+            }
+        }
+
+        // Into a folder chosen in Chromium.
+        async downloadToFolders(job, entries, target) {
+            const plan = await this.planDownload(job, entries, null);
+            job.state = 'running';
+            this.notify();
+            const folders = new Map();
+            // Two guest names can be one name here (case, or bytes that are not UTF-8).
+            const reserved = new Set();
+            const reserve = (place, name) => {
+                const key = `${place}/${(name.toWellFormed ? name.toWellFormed() : name).toLowerCase()}`;
+                if (reserved.has(key)) { return false; }
+                reserved.add(key);
+                return true;
+            };
+            const folder = async (parts) => {
+                let handle = target.handle;
+                let key = '';
+                for (const part of parts) {
+                    key += `/${part}`;
+                    if (!folders.has(key)) { folders.set(key, await handle.getDirectoryHandle(part, { create: true })); }
+                    handle = folders.get(key);
+                }
+                return handle;
+            };
+            for (const directory of plan.directories) {
+                try { await folder(directory); } catch (error) { job.errors.push({ path: directory.join('/'), error: new QfmError('ELOCAL', error.message) }); }
+            }
+            await this.pool(job, plan.files, QFM_WORKERS, async (task) => {
+                const directory = await folder(task.relative.slice(0, -1)).catch((error) => { throw new QfmError('ELOCAL', error.message); });
+                const place = task.relative.slice(0, -1).join('/');
+                const original = task.relative[task.relative.length - 1];
+                let name = original;
+                let existed = false;
+                for (let attempt = 1; ; attempt += 1) {
+                    if (!reserve(place, name)) {
+                        name = QfmTransfers.alternative(original, attempt);
+                        continue;
+                    }
+                    try { await directory.getFileHandle(name); existed = true; } catch (_error) { existed = false; }
+                    if (!existed) { break; }
+                    const choice = await this.conflict(job, task.relative.join('/'));
+                    if (choice === 'skip') { job.skipped += 1; job.total -= task.entry.size; this.notify(); return; }
+                    if (choice === 'replace') { break; }
+                    name = QfmTransfers.alternative(original, attempt);
+                }
+                await this.guestStep(job, () => this.getFile(job, task.path, async () => {
+                    const handle = await directory.getFileHandle(name, { create: true });
+                    const stream = await handle.createWritable();
+                    return {
+                        write: (position, data) => stream.write({ type: 'write', position, data }),
+                        close: () => stream.close(),
+                        // Creating the handle already made an empty file under the final name.
+                        abort: async () => {
+                            await stream.abort();
+                            if (!existed) { await directory.removeEntry(name).catch(() => {}); }
+                        },
+                    };
+                }));
+                job.filesDone += 1;
+                this.notify();
+            });
+        }
+
+        // Through the browser's Downloads folder: one file as it is, or one tar.
+        async downloadToSpool(job, entries, archiveName) {
+            const plan = await this.planDownload(job, entries, null);
+            job.state = 'running';
+            this.notify();
+            if (job.cancelled || (!plan.files.length && !plan.directories.length)) { return; }
+            const single = plan.files.length === 1 && !plan.directories.length;
+            if (single) {
+                const task = plan.files[0];
+                const spool = await this.spool(task.relative[task.relative.length - 1]);
+                await this.guestStep(job, () => this.getFile(job, task.path, async () => ({
+                    write: async (position, data) => { await spool.append(data); },
+                    close: () => spool.finish(),
+                    abort: () => spool.abort(),
+                }))).catch(async (error) => {
+                    if (!error || error.code !== 'ECANCELED') { job.errors.push({ path: task.path, error }); }
+                    await spool.abort();
+                });
+                if (!job.errors.length) { job.filesDone += 1; }
+                return;
+            }
+            const spool = await this.spool(archiveName);
+            for (const directory of plan.directories) {
+                await spool.append(qfmTarHeader(`${directory.join('/')}/`, 0, 0, '5'));
+            }
+            let failed = false;
+            await this.pool(job, plan.files, 1, async (task) => {
+                let declared = 0;
+                let length = 0;
+                let headed = false;
+                await this.guestStep(job, () => this.getFile(job, task.path, async (meta) => {
+                    if (headed) { throw new QfmError('EIO'); }
+                    headed = true;
+                    declared = meta.size;
+                    await spool.append(qfmTarHeader(task.relative.join('/'), declared, meta.mtime || 0, '0'));
+                    return {
+                        write: async (position, data) => {
+                            if (length + data.byteLength > declared) { throw new QfmError('ECHANGED'); }
+                            length += data.byteLength;
+                            await spool.append(data);
+                        },
+                        close: async () => {
+                            if (length !== declared) { throw new QfmError('ECHANGED'); }
+                            await spool.pad((512 - (declared % 512)) % 512);
+                        },
+                        abort: async () => { failed = true; },
+                    };
+                }));
+                job.filesDone += 1;
+                this.notify();
+            });
+            if (failed || job.cancelled) {
+                await spool.abort();
+                if (failed) { job.errors.push({ path: archiveName, error: new QfmError('ELOCAL', gettext('The archive was not saved because a file in it failed')) }); }
+                return;
+            }
+            await spool.pad(1024);
+            await spool.finish();
+        }
+    }
+
+    class QfmPane {
+        constructor(manager, side, title) {
+            this.manager = manager;
+            this.side = side;
+            this.entries = [];
+            this.visible = [];
+            this.selected = new Set();
+            this.cursor = 0;
+            this.showHidden = false;
+            this.sort = { key: 'name', ascending: true };
+            const doc = manager.doc;
+            const create = (tag, className, text) => {
+                const element = doc.createElement(tag);
+                if (className) { element.className = className; }
+                if (text) { element.textContent = text; }
+                return element;
+            };
+            this.create = create;
+            this.root = create('section', `qfm-pane qfm-${side}`);
+            this.root.setAttribute('aria-label', title);
+            const heading = create('div', 'qfm-heading');
+            this.titleLabel = create('strong', '', title);
+            this.location = create('span', 'qfm-location');
+            heading.append(this.titleLabel, this.location);
+            this.tools = create('div', 'qfm-tools');
+            const button = (text, label, action) => {
+                const item = create('button', '', text);
+                item.type = 'button';
+                item.title = label;
+                item.setAttribute('aria-label', label);
+                item.addEventListener('click', () => { this.focus(); action(); });
+                this.tools.append(item);
+                return item;
+            };
+            this.upButton = button('↑', gettext('Up one folder (Backspace)'), () => this.up());
+            this.refreshButton = button('⟳', gettext('Refresh'), () => this.refresh());
+            this.mkdirButton = button('+', gettext('New folder (F7)'), () => this.mkdir());
+            this.renameButton = button('✎', gettext('Rename (F2)'), () => this.rename());
+            this.deleteButton = button('🗑', gettext('Delete (F8)'), () => this.remove());
+            this.hiddenButton = button('.*', gettext('Show hidden files'), () => {
+                this.showHidden = !this.showHidden;
+                this.hiddenButton.setAttribute('aria-pressed', String(this.showHidden));
+                this.apply();
+            });
+            this.hiddenButton.setAttribute('aria-pressed', 'false');
+            this.extra = create('span', 'qfm-extra');
+            this.copyButton = create('button', 'qfm-copy', side === 'local' ? gettext('Copy to guest →') : gettext('← Copy here'));
+            this.copyButton.type = 'button';
+            this.copyButton.title = gettext('Copy the selection to the other side (F5)');
+            this.copyButton.addEventListener('click', () => { this.focus(); manager.copyFrom(this); });
+            this.tools.append(this.extra, this.copyButton);
+            this.columns = create('div', 'qfm-columns');
+            for (const [key, text] of [['name', gettext('Name')], ['size', gettext('Size')], ['mtime', gettext('Modified')]]) {
+                const column = create('button', `qfm-col qfm-col-${key}`, text);
+                column.type = 'button';
+                column.addEventListener('click', () => {
+                    this.sort = { key, ascending: this.sort.key === key ? !this.sort.ascending : true };
+                    this.apply();
+                });
+                this.columns.append(column);
+            }
+            this.scroller = create('div', 'qfm-list');
+            this.scroller.tabIndex = 0;
+            this.scroller.setAttribute('role', 'listbox');
+            this.scroller.setAttribute('aria-multiselectable', 'true');
+            this.scroller.setAttribute('aria-label', title);
+            this.spacer = create('div', 'qfm-spacer');
+            this.rows = create('div', 'qfm-rows');
+            this.spacer.append(this.rows);
+            this.message = create('div', 'qfm-message');
+            this.scroller.append(this.spacer, this.message);
+            this.root.append(heading, this.tools, this.columns, this.scroller);
+            this.scroller.addEventListener('scroll', () => this.render());
+            this.scroller.addEventListener('keydown', (event) => this.keydown(event));
+            this.scroller.addEventListener('focus', () => { manager.active = this; manager.syncActive(); });
+            this.rows.addEventListener('click', (event) => this.click(event));
+            this.rows.addEventListener('dblclick', (event) => {
+                const index = this.rowIndex(event);
+                if (index !== null) { this.cursor = index; this.open(); }
+            });
+            this.rows.addEventListener('dragstart', (event) => {
+                const index = this.rowIndex(event);
+                if (index === null) { return; }
+                if (!this.selected.has(this.visible[index])) { this.selected = new Set([this.visible[index]]); this.render(); }
+                manager.dragging = this;
+                event.dataTransfer.effectAllowed = 'copy';
+                event.dataTransfer.setData('text/plain', this.visible[index].name);
+            });
+            this.rows.addEventListener('dragend', () => { manager.dragging = null; });
+            this.root.addEventListener('dragover', (event) => {
+                if (manager.acceptsDrop(this, event)) { event.preventDefault(); this.root.classList.add('qfm-drop'); }
+            });
+            this.root.addEventListener('dragleave', (event) => {
+                if (!this.root.contains(event.relatedTarget)) { this.root.classList.remove('qfm-drop'); }
+            });
+            this.root.addEventListener('drop', (event) => {
+                this.root.classList.remove('qfm-drop');
+                if (manager.acceptsDrop(this, event)) { event.preventDefault(); manager.drop(this, event); }
+            });
+        }
+
+        focus() { this.scroller.focus({ preventScroll: true }); }
+
+        // A new folder starts afresh. The same folder read again keeps what the user chose, by
+        // name: a refresh finishing in the background must not turn Copy or Delete on another row.
+        setEntries(entries, sameFolder = false) {
+            const chosen = sameFolder ? new Set([...this.selected].map((entry) => entry.name)) : new Set();
+            const under = sameFolder && this.visible[this.cursor] ? this.visible[this.cursor].name : null;
+            const top = this.scroller.scrollTop;
+            this.entries = entries;
+            this.selected = new Set(entries.filter((entry) => chosen.has(entry.name)));
+            this.cursor = 0;
+            this.scroller.scrollTop = sameFolder ? top : 0;
+            this.apply();
+            const index = under === null ? -1 : this.visible.findIndex((entry) => entry.name === under);
+            if (index >= 0) { this.cursor = index; this.render(); }
+        }
+
+        apply() {
+            const previous = this.visible[this.cursor];
+            const direction = this.sort.ascending ? 1 : -1;
+            const key = this.sort.key;
+            const collator = this.manager.collator;
+            const rank = (entry) => ((entry.type === 'l' ? entry.target : entry.type) === 'd' ? 0 : 1);
+            this.visible = this.entries.filter((entry) => this.showHidden || !entry.name.startsWith('.'))
+                .sort((a, b) => rank(a) - rank(b) || (key === 'name' ? 0 : direction * ((a[key] || 0) - (b[key] || 0))) ||
+                    direction * collator.compare(a.name, b.name));
+            const index = previous ? this.visible.indexOf(previous) : 0;
+            this.cursor = Math.max(0, index);
+            this.spacer.style.height = `${this.visible.length * QFM_ROW}px`;
+            this.render();
+        }
+
+        showMessage(text) { this.message.textContent = text || ''; this.message.style.display = text ? 'block' : 'none'; }
+
+        render() {
+            const top = this.scroller.scrollTop;
+            const first = Math.max(0, Math.floor(top / QFM_ROW) - 4);
+            const last = Math.min(this.visible.length, first + Math.ceil(this.scroller.clientHeight / QFM_ROW) + 8);
+            this.rows.style.transform = `translateY(${first * QFM_ROW}px)`;
+            // Rows stay the same elements: a double click or a drag starting on one
+            // needs the row it pressed to still be there after the selection repaints.
+            const count = Math.max(0, last - first);
+            while (this.rows.children.length > count) { this.rows.lastChild.remove(); }
+            while (this.rows.children.length < count) {
+                const row = this.create('div', 'qfm-row');
+                row.draggable = true;
+                row.setAttribute('role', 'option');
+                row.append(this.create('span', 'qfm-icon'), this.create('span', 'qfm-name'),
+                    this.create('span', 'qfm-col-size'), this.create('span', 'qfm-col-mtime'));
+                this.rows.append(row);
+            }
+            for (let offset = 0; offset < count; offset += 1) {
+                const index = first + offset;
+                const entry = this.visible[index];
+                const row = this.rows.children[offset];
+                row.dataset.index = String(index);
+                const chosen = this.selected.has(entry);
+                row.setAttribute('aria-selected', String(chosen));
+                row.classList.toggle('qfm-selected', chosen);
+                row.classList.toggle('qfm-cursor', index === this.cursor);
+                const kind = entry.type === 'l' ? entry.target : entry.type;
+                const [icon, name, size, mtime] = row.children;
+                icon.textContent = kind === 'd' ? '📁' : entry.type === 'l' ? '↪' : entry.type === 'o' ? '◇' : '📄';
+                name.textContent = entry.name;
+                name.title = entry.name;
+                size.textContent = kind === 'd' ? '' : qfmSize(entry.size);
+                mtime.textContent = entry.mtime ? new Date(entry.mtime).toLocaleString() : '';
+            }
+        }
+
+        rowIndex(event) {
+            const row = event.target.closest && event.target.closest('.qfm-row');
+            if (!row) { return null; }
+            const index = Number(row.dataset.index);
+            return Number.isInteger(index) && index < this.visible.length ? index : null;
+        }
+
+        click(event) {
+            const index = this.rowIndex(event);
+            if (index === null) { return; }
+            const entry = this.visible[index];
+            if (event.shiftKey) {
+                const [start, end] = this.cursor < index ? [this.cursor, index] : [index, this.cursor];
+                for (let item = start; item <= end; item += 1) { this.selected.add(this.visible[item]); }
+            } else if (event.ctrlKey || event.metaKey) {
+                if (this.selected.has(entry)) { this.selected.delete(entry); } else { this.selected.add(entry); }
+            } else {
+                this.selected = new Set([entry]);
+            }
+            this.cursor = index;
+            this.render();
+        }
+
+        move(index) {
+            this.cursor = Math.max(0, Math.min(this.visible.length - 1, index));
+            const top = this.cursor * QFM_ROW;
+            if (top < this.scroller.scrollTop) { this.scroller.scrollTop = top; } else if (top + QFM_ROW > this.scroller.scrollTop + this.scroller.clientHeight) {
+                this.scroller.scrollTop = top + QFM_ROW - this.scroller.clientHeight;
+            }
+            this.render();
+        }
+
+        keydown(event) {
+            const page = Math.max(1, Math.floor(this.scroller.clientHeight / QFM_ROW) - 1);
+            const actions = {
+                ArrowUp: () => this.move(this.cursor - 1), ArrowDown: () => this.move(this.cursor + 1),
+                PageUp: () => this.move(this.cursor - page), PageDown: () => this.move(this.cursor + page),
+                Home: () => this.move(0), End: () => this.move(this.visible.length - 1),
+                Enter: () => this.open(), Backspace: () => this.up(),
+                Insert: () => {
+                    const entry = this.visible[this.cursor];
+                    if (entry) { if (this.selected.has(entry)) { this.selected.delete(entry); } else { this.selected.add(entry); } }
+                    this.move(this.cursor + 1);
+                },
+                Tab: () => this.manager.other(this).focus(),
+                F2: () => this.rename(), F5: () => this.manager.copyFrom(this), F6: () => this.rename(),
+                F7: () => this.mkdir(), F8: () => this.remove(), Delete: () => this.remove(),
+                Escape: () => this.manager.hide(),
+            };
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') {
+                event.preventDefault();
+                this.selected = new Set(this.visible);
+                this.render();
+                return;
+            }
+            const action = actions[event.key];
+            if (action && !event.altKey) { event.preventDefault(); event.stopPropagation(); action(); }
+        }
+
+        selection() {
+            if (this.selected.size) { return this.visible.filter((entry) => this.selected.has(entry)); }
+            const entry = this.visible[this.cursor];
+            return entry ? [entry] : [];
+        }
+
+        async up() { await this.manager.guarded(this, () => this.navigateUp()); }
+        async refresh() { await this.manager.guarded(this, () => this.load()); }
+        async open() {
+            const entry = this.visible[this.cursor];
+            if (!entry) { return; }
+            const kind = entry.type === 'l' ? entry.target : entry.type;
+            if (kind === 'd') { await this.manager.guarded(this, () => this.enter(entry)); }
+        }
+
+        async mkdir() {
+            if (!this.canWrite()) { return; }
+            const name = await this.manager.askName(gettext('New folder'), '');
+            if (!name) { return; }
+            await this.manager.guarded(this, async () => { await this.createFolder(name); await this.load(); });
+        }
+
+        async rename() {
+            const entry = this.visible[this.cursor];
+            if (!entry || !this.canWrite()) { return; }
+            const name = await this.manager.askName(gettext('Rename'), entry.name);
+            if (!name || name === entry.name) { return; }
+            await this.manager.guarded(this, async () => { await this.renameEntry(entry, name); await this.load(); });
+        }
+
+        async remove() {
+            const entries = this.selection();
+            if (!entries.length || !this.canWrite()) { return; }
+            const text = entries.length === 1 ? entries[0].name : qfmFormat(gettext('{0} items'), entries.length);
+            const answer = await this.manager.dialog({ title: gettext('Delete'), text: qfmFormat(gettext('Delete {0}? This cannot be undone.'), text),
+                buttons: [['delete', gettext('Delete')], ['cancel', gettext('Cancel')]] });
+            if (answer.choice !== 'delete') { return; }
+            await this.manager.guarded(this, async () => {
+                let failure = null;
+                for (const entry of entries) {
+                    try { await this.removeEntry(entry); } catch (error) { failure = error; }
+                }
+                await this.load();
+                if (failure) { throw failure; }
+            });
+        }
+    }
+
+    class QfmGuestPane extends QfmPane {
+        constructor(manager) {
+            super(manager, 'guest', gettext('Guest'));
+            this.path = null;
+            this.ticket = 0;
+        }
+
+        canWrite() {
+            if (this.manager.rights === 'rw') { return true; }
+            this.manager.report(qfmErrorText(new QfmError('ERIGHTS')));
+            return false;
+        }
+
+        // Every action names a file by this.path and a row, so those two change together
+        // and only on success. The newest request wins over one still on its way.
+        async load(target = this.path) {
+            const ticket = this.ticket += 1;
+            const link = await this.manager.ensureLink();
+            const listing = await link.list(target === null ? (link.info.home || '/') : target);
+            if (ticket !== this.ticket) { return; }
+            const sameFolder = listing.path === this.path;
+            this.path = listing.path;
+            this.location.textContent = this.path;
+            this.location.title = this.path;
+            this.setEntries(listing.entries, sameFolder);
+            this.showMessage(listing.truncated ? gettext('This folder is too large. Only part of it is shown.') : (listing.entries.length ? '' : gettext('This folder is empty.')));
+        }
+
+        async navigateUp() { await this.load(qfmParent(this.path || '/')); }
+        async enter(entry) { await this.load(qfmJoin(this.path, entry.name)); }
+        async createFolder(name) { await this.manager.link.call('mkdir', { path: qfmJoin(this.path, name), parents: false }); }
+        async renameEntry(entry, name) { await this.manager.link.call('rename', { from: qfmJoin(this.path, entry.name), to: qfmJoin(this.path, name) }); }
+        async removeEntry(entry) { await this.manager.link.call('delete', { path: qfmJoin(this.path, entry.name), recursive: entry.type === 'd' }); }
+    }
+
+    class QfmLocalPane extends QfmPane {
+        constructor(manager) {
+            super(manager, 'local', gettext('This computer'));
+            const win = manager.win;
+            this.source = null;
+            this.ticket = 0;
+            this.pickerAvailable = typeof win.showDirectoryPicker === 'function';
+            if (this.pickerAvailable) {
+                this.pickButton = this.toolButton(gettext('Choose folder…'), () => this.pick());
+            } else {
+                this.useStaged();
+            }
+        }
+
+        useStaged() {
+            this.pickerAvailable = false;
+            this.extra.replaceChildren();
+            this.source = new QfmStagedFiles();
+            this.filesInput = this.input(false);
+            this.folderInput = this.input(true);
+            this.pickButton = this.toolButton(gettext('Add files…'), () => this.filesInput.click());
+            this.folderButton = this.toolButton(gettext('Add folder…'), () => this.folderInput.click());
+        }
+
+        toolButton(text, action) {
+            const item = this.create('button', 'qfm-text', text);
+            item.type = 'button';
+            item.addEventListener('click', action);
+            this.extra.append(item);
+            return item;
+        }
+
+        input(folder) {
+            const input = this.create('input');
+            input.type = 'file';
+            input.multiple = true;
+            input.style.display = 'none';
+            if (folder) { input.webkitdirectory = true; }
+            input.addEventListener('change', () => {
+                for (const file of input.files) { this.source.add(file.webkitRelativePath || file.name, file); }
+                input.value = '';
+                this.manager.guarded(this, () => this.load());
+            });
+            this.root.append(input);
+            return input;
+        }
+
+        canWrite() {
+            if (this.source) { return true; }
+            this.manager.report(gettext('Choose a folder first.'));
+            return false;
+        }
+
+        async pick() {
+            try {
+                const root = await this.manager.win.showDirectoryPicker({ mode: 'readwrite', id: 'qsm-files' });
+                this.source = new QfmLocalFolders(root);
+                await this.manager.guarded(this, () => this.load());
+                this.manager.setPaneMode();
+            } catch (error) {
+                if (error && error.name === 'AbortError') { return; }
+                // A frame or policy can forbid the picker: files can still go through Downloads.
+                this.useStaged();
+                this.manager.setPaneMode();
+                await this.manager.guarded(this, () => this.load());
+                this.manager.report(gettext('This browser refused access to a local folder here, so files from the guest go to the Downloads folder.'));
+            }
+        }
+
+        async load() {
+            if (!this.source) {
+                this.location.textContent = '';
+                this.setEntries([]);
+                this.showMessage(gettext('Choose a folder on this computer to browse it and to receive files.'));
+                return;
+            }
+            await this.move(undefined, () => {});
+        }
+
+        // As in the guest pane, the folder moves only once it has been read.
+        async move(directory, commit) {
+            const ticket = this.ticket += 1;
+            const source = this.source;
+            const entries = await (directory === undefined ? source.readdir() : source.readdir(directory));
+            if (ticket !== this.ticket || source !== this.source) { return; }
+            commit();
+            this.location.textContent = source.location;
+            this.setEntries(entries, directory === undefined);
+            if (entries.length) { this.showMessage(''); } else if (source.kind === 'staged') {
+                this.showMessage(gettext('This browser cannot open a local folder. Drop files here, or add them above, to send them to the guest. Files from the guest go to the Downloads folder.'));
+            } else { this.showMessage(gettext('This folder is empty.')); }
+        }
+
+        async navigateUp() {
+            if (this.source && !this.source.atRoot) {
+                const source = this.source;
+                await this.move(source.parentDirectory(), () => source.up());
+            }
+        }
+
+        async enter(entry) {
+            const source = this.source;
+            await this.move(source.directoryOf(entry), () => source.enter(entry));
+        }
+        async createFolder(name) {
+            if (!qfmSafeName(name)) { throw new QfmError('EINVAL', gettext('This is not a valid name')); }
+            if (this.source.kind !== 'folder') { throw new QfmError('ELOCAL', gettext('Choose a folder first.')); }
+            await this.source.mkdir(name);
+        }
+
+        async renameEntry(entry, name) {
+            if (this.source.kind !== 'folder') { throw new QfmError('ELOCAL', gettext('Choose a folder first.')); }
+            await this.source.rename(entry, name);
+        }
+
+        async removeEntry(entry) { await this.source.remove(entry); }
+    }
+
+    const QFM_STYLE = `
+        .qfm{position:fixed;inset:0;z-index:25;display:none;flex-direction:column;background:#0f172a;color:#e2e8f0;font:13px/1.35 system-ui,sans-serif}
+        .qfm *{box-sizing:border-box}
+        .qfm button{cursor:pointer;background:#1e293b;color:#e2e8f0;border:1px solid #475569;border-radius:4px;padding:3px 8px;font:inherit}
+        .qfm button:hover{background:#334155}
+        .qfm button:focus-visible,.qfm-list:focus-visible{outline:2px solid #38bdf8;outline-offset:-2px}
+        .qfm button[disabled]{opacity:.45;cursor:default}
+        .qfm-bar{display:flex;align-items:center;gap:10px;padding:6px 10px;background:#1e293b;border-bottom:1px solid #334155}
+        .qfm-bar strong{font-size:14px}
+        .qfm-state{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#cbd5e1}
+        .qfm-panes{flex:1;min-height:0;display:flex;gap:6px;padding:6px}
+        .qfm-pane{flex:1 1 0;min-width:0;display:flex;flex-direction:column;border:1px solid #334155;border-radius:6px;background:#111c30}
+        .qfm-pane.qfm-active{border-color:#38bdf8}
+        .qfm-pane.qfm-drop{background:#172a45;border-color:#7dd3fc}
+        .qfm-heading{display:flex;gap:8px;align-items:baseline;padding:5px 8px;min-width:0}
+        .qfm-location{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left;color:#94a3b8;unicode-bidi:plaintext}
+        .qfm-tools{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:0 8px 6px}
+        .qfm-extra{display:inline-flex;gap:4px}
+        .qfm-copy{margin-left:auto;background:#0369a1!important;border-color:#0284c7!important;color:#fff!important;font-weight:600}
+        .qfm-columns,.qfm-row{display:grid;grid-template-columns:22px minmax(0,1fr) 84px 160px;align-items:center;gap:4px;padding:0 8px}
+        .qfm-columns{border-top:1px solid #334155;border-bottom:1px solid #334155;background:#16213a}
+        .qfm-col{background:none!important;border:0!important;padding:3px 0!important;text-align:left;color:#94a3b8!important}
+        .qfm-col-name{grid-column:1/3}
+        .qfm-list{flex:1;min-height:0;overflow:auto;position:relative}
+        .qfm-spacer{position:relative;min-height:1px}
+        .qfm-rows{position:absolute;top:0;left:0;right:0;will-change:transform}
+        .qfm-row{height:${QFM_ROW}px;white-space:nowrap;cursor:default;user-select:none}
+        .qfm-row:hover{background:#1a2740}
+        .qfm-selected{background:#164e63!important}
+        .qfm-list:focus .qfm-cursor{box-shadow:inset 0 0 0 1px #38bdf8}
+        .qfm-name{overflow:hidden;text-overflow:ellipsis}
+        .qfm-col-size,.qfm-col-mtime{color:#94a3b8;overflow:hidden;text-overflow:ellipsis}
+        .qfm-message{display:none;padding:16px;color:#94a3b8;line-height:1.5}
+        .qfm-jobs{max-height:30%;overflow:auto;border-top:1px solid #334155;background:#0b1324}
+        .qfm-job{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:6px 10px;border-bottom:1px solid #1e293b}
+        .qfm-job-text{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .qfm-job progress{grid-column:1;width:100%;height:6px}
+        .qfm-job-errors{grid-column:1/3;color:#fca5a5;white-space:pre-wrap;word-break:break-word;max-height:9em;overflow:auto}
+        .qfm-dialog-back{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);z-index:2}
+        .qfm-dialog{width:min(460px,calc(100% - 32px));padding:16px;background:#1e293b;border:1px solid #475569;border-radius:8px}
+        .qfm-dialog h3{margin:0 0 8px;font-size:15px}
+        .qfm-dialog p{margin:0 0 10px;word-break:break-word}
+        .qfm-dialog input[type=text]{width:100%;padding:5px;background:#0f172a;color:#e2e8f0;border:1px solid #475569;border-radius:4px;font:inherit;margin-bottom:10px}
+        .qfm-dialog label{display:block;margin-bottom:10px}
+        .qfm-dialog-buttons{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+        .qfm-report{padding:5px 10px;background:#7f1d1d;color:#fee2e2;display:none;align-items:center;gap:10px}
+        .qfm-report span{flex:1;word-break:break-word}
+        @media (max-width:760px){
+            .qfm-panes{flex-direction:column}
+            .qfm-pane{min-height:0}
+            .qfm-columns,.qfm-row{grid-template-columns:22px minmax(0,1fr) 70px}
+            .qfm-col-mtime{display:none}
+        }`;
+
+    class QsmFileManager {
+        constructor({ win, doc, getToken, offer, createPeer, onVisible, onProgress, demand = null }) {
+            this.win = win;
+            this.doc = doc;
+            this.getToken = getToken;
+            this.offerRequest = offer;
+            this.createPeer = createPeer;
+            this.onVisible = onVisible;
+            this.onProgress = onProgress;
+            this.demand = demand;
+            this.collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+            this.link = null;
+            this.linking = null;
+            this.rights = 'r';
+            this.jobs = [];
+            this.running = false;
+            this.visible = false;
+            this.dragging = null;
+            this.attention = false;
+            this.idleTimer = null;
+            this.drawPending = false;
+            this.lastDraw = 0;
+            this.build();
+        }
+
+        build() {
+            const doc = this.doc;
+            const style = doc.createElement('style');
+            style.textContent = QFM_STYLE;
+            doc.head.append(style);
+            this.root = doc.createElement('div');
+            this.root.className = 'qfm';
+            this.root.setAttribute('role', 'dialog');
+            this.root.setAttribute('aria-label', gettext('Files'));
+            const bar = doc.createElement('div');
+            bar.className = 'qfm-bar';
+            const title = doc.createElement('strong');
+            title.textContent = gettext('Files');
+            this.state = doc.createElement('span');
+            this.state.className = 'qfm-state';
+            const close = doc.createElement('button');
+            close.type = 'button';
+            close.textContent = gettext('Back to console');
+            close.title = gettext('Transfers continue in the background and give way to the console.');
+            close.addEventListener('click', () => this.hide());
+            bar.append(title, this.state, close);
+            this.reportBar = doc.createElement('div');
+            this.reportBar.className = 'qfm-report';
+            this.reportText = doc.createElement('span');
+            const dismiss = doc.createElement('button');
+            dismiss.type = 'button';
+            dismiss.textContent = gettext('Dismiss');
+            dismiss.addEventListener('click', () => { this.reportBar.style.display = 'none'; });
+            this.reportBar.append(this.reportText, dismiss);
+            const panes = doc.createElement('div');
+            panes.className = 'qfm-panes';
+            this.local = new QfmLocalPane(this);
+            this.guest = new QfmGuestPane(this);
+            panes.append(this.local.root, this.guest.root);
+            this.jobList = doc.createElement('div');
+            this.jobList.className = 'qfm-jobs';
+            this.root.append(bar, this.reportBar, panes, this.jobList);
+            doc.body.append(this.root);
+            this.active = this.local;
+            this.setPaneMode();
+        }
+
+        other(pane) { return pane === this.local ? this.guest : this.local; }
+
+        syncActive() {
+            this.local.root.classList.toggle('qfm-active', this.active === this.local);
+            this.guest.root.classList.toggle('qfm-active', this.active === this.guest);
+        }
+
+        setPaneMode() {
+            const source = this.local.source;
+            const browsing = source && source.kind === 'folder';
+            this.local.mkdirButton.disabled = !browsing;
+            this.local.renameButton.disabled = !browsing;
+            this.guest.copyButton.textContent = browsing || this.local.pickerAvailable ? gettext('← Copy here') : gettext('← Download');
+            const write = this.rights === 'rw';
+            this.guest.mkdirButton.disabled = !write;
+            this.guest.renameButton.disabled = !write;
+            this.guest.deleteButton.disabled = !write;
+            this.local.copyButton.disabled = !write;
+        }
+
+        isVisible() { return this.visible; }
+
+        show() {
+            if (this.visible) { return; }
+            this.visible = true;
+            this.root.style.display = 'flex';
+            this.onVisible(true);
+            if (this.idleTimer !== null) { this.win.clearTimeout(this.idleTimer); this.idleTimer = null; }
+            if (this.link) { this.link.rate.target = QfmRate.TARGET_FOREGROUND; }
+            this.local.load().catch((error) => this.report(qfmErrorText(error)));
+            this.guarded(this.guest, () => this.guest.load());
+            this.active.focus();
+            this.syncActive();
+        }
+
+        hide() {
+            if (!this.visible) { return; }
+            this.visible = false;
+            this.root.style.display = 'none';
+            if (this.link) { this.link.rate.target = QfmRate.TARGET_BACKGROUND; }
+            this.onVisible(false);
+            this.scheduleIdle();
+        }
+
+        toggle() { if (this.visible) { this.hide(); } else { this.show(); } }
+
+        // With the manager closed and nothing queued, its peer process has no reason to live.
+        scheduleIdle() {
+            if (this.idleTimer !== null) { this.win.clearTimeout(this.idleTimer); }
+            this.idleTimer = this.win.setTimeout(() => {
+                this.idleTimer = null;
+                if (!this.visible && !this.running && this.link) { this.link.close(); }
+            }, 60000);
+        }
+
+        async ensureLink() {
+            if (this.link && !this.link.closed) { return this.link; }
+            if (this.linking) { return this.linking; }
+            const token = this.getToken();
+            if (!token) { throw new QfmError('ELINK', gettext('This server does not offer files yet. Reopen the console after updating QSM.')); }
+            const link = new QfmLink({
+                createPeer: this.createPeer,
+                offer: async (sdp) => {
+                    const answer = await this.offerRequest(sdp, token);
+                    if (answer.rights === 'r' || answer.rights === 'rw') { this.rights = answer.rights; }
+                    return answer;
+                },
+                timers: {
+                    now: () => this.win.performance.now(),
+                    setTimeout: (callback, delay) => this.win.setTimeout(callback, delay),
+                    clearTimeout: (timer) => this.win.clearTimeout(timer),
+                    setInterval: (callback, delay) => this.win.setInterval(callback, delay),
+                    clearInterval: (timer) => this.win.clearInterval(timer),
+                },
+                isHidden: () => this.doc.hidden,
+                onEnd: () => { this.draw(); },
+                demand: this.demand,
+            });
+            link.rate.target = this.visible ? QfmRate.TARGET_FOREGROUND : QfmRate.TARGET_BACKGROUND;
+            this.linking = link.open().then((info) => {
+                this.link = link;
+                if (info.rights === 'r' || info.rights === 'rw') { this.rights = info.rights; }
+                this.setPaneMode();
+                return link;
+            }).catch((error) => {
+                link.end('ELINK');
+                throw error;
+            }).finally(() => { this.linking = null; });
+            return this.linking;
+        }
+
+        openFailure(error) {
+            const code = error && error.code;
+            const status = error && error.status;
+            if (code === 'ENOHELPER') {
+                return gettext('The file service is not running in the guest. Log in to the guest\'s desktop. In a VM, the QSM Desktop Agent must be up to date and enabled with qsm-desktop-agent-setup USER.');
+            }
+            if (status === 403) {
+                return gettext('Your PVE role lacks VM.GuestAgent.FileRead on this guest, which browsing its files needs.');
+            }
+            if (status === 404 || status === 405) { return gettext('The QSM signalling service on this node does not offer files. Update QSM on the node.'); }
+            if (status) { return gettext('Files could not start. The guest needs an up-to-date QSM agent: QSM Desktop Agent in a VM, or qsm-console-guest in a container.'); }
+            return qfmErrorText(error);
+        }
+
+        async guarded(pane, action) {
+            try {
+                pane.showMessage('');
+                await action();
+            } catch (error) {
+                const text = this.openFailure(error);
+                // Over a list that is still shown, the message would sit out of sight.
+                if (pane.entries.length) { this.report(text); } else { pane.showMessage(text); }
+            }
+        }
+
+        report(text) {
+            this.reportText.textContent = text;
+            this.reportBar.style.display = 'flex';
+        }
+
+        dialog({ title, text, input = null, buttons, checkbox = null }) {
+            const doc = this.doc;
+            return new Promise((resolve) => {
+                const back = doc.createElement('div');
+                back.className = 'qfm-dialog-back';
+                const box = doc.createElement('div');
+                box.className = 'qfm-dialog';
+                box.setAttribute('role', 'alertdialog');
+                const heading = doc.createElement('h3');
+                heading.textContent = title;
+                box.append(heading);
+                if (text) {
+                    const paragraph = doc.createElement('p');
+                    paragraph.textContent = text;
+                    box.append(paragraph);
+                }
+                let field = null;
+                if (input !== null) {
+                    field = doc.createElement('input');
+                    field.type = 'text';
+                    field.value = input;
+                    box.append(field);
+                }
+                let tick = null;
+                if (checkbox) {
+                    const label = doc.createElement('label');
+                    tick = doc.createElement('input');
+                    tick.type = 'checkbox';
+                    label.append(tick, ` ${checkbox}`);
+                    box.append(label);
+                }
+                const row = doc.createElement('div');
+                row.className = 'qfm-dialog-buttons';
+                const finish = (choice) => {
+                    back.remove();
+                    (this.active || this.local).focus();
+                    resolve({ choice, value: field ? field.value : null, all: tick ? tick.checked : false });
+                };
+                for (const [choice, label] of buttons) {
+                    const item = doc.createElement('button');
+                    item.type = 'button';
+                    item.textContent = label;
+                    item.addEventListener('click', () => finish(choice));
+                    row.append(item);
+                }
+                box.append(row);
+                box.addEventListener('keydown', (event) => {
+                    event.stopPropagation();
+                    if (event.key === 'Escape') { finish('cancel'); }
+                    if (event.key === 'Enter' && field) { finish(buttons[0][0]); }
+                });
+                back.append(box);
+                this.root.append(back);
+                if (field) { field.focus(); field.select(); } else { row.firstChild.focus(); }
+            });
+        }
+
+        async askName(title, initial) {
+            const answer = await this.dialog({ title, input: initial,
+                buttons: [['ok', gettext('OK')], ['cancel', gettext('Cancel')]] });
+            if (answer.choice !== 'ok') { return null; }
+            const name = answer.value;
+            if (!qfmSafeName(name)) {
+                this.report(gettext('This is not a valid name.'));
+                return null;
+            }
+            return name;
+        }
+
+        transfers() {
+            return new QfmTransfers({
+                link: () => this.link,
+                now: () => this.win.performance.now(),
+                sleep: (ms) => new Promise((resolve) => this.win.setTimeout(resolve, ms)),
+                ask: async (path) => {
+                    // The user may be typing in the console: wait to be opened, do not jump.
+                    this.attention = true;
+                    this.drawNow();
+                    while (!this.visible) { await new Promise((resolve) => this.win.setTimeout(resolve, 300)); }
+                    this.attention = false;
+                    const answer = await this.dialog({
+                        title: gettext('It already exists'),
+                        text: path,
+                        checkbox: gettext('Do the same for the rest of this copy'),
+                        buttons: [['replace', gettext('Replace')], ['rename', gettext('Keep both')],
+                            ['skip', gettext('Skip')], ['cancel', gettext('Cancel the copy')]],
+                    });
+                    return { choice: answer.choice, all: answer.all };
+                },
+                notify: () => this.draw(),
+                spool: (name) => new QfmSpool(this.win, name).open(),
+                relink: () => this.ensureLink(),
+            });
+        }
+
+        copyFrom(pane) {
+            const entries = pane.selection();
+            if (!entries.length) { return; }
+            if (pane === this.local) {
+                if (!this.local.source) { this.report(gettext('Choose a folder first.')); return; }
+                if (this.rights !== 'rw') { this.report(qfmErrorText(new QfmError('ERIGHTS'))); return; }
+                if (this.guest.path === null) { this.report(qfmErrorText(new QfmError('ELINK'))); return; }
+                this.enqueueUpload(this.local.source, entries, this.guest.path);
+            } else {
+                this.enqueueDownload(entries.map((entry) => ({ entry, path: qfmJoin(this.guest.path, entry.name) })));
+            }
+        }
+
+        enqueueUpload(source, entries, destination) {
+            const label = entries.length === 1 ? entries[0].name : qfmFormat(gettext('{0} items'), entries.length);
+            const job = new QfmJob(qfmFormat(gettext('{0} to the guest'), label), 'up');
+            job.run = (transfers) => transfers.upload(job, source, entries, destination);
+            job.after = () => this.guarded(this.guest, () => this.guest.load());
+            this.enqueue(job);
+        }
+
+        enqueueDownload(items) {
+            const label = items.length === 1 ? items[0].entry.name : qfmFormat(gettext('{0} items'), items.length);
+            const job = new QfmJob(qfmFormat(gettext('{0} from the guest'), label), 'down');
+            const local = this.local.source;
+            if (local && local.kind === 'folder') {
+                // The folder of this moment: the pane may have moved on by the time it runs.
+                const target = { handle: local.handle };
+                job.run = (transfers) => transfers.downloadToFolders(job, items, target);
+                job.after = () => this.guarded(this.local, () => this.local.load());
+            } else if (this.local.pickerAvailable) {
+                this.report(gettext('Choose a folder first.'));
+                return;
+            } else {
+                const name = items.length === 1 ? `${items[0].entry.name}.tar` : 'qsm-files.tar';
+                job.run = (transfers) => transfers.downloadToSpool(job, items, name);
+            }
+            this.enqueue(job);
+        }
+
+        acceptsDrop(pane, event) {
+            if (this.dragging) { return this.dragging !== pane; }
+            const types = event.dataTransfer && event.dataTransfer.types;
+            const files = types && Array.from(types).includes('Files');
+            return Boolean(files) && (pane === this.guest || (this.local.source && this.local.source.kind === 'staged'));
+        }
+
+        async drop(pane, event) {
+            if (this.dragging) {
+                const source = this.dragging;
+                this.dragging = null;
+                this.copyFrom(source);
+                return;
+            }
+            const items = Array.from(event.dataTransfer.items || []);
+            const roots = items.map((item) => (item.webkitGetAsEntry ? item.webkitGetAsEntry() : null)).filter(Boolean);
+            const staged = pane === this.local ? this.local.source : new QfmStagedFiles();
+            try {
+                for (const root of roots) { await qfmReadDroppedEntry(root, '', staged); }
+            } catch (_error) {
+                this.report(qfmErrorText(new QfmError('ELOCAL')));
+                return;
+            }
+            if (pane === this.local) {
+                await this.guarded(this.local, () => this.local.load());
+            } else if (this.rights === 'rw' && this.guest.path !== null) {
+                this.enqueueUpload(staged, await staged.readdir(), this.guest.path);
+            } else {
+                this.report(qfmErrorText(new QfmError('ERIGHTS')));
+            }
+        }
+
+        enqueue(job) {
+            this.jobs.push(job);
+            this.draw();
+            this.runJobs();
+        }
+
+        async runJobs() {
+            if (this.running) { return; }
+            this.running = true;
+            if (this.idleTimer !== null) { this.win.clearTimeout(this.idleTimer); this.idleTimer = null; }
+            for (;;) {
+                const job = this.jobs.find((item) => item.state === 'queued');
+                if (!job) { break; }
+                job.state = 'preparing';
+                job.started = this.win.performance.now();
+                this.draw();
+                try {
+                    if (job.cancelled) { throw new QfmError('ECANCELED'); }
+                    await this.ensureLink();
+                    await job.run(this.transfers());
+                    job.state = job.cancelled ? 'cancelled' : job.errors.length ? 'failed' : 'done';
+                } catch (error) {
+                    if (error && error.code === 'ECANCELED') { job.state = 'cancelled'; } else {
+                        job.errors.push({ path: '', error });
+                        job.state = 'failed';
+                    }
+                }
+                this.draw();
+                if (job.after) { job.after(); }
+            }
+            this.running = false;
+            if (!this.visible) { this.scheduleIdle(); }
+            this.draw();
+        }
+
+        draw() {
+            if (this.drawPending) { return; }
+            const wait = Math.max(0, 200 - (this.win.performance.now() - this.lastDraw));
+            this.drawPending = true;
+            this.win.setTimeout(() => {
+                this.drawPending = false;
+                this.lastDraw = this.win.performance.now();
+                this.drawNow();
+            }, wait);
+        }
+
+        jobText(job) {
+            const counts = job.files ? qfmFormat(gettext('{0} of {1} files'), job.filesDone, job.files) : '';
+            const bytes = `${qfmSize(job.done)} / ${qfmSize(job.total)}`;
+            if (job.state === 'queued') { return `${job.label} — ${gettext('Waiting')}`; }
+            if (job.state === 'preparing') { return `${job.label} — ${gettext('Preparing…')} ${counts}`; }
+            if (job.state === 'locked') { return `${job.label} — ${gettext('Paused: the guest screen is locked. It continues after you unlock it.')}`; }
+            if (job.state === 'running') {
+                const speed = job.speed();
+                const rest = speed > 0 ? Math.ceil((job.total - job.done) / speed) : null;
+                const eta = rest === null ? '' : ` · ${Math.floor(rest / 60)}:${String(rest % 60).padStart(2, '0')}`;
+                return `${job.label} — ${counts} · ${bytes} · ${qfmSize(speed)}/s${eta}`;
+            }
+            const skipped = job.skipped ? ` · ${qfmFormat(gettext('{0} skipped'), job.skipped)}` : '';
+            const end = { done: gettext('Done'), cancelled: gettext('Cancelled'),
+                failed: qfmFormat(gettext('{0} failed'), job.errors.length) }[job.state];
+            return `${job.label} — ${end} · ${counts} · ${qfmSize(job.done)}${skipped}`;
+        }
+
+        jobView(job) {
+            if (job.view) { return job.view; }
+            const doc = this.doc;
+            const view = { row: doc.createElement('div'), text: doc.createElement('div'), action: doc.createElement('button'),
+                bar: doc.createElement('progress'), errors: doc.createElement('div'), errorCount: 0 };
+            view.row.className = 'qfm-job';
+            view.text.className = 'qfm-job-text';
+            view.errors.className = 'qfm-job-errors';
+            view.action.type = 'button';
+            // Rows are updated in place: a click needs the same button at press and release.
+            view.action.addEventListener('click', () => {
+                if (this.jobActive(job)) {
+                    job.cancel();
+                    if (job.state === 'queued') { job.state = 'cancelled'; }
+                } else {
+                    this.jobs.splice(this.jobs.indexOf(job), 1);
+                }
+                this.drawNow();
+            });
+            view.row.append(view.text, view.action, view.bar, view.errors);
+            job.view = view;
+            return view;
+        }
+
+        jobActive(job) { return ['queued', 'preparing', 'running', 'locked'].includes(job.state); }
+
+        drawNow() {
+            const rows = [];
+            for (const job of this.jobs.slice(-20)) {
+                const view = this.jobView(job);
+                const active = this.jobActive(job);
+                view.text.textContent = this.jobText(job);
+                view.text.title = view.text.textContent;
+                view.action.textContent = active ? gettext('Cancel') : gettext('Remove');
+                view.bar.style.display = active && job.total ? 'block' : 'none';
+                if (active && job.total) {
+                    view.bar.max = job.total;
+                    view.bar.value = Math.min(job.done, job.total);
+                }
+                if (view.errorCount !== job.errors.length) {
+                    view.errorCount = job.errors.length;
+                    view.errors.textContent = job.errors.slice(0, 50).map(({ path, error }) => (path ? `${path}: ${qfmErrorText(error)}` : this.openFailure(error))).join('\n');
+                }
+                view.errors.style.display = job.errors.length ? 'block' : 'none';
+                rows.push(view.row);
+            }
+            if (rows.length !== this.jobList.children.length || rows.some((row, index) => this.jobList.children[index] !== row)) {
+                this.jobList.replaceChildren(...rows);
+            }
+            const running = this.jobs.filter((job) => ['preparing', 'running', 'locked'].includes(job.state));
+            if (running.length) {
+                const total = running.reduce((sum, job) => sum + job.total, 0);
+                const done = running.reduce((sum, job) => sum + job.done, 0);
+                this.state.textContent = this.jobText(running[0]);
+                this.onProgress(this.attention ? '!' : (total ? Math.min(99, Math.floor(done * 100 / total)) : 0));
+            } else {
+                this.state.textContent = this.link && !this.link.closed && this.rights === 'r' ? gettext('Read only: your PVE role lacks VM.GuestAgent.FileWrite on this guest.') : '';
+                this.onProgress(null);
+            }
+        }
+
+        destroy() {
+            for (const job of this.jobs) { job.cancelled = true; }
+            this.visible = true; // Ends a question that was waiting to be seen.
+            if (this.idleTimer !== null) { this.win.clearTimeout(this.idleTimer); }
+            if (this.link) { this.link.close(); }
+            this.root.remove();
+        }
+    }
+    // QSM_FILES_END
+
     const defaultConsoleSettings = () => ({
         ...Object.fromEntries(Object.entries(CONSOLE_SETTING_SCHEMA).map(
             ([name, definition]) => [name, definition.defaultValue],
@@ -2423,7 +4687,7 @@
                 if (restoreClientFocusAfterFullscreen) {
                     restoreClientFocusAfterFullscreen = false;
                     settingsButton.focus({ preventScroll: true });
-                } else if (!settingsPanelOpen) {
+                } else if (!consolePanelOpen()) {
                     video.focus({ preventScroll: true });
                 }
             }, 0);
@@ -2440,6 +4704,13 @@
         paste.setAttribute('aria-label', gettext('Paste this browser clipboard into the guest'));
         paste.title = gettext('Paste this browser clipboard into the guest');
         paste.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1;pointer-events:auto';
+        const filesButton = document.createElement('button');
+        filesButton.type = 'button';
+        filesButton.textContent = '📁';
+        filesButton.hidden = true;
+        filesButton.setAttribute('aria-label', gettext('Files: copy between this computer and the guest'));
+        filesButton.title = gettext('Files: copy between this computer and the guest');
+        filesButton.style.cssText = 'min-width:32px;height:30px;padding:0 4px;cursor:pointer;font-size:15px;line-height:1;pointer-events:auto';
         const settingsPanel = document.createElement('aside');
         settingsPanel.setAttribute('aria-label', gettext('Console settings'));
         settingsPanel.style.cssText = 'display:none;position:absolute;z-index:21;left:12px;top:52px;width:min(440px,calc(100% - 24px));max-height:calc(100% - 64px);overflow:auto;box-sizing:border-box;padding:12px;border:1px solid rgba(148,163,184,.55);border-radius:8px;background:rgba(15,23,42,.97);box-shadow:0 8px 28px rgba(0,0,0,.65);color:#f8fafc';
@@ -2508,11 +4779,13 @@
         adaptiveRateStatus.textContent = gettext('Video bitrate adapts automatically to network conditions.');
         mediaPolicyForm.append(adaptiveRateStatus);
         let videoRateSequence = -1;
+        let videoRateNow = null;
         const acceptVideoRate = (message) => {
             if (!Number.isSafeInteger(message.sequence) || message.sequence <= videoRateSequence ||
                 !Number.isInteger(message.bitrate) || !Number.isInteger(message.maximum) ||
                 message.bitrate < 500 || message.maximum > 100000 || message.bitrate > message.maximum) { return; }
             videoRateSequence = message.sequence;
+            videoRateNow = { bitrate: message.bitrate, maximum: message.maximum };
             receiveFeedback.allow(message.receive_feedback === 1);
             adaptiveRateStatus.textContent = (message.adaptive === true ? gettext('Adaptive video') :
                 gettext('Fixed video — adaptive control is unavailable for this encoder')) + ': ' +
@@ -2894,7 +5167,7 @@
             mouseInputModeHint, specialKeys, keyboardUnavailableHint,
             mediaPolicyTitle, mediaPolicyHint, mediaPolicyForm, saveMediaPolicy, gesturesTitle, gesturesHint,
             gesturesForm, resetGestures, exactUiLabel, exactUiStatus, settingsForm, settingsActions);
-        toolbar.append(status, captureKeyboard, fullscreen, copy, paste, audio, mic, kbButton, diagButton, settingsButton);
+        toolbar.append(status, captureKeyboard, fullscreen, copy, paste, filesButton, audio, mic, kbButton, diagButton, settingsButton);
         // On-screen diagnostics for the case a client shows no picture (mostly
         // phones/tablets/TVs where remote logs are unreachable). Hidden until a
         // few seconds pass with no decoded frame, then it prints the video and
@@ -3077,6 +5350,8 @@
         let pointerInToolbar = false;
         let pointerNearToolbar = false;
         let settingsPanelOpen = false;
+        let filesPanelOpen = false;
+        const consolePanelOpen = () => settingsPanelOpen || filesPanelOpen;
         let guestRequestNumber = 0;
         let lastGuestClipboardText = null;
         let guestClipboardEventSequence = 0;
@@ -3145,10 +5420,10 @@
         });
         const hideToolbarSoon = () => {
             if (closed || toolbarPinned || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
-                pointerNearToolbar || pointerInToolbar || settingsPanelOpen || toolbarTimer !== null) { return; }
+                pointerNearToolbar || pointerInToolbar || consolePanelOpen() || toolbarTimer !== null) { return; }
             toolbarTimer = popup.setTimeout(() => {
                 toolbarTimer = null;
-                if (toolbarPinned || pointerNearToolbar || pointerInToolbar || settingsPanelOpen) { return; }
+                if (toolbarPinned || pointerNearToolbar || pointerInToolbar || consolePanelOpen()) { return; }
                 hideToolbarNow();
             }, settings.toolbarHideDelayMs);
         };
@@ -3291,7 +5566,7 @@
                 keyboardCaptureStatus.textContent = gettext('Client keyboard shortcuts active. Click Capture keyboard to return to the guest.');
                 return;
             }
-            if (settingsPanelOpen) {
+            if (consolePanelOpen()) {
                 // Settings takes DOM focus and releases held guest input.
                 // Keep Firefox/Safari's fullscreen-bound capture alive; only
                 // explicit Release / Client first / close should exit it.
@@ -3375,7 +5650,7 @@
                         fullscreenCaptureRequested = capture;
                         releaseGuestKeyboardLock(); return;
                     }
-                    if (!settingsPanelOpen && !keyboardCaptureSuspended && !document.hidden &&
+                    if (!consolePanelOpen() && !keyboardCaptureSuspended && !document.hidden &&
                         (typeof document.hasFocus !== 'function' || document.hasFocus())) {
                         video.focus({ preventScroll: true });
                     }
@@ -4298,6 +6573,7 @@
             if (inputStateTimer !== null) { popup.clearInterval(inputStateTimer); inputStateTimer = null; }
             if (observer) { observer.disconnect(); }
             stopMicrophone();
+            if (fileManager) { fileManager.destroy(); }
             if (peer) { peer.close(); }
             if (closeWatcher !== null) { window.clearInterval(closeWatcher); }
             if (pointerTimer !== null) { popup.clearTimeout(pointerTimer); }
@@ -4457,21 +6733,58 @@
             }
         };
 
+        const iceConfiguration = async () => {
+            if (!signalEndpoint.gateway) { return {}; }
+            const credentials = await signalRequest('GET',
+                vmMediaPolicyUrl().replace(/qsm-direct-settings$/, 'qsm-direct-ice'));
+            const endpoint = new URL(signalOrigin());
+            return { iceTransportPolicy: 'relay', iceServers: [{
+                urls: [...(credentials.udp_port ? [`turn:${endpoint.hostname}:${credentials.udp_port}?transport=udp`] : []),
+                    `turn:${endpoint.hostname}:${endpoint.port || '443'}?transport=tcp`],
+                username: credentials.username, credential: credentials.credential,
+            }] };
+        };
+
+        // Created at the first click: nothing of it exists in an ordinary console.
+        let fileManager = null;
+        let filesToken = null;
+        const openFileManager = () => {
+            if (!fileManager) {
+                fileManager = new QsmFileManager({
+                    win: popup, doc: document,
+                    getToken: () => filesToken,
+                    createPeer: async () => new RTCPeerConnection(await iceConfiguration()),
+                    demand: new QfmConsoleDemand({
+                        videoRate: () => videoRateNow,
+                        stats: () => peer.getStats(),
+                        now: () => popup.performance.now(),
+                    }),
+                    offer: (sdp, token) => signalRequest('POST',
+                        `/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/qsm-direct-files`,
+                        { sdp, token }),
+                    onVisible: (visible) => {
+                        filesPanelOpen = visible;
+                        if (visible) {
+                            setSettingsPanelOpen(false);
+                            releaseHeldInput();
+                        } else {
+                            video.focus({ preventScroll: true });
+                        }
+                        updateGuestKeyboardLock();
+                    },
+                    onProgress: (value) => {
+                        filesButton.textContent = value === null ? '📁' : value === '!' ? '📁!' : `📁${value}%`;
+                    },
+                });
+            }
+            fileManager.toggle();
+        };
+        filesButton.addEventListener('click', openFileManager);
+
         const connect = async () => {
             try {
             if (!await waitForVmStart()) { return; }
-            let iceConfig = {};
-            if (signalEndpoint.gateway) {
-                const credentials = await signalRequest('GET',
-                    vmMediaPolicyUrl().replace(/qsm-direct-settings$/, 'qsm-direct-ice'));
-                const endpoint = new URL(signalOrigin());
-                iceConfig = { iceTransportPolicy: 'relay', iceServers: [{
-                    urls: [...(credentials.udp_port ? [`turn:${endpoint.hostname}:${credentials.udp_port}?transport=udp`] : []),
-                        `turn:${endpoint.hostname}:${endpoint.port || '443'}?transport=tcp`],
-                    username: credentials.username, credential: credentials.credential,
-                }] };
-            }
-            peer = new RTCPeerConnection(iceConfig);
+            peer = new RTCPeerConnection(await iceConfiguration());
             control = peer.createDataChannel('qsm-control', { ordered: true });
             // Cursor positions are latest-state samples. Sending them as a
             // reliable ordered stream lets one congested packet make every
@@ -4781,6 +7094,10 @@
                 if (!message || typeof message !== 'object') { return; }
                 if (message.op === 'qsm_input_policy') {
                     acceptInputPolicy(message);
+                } else if (message.op === 'qsm_files_token' && typeof message.token === 'string' &&
+                    /^[0-9a-f]{32}$/.test(message.token)) {
+                    filesToken = message.token;
+                    filesButton.hidden = Boolean(VIEWER);
                 } else if (message.op === 'qsm_ui_policy' && message.version === 1) {
                     exactUiPolicy = message;
                     updateExactPreference();
@@ -4884,7 +7201,7 @@
             // harmless no-op, so no window-state test is needed; the settings
             // panel is skipped so hovering the video cannot steal its inputs.
             video.addEventListener('pointerenter', () => {
-                if (settingsPanelOpen) { return; }
+                if (consolePanelOpen()) { return; }
                 video.focus({ preventScroll: true });
             });
             // Desktop trackpad taps/clicks are MouseEvents too. Keep a short

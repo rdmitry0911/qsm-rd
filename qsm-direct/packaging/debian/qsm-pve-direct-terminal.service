@@ -27,6 +27,8 @@ KillSignal=SIGINT
 KillMode=process
 TasksMax=192
 MemoryMax=1024M
+# One peer process over its limit must not stop every console on the node.
+OOMPolicy=continue
 LimitNOFILE=1024
 NoNewPrivileges=true
 PrivateTmp=true

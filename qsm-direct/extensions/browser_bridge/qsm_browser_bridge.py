@@ -2573,7 +2573,8 @@ class BrowserWebRtcBridge:
                  on_terminal: Callable[[], None] | None = None,
                  video_codec: str = "h264", video_bitrate_kbps: int = 8000,
                  video_rate: AdaptiveVideoRate | None = None,
-                 on_microphone: Callable[[object, bytes], None] | None = None) -> None:
+                 on_microphone: Callable[[object, bytes], None] | None = None,
+                 file_token: str | None = None) -> None:
         if video_codec not in VIDEO_CODECS:
             raise BridgeError("invalid direct browser video codec")
         _install_h264_packetizer()
@@ -2594,6 +2595,7 @@ class BrowserWebRtcBridge:
         # cursor must be just as connectable as a VM with no prior damage.
         self._closed = False
         self._on_terminal = on_terminal
+        self._file_token = file_token
         self._terminal_notified = False
         self._latest_cursor: GuestCursor | None = None
         self._sent_cursor_state: tuple | None = None
@@ -2976,6 +2978,9 @@ class BrowserWebRtcBridge:
                         "mouse_actions": True,
                         "lease_ms": round(BrowserInputState.LEASE_SECONDS * 1000),
                         "snapshot_ms": round(BrowserInputState.SNAPSHOT_SECONDS * 1000)}))
+                    # Proves to the signal service which console a file session belongs to.
+                    if self._file_token is not None:
+                        channel.send(json.dumps({"op": "qsm_files_token", "token": self._file_token}))
                 except Exception:
                     pass
                 if self._input_watchdog is None:

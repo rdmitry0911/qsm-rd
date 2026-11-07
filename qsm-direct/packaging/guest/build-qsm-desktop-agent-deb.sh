@@ -26,6 +26,7 @@ install -m 0755 "$build_root/qsm-desktop-agent" "$package_root/qsm-desktop-agent
 install -m 0755 "$build_root/qsm-desktop-state-watcher" "$package_root/qsm-desktop-state-watcher"
 install -m 0755 "$ROOT_DIR/guest/qsf_wayland_clipboard_bridge.sh" "$package_root/qsm-desktop-clipboard-bridge"
 install -m 0644 "$ROOT_DIR/guest/qsm_desktop_metadata.py" "$package_root/qsm_desktop_metadata.py"
+install -m 0644 "$ROOT_DIR/guest/qsm_desktop_files.py" "$package_root/qsm_desktop_files.py"
 install -m 0644 "$ROOT_DIR/guest/qsm_qt_input_geometry.py" "$package_root/qsm_qt_input_geometry.py"
 install -m 0644 "$ROOT_DIR/guest/qsm_kwin_metadata.js" "$package_root/qsm_kwin_metadata.js"
 install -m 0644 "$ROOT_DIR/extensions/direct_guest/qsm_desktop_metadata.py" "$package_root/qsm_desktop_metadata_schema.py"
@@ -34,6 +35,7 @@ install -m 0755 "$ROOT_DIR/guest/qsm_desktop_effects.py" "$stage_root/usr/bin/qs
 install -m 0644 "$ROOT_DIR/packaging/guest/qsm-desktop-agent@.service" "$stage_root/usr/lib/systemd/system/qsm-desktop-agent@.service"
 install -m 0644 "$ROOT_DIR/packaging/guest/qsm-desktop-clipboard.service" "$stage_root/usr/lib/systemd/user/qsm-desktop-clipboard.service"
 install -m 0644 "$ROOT_DIR/packaging/guest/qsm-desktop-metadata.service" "$stage_root/usr/lib/systemd/user/qsm-desktop-metadata.service"
+install -m 0644 "$ROOT_DIR/packaging/guest/qsm-desktop-files.service" "$stage_root/usr/lib/systemd/user/qsm-desktop-files.service"
 install -m 0644 "$ROOT_DIR/packaging/guest/99-qsm-desktop-agent.rules" "$stage_root/usr/lib/udev/rules.d/99-qsm-desktop-agent.rules"
 install -m 0644 "$ROOT_DIR/packaging/guest/README.qsm-desktop-agent" "$stage_root/usr/share/doc/qsm-desktop-agent/README.Debian"
 cat > "$stage_root/DEBIAN/control" <<EOF
@@ -95,18 +97,19 @@ migration_users=/var/lib/qsm-desktop-agent/legacy-users
 if [ -f "$migration_users" ]; then
   while IFS= read -r user; do
     case "$user" in ''|*[!A-Za-z0-9._-]*) continue ;; esac
-    /usr/bin/qsm-desktop-agent-setup "$user" || true
+    /usr/bin/qsm-desktop-agent-setup --keep-files "$user" || true
   done < "$migration_users"
   rm -f "$migration_users"
 fi
 # Enable the additional session bridge for already configured users without
-# restarting their desktop or the active virtio transport.
+# restarting their desktop or the active virtio transport. An upgrade leaves
+# the file manager helper as the administrator's last setup left it.
 for unit in /etc/systemd/system/multi-user.target.wants/qsm-desktop-agent@*.service; do
   [ -L "$unit" ] || continue
   user=${unit##*/qsm-desktop-agent@}
   user=${user%.service}
   case "$user" in ''|*[!A-Za-z0-9._-]*) continue ;; esac
-  /usr/bin/qsm-desktop-agent-setup "$user"
+  /usr/bin/qsm-desktop-agent-setup --keep-files "$user"
 done
 EOF
 chmod 0755 "$stage_root/DEBIAN/postinst"

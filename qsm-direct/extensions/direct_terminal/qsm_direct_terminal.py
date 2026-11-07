@@ -36,8 +36,10 @@ if str(PACKAGE_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(PACKAGE_DIRECTORY))
 
 from browser_bridge.qsm_browser_bridge import (BrowserWebRtcBridge, BridgeError,
-                                                AdaptiveVideoRate, SharedMediaIngress, UnixInputEgress)  # noqa: E402
+                                                AdaptiveVideoRate, IcePeerLease, SharedMediaIngress,
+                                                UnixInputEgress, read_gateway)  # noqa: E402
 from direct_guest.qsm_guest_channel import GuestChannelError, QsmGuestChannel  # noqa: E402
+from direct_terminal.qsm_file_session import FileSession, FileSessionError  # noqa: E402
 from direct_guest.qsm_desktop_priority import DesktopPriority  # noqa: E402
 from direct_terminal.qsm_direct_encoder_probe import (DirectEncoderProbeError,
                                                        DirectEncoderSelection,
@@ -58,6 +60,11 @@ MAX_SESSIONS = 16
 PVE_CONFIG_MAX_BYTES = 256 * 1024
 PVE_CONFIG_RECONCILE_SECONDS = 0.25
 PVE_OPERATION = "pve_acl_webrtc"
+FILES_OPERATION = "pve_acl_files"
+_FILE_TOKEN_PATTERN = re.compile(r"\A[0-9a-f]{32}\Z")
+# Each session is a process of about 34 MiB, with up to 24 MiB of queues. They share
+# this service's cgroup with the media workers.
+MAX_FILE_SESSIONS = 6
 PROTOCOL_VERSION = 1
 _NODE_PATTERN = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9.-]{0,62}\Z")
 _SUBJECT_PATTERN = re.compile(r"\A[^\s\x00]{1,64}\Z")
@@ -959,6 +966,10 @@ class DirectSession:
     remove_guest_listener: Callable[[], None] | None = None
     negotiation_expires_at: float = 0.0
     key: object = None  # its transport: the VMID, or (VMID, slot) for a container console
+    subject: str = ""
+    file_token: str = ""
+    files: FileSession | None = None
+    files_starting: bool = False
 
     def __post_init__(self) -> None:
         if self.key is None:
@@ -989,6 +1000,8 @@ class DirectVmTransport:
     microphone: MicrophoneRoute | None = None
     audio_relay: ContainerAudioRelay | None = None
     remove_desktop_listener: Callable[[], None] | None = None
+    # A container's file helper listens apart from its clipboard agent, per console.
+    file_connector: Callable[[float], socket.socket] | None = None
 
 
 class DirectSessionManager:
@@ -1010,6 +1023,7 @@ class DirectSessionManager:
         self._lxc_config_directory = lxc_config_directory or pve_config_directory.parent / "lxc"
         self._lxc_runtime_config_directory = lxc_runtime_config_directory
         self._local_node = local_node
+        self._file_slots = threading.BoundedSemaphore(MAX_FILE_SESSIONS)
         self._dbus = DbusManager(vm_runtime_directory)
         self._reconcile_stop = threading.Event()
         self._start_configured_display_buses()
@@ -1441,8 +1455,9 @@ class DirectSessionManager:
             transport.video_rate = AdaptiveVideoRate(
                 transport.video_bitrate_kbps, transport.input.set_video_bitrate,
                 enabled=transport.adaptive_video, hardware=transport.hardware)
+        file_token = secrets.token_hex(16)
         bridge = BrowserWebRtcBridge(
-            directory, fps=fps, expected_producer_uid=os.geteuid(),
+            directory, fps=fps, expected_producer_uid=os.geteuid(), file_token=file_token,
             shared_media=transport.media, shared_input=transport.input,
             video_codec=transport.codec, video_bitrate_kbps=transport.video_bitrate_kbps,
             video_rate=transport.video_rate,
@@ -1460,7 +1475,8 @@ class DirectSessionManager:
                 vmid=vmid, key=key, bridge=bridge, worker=transport.worker, directory=directory,
                 expires_at=time.monotonic() + SESSION_IDLE_SECONDS,
                 remove_guest_listener=remove_guest_listener,
-                negotiation_expires_at=time.monotonic() + SESSION_NEGOTIATION_SECONDS)
+                negotiation_expires_at=time.monotonic() + SESSION_NEGOTIATION_SECONDS,
+                subject=subject, file_token=file_token)
             asyncio.create_task(self._watch_session(identifier))
             return answer
         except BaseException:
@@ -1820,7 +1836,8 @@ class DirectSessionManager:
                                            "h264_qsv", "hevc_qsv", "h264_vaapi", "hevc_vaapi"},
                 hardware=encoder != "libx264", guest=guest, kind="lxc", pcm=pcm,
                 audio_relay=relay,
-                microphone=MicrophoneRoute(relay.microphone) if relay is not None else None)
+                microphone=MicrophoneRoute(relay.microphone) if relay is not None else None,
+                file_connector=_container_clipboard_connector(init_pid, slot, "files.sock") if slot is not None else None)
             self._attach_desktop_metadata(transport)
             self._transports[key] = transport
             print(
@@ -1881,6 +1898,8 @@ class DirectSessionManager:
         session = self._sessions.pop(identifier, None)
         if session is None:
             return
+        if session.files is not None:
+            await asyncio.get_running_loop().run_in_executor(None, session.files.close)
         await session.bridge.close()
         if session.remove_guest_listener is not None:
             session.remove_guest_listener()
@@ -1918,6 +1937,8 @@ class DirectSessionManager:
             if session is not None:
                 if session.remove_guest_listener is not None:
                     session.remove_guest_listener()
+                if session.files is not None:
+                    await asyncio.get_running_loop().run_in_executor(None, session.files.close)
                 await session.bridge.close()
                 self._remove_directory(session.directory)
         await self._close_transport(key)
@@ -2000,6 +2021,100 @@ class DirectSessionManager:
                 suffix += f" errno={error.errno}"
             raise DirectTerminalError(
                 f"direct-terminal WebRTC negotiation failed: {suffix}") from error
+
+    def answer_files(self, payload: Any) -> dict[str, str]:
+        """Start the file session of one open console (docs/FILE_MANAGER.md).
+
+        The signal service has checked the privileges behind ``rights``. The
+        token came over that console's own control channel, so it names one
+        console exactly, also in a container with several. This runs on a
+        request thread: a file session must not hold the media loop.
+        """
+        if (not isinstance(payload, dict) or
+                set(payload) != {"version", "op", "node", "vmid", "subject", "rights", "token", "sdp", "sdp_type"} or
+                payload["version"] != PROTOCOL_VERSION or payload["op"] != FILES_OPERATION or
+                payload["sdp_type"] != "offer" or payload["rights"] not in ("r", "rw") or
+                not isinstance(payload["node"], str) or not _NODE_PATTERN.fullmatch(payload["node"]) or
+                (self._local_node is not None and payload["node"] != self._local_node) or
+                not _valid_vmid(payload["vmid"]) or
+                not isinstance(payload["subject"], str) or not _SUBJECT_PATTERN.fullmatch(payload["subject"]) or
+                not isinstance(payload["token"], str) or not _FILE_TOKEN_PATTERN.fullmatch(payload["token"]) or
+                not isinstance(payload["sdp"], str) or not payload["sdp"].isascii() or
+                not 1 <= len(payload["sdp"]) <= MAX_SDP_BYTES):
+            raise DirectTerminalError("direct-terminal file request is invalid")
+        if self._closed:
+            raise DirectTerminalError("direct-terminal is stopped")
+        vmid, subject, token = payload["vmid"], payload["subject"], payload["token"]
+
+        async def find() -> tuple[DirectSession, DirectVmTransport, FileSession | None]:
+            for session in self._sessions.values():
+                if (session.vmid == vmid and session.subject == subject and
+                        secrets.compare_digest(session.file_token, token)):
+                    transport = self._transports.get(session.key)
+                    if transport is not None:
+                        # One at a time per console, or a burst of requests is a burst of processes.
+                        if session.files_starting:
+                            raise DirectTerminalError("direct-terminal file session is already starting")
+                        session.files_starting = True
+                        previous, session.files = session.files, None
+                        return session, transport, previous
+            raise DirectTerminalError("direct-terminal file request names no open console")
+
+        session, transport, previous = asyncio.run_coroutine_threadsafe(find(), self._loop).result(timeout=5)
+        files: FileSession | None = None
+        try:
+            if previous is not None:
+                previous.close()
+            if transport.file_connector is not None:
+                link = QsmGuestChannel(connector=transport.file_connector, files=True)
+            elif transport.guest is not None:
+                link = transport.guest
+            else:
+                raise DirectTerminalError("direct-terminal guest has no agent channel")
+            if not self._file_slots.acquire(blocking=False):
+                if transport.file_connector is not None:
+                    link.close()
+                raise DirectTerminalError("direct-terminal file session capacity is exhausted")
+            files = FileSession(link, payload["rights"], owns_link=transport.file_connector is not None,
+                                on_end=self._file_slots.release)
+            answer = files.start(payload["sdp"])
+            self._lease_file_peer(files)
+
+            async def attach() -> None:
+                if not any(value is session for value in self._sessions.values()):
+                    raise DirectTerminalError("direct-terminal console ended during file negotiation")
+                session.files = files
+            asyncio.run_coroutine_threadsafe(attach(), self._loop).result(timeout=5)
+        except BaseException as error:
+            if files is not None:
+                files.close()
+            if isinstance(error, FileSessionError):
+                raise DirectTerminalError(str(error)) from error
+            raise
+        finally:
+            session.files_starting = False
+        print(f"qsm-direct-terminal: {subject} opened files of guest {vmid} rights={payload['rights']}",
+              file=sys.stderr, flush=True)
+        return {"type": "answer", "sdp": answer}
+
+    def _lease_file_peer(self, files: FileSession) -> None:
+        """In gateway mode TURN reaches only leased sockets, as for a console."""
+        loop = self._loop
+
+        async def closed_by_lease() -> None:
+            await loop.run_in_executor(None, files.close)
+        try:
+            gateway = read_gateway()
+            if gateway is None:
+                return
+            ports = [candidate[1] for candidate in files.candidates
+                     if candidate[0] == gateway["relay_ipv4"] and candidate[2] == "udp"]
+            lease = IcePeerLease(gateway["relay_ipv4"], ports)
+            asyncio.run_coroutine_threadsafe(lease.start(closed_by_lease), loop).result(timeout=5)
+        except (OSError, ValueError, RuntimeError) as error:
+            # The caller closes the session. Without a lease TURN cannot reach this peer.
+            raise DirectTerminalError(f"direct-terminal file lease failed: {type(error).__name__}") from error
+        files.add_end_listener(lambda: asyncio.run_coroutine_threadsafe(lease.stop(), loop))
 
     def answer_webrtc(self, request: Any, display_fd: int | None = None) -> dict[str, str]:
         """Answer a PVE-authorized offer on the shared bus (protocol v2).
@@ -2144,7 +2259,10 @@ class PveRequestHandler(socketserver.BaseRequestHandler):
             self.request.settimeout(REQUEST_TIMEOUT_SECONDS)
             _require_root_peer(self.request)
             payload = json.loads(_read_line(self.request).decode("utf-8"))
-            answer = server.sessions.answer(payload)
+            if isinstance(payload, dict) and payload.get("op") == FILES_OPERATION:
+                answer = server.sessions.answer_files(payload)
+            else:
+                answer = server.sessions.answer(payload)
             if set(answer) != {"type", "sdp"} or answer["type"] != "answer" or not isinstance(answer["sdp"], str):
                 raise DirectTerminalError("direct-terminal response is invalid")
             response = {"ok": True, "result": answer}
