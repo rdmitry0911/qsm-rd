@@ -10,7 +10,6 @@ StartLimitIntervalSec=30
 StartLimitBurst=3
 
 [Service]
-ExecStartPre=-/usr/lib/qsm-console/qsm-native-profile login-theme
 ExecStart=/opt/qsm-native-sddm/bin/sddm
 Restart=on-failure
 RestartSec=2
