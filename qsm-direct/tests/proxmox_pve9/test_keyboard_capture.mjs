@@ -76,7 +76,7 @@ function harness({keyboard=null,topKeyboard=keyboard,option=true,reject=false,pr
  h.captureKeyboard.listeners.click();h.captureKeyboard.listeners.click();h.openSettings(true);h.captureKeyboardSettings.listeners.click();await tick();
  assert.ok(h.document.fullscreenElement);assert.ok(!h.calls.includes('exit'),'Capture is enable/resume only, including repeated clicks and Settings');
  assert.ok(!h.calls.some(v=>Array.isArray(v)&&v[0]==='fullscreen'),'already active Capture does not request fullscreen again');
- assert.equal(h.captureKeyboard.textContent,'Capture keyboard');assert.equal(h.captureKeyboard.attrs['aria-label'],'Capture keyboard (full screen)');
+ assert.equal(h.captureKeyboard.textContent,'🔒');assert.equal(h.captureKeyboard.attrs['aria-label'],'Capture keyboard (full screen)');
  assert.equal(h.releaseKeyboardSettings.disabled,false);h.releaseKeyboardSettings.listeners.click();assert.ok(h.calls.includes('exit'),'the distinct Release action exits capture');
 }
 {

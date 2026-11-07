@@ -2580,7 +2580,14 @@
             this.location.textContent = source.location;
             this.setEntries(entries, directory === undefined);
             if (entries.length) { this.showMessage(''); } else if (source.kind === 'staged') {
-                this.showMessage(gettext('This browser does not let a web page see the folders of this computer, so this side lists only what you add here and what you download. To send files to the guest, add files or a folder above, or drop them here. Files from the guest are saved to your Downloads folder and appear here. Chrome and Edge show a real folder on this side.'));
+                this.showMessage(gettext([
+                    'Firefox does not let a web page see the folders of this computer. This side lists only what you add here and what you download, and only while this page is open.',
+                    'Add files… opens the file dialog of the browser, and the page may then read the files you choose. Add folder… does the same for a whole folder with its subfolders. Empty subfolders are left out, but not when you drag the folder here instead.',
+                    'Nothing is copied until you press Copy to guest →. Each file is read at that moment, and one that has changed in the meantime is not copied.',
+                    'Removing an item here only takes it off this list. Nothing is deleted from the disk.',
+                    'Files from the guest are saved to your Downloads folder and appear here. For ten minutes they can go back to the guest from here.',
+                    'Chrome and Edge show a real folder on this side.',
+                ].join('\n\n')));
             } else { this.showMessage(gettext('This folder is empty.')); }
         }
 
@@ -2647,7 +2654,7 @@
         .qfm-list:focus .qfm-cursor{box-shadow:inset 0 0 0 1px #38bdf8}
         .qfm-name{overflow:hidden;text-overflow:ellipsis}
         .qfm-col-size,.qfm-col-mtime{color:#94a3b8;overflow:hidden;text-overflow:ellipsis}
-        .qfm-message{display:none;padding:16px;color:#94a3b8;line-height:1.5}
+        .qfm-message{display:none;padding:16px;color:#94a3b8;line-height:1.5;white-space:pre-line;max-width:680px}
         .qfm-jobs{max-height:30%;overflow:auto;border-top:1px solid #334155;background:#0b1324}
         .qfm-job{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:6px 10px;border-bottom:1px solid #1e293b}
         .qfm-job-text{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -4414,8 +4421,9 @@
         fullscreen.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:18px;line-height:1;pointer-events:auto';
         const captureKeyboard = document.createElement('button');
         captureKeyboard.type = 'button';
-        captureKeyboard.textContent = gettext('Capture keyboard');
-        captureKeyboard.style.cssText = 'min-width:32px;max-width:160px;min-height:30px;padding:5px 8px;cursor:pointer;font-size:12px;line-height:1.25;pointer-events:auto';
+        // An ordinary button like the others: its name is in the tooltip and in the settings.
+        captureKeyboard.textContent = '🔒';
+        captureKeyboard.style.cssText = 'width:32px;height:30px;padding:0;cursor:pointer;font-size:16px;line-height:1;pointer-events:auto';
         captureKeyboard.setAttribute('aria-label', gettext('Capture keyboard (full screen)'));
         captureKeyboard.title = gettext('Capture keyboard (full screen)');
         captureKeyboard.setAttribute('aria-pressed', 'false');
@@ -4785,7 +4793,8 @@
         filesButton.hidden = true;
         filesButton.setAttribute('aria-label', gettext('Files: copy between this computer and the guest'));
         filesButton.title = gettext('Files: copy between this computer and the guest');
-        filesButton.style.cssText = 'min-width:32px;height:30px;padding:0 4px;cursor:pointer;font-size:15px;line-height:1;pointer-events:auto';
+        // As wide as its content: one icon, or the icon and a transfer's percentage.
+        filesButton.style.cssText = 'align-self:flex-start;min-width:32px;height:30px;padding:0 4px;cursor:pointer;font-size:15px;line-height:1;pointer-events:auto';
         const settingsPanel = document.createElement('aside');
         settingsPanel.setAttribute('aria-label', gettext('Console settings'));
         settingsPanel.style.cssText = 'display:none;position:absolute;z-index:21;left:12px;top:52px;width:min(440px,calc(100% - 24px));max-height:calc(100% - 64px);overflow:auto;box-sizing:border-box;padding:12px;border:1px solid rgba(148,163,184,.55);border-radius:8px;background:rgba(15,23,42,.97);box-shadow:0 8px 28px rgba(0,0,0,.65);color:#f8fafc';
@@ -5566,7 +5575,7 @@
         const setKeyboardCaptureLabel = () => {
             const active = Boolean(document.fullscreenElement && fullscreenCaptureRequested);
             const label = gettext('Capture keyboard (full screen)');
-            captureKeyboard.textContent = gettext('Capture keyboard');
+            captureKeyboard.textContent = '🔒';
             captureKeyboard.title = label;
             captureKeyboard.setAttribute('aria-label', label);
             captureKeyboard.setAttribute('aria-pressed', String(active));

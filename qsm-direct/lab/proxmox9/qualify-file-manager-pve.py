@@ -280,6 +280,7 @@ async def run(args, node: Node, checks: Checks, report: dict) -> None:
                     toolbar_opened = True
                 await asyncio.sleep(.1)
             checks.add('the token arrived and the toolbar offers Files', await button.is_visible())
+            await console.screenshot(path=str(args.output.with_suffix('.toolbar.png')))
 
             # ---- no helper yet: the real reason, on the real path
             await button.click()
