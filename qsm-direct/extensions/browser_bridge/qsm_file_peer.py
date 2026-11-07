@@ -1,15 +1,15 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
-"""The WebRTC end of one file manager session, in a process of its own.
+"""The browser's end of one file manager session, in a process of its own.
 
-aiortc costs a core at about 12 MiB/s, so this must not share the console's loop.
-It forwards frames without reading them: the guest helper validates them, and the
+This parses what arrives from the network, so it runs without privileges and apart
+from the console's media loop. The signal service has done the WebSocket handshake and
+relays the bytes. Frames pass through unread: the guest helper validates them, and the
 terminal has already fixed the session id and rights. See docs/FILE_MANAGER.md.
 """
 from __future__ import annotations
 
 import argparse
-import asyncio
 import base64
 import binascii
 from collections import Counter, deque
@@ -18,33 +18,34 @@ import json
 import os
 import re
 import resource
+import select
 import socket
+import struct
 import sys
+import threading
 import time
 
 MAX_FRAME = 65536
 MAX_LINE = 96 * 1024
-MAX_OFFER = 256 * 1024
-# The browser's own window, 4 MiB at most, bounds what it sends. Past this it is not honest.
-MAX_UPWARD_BUFFER = 8 * 1024 * 1024
-# What an idle peer maps (317 MiB) and then some. The terminal's other processes share a cgroup.
-MAX_ADDRESS_SPACE = 1024 * 1024 * 1024
-# aiortc keeps about 1 KB for each queued message, so a flood of tiny frames pays as if larger.
+MAX_TEXT = 128
+READ_BUFFER = 1024 * 1024
+MAX_ADDRESS_SPACE = 512 * 1024 * 1024
+# A flood of tiny frames costs more memory than its bytes, so it pays as if larger.
 MIN_FRAME_COST = 512
-MAX_ECHO_BUFFERED = 16 * 1024
-MIN_WINDOW_DELAY = .05
-MIN_WINDOW_BYTES = 8 * 1200
+MAX_ECHOES = 64
 # Credit bounds what an honest guest sends. Past this the peer stops reading, and the
 # terminal's own limit then ends the session.
 MAX_DOWNWARD_BYTES = 16 * 1024 * 1024
 FRAME_ID = re.compile(rb'"id":\s*(\d+)')
-NEGOTIATION_SECONDS = 30.0
+# The browser connects, and pings ten times a second once the guest is ready.
+CONNECT_SECONDS = 30.0
+IDLE_SECONDS = 90.0
 INITIAL_RATE = 256 * 1024
 MIN_RATE = 8 * 1024
 BURST_SECONDS = .02
-# bufferedAmount adds queue delay for every later frame: keep about 50 ms of it.
-QUEUE_SECONDS = .05
-MIN_QUEUE_BYTES = 32 * 1024
+MAX_WRITE_BYTES = 256 * 1024
+
+OP_CONTINUATION, OP_TEXT, OP_BINARY, OP_CLOSE, OP_PING, OP_PONG = 0, 1, 2, 8, 9, 10
 
 
 def drop_privileges() -> None:
@@ -87,93 +88,164 @@ class Pacer:
         return 0.
 
     def charge(self, size: int) -> None:
-        self._tokens -= size
-
-    def queue_limit(self) -> int:
-        return max(MIN_QUEUE_BYTES, int(self.rate * QUEUE_SECONDS))
+        # A long listing goes first, but file data does not then wait out all of it.
+        self._tokens = max(self._tokens - size, -self.rate)
 
 
-def without_end_of_candidates(sdp: str) -> str:
-    """As for the console: an unresolved mDNS offer must keep discovery open."""
-    lines = sdp.splitlines()
-    if not any(line.startswith("a=candidate:") and len(line.split()) > 4 and line.split()[4].endswith(".local")
-               for line in lines):
-        return sdp
-    return "\r\n".join(line for line in lines if line != "a=end-of-candidates") + "\r\n"
+def ws_frame(opcode: int, payload: bytes) -> bytes:
+    size = len(payload)
+    if size < 126:
+        return bytes((0x80 | opcode, size)) + payload
+    if size < 65536:
+        return struct.pack('!BBH', 0x80 | opcode, 126, size) + payload
+    return struct.pack('!BBQ', 0x80 | opcode, 127, size) + payload
+
+
+def unmask(data: bytes, key: bytes) -> bytes:
+    size = len(data)
+    if not size:
+        return b''
+    mask = (key * (size // 4 + 1))[:size]
+    return (int.from_bytes(data, 'little') ^ int.from_bytes(mask, 'little')).to_bytes(size, 'little')
+
+
+class ProtocolError(ValueError):
+    pass
+
+
+class WebSocketReader:
+    """Whole messages from a browser. Only a client's masked frames are valid."""
+
+    def __init__(self, stream) -> None:
+        self._stream = stream
+
+    def _read(self, size: int) -> bytes:
+        data = self._stream.read(size)
+        if len(data) != size:
+            raise EOFError
+        return data
+
+    def _frame(self) -> tuple[int, bool, bytes]:
+        first, second = self._read(2)
+        if first & 0x70 or not second & 0x80:
+            raise ProtocolError('invalid frame')
+        opcode, size = first & 0x0f, second & 0x7f
+        if size == 126:
+            size = struct.unpack('!H', self._read(2))[0]
+        elif size == 127:
+            size = struct.unpack('!Q', self._read(8))[0]
+        if size > MAX_FRAME or (opcode >= OP_CLOSE and (size > 125 or not first & 0x80)):
+            raise ProtocolError('invalid frame')
+        key = self._read(4)
+        return opcode, bool(first & 0x80), unmask(self._read(size), key)
+
+    def message(self, on_ping) -> tuple[int, bytes] | None:
+        """The next message, None at a close. Pings between its fragments are answered."""
+        kind, parts, total = None, [], 0
+        while True:
+            opcode, final, payload = self._frame()
+            if opcode == OP_CLOSE:
+                return None
+            if opcode == OP_PING:
+                on_ping(payload)
+                continue
+            if opcode == OP_PONG:
+                continue
+            if opcode == OP_CONTINUATION:
+                if kind is None:
+                    raise ProtocolError('invalid frame')
+            elif opcode in (OP_TEXT, OP_BINARY):
+                if kind is not None:
+                    raise ProtocolError('invalid frame')
+                kind = opcode
+            else:
+                raise ProtocolError('invalid frame')
+            total += len(payload)
+            if total > MAX_FRAME:
+                raise ProtocolError('message too large')
+            parts.append(payload)
+            if final:
+                return kind, parts[0] if len(parts) == 1 else b''.join(parts)
 
 
 class FilePeer:
-    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        from aiortc import RTCPeerConnection
-        self._reader = reader
-        self._writer = writer
-        self._pc = RTCPeerConnection()
-        self._files = None
+    def __init__(self, terminal: socket.socket, network: socket.socket) -> None:
+        self._terminal = terminal
+        self._network = network
         self._pacer = Pacer()
-        self._done = asyncio.Event()
-        self._opened = asyncio.Event()
-        self._pending_status: list[str] = []
+        self._done = threading.Event()
+        self._condition = threading.Condition()
         # File data waits its turn at the pace. Anything else (a listing, an acknowledgement,
         # an error) goes first, unless it must stay behind data of its own request.
-        self._urgent: deque[bytes] = deque()
+        self._urgent: deque[tuple[bytes, int]] = deque()
         self._bulk: deque[tuple[bytes, bytes | None]] = deque()
         self._bulk_ids: Counter[bytes] = Counter()
         self._queued = 0
-        self._queued_changed = asyncio.Event()
-        self._pc.on("datachannel", self._on_datachannel)
-        self._pc.on("connectionstatechange", self._on_state)
+        self._echoes = 0
+        self._pong: bytes | None = None
 
-    def _on_state(self) -> None:
-        if self._pc.connectionState in ("failed", "closed"):
-            self._done.set()
+    def _send_urgent(self, wire: bytes, cost: int) -> None:
+        with self._condition:
+            self._urgent.append((wire, cost))
+            self._queued += cost
+            self._condition.notify_all()
 
-    def _on_datachannel(self, channel) -> None:
-        files = (channel.label == "qsm-files" and self._files is None and channel.ordered is True and
-                 channel.maxRetransmits is None and channel.maxPacketLifeTime is None)
-        # Without a limit on retransmission: see the browser's side for what a FORWARD-TSN does.
-        rtt = (channel.label == "qsm-files-rtt" and channel.ordered is False and
-               channel.maxRetransmits is None and channel.maxPacketLifeTime is None)
-        if files:
-            self._files = channel
-            channel.on("message", self._from_browser)
-            channel.on("close", self._done.set)
-            self._opened.set()
-            for status in self._pending_status:
-                channel.send(status)
-            self._pending_status.clear()
-        elif rtt:
-            channel.on("message", lambda message: self._on_rtt(channel, message))
-        else:
-            channel.close()
+    def _on_ping(self, payload: bytes) -> None:
+        # Only the latest needs an answer, or a client that does not read fills this process.
+        with self._condition:
+            self._pong = ws_frame(OP_PONG, payload)
+            self._condition.notify_all()
 
-    def _on_rtt(self, channel, message) -> None:
-        if not isinstance(message, str) or len(message) > 128:
+    def _on_text(self, message: bytes) -> None:
+        if len(message) > MAX_TEXT:
             return
         try:
             value = json.loads(message)
         except ValueError:
             return
-        if isinstance(value, dict) and "rate" in value:
-            self._pacer.set_rate(value["rate"])
-        elif (isinstance(value, dict) and "t" in value and channel.readyState == "open" and
-                channel.bufferedAmount <= MAX_ECHO_BUFFERED):
-            channel.send(message)
-
-    def _from_browser(self, message) -> None:
-        if not isinstance(message, bytes) or not 2 <= len(message) <= MAX_FRAME:
-            self._done.set()
+        if not isinstance(value, dict):
             return
-        self._writer.write(b"D " + base64.b64encode(message) + b"\n")
-        if self._writer.transport.get_write_buffer_size() > MAX_UPWARD_BUFFER:
+        if 'rate' in value:
+            with self._condition:
+                self._pacer.set_rate(value['rate'])
+                self._condition.notify_all()
+        elif 't' in value:
+            # An echo that would wait behind many others says nothing new.
+            with self._condition:
+                if self._echoes >= MAX_ECHOES:
+                    return
+                self._echoes += 1
+                self._urgent.appendleft((ws_frame(OP_TEXT, message), -1))
+                self._condition.notify_all()
+
+    def _from_browser(self) -> None:
+        try:
+            ready = select.select((self._network,), (), (), CONNECT_SECONDS)[0]
+            if not ready:
+                print('qsm-file-peer: no browser connected', file=sys.stderr, flush=True)
+                return
+            self._network.settimeout(IDLE_SECONDS)
+            with self._network.makefile('rb', buffering=READ_BUFFER) as stream:
+                reader = WebSocketReader(stream)
+                while True:
+                    message = reader.message(self._on_ping)
+                    if message is None:
+                        return
+                    kind, payload = message
+                    if kind == OP_TEXT:
+                        self._on_text(payload)
+                    elif 2 <= len(payload):
+                        self._terminal.sendall(b'D ' + base64.b64encode(payload) + b'\n')
+                    else:
+                        return
+        except (OSError, EOFError, ProtocolError):
+            pass
+        finally:
             self._done.set()
 
     def _status(self, state: str, reason: str | None = None) -> None:
-        text = json.dumps({"op": "status", "state": state, "reason": reason}, separators=(",", ":"))
-        channel = self._files
-        if channel is not None and channel.readyState == "open":
-            channel.send(text)
-        else:
-            self._pending_status.append(text)
+        text = json.dumps({'op': 'status', 'state': state, 'reason': reason}, separators=(',', ':')).encode('ascii')
+        self._send_urgent(ws_frame(OP_TEXT, text), 0)
 
     def _enqueue(self, frame: bytes) -> None:
         size = int.from_bytes(frame[:2], 'big')
@@ -181,147 +253,114 @@ class FilePeer:
         found = FRAME_ID.search(head)
         identifier = found.group(1) if found else None
         data = b'"o":' in head
-        # An unreadable header takes the slower lane, where nothing can overtake it.
-        if not data and identifier is not None and not self._bulk_ids[identifier]:
-            self._urgent.append(frame)
-        else:
-            self._bulk.append((frame, identifier))
-            if identifier is not None:
-                self._bulk_ids[identifier] += 1
-        self._queued += len(frame)
-        self._queued_changed.set()
-
-    def _sent(self, frame: bytes) -> None:
-        self._queued -= len(frame)
-        self._queued_changed.set()
-
-    def _keep_window_open(self) -> None:
-        """The browser's controller sets the pace, so SCTP's window must not be the limit.
-
-        aiortc grows its window only when it is full, and a paced sender seldom fills it. After
-        a retransmission timeout it starts again from one packet and can stay there for good,
-        with echoes waiting in the same queue and reading as congestion. Loss recovery is
-        unchanged. These are aiortc's private fields, so a version without them keeps its own.
-        """
-        sctp = self._pc.sctp
-        window = getattr(sctp, '_cwnd', None)
-        if type(window) is int:
-            delay = getattr(sctp, '_srtt', None) or MIN_WINDOW_DELAY
-            wanted = int(self._pacer.rate * max(delay, MIN_WINDOW_DELAY) * 2) + MIN_WINDOW_BYTES
-            if window < wanted:
-                sctp._cwnd = wanted
-
-    async def _send_loop(self) -> None:
-        await self._opened.wait()
-        channel = self._files
-        while not self._done.is_set():
-            if channel.readyState != 'open':
-                return
-            self._keep_window_open()
-            if not self._urgent and not self._bulk:
-                self._queued_changed.clear()
-                await self._queued_changed.wait()
-                continue
-            if channel.bufferedAmount > self._pacer.queue_limit():
-                await asyncio.sleep(.002)
-                continue
-            if self._urgent:
-                frame = self._urgent.popleft()
-                # It goes now, and what it costs comes out of the pace of what follows.
-                self._pacer.charge(max(len(frame), MIN_FRAME_COST))
-                channel.send(frame)
-                self._sent(frame)
-                continue
-            frame, identifier = self._bulk[0]
-            wait = self._pacer.delay(max(len(frame), MIN_FRAME_COST))
-            if wait:
-                # Short, so that an urgent frame does not wait out a slow pace.
-                await asyncio.sleep(min(wait, .01))
-                continue
-            self._bulk.popleft()
-            if identifier is not None:
-                self._bulk_ids[identifier] -= 1
-                if not self._bulk_ids[identifier]:
-                    del self._bulk_ids[identifier]
-            channel.send(frame)
-            self._sent(frame)
-
-    async def _from_terminal(self) -> None:
-        reader = self._reader
-        while not self._done.is_set():
-            while self._queued > MAX_DOWNWARD_BYTES and not self._done.is_set():
-                self._queued_changed.clear()
-                await self._queued_changed.wait()
-            try:
-                line = await reader.readuntil(b"\n")
-            except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, ConnectionError):
-                break
-            if line.startswith(b"D "):
-                try:
-                    frame = base64.b64decode(line[2:-1], validate=True)
-                except binascii.Error:
-                    break
-                if not 2 <= len(frame) <= MAX_FRAME:
-                    break
-                self._enqueue(frame)
-            elif line == b"R\n":
-                self._status("ready")
-            elif line.startswith(b"C "):
-                reason = line[2:-1].decode("ascii", "replace")
-                self._status("closed", reason if reason in ("nohelper", "limit", "gone") else "gone")
+        cost = max(len(frame), MIN_FRAME_COST)
+        with self._condition:
+            # An unreadable header takes the slower lane, where nothing can overtake it.
+            if not data and identifier is not None and not self._bulk_ids[identifier]:
+                self._urgent.append((ws_frame(OP_BINARY, frame), cost))
             else:
-                break
-        self._done.set()
+                self._bulk.append((frame, identifier))
+                if identifier is not None:
+                    self._bulk_ids[identifier] += 1
+            self._queued += cost
+            self._condition.notify_all()
 
-    async def negotiate(self) -> None:
-        from aiortc import RTCSessionDescription
-        request = json.loads(await asyncio.wait_for(self._reader.readline(), NEGOTIATION_SECONDS))
-        sdp = request.get("offer") if isinstance(request, dict) else None
-        if not isinstance(sdp, str) or not sdp.isascii() or not 1 <= len(sdp) <= MAX_OFFER:
-            raise ValueError("invalid offer")
-        await self._pc.setRemoteDescription(RTCSessionDescription(sdp=without_end_of_candidates(sdp), type="offer"))
-        await self._pc.setLocalDescription(await self._pc.createAnswer())
-        local = self._pc.localDescription
-        candidates = [[c.ip, c.port, c.protocol]
-                      for c in self._pc.sctp.transport.transport.iceGatherer.getLocalCandidates()]
-        self._writer.write(json.dumps({"answer": local.sdp, "candidates": candidates},
-                                      separators=(",", ":")).encode("ascii") + b"\n")
-        await self._writer.drain()
+    def _next_write(self) -> bytes:
+        """What may go now: one urgent frame, or as much file data as the pace allows."""
+        with self._condition:
+            while True:
+                if self._pong is not None:
+                    wire, self._pong = self._pong, None
+                    return wire
+                if self._urgent:
+                    wire, cost = self._urgent.popleft()
+                    if cost < 0:
+                        self._echoes -= 1
+                    else:
+                        # It goes now, and what it costs comes out of the pace of what follows.
+                        self._pacer.charge(cost)
+                        self._queued -= cost
+                        self._condition.notify_all()
+                    return wire
+                if self._bulk:
+                    wait = self._pacer.delay(max(len(self._bulk[0][0]), MIN_FRAME_COST))
+                    if not wait:
+                        break
+                    # Short, so that an urgent frame does not wait out a slow pace.
+                    self._condition.wait(min(wait, .01))
+                    continue
+                self._condition.wait()
+            parts, total = [], 0
+            while True:
+                frame, identifier = self._bulk.popleft()
+                if identifier is not None:
+                    self._bulk_ids[identifier] -= 1
+                    if not self._bulk_ids[identifier]:
+                        del self._bulk_ids[identifier]
+                self._queued -= max(len(frame), MIN_FRAME_COST)
+                parts.append(ws_frame(OP_BINARY, frame))
+                total += len(frame)
+                if (not self._bulk or self._urgent or total >= MAX_WRITE_BYTES or
+                        self._pacer.delay(max(len(self._bulk[0][0]), MIN_FRAME_COST))):
+                    break
+            self._condition.notify_all()
+            return parts[0] if len(parts) == 1 else b''.join(parts)
 
-    async def run(self) -> int:
+    def _send_loop(self) -> None:
         try:
-            await self.negotiate()
-        except Exception as error:  # noqa: BLE001 - the offer is untrusted; its text is never logged
-            print(f"qsm-file-peer: negotiation failed: {type(error).__name__}", file=sys.stderr, flush=True)
-            await self._pc.close()
-            return 1
-        relay = asyncio.ensure_future(self._from_terminal())
-        sending = asyncio.ensure_future(self._send_loop())
+            while True:
+                self._network.sendall(self._next_write())
+        except OSError:
+            pass
+        finally:
+            self._done.set()
+
+    def _from_terminal(self) -> None:
         try:
-            await asyncio.wait_for(self._opened.wait(), NEGOTIATION_SECONDS)
-            await self._done.wait()
-        except asyncio.TimeoutError:
-            print("qsm-file-peer: no browser connected", file=sys.stderr, flush=True)
-        relay.cancel()
-        sending.cancel()
-        await self._pc.close()
+            with self._terminal.makefile('rb', buffering=READ_BUFFER) as reader:
+                while True:
+                    with self._condition:
+                        while self._queued > MAX_DOWNWARD_BYTES:
+                            self._condition.wait()
+                    line = reader.readline(MAX_LINE + 1)
+                    if not line.endswith(b'\n') or len(line) > MAX_LINE:
+                        return
+                    if line.startswith(b'D '):
+                        frame = base64.b64decode(line[2:-1], validate=True)
+                        if not 2 <= len(frame) <= MAX_FRAME:
+                            return
+                        self._enqueue(frame)
+                    elif line == b'R\n':
+                        self._status('ready')
+                    elif line.startswith(b'C '):
+                        reason = line[2:-1].decode('ascii', 'replace')
+                        self._status('closed', reason if reason in ('nohelper', 'limit', 'gone') else 'gone')
+                    else:
+                        return
+        except (OSError, binascii.Error):
+            pass
+        finally:
+            self._done.set()
+
+    def run(self) -> int:
+        for target in (self._from_browser, self._from_terminal, self._send_loop):
+            threading.Thread(target=target, daemon=True).start()
+        self._done.wait()
+        # What is still queued goes nowhere useful: either end has gone.
         return 0
-
-
-async def main_async(descriptor: int) -> int:
-    connection = socket.socket(fileno=descriptor)
-    connection.setblocking(False)
-    reader, writer = await asyncio.open_unix_connection(sock=connection, limit=max(MAX_LINE, MAX_OFFER * 2))
-    return await FilePeer(reader, writer).run()
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--fd", type=int, required=True)
+    parser.add_argument('--fd', type=int, required=True)
+    parser.add_argument('--network-fd', type=int, required=True)
     arguments = parser.parse_args()
     drop_privileges()
-    return asyncio.run(main_async(arguments.fd))
+    code = FilePeer(socket.socket(fileno=arguments.fd), socket.socket(fileno=arguments.network_fd)).run()
+    sys.stderr.flush()
+    # Threads may be blocked on a socket, and the kernel closes both for whoever waits at the far end.
+    os._exit(code)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(main())

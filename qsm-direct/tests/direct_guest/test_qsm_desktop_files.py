@@ -343,7 +343,7 @@ class OperationTests(HelperCase):
         response = self.client.call({'op': 'hello'})
         account = pwd.getpwuid(os.getuid())
         self.assertEqual(response, {'id': response['id'], 'ok': True, 'v': 1, 'home': account.pw_dir,
-                                    'user': account.pw_name, 'rights': 'rw', 'locked': False, 'chunk': 32768})
+                                    'user': account.pw_name, 'rights': 'rw', 'locked': False, 'chunk': 60000})
 
     def test_list_describes_every_type(self):
         (self.root / 'file').write_bytes(b'12345')
@@ -815,7 +815,7 @@ class UploadTests(HelperCase):
         self.assertEqual(self.client.frame(rid)[0], {'id': rid, 'ack': 11})
         self.assertEqual(os.path.getsize(os.fsencode(self.root) + b'/' + self.parts()[0]), 11)
 
-    def test_acks_come_at_least_every_64_kib_in_a_burst(self):
+    def test_acks_come_at_least_every_write_batch_in_a_burst(self):
         chunk, total = 32768, 4 * 1024 * 1024
         rid = self.client.allocate()
         self.client.send(frame_line({'op': 'put', 'id': rid, 'path': self.path('file'), 'size': total, 'overwrite': 'fail'}),
@@ -828,7 +828,7 @@ class UploadTests(HelperCase):
         self.assertEqual(acks[-1], total)
         for previous, current in zip([0, *acks], acks):
             self.assertGreater(current, previous)
-            self.assertLessEqual(current - previous, 64 * 1024)
+            self.assertLessEqual(current - previous, 1024 * 1024)
 
     def test_a_128_kib_window_cannot_stall(self):
         chunk, total, window = 32768, 2 * 1024 * 1024, 128 * 1024
@@ -916,7 +916,7 @@ class DownloadTests(HelperCase):
         offset = 0
         for head, payload in before[1:]:
             self.assertEqual(head, {'id': rid, 'o': offset})
-            self.assertLessEqual(len(payload), 32768)
+            self.assertLessEqual(len(payload), 60000)
             offset += len(payload)
         self.assertEqual(b''.join(payload for _, payload in before[1:]), data)
         self.assertEqual(final, {'id': rid, 'ok': True, 'size': 100000, 'changed': False})
@@ -951,7 +951,7 @@ class DownloadTests(HelperCase):
         got = self.received(rid, first)
         self.assertEqual(got, data[:first])
         got2 = bytearray()
-        for grant in (1, 100, 32768, 32769, 300000):
+        for grant in (1, 100, 60000, 60001, 300000):
             self.client.send(frame_line({'op': 'credit', 'id': rid, 'n': grant}))
             piece = self.received(rid, grant)
             self.assertEqual(len(piece), grant)
@@ -1038,7 +1038,7 @@ class DownloadTests(HelperCase):
         final, parts = self.client.final(rid, timeout=5)
         self.assertTrue(final['ok'])
         self.assertEqual([len(payload) for head, payload in parts if 'o' in head], [2048, 2048, 1904])
-        for bad in (1023, 32769, 'x', None, True):
+        for bad in (1023, 60001, 'x', None, True):
             with self.subTest(chunk=bad):
                 self.assertFails(self.client.call({'op': 'get', 'path': self.path('file'), 'credit': 10, 'chunk': bad}, timeout=5), 'EINVAL')
 
@@ -1378,7 +1378,7 @@ class BigFileTests(HelperCase):
                 self.client.send(frame_line({'op': 'data', 'id': rid, 'o': sent}, chunk))
                 sent += len(chunk)
             head, _ = self.client.frame(rid, timeout=60)
-            self.assertLessEqual(head['ack'] - acked, 64 * 1024)
+            self.assertLessEqual(head['ack'] - acked, 1024 * 1024)
             acked = head['ack']
         self.client.send(frame_line({'op': 'end', 'id': rid, 'size': total}))
         self.assertEqual(self.client.final(rid, timeout=60)[0], {'id': rid, 'ok': True, 'size': total})
@@ -1399,7 +1399,7 @@ class BigFileTests(HelperCase):
             if 'ok' in head:
                 break
             self.assertEqual(head['o'], received)
-            self.assertLessEqual(len(payload), 32768)
+            self.assertLessEqual(len(payload), 60000)
             back.update(payload)
             received += len(payload)
             self.client.send(frame_line({'op': 'credit', 'id': rid, 'n': len(payload)}))

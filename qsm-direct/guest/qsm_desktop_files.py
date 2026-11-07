@@ -35,9 +35,11 @@ import time
 
 MAX_FRAME = 65536
 MAX_LINE = len(b'FS ') + 16 + len(b' D ') + (MAX_FRAME + 2) // 3 * 4
-CHUNK = 32768
+CHUNK = 60000
 MIN_CHUNK = 1024
-ACK_EVERY = 64 * 1024
+# Written and acknowledged at a time: what has piled up while the disk was busy, so the
+# slower the disk the larger the write. A slow path sends less than this at a time.
+WRITE_BATCH = 1024 * 1024
 READ_BATCH = 256 * 1024
 MAX_PATH_BYTES = 4096
 MAX_SESSIONS = 8
@@ -57,7 +59,7 @@ MAX_ID = 2**31 - 1
 MAX_SIZE = 2**63 - 1
 MAX_MTIME_MS = 2**63 // 10**6 - 1
 MAX_CREDIT = 2**53
-# The browser's window is at most 4 MiB. Far beyond it the sender is not
+# The browser's window is at most 8 MiB. Far beyond it the sender is not
 # waiting for acks, and a slow disk must not turn that into unbounded memory.
 MAX_UNWRITTEN = 16 * 1024 * 1024
 WRITE_HIGH, WRITE_LOW = 1024 * 1024, 256 * 1024
@@ -490,7 +492,7 @@ class Upload(Request):
     def next_batch(self) -> bytes:
         batch = [self.queue.popleft()]
         size = len(batch[0])
-        while self.queue and size + len(self.queue[0]) <= ACK_EVERY:
+        while self.queue and size + len(self.queue[0]) <= WRITE_BATCH:
             batch.append(self.queue.popleft())
             size += len(batch[-1])
         return b''.join(batch)

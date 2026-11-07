@@ -822,7 +822,7 @@
     }
 
     // QSM_FILES_BEGIN: the two-pane file manager, docs/FILE_MANAGER.md.
-    const QFM_CHUNK = 32768;
+    const QFM_CHUNK = 60000;
     const QFM_ROW = 26;
     const QFM_WORKERS = 4;
     const QFM_MAX_LIST = 200000;
@@ -875,7 +875,7 @@
         const frame = new Uint8Array(2 + json.length + size);
         new DataView(frame.buffer).setUint16(0, json.length);
         for (let index = 0; index < json.length; index += 1) { frame[2 + index] = json.charCodeAt(index); }
-        if (size) { frame.set(new Uint8Array(payload), 2 + json.length); }
+        if (size) { frame.set(payload instanceof Uint8Array ? payload : new Uint8Array(payload), 2 + json.length); }
         return frame.buffer;
     };
 
@@ -944,6 +944,8 @@
         static DRAIN_EVERY_MS = 15000;
         static DRAIN_MS = 500;
         static EARLIEST_DRAIN_MS = 5000;
+        // Bytes on their way. The node holds about twice this for a session.
+        static MAX_WINDOW = 8 * 1024 * 1024;
 
         constructor() {
             this.rate = QfmRate.START;
@@ -1073,7 +1075,11 @@
                 return;
             }
             if (this.capacity === null || this.rate < QfmRate.HARMLESS) {
-                this.rate *= (1 + .05 * room) ** steps;
+                // A narrow path is found while the rate is low. Past that the same care would
+                // spend many seconds of a fast link on getting up to speed.
+                // A path of under 5 ms is a LAN, where a queue shows at once and costs little.
+                const step = this.floorDelay < 5 ? .4 : this.rate < 1024 * 1024 ? .05 : this.rate < 8 * 1024 * 1024 ? .1 : .2;
+                this.rate *= (1 + step * room) ** steps;
             } else if (this.rate < this.capacity * .95) {
                 // Back to what the path was seen to carry, quickly: that much is known to fit.
                 this.rate = Math.min(this.capacity * .95, this.rate * (1 + .1 * room) ** steps);
@@ -1102,8 +1108,9 @@
         }
 
         clamp() { this.rate = Math.min(QfmRate.MAX, Math.max(QfmRate.MIN, this.rate)); }
-        window() { return Math.min(4 * 1024 * 1024, Math.max(64 * 1024, Math.round(this.rate * .5))); }
-        queueLimit(hidden) { return Math.max(16 * 1024, Math.round(this.current() * (hidden ? 1 : .05))); }
+        window() { return Math.min(QfmRate.MAX_WINDOW, Math.max(64 * 1024, Math.round(this.rate * .5))); }
+        // What waits in this browser delays every echo behind it. A hidden tab fills it once a second.
+        queueLimit(hidden) { return hidden ? Math.max(16 * 1024, Math.round(this.current())) : Math.max(16 * 1024, Math.min(2 * 1024 * 1024, Math.round(this.current() * .05))); }
         burst(hidden, size) { return this.current() * (hidden ? 1 : .05) + size; }
         // A frame is a burst on the wire, and whatever comes next waits behind it.
         chunk() { return Math.min(QFM_CHUNK, Math.max(2048, Math.round(this.rate * .02))); }
@@ -1142,12 +1149,14 @@
         }
     }
 
-    // The file session's own WebRTC connection, its requests and its pacing.
+    // The file session's own connection, its requests and its pacing. A text message is
+    // an echo or a status, a binary one is a frame. See the design note.
     class QfmLink {
         static STALL_MS = 20000;
+        static OPEN = 1;
 
-        constructor({ createPeer, offer, timers, isHidden, onEnd, demand = null }) {
-            this.createPeer = createPeer;
+        constructor({ createSocket, offer, timers, isHidden, onEnd, demand = null }) {
+            this.createSocket = createSocket;
             this.offer = offer;
             this.timers = timers;
             this.isHidden = isHidden;
@@ -1172,28 +1181,19 @@
         now() { return this.timers.now(); }
 
         async open() {
-            const peer = await this.createPeer();
-            this.peer = peer;
-            this.files = peer.createDataChannel('qsm-files', { ordered: true });
-            this.files.binaryType = 'arraybuffer';
-            // Echoes are retransmitted though nobody needs a late one. With a limit on
-            // retransmission a lost echo brings a FORWARD-TSN, on which aiortc also discards
-            // received fragments of a large message on the reliable channel. The sender counts
-            // those as delivered, and that channel then stops for good.
-            this.rtt = peer.createDataChannel('qsm-files-rtt', { ordered: false });
+            // A POST has no time limit of its own, and a dead path would hold this for good.
+            let offerTimer;
+            const answer = await Promise.race([this.offer(), new Promise((_resolve, reject) => {
+                offerTimer = this.timers.setTimeout(() => reject(new QfmError('ELINK')), 20000);
+            })]).finally(() => this.timers.clearTimeout(offerTimer));
+            if (this.closed) { throw new QfmError(this.endReason || 'ELINK'); }
+            const socket = this.createSocket(answer.socket);
+            this.socket = socket;
+            socket.binaryType = 'arraybuffer';
             const ready = new Promise((resolve, reject) => { this.readyWaiter = { resolve, reject }; });
-            ready.catch(() => {}); // An offer can fail before anything waits on this.
-            this.files.addEventListener('message', (event) => this.receive(event.data));
-            this.files.addEventListener('bufferedamountlow', () => this.pump());
-            this.files.addEventListener('close', () => this.end('ELINK'));
-            this.rtt.addEventListener('message', (event) => this.receiveRtt(event.data));
-            peer.addEventListener('connectionstatechange', () => {
-                if (peer.connectionState === 'failed' || peer.connectionState === 'closed') { this.end('ELINK'); }
-            });
-            await peer.setLocalDescription(await peer.createOffer());
-            await waitForIce(peer);
-            const answer = await this.offer(peer.localDescription.sdp);
-            await peer.setRemoteDescription({ type: 'answer', sdp: answer.sdp });
+            ready.catch(() => {}); // It can fail before anything waits on this.
+            socket.addEventListener('message', (event) => this.receive(event.data));
+            socket.addEventListener('close', () => this.end('ELINK'));
             this.timeoutTimer = this.timers.setTimeout(() => {
                 if (this.readyWaiter) { this.readyWaiter.reject(new QfmError('ELINK')); }
             }, 20000);
@@ -1219,20 +1219,19 @@
             const punctual = now - (this.lastPing || now) < 250;
             this.lastPing = now;
             if (busy && punctual) { this.rate.tick(now); } else if (!busy) { this.rate.unanswered = null; }
-            // Data on its way and nothing back for this long: whatever holds it (a stuck SCTP
-            // association, a stopped process), a new connection is the way on.
+            // Data on its way and nothing back for this long: whatever holds it (a dead path,
+            // a stopped process), a new connection is the way on.
             if ((this.inflight > 0 || this.downloads > 0) && now - this.lastProgress > QfmLink.STALL_MS) {
                 this.end('ESTALLED');
                 return;
             }
-            if (this.rtt.readyState === 'open') {
+            if (this.socket.readyState === QfmLink.OPEN) {
                 this.rate.pinged(now);
-                this.rtt.send(JSON.stringify({ t: now }));
-                // This channel may lose a message, so it is repeated even if nothing changed.
+                this.socket.send(JSON.stringify({ t: now }));
                 const rate = Math.round(this.rate.current());
-                if (Math.abs(rate - this.sentRate) > this.sentRate * .05 || this.pingCount % 10 === 0) {
+                if (Math.abs(rate - this.sentRate) > this.sentRate * .05) {
                     this.sentRate = rate;
-                    this.rtt.send(JSON.stringify({ rate }));
+                    this.socket.send(JSON.stringify({ rate }));
                 }
             }
             this.pump();
@@ -1249,24 +1248,18 @@
             this.demand.wants().then((wants) => { this.rate.standingAside = wants && this.downloads > 0; }, () => {});
         }
 
-        receiveRtt(data) {
-            let value;
-            try { value = JSON.parse(data); } catch (_error) { return; }
-            if (value && Number.isFinite(value.t)) {
-                const now = this.now();
-                if (value.t <= now) { this.rate.sample(now - value.t, now); }
-            }
-        }
-
         receive(data) {
             if (typeof data === 'string') {
-                let status;
-                try { status = JSON.parse(data); } catch (_error) { return; }
-                if (status && status.op === 'status') {
-                    if (status.state === 'ready' && this.readyWaiter) {
+                let value;
+                try { value = JSON.parse(data); } catch (_error) { return; }
+                if (value && Number.isFinite(value.t)) {
+                    const now = this.now();
+                    if (value.t <= now) { this.rate.sample(now - value.t, now); }
+                } else if (value && value.op === 'status') {
+                    if (value.state === 'ready' && this.readyWaiter) {
                         this.readyWaiter.resolve();
-                    } else if (status.state === 'closed') {
-                        const reason = status.reason === 'nohelper' ? 'ENOHELPER' : 'ELINK';
+                    } else if (value.state === 'closed') {
+                        const reason = value.reason === 'nohelper' ? 'ENOHELPER' : 'ELINK';
                         if (this.readyWaiter) { this.readyWaiter.reject(new QfmError(reason)); }
                         this.end(reason);
                     }
@@ -1277,7 +1270,8 @@
             try { frame = qfmDecode(data); } catch (_error) { this.end('ELINK'); return; }
             const { header, payload } = frame;
             if (payload) { this.rate.deliver(payload.byteLength); }
-            if (payload || header.ack !== undefined) { this.lastProgress = this.now(); }
+            // Any frame: a long listing goes ahead of file data, and the link is alive meanwhile.
+            this.lastProgress = this.now();
             const request = this.pending.get(header.id);
             if (!request) { return; }
             if (header.ok === true) {
@@ -1315,8 +1309,8 @@
         }
 
         send(header, payload = null) {
-            if (this.closed || this.files.readyState !== 'open') { throw new QfmError('ELINK'); }
-            this.files.send(qfmEncode(header, payload));
+            if (this.closed || this.socket.readyState !== QfmLink.OPEN) { throw new QfmError('ELINK'); }
+            this.socket.send(qfmEncode(header, payload));
         }
 
         // With a job, its cancel reaches this request too, even if the guest never answers.
@@ -1373,9 +1367,9 @@
                     this.tokens + Math.max(0, now - this.tokensAt) / 1000 * this.rate.current());
                 this.tokensAt = now;
                 if (this.inflight > 0 && this.inflight + head.size > this.rate.window()) { return; }
-                const limit = this.rate.queueLimit(hidden);
-                if (this.files.bufferedAmount > limit) {
-                    this.files.bufferedAmountLowThreshold = Math.floor(limit / 2);
+                // A WebSocket does not say when its queue has gone down.
+                if (this.socket.bufferedAmount > this.rate.queueLimit(hidden)) {
+                    this.pumpTimer = this.timers.setTimeout(() => { this.pumpTimer = null; this.pump(); }, 2);
                     return;
                 }
                 if (this.tokens < head.size) {
@@ -1403,7 +1397,7 @@
             for (const waiter of this.waiters.splice(0)) { waiter.reject(error); }
             for (const request of this.pending.values()) { request.reject(error); }
             this.pending.clear();
-            try { this.peer.close(); } catch (_error) { /* Already closing. */ }
+            try { if (this.socket) { this.socket.close(); } } catch (_error) { /* Already closing. */ }
             if (this.onEnd) { this.onEnd(reason); }
         }
 
@@ -1461,6 +1455,29 @@
         for (const part of parts) { result.set(part, offset); offset += part.length; }
         return result;
     };
+
+    // One read of a local file costs far more than a frame of it, so a fast transfer reads
+    // ahead. A slow one reads as little as it did, and notices a file that changes as soon.
+    class QfmBlockReader {
+        static MAX = 8 * 1024 * 1024;
+
+        constructor(file, rate) {
+            this.file = file;
+            this.rate = rate;
+            this.block = null;
+            this.start = 0;
+        }
+
+        async read(offset, length) {
+            if (!this.block || offset < this.start || offset + length > this.start + this.block.byteLength) {
+                const wanted = Math.min(QfmBlockReader.MAX, Math.max(length, Math.round(this.rate.current() * .05)));
+                this.block = new Uint8Array(await this.file.slice(offset, Math.min(this.file.size, offset + wanted)).arrayBuffer());
+                this.start = offset;
+                if (this.block.byteLength < length) { return null; }
+            }
+            return this.block.subarray(offset - this.start, offset - this.start + length);
+        }
+    }
 
     // Downloads for a browser without a folder picker: spooled, then handed to
     // its Downloads folder. A memory fallback covers browsers without OPFS writes.
@@ -1696,7 +1713,11 @@
                             // back. The file starts over on a new connection; its temporary file
                             // went with the old session.
                             stalls += 1;
-                            await this.relink();
+                            // Nothing else listens for a cancel while a new link comes up.
+                            let stop;
+                            const stopped = new Promise((_resolve, reject) => { stop = () => reject(new QfmError('ECANCELED')); });
+                            job.aborts.add(stop);
+                            try { await Promise.race([this.relink(), stopped]); } finally { job.aborts.delete(stop); }
                             continue;
                         }
                         if (!error || error.code !== 'ELOCKED' || job.cancelled) { throw error; }
@@ -1817,7 +1838,9 @@
             const size = file.size;
             const fields = { path, size, overwrite };
             if (Number.isFinite(file.lastModified) && file.lastModified > 0) { fields.mtime = Math.round(file.lastModified); }
-            if (size <= link.rate.chunk()) {
+            // The name goes in the same frame, and a long one in \\uXXXX takes real room.
+            const headerRoom = 65536 - qfmEncode({ op: 'put', id: 0x7fffffff, ...fields, last: true }).byteLength;
+            if (size <= Math.min(link.rate.chunk(), headerRoom)) {
                 const data = await file.arrayBuffer().catch(() => { throw new QfmError('ELOCAL'); });
                 await link.acquire(data.byteLength + 256);
                 try {
@@ -1855,6 +1878,7 @@
             final.catch(() => {});
             try {
                 link.send({ op: 'put', id, ...fields });
+                const reader = new QfmBlockReader(file, link.rate);
                 let offset = 0;
                 while (offset < size && !failure && !job.cancelled) {
                     const length = Math.min(link.rate.chunk(), size - offset);
@@ -1863,8 +1887,8 @@
                     let data = null;
                     let local = null;
                     try {
-                        data = await file.slice(offset, offset + length).arrayBuffer();
-                        if (data.byteLength !== length) { local = 'ECHANGED'; }
+                        data = await reader.read(offset, length);
+                        if (!data) { local = 'ECHANGED'; }
                     } catch (_error) { local = 'ELOCAL'; }
                     if (failure || local) {
                         link.release(length);
@@ -1926,6 +1950,7 @@
             let writer = null;
             let chain = Promise.resolve();
             let failure = null;
+            let held = [];
             const fail = (error) => {
                 if (!failure) {
                     failure = error;
@@ -1947,12 +1972,33 @@
                     if (job.cancelled) { fail(new QfmError('ECANCELED')); return; }
                     // More than was granted is a guest filling this disk, not a transfer.
                     if (declared === null || header.o + payload.byteLength > granted) { fail(new QfmError('EPROTO')); return; }
+                    // A write costs far more than a frame, and a queue here means the disk is
+                    // behind: whatever has piled up goes in one write.
+                    held.push(header.o, payload);
+                    if (held.length > 2) { return; }
                     queue(async () => {
-                        if (!writer || header.o !== written) { throw new QfmError('EIO'); }
-                        if (written + payload.byteLength > declared) { throw new QfmError('ECHANGED'); }
-                        await writer.write(header.o, payload);
-                        written += payload.byteLength;
-                        job.add(payload.byteLength, this.now());
+                        const pieces = held;
+                        held = [];
+                        const position = pieces[0];
+                        let size = 0;
+                        for (let index = 0; index < pieces.length; index += 2) {
+                            if (pieces[index] !== position + size) { throw new QfmError('EIO'); }
+                            size += pieces[index + 1].byteLength;
+                        }
+                        if (!writer || position !== written) { throw new QfmError('EIO'); }
+                        if (written + size > declared) { throw new QfmError('ECHANGED'); }
+                        let block = pieces[1];
+                        if (pieces.length > 2) {
+                            block = new Uint8Array(size);
+                            let offset = 0;
+                            for (let index = 1; index < pieces.length; index += 2) {
+                                block.set(pieces[index], offset);
+                                offset += pieces[index].byteLength;
+                            }
+                        }
+                        await writer.write(position, block);
+                        written += size;
+                        job.add(size, this.now());
                         this.notify();
                         const wanted = Math.max(64 * 1024, Math.floor(link.rate.window() / Math.max(1, this.activeGets)));
                         const outstanding = granted - written;
@@ -2058,14 +2104,18 @@
             const single = plan.files.length === 1 && !plan.directories.length;
             if (single) {
                 const task = plan.files[0];
-                const spool = await this.spool(task.relative[task.relative.length - 1]);
-                await this.guestStep(job, () => this.getFile(job, task.path, async () => ({
-                    write: async (position, data) => { await spool.append(data); },
-                    close: () => spool.finish(),
-                    abort: () => spool.abort(),
-                }))).catch(async (error) => {
+                let spool = null;
+                await this.guestStep(job, () => this.getFile(job, task.path, async () => {
+                    // Each attempt has its own: an aborted one has ended its file.
+                    spool = await this.spool(task.relative[task.relative.length - 1]);
+                    return {
+                        write: async (position, data) => { await spool.append(data); },
+                        close: () => spool.finish(),
+                        abort: () => spool.abort(),
+                    };
+                })).catch(async (error) => {
                     if (!error || error.code !== 'ECANCELED') { job.errors.push({ path: task.path, error }); }
-                    await spool.abort();
+                    if (spool) { await spool.abort(); }
                 });
                 if (!job.errors.length) { job.filesDone += 1; }
                 return;
@@ -2596,12 +2646,12 @@
         }`;
 
     class QsmFileManager {
-        constructor({ win, doc, getToken, offer, createPeer, onVisible, onProgress, demand = null }) {
+        constructor({ win, doc, getToken, offer, createSocket, onVisible, onProgress, demand = null }) {
             this.win = win;
             this.doc = doc;
             this.getToken = getToken;
             this.offerRequest = offer;
-            this.createPeer = createPeer;
+            this.createSocket = createSocket;
             this.onVisible = onVisible;
             this.onProgress = onProgress;
             this.demand = demand;
@@ -2723,9 +2773,9 @@
             const token = this.getToken();
             if (!token) { throw new QfmError('ELINK', gettext('This server does not offer files yet. Reopen the console after updating QSM.')); }
             const link = new QfmLink({
-                createPeer: this.createPeer,
-                offer: async (sdp) => {
-                    const answer = await this.offerRequest(sdp, token);
+                createSocket: this.createSocket,
+                offer: async () => {
+                    const answer = await this.offerRequest(token);
                     if (answer.rights === 'r' || answer.rights === 'rw') { this.rights = answer.rights; }
                     return answer;
                 },
@@ -2763,7 +2813,7 @@
                 return gettext('Your PVE role lacks VM.GuestAgent.FileRead on this guest, which browsing its files needs.');
             }
             if (status === 404 || status === 405) { return gettext('The QSM signalling service on this node does not offer files. Update QSM on the node.'); }
-            if (status) { return gettext('Files could not start. The guest needs an up-to-date QSM agent: QSM Desktop Agent in a VM, or qsm-console-guest in a container.'); }
+            if (status) { return gettext('Files could not start. Log in to the guest first. If you are logged in, the guest needs an up-to-date QSM agent: QSM Desktop Agent in a VM, or qsm-console-guest in a container.'); }
             return qfmErrorText(error);
         }
 
@@ -6753,15 +6803,15 @@
                 fileManager = new QsmFileManager({
                     win: popup, doc: document,
                     getToken: () => filesToken,
-                    createPeer: async () => new RTCPeerConnection(await iceConfiguration()),
+                    createSocket: (token) => new WebSocket(`${signalOrigin().replace(/^http/, 'ws')}${signalEndpoint.gateway ? '/qsm-direct' : ''}/qsm-direct-files/socket/${token}`),
                     demand: new QfmConsoleDemand({
                         videoRate: () => videoRateNow,
                         stats: () => peer.getStats(),
                         now: () => popup.performance.now(),
                     }),
-                    offer: (sdp, token) => signalRequest('POST',
+                    offer: (token) => signalRequest('POST',
                         `/nodes/${encodeURIComponent(node)}/${guestKind}/${encodeURIComponent(vmid)}/qsm-direct-files`,
-                        { sdp, token }),
+                        { token }),
                     onVisible: (visible) => {
                         filesPanelOpen = visible;
                         if (visible) {

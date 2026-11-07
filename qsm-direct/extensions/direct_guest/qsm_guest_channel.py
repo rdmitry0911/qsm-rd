@@ -24,6 +24,11 @@ from .qsm_desktop_metadata import DesktopMetadataError, MAX_METADATA_BYTES, pars
 
 MAX_CLIPBOARD_BYTES = 1024 * 1024
 MAX_AGENT_LINE = 4 * 1024 * 1024
+READ_BYTES = 256 * 1024
+# Lines that move no file data, which only a guest gone wrong sends in numbers. A flood of
+# them would keep a thread busy in the process that runs every console's media.
+IDLE_FILE_LINES = 100000
+IDLE_FILE_LINES_SECONDS = 10.0
 # A missing optional in-guest package must not make a connected desktop
 # console appear frozen for half a minute after Copy or Paste.
 REQUEST_TIMEOUT_SECONDS = 5.0
@@ -102,6 +107,8 @@ class QsmGuestChannel:
         self._files_allowed = path is not None if files is None else files
         self._files_reset_generation = -1
         self._file_listeners: dict[bytes, Callable[[str, bytes], None]] = {}
+        self._idle_lines = 0
+        self._idle_lines_since = 0.
         self._socket: socket.socket | None = None
         self._reader: threading.Thread | None = None
         self._generation = 0
@@ -307,10 +314,11 @@ class QsmGuestChannel:
 
     def _read_loop(self, channel: socket.socket, generation: int) -> None:
         buffered = bytearray()
+        scanned = 0
         try:
             while not self._stopped.is_set():
                 try:
-                    block = channel.recv(65536)
+                    block = channel.recv(READ_BYTES)
                 except socket.timeout:
                     self._expire_desktop()
                     continue
@@ -319,13 +327,15 @@ class QsmGuestChannel:
                 if not block:
                     break
                 buffered.extend(block)
-                if len(buffered) > MAX_AGENT_LINE:
-                    break
-                while b"\n" in buffered:
-                    raw, _, trailing = buffered.partition(b"\n")
-                    buffered = bytearray(trailing)
+                start = 0
+                # File data arrives as many long lines, so nothing is copied for each, and
+                # what is known to hold no newline is not searched again.
+                while (end := buffered.find(b"\n", max(start, scanned))) >= 0:
+                    raw = bytes(buffered[start:end])
+                    start = end + 1
                     if raw.startswith(b"FS "):
-                        self._publish_file_line(bytes(raw))
+                        if not self._publish_file_line(raw):
+                            return
                         continue
                     try:
                         line = raw.decode("ascii")
@@ -360,6 +370,10 @@ class QsmGuestChannel:
                                     return
                                 self._responses.append(line)
                                 self._condition.notify_all()
+                del buffered[:start]
+                scanned = len(buffered)
+                if len(buffered) > MAX_AGENT_LINE:
+                    break
                 self._expire_desktop()
         finally:
             self._disconnect(channel, generation)
@@ -520,16 +534,24 @@ class QsmGuestChannel:
                     if remaining <= 0 or not select.select((), (channel,), (), remaining)[1]:
                         raise TimeoutError("guest did not take a line") from None
 
-    def _publish_file_line(self, line: bytes) -> None:
+    def _within_idle_budget(self) -> bool:
+        now = time.monotonic()
+        if now - self._idle_lines_since > IDLE_FILE_LINES_SECONDS:
+            self._idle_lines_since, self._idle_lines = now, 0
+        self._idle_lines += 1
+        return self._idle_lines <= IDLE_FILE_LINES
+
+    def _publish_file_line(self, line: bytes) -> bool:
+        """False once a guest has sent too many lines that do nothing: the channel then ends."""
         parts = line.split(b" ", 3)
         if len(parts) < 3:
-            return
+            return self._within_idle_budget()
         session, kind = parts[1], parts[2].decode("ascii", "replace")
         rest = parts[3] if len(parts) == 4 else b""
         if session == b"*":
             if kind == "C":
                 self._end_file_sessions(rest or b"gone")
-            return
+            return self._within_idle_budget()
         with self._condition:
             listener = self._file_listeners.get(session)
             if listener is not None and kind == "C":
@@ -539,6 +561,8 @@ class QsmGuestChannel:
                 listener(kind, rest)
             except Exception:
                 pass  # One viewer's session must not poison the VM's guest port.
+        # A queue of data has its own limit in the session.
+        return (listener is not None and kind == "D") or self._within_idle_budget()
 
     def _end_file_sessions(self, reason: bytes = b"gone") -> None:
         with self._condition:

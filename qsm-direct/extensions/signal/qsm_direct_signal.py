@@ -31,14 +31,18 @@ fixed diagnostic labels.
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import http.server
 import json
 import os
 import re
+import select
 import socket
 import ssl
 import sys
 import threading
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -50,7 +54,14 @@ from .qsm_direct_endpoint import CONFIG_PATH, SignalEndpoint, read_endpoint
 PROTOCOL_VERSION = 1
 PVE_OPERATION = "pve_acl_webrtc"
 FILES_OPERATION = "pve_acl_files"
+FILES_ATTACH_OPERATION = "files_attach"
 _FILE_TOKEN = re.compile(r"\A[0-9a-f]{32}\Z")
+_FILES_SOCKET = re.compile(r"\A/qsm-direct-files/socket/(?P<token>[0-9a-f]{32})\Z")
+WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+RELAY_BYTES = 256 * 1024
+# The peer waits 30 s for its browser, so a token is of no use after that.
+FILE_TOKEN_SECONDS = 35.0
+CONNECTION_TIMEOUT_SECONDS = 30.0
 MAX_BODY_BYTES = 128 * 1024
 MAX_TICKET_BYTES = 8192
 REQUEST_TIMEOUT_SECONDS = 30.0
@@ -128,6 +139,8 @@ class TerminalClient:
 
     def __init__(self, socket_path: Path) -> None:
         self._socket_path = socket_path
+        self._file_tokens: dict[str, float] = {}
+        self._file_tokens_lock = threading.Lock()
 
     def create_transport(self, node: str, vmid: int, subject: str, sdp: str,
                          width: int, height: int, fps: int) -> dict[str, str]:
@@ -137,12 +150,40 @@ class TerminalClient:
             "width": width, "height": height, "fps": fps,
         })
 
-    def create_files(self, node: str, vmid: int, subject: str, rights: str, token: str,
-                     sdp: str) -> dict[str, str]:
-        return self._request({
+    def create_files(self, node: str, vmid: int, subject: str, rights: str, token: str) -> dict[str, str]:
+        result = self._request({
             "version": PROTOCOL_VERSION, "op": FILES_OPERATION, "node": node, "vmid": vmid,
-            "subject": subject, "rights": rights, "token": token, "sdp": sdp, "sdp_type": "offer",
+            "subject": subject, "rights": rights, "token": token,
         })
+        if set(result) != {"type", "socket"} or result.get("type") != "files" or \
+                not isinstance(result.get("socket"), str) or not _FILE_TOKEN.fullmatch(result["socket"]):
+            raise SignalError(502, "console terminal error")
+        now = time.monotonic()
+        with self._file_tokens_lock:
+            self._file_tokens = {key: until for key, until in self._file_tokens.items() if until > now}
+            self._file_tokens[result["socket"]] = now + FILE_TOKEN_SECONDS
+        return result
+
+    def attach_files(self, token: str) -> socket.socket | None:
+        """The file session's peer, as a socket to relay to; None if the token is no good.
+
+        This route has no other credential, so a token that this service did not hand out
+        never reaches the process that runs every console's media.
+        """
+        with self._file_tokens_lock:
+            until = self._file_tokens.pop(token, 0.)
+        if until <= time.monotonic():
+            return None
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+                connection.settimeout(REQUEST_TIMEOUT_SECONDS)
+                connection.connect(str(self._socket_path))
+                connection.sendall(json.dumps({"op": FILES_ATTACH_OPERATION, "token": token},
+                                              separators=(",", ":")).encode("ascii") + b"\n")
+                _reply, descriptors, _flags, _address = socket.recv_fds(connection, 4096, 1)
+        except OSError as error:
+            raise SignalError(503, "console terminal unavailable") from error
+        return socket.socket(fileno=descriptors[0]) if descriptors else None
 
     def _request(self, request: dict[str, Any]) -> dict[str, str]:
         try:
@@ -164,8 +205,10 @@ class TerminalClient:
         if not isinstance(response, dict) or not response.get("ok"):
             raise SignalError(502, "console terminal error")
         result = response.get("result")
-        if not isinstance(result, dict) or set(result) != {"type", "sdp"} or \
-                result.get("type") != "answer" or not isinstance(result.get("sdp"), str):
+        if not isinstance(result, dict):
+            raise SignalError(502, "console terminal error")
+        if request["op"] != FILES_OPERATION and (set(result) != {"type", "sdp"} or
+                                                 result.get("type") != "answer" or not isinstance(result.get("sdp"), str)):
             raise SignalError(502, "console terminal error")
         return result
 
@@ -402,12 +445,11 @@ def handle_request(config: SignalConfig, method: str, path: str,
             if error.status != 401:
                 raise
             rights = "r"
-        sdp, token = body.get("sdp"), body.get("token")
-        if (not isinstance(sdp, str) or not sdp.isascii() or not 1 <= len(sdp) <= MAX_BODY_BYTES or
-                not isinstance(token, str) or not _FILE_TOKEN.fullmatch(token)):
+        token = body.get("token")
+        if not isinstance(token, str) or not _FILE_TOKEN.fullmatch(token):
             raise SignalError(400, "invalid request")
-        result = config.terminal.create_files(node, vmid, subject, rights, token, sdp)
-        return {"data": {"type": result["type"], "sdp": result["sdp"], "rights": rights}}
+        result = config.terminal.create_files(node, vmid, subject, rights, token)
+        return {"data": {"socket": result["socket"], "rights": rights}}
 
     if action == "qsm-direct-settings" and method == "GET":
         config.authority.authorize(username, ticket, vmid, "VM.Console")
@@ -426,10 +468,98 @@ def handle_request(config: SignalConfig, method: str, path: str,
     raise SignalError(405, "method not allowed")
 
 
+def websocket_accept(key: str) -> str | None:
+    """The handshake's answer, None for a key that is not 16 bytes of base64."""
+    try:
+        if len(base64.b64decode(key, validate=True)) != 16:
+            return None
+    except ValueError:
+        return None
+    return base64.b64encode(hashlib.sha1((key + WEBSOCKET_GUID).encode("ascii")).digest()).decode("ascii")
+
+
+def relay(client: socket.socket, peer: socket.socket) -> None:
+    """Pass bytes both ways until either side ends.
+
+    One thread, because an SSL socket must not be read and written at once. A TLS read can
+    need the socket to be writable and a TLS write readable, so each says what it waits for.
+    """
+    # Echoes and acknowledgements are small and must not wait for a delayed ACK.
+    client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    client.setblocking(False)
+    peer.setblocking(False)
+    upward = downward = memoryview(b"")
+    read_waits_for, write_waits_for = select.POLLIN, select.POLLOUT
+    poller = select.poll()
+    while True:
+        moved = False
+        if not upward:
+            try:
+                block = client.recv(RELAY_BYTES)
+                if not block:
+                    return
+                upward = memoryview(block)
+                moved = True
+                read_waits_for = select.POLLIN
+            except (ssl.SSLWantReadError, BlockingIOError):
+                read_waits_for = select.POLLIN
+            except ssl.SSLWantWriteError:
+                read_waits_for = select.POLLOUT
+            except OSError:
+                return
+        if upward:
+            try:
+                upward = upward[peer.send(upward):]
+                moved = True
+            except BlockingIOError:
+                pass
+            except OSError:
+                return
+        if not downward:
+            try:
+                block = peer.recv(RELAY_BYTES)
+                if not block:
+                    return
+                downward = memoryview(block)
+                moved = True
+            except BlockingIOError:
+                pass
+            except OSError:
+                return
+        if downward:
+            try:
+                downward = downward[client.send(downward):]
+                moved = True
+                write_waits_for = select.POLLOUT
+            except (ssl.SSLWantWriteError, BlockingIOError):
+                write_waits_for = select.POLLOUT
+            except ssl.SSLWantReadError:
+                write_waits_for = select.POLLIN
+            except OSError:
+                return
+        if moved:
+            continue
+        client_events = (0 if upward else read_waits_for) | (write_waits_for if downward else 0)
+        poller.register(client, client_events)
+        poller.register(peer, (select.POLLOUT if upward else 0) | (0 if downward else select.POLLIN))
+        # A far end that has gone is reported whatever was asked for, and neither direction
+        # has anywhere left to go.
+        if any(events & (select.POLLHUP | select.POLLERR | select.POLLNVAL) for _descriptor, events in poller.poll()):
+            return
+
+
 class SignalHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "qsm-direct-signal"
     sys_version = ""
+    # Also bounds what a client that connects and stays silent can hold.
+    timeout = CONNECTION_TIMEOUT_SECONDS
+
+    def setup(self) -> None:
+        super().setup()
+        # Here on this connection's own thread: on the accepting one a silent client
+        # would keep everyone else out.
+        self.connection.do_handshake()
 
     @property
     def _config(self) -> SignalConfig:
@@ -503,7 +633,36 @@ class SignalHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def _files_socket(self, token: str) -> None:
+        """A browser connects to its file session. The token is the only credential a
+        WebSocket can carry, and it came from an authorized request a moment ago."""
+        self.close_connection = True
+        accept = websocket_accept(self.headers.get("Sec-WebSocket-Key", ""))
+        if (self.headers.get("Upgrade", "").lower() != "websocket" or accept is None or
+                self.headers.get("Sec-WebSocket-Version") != "13"):
+            self._send(400, {"errors": "invalid request"})
+            return
+        try:
+            peer = self._config.terminal.attach_files(token)
+        except SignalError as error:
+            self._send(error.status, {"errors": error.code})
+            return
+        if peer is None:
+            self._send(404, {"errors": "not found"})
+            return
+        with peer:
+            self.send_response(101)
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept)
+            self.end_headers()
+            relay(self.connection, peer)
+
     def do_GET(self) -> None:  # noqa: N802
+        match = _FILES_SOCKET.fullmatch(urllib.parse.urlsplit(self.path).path)
+        if match:
+            self._files_socket(match.group("token"))
+            return
         self._dispatch("GET")
 
     def do_POST(self) -> None:  # noqa: N802
@@ -528,7 +687,12 @@ class SignalServer(http.server.ThreadingHTTPServer):
         self.address_family = socket.AF_INET6 if ':' in address[0] else socket.AF_INET
         super().__init__(address, SignalHandler)
         self.signal_config = config
-        self.socket = ssl_context.wrap_socket(self.socket, server_side=True)
+        self.socket = ssl_context.wrap_socket(self.socket, server_side=True, do_handshake_on_connect=False)
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        # A client that speaks no TLS or goes away is ordinary, and nothing it sent is logged.
+        if not isinstance(sys.exc_info()[1], OSError):
+            print("qsm-direct-signal: a request failed", file=sys.stderr, flush=True)
 
     def server_bind(self) -> None:
         if self.address_family == socket.AF_INET6:

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """The file manager through a real PVE login, console popup, signal service and terminal.
 
-Nothing installed on the node changes. A private terminal and signal service run from a
-private directory with their own sockets, and know only the dedicated test container. The
-browser loads the new console script over the node's installed one and sends its signal
-requests to the private service through an SSH tunnel. The helper runs by hand in the
-container as a test account, on the socket path the terminal connects to.
+Nothing installed on the node changes. A private terminal, signal service and HAProxy run
+from a private directory with their own sockets and port, and know only the dedicated test
+container. The HAProxy has the gateway's shape: TLS on the outside, TLS to the signal service.
+The browser loads the new console script over the node's installed one and sends its file
+requests to that HAProxy. The helper runs by hand in the container as a test account, on the
+socket path the terminal connects to.
 
 Usage: qualify-file-manager-pve.py OUTPUT.json [--node root@HOST] [--vmid 108] [--account USER]
 """
@@ -28,7 +29,7 @@ CHROME = '/tmp/qsm-rdp-hybrid-20261028/chrome-stand/root/opt/google/chrome/chrom
 PRIVATE = '/root/qsm-file-e2e'
 RUN = '/run/qsm-file-e2e'
 SIGNAL_PORT = 18107
-TUNNEL_PORT = 18108
+GATEWAY_PORT = 18106
 GUEST_DIR = '/opt/qsm-file-e2e'
 
 LIBRARY = {
@@ -77,6 +78,27 @@ window.opfs = {
 """
 
 
+LAG_PROBE = """
+
+def _qfm_lag(loop):
+    import threading, time
+    samples = []
+    def tick(due):
+        samples.append(time.monotonic() - due)
+        loop.call_later(.01, tick, time.monotonic() + .01)
+    tick(time.monotonic())
+    def dump():
+        while True:
+            time.sleep(1)
+            rows = sorted(samples)
+            samples.clear()
+            if rows:
+                with open('/run/qsm-file-e2e/lag.log', 'a') as output:
+                    output.write(f'{time.time():.1f} {len(rows)} {rows[len(rows) // 2] * 1000:.2f} {rows[int(len(rows) * .99)] * 1000:.2f} {rows[-1] * 1000:.2f}\\n')
+    threading.Thread(target=dump, daemon=True).start()
+"""
+
+
 class Checks:
     def __init__(self) -> None:
         self.results: list[dict] = []
@@ -113,28 +135,15 @@ class Node:
                 target.mkdir()
                 for name in names:
                     (target / name).write_bytes((ROOT / 'extensions' / package / name).read_bytes())
-            if os.environ.get('QSM_E2E_PEER_DEBUG'):
-                # What SCTP holds, in the stderr that reaches the terminal's log. Not in the product.
-                path = work / 'browser_bridge' / 'qsm_file_peer.py'
-                text = path.read_text()
-                marker = '        relay = asyncio.ensure_future(self._from_terminal())\n'
-                assert marker in text
-                path.write_text(text.replace(marker, marker + '''        async def qfm_debug():
-            while True:
-                await asyncio.sleep(5)
-                t = self._pc.sctp
-                print("QFMHEAD", {k: [(c.tsn - t._last_received_tsn, c.flags, c.stream_seq, len(c.user_data)) for c in v.reassembly[:8]] for k, v in t._inbound_streams.items()}, "forward_tsn", getattr(t, "_qfm_forward", 0), file=sys.stderr, flush=True)
-                print("QFMDBG", {"last_tsn": t._last_received_tsn, "misordered": len(t._sack_misordered), "dups": len(t._sack_duplicates), "rwnd": t._advertised_rwnd,
-                    "streams": {k: (v.sequence_number, len(v.reassembly)) for k, v in t._inbound_streams.items()}, "state": t._association_state.name, "wbuf": self._writer.transport.get_write_buffer_size(),
-                    "cwnd": t._cwnd, "flight": t._flight_size, "out": len(t._outbound_queue), "sent": len(t._sent_queue)}, file=sys.stderr, flush=True)
-        _t = self._pc.sctp
-        _orig = _t._receive_forward_tsn_chunk
-        async def _counted(chunk):
-            _t._qfm_forward = getattr(_t, "_qfm_forward", 0) + 1
-            await _orig(chunk)
-        _t._receive_forward_tsn_chunk = _counted
-        asyncio.ensure_future(qfm_debug())
-'''))
+            # How late the console's loop runs, in the private copy only: the file session's
+            # threads share its process.
+            path = work / 'direct_terminal' / 'qsm_direct_terminal.py'
+            text = path.read_text()
+            marker = '        self._loop = asyncio.new_event_loop()\n'
+            assert text.count(marker) == 1
+            ending = '\nif __name__ == "__main__":'
+            assert text.count(ending) == 1
+            path.write_text(text.replace(marker, marker + '        self._loop.call_soon_threadsafe(_qfm_lag, self._loop)\n').replace(ending, LAG_PROBE + ending))
             (work / 'browser_bridge' / 'qsm_gateway.py').write_bytes((ROOT / 'extensions/signal/qsm_gateway.py').read_bytes())
             (work / 'qsm_desktop_files.py').write_bytes((ROOT / 'guest/qsm_desktop_files.py').read_bytes())
             self.ssh(f'rm -rf {PRIVATE}; mkdir -p {PRIVATE}')
@@ -157,6 +166,24 @@ nohup setsid python3 -c 'import sys; sys.path.insert(0, "{PRIVATE}"); from signa
 echo $! > {RUN}/signal.pid
 for i in $(seq 1 100); do ss -ltnH | grep -q :{SIGNAL_PORT} && break; sleep .1; done
 ss -ltnH | grep -q :{SIGNAL_PORT}
+cat > {RUN}/haproxy.cfg <<CONFIG
+global
+    maxconn 256
+defaults
+    mode http
+    timeout connect 10s
+    timeout client 1h
+    timeout server 1h
+frontend public
+    bind {self.host.split('@')[-1]}:{GATEWAY_PORT} ssl crt /run/qsm-pve-direct-gateway/proxy.pem
+    timeout http-request 15s
+    acl qsm path_beg /qsm-direct/
+    use_backend signal if qsm
+backend signal
+    http-request replace-path ^/qsm-direct/(.*)\\$ /\\\\1
+    server local 127.0.0.1:{SIGNAL_PORT} ssl verify none
+CONFIG
+haproxy -f {RUN}/haproxy.cfg -D -p {RUN}/haproxy.pid
 """)
         self.ssh(f'pct exec {self.vmid} -- mkdir -p {GUEST_DIR}; pct push {self.vmid} {PRIVATE}/qsm_desktop_files.py {GUEST_DIR}/qsm_desktop_files.py')
         return name
@@ -167,7 +194,7 @@ ss -ltnH | grep -q :{SIGNAL_PORT}
                         f'nohup python3 {GUEST_DIR}/qsm_desktop_files.py --listen {directory}/files.sock --home "$HOME/qfm-e2e" > /tmp/qfm-helper.log 2>&1 < /dev/null & sleep 1; ls -la {directory}/files.sock')
 
     def clean(self) -> None:
-        for name in ('signal', 'terminal'):
+        for name in ('haproxy', 'signal', 'terminal'):
             self.ssh(f'test -f {RUN}/{name}.pid && kill $(cat {RUN}/{name}.pid); true', check=False)
         self.ssh(f'sleep 1; pgrep -f "{PRIVATE}/[b]rowser_bridge/qsm_file_peer" | xargs -r kill; pgrep -f "[q]sm-direct-media-worker.*{RUN}" | xargs -r kill', check=False)
         self.guest(f'pkill -f "{GUEST_DIR}/[q]sm_desktop_files"; rm -rf {GUEST_DIR} /run/qsm-login/clip-*/files.sock; rm -rf /home/{self.account}/qfm-e2e', check=False)
@@ -180,8 +207,6 @@ async def run(args, node: Node, checks: Checks, report: dict) -> None:
     report['production_before'] = before
     node_name = node.stage()
     checks.add('the private terminal and signal service came up', True, node_name)
-    tunnel = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', '-N', '-L', f'{TUNNEL_PORT}:127.0.0.1:{SIGNAL_PORT}', node.host])
-    await asyncio.sleep(1)
     host = node.host.split('@')[-1]
     cmd = "perl -MPVE::AccessControl -MPVE::Cluster -MJSON -e 'PVE::Cluster::cfs_update(); print encode_json({ticket=>scalar PVE::AccessControl::assemble_ticket(q{root@pam})})'"
     auth = json.loads(node.ssh(cmd))
@@ -189,6 +214,9 @@ async def run(args, node: Node, checks: Checks, report: dict) -> None:
     # Only for what a stalled run reports: the manager lives in the console's closure.
     assert 'fileManager = new QsmFileManager({' in console_source
     console_source = console_source.replace('fileManager = new QsmFileManager({', 'fileManager = popup.__qsmFiles = new QsmFileManager({')
+    origin = "${signalOrigin().replace(/^http/, 'ws')}${signalEndpoint.gateway ? '/qsm-direct' : ''}"
+    assert origin in console_source
+    console_source = console_source.replace(origin, f'wss://{host}:{GATEWAY_PORT}/qsm-direct')
     try:
         async with async_playwright() as playwright:
             browser = await playwright.chromium.launch(executable_path=CHROME, headless=False,
@@ -196,9 +224,9 @@ async def run(args, node: Node, checks: Checks, report: dict) -> None:
             report['chromium'] = browser.version
             context = await browser.new_context(ignore_https_errors=True, viewport={'width': 1280, 'height': 800})
             await context.add_init_script(OPFS_PICKER)
-            await context.add_init_script("""window.qsmPeers = [];
-                const NativePeer = window.RTCPeerConnection;
-                window.RTCPeerConnection = class extends NativePeer { constructor(...args) { super(...args); window.qsmPeers.push(this); } };""")
+            await context.add_init_script("""window.qsmSockets = [];
+                const NativeSocket = window.WebSocket;
+                window.WebSocket = class extends NativeSocket { constructor(...args) { super(...args); window.qsmSockets.push(this); } };""")
             errors: list[str] = []
             signal_calls: list[tuple[str, int]] = []
             context.on('page', lambda item: item.on('pageerror', lambda error: errors.append(f'{error.name}: {error.message}')))
@@ -210,7 +238,7 @@ async def run(args, node: Node, checks: Checks, report: dict) -> None:
             async def to_private_signal(route) -> None:
                 request = route.request
                 path = request.url.split('/qsm-direct', 1)[1]
-                response = await route.fetch(url=f'https://127.0.0.1:{TUNNEL_PORT}{path}')
+                response = await route.fetch(url=f'https://{host}:{GATEWAY_PORT}/qsm-direct{path}')
                 signal_calls.append((path.rsplit('/', 1)[-1], response.status))
                 await route.fulfill(response=response)
             await context.route('**/qsm-direct/**', to_private_signal)
@@ -271,18 +299,13 @@ async def run(args, node: Node, checks: Checks, report: dict) -> None:
                     location: document.querySelector('.qfm-guest .qfm-location')?.textContent }) """)
                 report['helper_log'] = node.as_account('cat /tmp/qfm-helper.log; ls -la /run/qsm-login/clip-*/ 2>&1 | tail -8', check=False)
                 raise RuntimeError(f"the guest pane did not fill: {report['guest_pane_state']} {report['helper_log'][-400:]}")
-            checks.add('the guest pane lists the session account\'s folder over TURN and the real ACL path', True,
+            checks.add('the guest pane lists the session account\'s folder through the real ACL path', True,
                        await console.locator('.qfm-guest .qfm-location').inner_text())
             report['signal_calls'] = list(signal_calls)
             checks.add('the signal service answered the file request', ('qsm-direct-files', 200) in signal_calls, signal_calls[-4:])
-            relay = await page.evaluate("""async () => {
-                const peer = window.qsmPeers[window.qsmPeers.length - 1];
-                const stats = [...(await peer.getStats()).values()];
-                const pair = stats.find((item) => item.type === 'candidate-pair' && item.nominated && item.state === 'succeeded');
-                const local = pair && stats.find((item) => item.id === pair.localCandidateId);
-                return { peers: window.qsmPeers.length, state: peer.connectionState, candidate: local && local.candidateType, labels: stats.filter((item) => item.type === 'data-channel').map((item) => item.label) };
-            }""")
-            checks.add('files have their own connection, through the relay as the console', relay['peers'] >= 2 and relay['candidate'] == 'relay' and 'qsm-files' in relay['labels'], relay)
+            # The console's script runs in the main page, and the popup only shows it.
+            sockets = await page.evaluate("""() => window.qsmSockets.filter((item) => item.url.includes('qsm-direct-files')).map((item) => ({ url: item.url.replace(/[0-9a-f]{32}$/, '<token>'), state: item.readyState }))""")
+            checks.add('files go over their own WebSocket on the HTTPS path', any(item['state'] == 1 for item in sockets), sockets)
 
             # ---- real copies both ways, checked inside the container
             await console.evaluate('window.opfs.clear()')
@@ -313,6 +336,14 @@ async def run(args, node: Node, checks: Checks, report: dict) -> None:
             # ---- how fast on this path, with the file manager open
             if args.throughput:
                 async def finished(what: str) -> None:
+                    async def watch() -> None:
+                        series = report.setdefault('rate_series', {}).setdefault(what, [])
+                        while True:
+                            await asyncio.sleep(1)
+                            series.append(await console.evaluate("""() => { const m = window.__qsmFiles, l = m.link, r = l && l.rate, j = m.jobs[0]; if (!r) { return null; }
+                                return { done_mib: j ? Math.round(j.done / 1048576) : null, rate_mib: Math.round(r.rate / 1048576), capacity_mib: r.capacity && Math.round(r.capacity / 1048576), inflight_mib: Math.round(l.inflight / 1048576),
+                                    window_mib: Math.round(r.window() / 1048576), floor: Math.round(r.floorDelay), recent: Math.min(...r.recent), buffered_kib: Math.round(l.socket.bufferedAmount / 1024), draining: r.draining }; }"""))
+                    watcher = asyncio.ensure_future(watch())
                     try:
                         await console.wait_for_selector('.qfm-job-text:has-text("Done")', timeout=args.throughput * 1500 + 60000)
                     except Exception:
@@ -320,14 +351,46 @@ async def run(args, node: Node, checks: Checks, report: dict) -> None:
                             local: [...document.querySelectorAll('.qfm-local .qfm-name')].map((e) => e.textContent).slice(0, 8),
                             guest: [...document.querySelectorAll('.qfm-guest .qfm-name')].map((e) => e.textContent).slice(0, 8) })""")
                         inner = await console.evaluate("""() => { const m = window.__qsmFiles, l = m.link; return { closed: l.closed, reason: l.endReason, inflight: l.inflight, waiters: l.waiters.length,
-                            pending: l.pending.size, rate: Math.round(l.rate.rate), current: Math.round(l.rate.current()), window: l.rate.window(), tokens: Math.round(l.tokens), buffered: l.files.bufferedAmount,
-                            lowThreshold: l.files.bufferedAmountLowThreshold, state: l.files.readyState, peer: l.peer.connectionState, ice: l.peer.iceConnectionState, pings: l.pingCount, floor: l.rate.floorDelay,
+                            pending: l.pending.size, rate: Math.round(l.rate.rate), current: Math.round(l.rate.current()), window: l.rate.window(), tokens: Math.round(l.tokens), buffered: l.socket.bufferedAmount,
+                            state: l.socket.readyState, pings: l.pingCount, floor: l.rate.floorDelay,
                             recent: l.rate.recent, draining: l.rate.draining, aside: l.rate.standingAside, unanswered: l.rate.unanswered, hidden: document.hidden, jobs: m.jobs.map((j) => [j.state, j.done, j.total, j.errors.length]) }; }""")
                         guest = node.as_account('ls -la ~/qfm-e2e | cut -c20-90', check=False)
                         peer = node.ssh(f"P=$(pgrep -f '{PRIVATE}/[b]rowser_bridge/qsm_file_peer' | head -1); ps -o pcpu,etimes,cputimes -p $P | tail -1; cat /proc/$P/wchan; echo; ss -xp 2>/dev/null | grep \"pid=$P\" | cut -c1-120 | head -3", check=False)
                         report['stall'] = {'page': state, 'inner': inner, 'guest': guest, 'peer': peer, 'terminal_log': node.ssh(f'grep -vE "media health|MEDIA_HEALTH|libx264" {RUN}/terminal.log | tail -14', check=False)}
                         raise RuntimeError(f"{what} did not finish: {json.dumps(report['stall'], ensure_ascii=False)[:2400]}")
+                    finally:
+                        watcher.cancel()
 
+                async def cpu() -> dict:
+                    """Seconds of CPU so far of every process the data crosses."""
+                    script = f"""
+for pair in terminal:{RUN}/terminal.pid signal:{RUN}/signal.pid haproxy:{RUN}/haproxy.pid peer:; do
+  name=${{pair%%:*}}; file=${{pair#*:}}
+  if [ -n "$file" ]; then pid=$(cat "$file"); else pid=$(pgrep -f '{PRIVATE}/[b]rowser_bridge/qsm_file_peer' | head -1); fi
+  [ -n "$pid" ] && awk -v n="$name" '{{print n, $14+$15}}' /proc/$pid/stat
+done
+pid=$(pct exec {node.vmid} -- pgrep -f '{GUEST_DIR}/[q]sm_desktop_files' | head -1)
+[ -n "$pid" ] && pct exec {node.vmid} -- awk '{{print "helper", $14+$15}}' /proc/$pid/stat
+"""
+                    rows = node.ssh(script, check=False).splitlines()
+                    return {name: int(value) / 100 for name, value in (row.split() for row in rows)}
+
+                def cpu_share(before: dict, after: dict, seconds: float) -> dict:
+                    return {name: round((after[name] - before.get(name, 0)) / seconds * 100) for name in after}
+
+                def lag_between(start: float, end: float) -> dict:
+                    rows = [[float(value) for value in row.split()] for row in node.ssh(f'cat {RUN}/lag.log', check=False).splitlines()]
+                    rows = [row for row in rows if start <= row[0] <= end]
+                    if not rows:
+                        return {}
+                    return {'seconds': len(rows), 'p50_ms_median': sorted(row[2] for row in rows)[len(rows) // 2],
+                            'p99_ms_median': sorted(row[3] for row in rows)[len(rows) // 2],
+                            'p99_ms_worst': max(row[3] for row in rows), 'max_ms': max(row[4] for row in rows)}
+
+                idle_from = time.time()
+                await asyncio.sleep(10)
+                report['terminal_loop_lag_idle'] = lag_between(idle_from, time.time())
+                print('terminal loop idle', report['terminal_loop_lag_idle'], flush=True)
                 size = args.throughput * 1024 * 1024
                 print('writing the local file', flush=True)
                 await console.evaluate('([s]) => window.opfs.write("big.bin", s, 21)', [size])
@@ -338,13 +401,19 @@ async def run(args, node: Node, checks: Checks, report: dict) -> None:
                 await console.locator('.qfm-local .qfm-name', has_text='big.bin').click()
                 print('uploading', flush=True)
                 started = time.monotonic()
+                cpu_before = await cpu()
                 await console.get_by_role('button', name='Copy to guest →').click()
                 await finished('the upload')
-                up = args.throughput / (time.monotonic() - started)
+                seconds = time.monotonic() - started
+                up = args.throughput / seconds
+                report['cpu_percent_up'] = cpu_share(cpu_before, await cpu(), seconds)
+                print('cpu up', report['cpu_percent_up'], flush=True)
+                report['terminal_loop_lag_up'] = lag_between(time.time() - seconds, time.time())
+                print('terminal loop up', report['terminal_loop_lag_up'], flush=True)
                 await console.get_by_role('button', name='Remove').click()
                 local = await console.evaluate('window.opfs.hash("big.bin")')
                 remote = node.as_account('sha256sum ~/qfm-e2e/big.bin').split()[0]
-                checks.add(f'{args.throughput} MiB up through TURN', local['sha256'] == remote, {'MiB_per_s': round(up, 1)})
+                checks.add(f'{args.throughput} MiB up', local['sha256'] == remote, {'MiB_per_s': round(up, 1)})
                 await console.locator('.qfm-local .qfm-name', has_text='big.bin').click()
                 await console.keyboard.press('Delete')
                 await console.get_by_role('button', name='Delete', exact=True).last.click()
@@ -354,17 +423,23 @@ async def run(args, node: Node, checks: Checks, report: dict) -> None:
                 await console.locator('.qfm-guest .qfm-name', has_text='big.bin').click()
                 print('downloading', flush=True)
                 started = time.monotonic()
+                cpu_before = await cpu()
                 await console.get_by_role('button', name='← Copy here').click()
                 await finished('the download')
-                down = args.throughput / (time.monotonic() - started)
+                seconds = time.monotonic() - started
+                down = args.throughput / seconds
+                report['cpu_percent_down'] = cpu_share(cpu_before, await cpu(), seconds)
+                print('cpu down', report['cpu_percent_down'], flush=True)
+                report['terminal_loop_lag_down'] = lag_between(time.time() - seconds, time.time())
+                print('terminal loop down', report['terminal_loop_lag_down'], flush=True)
                 listing = await console.evaluate("""async () => { const out = []; for await (const [name, handle] of (await navigator.storage.getDirectory()).entries()) { out.push(name + ':' + handle.kind); }
                     return { files: out, jobs: [...document.querySelectorAll('.qfm-job-text,.qfm-job-errors')].map((e) => e.textContent), localPath: window.__qsmFiles.local.source.location, localDepth: window.__qsmFiles.local.source.stack.length }; }""")
                 print('after the download', listing, flush=True)
                 report['after_download'] = listing
                 await console.get_by_role('button', name='Remove').click()
                 local = await console.evaluate('window.opfs.hash("big.bin")')
-                checks.add(f'{args.throughput} MiB down through TURN', local['sha256'] == remote, {'MiB_per_s': round(down, 1)})
-                report['lan_turn_mib_per_s'] = {'up': round(up, 1), 'down': round(down, 1)}
+                checks.add(f'{args.throughput} MiB down', local['sha256'] == remote, {'MiB_per_s': round(down, 1)})
+                report['lan_mib_per_s'] = {'up': round(up, 1), 'down': round(down, 1)}
                 await console.locator('.qfm-guest .qfm-name', has_text='inbox').dblclick()
                 await console.wait_for_function("document.querySelector('.qfm-guest .qfm-location')?.textContent.endsWith('inbox')", timeout=20000)
                 node.as_account('rm -f ~/qfm-e2e/big.bin')
@@ -389,7 +464,7 @@ async def run(args, node: Node, checks: Checks, report: dict) -> None:
             checks.add('Back to console returns focus and picture', back['focused'] == 'VIDEO' and back['shown'] == 'none' and back['width'] > 0, back)
 
             # ---- a transfer behind the console, then closing the console ends it
-            await console.evaluate('window.opfs.write("late.bin", 60000000, 9)')
+            await console.evaluate('window.opfs.write("late.bin", 2000000000, 9)')
             await button.click()
             await console.get_by_role('button', name='Refresh').first.click()
             await console.wait_for_function("[...document.querySelectorAll('.qfm-local .qfm-name')].some((e)=>e.textContent==='late.bin')", timeout=20000)
@@ -410,13 +485,11 @@ async def run(args, node: Node, checks: Checks, report: dict) -> None:
             final = node.as_account('test -e ~/qfm-e2e/inbox/late.bin && echo present || echo absent', check=False)
             checks.add('closing the console ends the peer and removes the unfinished file', peers == '0' and leftover == '0' and final == 'absent',
                        {'peers_after': peers, 'temporary_during': part, 'temporary_after': leftover, 'final': final})
-            lease = node.ssh(f"nft list set inet qsm_direct_gateway peers 2>/dev/null | grep -c 'timeout' ; true", check=False)
-            report['nft_peer_lines_after_close'] = lease
             checks.add('no page errors', not errors, errors[:6])
             report['page_errors'] = errors
             await browser.close()
     finally:
-        tunnel.terminate()
+        pass
     after = node.production()
     report['production_after'] = after
     checks.add('the installed services were not touched', before == after, after)

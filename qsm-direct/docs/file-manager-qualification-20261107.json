@@ -1,6 +1,6 @@
 {
  "date": "2026-11-07",
- "status": "qualified on owned stands only; nothing installed, committed or published",
+ "status": "qualified on owned stands only, with transfers over WebRTC. For the transport since then see file-manager-websocket-qualification-20261107.json.",
  "requirement": "A transfer takes all the bandwidth the console leaves free, and gives way to the console.",
  "transfer_mbit_and_console_ms": {
   "note": "Shaped TURN over TCP with the file manager closed, so the console in view. Console figures are medians: two unloaded baselines, then with a download, then with an upload. Transfer rates include the ramp at the start of each 99 s profile.",

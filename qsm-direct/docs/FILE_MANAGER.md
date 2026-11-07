@@ -8,8 +8,8 @@ between them.
 
 * **The console stays responsive.** A transfer yields to keys, exact UI tiles, video and
   sound. Nothing runs and no process exists until the file manager is opened.
-* **No new network port.** The transfer uses the same ICE path as the console, including
-  TURN over TCP 8006.
+* **No new network port.** The transfer goes where the page's signal requests go, which is
+  TCP 8006 on a node with the gateway.
 * **No guest restart.** A VM keeps its existing virtio-serial port. Only the guest
   package has to be updated.
 * **It does not get around a guest's login or lock.** Files are served by a process in
@@ -18,24 +18,27 @@ between them.
 * **The guest is untrusted.** Everything it sends is bounded and validated by the host
   and the browser.
 
-## Why the transfer has its own WebRTC connection
+## Why the transfer has its own WebSocket
 
-aiortc sends data channels from one FIFO with one congestion window, in Python. A real
-two-process run over ICE/DTLS/SCTP on the controller reached 12.5 MiB/s at 100% of a core
-(`msg=16 KiB`) and 12.3 MiB/s at 60 KB. All consoles of a node share one asyncio loop, so
-on the console's connection 1 MiB/s would cost that loop about 8% of a core, and file
-chunks would wait in the same queue as exact UI tiles and shrink their congestion window.
-Each file session therefore has its own `RTCPeerConnection` in its own process,
-`qsm_file_peer.py`, started when the file manager opens. The cost is a ceiling near
-100 Mbit/s on a fast LAN, which is a known limit of this version.
+A transfer must take whatever the console leaves, on a 2 Mbit/s path as on a fast LAN. The
+first version used its own WebRTC connection, and on a 10 Gbit/s LAN reached a median of
+6 MiB/s up and 4.5 down: aiortc sends from one FIFO, in Python, at about a core per 12 MiB/s.
+It could also stop for good, in 2 of 44 uploads, with no cause found. A WebSocket has neither
+limit, carries the same frames, reaches the node on the path the signal requests already use,
+and shares no queue with the console, whose connection stays WebRTC.
+
+The peer still runs apart from the terminal, one per session, because it parses what comes
+from the network. All consoles of a node share one asyncio loop.
 
 ## Path of the data
 
 ```text
-browser ── own RTCPeerConnection ── qsm_file_peer.py (unprivileged, one per file session)
-                                       │ socketpair, lines
-                                    qsm-direct-terminal (relay, adds the session id)
-                                       │ QsmGuestChannel, QSF1 lines
+browser ── WebSocket, TLS ── [HAProxy on the gateway] ── qsm-direct-signal (relays bytes)
+                                                              │ socketpair
+                                            qsm_file_peer.py (unprivileged, one per file session)
+                                                              │ socketpair, lines
+                                                   qsm-direct-terminal (relay, adds the session id)
+                                                              │ QsmGuestChannel, QSF1 lines
               VM:  virtio-serial ── qsm-desktop-agent ── files.sock ──┐
               CT:  /run/qsm-login/clip-N/files.sock ──────────────────┤
                                                        qsm_desktop_files.py (user session)
@@ -55,11 +58,20 @@ same PVE ticket handling as the console:
 custom role with `VM.Console` alone gets no file access. The file session also needs an
 open console of the same guest, and in a container it must belong to the same PVE user.
 
+The answer is `{socket, rights}`. `socket` is a 128-bit token that opens this session's
+WebSocket, once, at `/qsm-direct-files/socket/<token>` on the same service. A WebSocket from a
+browser cannot carry the `Authorization` header, so the token is its credential. The request
+that returned it was authorized a moment before. The signal service presents the token to the
+terminal, gets the peer's socket back as a file descriptor, answers the handshake and relays
+bytes. A token the signal service did not hand out in the last 35 s stops there, as this route
+has no other credential and the terminal runs every console's media. A session that nobody
+connects to in 30 s ends.
+
 The terminal sends the rights to the guest as `FS <sid> O r|rw`. The session id is added
 by the terminal, so `qsm_file_peer.py` cannot choose it or raise its rights.
 
 A node runs at most 6 file sessions, and a console starts one at a time. A session's peer
-is limited to 1 GiB of address space and runs as `nobody`. The terminal service has
+is limited to 512 MiB of address space and runs as `nobody`. The terminal service has
 `OOMPolicy=continue`, so one peer over its limit does not stop every console.
 
 ## QSF1 lines between host and guest
@@ -92,6 +104,9 @@ the agent understands it. The agent then drops its connection to the helper.
 **Container.** The host connects to `/run/qsm-login/clip-N/files.sock` directly. The
 helper there greets with `READY QSF1`, answers `FS_CAPS` itself and speaks the same lines.
 
+The host reads a guest's lines in a thread of the process that runs every console's media. A
+guest that sends more than 100000 lines in 10 s that move no file data loses the channel.
+
 The helper always listens. It accepts several connections, each with its own sessions, and
 ending a connection ends its sessions. Up to 8 sessions per connection; beyond that it
 replies `FS <sid> C limit`.
@@ -102,7 +117,7 @@ replies `FS <sid> C limit`.
 frame = u16be header_len | header (JSON, ASCII) | payload
 ```
 
-At most 65536 bytes in total. File data is carried in 32 KiB payloads. Paths are JSON
+At most 65536 bytes in total. File data is carried in payloads of at most 60000 bytes. Paths are JSON
 strings. A name that is not valid UTF-8 travels as lone surrogates (`\udcXX`,
 Python's `surrogateescape`), so it survives a round trip through JSON in Python and
 JavaScript. Paths are absolute, contain no NUL and are at most 4096 bytes when encoded.
@@ -117,13 +132,13 @@ EINVAL ELOCKED ERIGHTS ENOTREG ECANCELED EBUSY ENAMETOOLONG EIO`. Any other OS e
 
 | op | Right | Request | Response |
 | --- | --- | --- | --- |
-| `hello` | | | `ok, v:1, home, user, rights:"r"\|"rw", locked, chunk:32768` |
+| `hello` | | | `ok, v:1, home, user, rights:"r"\|"rw", locked, chunk:60000` |
 | `list` | r | `path` | frames `{id, part:[[name,type,size,mtime,mode,target],...]}`, each header at most 48 KiB, then `ok, path, total, truncated` |
 | `stat` | r | `path` | `ok, type, size, mtime, mode, target` |
 | `mkdir` | w | `path, parents` | `ok`. An existing directory is `EEXIST` unless `parents` is true |
 | `rename` | w | `from, to` | `ok`. Never replaces: an existing `to` is `EEXIST` |
 | `delete` | w | `path, recursive` | frames `{id, progress:n}` at most every 200 ms, then `ok, removed` |
-| `put` | w | `path, size, mtime?, mode?, overwrite:"fail"\|"replace", last?` with payload | frames `{id, ack:bytes}` with the running total, at least every 64 KiB and at once when nothing more is queued, then `ok, size` |
+| `put` | w | `path, size, mtime?, mode?, overwrite:"fail"\|"replace", last?` with payload | frames `{id, ack:bytes}` with the running total after each write, which holds at most 1 MiB and what has queued up during the last one, then `ok, size` |
 | `data` | w | `id, o` with payload | no response of its own |
 | `end` | w | `id, size` | the final response of the `put` |
 | `get` | r | `path, credit, chunk?, offset?` | `{id, meta:true, size, mtime, mode}`, data frames `{id, o}` with payload, then `ok, size, changed` |
@@ -145,7 +160,7 @@ Rules the helper enforces:
 * **Limits.** At most 64 requests and 16 transfers in progress per session, otherwise
   `EBUSY`. A directory lists at most 200000 entries or 8 MiB of names, then `truncated`.
   A list is not paced by credit, and the host holds 16 MiB per session.
-* **Frame size.** `chunk`, 1024 to 32768, sets the size of later data frames of a `get`.
+* **Frame size.** `chunk`, 1024 to 60000, sets the size of later data frames of a `get`.
 * **Uploads are atomic.** Data goes to `.<name>.qsm-part-<8 hex>` in the same directory,
   created with `O_EXCL|O_NOFOLLOW`, mode 0600. `end` checks the size, syncs files of 1 MiB
   or more, sets mtime and the final mode, and renames. `overwrite:"fail"` does not replace
@@ -166,22 +181,24 @@ Rules the helper enforces:
 * **Blocking work runs off the frame reader**, so a slow disk or a hung mount cannot stop
   frames for other requests, and `cancel` always gets through.
 
-## Data channels of the file connection
+## Messages on the WebSocket
 
-* `qsm-files`, reliable and ordered. Frames in both directions, as binary messages. The
-  peer also sends text `{"op":"status","state":"ready"|"closed","reason":...}`.
-* `qsm-files-rtt`, unordered, text. `{"t":n}` is echoed unchanged at once. `{"rate":n}` sets
-  the peer's pace toward the browser in bytes per second. It has no limit on retransmission,
-  although a late echo is of no use: a lost message on a channel with such a limit brings a
-  FORWARD-TSN, on which aiortc also discards received fragments of a large message on
-  `qsm-files`. The sender counts those as delivered, and `qsm-files` then stops for good.
+Each frame is one binary message, in both directions. Text messages are the rest:
+
+* `{"t":n}` from the browser is echoed unchanged, ahead of anything waiting.
+* `{"rate":n}` from the browser sets the peer's pace toward the browser, in bytes per second.
+* `{"op":"status","state":"ready"|"closed","reason":...}` from the peer.
+
+The peer reads a browser's frames as RFC 6455 requires: masked, possibly fragmented, with
+pings between fragments, of which only the latest is answered. Anything else ends the session,
+as does silence for 90 s. A message holds at most 65536 bytes.
 
 ## Taking the bandwidth the console leaves
 
 A transfer has two duties: it gives way to the console, and it takes everything the console
 does not use. A low rate that harms nothing is a failure too.
 
-A controller in the browser sends an echo on `qsm-files-rtt` ten times a second while
+A controller in the browser sends an echo ten times a second while
 something is moving, and twice a second otherwise. It takes the lowest of the last five
 echoes as the present delay. An echo waits for the page's main thread, and a busy page delays
 many of them, while a queue on the path delays all of them.
@@ -205,7 +222,10 @@ the video controller cuts its own rate, so a transfer gives way first.
 * **Past it**, the console may have stopped using its share. The probe starts small and
   doubles every two seconds while the path holds, so freed bandwidth is taken back within
   seconds without a lasting queue.
-* **Before any congestion** the rate grows by 5% every 100 ms.
+* **Before any congestion** the rate grows by 5% every 100 ms up to 1 MiB/s, by 10% up to
+  8 MiB/s and by 20% beyond. A narrow path shows while the rate is low, and past that the same
+  care would spend many seconds of a fast link on getting up to speed. On a path of under 5 ms
+  it grows by 40%, as a queue on a LAN shows at once and costs little.
 * The rate grows only while it is below twice what really arrives, so a slow disk does not
   store up a burst. It never falls below 16 KiB/s, so a transfer cannot stop for good.
   Growth follows time and not samples, because a hidden tab fires timers once a second.
@@ -225,17 +245,16 @@ data.
 
 The browser paces uploads itself and sends the rate to the peer for downloads. A frame is a
 burst on the wire and whatever comes next waits behind it, so frames last about 20 ms at
-the current rate, between 2 and 32 KiB. The window of unacknowledged bytes is half a second
-at the current rate, between 64 KiB and 4 MiB, so a cancel on a narrow link does not wait
-for a long queue.
+the current rate, between 2 and 60 KB. The window of unacknowledged bytes is half a second
+at the current rate, between 64 KiB and 8 MiB, so a cancel on a narrow link does not wait
+for a long queue. An upload reads ahead 50 ms of the current rate, at most 8 MiB, since one
+read of a local file costs far more than a frame of it.
 
 ## Failures
 
-A job ends even if the guest never answers: a cancel tells the guest and stops waiting. If a
-connection goes away, or has data on its way and nothing back for 20 s, it is replaced and the
-file starts over on the new one, up to three times. That covers any cause, among them a rare stop of the
-ordered channel on the node's side, seen in 2 of 44 uploads of 80 MiB through TURN, whose cause
-was not found. A
+A job ends even if the guest never answers: a cancel tells the guest and stops waiting, also
+while a new connection comes up. If a connection goes away, or has data on its way and no frame
+back for 20 s, it is replaced and the file starts over on the new one, up to three times. A
 hostile guest cannot send more than was granted or than it declared for a file, and a
 listing stops at the helper's limits. A file that changed while it was read is not kept and
 does not replace anything, and a new local file that fails does not stay behind empty. Two

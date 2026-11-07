@@ -181,8 +181,8 @@ const { qfmEncode, qfmDecode, qfmSafeName, qfmValidEntries, qfmJoin, qfmParent, 
     assert.equal(floor.window(), 64 * 1024);
     assert.equal(floor.chunk(), 2048, 'on a narrow path frames are small');
     floor.rate = 100 * 1024 * 1024;
-    assert.equal(floor.window(), 4 * 1024 * 1024);
-    assert.equal(floor.chunk(), 32768);
+    assert.equal(floor.window(), 8 * 1024 * 1024);
+    assert.equal(floor.chunk(), 60000);
 
     const silent = new QfmRate();
     silent.sample(20, 1000);
@@ -389,48 +389,33 @@ class Helper {
     }
 }
 
-class FakeChannel extends EventTarget {
-    constructor(onSend) {
-        super();
-        this.readyState = 'open';
-        this.bufferedAmount = 0;
-        this.onSend = onSend;
-    }
-    send(data) { this.onSend(data); }
-    deliver(data) { setImmediate(() => this.dispatchEvent(Object.assign(new Event('message'), { data }))); }
-}
-
-class FakePeer extends EventTarget {
+class FakeSocket extends EventTarget {
     constructor(helper) {
         super();
+        this.readyState = 1;
+        this.bufferedAmount = 0;
         this.helper = helper;
-        this.localDescription = { sdp: 'v=0' };
-        this.connectionState = 'connected';
+        helper.attach(this);
+        setImmediate(() => this.announce());
     }
-    createDataChannel(label) {
-        if (label === 'qsm-files') {
-            const channel = new FakeChannel((data) => {
-                if (typeof data !== 'string') { setImmediate(() => this.helper.handle(data)); }
-            });
-            this.helper.attach(channel);
-            setImmediate(() => channel.deliver('{"op":"status","state":"ready","reason":null}'));
-            return channel;
+    announce() { this.deliver('{"op":"status","state":"ready","reason":null}'); }
+    send(data) {
+        if (typeof data === 'string') {
+            if ('t' in JSON.parse(data)) { this.deliver(data); }
+            return;
         }
-        const rtt = new FakeChannel((data) => {
-            const value = JSON.parse(data);
-            if ('t' in value) { rtt.deliver(data); }
-        });
-        return rtt;
+        setImmediate(() => this.helper.handle(data));
     }
-    async createOffer() { return { type: 'offer', sdp: 'v=0' }; }
-    async setLocalDescription() {}
-    async setRemoteDescription() {}
-    close() { this.closed = true; }
+    deliver(data) { setImmediate(() => this.dispatchEvent(Object.assign(new Event('message'), { data }))); }
+    close() {
+        this.closed = true;
+        this.readyState = 3;
+    }
 }
 
 const timers = { now: () => performance.now(), setTimeout, clearTimeout, setInterval, clearInterval };
 const openLink = async (helper) => {
-    const link = new QfmLink({ createPeer: async () => new FakePeer(helper), offer: async () => ({ sdp: 'v=0' }), timers, isHidden: () => false });
+    const link = new QfmLink({ createSocket: () => new FakeSocket(helper), offer: async () => ({ socket: 'a'.repeat(32) }), timers, isHidden: () => false });
     link.rate.rate = 256 * 1024 * 1024;
     assert.equal((await link.open()).home, '/home/u');
     return link;
@@ -465,7 +450,7 @@ await (async () => {
 
     // A tree with small, chunk-sized and large files, and an empty folder.
     {
-        const tree = staged({ 'top/small.txt': blob(100), 'top/exact.bin': blob(32768), 'top/sub/big.bin': blob(300000, 3), 'top/empty': null });
+        const tree = staged({ 'top/small.txt': blob(100), 'top/exact.bin': blob(60000), 'top/sub/big.bin': blob(300000, 3), 'top/empty': null });
         const job = new QfmJob('up', 'up');
         await transfersFor(link).upload(job, tree, await tree.readdir(), '/home/u');
         same(job.errors, []);
@@ -474,7 +459,7 @@ await (async () => {
         assert.ok(helper.dirs.has('/home/u/top/empty'));
         assert.ok(helper.dirs.has('/home/u/top/sub'));
         assert.ok(helper.files.get('/home/u/top/sub/big.bin').equals(blob(300000, 3)));
-        assert.ok(helper.files.get('/home/u/top/exact.bin').equals(blob(32768)));
+        assert.ok(helper.files.get('/home/u/top/exact.bin').equals(blob(60000)));
         assert.equal(link.inflight, 0, 'the whole window is free again');
         assert.ok(helper.maxUnacked <= link.rate.window());
     }
@@ -950,17 +935,10 @@ await (async () => {
 
 // A guest without its helper, and hostile frames, end the link rather than hang it.
 await (async () => {
-    const peer = new FakePeer(new Helper());
-    const original = peer.createDataChannel.bind(peer);
-    peer.createDataChannel = (label) => {
-        const channel = original(label);
-        if (label === 'qsm-files') {
-            channel.deliver = () => {};
-            setImmediate(() => channel.dispatchEvent(Object.assign(new Event('message'), { data: '{"op":"status","state":"closed","reason":"nohelper"}' })));
-        }
-        return channel;
-    };
-    const link = new QfmLink({ createPeer: async () => peer, offer: async () => ({ sdp: 'v=0' }), timers, isHidden: () => false });
+    class NoHelper extends FakeSocket {
+        announce() { this.deliver('{"op":"status","state":"closed","reason":"nohelper"}'); }
+    }
+    const link = new QfmLink({ createSocket: () => new NoHelper(new Helper()), offer: async () => ({ socket: 'a'.repeat(32) }), timers, isHidden: () => false });
     await assert.rejects(link.open(), (error) => error.code === 'ENOHELPER');
     assert.equal(link.closed, true);
 
@@ -969,6 +947,78 @@ await (async () => {
     const pending = open.call('list', { path: '/' }, null, () => {});
     helper.channel.deliver(new Uint8Array([255, 255, 1]).buffer);
     await assert.rejects(pending, (error) => error.code === 'ELINK');
+})();
+
+// A request that never comes back must not hold a link or a job for good.
+await (async () => {
+    const quick = { ...timers, setTimeout: (callback, delay) => setTimeout(callback, Math.min(delay, 5)) };
+    const link = new QfmLink({ createSocket: () => { throw new Error('no answer came'); }, offer: () => new Promise(() => {}), timers: quick, isHidden: () => false });
+    await assert.rejects(link.open(), (error) => error.code === 'ELINK');
+
+    const helper = new Helper();
+    const current = await openLink(helper);
+    let relinking = false;
+    helper.mute = true;
+    const transfers = new QfmTransfers({ link: () => current, now: () => performance.now(), sleep: async () => {},
+        ask: async () => ({ choice: 'skip', all: false }), notify: () => {}, relink: () => { relinking = true; return new Promise(() => {}); } });
+    const job = new QfmJob('up', 'up');
+    const tree = staged({ waiting: blob(400000) });
+    const run = transfers.upload(job, tree, await tree.readdir(), '/home/u');
+    while (current.inflight === 0) { await settle(); }
+    current.end('ELINK');
+    while (!relinking) { await settle(); }
+    job.cancel();
+    await run; // That this returns is the test: nothing else ended that wait.
+})();
+
+// A long name in the frame of a whole small file: the frame stays within its limit.
+await (async () => {
+    const helper = new Helper();
+    const link = await openLink(helper);
+    const largest = [];
+    const send = link.socket.send.bind(link.socket);
+    link.socket.send = (data) => { if (typeof data !== 'string') { largest.push(data.byteLength); } send(data); };
+    const name = 'é'.repeat(900);
+    const transfers = transfersFor(link);
+    const job = new QfmJob('up', 'up');
+    const tree = staged({ [name]: blob(59000) });
+    await transfers.upload(job, tree, await tree.readdir(), '/home/u');
+    same(job.errors, []);
+    assert.ok(Math.max(...largest) <= 65536, `a frame of ${Math.max(...largest)}`);
+    assert.ok(helper.files.get(`/home/u/${name}`).equals(blob(59000)));
+})();
+
+// A single download without a folder picker that loses its link starts again in a new spool.
+await (async () => {
+    const lost = new Helper();
+    lost.files.set('/home/u/one.bin', blob(400000));
+    const good = new Helper();
+    good.files.set('/home/u/one.bin', blob(400000));
+    let current = await openLink(lost);
+    const spools = [];
+    lost.mute = true;
+    const transfers = new QfmTransfers({ link: () => current, now: () => performance.now(), sleep: async () => {},
+        ask: async () => ({ choice: 'skip', all: false }), notify: () => {},
+        relink: async () => { current = await openLink(good); },
+        spool: async () => {
+            const spool = { bytes: [], aborted: false, finished: false,
+                append: async (data) => { spool.bytes.push(Buffer.from(data)); },
+                pad: async () => {}, finish: async () => { spool.finished = true; }, abort: async () => { spool.aborted = true; } };
+            spools.push(spool);
+            return spool;
+        } });
+    const job = new QfmJob('down', 'down');
+    const entry = { name: 'one.bin', type: 'f', size: 400000, mtime: 0, mode: 420, target: null };
+    const run = transfers.downloadToSpool(job, [{ entry, path: '/home/u/one.bin' }], 'export');
+    while (!spools.length && current === undefined) { await settle(); }
+    for (let i = 0; i < 20 && !current.pending.size; i += 1) { await settle(); }
+    const first = current;
+    first.end('ELINK');
+    await run;
+    same(job.errors, []);
+    const finished = spools.filter((spool) => spool.finished);
+    assert.equal(finished.length, 1);
+    assert.ok(Buffer.concat(finished[0].bytes).equals(blob(400000)));
 })();
 
 console.log('file manager tests passed');

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FS lines on the guest channel, and a real file peer process driven over WebRTC.
+"""FS lines on the guest channel, and a real file peer process driven over a WebSocket.
 
 The guest here is a small stand-in that speaks the FS lines. The real helper has its
 own tests, and the whole path runs with it in test_file_path.py.
@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import os
 from pathlib import Path
+import queue
 import socket
+import struct
 import sys
 import threading
 import time
@@ -24,6 +27,56 @@ from browser_bridge import qsm_file_peer as peer_module  # noqa: E402
 from direct_guest import qsm_guest_channel as channel_module  # noqa: E402
 from direct_guest.qsm_guest_channel import GuestChannelError, QsmGuestChannel  # noqa: E402
 from direct_terminal.qsm_file_session import FileSession, FileSessionError  # noqa: E402
+
+
+def ws_client_frame(opcode: int, payload: bytes, *, final: bool = True, masked: bool = True, rsv: int = 0,
+                    key: bytes = b'\x01\x02\x03\x04') -> bytes:
+    size = len(payload)
+    first = (0x80 if final else 0) | rsv | opcode
+    bit = 0x80 if masked else 0
+    if size < 126:
+        head = bytes((first, bit | size))
+    elif size < 65536:
+        head = struct.pack('!BBH', first, bit | 126, size)
+    else:
+        head = struct.pack('!BBQ', first, bit | 127, size)
+    if not masked:
+        return head + payload
+    return head + key + peer_module.unmask(payload, key)
+
+
+class Browser:
+    """The browser's side of a peer's network socket: masked frames out, messages in."""
+
+    def __init__(self, network: socket.socket) -> None:
+        self.network = network
+        self.messages: queue.Queue = queue.Queue()
+        threading.Thread(target=self.read, daemon=True).start()
+
+    def read(self) -> None:
+        try:
+            with self.network.makefile('rb') as stream:
+                while True:
+                    first, size = stream.read(2)
+                    if size == 126:
+                        size = struct.unpack('!H', stream.read(2))[0]
+                    elif size == 127:
+                        size = struct.unpack('!Q', stream.read(8))[0]
+                    self.messages.put((first & 0x0f, stream.read(size)))
+        except (OSError, ValueError):
+            pass
+        self.messages.put(None)
+
+    def send(self, data: bytes | str) -> None:
+        text = isinstance(data, str)
+        self.network.sendall(ws_client_frame(1 if text else 2, data.encode() if text else data))
+
+    def get(self, timeout: float = 20) -> bytes | str | None:
+        """The next message, text as str; None once the peer has ended."""
+        item = self.messages.get(timeout=timeout)
+        if item is None:
+            return None
+        return item[1].decode() if item[0] == 1 else item[1]
 
 
 class LineGuest:
@@ -246,6 +299,65 @@ class ChannelFileLines(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 10)
 
 
+class ChannelFloodTests(unittest.TestCase):
+    def test_a_flood_of_lines_that_do_nothing_ends_the_channel(self) -> None:
+        guest = LineGuest()
+        self.addCleanup(guest.close)
+        channel = channel_for(guest)
+        self.addCleanup(channel.close)
+        self.assertTrue(channel.files_capable())
+        original = channel_module.IDLE_FILE_LINES
+        channel_module.IDLE_FILE_LINES = 100
+        self.addCleanup(setattr, channel_module, 'IDLE_FILE_LINES', original)
+        before = channel._socket
+        guest.send(b'FS nobody D QQ==\n' * 200)
+        for _ in range(500):
+            if channel._socket is not before:
+                break
+            time.sleep(.01)
+        self.assertIsNot(channel._socket, before)
+
+    def test_file_data_of_an_open_session_does_not_count(self) -> None:
+        guest = LineGuest()
+        self.addCleanup(guest.close)
+        channel = channel_for(guest)
+        self.addCleanup(channel.close)
+        self.assertTrue(channel.files_capable())
+        original = channel_module.IDLE_FILE_LINES
+        channel_module.IDLE_FILE_LINES = 10
+        self.addCleanup(setattr, channel_module, 'IDLE_FILE_LINES', original)
+        seen = []
+        channel.open_file_session('ab', 'rw', lambda kind, rest: seen.append(kind))
+        guest.send(b'FS ab D QQ==\n' * 200)
+        for _ in range(500):
+            if seen.count('D') == 200:
+                break
+            time.sleep(.01)
+        self.assertEqual(seen.count('D'), 200)
+
+    def test_a_line_that_arrives_in_pieces_is_whole(self) -> None:
+        guest = LineGuest()
+        self.addCleanup(guest.close)
+        channel = channel_for(guest)
+        self.addCleanup(channel.close)
+        self.assertTrue(channel.files_capable())
+        seen = []
+        channel.open_file_session('ab', 'rw', lambda kind, rest: seen.append((kind, rest)))
+        for _ in range(300):  # The stand answers the open by itself: nothing may land inside that.
+            if seen:
+                break
+            time.sleep(.01)
+        self.assertEqual(seen, [('R', b'')])
+        for piece in (b'FS a', b'b D QQ', b'==', b'\nFS ab D Qg==\nFS ', b'ab D Qw==\n'):
+            guest.send(piece)
+            time.sleep(.02)
+        for _ in range(300):
+            if len(seen) == 4:
+                break
+            time.sleep(.01)
+        self.assertEqual(seen[1:], [('D', b'QQ=='), ('D', b'Qg=='), ('D', b'Qw==')])
+
+
 class PacerTests(unittest.TestCase):
     def test_rate_bounds_and_burst(self) -> None:
         now = [100.0]
@@ -262,29 +374,60 @@ class PacerTests(unittest.TestCase):
             self.assertEqual(pacer.rate, before, bad)
         pacer.set_rate(1)
         self.assertEqual(pacer.rate, peer_module.MIN_RATE)
-        pacer.set_rate(1 << 30)
-        self.assertEqual(pacer.queue_limit(), int((1 << 30) * peer_module.QUEUE_SECONDS))
-        pacer.set_rate(16384)
-        self.assertEqual(pacer.queue_limit(), peer_module.MIN_QUEUE_BYTES)
 
-    def test_the_sctp_window_follows_the_pace_and_recovers_from_a_timeout(self) -> None:
-        peer = peer_module.FilePeer.__new__(peer_module.FilePeer)
-        peer._pacer = peer_module.Pacer(rate=1_000_000)
-        sctp = type('Sctp', (), {'_cwnd': 1200, '_srtt': .1})()
-        peer._pc = type('Pc', (), {'sctp': sctp})()
-        peer._keep_window_open()
-        self.assertEqual(sctp._cwnd, 200000 + peer_module.MIN_WINDOW_BYTES)
-        sctp._cwnd = 10 ** 7
-        peer._keep_window_open()
-        self.assertEqual(sctp._cwnd, 10 ** 7, 'a window already larger stays')
-        peer._pc = type('Pc', (), {'sctp': type('Other', (), {})()})()
-        peer._keep_window_open()
+class WebSocketTests(unittest.TestCase):
+    MASK = b'\x11\x22\x33\x44'
 
-    def test_mdns_offers_keep_discovery_open(self) -> None:
-        plain = 'a=candidate:1 1 udp 1 10.0.0.1 5000 typ host\r\na=end-of-candidates\r\n'
-        self.assertEqual(peer_module.without_end_of_candidates(plain), plain)
-        mdns = 'a=candidate:1 1 udp 1 abc.local 5000 typ host\r\na=end-of-candidates\r\n'
-        self.assertNotIn('end-of-candidates', peer_module.without_end_of_candidates(mdns))
+    def wire(self, opcode: int, payload: bytes, *, final: bool = True, masked: bool = True, rsv: int = 0) -> bytes:
+        return ws_client_frame(opcode, payload, final=final, masked=masked, rsv=rsv, key=self.MASK)
+
+    def reader(self, data: bytes) -> peer_module.WebSocketReader:
+        return peer_module.WebSocketReader(io.BytesIO(data))
+
+    def test_unmask_is_its_own_inverse_at_every_length(self) -> None:
+        for size in (0, 1, 3, 4, 5, 1000, 65536):
+            data = bytes(range(256)) * (size // 256 + 1)
+            data = data[:size]
+            self.assertEqual(peer_module.unmask(peer_module.unmask(data, self.MASK), self.MASK), data)
+        self.assertEqual(peer_module.unmask(bytes(5), self.MASK), self.MASK + self.MASK[:1])
+
+    def test_each_length_form_is_read_and_written(self) -> None:
+        for size in (0, 125, 126, 65535, 65536):
+            payload = b'x' * size
+            self.assertEqual(self.reader(self.wire(2, payload)).message(None), (2, payload))
+            wire = peer_module.ws_frame(2, payload)
+            self.assertEqual(wire[0], 0x82)
+            self.assertEqual(wire[-size:] if size else b'', payload)
+
+    def test_fragments_join_with_a_ping_between_them(self) -> None:
+        pings = []
+        data = (self.wire(2, b'ab', final=False) + self.wire(9, b'p') + self.wire(0, b'cd', final=False) +
+                self.wire(10, b'') + self.wire(0, b'ef'))
+        self.assertEqual(self.reader(data).message(pings.append), (2, b'abcdef'))
+        self.assertEqual(pings, [b'p'])
+
+    def test_a_close_ends_the_messages(self) -> None:
+        self.assertIsNone(self.reader(self.wire(8, b'')).message(None))
+
+    def test_invalid_frames_are_refused(self) -> None:
+        cases = {
+            'not masked': self.wire(2, b'x', masked=False),
+            'reserved bits': self.wire(2, b'x', rsv=0x40),
+            'unknown opcode': self.wire(3, b'x'),
+            'continuation of nothing': self.wire(0, b'x'),
+            'a new message inside one': self.wire(2, b'x', final=False) + self.wire(1, b'y'),
+            'one frame too large': self.wire(2, b'x' * 65537),
+            'fragments too large': self.wire(2, b'x' * 65536, final=False) + self.wire(0, b'y'),
+            'a long ping': self.wire(9, b'x' * 126),
+            'a fragmented ping': self.wire(9, b'x', final=False),
+        }
+        for name, data in cases.items():
+            with self.subTest(name), self.assertRaises(peer_module.ProtocolError):
+                self.reader(data).message(lambda _payload: None)
+
+    def test_a_cut_frame_is_the_end_of_the_stream(self) -> None:
+        with self.assertRaises(EOFError):
+            self.reader(self.wire(2, b'abcd')[:-1]).message(None)
 
 
 def frame(header: dict, payload: bytes = b'') -> bytes:
@@ -292,65 +435,67 @@ def frame(header: dict, payload: bytes = b'') -> bytes:
     return len(encoded).to_bytes(2, 'big') + encoded + payload
 
 
-class PeerProcessTests(unittest.IsolatedAsyncioTestCase):
-    async def asyncSetUp(self) -> None:
+class PeerProcessTests(unittest.TestCase):
+    def setUp(self) -> None:
         self.guest = LineGuest()
         self.channel = channel_for(self.guest)
         self.addCleanup(self.guest.close)
         self.addCleanup(self.channel.close)
-        from aiortc import RTCPeerConnection
-        self.browser = RTCPeerConnection()
-        self.files_channel = self.browser.createDataChannel('qsm-files', ordered=True)
-        self.rtt_channel = self.browser.createDataChannel('qsm-files-rtt', ordered=False)
-        self.messages: asyncio.Queue = asyncio.Queue()
-        self.files_channel.on('message', self.messages.put_nowait)
-        self.rtt_messages: asyncio.Queue = asyncio.Queue()
-        self.rtt_channel.on('message', self.rtt_messages.put_nowait)
         self.session: FileSession | None = None
+        self.browser: Browser | None = None
+        self.addCleanup(self.end_session)
 
-    async def asyncTearDown(self) -> None:
+    def end_session(self) -> None:
         if self.session is not None:
-            await asyncio.to_thread(self.session.close)
-        await self.browser.close()
+            self.session.close()
+        if self.browser is not None:
+            self.browser.network.close()
 
-    async def connect(self, rights: str = 'rw') -> None:
-        from aiortc import RTCSessionDescription
-        await self.browser.setLocalDescription(await self.browser.createOffer())
+    def connect(self, rights: str = 'rw') -> None:
         self.session = FileSession(self.channel, rights)
-        answer = await asyncio.to_thread(self.session.start, self.browser.localDescription.sdp)
-        await self.browser.setRemoteDescription(RTCSessionDescription(sdp=answer, type='answer'))
-        status = json.loads(await asyncio.wait_for(self.messages.get(), 20))
-        self.assertEqual(status, {'op': 'status', 'state': 'ready', 'reason': None})
+        self.session.start()
+        self.browser = Browser(self.session.take_network())
+        self.assertEqual(json.loads(self.browser.get()), {'op': 'status', 'state': 'ready', 'reason': None})
 
-    async def test_frames_cross_both_ways_and_rights_come_from_the_terminal(self) -> None:
-        await self.connect('r')
+    def test_frames_cross_both_ways_and_rights_come_from_the_terminal(self) -> None:
+        self.connect('r')
         identifier = self.session.identifier
         self.assertTrue(self.guest.wait_for(lambda line: line == b'FS %s O r' % identifier.encode()))
         for size in (2, 100, 32768, 65536 - 40):
             message = frame({'id': 9}, b'z' * max(0, size - 13))
-            self.files_channel.send(message)
-            self.assertEqual(await asyncio.wait_for(self.messages.get(), 20), message)
+            self.browser.send(message)
+            self.assertEqual(self.browser.get(), message)
 
-    async def test_a_down_rate_paces_frames(self) -> None:
-        await self.connect()
-        await self.wait_open(self.rtt_channel)
-        self.rtt_channel.send(json.dumps({'rate': 40000}))
-        await asyncio.sleep(.1)
+    def test_a_fragmented_frame_reaches_the_guest_whole(self) -> None:
+        self.connect()
+        message = frame({'id': 9}, b'z' * 40000)
+        self.browser.network.sendall(ws_client_frame(2, message[:1000], final=False) +
+                                     ws_client_frame(0, message[1000:30000], final=False) +
+                                     ws_client_frame(0, message[30000:]))
+        self.assertEqual(self.browser.get(), message)
+
+    def test_the_network_side_is_given_out_once(self) -> None:
+        self.connect()
+        self.assertIsNone(self.session.take_network())
+
+    def test_a_down_rate_paces_frames(self) -> None:
+        self.connect()
+        self.browser.send(json.dumps({'rate': 40000}))
+        time.sleep(.1)
         payload = base64.b64encode(frame({'id': 1, 'o': 0}, b'y' * 19000))
         for _ in range(6):
             self.guest.send(b'FS %s D %s\n' % (self.session.identifier.encode(), payload))
         started = None
         for _ in range(6):
-            await asyncio.wait_for(self.messages.get(), 20)
+            self.browser.get()
             started = started or time.monotonic()
         # Five frames of about 19 KB after the first, at 40 KB/s.
         self.assertGreater(time.monotonic() - started, 1.5)
 
-    async def test_commands_go_ahead_of_file_data_but_stay_behind_their_own(self) -> None:
-        await self.connect()
-        await self.wait_open(self.rtt_channel)
-        self.rtt_channel.send(json.dumps({'rate': 40000}))
-        await asyncio.sleep(.1)
+    def test_commands_go_ahead_of_file_data_but_stay_behind_their_own(self) -> None:
+        self.connect()
+        self.browser.send(json.dumps({'rate': 40000}))
+        time.sleep(.1)
         sid = self.session.identifier.encode()
 
         def down(header: dict, payload: bytes = b'') -> None:
@@ -358,12 +503,12 @@ class PeerProcessTests(unittest.IsolatedAsyncioTestCase):
         for offset in range(6):
             down({'id': 1, 'o': offset * 19000}, b'y' * 19000)
         down({'id': 1, 'ok': True, 'size': 114000})
-        await asyncio.sleep(.2)
+        time.sleep(.2)
         down({'id': 2, 'part': [['a', 'f', 1, 1, 420, None]]})
         down({'id': 2, 'ok': True, 'path': '/', 'total': 1, 'truncated': False})
         order = []
         for _ in range(9):
-            message = await asyncio.wait_for(self.messages.get(), 20)
+            message = self.browser.get()
             head = json.loads(message[2:2 + int.from_bytes(message[:2], 'big')])
             order.append((head['id'], 'data' if 'o' in head else 'other'))
         self.assertLess(order.index((2, 'other')), order.index((1, 'data')) + 3, 'the listing does not wait for the file')
@@ -371,97 +516,102 @@ class PeerProcessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ours, [(1, 'data')] * 6 + [(1, 'other')], 'the end of a file never overtakes its data')
         self.assertEqual([item for item in order if item[0] == 2], [(2, 'other')] * 2)
 
-    async def test_an_echo_channel_with_a_retransmission_limit_is_refused(self) -> None:
-        """Its lost messages would bring FORWARD-TSNs, and aiortc then loses file data."""
-        limited = self.browser.createDataChannel('qsm-files-rtt', ordered=False, maxRetransmits=0)
-        replies: asyncio.Queue = asyncio.Queue()
-        limited.on('message', replies.put_nowait)
-        await self.connect()
-        await asyncio.sleep(1)
-        if limited.readyState == 'open':
-            limited.send(json.dumps({'t': 1}))
-        with self.assertRaises(asyncio.TimeoutError):
-            await asyncio.wait_for(replies.get(), 1)
+    def test_an_echo_does_not_wait_for_file_data(self) -> None:
+        self.connect()
+        self.browser.send(json.dumps({'rate': 16000}))
+        time.sleep(.1)
+        payload = base64.b64encode(frame({'id': 1, 'o': 0}, b'y' * 19000))
+        for _ in range(5):
+            self.guest.send(b'FS %s D %s\n' % (self.session.identifier.encode(), payload))
+        time.sleep(.2)
+        probe = json.dumps({'t': 7})
+        self.browser.send(probe)
+        started = time.monotonic()
+        while self.browser.get() != probe:
+            pass
+        self.assertLess(time.monotonic() - started, 1.0)
 
-    async def wait_open(self, channel) -> None:
-        for _ in range(500):
-            if channel.readyState == 'open':
-                return
-            await asyncio.sleep(.01)
-        self.fail('channel did not open')
-
-    async def test_rtt_channel_echoes_and_ignores_junk(self) -> None:
-        await self.connect()
-        await self.wait_open(self.rtt_channel)
-        self.rtt_channel.send('not json')
-        self.rtt_channel.send(json.dumps({'other': 1}))
-        self.rtt_channel.send(b'bytes')
+    def test_text_echoes_and_junk_is_ignored(self) -> None:
+        self.connect()
+        self.browser.send('not json')
+        self.browser.send(json.dumps({'other': 1}))
+        self.browser.send('x' * 1000)
         probe = json.dumps({'t': 123.5})
-        self.rtt_channel.send(probe)
-        self.assertEqual(await asyncio.wait_for(self.rtt_messages.get(), 10), probe)
+        self.browser.send(probe)
+        self.assertEqual(self.browser.get(5), probe)
 
-    async def test_guest_closing_reports_a_fixed_reason(self) -> None:
-        await self.connect()
+    def test_a_ping_is_answered(self) -> None:
+        self.connect()
+        self.browser.network.sendall(ws_client_frame(9, b'hello'))
+        self.assertEqual(self.browser.messages.get(timeout=5), (10, b'hello'))
+
+    def test_guest_closing_reports_a_fixed_reason(self) -> None:
+        self.connect()
         self.guest.send(b'FS %s C nohelper\n' % self.session.identifier.encode())
-        status = json.loads(await asyncio.wait_for(self.messages.get(), 20))
-        self.assertEqual(status, {'op': 'status', 'state': 'closed', 'reason': 'nohelper'})
+        self.assertEqual(json.loads(self.browser.get()), {'op': 'status', 'state': 'closed', 'reason': 'nohelper'})
 
-    async def test_text_from_the_browser_ends_the_session_and_tells_the_guest(self) -> None:
-        await self.connect()
+    def test_an_invalid_frame_ends_the_session_and_tells_the_guest(self) -> None:
+        for wire in (ws_client_frame(2, b'x'), ws_client_frame(2, b'xx', masked=False)):
+            with self.subTest(wire=wire):
+                self.connect()
+                identifier = self.session.identifier.encode()
+                self.browser.network.sendall(wire)
+                self.assertTrue(self.guest.wait_for(lambda line, want=identifier: line == b'FS %s C' % want, 20))
+                self.end_session()
+
+    def test_the_end_of_the_browser_ends_the_session(self) -> None:
+        self.connect()
         identifier = self.session.identifier.encode()
-        self.files_channel.send('text is not a frame')
-        self.assertTrue(await asyncio.to_thread(self.guest.wait_for, lambda line: line == b'FS %s C' % identifier, 20))
+        self.browser.network.shutdown(socket.SHUT_RDWR)
+        self.assertTrue(self.guest.wait_for(lambda line: line == b'FS %s C' % identifier, 20))
 
-    async def test_a_closed_session_stops_its_process_and_tells_the_guest(self) -> None:
-        await self.connect()
+    def test_a_closed_session_stops_its_process_and_tells_the_guest(self) -> None:
+        self.connect()
         identifier = self.session.identifier.encode()
         process = self.session._peer
-        await asyncio.to_thread(self.session.close)
+        self.session.close()
         self.assertIsNotNone(process.poll())
-        self.assertTrue(await asyncio.to_thread(self.guest.wait_for, lambda line: line == b'FS %s C' % identifier))
-        await asyncio.to_thread(self.session.close)
+        self.assertTrue(self.guest.wait_for(lambda line: line == b'FS %s C' % identifier))
+        self.session.close()
         self.assertEqual(self.guest.lines.count(b'FS %s C' % identifier), 1)
 
-    async def test_the_process_outlives_the_thread_that_started_it(self) -> None:
+    def test_the_process_outlives_the_thread_that_started_it(self) -> None:
         """The terminal starts it on a request thread, which ends with the request."""
-        await self.browser.setLocalDescription(await self.browser.createOffer())
         session = FileSession(self.channel, 'r')
         self.session = session
-        result: list[str] = []
-        thread = threading.Thread(target=lambda: result.append(session.start(self.browser.localDescription.sdp)))
+        thread = threading.Thread(target=session.start)
         thread.start()
-        await asyncio.to_thread(thread.join, 30)
-        self.assertTrue(result)
-        await asyncio.sleep(.5)
+        thread.join(30)
+        time.sleep(.5)
         self.assertIsNone(session._peer.poll())
 
-    async def test_the_process_ends_when_the_terminal_goes_away(self) -> None:
-        await self.connect()
+    def test_the_process_ends_when_the_terminal_goes_away(self) -> None:
+        self.connect()
         process = self.session._peer
         self.session._socket.shutdown(socket.SHUT_RDWR)
-        await asyncio.to_thread(process.wait, 15)
+        process.wait(15)
         self.assertIsNotNone(process.poll())
 
-    async def test_old_agent_starts_no_process(self) -> None:
+    def test_old_agent_starts_no_process(self) -> None:
         old = LineGuest(capable=False)
         self.addCleanup(old.close)
         channel = channel_for(old)
         self.addCleanup(channel.close)
         session = FileSession(channel, 'r')
         with self.assertRaises(FileSessionError):
-            await asyncio.to_thread(session.start, 'v=0')
+            session.start()
         self.assertIsNone(session._peer)
 
-    async def test_a_flood_of_ready_lines_reaches_the_browser_once(self) -> None:
-        await self.connect()
+    def test_a_flood_of_ready_lines_reaches_the_browser_once(self) -> None:
+        self.connect()
         identifier = self.session.identifier.encode()
-        self.guest.send((b'FS %s R\n' % identifier) * 100000)
+        self.guest.send((b'FS %s R\n' % identifier) * 50000)
         probe = frame({'id': 1})
-        self.files_channel.send(probe)
-        self.assertEqual(await asyncio.wait_for(self.messages.get(), 20), probe, 'no second ready arrived first')
+        self.browser.send(probe)
+        self.assertEqual(self.browser.get(), probe, 'no second ready arrived first')
 
-    async def test_tiny_guest_lines_count_for_more_than_their_bytes(self) -> None:
-        await self.connect()
+    def test_tiny_guest_lines_count_for_more_than_their_bytes(self) -> None:
+        self.connect()
         session_module = sys.modules['direct_terminal.qsm_file_session']
         limit = session_module.MAX_QUEUED_BYTES // session_module.LINE_OVERHEAD_BYTES
         self.session._socket.shutdown(socket.SHUT_WR)  # Stops the queue from draining into the peer.
@@ -470,18 +620,11 @@ class PeerProcessTests(unittest.IsolatedAsyncioTestCase):
         for _ in range(500):
             if self.session._closed:
                 break
-            await asyncio.sleep(.01)
+            time.sleep(.01)
         self.assertTrue(self.session._closed)
 
-    async def test_invalid_offer_fails_without_opening_a_guest_session(self) -> None:
-        session = FileSession(self.channel, 'r')
-        with self.assertRaises(FileSessionError):
-            await asyncio.to_thread(session.start, 'not an sdp offer')
-        self.assertFalse(any(line.startswith(b'FS ') and line != b'FS * C' for line in self.guest.lines))
-        self.assertIsNotNone(session._peer.poll())
-
-    async def test_too_much_from_a_guest_ends_only_that_session(self) -> None:
-        await self.connect()
+    def test_too_much_from_a_guest_ends_only_that_session(self) -> None:
+        self.connect()
         original = sys.modules['direct_terminal.qsm_file_session'].MAX_QUEUED_BYTES
         sys.modules['direct_terminal.qsm_file_session'].MAX_QUEUED_BYTES = 1024
         self.addCleanup(setattr, sys.modules['direct_terminal.qsm_file_session'], 'MAX_QUEUED_BYTES', original)
@@ -489,9 +632,51 @@ class PeerProcessTests(unittest.IsolatedAsyncioTestCase):
         for _ in range(500):
             if self.session._closed:
                 break
-            await asyncio.sleep(.01)
+            time.sleep(.01)
         self.assertTrue(self.session._closed)
         self.assertEqual(self.channel.dispatch({'op': 'status'}), {'agent': 'ready'})
+
+
+class PeerAloneTests(unittest.TestCase):
+    def test_only_the_latest_ping_is_answered(self) -> None:
+        peer = peer_module.FilePeer(*socket.socketpair())
+        for index in range(1000):
+            peer._on_ping(str(index).encode())
+        self.assertEqual(peer._next_write(), peer_module.ws_frame(peer_module.OP_PONG, b'999'))
+        self.assertIsNone(peer._pong)
+        self.assertEqual(len(peer._urgent), 0)
+
+    def test_what_a_long_listing_owes_is_limited(self) -> None:
+        now = [100.0]
+        pacer = peer_module.Pacer(rate=100000, clock=lambda: now[0])
+        pacer.charge(10 ** 8)
+        now[0] += 2
+        self.assertEqual(pacer.delay(1000), 0, 'file data does not wait out the whole listing')
+
+    def test_a_browser_that_never_connects_ends_the_peer(self) -> None:
+        original = peer_module.CONNECT_SECONDS
+        peer_module.CONNECT_SECONDS = .2
+        self.addCleanup(setattr, peer_module, 'CONNECT_SECONDS', original)
+        terminal, terminal_peer = socket.socketpair()
+        network, network_peer = socket.socketpair()
+        for item in (terminal, terminal_peer, network, network_peer):
+            self.addCleanup(item.close)
+        self.assertEqual(peer_module.FilePeer(terminal_peer, network_peer).run(), 0)
+
+    def test_a_path_that_stops_taking_data_does_not_lose_commands_order(self) -> None:
+        terminal, terminal_peer = socket.socketpair()
+        network, network_peer = socket.socketpair()
+        for item in (terminal, terminal_peer, network, network_peer):
+            self.addCleanup(item.close)
+        peer = peer_module.FilePeer(terminal_peer, network_peer)
+        peer._pacer.set_rate(1 << 30)
+        peer._enqueue(frame({'id': 1, 'o': 0}, b'y' * 100))
+        peer._enqueue(frame({'id': 1, 'ok': True}))
+        peer._enqueue(frame({'id': 2, 'ok': True}))
+        first = peer._next_write()
+        self.assertIn(b'"id": 2', first, 'another request goes first')
+        rest = peer._next_write()
+        self.assertLess(rest.index(b'"o": 0'), rest.index(b'"ok": true'), 'its own data stays ahead')
 
 
 class TerminalBinding(unittest.IsolatedAsyncioTestCase):
@@ -499,7 +684,7 @@ class TerminalBinding(unittest.IsolatedAsyncioTestCase):
 
     def request(self, **changes) -> dict:
         return {'version': 1, 'op': 'pve_acl_files', 'node': 'lab', 'vmid': 200, 'subject': 'alice@pve', 'rights': 'rw',
-                'token': 'a' * 32, 'sdp': 'v=0', 'sdp_type': 'offer', **changes}
+                'token': 'a' * 32, **changes}
 
     def setUp(self) -> None:
         from direct_terminal import qsm_direct_terminal as terminal
@@ -530,35 +715,25 @@ class TerminalBinding(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.manager._sessions.clear)
         self.addCleanup(self.manager._transports.clear)
 
-    async def asyncSetUp(self) -> None:
-        from aiortc import RTCPeerConnection
-        self.browser = RTCPeerConnection()
-        self.browser.createDataChannel('qsm-files', ordered=True)
-        await self.browser.setLocalDescription(await self.browser.createOffer())
-
     async def asyncTearDown(self) -> None:
-        await self.browser.close()
         if self.session.files is not None:
             await asyncio.to_thread(self.session.files.close)
 
     async def test_a_request_must_name_this_console(self) -> None:
         for changes in ({'token': 'b' * 32}, {'subject': 'mallory@pve'}, {'vmid': 201}, {'node': 'other'},
-                        {'token': 'a' * 31}, {'token': 'A' * 32}, {'rights': 'x'}, {'version': 9}, {'sdp_type': 'answer'},
-                        {'sdp': '\u00e9'}, {'extra': 1}):
+                        {'token': 'a' * 31}, {'token': 'A' * 32}, {'rights': 'x'}, {'version': 9}, {'extra': 1}):
             with self.subTest(changes=changes), self.assertRaises(self.terminal.DirectTerminalError):
                 await asyncio.to_thread(self.manager.answer_files, self.request(**changes))
         self.assertIsNone(self.session.files)
         self.assertFalse(any(line.startswith(b'FS ') and line != b'FS * C' for line in self.guest.lines))
 
     async def test_the_right_console_gets_a_session_and_a_second_one_replaces_it(self) -> None:
-        sdp = self.browser.localDescription.sdp
-        answer = await asyncio.to_thread(self.manager.answer_files, self.request(rights='r', sdp=sdp))
-        self.assertEqual(answer['type'], 'answer')
-        self.assertIn('m=application', answer['sdp'])
+        answer = await asyncio.to_thread(self.manager.answer_files, self.request(rights='r'))
         first = self.session.files
+        self.assertEqual(answer, {'type': 'files', 'socket': first.token})
         self.assertIsNotNone(first)
         self.assertTrue(await asyncio.to_thread(self.guest.wait_for, lambda line: line == b'FS %s O r' % first.identifier.encode()))
-        await asyncio.to_thread(self.manager.answer_files, self.request(sdp=sdp))
+        await asyncio.to_thread(self.manager.answer_files, self.request())
         second = self.session.files
         self.assertIsNot(first, second)
         self.assertTrue(await asyncio.to_thread(self.guest.wait_for, lambda line: line == b'FS %s C' % first.identifier.encode()))
@@ -567,19 +742,18 @@ class TerminalBinding(unittest.IsolatedAsyncioTestCase):
     async def test_a_second_request_while_one_starts_is_refused(self) -> None:
         self.session.files_starting = True
         with self.assertRaises(self.terminal.DirectTerminalError):
-            await asyncio.to_thread(self.manager.answer_files, self.request(sdp=self.browser.localDescription.sdp))
+            await asyncio.to_thread(self.manager.answer_files, self.request())
         self.session.files_starting = False
 
     async def test_the_node_caps_file_sessions_and_a_closed_one_frees_its_place(self) -> None:
-        sdp = self.browser.localDescription.sdp
         slots = [self.manager._file_slots.acquire(blocking=False) for _ in range(self.terminal.MAX_FILE_SESSIONS)]
         self.assertTrue(all(slots))
         with self.assertRaises(self.terminal.DirectTerminalError):
-            await asyncio.to_thread(self.manager.answer_files, self.request(sdp=sdp))
+            await asyncio.to_thread(self.manager.answer_files, self.request())
         self.assertFalse(any(line.startswith(b'FS ') and b' O ' in line for line in self.guest.lines))
         self.assertFalse(self.session.files_starting, 'a refusal leaves the console able to retry')
         self.manager._file_slots.release()
-        await asyncio.to_thread(self.manager.answer_files, self.request(sdp=sdp))
+        await asyncio.to_thread(self.manager.answer_files, self.request())
         self.assertFalse(self.manager._file_slots.acquire(blocking=False))
         await asyncio.to_thread(self.session.files.close)
         self.assertTrue(self.manager._file_slots.acquire(blocking=False), 'closing gives the place back')
@@ -587,24 +761,38 @@ class TerminalBinding(unittest.IsolatedAsyncioTestCase):
             self.manager._file_slots.release()
 
     async def test_a_failed_start_gives_its_place_back(self) -> None:
+        old = LineGuest(capable=False)
+        self.addCleanup(old.close)
+        channel = channel_for(old)
+        self.addCleanup(channel.close)
+        self.transport.guest = channel
         for _ in range(self.terminal.MAX_FILE_SESSIONS + 2):
             with self.assertRaises(self.terminal.DirectTerminalError):
-                await asyncio.to_thread(self.manager.answer_files, self.request(sdp='not an offer'))
+                await asyncio.to_thread(self.manager.answer_files, self.request())
         self.assertTrue(self.manager._file_slots.acquire(blocking=False))
         self.manager._file_slots.release()
 
-    async def test_a_gateway_without_a_usable_socket_ends_the_session(self) -> None:
-        original = self.terminal.read_gateway
-        self.terminal.read_gateway = lambda: {'relay_ipv4': '192.0.2.1', 'secret': 'x'}
-        self.addCleanup(setattr, self.terminal, 'read_gateway', original)
+    async def test_only_the_token_it_gave_opens_the_peer_and_only_once(self) -> None:
+        answer = await asyncio.to_thread(self.manager.answer_files, self.request())
+        for bad in ({}, {'token': 'short'}, {'token': 'b' * 32}, None, {'token': 7}):
+            with self.subTest(bad=bad), self.assertRaises(self.terminal.DirectTerminalError):
+                self.manager.attach_files(bad)
+        network = self.manager.attach_files({'token': answer['socket']})
+        self.addCleanup(network.close)
+        self.assertIsInstance(network, socket.socket)
         with self.assertRaises(self.terminal.DirectTerminalError):
-            await asyncio.to_thread(self.manager.answer_files, self.request(sdp=self.browser.localDescription.sdp))
-        self.assertIsNone(self.session.files)
-        self.assertTrue(self.manager._file_slots.acquire(blocking=False))
-        self.manager._file_slots.release()
+            self.manager.attach_files({'token': answer['socket']})
+
+    async def test_a_closed_session_forgets_its_token(self) -> None:
+        answer = await asyncio.to_thread(self.manager.answer_files, self.request())
+        await asyncio.to_thread(self.session.files.close)
+        self.session.files = None
+        with self.assertRaises(self.terminal.DirectTerminalError):
+            self.manager.attach_files({'token': answer['socket']})
+        self.assertEqual(self.manager._file_tokens, {})
 
     async def test_the_end_of_a_media_worker_ends_its_file_session(self) -> None:
-        await asyncio.to_thread(self.manager.answer_files, self.request(sdp=self.browser.localDescription.sdp))
+        await asyncio.to_thread(self.manager.answer_files, self.request())
         files = self.session.files
         self.session.bridge = type('Bridge', (), {'close': lambda self: asyncio.sleep(0)})()
         self.manager._remove_directory = lambda directory: None
@@ -617,11 +805,10 @@ class TerminalBinding(unittest.IsolatedAsyncioTestCase):
     async def test_a_console_without_an_agent_channel_refuses(self) -> None:
         self.transport.guest = None
         with self.assertRaises(self.terminal.DirectTerminalError):
-            await asyncio.to_thread(self.manager.answer_files, self.request(sdp=self.browser.localDescription.sdp))
+            await asyncio.to_thread(self.manager.answer_files, self.request())
 
     async def test_closing_the_console_ends_its_file_session(self) -> None:
-        sdp = self.browser.localDescription.sdp
-        await asyncio.to_thread(self.manager.answer_files, self.request(sdp=sdp))
+        await asyncio.to_thread(self.manager.answer_files, self.request())
         files = self.session.files
         self.session.bridge = type('Bridge', (), {'close': lambda self: asyncio.sleep(0)})()
         self.manager._remove_directory = lambda directory: None

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Drive the real file manager UI in real browsers over the real file path.
 
-browser (Playwright) -- WebRTC -- qsm_file_peer.py -- FileSession -- QsmGuestChannel --
+browser (Playwright) -- WebSocket -- relay -- qsm_file_peer.py -- FileSession -- QsmGuestChannel --
 [qsm-desktop-agent over a pty, or a VM's virtio port] -- qsm_desktop_files.py -- files
 
 Only the page around the manager is a stand-in for PVE. In Chromium the folder picker
@@ -35,8 +35,10 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'extensions'))
+sys.path.insert(0, str(ROOT))
 from direct_guest.qsm_guest_channel import QsmGuestChannel  # noqa: E402
 from direct_terminal.qsm_file_session import FileSession  # noqa: E402
+from extensions.signal.qsm_direct_signal import relay, websocket_accept  # noqa: E402
 
 CHROME = '/tmp/qsm-rdp-hybrid-20261028/chrome-stand/root/opt/google/chrome/chrome'
 FIREFOX = str(Path.home() / '.cache/ms-playwright/firefox-1555/firefox/firefox')
@@ -66,17 +68,9 @@ window.progress = [];
 window.manager = new QsmFileManager({
     win: window, doc: document,
     getToken: () => 'a'.repeat(32),
-    createPeer: async () => {
-        const peer = new RTCPeerConnection();
-        window.lastPeer = peer;
-        const started = performance.now();
-        for (const name of ['connectionstatechange', 'iceconnectionstatechange', 'icegatheringstatechange']) {
-            peer.addEventListener(name, () => (window.peerLog = window.peerLog || []).push([Math.round(performance.now() - started), name, peer.connectionState, peer.iceConnectionState, peer.iceGatheringState]));
-        }
-        return peer;
-    },
-    offer: async (sdp, token) => {
-        const response = await fetch('/files', { method: 'POST', body: JSON.stringify({ sdp, token }) });
+    createSocket: (token) => (window.lastSocket = new WebSocket(`ws://${location.host}/socket/${token}`)),
+    offer: async (token) => {
+        const response = await fetch('/files', { method: 'POST', body: JSON.stringify({ token }) });
         if (!response.ok) { const error = new Error('signal ' + response.status); error.status = response.status; throw error; }
         return response.json();
     },
@@ -180,6 +174,8 @@ class Stand:
         stand = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = 'HTTP/1.1'
+
             def log_message(self, *_args) -> None:
                 pass
 
@@ -191,6 +187,20 @@ class Stand:
                 self.wfile.write(body)
 
             def do_GET(self) -> None:  # noqa: N802
+                if self.path.startswith('/socket/'):
+                    network = stand.session.take_network() if stand.session is not None else None
+                    if network is None or stand.session.token != self.path.rsplit('/', 1)[-1]:
+                        self.reply(404, 'application/json', b'{}')
+                        return
+                    self.close_connection = True
+                    self.send_response(101)
+                    self.send_header('Upgrade', 'websocket')
+                    self.send_header('Connection', 'Upgrade')
+                    self.send_header('Sec-WebSocket-Accept', websocket_accept(self.headers['Sec-WebSocket-Key']))
+                    self.end_headers()
+                    with network:
+                        relay(self.connection, network)
+                    return
                 self.reply(200, 'text/html; charset=utf-8', page.encode())
 
             def do_POST(self) -> None:  # noqa: N802
@@ -201,11 +211,11 @@ class Stand:
                 session = FileSession(stand.link, stand.rights)
                 stand.session = session
                 try:
-                    answer = session.start(request['sdp'])
+                    session.start()
                 except Exception:  # noqa: BLE001 - as the signal service does
                     self.reply(502, 'application/json', b'{}')
                     return
-                self.reply(200, 'application/json', json.dumps({'type': 'answer', 'sdp': answer, 'rights': stand.rights}).encode())
+                self.reply(200, 'application/json', json.dumps({'socket': session.token, 'rights': stand.rights}).encode())
 
         self.server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -381,8 +391,8 @@ async def chromium_scenarios(browser, stand: Stand, args, checks: Checks, report
     # ---- browsing
     opened = await wait_pane(page, 'guest', 'docs')
     checks.add('guest pane opens in the home folder', opened, None if opened else {
-        'message': await page.locator('.qfm-guest .qfm-message').inner_text(), 'errors': errors[:5], 'log': await page.evaluate('window.peerLog'),
-        'state': await page.evaluate("() => { const m = window.manager, p = window.lastPeer; return { link: !!m.link, closed: m.link && m.link.closed, reason: m.link && m.link.endReason, peer: p && p.connectionState, ice: p && p.iceConnectionState, rows: m.guest.entries.length, path: m.guest.path }; }")})
+        'message': await page.locator('.qfm-guest .qfm-message').inner_text(), 'errors': errors[:5],
+        'state': await page.evaluate("() => { const m = window.manager, p = window.lastSocket; return { link: !!m.link, closed: m.link && m.link.closed, reason: m.link && m.link.endReason, socket: p && p.readyState, rows: m.guest.entries.length, path: m.guest.path }; }")})
     if not opened:
         raise RuntimeError('the guest pane did not open')
     rows = await pane_rows(page, 'guest')
@@ -408,7 +418,7 @@ async def chromium_scenarios(browser, stand: Stand, args, checks: Checks, report
     checks.add('the picked folder is listed', await wait_pane(page, 'local', 'seed'))
 
     # ---- a tree to the guest
-    plan = {'tree/a.bin': 1, 'tree/exact.bin': 32768, 'tree/over.bin': 32769, 'tree/sub/deep/b.bin': 1024 * 1024 + 7, 'tree/empty.bin': 0}
+    plan = {'tree/a.bin': 1, 'tree/exact.bin': 60000, 'tree/over.bin': 60001, 'tree/sub/deep/b.bin': 1024 * 1024 + 7, 'tree/empty.bin': 0}
     for index, (path, size) in enumerate(plan.items()):
         await page.evaluate('([p, s, i]) => window.opfs.write(p, s, i)', [path, size, index + 100])
     await page.evaluate('window.opfs.dir(["tree", "void"])')
