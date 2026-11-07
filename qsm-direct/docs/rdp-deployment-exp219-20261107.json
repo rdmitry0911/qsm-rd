@@ -30,7 +30,7 @@
  "effect": {
   "restarted": "qsm-pve-direct-terminal and qsm-pve-direct-signal, three times today for exp217, exp218 and exp219, with no console open each time.",
   "unchanged": "Boot, VMs 103 and 104, every other CT with its PID and start time, pveproxy and pvedaemon, pve-manager. dpkg audit empty.",
-  "not_installed": "No VM guest has the new agent. Its package is on the node, in /root/qsm-exp219-install-20261107."
+  "not_installed": "VM 104 and the other containers have no new guest package."
  },
  "incidents": [
   {
@@ -89,5 +89,25 @@
   ],
   "not_rehearsed": true
  },
- "user_steps": "Reload the PVE page with cache bypass, open the console of CT 108 and log in with an account of your own. For a VM guest, install /root/qsm-exp219-install-20261107/qsm-desktop-agent_0.4.0+stock4.14~exp219_amd64.deb in it and run qsm-desktop-agent-setup USER."
+ "user_steps": "Reload the PVE page with cache bypass, open the console of CT 108 and log in with an account of your own. For a VM guest, install /root/qsm-exp219-install-20261107/qsm-desktop-agent_0.4.0+stock4.14~exp219_amd64.deb in it and run qsm-desktop-agent-setup USER.",
+ "more_guests": {
+  "requested": "The user asked for CT 105 and VM 103 as well, after keeping Shut Down on the login screen. exp220, which removed it, was built and never installed; b773536 is reverted by 3db4634.",
+  "ct_105": {
+   "before": "qsm-console-guest 0.4.0+shared13, no qsm-qt-input-geometry",
+   "installed": "qsm-console-guest and qsm-qt-input-geometry 0.4.0+stock4.14~exp219, with six Qt 6 libraries from the Ubuntu archive",
+   "restarted": "Nothing. Sway, SDDM, the seat services and both login screens kept their processes from 17 and 26 October. No one was logged in.",
+   "takes_effect": "The file helper starts at the next desktop login. The seat daemon fix needs a restart of qsm-native-seat-control@N, done at the next container restart.",
+   "backup": "/root/qsm-before-exp219-20261107.tar.gz in the container: /etc/qsm-direct and /usr/lib/qsm-console as they were",
+   "not_checked": "A login and a file transfer"
+  },
+  "vm_103": {
+   "before": "qsm-desktop-agent 0.4.0+git115.desktop+clipack1, without file support",
+   "installed": "qsm-desktop-agent 0.4.0+stock4.14~exp219, then qsm-desktop-agent-setup dima",
+   "restarted": "qsm-desktop-agent@dima, so that the new binary forwards files. dima's desktop session stayed. The file helper was started in that session.",
+   "checked_from_the_node": "FS_CAPS answers OK FS_CAPS 1. A read-only file session's hello came back from the helper as dima, home /home/dima, locked true, since that screen was locked. The session was closed at once.",
+   "not_started": "qsm-desktop-metadata, which this package adds, starts at the next login.",
+   "backup": "/root/qsm-desktop-agent-git115-files.tar.gz and /root/qsm-desktop-agent-git115-dpkg-info.tar.gz in the VM",
+   "not_checked": "A transfer through the console. That would have opened a console on a desktop in use."
+  }
+ }
 }
