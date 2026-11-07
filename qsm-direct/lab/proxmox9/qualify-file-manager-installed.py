@@ -372,6 +372,7 @@ class Run:
     def __init__(self, args, node: Node, checks: Checks, report: dict, password: str) -> None:
         self.args, self.node, self.checks, self.report = args, node, checks, report
         self.password = password
+        self.logged_in_before = False
         self.out: Path = args.output
         self.host = node.host.split('@')[-1]
 
@@ -487,6 +488,18 @@ class Run:
     async def greeter_login(self, console, tag: str) -> dict:
         """As a user would: click, Other..., name, password, Enter, all into the picture."""
         await self.shot(console, f'{tag}-1-greeter')
+        if self.logged_in_before:
+            # The greeter offers the last user with the password field focused, so no click at
+            # all. The picture lies differently in another browser, and Shut Down is next to Other.
+            await console.keyboard.type(self.password, delay=60)
+            await asyncio.sleep(.6)
+            await self.shot(console, f'{tag}-3-typed')
+            await console.keyboard.press('Enter')
+            session = await poll(self.node.desktop_session, 60)
+            await self.shot(console, f'{tag}-4-after-enter')
+            if not session:
+                raise RuntimeError('the login through the picture brought no session')
+            return session
         await console.mouse.click(*GREETER_EMPTY)
         await asyncio.sleep(1.5)
         await console.mouse.click(*GREETER_OTHER)
@@ -505,6 +518,7 @@ class Run:
         await self.shot(console, f'{tag}-4-after-enter')
         if not session:
             raise RuntimeError('the login through the picture brought no session')
+        self.logged_in_before = True
         return session
 
     async def verify_session(self, console, session: dict, slot: int, tag: str) -> None:
@@ -1008,6 +1022,10 @@ def main() -> int:
     report: dict = {'date': time.strftime('%Y-%m-%d %H:%M:%S'), 'node': args.node, 'guest': args.vmid, 'account': args.account, 'packages': node.packages()}
     before = node.production()
     report['production_before'] = before
+    # A click on the login screen that lands on Shut Down stopped this container once. It is
+    # refused for this run and for this boot only.
+    POWER_TARGETS = 'poweroff.target halt.target reboot.target kexec.target'
+    node.guest(f'systemctl mask --runtime {POWER_TARGETS}')
     try:
         password = node.create_account()
         checks.add('a throwaway account with a random password', True, {'uid': node.uid, 'password_status': 'P'})
@@ -1033,6 +1051,7 @@ def main() -> int:
         report['production_after'] = after
         checks.add('the installed services and fixtures did not move', before == after,
                    {key: (before[key], after[key]) for key in before if before[key] != after[key]} or after['main_pids'])
+        node.guest(f'systemctl unmask --runtime {POWER_TARGETS}', check=False)
         report['seat_after'] = node.guest('loginctl list-sessions --no-legend; ls -la /run/qsm-login/; ls /var/lib/AccountsService/users/ 2>/dev/null', check=False).splitlines()
         report['checks'] = checks.results
         report['failed'] = [item['check'] for item in checks.results if not item['ok']]

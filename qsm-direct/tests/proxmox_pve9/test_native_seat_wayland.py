@@ -10,6 +10,7 @@ from pathlib import Path
 import runpy
 import socket
 import threading
+import time
 import unittest
 
 MODULE = runpy.run_path(str(Path(__file__).resolve().parents[2] / 'packaging/lxc/qsm-native-seat'))
@@ -114,6 +115,64 @@ class NativeSessionCleanupTests(unittest.TestCase):
                 self.assertFalse(old.exists())
                 self.assertEqual(stop.call_count, 0 if replacement else 1)
                 self.assertEqual(revoke.call_count, 0 if replacement else 1)
+
+
+class NativeProxySurvivesSlowLogindTests(unittest.TestCase):
+    def test_logind_timing_out_ends_no_desktop(self):
+        """Short of memory, loginctl took over 15 s and the proxy's end took every desktop along."""
+        proxy = MODULE['desktop_proxy']
+        ending = threading.Event()
+        first = [True]
+
+        def users(_slot):
+            if ending.is_set():
+                raise SystemExit
+            if first[0]:
+                first[0] = False
+                return set()
+            raise subprocess.TimeoutExpired(['loginctl'], 15)
+        ours, theirs = socket.socketpair()
+        self.addCleanup(ours.close)
+        self.addCleanup(theirs.close)
+        pairs = {(ours, theirs, 1000)}
+        ready = threading.Event()
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(proxy.__globals__, {
+                'RUNTIME': Path(directory), 'active_users': users, 'command': mock.Mock(),
+                'reap_closing_sessions': mock.Mock()}):
+            thread = threading.Thread(target=proxy, args=(1, ready, pairs, threading.Lock()), daemon=True)
+            thread.start()
+            self.assertTrue(ready.wait(5))
+            time.sleep(1.2)
+            self.assertTrue(thread.is_alive())
+            ours.sendall(b'x')
+            self.assertEqual(theirs.recv(1), b'x', 'the desktop still has its connection')
+            ending.set()
+            thread.join(5)
+
+    def test_who_may_stay_is_still_decided_once_logind_answers(self):
+        proxy = MODULE['desktop_proxy']
+        ending = threading.Event()
+        answers = iter([set(), set()])
+
+        def users(_slot):
+            if ending.is_set():
+                raise SystemExit
+            return next(answers, set())
+        ours, theirs = socket.socketpair()
+        self.addCleanup(ours.close)
+        self.addCleanup(theirs.close)
+        pairs = {(ours, theirs, 1000)}
+        ready = threading.Event()
+        with tempfile.TemporaryDirectory() as directory, mock.patch.dict(proxy.__globals__, {
+                'RUNTIME': Path(directory), 'active_users': users, 'command': mock.Mock(),
+                'reap_closing_sessions': mock.Mock()}):
+            thread = threading.Thread(target=proxy, args=(1, ready, pairs, threading.Lock()), daemon=True)
+            thread.start()
+            self.assertTrue(ready.wait(5))
+            theirs.settimeout(3)
+            self.assertEqual(theirs.recv(1), b'', 'a logged-out user loses the display')
+            ending.set()
+            thread.join(5)
 
 
 class NativeManifestTests(unittest.TestCase):

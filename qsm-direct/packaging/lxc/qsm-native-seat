@@ -467,12 +467,18 @@ def desktop_proxy(slot: int, ready: threading.Event, pairs: set, guard) -> None:
         server.listen(16)
         server.settimeout(0.5)
         ready.set()
+        allowed = None
         while True:
-            allowed = active_users(slot)
-            reap_closing_sessions(slot)
+            # logind can be slow for many seconds when memory runs short. That says nothing about
+            # who may stay, and ending this thread would end every desktop of this seat.
+            try:
+                allowed = active_users(slot)
+                reap_closing_sessions(slot)
+            except subprocess.SubprocessError as error:
+                print(f'qsm-native-seat: logind did not answer: {type(error).__name__}', file=sys.stderr, flush=True)
             with guard:
                 for front, back, uid in tuple(pairs):
-                    if uid not in allowed:
+                    if allowed is not None and uid not in allowed:
                         for endpoint in (front, back):
                             try:
                                 endpoint.shutdown(socket.SHUT_RDWR)
@@ -483,7 +489,11 @@ def desktop_proxy(slot: int, ready: threading.Event, pairs: set, guard) -> None:
             except socket.timeout:
                 continue
             _pid, uid, _gid = struct.unpack('3i', front.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
-            if uid not in active_users(slot) or len(pairs) >= 64:
+            try:
+                admitted = uid in active_users(slot)
+            except subprocess.SubprocessError:
+                admitted = False  # It connects again, and nothing it had is lost.
+            if not admitted or len(pairs) >= 64:
                 front.close()
                 continue
             back = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
