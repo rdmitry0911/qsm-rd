@@ -1313,7 +1313,14 @@ class NameTests(HelperCase):
     def test_non_utf8_names_round_trip(self):
         raw = b'caf\xe9-\xff\xfe.txt'
         directory = os.fsencode(self.root)
-        with open(directory + b'/' + raw, 'wb') as target:
+        try:
+            target = open(directory + b'/' + raw, 'wb')
+        except OSError as error:
+            # ZFS with utf8only=on, for one, refuses such a name outright.
+            if error.errno != errno.EILSEQ:
+                raise
+            self.skipTest('this filesystem refuses names that are not UTF-8')
+        with target:
             target.write(b'latin')
         name = raw.decode('utf-8', 'surrogateescape')
         path = str(self.root) + '/' + name

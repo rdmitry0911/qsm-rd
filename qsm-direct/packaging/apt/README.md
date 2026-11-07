@@ -5,16 +5,18 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
-Current preview: **0.4.0+stock4.14~exp216** turns the exact UI layer on by
-default. Text, menus and other UI areas arrive as the guest's own pixels,
-losslessly, above video cropped to what is moving. Turn it off per browser in
-Console settings > Exact UI, or per node with QSM_DIRECT_EXACT_UI_DEFAULT=0 in a
-terminal service drop-in. Exact typing, exact clicks, host shortcuts and modifier
-order from stock4.13 are retained. Guest layout shortcuts must still match the
-guest's actual configured binding. Update all installed QSM profiles together,
-reload PVE with cache bypass and reopen/reload consoles. VM/LXC reboot or desktop
-reprovisioning is not needed. Limits and measurements are in the release notes:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261106-stock4.14-exp216
+Current preview: **0.4.0+stock4.14~exp223** adds a two-pane file manager to the
+console: files and folders copy between this computer and the guest over the
+signalling path, TCP 8006 with the gateway, without a new port. It needs
+VM.GuestAgent.FileRead, and FileWrite for changes, besides VM.Console, and a
+guest package update for that feature only: qsm-console-guest in an LXC,
+qsm-desktop-agent in a VM. The exact UI layer stays on by default since exp216;
+turn it off per browser in Console settings > Exact UI, or per node with
+QSM_DIRECT_EXACT_UI_DEFAULT=0 in a terminal service drop-in. Update all installed
+QSM profiles together, reload PVE with cache bypass and reopen/reload consoles.
+VM/LXC reboot or desktop reprovisioning is not needed. Limits and measurements are
+in the release notes:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223
 
 Project sponsor: Takt — https://taktcycles.com/
 
@@ -112,14 +114,15 @@ are installed. A plain apt upgrade also picks up a new QSM version, and restarti
 QSM services interrupts open consoles. Profiles depend on the exact core version. Enabled gateway
 configuration is retained; installing an inactive profile does not enable it.
 
-To return to stock4.13, downgrade every installed QSM host package in one
-transaction, naming the version of each. APT removes an installed profile that
-the command leaves out, so read its plan before confirming. With all profiles:
+To return to stock4.14~exp216, downgrade every installed QSM host package in
+one transaction, naming the version of each. APT removes an installed profile
+that the command leaves out, so read its plan before confirming. With all
+profiles:
 
-    apt install --allow-downgrades qsm-pve-direct=0.4.0+stock4.13 \
-      qsm-pve-direct-standalone=0.4.0+stock4.13 \
-      qsm-pve-direct-gateway=0.4.0+stock4.13 \
-      qsm-pve-direct-lxc=0.4.0+stock4.13
+    apt install --allow-downgrades qsm-pve-direct=0.4.0+stock4.14~exp216 \
+      qsm-pve-direct-standalone=0.4.0+stock4.14~exp216 \
+      qsm-pve-direct-gateway=0.4.0+stock4.14~exp216 \
+      qsm-pve-direct-lxc=0.4.0+stock4.14~exp216
 
 To stop receiving updates, remove /etc/apt/sources.list.d/qsm-direct.sources
 and /etc/apt/preferences.d/qsm-direct.pref, then run apt update. Installed

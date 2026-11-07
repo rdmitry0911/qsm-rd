@@ -4,7 +4,17 @@ Proxmox takes no pull requests: patches go to `pve-devel@lists.proxmox.com`
 with `git send-email`, and every contributor signs a CLA first
 ([developer documentation](https://pve.proxmox.com/wiki/Developer_Documentation)).
 
-## Current status (2026-11-06)
+## Current status (2026-11-07)
+
+[Stock4.14~exp223](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223)
+is the current signed APT preview. It adds a two-pane file manager to the console,
+over a WebSocket on the signalling path, so a gateway node still needs only TCP 8006.
+Its [release notes](release-stock4.14-exp223-2026-11-07.md) give the measurements and
+limits. The [forum text](forum-stock4.14-exp223-update-2026-11-07.txt) is for topic
+187042. The pve-devel thread, Bugzilla and the Debian reports have not been updated
+for it.
+
+## Status on 2026-11-06
 
 [Stock4.14~exp216](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261106-stock4.14-exp216)
 is the current signed APT preview, with the exact UI layer on by default. Its

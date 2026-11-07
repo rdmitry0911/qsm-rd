@@ -13,6 +13,13 @@ The [exact UI layer](docs/EXACT_UI.md) is on by default since
 text and other UI areas arrive as the guest's own pixels, losslessly, above video
 cropped to what is moving. Turn it off in Console settings → Exact UI.
 
+The console has a [two-pane file manager](docs/FILE_MANAGER.md) since
+[stock4.14~exp223](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223):
+📁 in the toolbar shows this computer and the guest side by side, and files and
+folders copy both ways over the signalling path, TCP 8006 with the gateway. It
+needs `VM.GuestAgent.FileRead`, `FileWrite` for changes, and the updated guest
+package. The guest serves files only inside the logged-in, unlocked desktop session.
+
 On a tablet, slide one finger to move the cursor and tap to click. Hold
 for half a second before moving to select or drag; hold and lift without
 moving for a right click. Two fingers scroll and a pinch zooms the view.
@@ -22,7 +29,7 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.14~exp216 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261106-stock4.14-exp216)
+[Stock4.14~exp223 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223)
 are the current preview, also on the [signed APT repository](https://rdmitry0911.github.io/qsm-rd/).
 Since stock4.1, releases preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;

@@ -1,7 +1,7 @@
 QSM Direct: optional TCP 8006 gateway (experimental, single-node PVE 9)
 ===================================================================
 
-Release: 0.4.0+stock4.14~exp216. This explicit standalone profile shares TCP 8006 between
+Release: 0.4.0+stock4.14~exp223. This explicit standalone profile shares TCP 8006 between
 normal PVE HTTPS and authenticated TURN/TCP. Signalling uses /qsm-direct/ on the
 PVE browser origin. Video/audio and input/clipboard are encrypted by WebRTC.
 TURN control messages use plain TCP, WITHOUT TLS. See Encryption below.
@@ -13,12 +13,12 @@ Requirements and package installation
 ------------------------------------
 Read INSTALL-STOCK.txt / README.standalone first for platform, VM and LXC setup.
 No patched Proxmox debs are needed on stock PVE. Download matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261106-stock4.14-exp216
-Verify SHA256SUMS-stock4.14-exp216. Install as root on the PVE HOST:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223
+Verify SHA256SUMS-stock4.14-exp223. Install as root on the PVE HOST:
 
-  apt install ./qsm-pve-direct_0.4.0+stock4.14.exp216_amd64.deb \
-              ./qsm-pve-direct-standalone_0.4.0+stock4.14.exp216_all.deb \
-              ./qsm-pve-direct-gateway_0.4.0+stock4.14.exp216_all.deb
+  apt install ./qsm-pve-direct_0.4.0+stock4.14.exp223_amd64.deb \
+              ./qsm-pve-direct-standalone_0.4.0+stock4.14.exp223_all.deb \
+              ./qsm-pve-direct-gateway_0.4.0+stock4.14.exp223_all.deb
 
 If the LXC helper is already installed, include its matching deb in that
 same transaction. For new LXC setup install the separate helper as described in
@@ -174,12 +174,37 @@ Physical button holds or Raw sends down immediately. Touch hold-to-drag stays
 at 500 ms. Both scroll axes work and fractional trackpad deltas accumulate.
 Normal double clicks pass; native double-click timing can still be affected
 by delivery jitter. Generic virtual input cannot carry original click times.
-Reload PVE with cache bypass and reopen consoles. No guest update is needed.
+Reload PVE with cache bypass and reopen consoles. No guest update is needed,
+except for the file manager below.
+
+File manager (stock4.14~exp223)
+-------------------------------
+The folder button (📁) in the console's left toolbar opens two panes: this
+computer on the left, the guest on the right. Files and folders copy both ways;
+on the guest's side there is also new folder, rename and delete. Transfers use a
+WebSocket on the signalling path (TCP 8006 with the gateway), no new port, and
+take what bandwidth the console leaves. Browse and download need VM.Console and
+VM.GuestAgent.FileRead; upload and changes also need VM.GuestAgent.FileWrite.
+
+Files are served by a helper in the logged-in desktop session, with that user's
+permissions: nothing before login, and no new work while the session is locked.
+Only this feature needs a guest update. In an LXC with the native login, update
+qsm-console-guest; the helper starts at the next desktop login. In a VM, update
+qsm-desktop-agent, then run `qsm-desktop-agent-setup USER` (an upgrade does not
+turn the helper on) and `systemctl restart qsm-desktop-agent@USER`, which keeps
+the desktop session. The helper starts at the next login.
+
+Chrome and Edge open a local folder, but refuse home, Desktop, Documents and
+Downloads themselves and system folders ("contains system files"): choose a
+folder inside Downloads. Firefox has no folder access: use Add files... or Add
+folder..., or drop files; downloads go to the browser's Downloads folder and a
+folder arrives as one .tar. A lost link restarts the current file. Linux guests
+only. See docs/FILE_MANAGER.md.
 
 Fullscreen keyboard capture (stock4.4)
 -------------------------------------
 Reload PVE with cache bypass and reopen the console after updating.
-Click the text Capture keyboard button near the top of the left toolbar
+Click the Capture keyboard button (🔒) near the top of the left toolbar
 or the first action in Settings. Guest first alone is a routing policy.
 The embedded console enters actual full screen for capture; its existing
 page-maximize button still provides in-page enlargement separately.
@@ -227,7 +252,7 @@ Settings and capture controls (stock4.7)
 ---------------------------------------
 Opening/editing Settings releases guest-held input while preserving full
 screen. Close at the top right refocuses the guest and resumes capture.
-Capture keyboard is a text action near the top of the left toolbar and the
+Capture keyboard is the 🔒 button near the top of the left toolbar and the
 first Settings action, visible without scrolling. Reopening Settings resets
 its scroll position. Guest first alone selects input routing; Capture keyboard
 requests the browser's full-screen capture. The separate embedded in-page

@@ -1,0 +1,45 @@
+Hi guys, the console now has a two-pane file manager, like AnyDesk's, and this version is on the signed APT repository: 0.4.0+stock4.14~exp223.
+
+Files in the console's toolbar shows your computer on the left and the guest on the right. Files and folders copy both ways, and on the guest's side you can make a folder, rename and delete. The console keeps running underneath.
+
+No new port is needed. Transfers go over a WebSocket on the same path as the console's signal requests, so on a node with the gateway it is still only TCP 8006. A transfer takes whatever bandwidth the console leaves: keys, UI, video and sound go first.
+
+It does not get around the guest's login or lock. The files are served by a helper in the logged-in user's desktop session, with that user's permissions, and a locked session refuses new work. On the PVE side, browsing and downloading need VM.Console and VM.GuestAgent.FileRead, and uploads and changes also need VM.GuestAgent.FileWrite. A role with VM.Console alone gets no file access.
+
+Numbers from my lab:
+- 10 Gbit/s LAN through TLS and the gateway's HAProxy: about 100 MiB/s steady each way, 70-79 MiB/s for a whole 1 GiB file including the ramp
+- into and out of a real KVM VM through its virtio port: 77 and 79 MiB/s
+- 20 Mbit/s path: the transfer gets 18 Mbit/s, and the console stays where it was, apart from typing 5-10 ms slower during a download
+- 2 Mbit/s path: the transfer gets 1.1-1.8 Mbit/s, and the console gets up to about 25 ms slower while it runs
+- a clip keeps its frame rate during a download; with an upload it recovered from the narrow phase about 3 fps lower
+
+Browser notes. Chrome and Edge let you open a folder of your computer in the left pane, but Chrome refuses your home folder, Desktop, Documents and Downloads themselves and system folders, and says they "contain system files". Make a folder inside Downloads, for example QSM, and choose that. Firefox gives a web page no folder access, so there you choose files with Add files... or Add folder..., or drop them on the pane. Downloads go to the browser's Downloads folder and are listed in the pane, and a folder downloads as one .tar.
+
+Known limits: a lost connection starts the current file over, there is no resume yet. 10 Gbit/s is not filled. During an upload into a VM a clipboard paste can wait about 200 ms. Linux guests only, and the texts are in English. My automated runs did not cover a VM through a real PVE console (that was on a stand with the real agent and virtio port), a lossy path, a Mac, a phone or a tablet.
+
+Two fixes in this version matter even if you never open the file manager. A TCP connection that sent nothing could stall the TLS handshake and keep every new console out of a node without the gateway. And on a container's native login, a slow logind under memory pressure could end every desktop on the seat.
+
+To update the node, include every QSM profile you have installed:
+
+apt update
+apt install --only-upgrade qsm-archive-keyring qsm-pve-direct qsm-pve-direct-standalone
+
+Add qsm-pve-direct-lxc and qsm-pve-direct-gateway if you use them. Then reload PVE with cache bypass and reopen your consoles. Restarting the QSM services interrupts open consoles, but guests keep running.
+
+For the file manager the guest needs its package updated too. In a container with the native login, update qsm-console-guest, and the helper starts at the next desktop login. In a VM, update qsm-desktop-agent and run:
+
+sudo qsm-desktop-agent-setup USER
+sudo systemctl restart qsm-desktop-agent@USER
+
+The desktop session survives that restart, and the helper starts at the next login.
+
+Release notes, source, debs and raw test runs:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223
+
+APT repository:
+https://rdmitry0911.github.io/qsm-rd/
+
+Reports from VMs, Windows clients, Macs and slow or lossy links would help most. Please include the browser, guest type and whether you are on direct UDP or the TCP 8006 gateway.
+
+Project sponsor: Takt (https://taktcycles.com/).
+Thank you, Dmitry

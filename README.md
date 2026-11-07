@@ -5,8 +5,9 @@ LXC containers), hardware-encoded where the node has an encoder.
 
 Project sponsor: [Takt](https://taktcycles.com/).
 
-[Latest standalone preview: stock4.2](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261024-stock4.2)
-runs on official PVE 9 packages. Start with the
+[Latest standalone preview: stock4.14~exp223](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223)
+runs on official PVE 9 packages. It adds a two-pane file manager to the console,
+and keeps exact UI, lossless text above cropped video, on by default. Start with the
 [installation instructions](qsm-direct/packaging/debian/README.standalone).
 The signed [APT repository](https://rdmitry0911.github.io/qsm-rd/)
 provides standalone installation and updates with `apt`; follow the

@@ -206,7 +206,7 @@ class DesktopWireTest(unittest.TestCase):
         self.assertEqual(self.line(), 'FS a1 R')  # its READY QSF1 stays on its socket
         self.write(self.frame_line({'op': 'hello', 'id': 1}))
         head, _ = self.parse_frame(self.line())
-        self.assertEqual((head['id'], head['ok'], head['rights'], head['chunk']), (1, True, 'rw', 32768))
+        self.assertEqual((head['id'], head['ok'], head['rights'], head['chunk']), (1, True, 'rw', 60000))
         self.write(self.frame_line({'op': 'put', 'id': 2, 'path': str(files / 'up'), 'size': 5, 'overwrite': 'fail', 'last': True}, b'hello'))
         self.assertEqual(self.parse_frame(self.line())[0], {'id': 2, 'ack': 5})
         self.assertEqual(self.parse_frame(self.line())[0], {'id': 2, 'ok': True, 'size': 5})

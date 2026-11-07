@@ -1,7 +1,7 @@
 QSM Direct standalone profile for stock Proxmox VE 9
 ===================================================
 
-Release: 0.4.0+stock4.14~exp216, Debian 13 / amd64. The standalone profile uses official
+Release: 0.4.0+stock4.14~exp223, Debian 13 / amd64. The standalone profile uses official
 Proxmox packages: a guarded web UI overlay and independent PVE-authorized HTTPS
 signalling service. It shares the native preview's media worker, encoders and
 adaptive bitrate controller. No rebuilt Proxmox debs are needed on stock PVE.
@@ -10,11 +10,11 @@ pve-container 6.1.14. UI activation is guarded by version/template checksums;
 other reviewed versions are listed in pve-manager-index-template.sha256.
 
 Download the matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261106-stock4.14-exp216
-Verify SHA256SUMS-stock4.14-exp216 before installation (sha256sum -c SHA256SUMS-stock4.14-exp216
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223
+Verify SHA256SUMS-stock4.14-exp223 before installation (sha256sum -c SHA256SUMS-stock4.14-exp223
 when all listed assets have been downloaded). Do not mix QSM package versions.
-GitHub stores "~" in an asset name as ".": the file qsm-pve-direct_0.4.0+stock4.14.exp216_amd64.deb
-contains package version 0.4.0+stock4.14~exp216. Install with apt, not with one dpkg -i
+GitHub stores "~" in an asset name as ".": the file qsm-pve-direct_0.4.0+stock4.14.exp223_amd64.deb
+contains package version 0.4.0+stock4.14~exp223. Install with apt, not with one dpkg -i
 of several files: the LXC helper's Breaks on an older core makes dpkg order-sensitive.
 Do not install patched Proxmox debs from the older native preview for this setup.
 The separate qsm-console-guest asset belongs INSIDE an LXC, never on the PVE host.
@@ -38,8 +38,8 @@ B. Optional single-port gateway: PVE HTTPS, QSM signalling and authenticated
 
 Install base packages as root on the PVE node:
 
-    apt install ./qsm-pve-direct_0.4.0+stock4.14.exp216_amd64.deb \
-                ./qsm-pve-direct-standalone_0.4.0+stock4.14.exp216_all.deb
+    apt install ./qsm-pve-direct_0.4.0+stock4.14.exp223_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock4.14.exp223_all.deb
     qsm-pve-direct-endpoint --show
     qsm-pve-direct-ui status
     systemctl is-active qsm-pve-direct-terminal qsm-pve-direct-signal
@@ -98,7 +98,7 @@ LXC setup
 ---------
 Install the matching helper on the HOST:
 
-    apt install ./qsm-pve-direct-lxc_0.4.0+stock4.14.exp216_amd64.deb
+    apt install ./qsm-pve-direct-lxc_0.4.0+stock4.14.exp223_amd64.deb
     qsm-pve-direct-lxc enable VMID --session wayland
 
 Replace VMID with the chosen Debian/Ubuntu container with a Plasma desktop.
@@ -120,10 +120,10 @@ Upgrading an existing installation
 Update the core AND each installed version-matched QSM profile/helper in the
 same apt transaction. For a standalone node with gateway and LXC helper:
 
-    apt install ./qsm-pve-direct_0.4.0+stock4.14.exp216_amd64.deb \
-                ./qsm-pve-direct-standalone_0.4.0+stock4.14.exp216_all.deb \
-                ./qsm-pve-direct-gateway_0.4.0+stock4.14.exp216_all.deb \
-                ./qsm-pve-direct-lxc_0.4.0+stock4.14.exp216_amd64.deb
+    apt install ./qsm-pve-direct_0.4.0+stock4.14.exp223_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock4.14.exp223_all.deb \
+                ./qsm-pve-direct-gateway_0.4.0+stock4.14.exp223_all.deb \
+                ./qsm-pve-direct-lxc_0.4.0+stock4.14.exp223_amd64.deb
 
 Omit gateway/helper if those profiles are not installed or wanted. QSM service
 restarts can interrupt open consoles; reconnect/hard-reload after upgrading.
@@ -202,12 +202,37 @@ Physical button holds or Raw sends down immediately. Touch hold-to-drag stays
 at 500 ms. Both scroll axes work and fractional trackpad deltas accumulate.
 Normal double clicks pass; native double-click timing can still be affected
 by delivery jitter. Generic virtual input cannot carry original click times.
-Reload PVE with cache bypass and reopen consoles. No guest update is needed.
+Reload PVE with cache bypass and reopen consoles. No guest update is needed,
+except for the file manager below.
+
+File manager (stock4.14~exp223)
+-------------------------------
+The folder button (📁) in the console's left toolbar opens two panes: this
+computer on the left, the guest on the right. Files and folders copy both ways;
+on the guest's side there is also new folder, rename and delete. Transfers use a
+WebSocket on the signalling path (TCP 8006 with the gateway), no new port, and
+take what bandwidth the console leaves. Browse and download need VM.Console and
+VM.GuestAgent.FileRead; upload and changes also need VM.GuestAgent.FileWrite.
+
+Files are served by a helper in the logged-in desktop session, with that user's
+permissions: nothing before login, and no new work while the session is locked.
+Only this feature needs a guest update. In an LXC with the native login, update
+qsm-console-guest; the helper starts at the next desktop login. In a VM, update
+qsm-desktop-agent, then run `qsm-desktop-agent-setup USER` (an upgrade does not
+turn the helper on) and `systemctl restart qsm-desktop-agent@USER`, which keeps
+the desktop session. The helper starts at the next login.
+
+Chrome and Edge open a local folder, but refuse home, Desktop, Documents and
+Downloads themselves and system folders ("contains system files"): choose a
+folder inside Downloads. Firefox has no folder access: use Add files... or Add
+folder..., or drop files; downloads go to the browser's Downloads folder and a
+folder arrives as one .tar. A lost link restarts the current file. Linux guests
+only. See docs/FILE_MANAGER.md.
 
 Fullscreen keyboard capture (stock4.4)
 -------------------------------------
 Reload PVE with cache bypass and reopen the console after updating.
-Click the text Capture keyboard button near the top of the left toolbar
+Click the Capture keyboard button (🔒) near the top of the left toolbar
 or the first action in Settings. Guest first alone is a routing policy.
 The embedded console enters actual full screen for capture; its existing
 page-maximize button still provides in-page enlargement separately.
@@ -255,7 +280,7 @@ Settings and capture controls (stock4.7)
 ---------------------------------------
 Opening/editing Settings releases guest-held input while preserving full
 screen. Close at the top right refocuses the guest and resumes capture.
-Capture keyboard is a text action near the top of the left toolbar and the
+Capture keyboard is the 🔒 button near the top of the left toolbar and the
 first Settings action, visible without scrolling. Reopening Settings resets
 its scroll position. Guest first alone selects input routing; Capture keyboard
 requests the browser's full-screen capture. The separate embedded in-page
