@@ -5,10 +5,96 @@ import configparser
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 
 DIRECTORY = Path('/etc/qsm-direct')
+SYSTEM_THEMES = Path('/usr/share/sddm/themes')
+LOGIN_THEMES = Path('/run/qsm-native-sddm-themes')
+POWER_OFF = 'sddm.powerOff()'
+POWER_OFF_HANDLER = re.compile(r'onClicked:[ \t]*sddm\.powerOff\(\)')
+
+
+def object_body(text: str, position: int) -> str:
+    """What lies directly inside the QML object around position, without nested objects."""
+    start, depth = position, 0
+    while start > 0 and depth >= 0:
+        start -= 1
+        depth += {'}': 1, '{': -1}.get(text[start], 0)
+    body, depth = [], 0
+    for char in text[start + 1:]:
+        depth += {'{': 1, '}': -1}.get(char, 0)
+        if depth < 0:
+            break
+        if depth == 0 and char != '}':
+            body.append(char)
+    return ''.join(body)
+
+
+def without_power_off(text: str) -> str:
+    """A theme's QML with its power-off control hidden and nothing calling power-off.
+
+    A control is only hidden where that cannot set visible twice, which would stop the whole
+    login screen from loading. Elsewhere it stays, and does nothing.
+    """
+    parts, position = [], 0
+    for match in POWER_OFF_HANDLER.finditer(text):
+        parts.append(text[position:match.start()])
+        hidden = not re.search(r'(?m)^\s*visible\s*:', object_body(text, match.start()))
+        parts.append('visible: false' if hidden else 'onClicked: undefined')
+        position = match.end()
+    parts.append(text[position:])
+    return ''.join(parts).replace(POWER_OFF, 'undefined')
+
+
+def overlay_theme(source: Path, target: Path) -> None:
+    """Links to everything in a theme, and changed copies of what can power off."""
+    target.mkdir(mode=0o755)
+    for entry in source.iterdir():
+        made = target / entry.name
+        if entry.is_dir() and any(POWER_OFF in item.read_text(errors='replace') for item in entry.rglob('*.qml')):
+            overlay_theme(entry, made)
+        elif entry.is_file() and entry.suffix == '.qml' and POWER_OFF in entry.read_text(errors='replace'):
+            made.write_text(without_power_off(entry.read_text()))
+        else:
+            made.symlink_to(entry.resolve())
+
+
+def login_theme() -> None:
+    """Runs before each start of the native SDDM: a container's login screen has no Shut Down.
+
+    A console user reaches this screen through PVE, and Shut Down would stop the container at
+    one click. SDDM asks logind to power off, so its HaltCommand does not prevent that. The
+    distribution owns its themes, so what SDDM reads is a copy of them rebuilt from each one.
+    """
+    if LOGIN_THEMES.exists():
+        shutil.rmtree(LOGIN_THEMES)
+    LOGIN_THEMES.mkdir(mode=0o755)
+    for source in sorted(SYSTEM_THEMES.iterdir()):
+        if not source.is_dir():
+            continue
+        target = LOGIN_THEMES / source.name
+        try:
+            overlay_theme(source.resolve(), target)
+        except (OSError, UnicodeError) as error:
+            # A login screen with this button is better than none.
+            print(f'qsm-native-profile: theme {source.name} kept as it is: {error}', file=sys.stderr)
+            shutil.rmtree(target, ignore_errors=True)
+            target.symlink_to(source.resolve())
+    path = DIRECTORY / 'sddm.conf'
+    config = configparser.ConfigParser(interpolation=None)
+    config.optionxform = str
+    config.read(path)
+    if not config.has_section('Theme'):
+        config.add_section('Theme')
+    if config.get('Theme', 'ThemeDir', fallback='') != str(LOGIN_THEMES):
+        config.set('Theme', 'ThemeDir', str(LOGIN_THEMES))
+        with tempfile.NamedTemporaryFile('w', dir=DIRECTORY, prefix='.sddm.conf-', delete=False) as target:
+            config.write(target, space_around_delimiters=False)
+        os.chmod(target.name, path.stat().st_mode & 0o777 if path.exists() else 0o644)
+        os.replace(target.name, path)
 
 
 def configure() -> None:
@@ -52,7 +138,7 @@ def configure() -> None:
         'General': {'DisplayServer': 'wayland', 'GreeterEnvironment': ('QT_QUICK_BACKEND=software,'
                                            'QML2_IMPORT_PATH=/opt/qsm-native-sddm/share/qt5/qml'),
                     'HaltCommand': '/bin/false', 'RebootCommand': '/bin/false'},
-        'Theme': {'Current': theme, 'ThemeDir': '/usr/share/sddm/themes'},
+        'Theme': {'Current': theme, 'ThemeDir': str(LOGIN_THEMES)},
         'Wayland': {'SessionDir': '/usr/share/wayland-sessions',
                     'CompositorCommand': '/usr/lib/qsm-console/qsm-native-seat compositor',
                     'SessionCommand': '/usr/lib/qsm-console/qsm-native-session'},
@@ -70,11 +156,13 @@ def configure() -> None:
 
 
 def main():
-    if os.geteuid() != 0 or sys.argv[1:] not in (['configure'], ['disable']):
-        raise ValueError('usage (root): qsm-native-profile configure|disable')
+    if os.geteuid() != 0 or sys.argv[1:] not in (['configure'], ['disable'], ['login-theme']):
+        raise ValueError('usage (root): qsm-native-profile configure|disable|login-theme')
     os.umask(0o022)
     if sys.argv[1] == 'configure':
         configure()
+    elif sys.argv[1] == 'login-theme':
+        login_theme()
     else:
         subprocess.run(['systemctl', 'disable', '--now', 'qsm-native-sddm.service',
                         'qsm-native-seat-udev.service'], check=True)

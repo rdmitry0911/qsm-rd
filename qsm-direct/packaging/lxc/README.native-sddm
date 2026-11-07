@@ -98,10 +98,20 @@ Select Current=breeze in [Theme] of /etc/sddm.conf.d/kde_settings.conf, then
 rerun qsm-native-profile configure inside the container. Existing explicit
 settings in /etc/sddm.conf take precedence over drop-ins. Check the selected
 Current in /etc/qsm-direct/sddm.conf. Minimal KDE installations can contain
-only Maya, which has a different appearance; QSM does not redraw either theme.
+only Maya, which has a different appearance; QSM does not redraw either theme,
+apart from its Shut Down button below.
 Apply a changed theme when no user desktops are active by restarting
 qsm-native-sddm. A restart ends that display manager's current sessions. Other
 installed Qt 5 compatible themes can be selected through the same settings.
+
+The login screen has no Shut Down button. Someone at it reaches it through a
+PVE console, and it would stop the container at one click. SDDM asks logind to
+power off, so its HaltCommand does not prevent that. Each start of
+qsm-native-sddm rebuilds /run/qsm-native-sddm-themes from the installed themes:
+links to their files, and copies of the QML that can power off with that button
+hidden. ThemeDir points there, and the themes themselves stay untouched. An
+existing container gets this at its next restart of qsm-native-sddm. Restart
+stays on the screen, and Shut Down in a logged-in desktop is not affected.
 
 The original theme's Layout selector now selects real XKB base layouts on
 that seat. The private SDDM keyboard backend talks to a restricted root
