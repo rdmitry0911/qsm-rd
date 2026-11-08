@@ -689,6 +689,82 @@
           "sha256": "12fa36e43b7c305ca3934a0084ddff83502abce92b230ac83a8afe593785541e"
         }
       ]
+    },
+    {
+      "tag": "v0.4.0-qsm-direct-20261108-stock4.14-exp231",
+      "source_commit": "7fe7d7dcf3763957f4b2a48ce648319677443c9f",
+      "assets": [
+        {
+          "filename": "pve-ui-overlays_0.1.0_all.deb",
+          "package": "pve-ui-overlays",
+          "version": "0.1.0",
+          "architecture": "all",
+          "sha256": "d37435da60775177e86dc4ce108d824e5b92cad16396cdcec0597e58cb4f7e86"
+        },
+        {
+          "filename": "qdev-host-pve_0.4.0_all.deb",
+          "package": "qdev-host-pve",
+          "version": "0.4.0",
+          "architecture": "all",
+          "sha256": "100068d42bd6e2de53a885d1ef9e9b236e1d111b5a4d2c9ad76dd7e287f83e3b"
+        },
+        {
+          "filename": "qdev-host_0.4.0_amd64.deb",
+          "package": "qdev-host",
+          "version": "0.4.0",
+          "architecture": "amd64",
+          "sha256": "ec2ac3c2581aa2a2da5c7ce23e1d635f29de827dc353718fdb4c0a542f95a082"
+        },
+        {
+          "filename": "qsm-console-guest_0.4.0+stock4.14~exp231_all.deb",
+          "package": "qsm-console-guest",
+          "version": "0.4.0+stock4.14~exp231",
+          "architecture": "all",
+          "sha256": "f82956b92b980dcf80f2d27e5c0da61a9da3e046c54eb885ae3b9bf97a6da3fe"
+        },
+        {
+          "filename": "qsm-desktop-agent_0.4.0+stock4.14~exp231_amd64.deb",
+          "package": "qsm-desktop-agent",
+          "version": "0.4.0+stock4.14~exp231",
+          "architecture": "amd64",
+          "sha256": "d59f7465811b61112359802b1c42111b6a0487673d9908fd344afa751b1536e3"
+        },
+        {
+          "filename": "qsm-pve-direct-gateway_0.4.0+stock4.14~exp231_all.deb",
+          "package": "qsm-pve-direct-gateway",
+          "version": "0.4.0+stock4.14~exp231",
+          "architecture": "all",
+          "sha256": "7b482e065c108e65b942b5fdc9298e06e5a90cc0e660b61ad73c17fc5ba3c904"
+        },
+        {
+          "filename": "qsm-pve-direct-lxc_0.4.0+stock4.14~exp231_amd64.deb",
+          "package": "qsm-pve-direct-lxc",
+          "version": "0.4.0+stock4.14~exp231",
+          "architecture": "amd64",
+          "sha256": "0349b1d8c5c7696fd8935d8868a4837b2da3ed56f8e6fbcb580e230a930ef9ac"
+        },
+        {
+          "filename": "qsm-pve-direct-standalone_0.4.0+stock4.14~exp231_all.deb",
+          "package": "qsm-pve-direct-standalone",
+          "version": "0.4.0+stock4.14~exp231",
+          "architecture": "all",
+          "sha256": "4fdbf4e932dbdfbca0df89120f5f60e5006a1ded275207f94e8174b6d7c90949"
+        },
+        {
+          "filename": "qsm-pve-direct_0.4.0+stock4.14~exp231_amd64.deb",
+          "package": "qsm-pve-direct",
+          "version": "0.4.0+stock4.14~exp231",
+          "architecture": "amd64",
+          "sha256": "aa48913b7a06139687d55a99db9e7b12507ab02120f7fe2573fe3d93f3f72f0e"
+        },
+        {
+          "filename": "qsm-qt-input-geometry_0.4.0+stock4.14~exp231_amd64.deb",
+          "package": "qsm-qt-input-geometry",
+          "version": "0.4.0+stock4.14~exp231",
+          "architecture": "amd64",
+          "sha256": "cfef5edd8966679bd86b71304ef5d97e81f5f6d93723e13c685ed5243b161d8e"
+        }
+      ]
     }
   ]
 }

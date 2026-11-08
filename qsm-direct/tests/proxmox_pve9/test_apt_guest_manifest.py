@@ -68,8 +68,9 @@ class GuestManifestTests(unittest.TestCase):
     def test_companion_packages_keep_their_own_versions(self):
         value = self.extended()
         assets = value['releases'][-1]['assets']
-        for name, version, arch in (('pve-ui-overlays', '0.1.0', 'all'), ('qdev-host', '0.4.0', 'amd64'),
-                                    ('qdev-host-pve', '0.4.0', 'all')):
+        # test-only versions: the real ones are already in the published manifest
+        for name, version, arch in (('pve-ui-overlays', '9.9.9-test', 'all'), ('qdev-host', '9.9.9-test', 'amd64'),
+                                    ('qdev-host-pve', '9.9.9-test', 'all')):
             assets.append({'package': name, 'version': version, 'architecture': arch,
                            'filename': f'{name}_{version}_{arch}.deb', 'sha256': 'b' * 64})
         publisher.validate_manifest(value)
@@ -79,7 +80,7 @@ class GuestManifestTests(unittest.TestCase):
         with self.assertRaises(ValueError): publisher.validate_manifest(alone)
         wrong = copy.deepcopy(value)
         asset = next(a for a in wrong['releases'][-1]['assets'] if a['package'] == 'qdev-host')
-        asset.update(architecture='all', filename='qdev-host_0.4.0_all.deb')
+        asset.update(architecture='all', filename='qdev-host_9.9.9-test_all.deb')
         with self.assertRaises(ValueError): publisher.validate_manifest(wrong)
         # The same companion file cannot be published twice.
         again = copy.deepcopy(value)
