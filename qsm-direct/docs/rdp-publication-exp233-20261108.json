@@ -1,0 +1,30 @@
+{
+ "date": "2026-11-08",
+ "status": "published at the user's request",
+ "version": "0.4.0+stock4.14~exp233",
+ "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp233",
+ "apt_repository": "https://rdmitry0911.github.io/qsm-rd/",
+ "workflow_run": 42488727518,
+ "what": "The PVE UI and the terminal accept qdev-host's out-of-process VirGL GPU under the QSM VirGL display. The repository also serves qdev-host, qdev-host-pve 0.5.0 (Edit, virgl-gpu).",
+ "public_history": {
+  "commit_map_local_to_public": {
+   "40ff5a8": "fecdee6",
+   "0c74147": "265eed4"
+  },
+  "how": "the same filter as for exp231"
+ },
+ "checks_before_publication": {
+  "secrets": "1442 files of the release assets: no hits",
+  "source_against_build": "all 1410 files of the build archive identical to public commit fecdee6"
+ },
+ "checks_after_publication": {
+  "release_download": "all 22 assets identical to the uploaded files; signature verified with the public key",
+  "live_apt": "verify.py against the live URL: signed update, all 104 packages downloaded and matched, only 11 allowlisted packages, tampered metadata and a changed deb rejected",
+  "nodes": "192.168.64.20 and 10.30.0.240 upgraded through the repository (6 packages each); 172.16.16.17 already had the same files. pveproxy PIDs and the gateway haproxy.cfg unchanged on all three.",
+  "consoles": "CT 147 on 172.16.16.17 (2311 ms) and VM 104 on 192.168.64.20 (1928 ms, 1920x1080) through the gateway; the qdev-host panel on 10.30.0.240 (VM 108, virgl-gpu dialog) through TCP 8006."
+ },
+ "observed": "VM 103 on 192.168.64.20 had a tb-vga device added from the Hardware panel by root@pam at 15:25:34 and was shut down at 15:26:12 (local time), not by this work; it was left stopped.",
+ "not_done": {
+  "forum": "Not posted; texts ready (forum-draft.json)."
+ }
+}

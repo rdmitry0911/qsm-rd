@@ -1,0 +1,12 @@
+{
+  "thread": 187042,
+  "status": "prepared_not_posted",
+  "reason": "Posting needs the user's forum account.",
+  "supersedes": "upstream/forum-stock4.14-exp231-update-2026-11-08.txt (never posted)",
+  "drafts": {
+    "topic_187042_update": "upstream/forum-stock4.14-exp233-update-2026-11-08.txt",
+    "new_topic_qdev_host": "https://github.com/rdmitry0911/qdev-host/blob/main/docs/forum-qdev-host-2026-11-08.txt",
+    "new_topic_pve_ui_overlays": "https://github.com/rdmitry0911/pve-ui-overlays/blob/main/docs/forum-pve-ui-overlays-2026-11-08.txt"
+  },
+  "topic_187042_sha256": "92ae0fa67789aa31f51d955708a65ddeed906191ca4783289b8cc52263293a8a"
+}
