@@ -1,0 +1,61 @@
+{
+ "date": "2026-11-08",
+ "status": "Installed on node 172.16.16.17 at the user's request, after rehearsals on the nested PVE lab. Not published.",
+ "node": "172.16.16.17 (pve-asrock)",
+ "version": "0.4.0+stock4.14~exp227",
+ "source_commits": [
+  "a4ae739",
+  "34af143",
+  "b078864",
+  "e1fb455"
+ ],
+ "what": [
+  "The PVE Console entry is rendered by the shared pve-ui-overlays package instead of qsm-pve-direct's own dpkg-divert, so qsm-pve-direct and qdev-host-pve coexist in any install order. The upgrade takes the template diversion over from older qsm-pve-direct versions and removes the retired injector's bytecode cache and state (preinst and postinst).",
+  "The signal service accepts a PVE cluster CA without the key usage extension under Python 3.13. Clusters first installed with an older PVE have such a CA, and every ticket check failed with 502 'authority unavailable' (172.16.16.17, CA from 2022)."
+ ],
+ "build": "The same recipe as exp223: core on 172.16.16.200 in /var/tmp/qsm-dev-trixie (browser_bridge and signal unit tests pass in the chroot, Python 3.13), standalone and gateway there, portable Qt guest packages in /var/tmp/qsm-qt-bookworm-20261028 on the controller, then the LXC helper with that Qt deb. Scripts in dist/rdp-hybrid/deployment-exp227-20261108.",
+ "packages_sha256": {
+  "qsm-console-guest_0.4.0+stock4.14~exp227_all.deb": "3c9042944d71f0fbd33c5db4277279849045f3d85653385471573cfe544d92fe",
+  "qsm-desktop-agent_0.4.0+stock4.14~exp227_amd64.deb": "04e0d4b9ec600a3bb011f7bbda50db5f22b8694f28f976f5fc7b4a350acba500",
+  "qsm-pve-direct-gateway_0.4.0+stock4.14~exp227_all.deb": "c76af5e6b283065073d4ea6d7ee85b936eff4b157066aa267138dfe4c9c89fc4",
+  "qsm-pve-direct-lxc_0.4.0+stock4.14~exp227_amd64.deb": "08a163327a6ab0677d42859b82dd84f8b98e24ef3ab06ddf6ada19d6f6180d5a",
+  "qsm-pve-direct-standalone_0.4.0+stock4.14~exp227_all.deb": "bb5425986c221bc7ad4260ec274ec6ba168868c5bc7f7930f80870d51354143f",
+  "qsm-pve-direct_0.4.0+stock4.14~exp227_amd64.deb": "70a20bcf3abb9a47339bc8068ff3501870b4a47a0a5afa1403bdcee350457558",
+  "qsm-qt-input-geometry_0.4.0+stock4.14~exp227_amd64.deb": "d36933683d5914db725899fc9865a9d66ed974bc5767813d1f6ceb87bbeee7e0"
+ },
+ "installed_on_the_node": {
+  "before": "qsm-pve-direct and -lxc 0.4.0+stock4.14~exp26 with their own template diversion, and the patched pve-manager 9.2.21 with the native viewer left from the older native preview. No standalone profile.",
+  "after": "The official pve-manager 9.2.21 reinstalled from download.proxmox.com; qsm-pve-direct, -lxc and -standalone 0.4.0+stock4.14~exp227; signalling on TCP 18007; pve-ui-overlays owns the template (active; overlays: qsm-pve-direct, qdev-host).",
+  "kept": "qemu-server 9.2.11+shared3, pve-container 6.1.14+webrtc2 and libpve-guest-common-perl 6.0.5+webrtc1 from the native preview, as on 192.168.64.20: VMs 100 and 145 still use dbus-display and audio driver=dbus, which the official qemu-server does not parse. apt upgrade would replace these packages (candidates 9.2.15, 6.1.18, 6.0.7) and break those two VM configs until they are converted.",
+  "intermediate": "exp226 was first installed with the patched pve-manager kept, following the guide's section for patched shared-platform nodes. That was the wrong profile for this node: the solution uses official Proxmox packages. Corrected the same day.",
+  "unchanged": "Boot, every VM and CT process except test VM 990, dpkg audit empty. pveproxy and pvedaemon restarted once for the pve-manager reinstall; QSM services restarted with no console open.",
+  "rollback": "/root/qsm-exp226-install-20261108/ROLLBACK.txt"
+ },
+ "lab_rehearsal": {
+  "stand": "lab/proxmox9 nested PVE 9.2.21, started without VirGL",
+  "steps": [
+   "The .17 package set reproduced (exp26 + pve-ui-overlays + qdev-host-pve, alongside-legacy), exp226 upgrade: takeover, no dpkg warning, no leftovers; native console of VM 106 3/3, again after a reboot.",
+   "Correction rehearsed from the .17 state: apt install --reinstall pve-manager=9.2.21 from the Proxmox repository, then qsm-pve-direct-standalone. Standalone popup of VM 104 (private QSM Display1) and embedded + window for VMs 104 and 106 (dbus-display), again after a reboot and after the exp227 upgrade. QSM Display1 switched off and on through Hardware > Display returns the same VM config.",
+   "qdev-host Hardware panel dry run on q35 VM 105 in every state."
+  ],
+  "also_checked": "Removing and reinstalling qsm with qdev present gives byte-identical pages. A pve-manager reinstall re-renders through the trigger. A downgrade to exp26 installs but cannot re-divert the template while pve-ui-overlays holds it; the recovery in ROLLBACK.txt returns to the alongside-legacy state.",
+  "restored": "The lab was returned to its original packages (qsm-pve-direct 0.4.0+shared3 with its own diversion, stock qemu-server/pve-container/libpve-guest-common, the patched pve-manager) and stopped."
+ },
+ "checks_on_the_node_after_install": [
+  "CT 147 QSM Direct popup through standalone signalling: video in 1.8 and 2.7 s.",
+  "VM 990 with QSM Display1 (CPU) enabled through Hardware > Display: embedded + window 2/2, popup 2/2 (1.8 s). Switched off again; the config equals the one before.",
+  "VM 990 with dbus-display, the path VMs 100 and 145 use: embedded + window passes under the official UI.",
+  "qdev-host full Hardware-panel cycle on VM 990 with QSM Display1: add tb-vga, attached (01:00.0), remove."
+ ],
+ "findings": [
+  "lab/proxmox9/qualify-pve-direct-browser-e2e.cjs counts the retired /api2/extjs/.../qsm-direct route and fails on every current build after the video check. The copy in tests/ counts the signal-service POST instead.",
+  "A container's QSM Direct item is enabled only after an asynchronous settings check; a click before that does nothing. Automation must wait for it.",
+  "CT consoles: two slots per container, each kept for 300 s after closing. On the native-viewer UI a refused console shows the generic 'Could not create a direct browser console.'",
+  "Removing the core disables qsm-pve-direct-signal (prerm); reinstalling the core alone does not enable it again (the standalone package does)."
+ ],
+ "not_checked": [
+  "A GL (virtio-gl) VM: the lab ran without VirGL, and VMs 100 and 145 on .17 were left stopped and unchanged.",
+  "Guest packages in CT 147 were not updated.",
+  "Version numbers exp224-exp227 are local to this work; they may collide with numbers chosen later in the main qsm sequence."
+ ]
+}
