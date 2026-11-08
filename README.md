@@ -5,9 +5,13 @@ LXC containers), hardware-encoded where the node has an encoder.
 
 Project sponsor: [Takt](https://taktcycles.com/).
 
-[Latest standalone preview: stock4.14~exp223](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223)
-runs on official PVE 9 packages. It adds a two-pane file manager to the console,
-and keeps exact UI, lossless text above cropped video, on by default. Start with the
+[Latest standalone preview: stock4.14~exp231](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp231)
+runs on official PVE 9 packages. Its PVE page entry goes through the shared
+[pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays) package, so other
+PVE web UI add-ons coexist with it, and the optional TCP 8006 gateway also carries
+other node services, such as the Hardware panel of
+[qdev-host](https://github.com/rdmitry0911/qdev-host). The two-pane file manager and
+exact UI stay as in exp223. Start with the
 [installation instructions](qsm-direct/packaging/debian/README.standalone).
 The signed [APT repository](https://rdmitry0911.github.io/qsm-rd/)
 provides standalone installation and updates with `apt`; follow the
@@ -17,13 +21,6 @@ also supports a node behind NAT with only one forwarded TCP port. Video,
 audio and input remain encrypted by WebRTC; the gateway's TURN control
 traffic uses plain TCP, without TLS. The patched native integration remains
 a separate upstream preview.
-
-`main` also carries unreleased changes since exp223 (exp224–exp229): the PVE
-page entry now goes through the shared
-[pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays) package, plus
-fixes for older cluster CAs under Python 3.13, the QSM Display1 dialog and the
-terminal service's VM policies. See
-[QSM Direct's README](qsm-direct/README.md#installation-profiles).
 
 The project lives in [`qsm-direct/`](qsm-direct/) -- see its
 [README](qsm-direct/README.md).  Upstream submission material for Proxmox

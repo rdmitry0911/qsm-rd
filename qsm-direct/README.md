@@ -29,25 +29,25 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.14~exp223 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223)
+[Stock4.14~exp231 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp231)
 are the current preview, also on the [signed APT repository](https://rdmitry0911.github.io/qsm-rd/).
 
-**On `main`, not yet released (exp224–exp229, 2026-11-08).** The PVE page
-entry is rendered by the shared
-[pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays) package, a
-new dependency, instead of qsm-pve-direct's own `index.html.tpl` diversion, so
-other PVE UI add-ons such as [qdev-host-pve](https://github.com/rdmitry0911/qdev-host)
-coexist in any install order; an upgrade takes the diversion over from older
-versions and removes the retired injector's leftovers. The signal service
-accepts a PVE cluster CA without the key usage extension under Python 3.13
-(clusters first installed with an older PVE got 502 "authority unavailable").
-Enabling QSM Display1 on a VM that already carries the guest channel and input
-arguments no longer adds a second set. A VM policy with codec settings only
-uses the VM's private bus, and one invalid policy no longer stops the terminal
-service for every guest. The next release needs pve-ui-overlays in the APT
-repository; until then install it from its
-[release](https://github.com/rdmitry0911/pve-ui-overlays/releases/tag/v0.1.0).
-Installed on two nodes: [deployment record](docs/rdp-deployment-exp229-20261108.json).
+**Stock4.14~exp231 (2026-11-08).** The PVE page entry is rendered by the shared
+[pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays) package, a new
+dependency in the same APT repository, instead of qsm-pve-direct's own
+`index.html.tpl` diversion, so other PVE UI add-ons such as
+[qdev-host-pve](https://github.com/rdmitry0911/qdev-host) coexist in any install
+order; the upgrade takes the diversion over from older versions. The TCP 8006
+gateway publishes other node services under a path of that port (routes in
+`/usr/share/qsm-pve-direct-gateway/routes.d/`, applied without a pveproxy restart),
+which qdev-host's Hardware panel uses on a node with only 8006 forwarded. The
+signal service accepts a PVE cluster CA without the key usage extension under
+Python 3.13 (clusters first installed with an older PVE got 502 "authority
+unavailable"). Enabling QSM Display1 on a VM that already carries the guest
+channel and input arguments no longer adds a second set. A VM policy with codec
+settings only uses the VM's private bus, and one invalid policy no longer stops
+the terminal service for every guest. Guest packages are unchanged since exp223.
+Installed on three nodes: [deployment record](docs/rdp-deployment-exp231-20261108.json).
 Since stock4.1, releases preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss

@@ -286,7 +286,7 @@
   "pending": [
    "See remaining and open_findings in docs/rdp-pixel-history-20261105.json"
   ],
-  "production_node_20": "0.4.0+stock4.14~exp223 since 2026-11-07, the published version, with rollback material for exp216 on the node. See docs/rdp-deployment-exp219-20261107.json, node_update_exp223.",
+  "production_node_20": "0.4.0+stock4.14~exp231 since 2026-11-08, the published version, with pve-ui-overlays 0.1.0 and qdev-host 0.4.0; gateway enabled; rollback material for exp223 on the node. See docs/rdp-deployment-exp231-20261108.json.",
   "video_scheduling_changed": true,
   "rollout_gate": "Keep the working production baseline until automatic bandwidth transitions and mixed-content acceptance confirm bounded text/video latency, exact static pixels and video quality; weak pilot booleans and unit checks alone are insufficient",
   "evidence_directories": [
@@ -576,12 +576,12 @@
   "decoded_presentation": "docs/rdp-decoded-presentation-20261029.json",
   "decoded_queue": "docs/rdp-decoded-queue-20261029.json",
   "handoff": "docs/rdp-handoff-20261029.json",
-  "work_state": "Exp223 published on 2026-11-07: GitHub release and signed APT, with the two-pane file manager. Installed on 192.168.64.20; guests CT 105, CT 108 and VM 103 run exp219, the same guest-side source. Forum post waits for the user.",
+  "work_state": "Exp231 published on 2026-11-08: GitHub release and signed APT, with pve-ui-overlays 0.1.0 and qdev-host 0.4.0 in the repository; the PVE page entry through pve-ui-overlays and gateway routes. Installed on 192.168.64.20, 172.16.16.17 and 10.30.0.240. Forum texts wait for the user.",
   "virgl_hardware_decode": "docs/rdp-virgl-hardware-decode-20261105.json",
   "narrow_path": "docs/rdp-narrow-path-20261105.json",
   "hevc_receiver": "docs/rdp-hevc-receiver-20261105.json",
   "remaining_after_20261105": [
-   "Post the prepared exp223 text in forum topic 187042, which needs the user's forum account",
+   "Post the prepared exp231 text in forum topic 187042, and the new topics for qdev-host and pve-ui-overlays, which need the user's forum account",
    "Recreate the LXC 108 fixture before the next ui-bench or clip run",
    "File manager: resume of an interrupted file, 10 Gbit/s (a worker in the browser), a lossy path, a VM through a real PVE console in an automated run, Russian texts",
    "Other nodes, on the user's word",
@@ -592,7 +592,6 @@
    "Idle bytes: Opus DTX and capture stamps",
    "HEVC sender cadence and rate, if HEVC is wanted",
    "TCP-repair recut",
-   "Publish pve-ui-overlays in the signed APT repository before the next qsm release: qsm-pve-direct depends on it since exp224",
    "qsm-pve-direct-lxc enable on Debian 13: plasma-workspace-wayland has no candidate there",
    "qsm-console-guest postinst on Plasma 6: kwriteconfig6 next to kwriteconfig5",
    "qsm-pve-direct-gateway enable: test-bind with SO_REUSEADDR so it works right after console traffic",
@@ -604,8 +603,8 @@
   "av_sync": "docs/rdp-av-sync-20261105.json",
   "full_screen_narrow": "docs/rdp-full-screen-narrow-20261105.json",
   "exact_ui_default_decision": "User decision 2026-11-05: exact UI and video regions are on by default; the user's checkbox and node settings can turn them off.",
-  "deployment": "docs/rdp-deployment-exp219-20261107.json",
-  "publication": "docs/rdp-publication-exp223-20261107.json",
+  "deployment": "docs/rdp-deployment-exp231-20261108.json",
+  "publication": "docs/rdp-publication-exp231-20261108.json",
   "file_manager": {
    "state": "Published as exp223 on 2026-11-07. See docs/rdp-publication-exp223-20261107.json.",
    "records": [
@@ -614,7 +613,7 @@
    ],
    "before_the_next_measurement": "Recreate the LXC 108 fixture, lost when the container stopped, and take a new verify-lxc baseline."
   },
-  "nodes_17_and_240": "0.4.0+stock4.14~exp229 since 2026-11-08 on 172.16.16.17 (official pve-manager, standalone, signalling TCP 18007) and 10.30.0.240 (standalone + gateway); not published. See docs/rdp-deployment-exp229-20261108.json.",
+  "nodes_17_and_240": "0.4.0+stock4.14~exp231 since 2026-11-08 on 172.16.16.17 (gateway enabled with this update) and 10.30.0.240 (gateway), with qdev-host 0.4.0. See docs/rdp-deployment-exp231-20261108.json.",
   "deployment_exp229": "docs/rdp-deployment-exp229-20261108.json"
  },
  "deployment_nodes": [

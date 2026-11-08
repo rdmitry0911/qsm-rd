@@ -1,0 +1,82 @@
+{
+ "date": "2026-11-08",
+ "status": "Installed on 172.16.16.17, 192.168.64.20 and 10.30.0.240 at the user's request and published as the signed APT preview with pve-ui-overlays 0.1.0 and qdev-host 0.4.0. See docs/rdp-publication-exp231-20261108.json.",
+ "version": "0.4.0+stock4.14~exp231",
+ "builds": {
+  "exp224-exp229": "local test builds, see docs/rdp-deployment-exp229-20261108.json",
+  "exp230": "first build with gateway routes; installed on the three nodes and replaced the same day, never published (see incident)",
+  "exp231": "the published build"
+ },
+ "what_since_exp229": [
+  "Gateway routes: a package ships /usr/share/qsm-pve-direct-gateway/routes.d/ID.json (administrator: /etc/qsm-pve-direct/gateway-routes.d/), and https://NODE:8006/PREFIX/ reaches that node service on 127.0.0.1, verified against the cluster CA. Reserved prefixes and the gateway's own ports are refused; a bad file is skipped. A dpkg trigger and the refresh action apply a change with an HAProxy reload, never a pveproxy restart; prepare applies it at every gateway start.",
+  "exp231: a route change edits only the route lines of the installed haproxy.cfg; everything else stays byte for byte. enable still renders a fresh file.",
+  "APT: a QSM release may carry pve-ui-overlays, qdev-host and qdev-host-pve with their own versions."
+ ],
+ "companions": {
+  "pve-ui-overlays 0.1.0": "unchanged, the v0.1.0 release deb",
+  "qdev-host 0.4.0": "panel through the gateway route with fallback to its port; checks before the first VM change and root-port rollback; refuses VMs whose config the node's qemu-server cannot read. Release https://github.com/rdmitry0911/qdev-host/releases/tag/v0.4.0"
+ },
+ "build": "Same recipe as exp229 (core, standalone and gateway in /var/tmp/qsm-dev-trixie on 172.16.16.200, portable Qt guest packages in /var/tmp/qsm-qt-bookworm-20261028, then the LXC helper). Unit tests in the chroot: browser bridge 283 OK, signal and gateway 48 OK with one root-only skip. Scripts in dist/rdp-hybrid/deployment-exp231-20261108/build.",
+ "packages_sha256": {
+  "qsm-console-guest_0.4.0+stock4.14~exp231_all.deb": "f82956b92b980dcf80f2d27e5c0da61a9da3e046c54eb885ae3b9bf97a6da3fe",
+  "qsm-desktop-agent_0.4.0+stock4.14~exp231_amd64.deb": "d59f7465811b61112359802b1c42111b6a0487673d9908fd344afa751b1536e3",
+  "qsm-pve-direct-gateway_0.4.0+stock4.14~exp231_all.deb": "7b482e065c108e65b942b5fdc9298e06e5a90cc0e660b61ad73c17fc5ba3c904",
+  "qsm-pve-direct-lxc_0.4.0+stock4.14~exp231_amd64.deb": "0349b1d8c5c7696fd8935d8868a4837b2da3ed56f8e6fbcb580e230a930ef9ac",
+  "qsm-pve-direct-standalone_0.4.0+stock4.14~exp231_all.deb": "4fdbf4e932dbdfbca0df89120f5f60e5006a1ded275207f94e8174b6d7c90949",
+  "qsm-pve-direct_0.4.0+stock4.14~exp231_amd64.deb": "aa48913b7a06139687d55a99db9e7b12507ab02120f7fe2573fe3d93f3f72f0e",
+  "qsm-qt-input-geometry_0.4.0+stock4.14~exp231_amd64.deb": "cfef5edd8966679bd86b71304ef5d97e81f5f6d93723e13c685ed5243b161d8e",
+  "qdev-host_0.4.0_amd64.deb": "ec2ac3c2581aa2a2da5c7ce23e1d635f29de827dc353718fdb4c0a542f95a082",
+  "qdev-host-pve_0.4.0_all.deb": "100068d42bd6e2de53a885d1ef9e9b236e1d111b5a4d2c9ad76dd7e287f83e3b",
+  "pve-ui-overlays_0.1.0_all.deb": "d37435da60775177e86dc4ce108d824e5b92cad16396cdcec0597e58cb4f7e86"
+ },
+ "lab_rehearsal": [
+  "Nested PVE, official pve-manager 9.2.21, haproxy/coturn/nftables, qsm exp223 standalone + gateway + lxc, gateway enabled: the profile of 192.168.64.20.",
+  "One transaction to exp230 + pve-ui-overlays + qdev-host 0.4.0: pve-ui-overlays took the template over from exp223 (overlays qsm-pve-direct, qdev-host); the trigger added the qdev-host route; pveproxy and HAProxy master PIDs unchanged; https://NODE:8006/qdev-host/ answered with Server: qdev-host-api.",
+  "Through the gateway: VM 104 popup 2/2 (first video 2354 and 884 ms), embedded + window; qdev-host panel requests only to /qdev-host/ (2 same-origin, 0 to port 8017); add and remove on VM 104.",
+  "qdev-host refused VM 105 (dbus-display unreadable by stock qemu-server) and VM 104 without snippets storage with 422 before any change. The first build had added the root port to VM 105's args and failed with an internal error, and qm set dropped VM 105's dbus-display line; both found here, VM 105 restored, code fixed.",
+  "Gateway disable and enable: enable put the route into the fresh config.",
+  "The lab was returned to its original state (qsm 0.4.0+shared3, patched pve-manager, no gateway, no qdev-host) and stopped."
+ ],
+ "nodes": {
+  "172.16.16.17": {
+   "before": "qsm-pve-direct, -standalone, -lxc exp229, signalling on TCP 18007, no gateway; pve-ui-overlays 0.1.0; qdev-host 0.3.0.",
+   "after": "exp231 for those three plus qsm-pve-direct-gateway exp231, ENABLED with relay IP 172.16.16.17 (pveproxy on 127.0.0.1:8006, signalling 127.0.0.1:18007); haproxy and coturn installed with their own services disabled (libevent got the Debian point update with them); qdev-host 0.4.0 behind /qdev-host/.",
+   "checks": [
+    "CT 147 popup through the gateway: first video 3913 and 2216 ms (exp230), 3913 ms (exp231).",
+    "qdev-host on VM 990 through TCP 8006: added, attached (01:00.0), removed; 1 same-origin request, 0 to port 8017; VM config identical to before; VM stopped again.",
+    "qm config here prints storage.cfg warnings of the TrueNAS plugin; the first unreadable-settings check took them for VM settings and would have refused every VM. Fixed before qdev-host 0.4.0 was published."
+   ],
+   "rollback": "/root/qsm-exp230-install-20261108/ROLLBACK.txt"
+  },
+  "192.168.64.20": {
+   "before": "qsm-pve-direct, -standalone, -gateway (enabled), -lxc exp223, the published version, with qsm-pve-direct's own template diversion.",
+   "after": "exp231 with pve-ui-overlays 0.1.0 and qdev-host 0.4.0; pve-ui-overlays owns the template; the gateway stays enabled with the qdev-host route; pveproxy and HAProxy master PIDs unchanged; haproxy.cfg differs from before only by the route lines. Guests unchanged.",
+   "checks": [
+    "VM 103 popup through the gateway: first video 1709 ms (exp230), 1775 ms (exp231).",
+    "qdev-host panel (dry) on VM 103 through TCP 8006: 2 same-origin requests, 0 to port 8017."
+   ],
+   "rollback": "/root/qsm-exp230-install-20261108/ROLLBACK.txt"
+  },
+  "10.30.0.240": {
+   "before": "qsm-pve-direct, -standalone, -gateway (enabled), -lxc exp229, pve-ui-overlays 0.1.0; the gateway's haproxy.cfg carried bind lines for eight more node addresses, added by hand after enable.",
+   "after": "exp231 and qdev-host 0.4.0; the route lines added to the hand-edited haproxy.cfg, everything else as before. CT 119 guest packages kept at exp229 (same guest source); its QSM console was in use, and the user agreed to the brief interruption of the service restart.",
+   "incident": "exp230's refresh rendered haproxy.cfg from its template and dropped the eight hand-added bind lines; from 13:55:04 to 13:55:48 CET PVE took no new connections on those addresses. Restored by hand (previous file plus route lines), then fixed in exp231, whose upgrade, prepare and refresh left the file byte for byte unchanged. The fix was checked against this node's file in both directions.",
+   "checks": [
+    "qdev-host panel (dry) on VM 108 through TCP 8006: 2 same-origin requests, 0 to port 8017.",
+    "HAProxy listens on all ten addresses again; PVE answered with HTTP 200 on the node address and both public ones checked."
+   ],
+   "rollback": "/root/qsm-exp230-install-20261108/ROLLBACK.txt"
+  }
+ },
+ "findings": [
+  "The gateway's haproxy.cfg is a file administrators edit after enable; tools must not re-render it. Fixed in exp231.",
+  "qm set writes back only the settings the installed qemu-server parsed; a tool that edits a VM must refuse configs with unparsable keys. qdev-host 0.4.0 does.",
+  "qm config also prints warnings of storage plugins; only lines 'vm VMID - unable to parse value of' describe the VM.",
+  "A node without /etc/pve/storage.cfg uses PVE's default storage, which has no snippets content."
+ ],
+ "not_checked": [
+  "No QSM console of 10.30.0.240 opened after the update: its only QSM container was in use.",
+  "Long sessions; only popup and embedded runs.",
+  "A gateway node behind real NAT from outside; all browser checks ran from inside the networks."
+ ]
+}

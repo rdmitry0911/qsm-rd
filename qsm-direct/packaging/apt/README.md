@@ -5,18 +5,18 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
-Current preview: **0.4.0+stock4.14~exp223** adds a two-pane file manager to the
-console: files and folders copy between this computer and the guest over the
-signalling path, TCP 8006 with the gateway, without a new port. It needs
-VM.GuestAgent.FileRead, and FileWrite for changes, besides VM.Console, and a
-guest package update for that feature only: qsm-console-guest in an LXC,
-qsm-desktop-agent in a VM. The exact UI layer stays on by default since exp216;
-turn it off per browser in Console settings > Exact UI, or per node with
-QSM_DIRECT_EXACT_UI_DEFAULT=0 in a terminal service drop-in. Update all installed
-QSM profiles together, reload PVE with cache bypass and reopen/reload consoles.
-VM/LXC reboot or desktop reprovisioning is not needed. Limits and measurements are
-in the release notes:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223
+Current preview: **0.4.0+stock4.14~exp231**. The PVE page entry now goes through
+pve-ui-overlays, a new dependency served here too, so other PVE web UI add-ons
+coexist with QSM in any install order. The optional TCP 8006 gateway also
+publishes other node services under a path of that port: qdev-host-pve 0.4.0, the
+PVE device host from the same author, uses it for its Hardware-panel service.
+Clusters first installed with an older PVE no longer get 502 from signalling
+under Python 3.13. Guest packages need no update: their source is that of
+exp223. **Before upgrading from an earlier setup of this repository, add
+pve-ui-overlays to the Package line of /etc/apt/preferences.d/qsm-direct.pref**
+(below); otherwise APT keeps the QSM packages back. Update all installed QSM
+profiles together, reload PVE with cache bypass and reopen consoles. Release notes:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp231
 
 Project sponsor: Takt — https://taktcycles.com/
 
@@ -53,7 +53,7 @@ key and limit this hostname to the listed QSM packages:
     EOF
 
     cat > /etc/apt/preferences.d/qsm-direct.pref <<'EOF'
-    Package: qsm-archive-keyring qsm-pve-direct qsm-pve-direct-standalone qsm-pve-direct-gateway qsm-pve-direct-lxc qsm-console-guest qsm-desktop-agent qsm-qt-input-geometry
+    Package: qsm-archive-keyring qsm-pve-direct qsm-pve-direct-standalone qsm-pve-direct-gateway qsm-pve-direct-lxc qsm-console-guest qsm-desktop-agent qsm-qt-input-geometry pve-ui-overlays qdev-host qdev-host-pve
     Pin: origin "rdmitry0911.github.io"
     Pin-Priority: 100
 
@@ -104,25 +104,42 @@ Existing native/shared-preview nodes need the staged migration in the standalone
 guide before adding standalone/gateway. APT does not replace patched PVE packages
 or convert dbus-display VM configurations automatically.
 
+## Optional: qdev-host
+
+qdev-host hot-plugs emulated PCIe devices (vfio-user) into running q35 VMs of a
+stock PVE 9 node, with entries in the VM's Hardware panel. It is a separate
+project, https://github.com/rdmitry0911/qdev-host, served here because it shares
+pve-ui-overlays and the gateway with QSM:
+
+    apt install qdev-host qdev-host-pve
+
+On a node behind the QSM gateway the panel reaches its service through TCP 8006.
+
 ## Updates and removal
 
     apt update
     apt install --only-upgrade qsm-archive-keyring qsm-pve-direct qsm-pve-direct-standalone
 
 Add qsm-pve-direct-lxc and qsm-pve-direct-gateway to that transaction when they
-are installed. A plain apt upgrade also picks up a new QSM version, and restarting
+are installed. From exp223 or older the core pulls in pve-ui-overlays, which takes
+the PVE page template over from the old QSM package. A plain apt upgrade also picks up a new QSM version, and restarting
 QSM services interrupts open consoles. Profiles depend on the exact core version. Enabled gateway
 configuration is retained; installing an inactive profile does not enable it.
 
-To return to stock4.14~exp216, downgrade every installed QSM host package in
+To return to stock4.14~exp223, downgrade every installed QSM host package in
 one transaction, naming the version of each. APT removes an installed profile
-that the command leaves out, so read its plan before confirming. With all
-profiles:
+that the command leaves out, so read its plan before confirming. exp223 diverts
+the PVE template itself, which it cannot while pve-ui-overlays holds it, so hand
+the template back afterwards. With all profiles:
 
-    apt install --allow-downgrades qsm-pve-direct=0.4.0+stock4.14~exp216 \
-      qsm-pve-direct-standalone=0.4.0+stock4.14~exp216 \
-      qsm-pve-direct-gateway=0.4.0+stock4.14~exp216 \
-      qsm-pve-direct-lxc=0.4.0+stock4.14~exp216
+    apt install --allow-downgrades qsm-pve-direct=0.4.0+stock4.14~exp223 \
+      qsm-pve-direct-standalone=0.4.0+stock4.14~exp223 \
+      qsm-pve-direct-gateway=0.4.0+stock4.14~exp223 \
+      qsm-pve-direct-lxc=0.4.0+stock4.14~exp223
+    systemctl stop pve-ui-overlays-reconcile.path
+    pve-ui-overlays remove
+    qsm-pve-direct-ui install
+    systemctl start pve-ui-overlays-reconcile.path   # keeps other overlays, e.g. qdev-host
 
 To stop receiving updates, remove /etc/apt/sources.list.d/qsm-direct.sources
 and /etc/apt/preferences.d/qsm-direct.pref, then run apt update. Installed
@@ -132,7 +149,8 @@ removing the console itself; guest display configurations need planned cleanup.
 ## Archive maintenance
 
 The approved release and SHA256 values are committed in releases.json. Only the
-allowlisted QSM host/guest packages and qsm-archive-keyring enter the archive; every
+allowlisted QSM host/guest packages, their companions pve-ui-overlays, qdev-host and
+qdev-host-pve, and qsm-archive-keyring enter the archive; every
 download is checked before its package metadata is read. Keep older releases in
 the manifest so clients can still download previously indexed package versions.
 Source, corresponding release archives and validation evidence are public at:

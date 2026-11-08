@@ -1,0 +1,34 @@
+Hi guys, a new version is on the signed APT repository: 0.4.0+stock4.14~exp231. It changes how QSM gets into the PVE web page, and it lets the TCP 8006 gateway carry other services of the node. Nothing changes in the console itself, and the guest packages need no update.
+
+Why the first one matters. Proxmox VE has no plug-in API for its web UI, so QSM, like any add-on that wants a button in the page, diverted /usr/share/pve-manager/index.html.tpl. A file can have only one dpkg diversion, so a second add-on doing the same either failed or won, depending on which was installed first. QSM now depends on a small shared package, pve-ui-overlays, that owns the one diversion and renders every add-on that registers a description of its script. The rules are the same as before: the page is changed only for reviewed pve-manager versions and template checksums, and the stock page comes back otherwise. The upgrade takes the diversion over from an older QSM by itself.
+
+The gateway. If your node is behind a router that forwards only TCP 8006, QSM already put the PVE page, its signalling and TURN on that one port. Now a package can also publish its own node service there under a path, for example https://node:8006/qdev-host/. Installing or removing such a package reloads HAProxy only: pveproxy is not restarted and open consoles stay. Lines you added to the gateway's haproxy.cfg by hand, such as more bind addresses, are kept. "qsm-pve-direct-gateway routes" shows what is published.
+
+Fixes in this version:
+- On a cluster that was first installed with an older PVE, signalling answered every console with 502 "authority unavailable" under Python 3.13, because the old cluster CA has no key usage extension. Fixed.
+- Turning on QSM Display1 for a VM that you moved from the old native dbus-display added QSM's guest channel a second time, and QEMU refused to start the VM. Fixed.
+- A VM policy file with only codec settings stopped the terminal service, and with it the consoles of all guests. Fixed.
+
+Important if you already use the APT repository: before you upgrade, add pve-ui-overlays to the Package: line of /etc/apt/preferences.d/qsm-direct.pref. That file gives every other package from the repository priority -1, so without this APT keeps the QSM packages back. Then:
+
+apt update
+apt install --only-upgrade qsm-archive-keyring qsm-pve-direct qsm-pve-direct-standalone
+
+Add qsm-pve-direct-lxc and qsm-pve-direct-gateway if you use them. Reload PVE with cache bypass and reopen your consoles; "pve-ui-overlays status" should say active. If you install from the release files, include pve-ui-overlays_0.1.0_all.deb in the same apt install.
+
+I checked it on three nodes: one with the gateway that came from exp223, one where I turned the gateway on with this update, one with a hand-edited gateway config, plus a nested PVE lab. One of my own builds before this one rewrote that hand-edited config and dropped its extra bind lines for 44 seconds; that build was never published, and this one only touches the route lines.
+
+The repository also serves qdev-host now, a separate project of mine that hot-plugs emulated PCIe devices into running VMs of a stock PVE node and shows them in the VM's Hardware panel. It is the first package that uses both pve-ui-overlays and the gateway route. I will describe it in its own thread.
+
+Known limits are unchanged otherwise. On a Debian 13 container, "qsm-pve-direct-lxc enable" still stops because it asks for plasma-workspace-wayland, which Debian 13 does not have.
+
+Release notes, source, debs and test material:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp231
+
+APT repository:
+https://rdmitry0911.github.io/qsm-rd/
+
+Reports would help most from nodes with another PVE web UI add-on installed, and from gateway setups behind NAT.
+
+Project sponsor: Takt (https://taktcycles.com/).
+Thank you, Dmitry

@@ -4,15 +4,17 @@ Proxmox takes no pull requests: patches go to `pve-devel@lists.proxmox.com`
 with `git send-email`, and every contributor signs a CLA first
 ([developer documentation](https://pve.proxmox.com/wiki/Developer_Documentation)).
 
-## Status on 2026-11-08
+## Current status (2026-11-08)
 
-`main` carries exp224–exp229, not released: the PVE page entry is rendered by the
-shared [pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays) package
-(a new dependency, so the next APT publication must carry it too), and fixes for
-older cluster CAs under Python 3.13, the QSM Display1 dialog and the terminal
-service's VM policies. Exp229 runs on two more nodes, see the
-[deployment record](../docs/rdp-deployment-exp229-20261108.json). The pve-devel
-thread, Bugzilla, the Debian reports and the forum have not been updated for it.
+[Stock4.14~exp231](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp231)
+is the current signed APT preview. The PVE page entry goes through the shared
+[pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays) package, which the
+repository now serves together with [qdev-host](https://github.com/rdmitry0911/qdev-host),
+and the TCP 8006 gateway carries other node services under a path. Its
+[release notes](release-stock4.14-exp231-2026-11-08.md) give the checks and limits.
+The [forum text](forum-stock4.14-exp231-update-2026-11-08.txt) is for topic 187042;
+the texts for new topics about qdev-host and pve-ui-overlays are in those projects.
+The pve-devel thread, Bugzilla and the Debian reports have not been updated for it.
 
 ## Status on 2026-11-07
 
