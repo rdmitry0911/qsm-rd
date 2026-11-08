@@ -24,14 +24,14 @@ if str(IMPORT_ROOT) not in sys.path:
 if PACKAGE_LIBRARY:
     from direct_terminal.qsm_direct_encoder_probe import DirectEncoderSelection
     from direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
-                                                     DirectVmTransport, _managed_display_enabled,
+                                                     DirectVmTransport, _managed_display_enabled, _managed_display_profile,
                                                      _managed_guest_channel_enabled,
                                                      _qemu_process_generation, _load_optional_instance,
                                                      DirectTerminalError)
 else:
     from extensions.direct_terminal.qsm_direct_encoder_probe import DirectEncoderSelection
     from extensions.direct_terminal.qsm_direct_terminal import (DirectSession, DirectSessionManager,
-                                                                 DirectVmTransport, _managed_display_enabled,
+                                                                 DirectVmTransport, _managed_display_enabled, _managed_display_profile,
                                                                  _managed_guest_channel_enabled,
                                                                  _qemu_process_generation, _load_optional_instance,
                                                                  DirectTerminalError)
@@ -75,6 +75,23 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
         self.assertFalse(_managed_display_enabled(
             f"vga: std\nargs: {bus},gl=off,audiodev=foreign\n", 321, runtime),
             "another audiodev is an administrator's display configuration")
+
+    def test_a_qdev_host_gpu_under_the_virgl_display_is_recognised(self) -> None:
+        runtime = Path("/run/qsm-pve-direct")
+        bus = ("-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,"
+               "rendernode=/dev/dri/renderD128")
+        gpu = ("-chardev socket,id=qdev-gpu0,path=/run/qdev-host/321-gpu0/gpu.sock "
+               "-device vhost-user-vga,id=gpu0,chardev=qdev-gpu0,bus=qdev-rp0,max_outputs=1,xres=1280,yres=800")
+        self.assertEqual(_managed_display_profile(f"vga: none\nargs: {bus} {gpu}\n", 321, runtime), "virgl")
+        secondary = gpu.replace("vhost-user-vga", "vhost-user-gpu-pci")
+        self.assertEqual(_managed_display_profile(
+            f"vga: none\nargs: -device virtio-vga-gl,id=qsm-direct-gpu {bus} {secondary}\n", 321, runtime), "virgl",
+            "QSM's own GPU stays the first display next to an additional qdev-host GPU (vga=0)")
+        self.assertIsNone(_managed_display_profile(
+            f"vga: none\nargs: {bus} {gpu} {gpu.replace('gpu0', 'gpu1')}\n", 321, runtime))
+        self.assertEqual(_managed_display_profile(
+            f"vga: std\nargs: {bus.replace('gl=on,rendernode=/dev/dri/renderD128', 'gl=off')} {secondary}\n", 321, runtime),
+            "cpu", "PVE's Standard VGA stays the first display next to an additional qdev-host GPU")
 
     def test_a_pending_change_does_not_hide_the_running_display(self) -> None:
         runtime = Path("/run/qsm-pve-direct")

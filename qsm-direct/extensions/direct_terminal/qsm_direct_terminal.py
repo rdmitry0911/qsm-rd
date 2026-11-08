@@ -350,6 +350,12 @@ def _managed_display_profile(config: str, vmid: int, vm_runtime_directory: Path)
             gpu_arguments[0] == "-device virtio-vga-gl,id=qsm-direct-gpu" and
             virgl_display.search(args) is not None):
         return "virgl"
+    # qdev-host's virgl-gpu plugin replaces QSM's GPU with QEMU's out-of-process
+    # vhost-user-gpu; the VirGL display shows it the same way.
+    external = re.findall(r"(?:^|\s)-device\s+vhost-user-(?:vga|gpu-pci),id=[A-Za-z][A-Za-z0-9_-]{0,31},"
+                          r"chardev=qdev-[^\s]+(?=\s|$)", args)
+    if count == 1 and not gpu_arguments and len(external) == 1 and virgl_display.search(args) is not None:
+        return "virgl"
     # PVE's implicit default is Standard VGA. An explicit vga line may carry a
     # stock non-GL 2D adapter — `std`, `virtio` (no GL) or `vmware` — each of
     # which renders to an ordinary QEMU console that the device-agnostic non-GL
