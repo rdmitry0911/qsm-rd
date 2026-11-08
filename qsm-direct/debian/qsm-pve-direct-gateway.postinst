@@ -3,4 +3,8 @@ set -e
 if [ "${1:-}" = configure ] && ! getent passwd qsm-turn >/dev/null; then
     adduser --system --group --no-create-home --home /nonexistent qsm-turn
 fi
+# Apply routes other packages add or remove to an enabled gateway.
+if { [ "${1:-}" = configure ] || [ "${1:-}" = triggered ]; } && [ -e /etc/qsm-pve-direct/gateway.json ]; then
+    qsm-pve-direct-gateway refresh || echo 'qsm gateway: routes not refreshed; run qsm-pve-direct-gateway refresh' >&2
+fi
 #DEBHELPER#

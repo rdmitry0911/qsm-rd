@@ -66,6 +66,7 @@ def main(build, version):
         name = f"qsm-pve-direct-{name}"
         install(gateway, f"packaging/debian/{name}", f"usr/lib/systemd/system/{name}")
     doc(gateway, "packaging/debian/README.gateway")
+    (ROOT / "debian" / gateway / "usr/share/qsm-pve-direct-gateway/routes.d").mkdir(parents=True, exist_ok=True)
 
     helper = "qsm-pve-direct-lxc"
     install(helper, "packaging/debian/qsm-pve-direct-lxc", "usr/sbin/qsm-pve-direct-lxc", True)

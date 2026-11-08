@@ -137,6 +137,87 @@ class GatewayTests(unittest.TestCase):
                 read_gateway(alias)
 
 
+class RouteTests(unittest.TestCase):
+    def test_route_description_is_validated(self):
+        self.assertEqual(tool.parse_route({'id': 'qdev-host', 'port': 8017}), ('qdev-host', 'qdev-host', 8017))
+        self.assertEqual(tool.parse_route({'id': 'tool', 'prefix': '/other/', 'port': 9000}), ('tool', 'other', 9000))
+        for bad in ({'id': 'Bad', 'port': 8017}, {'id': 'x', 'prefix': '/a/b/', 'port': 8017},
+                    {'id': 'x', 'prefix': '/../', 'port': 8017}, {'id': 'api2', 'port': 8017},
+                    {'id': 'x', 'prefix': '/qsm-direct/', 'port': 8017}, {'id': 'x', 'port': 18007},
+                    {'id': 'x', 'port': 8006}, {'id': 'x', 'port': 80}, {'id': 'x', 'port': '8017'},
+                    {'id': 'x', 'port': True}, {'id': 'x'}, {'id': 'x', 'port': 8017, 'port_from': 'file'}):
+            with self.subTest(route=bad), self.assertRaises(ValueError):
+                tool.parse_route(bad)
+
+    def test_port_comes_from_the_services_own_configuration(self):
+        route = {'id': 'qdev-host', 'port': 8017, 'port_from': {'file': '/etc/qdev-host/ui.json', 'key': 'port'}}
+        self.assertEqual(tool.parse_route(route, lambda path: {'port': 9443})[2], 9443)
+        self.assertEqual(tool.parse_route(route, lambda path: {'users': []})[2], 8017)
+        def missing(path):
+            raise FileNotFoundError(path)
+        self.assertEqual(tool.parse_route(route, missing)[2], 8017)
+        with self.assertRaises(ValueError):
+            tool.parse_route(route, lambda path: {'port': 8006})
+
+    def test_routes_skip_bad_files_and_let_the_administrator_override(self):
+        with tempfile.TemporaryDirectory() as directory:
+            shipped, local = Path(directory) / 'shipped', Path(directory) / 'local'
+            shipped.mkdir(); local.mkdir()
+            (shipped / 'qdev-host.json').write_text('{"id": "qdev-host", "port": 8017}')
+            (shipped / 'broken.json').write_text('{')
+            (shipped / 'clash.json').write_text('{"id": "zz", "prefix": "/qdev-host/", "port": 9001}')
+            (shipped / 'notes.txt').write_text('ignored')
+            (local / 'qdev-host.json').write_text('{"id": "qdev-host", "port": 9443}')
+            warnings = []
+            reader = lambda path: json.loads(Path(path).read_text())
+            found = tool.routes((shipped, local, Path(directory) / 'absent'), reader, warnings.append)
+            self.assertEqual(found, [('qdev-host', 'qdev-host', 9443)])
+            self.assertEqual(len(warnings), 2)
+            self.assertTrue(any('broken.json' in w for w in warnings))
+            self.assertTrue(any('already used by qdev-host' in w for w in warnings))
+
+    def test_haproxy_routes_go_before_pve_and_strip_their_prefix(self):
+        plain = tool.haproxy_config(18007, '192.0.2.5')
+        self.assertNotIn('route_', plain)
+        config = tool.haproxy_config(18007, '192.0.2.5', [('qdev-host', 'qdev-host', 8017)])
+        self.assertLess(config.index('use_backend route_0 if route_0'), config.index('default_backend pve'))
+        self.assertGreater(config.index('use_backend route_0'), config.index('use_backend signal if qsm'))
+        self.assertIn('acl route_0 path_beg /qdev-host/\n', config)
+        self.assertIn('http-request replace-path ^/qdev-host/(.*)$ /\\1\n', config)
+        self.assertIn(f'server local 127.0.0.1:8017 ssl verify required ca-file {tool.RUN}/ca.pem', config)
+        # Nothing else changes: the routes add their two ACL lines and their backend.
+        acl = config[config.index('    acl route_0'):config.index('    default_backend pve')]
+        self.assertEqual(config.replace(acl, ''), plain + config[config.index('\nbackend route_0') + 1:])
+
+    def test_write_haproxy_checks_the_candidate_and_skips_identical_content(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            calls = []
+            with patch.object(tool, 'STATE', state), patch.object(tool, 'run', lambda *args, **kwargs: calls.append(args)):
+                self.assertTrue(tool.write_haproxy(b'one'))
+                self.assertEqual(calls, [('haproxy', '-c', '-f', str(state / 'haproxy.cfg.new'))])
+                self.assertEqual((state / 'haproxy.cfg').read_bytes(), b'one')
+                self.assertFalse(tool.write_haproxy(b'one'))
+                self.assertEqual(len(calls), 1)
+            def refuse(*args, **kwargs):
+                raise tool.subprocess.CalledProcessError(1, args)
+            with patch.object(tool, 'STATE', state), patch.object(tool, 'run', refuse):
+                with self.assertRaises(tool.subprocess.CalledProcessError):
+                    tool.write_haproxy(b'two')
+            self.assertEqual((state / 'haproxy.cfg').read_bytes(), b'one')
+            self.assertFalse((state / 'haproxy.cfg.new').exists())
+
+    def test_refresh_of_a_disabled_gateway_changes_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            etc, state = Path(directory) / 'etc', Path(directory) / 'state'
+            etc.mkdir(); state.mkdir()
+            with patch.object(tool, 'ETC', etc), patch.object(tool, 'STATE', state), \
+                    patch.object(tool, 'run', side_effect=AssertionError('no command')), \
+                    patch.object(tool, 'certificates', side_effect=AssertionError('no certificates')):
+                tool.refresh()
+            self.assertEqual(list(state.iterdir()), [])
+
+
 class LeaseTests(unittest.IsolatedAsyncioTestCase):
     async def test_only_owned_numeric_socket_tuple_is_registered_refreshed_and_removed(self):
         writes = []

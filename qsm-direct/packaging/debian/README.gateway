@@ -133,6 +133,35 @@ rules are added. Generic coturn users/configs are unaffected.
 The frontend reloads a changed PVE/ACME certificate within a minute. No PVE
 passwords/tickets, SDP or TURN secrets are logged by the gateway tools.
 
+Other node services on TCP 8006
+-------------------------------
+Since exp230 the gateway also publishes other HTTPS services of the node under a
+path prefix of TCP 8006, so a browser behind the same single forwarded port
+reaches them too. A package ships one JSON file in
+/usr/share/qsm-pve-direct-gateway/routes.d/; the administrator may add one, or
+override a shipped one with the same id, in /etc/qsm-pve-direct/gateway-routes.d/:
+
+  {"id": "qdev-host", "prefix": "/qdev-host/", "port": 8017,
+   "port_from": {"file": "/etc/qdev-host/ui.json", "key": "port"}}
+
+https://NODE:8006/qdev-host/X is then served by https://127.0.0.1:8017/X. The
+service must listen on 127.0.0.1 with the node certificate; HAProxy verifies it
+against the PVE cluster CA and the system CAs, as for the signal service. The
+prefix cannot be one PVE or the console uses (/api2/, /pve2/, /novnc/,
+/xtermjs/, /qsm-direct/, ...), the port none of the gateway's own. Authentication
+stays the service's business: the gateway only forwards, with X-Forwarded-For.
+An invalid file is skipped with a warning and never stops the gateway.
+
+Installing or removing a package with a route file applies it at once (dpkg
+trigger, HAProxy reload, no pveproxy restart, open consoles stay). After editing
+a file under /etc, apply it with:
+
+  qsm-pve-direct-gateway refresh
+  qsm-pve-direct-gateway routes       # what is published
+
+qdev-host-pve 0.4.0 ships the qdev-host route; its Hardware-panel entries then
+use the same origin on a gateway node and need no TCP 8017 from the browser.
+
 Disable and rollback
 --------------------
   qsm-pve-direct-gateway disable

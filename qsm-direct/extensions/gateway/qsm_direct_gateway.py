@@ -13,7 +13,9 @@ import json
 import os
 from pathlib import Path
 import pwd
+import re
 import secrets
+import stat
 import shutil
 import socket
 import subprocess
@@ -26,6 +28,15 @@ PVE = Path('/etc/default/pveproxy')
 UNITS = ('qsm-pve-direct-gateway.service', 'qsm-pve-direct-turn.service')
 TABLE = 'qsm_direct_gateway'
 UDP_UNIT = 'qsm-pve-direct-turn-udp.service'
+# Other node-local HTTPS services published on TCP 8006 under a path prefix.
+# Packages ship one JSON file each in ROUTES_DIRS[0]; the administrator may add
+# or override (same id) in ROUTES_DIRS[1].  Re-read by refresh, prepare, enable.
+ROUTES_DIRS = (Path('/usr/share/qsm-pve-direct-gateway/routes.d'), ETC / 'gateway-routes.d')
+_ROUTE_ID = re.compile(r'\A[a-z][a-z0-9-]{0,31}\Z')
+# Paths that pveproxy and the console already use.
+RESERVED_PREFIXES = frozenset({'qsm-direct', 'api2', 'pve2', 'pve-docs', 'novnc', 'xtermjs', 'pwt', 'widgettoolkit'})
+RESERVED_PORTS = frozenset({8006, 18006, 18007, 13479, 13480})
+MAX_ROUTE_FILE = 4096
 
 
 def run(*args, **kwargs):
@@ -53,7 +64,88 @@ def proxy_config(original):
     return original + b'\n# QSM single-port gateway; restored byte-for-byte by disable.\nLISTEN_IP="127.0.0.1"\nPROXY_REAL_IP_HEADER="X-Forwarded-For"\nPROXY_REAL_IP_ALLOW_FROM="127.0.0.1"\n'
 
 
-def haproxy_config(signal_port, address):
+def _read_root_json(path):
+    """A small JSON object from a root-owned regular file nobody else may write."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
+            raise ValueError('not a root-owned regular file that only root may write')
+        if info.st_size > MAX_ROUTE_FILE:
+            raise ValueError('too large')
+        value = json.loads(os.read(fd, MAX_ROUTE_FILE + 1))
+    finally:
+        os.close(fd)
+    if not isinstance(value, dict):
+        raise ValueError('not a JSON object')
+    return value
+
+
+def parse_route(value, port_reader=_read_root_json):
+    """(id, prefix name, port) of one route description, or ValueError."""
+    route_id = value.get('id')
+    if not isinstance(route_id, str) or not _ROUTE_ID.match(route_id):
+        raise ValueError('id must be 1-32 characters a-z, 0-9 and -')
+    prefix = value.get('prefix', f'/{route_id}/')
+    if not isinstance(prefix, str) or not re.fullmatch(r'/([a-z][a-z0-9-]{0,31})/', prefix):
+        raise ValueError('prefix must look like /name/')
+    name = prefix.strip('/')
+    if name in RESERVED_PREFIXES:
+        raise ValueError(f'prefix {prefix} is used by PVE or the console')
+    port = value.get('port')
+    source = value.get('port_from')
+    if source is not None:
+        # The service's own configuration wins over the default the package ships.
+        if not isinstance(source, dict) or not isinstance(source.get('file'), str) or not isinstance(source.get('key'), str):
+            raise ValueError('port_from needs file and key')
+        try:
+            configured = port_reader(Path(source['file'])).get(source['key'], port)
+        except FileNotFoundError:
+            configured = port
+        port = configured
+    if type(port) is not int or not 1024 <= port <= 65535 or port in RESERVED_PORTS:
+        raise ValueError('port must be 1024..65535 and not one of the gateway\'s own')
+    return route_id, name, port
+
+
+def routes(directories=ROUTES_DIRS, reader=_read_root_json, warn=None):
+    """Valid routes by id, sorted; an invalid file is skipped with a warning, never fatal."""
+    warn = warn or (lambda text: print(f'qsm gateway: {text}', file=sys.stderr))
+    found = {}
+    for directory in directories:
+        try:
+            names = sorted(entry for entry in os.listdir(directory) if entry.endswith('.json'))
+        except FileNotFoundError:
+            continue
+        for entry in names:
+            try:
+                route_id, name, port = parse_route(reader(Path(directory) / entry), reader)
+            except (OSError, ValueError) as error:
+                warn(f'route {Path(directory) / entry} skipped: {error}')
+                continue
+            found[route_id] = (name, port)
+    used = {}
+    result = []
+    for route_id in sorted(found):
+        name, port = found[route_id]
+        if name in used:
+            warn(f'route {route_id} skipped: prefix /{name}/ is already used by {used[name]}')
+            continue
+        used[name] = route_id
+        result.append((route_id, name, port))
+    return result
+
+
+def haproxy_config(signal_port, address, extra_routes=()):
+    acls = ''.join(f'    acl route_{i} path_beg /{name}/\n    use_backend route_{i} if route_{i}\n'
+                   for i, (_route_id, name, _port) in enumerate(extra_routes))
+    backends = ''.join(f'''backend route_{i}
+    # {route_id}
+    mode http
+    timeout tunnel 1h
+    http-request replace-path ^/{name}/(.*)$ /\\1
+    server local 127.0.0.1:{port} ssl verify required ca-file {{RUN}}/ca.pem
+''' for i, (route_id, name, port) in enumerate(extra_routes)).replace('{RUN}', str(RUN))
     return f'''global
     maxconn 1024
     user haproxy
@@ -90,7 +182,7 @@ frontend https
     http-request set-header X-Forwarded-Proto https
     acl qsm path_beg /qsm-direct/
     use_backend signal if qsm
-    default_backend pve
+{acls}    default_backend pve
 backend signal
     mode http
     http-request replace-path ^/qsm-direct/(.*)$ /\\1
@@ -99,7 +191,43 @@ backend pve
     mode http
     timeout tunnel 1h
     server local 127.0.0.1:8006 ssl verify required ca-file {RUN}/ca.pem
-'''
+{backends}'''
+
+
+def render_haproxy():
+    """The gateway's HAProxy configuration from its saved settings and the current routes."""
+    config = json.loads((ETC / 'gateway.json').read_text())
+    signal = json.loads((ETC / 'signal.json').read_text())
+    return haproxy_config(int(signal.get('port', 18007)), config['relay_ipv4'], routes()).encode()
+
+
+def write_haproxy(data):
+    """Replace haproxy.cfg only with a configuration HAProxy accepts; True when it changed."""
+    target = STATE / 'haproxy.cfg'
+    if target.exists() and target.read_bytes() == data:
+        return False
+    candidate = STATE / 'haproxy.cfg.new'
+    atomic(candidate, data)
+    try:
+        run('haproxy', '-c', '-f', str(candidate), stdout=subprocess.DEVNULL)
+        os.replace(candidate, target)
+    finally:
+        candidate.unlink(missing_ok=True)
+    return True
+
+
+def refresh():
+    """Apply added or removed routes to an enabled gateway without touching pveproxy."""
+    if not ((ETC / 'gateway.json').exists() and (STATE / 'before.json').exists()):
+        print('Gateway disabled; nothing to refresh.')
+        return
+    certificates()
+    if not write_haproxy(render_haproxy()):
+        print('Gateway routes unchanged.')
+        return
+    if subprocess.run(['systemctl', 'is-active', '--quiet', 'qsm-pve-direct-gateway']).returncode == 0:
+        run('systemctl', 'reload', 'qsm-pve-direct-gateway')
+    print('Gateway routes: ' + (', '.join(f'/{name}/ -> 127.0.0.1:{port}' for _id, name, port in routes(warn=lambda _t: None)) or 'none'))
 
 
 def turn_config(address, secret):
@@ -280,7 +408,7 @@ def enable(address):
             test.bind(('127.0.0.1', 18007))
         atomic(ETC / 'gateway.json', json.dumps({'secret': secret, 'relay_ipv4': address}).encode())
         atomic(ETC / 'signal.json', json.dumps({'listen': '127.0.0.1', 'port': 18007, 'gateway': True}).encode())
-        atomic(STATE / 'haproxy.cfg', haproxy_config(18007, address).encode())
+        atomic(STATE / 'haproxy.cfg', haproxy_config(18007, address, routes()).encode())
         atomic(STATE / 'turn.conf', turn_config(address, secret).encode(), 0o640)
         os.chown(STATE / 'turn.conf', 0, account.pw_gid)
         # Only the dedicated TURN user can read its config; no other file in
@@ -313,6 +441,10 @@ def _prepare():
     # Reboot entry point: create an empty fail-closed allowlist, then peers
     # refresh it. Never flush a global table or add any ingress ACCEPT rule.
     certificates()
+    try:
+        write_haproxy(render_haproxy())  # routes added or removed while the gateway was stopped
+    except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
+        print(f'qsm gateway: keeping the previous HAProxy configuration: {error}', file=sys.stderr)
     if subprocess.run(['nft', 'list', 'table', 'inet', TABLE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
         run('nft', '-f', '-', input=firewall(pwd.getpwnam('qsm-turn').pw_uid).encode())
     ensure_udp_set()
@@ -324,7 +456,7 @@ def _prepare():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('enable', 'disable', 'udp-enable', 'udp-disable', 'status', 'prepare', 'certificates'))
+    parser.add_argument('action', choices=('enable', 'disable', 'udp-enable', 'udp-disable', 'status', 'prepare', 'certificates', 'refresh', 'routes'))
     parser.add_argument('--relay-ip')
     parser.add_argument('--udp-port', type=int, default=8006)
     args = parser.parse_args()
@@ -346,6 +478,11 @@ def main():
             configure_udp(args.udp_port if args.action == 'udp-enable' else None)
         elif args.action == 'prepare':
             prepare()
+        elif args.action == 'refresh':
+            refresh()
+        elif args.action == 'routes':
+            for route_id, name, port in routes():
+                print(f'{route_id}: /{name}/ -> https://127.0.0.1:{port}')
         elif args.action == 'certificates':
             if (ETC / 'gateway.json').exists():
                 previous = (RUN / 'proxy.pem').read_bytes() if (RUN / 'proxy.pem').exists() else b''

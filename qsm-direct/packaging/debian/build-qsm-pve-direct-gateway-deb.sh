@@ -8,7 +8,8 @@ dpkg --validate-version "$version"
 package=qsm-pve-direct-gateway
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
-mkdir -p "$OUTPUT_DIR" "$stage/DEBIAN" "$stage/usr/share/doc/$package" "$stage/usr/sbin" "$stage/usr/lib/systemd/system"
+mkdir -p "$OUTPUT_DIR" "$stage/DEBIAN" "$stage/usr/share/doc/$package" "$stage/usr/sbin" "$stage/usr/lib/systemd/system" \
+    "$stage/usr/share/$package/routes.d"
 install -m 0644 "$ROOT_DIR/packaging/debian/README.gateway" "$stage/usr/share/doc/$package/README.Debian"
 install -m 0755 "$ROOT_DIR/extensions/gateway/qsm_direct_gateway.py" "$stage/usr/sbin/qsm-pve-direct-gateway"
 for unit in qsm-pve-direct-gateway.service qsm-pve-direct-turn.service qsm-pve-direct-turn-udp.service qsm-pve-direct-gateway-certs.service qsm-pve-direct-gateway-certs.timer; do
@@ -29,15 +30,26 @@ Description: Optional TCP 8006 HTTPS and WebRTC relay gateway for QSM Direct
  HAProxy, coturn and nftables binaries. Activation restarts pveproxy and is
  reversible. Generic HAProxy/coturn services are never managed by this package.
 EOF
+# Routes of other node-local services (one JSON file per package) are applied
+# to an enabled gateway when a package adds or removes one.
+echo 'interest-noawait /usr/share/qsm-pve-direct-gateway/routes.d' > "$stage/DEBIAN/triggers"
 cat > "$stage/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
+refresh_routes() {
+    if [ -e /etc/qsm-pve-direct/gateway.json ]; then
+        /usr/sbin/qsm-pve-direct-gateway refresh || echo 'qsm gateway: routes not refreshed; run qsm-pve-direct-gateway refresh' >&2
+    fi
+}
 if [ "${1:-}" = configure ]; then
     if ! getent passwd qsm-turn >/dev/null; then
         adduser --system --group --no-create-home --home /nonexistent qsm-turn
     fi
     if [ -d /run/systemd/system ]; then systemctl daemon-reload; fi
+    refresh_routes
     echo 'Gateway tools installed. Activation is explicit; read /usr/share/doc/qsm-pve-direct-gateway/README.Debian.'
+elif [ "${1:-}" = triggered ]; then
+    refresh_routes
 fi
 EOF
 cat > "$stage/DEBIAN/prerm" <<'EOF'
