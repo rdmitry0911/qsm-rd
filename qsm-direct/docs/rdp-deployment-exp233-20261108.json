@@ -1,0 +1,43 @@
+{
+ "date": "2026-11-08",
+ "status": "Published as the signed APT preview with qdev-host 0.5.0; installed on 172.16.16.17, 192.168.64.20 and 10.30.0.240.",
+ "version": "0.4.0+stock4.14~exp233",
+ "builds": {
+  "exp232": "UI half only, installed on 172.16.16.17 for one test, not published",
+  "exp233": "published"
+ },
+ "what": [
+  "PVE UI: the VirGL display with exactly one qdev-host GPU (vhost-user-vga or vhost-user-gpu-pci with a qdev- chardev) is a managed display; saving adds no QSM GPU; enabling Display1 on a VM with only that GPU adds the display alone; the CPU profile and switching Display1 off are refused while it exists.",
+  "Terminal: the same VirGL display is the VirGL profile, so a console gets the VM's Display1 bus (it refused with 'VM is not configured for Display1'). QSM's own GPU next to an additional qdev-host GPU stays the VirGL profile; PVE's Standard VGA next to one stays the CPU profile."
+ ],
+ "qdev_host_0_5_0": "Edit in the Hardware panel (PUT, qdevctl set) and the built-in virgl-gpu plugin around QEMU's vhost-user-gpu. https://github.com/rdmitry0911/qdev-host/releases/tag/v0.5.0",
+ "packages_sha256": {
+  "qsm-console-guest_0.4.0+stock4.14~exp233_all.deb": "28d3e6f09ac3c5ac941ba5593421b6c6efbb49b746e5ce5b718c5be7679f9c9b",
+  "qsm-desktop-agent_0.4.0+stock4.14~exp233_amd64.deb": "99bbaf2783bd1eb39b4caf021d115d959d97dc74eeb45fb61424559da616fa03",
+  "qsm-pve-direct-gateway_0.4.0+stock4.14~exp233_all.deb": "c97c4d01ec53ce5e76df855a2e9f9da3118c8a820864e9f6459c9180fccf0837",
+  "qsm-pve-direct-lxc_0.4.0+stock4.14~exp233_amd64.deb": "56c22ada14c47f473d22e2ee004140e73a845ef78cc6d15f13afaa975f5d378f",
+  "qsm-pve-direct-standalone_0.4.0+stock4.14~exp233_all.deb": "0cbee015482a1cc59cdc66a6c768b64e0204830f4ac459c6d3c598c376acd041",
+  "qsm-pve-direct_0.4.0+stock4.14~exp233_amd64.deb": "d2d07753c684a98184488aa493a2b6a8366ef17299c17aaebc88ae4b29b31ec4",
+  "qsm-qt-input-geometry_0.4.0+stock4.14~exp233_amd64.deb": "924e6b85a796f7aeb5224f7679ffb837b846d1f06325d29a9b9a6086cdfe3e65",
+  "qdev-host_0.5.0_amd64.deb": "57e9472e404b30e4336d99eae4010041552c2f59ba51f0566b4b7dfb36a54f1a",
+  "qdev-host-pve_0.5.0_all.deb": "93cca9c0b6295d8c24d973368208f350d609e0ac4501fa6c561356fa05630229"
+ },
+ "checks_172_16_16_17": [
+  "qdevctl add of virgl-gpu (vga=1) to VM 990 (Debian 13, 1 GiB, std VGA): args got the memfd backend, chardev and vhost-user-vga behind qdev-rp0, vga none; the VM started with gpu0 attached at 01:00.0; guest dmesg: virtio-vga with +virgl +edid, 2 virgl capability sets, virtio_gpudrmfb primary; debugfs virgl yes.",
+  "UI: tb-vga added on the running VM 990, edited to vram=32 by double click: 'Edit: qdev-host Device', ID read-only, plugin locked; unplugged and plugged again, attached (01:00.0) with vram=32; removed.",
+  "UI: with QSM Display1 VirGL enabled through the Display dialog, virgl-gpu added from the Add dialog (KMS, Display1 and Persistent hidden, render node list), then edited to xres=1024; QSM's virtio-vga-gl replaced by vhost-user-vga in args.",
+  "With exp231 the QSM popup was not offered (UI) and then refused by the terminal; with exp233 the popup showed the guest's console twice: first video 3819 and 2323 ms, 1024x768, dma-buf capture, h264_vaapi.",
+  "Removing the GPU on the running VM kept it until stop; after stop the GPU process was inactive; add plus remove on the stopped VM gave back the QSM VirGL config byte for byte (QSM's GPU in its old place, fixed during this work), and switching QSM Display1 off plus vga std gave back the original config."
+ ],
+ "findings": [
+  "QEMU's D-Bus display registers consoles (and their GL context) only when it starts, so a display device hot-plugged later never reaches QSM; the virgl-gpu device is cold-plugged through args.",
+  "qemu-server runs the pre-start hookscript under the VM config lock and does not reread the config after it, so the hook cannot fix args for the current start; qdev-host stops the start with a message instead.",
+  "Stock PVE shares guest memory only with hugepages or virtiofs; vhost-user needs it shared.",
+  "QSM's Display dialog switching Display1 off keeps the Display type shown in its field (none), not the type before QSM; restoring std was a manual step."
+ ],
+ "not_checked": [
+  "A 3D application in a guest on virgl-gpu (no Mesa in the test guest).",
+  "virgl-gpu with OVMF or SeaBIOS boot screens (the test VM boots its kernel directly).",
+  "virgl-gpu on .20 and .240 (packages installed, no VM configured with it)."
+ ]
+}

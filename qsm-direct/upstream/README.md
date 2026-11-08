@@ -4,7 +4,18 @@ Proxmox takes no pull requests: patches go to `pve-devel@lists.proxmox.com`
 with `git send-email`, and every contributor signs a CLA first
 ([developer documentation](https://pve.proxmox.com/wiki/Developer_Documentation)).
 
-## Current status (2026-11-08)
+## Current status (2026-11-08, evening)
+
+[Stock4.14~exp233](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp233)
+is the current signed APT preview. On top of exp231 (PVE page entry through
+[pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays), routes on the TCP 8006
+gateway) it accepts the out-of-process VirGL GPU of [qdev-host](https://github.com/rdmitry0911/qdev-host)
+0.5.0, which the repository serves too. [Release notes](release-stock4.14-exp233-2026-11-08.md).
+The [forum text](forum-stock4.14-exp233-update-2026-11-08.txt) for topic 187042 replaces the
+unposted exp231 text; the texts for new topics about qdev-host and pve-ui-overlays are in those
+projects. The pve-devel thread, Bugzilla and the Debian reports have not been updated for it.
+
+## Status on 2026-11-08 (exp231)
 
 [Stock4.14~exp231](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp231)
 is the current signed APT preview. The PVE page entry goes through the shared

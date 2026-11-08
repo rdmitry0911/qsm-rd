@@ -5,18 +5,17 @@ An unofficial, signed preview repository for **Proxmox VE 9 / Debian 13
 it still requires Proxmox VE. This is not part of the Debian or Proxmox archives.
 No patched Proxmox packages are distributed by this repository.
 
-Current preview: **0.4.0+stock4.14~exp231**. The PVE page entry now goes through
-pve-ui-overlays, a new dependency served here too, so other PVE web UI add-ons
-coexist with QSM in any install order. The optional TCP 8006 gateway also
-publishes other node services under a path of that port: qdev-host-pve 0.4.0, the
-PVE device host from the same author, uses it for its Hardware-panel service.
-Clusters first installed with an older PVE no longer get 502 from signalling
-under Python 3.13. Guest packages need no update: their source is that of
-exp223. **Before upgrading from an earlier setup of this repository, add
+Current preview: **0.4.0+stock4.14~exp233**. Since exp231 the PVE page entry goes
+through pve-ui-overlays, a dependency served here too, so other PVE web UI add-ons
+coexist with QSM in any install order, and the optional TCP 8006 gateway publishes
+other node services under a path of that port. exp233 accepts a VirGL GPU that
+qdev-host runs out of process (its virgl-gpu plugin, qdev-host 0.5.0 here) under the
+QSM VirGL display: the console shows it and the Display dialog keeps it. Guest
+packages need no update. **Before upgrading from exp223 or older, add
 pve-ui-overlays to the Package line of /etc/apt/preferences.d/qsm-direct.pref**
 (below); otherwise APT keeps the QSM packages back. Update all installed QSM
 profiles together, reload PVE with cache bypass and reopen consoles. Release notes:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp231
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp233
 
 Project sponsor: Takt — https://taktcycles.com/
 
@@ -114,6 +113,8 @@ pve-ui-overlays and the gateway with QSM:
     apt install qdev-host qdev-host-pve
 
 On a node behind the QSM gateway the panel reaches its service through TCP 8006.
+Its virgl-gpu plugin gives a VM a VirGL GPU in QEMU's own vhost-user-gpu process,
+which the QSM console shows under the VirGL display.
 
 ## Updates and removal
 

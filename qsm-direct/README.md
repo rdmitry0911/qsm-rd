@@ -29,7 +29,7 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.14~exp231 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp231)
+[Stock4.14~exp233 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp233)
 are the current preview, also on the [signed APT repository](https://rdmitry0911.github.io/qsm-rd/).
 
 **Stock4.14~exp231 (2026-11-08).** The PVE page entry is rendered by the shared
@@ -48,6 +48,13 @@ channel and input arguments no longer adds a second set. A VM policy with codec
 settings only uses the VM's private bus, and one invalid policy no longer stops
 the terminal service for every guest. Guest packages are unchanged since exp223.
 Installed on three nodes: [deployment record](docs/rdp-deployment-exp231-20261108.json).
+
+**Stock4.14~exp233 (2026-11-08)** accepts a VirGL GPU that
+[qdev-host](https://github.com/rdmitry0911/qdev-host) 0.5.0 runs out of process, QEMU's
+`vhost-user-gpu` (its `virgl-gpu` plugin), in place of QSM's own `virtio-vga-gl` under the
+VirGL display: the console shows it, the Display dialog keeps it on save and refuses the
+CPU profile or switching Display1 off while it exists. See the
+[deployment record](docs/rdp-deployment-exp233-20261108.json).
 Since stock4.1, releases preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss

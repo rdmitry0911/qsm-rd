@@ -5,12 +5,13 @@ LXC containers), hardware-encoded where the node has an encoder.
 
 Project sponsor: [Takt](https://taktcycles.com/).
 
-[Latest standalone preview: stock4.14~exp231](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp231)
+[Latest standalone preview: stock4.14~exp233](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp233)
 runs on official PVE 9 packages. Its PVE page entry goes through the shared
 [pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays) package, so other
 PVE web UI add-ons coexist with it, and the optional TCP 8006 gateway also carries
 other node services, such as the Hardware panel of
-[qdev-host](https://github.com/rdmitry0911/qdev-host). The two-pane file manager and
+[qdev-host](https://github.com/rdmitry0911/qdev-host), whose out-of-process VirGL GPU the
+console also shows. The two-pane file manager and
 exact UI stay as in exp223. Start with the
 [installation instructions](qsm-direct/packaging/debian/README.standalone).
 The signed [APT repository](https://rdmitry0911.github.io/qsm-rd/)

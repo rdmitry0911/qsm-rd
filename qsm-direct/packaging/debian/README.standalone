@@ -1,7 +1,7 @@
 QSM Direct standalone profile for stock Proxmox VE 9
 ===================================================
 
-Release: 0.4.0+stock4.14~exp231, Debian 13 / amd64. The standalone profile uses official
+Release: 0.4.0+stock4.14~exp233, Debian 13 / amd64. The standalone profile uses official
 Proxmox packages: a guarded web UI overlay and independent PVE-authorized HTTPS
 signalling service. It shares the native preview's media worker, encoders and
 adaptive bitrate controller. No rebuilt Proxmox debs are needed on stock PVE.
@@ -10,11 +10,11 @@ pve-container 6.1.14. UI activation is guarded by version/template checksums;
 other reviewed versions are listed in pve-manager-index-template.sha256.
 
 Download the matching assets from:
-https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp231
-Verify SHA256SUMS-stock4.14-exp231 before installation (sha256sum -c SHA256SUMS-stock4.14-exp231
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp233
+Verify SHA256SUMS-stock4.14-exp233 before installation (sha256sum -c SHA256SUMS-stock4.14-exp233
 when all listed assets have been downloaded). Do not mix QSM package versions.
-GitHub stores "~" in an asset name as ".": the file qsm-pve-direct_0.4.0+stock4.14.exp231_amd64.deb
-contains package version 0.4.0+stock4.14~exp231. Since exp224 the core depends on
+GitHub stores "~" in an asset name as ".": the file qsm-pve-direct_0.4.0+stock4.14.exp233_amd64.deb
+contains package version 0.4.0+stock4.14~exp233. Since exp224 the core depends on
 pve-ui-overlays, attached to the same release. Install with apt, not with one dpkg -i
 of several files: the LXC helper's Breaks on an older core makes dpkg order-sensitive.
 Do not install patched Proxmox debs from the older native preview for this setup.
@@ -40,8 +40,8 @@ B. Optional single-port gateway: PVE HTTPS, QSM signalling and authenticated
 Install base packages as root on the PVE node:
 
     apt install ./pve-ui-overlays_0.1.0_all.deb \
-                ./qsm-pve-direct_0.4.0+stock4.14.exp231_amd64.deb \
-                ./qsm-pve-direct-standalone_0.4.0+stock4.14.exp231_all.deb
+                ./qsm-pve-direct_0.4.0+stock4.14.exp233_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock4.14.exp233_all.deb
     qsm-pve-direct-endpoint --show
     qsm-pve-direct-ui status
     systemctl is-active qsm-pve-direct-terminal qsm-pve-direct-signal
@@ -100,7 +100,7 @@ LXC setup
 ---------
 Install the matching helper on the HOST:
 
-    apt install ./qsm-pve-direct-lxc_0.4.0+stock4.14.exp231_amd64.deb
+    apt install ./qsm-pve-direct-lxc_0.4.0+stock4.14.exp233_amd64.deb
     qsm-pve-direct-lxc enable VMID --session wayland
 
 Replace VMID with the chosen Debian/Ubuntu container with a Plasma desktop.
@@ -123,10 +123,10 @@ Update the core AND each installed version-matched QSM profile/helper in the
 same apt transaction. For a standalone node with gateway and LXC helper:
 
     apt install ./pve-ui-overlays_0.1.0_all.deb \
-                ./qsm-pve-direct_0.4.0+stock4.14.exp231_amd64.deb \
-                ./qsm-pve-direct-standalone_0.4.0+stock4.14.exp231_all.deb \
-                ./qsm-pve-direct-gateway_0.4.0+stock4.14.exp231_all.deb \
-                ./qsm-pve-direct-lxc_0.4.0+stock4.14.exp231_amd64.deb
+                ./qsm-pve-direct_0.4.0+stock4.14.exp233_amd64.deb \
+                ./qsm-pve-direct-standalone_0.4.0+stock4.14.exp233_all.deb \
+                ./qsm-pve-direct-gateway_0.4.0+stock4.14.exp233_all.deb \
+                ./qsm-pve-direct-lxc_0.4.0+stock4.14.exp233_amd64.deb
 
 From exp223 or older, pve-ui-overlays takes the PVE page template over from the
 QSM package in that transaction; `pve-ui-overlays status` then reports active.

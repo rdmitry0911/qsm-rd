@@ -286,7 +286,7 @@
   "pending": [
    "See remaining and open_findings in docs/rdp-pixel-history-20261105.json"
   ],
-  "production_node_20": "0.4.0+stock4.14~exp231 since 2026-11-08, the published version, with pve-ui-overlays 0.1.0 and qdev-host 0.4.0; gateway enabled; rollback material for exp223 on the node. See docs/rdp-deployment-exp231-20261108.json.",
+  "production_node_20": "0.4.0+stock4.14~exp233 since 2026-11-08, the published version, with pve-ui-overlays 0.1.0 and qdev-host 0.5.0 from the signed repository; gateway enabled.",
   "video_scheduling_changed": true,
   "rollout_gate": "Keep the working production baseline until automatic bandwidth transitions and mixed-content acceptance confirm bounded text/video latency, exact static pixels and video quality; weak pilot booleans and unit checks alone are insufficient",
   "evidence_directories": [
@@ -576,12 +576,12 @@
   "decoded_presentation": "docs/rdp-decoded-presentation-20261029.json",
   "decoded_queue": "docs/rdp-decoded-queue-20261029.json",
   "handoff": "docs/rdp-handoff-20261029.json",
-  "work_state": "Exp231 published on 2026-11-08: GitHub release and signed APT, with pve-ui-overlays 0.1.0 and qdev-host 0.4.0 in the repository; the PVE page entry through pve-ui-overlays and gateway routes. Installed on 192.168.64.20, 172.16.16.17 and 10.30.0.240. Forum texts wait for the user.",
+  "work_state": "Exp233 published on 2026-11-08 with qdev-host 0.5.0 (Edit, virgl-gpu): the console shows qdev-host's out-of-process VirGL GPU. On 192.168.64.20, 172.16.16.17 and 10.30.0.240. Forum texts wait for the user (exp233 text replaces the unposted exp231 one).",
   "virgl_hardware_decode": "docs/rdp-virgl-hardware-decode-20261105.json",
   "narrow_path": "docs/rdp-narrow-path-20261105.json",
   "hevc_receiver": "docs/rdp-hevc-receiver-20261105.json",
   "remaining_after_20261105": [
-   "Post the prepared exp231 text in forum topic 187042, and the new topics for qdev-host and pve-ui-overlays, which need the user's forum account",
+   "Post the prepared exp233 text in forum topic 187042 (it replaces the unposted exp231 text), and the new topics for qdev-host and pve-ui-overlays, which need the user's forum account",
    "Recreate the LXC 108 fixture before the next ui-bench or clip run",
    "File manager: resume of an interrupted file, 10 Gbit/s (a worker in the browser), a lossy path, a VM through a real PVE console in an automated run, Russian texts",
    "Other nodes, on the user's word",
@@ -596,15 +596,16 @@
    "qsm-console-guest postinst on Plasma 6: kwriteconfig6 next to kwriteconfig5",
    "qsm-pve-direct-gateway enable: test-bind with SO_REUSEADDR so it works right after console traffic",
    "Nested KWin after a host amdgpu reset (CT 119 on 10.30.0.240, 2026-11-08): restart it or move the console sway off the GPU, after the user's decision",
-   "lab/proxmox9/qualify-pve-direct-browser-e2e.cjs: also count the signal-service POST of the standalone profile, not only the native /api2/extjs route"
+   "lab/proxmox9/qualify-pve-direct-browser-e2e.cjs: also count the signal-service POST of the standalone profile, not only the native /api2/extjs route",
+   "qdev-host virgl-gpu: a 3D application in a guest, OVMF/SeaBIOS boot screens, a Windows guest with a virgl driver"
   ],
   "candidate_record": "docs/rdp-candidate-216-20261105.json",
   "window_shadow_decision": "User decision 2026-11-05: the console never turns shadows off automatically. qsm-desktop-effects stays a manual guest command.",
   "av_sync": "docs/rdp-av-sync-20261105.json",
   "full_screen_narrow": "docs/rdp-full-screen-narrow-20261105.json",
   "exact_ui_default_decision": "User decision 2026-11-05: exact UI and video regions are on by default; the user's checkbox and node settings can turn them off.",
-  "deployment": "docs/rdp-deployment-exp231-20261108.json",
-  "publication": "docs/rdp-publication-exp231-20261108.json",
+  "deployment": "docs/rdp-deployment-exp233-20261108.json",
+  "publication": "docs/rdp-publication-exp233-20261108.json",
   "file_manager": {
    "state": "Published as exp223 on 2026-11-07. See docs/rdp-publication-exp223-20261107.json.",
    "records": [
@@ -613,8 +614,9 @@
    ],
    "before_the_next_measurement": "Recreate the LXC 108 fixture, lost when the container stopped, and take a new verify-lxc baseline."
   },
-  "nodes_17_and_240": "0.4.0+stock4.14~exp231 since 2026-11-08 on 172.16.16.17 (gateway enabled with this update) and 10.30.0.240 (gateway), with qdev-host 0.4.0. See docs/rdp-deployment-exp231-20261108.json.",
-  "deployment_exp229": "docs/rdp-deployment-exp229-20261108.json"
+  "nodes_17_and_240": "0.4.0+stock4.14~exp233 with qdev-host 0.5.0 since 2026-11-08 (172.16.16.17 with the gateway enabled, 10.30.0.240 with the gateway).",
+  "deployment_exp229": "docs/rdp-deployment-exp229-20261108.json",
+  "deployment_exp231": "docs/rdp-deployment-exp231-20261108.json"
  },
  "deployment_nodes": [
   "192.168.64.20",

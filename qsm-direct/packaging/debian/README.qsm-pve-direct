@@ -3,7 +3,7 @@ qsm-pve-direct for Proxmox VE 9
 
 `qsm-pve-direct` is a browser-native PVE console transport.
 
-Standalone release 0.4.0+stock4.14~exp231
+Standalone release 0.4.0+stock4.14~exp233
 -----------------------------------------
 For official PVE 9 install matching qsm-pve-direct and
 qsm-pve-direct-standalone debs. Follow README.standalone, installed with the
