@@ -31,6 +31,23 @@ also updates the old saved one-finger selection default.
 
 [Stock4.14~exp223 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223)
 are the current preview, also on the [signed APT repository](https://rdmitry0911.github.io/qsm-rd/).
+
+**On `main`, not yet released (exp224–exp229, 2026-11-08).** The PVE page
+entry is rendered by the shared
+[pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays) package, a
+new dependency, instead of qsm-pve-direct's own `index.html.tpl` diversion, so
+other PVE UI add-ons such as [qdev-host-pve](https://github.com/rdmitry0911/qdev-host)
+coexist in any install order; an upgrade takes the diversion over from older
+versions and removes the retired injector's leftovers. The signal service
+accepts a PVE cluster CA without the key usage extension under Python 3.13
+(clusters first installed with an older PVE got 502 "authority unavailable").
+Enabling QSM Display1 on a VM that already carries the guest channel and input
+arguments no longer adds a second set. A VM policy with codec settings only
+uses the VM's private bus, and one invalid policy no longer stops the terminal
+service for every guest. The next release needs pve-ui-overlays in the APT
+repository; until then install it from its
+[release](https://github.com/rdmitry0911/pve-ui-overlays/releases/tag/v0.1.0).
+Installed on two nodes: [deployment record](docs/rdp-deployment-exp229-20261108.json).
 Since stock4.1, releases preserve static reference detail when the working network target changes.
 The worker budgets raw pictures before encoding, retaining encoder settings;
 a narrow link reduces motion cadence. This extends the earlier isolated-loss
@@ -551,6 +568,19 @@ worker then captures cursor-free video and sends the real cursor shape,
 hotspot and visibility separately; a desktop browser moves its native cursor
 locally. Older compositors retain cursor-in-video capture. Build instructions
 and activation details: [README.native-sway](packaging/lxc/README.native-sway).
+
+Known limits (2026-11-08):
+
+- On a Debian 13 container `enable` stops at the package step: it asks for
+  `plasma-workspace-wayland`, which Plasma 6 on Debian 13 no longer has.
+  Install the embedded `/usr/share/qsm-pve-direct-lxc/qsm-console-guest.deb` and
+  `qsm-qt-input-geometry.deb` in the container with `apt install` without it.
+- The guest package writes its screen-locker defaults with `kwriteconfig5`, which
+  Plasma 6 does not have, so there Plasma's own automatic screen lock stays on.
+- After a host GPU reset (seen once with amdgpu) the nested KWin of a running
+  desktop stops drawing: the cursor still moves over a black picture. Log the
+  session out (or close the console and wait for the grace period) and log in
+  again.
 
 ## Native Proxmox integration (proposed)
 

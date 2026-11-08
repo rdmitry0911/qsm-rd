@@ -4,7 +4,17 @@ Proxmox takes no pull requests: patches go to `pve-devel@lists.proxmox.com`
 with `git send-email`, and every contributor signs a CLA first
 ([developer documentation](https://pve.proxmox.com/wiki/Developer_Documentation)).
 
-## Current status (2026-11-07)
+## Status on 2026-11-08
+
+`main` carries exp224–exp229, not released: the PVE page entry is rendered by the
+shared [pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays) package
+(a new dependency, so the next APT publication must carry it too), and fixes for
+older cluster CAs under Python 3.13, the QSM Display1 dialog and the terminal
+service's VM policies. Exp229 runs on two more nodes, see the
+[deployment record](../docs/rdp-deployment-exp229-20261108.json). The pve-devel
+thread, Bugzilla, the Debian reports and the forum have not been updated for it.
+
+## Status on 2026-11-07
 
 [Stock4.14~exp223](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261107-stock4.14-exp223)
 is the current signed APT preview. It adds a two-pane file manager to the console,

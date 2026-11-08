@@ -18,6 +18,13 @@ audio and input remain encrypted by WebRTC; the gateway's TURN control
 traffic uses plain TCP, without TLS. The patched native integration remains
 a separate upstream preview.
 
+`main` also carries unreleased changes since exp223 (exp224–exp229): the PVE
+page entry now goes through the shared
+[pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays) package, plus
+fixes for older cluster CAs under Python 3.13, the QSM Display1 dialog and the
+terminal service's VM policies. See
+[QSM Direct's README](qsm-direct/README.md#installation-profiles).
+
 The project lives in [`qsm-direct/`](qsm-direct/) -- see its
 [README](qsm-direct/README.md).  Upstream submission material for Proxmox
 (bugzilla feature request, pve-devel RFC, patch series) is kept in

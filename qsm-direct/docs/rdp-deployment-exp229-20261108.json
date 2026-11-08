@@ -1,6 +1,6 @@
 {
  "date": "2026-11-08",
- "status": "Installed on nodes 172.16.16.17 and 10.30.0.240 at the user's request, after rehearsals on the nested PVE lab. Not published.",
+ "status": "Installed on nodes 172.16.16.17 and 10.30.0.240 at the user's request, after rehearsals on the nested PVE lab. Source on qsm-rd main since 2026-11-08; no GitHub release and no APT publication.",
  "version": "0.4.0+stock4.14~exp229",
  "source_commits": [
   "a4ae739",
@@ -49,7 +49,18 @@
    "checks": [
     "CT 119 QSM Direct popup through the gateway: login screen in 2.8 s."
    ],
-   "rollback": "/root/qsm-exp229-install-20261108/ROLLBACK.txt"
+   "rollback": "/root/qsm-exp229-install-20261108/ROLLBACK.txt",
+   "incident_20261108": {
+    "report": "The user logged in on CT 119 console 1 at 10:28:30 EET; about a minute later only the mouse cursor stayed on a black picture, and the Start menu search for a terminal could not be completed.",
+    "cause": "At 10:29:23 EET the host kernel logged an amdgpu ring gfx_0.0.0 timeout from 'sway:cs0' of host pid 10705 (CT pid 2019, the sway of QSM display 1 that hosts the user's nested KWin), a failed ring reset and a MODE2 GPU reset. Both QSM sways logged 'GPU reset (innocent)' and recovered, so the cursor kept drawing; the nested KWin logged nothing after the reset and used 2 s of CPU in ten minutes, so the picture stayed black. The session was logged out at 10:39 by the 300 s grace after the console closed.",
+    "not_the_cause": "The worker's capture path (wlroots screencopy, shm XB24, separate_cursor=0) is the same before and after the upgrade; Konsole and xterm are installed in CT 119.",
+    "recurrence": "The only GPU reset since the node booted on 2026-11-06, and the first session after the upgrade, so the update is not ruled out. A fresh login with a temporary account through the QSM greeter showed the desktop at 8, 20 and 35 s and after two minutes; that account and the grim screenshot tool used for the check were removed afterwards.",
+    "state_after": "Both CT 119 consoles at the login screen; nothing else changed in the container.",
+    "options_offered": [
+     "Restart only the nested KWin when sway reports a GPU reset (Plasma 6 sets QT_WAYLAND_RECONNECT=1, so Qt applications reconnect; GTK applications close)",
+     "Software rendering for the container's console sway, which avoids the GPU but makes KWin draw without it too; needs measuring"
+    ]
+   }
   }
  },
  "lab_rehearsal": [
@@ -58,15 +69,18 @@
   "The lab was returned to its original packages and stopped each time."
  ],
  "findings": [
-  "lab/proxmox9/qualify-pve-direct-browser-e2e.cjs counts the retired /api2/extjs/.../qsm-direct route and fails on every current build after the video check; the copy in tests/ counts the signal-service POST.",
+  "lab/proxmox9/qualify-pve-direct-browser-e2e.cjs counts only the /api2/extjs/.../qsm-direct route of the native preview, so on the standalone profile it fails after the video check; the copy in dist/rdp-hybrid/deployment-exp229-20261108/tests/ counts the signal-service POST.",
   "qsm-pve-direct-lxc enable installs plasma-workspace-wayland, which Debian 13 does not have, so enable fails on a trixie container such as CT 119. The guest there was updated without that package. Not fixed.",
   "qsm-pve-direct-gateway enable test-binds 127.0.0.1:18006 and 18007 without SO_REUSEADDR, so enabling within about a minute after console traffic fails with 'Address already in use'. Not fixed; retry after TIME_WAIT clears.",
   "A container's QSM Direct item is enabled only after an asynchronous settings check; a click before that does nothing. Automation must wait for it.",
-  "CT consoles have two slots, each kept for 300 s after closing."
+  "CT consoles have two slots, each kept for 300 s after closing.",
+  "qsm-console-guest's postinst writes its screen-locker and kscreen defaults with kwriteconfig5, which Plasma 6 (Debian 13) does not have, so they do not apply there and Plasma's own auto-lock stays. Not fixed.",
+  "A nested KWin under the console's sway does not recover from a host amdgpu reset: the cursor keeps drawing and the desktop stays black until the session is logged out (CT 119, 2026-11-08 10:29). Not fixed."
  ],
  "not_checked": [
   "VM 100 and VM 145 desktops after login, and the QSM Console sound path of VM 100 in a browser.",
   "The official qemu-server/pve-container/libpve-guest-common on .17; the native-preview builds are still installed there.",
-  "Version numbers exp224-exp229 are local to this work; they may collide with numbers chosen later in the main qsm sequence."
+  "Version numbers exp224-exp229 are local to this work; they may collide with numbers chosen later in the main qsm sequence.",
+  "A long, actively used CT 119 session with the browser attached after the GPU reset incident."
  ]
 }

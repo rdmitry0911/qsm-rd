@@ -591,7 +591,13 @@
    "Exact UI off path: full-screen narrow-path cadence, which stays as it was",
    "Idle bytes: Opus DTX and capture stamps",
    "HEVC sender cadence and rate, if HEVC is wanted",
-   "TCP-repair recut"
+   "TCP-repair recut",
+   "Publish pve-ui-overlays in the signed APT repository before the next qsm release: qsm-pve-direct depends on it since exp224",
+   "qsm-pve-direct-lxc enable on Debian 13: plasma-workspace-wayland has no candidate there",
+   "qsm-console-guest postinst on Plasma 6: kwriteconfig6 next to kwriteconfig5",
+   "qsm-pve-direct-gateway enable: test-bind with SO_REUSEADDR so it works right after console traffic",
+   "Nested KWin after a host amdgpu reset (CT 119 on 10.30.0.240, 2026-11-08): restart it or move the console sway off the GPU, after the user's decision",
+   "lab/proxmox9/qualify-pve-direct-browser-e2e.cjs: also count the signal-service POST of the standalone profile, not only the native /api2/extjs route"
   ],
   "candidate_record": "docs/rdp-candidate-216-20261105.json",
   "window_shadow_decision": "User decision 2026-11-05: the console never turns shadows off automatically. qsm-desktop-effects stays a manual guest command.",
@@ -607,7 +613,9 @@
     "docs/rdp-deployment-exp219-20261107.json"
    ],
    "before_the_next_measurement": "Recreate the LXC 108 fixture, lost when the container stopped, and take a new verify-lxc baseline."
-  }
+  },
+  "nodes_17_and_240": "0.4.0+stock4.14~exp229 since 2026-11-08 on 172.16.16.17 (official pve-manager, standalone, signalling TCP 18007) and 10.30.0.240 (standalone + gateway); not published. See docs/rdp-deployment-exp229-20261108.json.",
+  "deployment_exp229": "docs/rdp-deployment-exp229-20261108.json"
  },
  "deployment_nodes": [
   "192.168.64.20",
