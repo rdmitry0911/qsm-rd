@@ -413,6 +413,29 @@ for (const type of stockDisplayTypes) {
     }
 }
 
+// A VM moved off the native shared display (dbus-display) already carries the
+// managed guest channel and input arguments. Enabling QSM Display1 adds only
+// the GPU and the display: a second qsm-direct-agent chardev stops QEMU.
+{
+    const existing = '-cpu Skylake-Client-v4,vendor=GenuineIntel -device virtio-tablet' +
+        managedGuestArgs(321) + managedDirectInputArguments;
+    vmWindow.vmconfig.args = existing;
+    const converted = displayOverlay.onGetValues.call(displayPanel, {
+        type: 'virtio-gl', qsm_direct_display1: 1, qsm_direct_rendernode: '/dev/dri/renderD128',
+    });
+    assert.deepEqual(converted, {
+        vga: 'type=none',
+        args: existing + ' -device virtio-vga-gl,id=qsm-direct-gpu' +
+            ' -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128',
+    }, 'existing managed guest and input arguments are not duplicated');
+    vmWindow.vmconfig.args = '-cpu host' + managedDirectInputArguments.split(' -device')[0];
+    const partial = displayOverlay.onGetValues.call(displayPanel, {
+        type: 'std', qsm_direct_display1: 1, qsm_direct_profile: 'cpu',
+    });
+    assert.equal((partial.args.match(/-machine vmport=off/g) || []).length, 1, 'a present input argument is kept once');
+    assert.match(partial.args, /-device usb-kbd,id=qsm-direct-keyboard/, 'a missing input argument is added');
+}
+
 vmWindow.vmconfig.args =
     '-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128';
 assert.deepEqual(

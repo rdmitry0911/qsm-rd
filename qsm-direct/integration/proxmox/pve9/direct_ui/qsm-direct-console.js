@@ -3642,9 +3642,13 @@
                 if (gpu.length !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
                 if (foreignAudio(args)) { throw new Error('unsafe QSM audio arguments'); }
                 const ownedGpu = profile === DISPLAY_PROFILE.virgl ? `${gpuArgument()} ` : '';
-                const ownedAudio = audio ? ` ${AUDIO_ARGUMENTS.join(' ')}` : '';
-                const added = `${ownedGpu}${wanted} ${guestArguments(vmid).join(' ')} ${DIRECT_INPUT_ARGUMENTS.join(' ')}${ownedAudio}`;
-                return args ? `${args} ${added}` : added;
+                // A VM moved off the native shared display (dbus-display) can
+                // already carry the managed guest channel and input arguments.
+                // Add only what is missing: a second qsm-direct-agent chardev
+                // stops QEMU with a duplicate id.
+                const added = addManagedDirectInput(addManagedGuestChannel(
+                    `${args} ${ownedGpu}${wanted}`.trim(), vmid));
+                return audio ? `${added} ${AUDIO_ARGUMENTS.join(' ')}` : added;
             }
             if (!existing.managed && !existing.legacy) {
                 throw new Error('another QEMU display is configured');
