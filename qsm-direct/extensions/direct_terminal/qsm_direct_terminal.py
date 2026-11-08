@@ -155,7 +155,12 @@ def _load_instance(instance_directory: Path, vmid: int, vm_runtime_directory: Pa
         # A native display's address comes from the VMID, never from a policy
         # file or browser request. Ignore a legacy address left by an upgrade.
         values["QSM_DIRECT_QEMU_DBUS_ADDRESS"] = _shared_bus_address(shared_bus_directory, vmid)
-    elif values.get("QSM_DIRECT_QEMU_DBUS_ADDRESS") != expected_bus:
+    elif values.setdefault("QSM_DIRECT_QEMU_DBUS_ADDRESS", expected_bus) != expected_bus:
+        # A policy only refines codec choices, so without an address the
+        # private bus follows from the VMID, as with no policy file. The
+        # Settings writer omits an address it did not find, and a VM moved
+        # off the native shared display keeps such a file. Another address
+        # is still refused.
         raise DirectTerminalError("direct-terminal VM has an invalid Display1 address")
     encoder = values.get("QSM_DIRECT_ENCODER", "")
     if encoder and not _ENCODER_PATTERN.fullmatch(encoder):
@@ -1276,8 +1281,14 @@ class DirectSessionManager:
                 _safe_runtime_directory(self._vm_runtime_directory / str(vmid))
         configured = self._configured_vms()
         for vmid in configured:
-            policy = _load_optional_instance(
-                self._instance_directory, vmid, self._vm_runtime_directory)
+            try:
+                policy = _load_optional_instance(
+                    self._instance_directory, vmid, self._vm_runtime_directory)
+            except DirectTerminalError as error:
+                # One VM's bad policy must not stop the service, and with it
+                # every other VM's and container's console.
+                print(f"qsm-direct-terminal: VM {vmid} Display1 bus not prepared: {error}", file=sys.stderr)
+                continue
             self._dbus.ensure(vmid, policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"])
         return configured
 

@@ -129,6 +129,56 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             self.assertEqual(policy["QSM_DIRECT_CODEC"], "hevc")
             self.assertEqual(policy["QSM_DIRECT_ENCODER_MODE"], "hardware")
 
+    def test_policy_without_address_uses_the_private_bus(self) -> None:
+        # The Settings writer keeps only an address it found, and a VM moved
+        # off the native shared display has a codec-only policy file.
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-codec-policy.") as temporary:
+            root = Path(temporary)
+            path = root / "321.conf"
+            path.write_text("QSM_DIRECT_CODEC=h264\nQSM_DIRECT_ENCODER_MODE=software\n", encoding="utf-8")
+            path.chmod(0o600)
+            policy = _load_optional_instance(root, 321, Path("/run/qsm"))
+            self.assertEqual(policy["QSM_DIRECT_QEMU_DBUS_ADDRESS"], "unix:path=/run/qsm/321/qemu-display1.bus")
+            self.assertEqual(policy["QSM_DIRECT_CODEC"], "h264")
+            path.write_text("QSM_DIRECT_QEMU_DBUS_ADDRESS=unix:path=/run/qsm/999/qemu-display1.bus\n", encoding="utf-8")
+            with self.assertRaises(DirectTerminalError):
+                _load_optional_instance(root, 321, Path("/run/qsm"))
+
+    def test_one_invalid_vm_policy_does_not_stop_the_service(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-bad-policy.") as temporary:
+            root = Path(temporary)
+            instance_directory = root / "instances"
+            pve_config_directory = root / "qemu-server"
+            vm_runtime_directory = root / "display"
+            instance_directory.mkdir(mode=0o700)
+            pve_config_directory.mkdir(mode=0o700)
+            for vmid in (321, 322):
+                config = pve_config_directory / f"{vmid}.conf"
+                config.write_text(
+                    "vga: none\n"
+                    "args: -device virtio-vga-gl,id=qsm-direct-gpu "
+                    f"-display dbus,addr=unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128\n",
+                    encoding="utf-8")
+                os.chmod(config, 0o600)
+            bad = instance_directory / "321.conf"
+            bad.write_text("QSM_DIRECT_QEMU_DBUS_ADDRESS=unix:path=/elsewhere.bus\n", encoding="utf-8")
+            os.chmod(bad, 0o600)
+            manager = DirectSessionManager(
+                instance_directory=instance_directory,
+                runtime_directory=root / "sessions",
+                vm_runtime_directory=vm_runtime_directory,
+                pve_config_directory=pve_config_directory,
+                local_node=None,
+            )
+            children = dict(manager._dbus._children)
+            try:
+                self.assertIn(322, children, "the other VM still gets its bus")
+                self.assertNotIn(321, children, "the VM with a foreign address gets none")
+            finally:
+                manager.close()
+                for process in children.values():
+                    manager._dbus._terminate(process)
+
     @staticmethod
     def _qemu_lookalike(vmid: int) -> subprocess.Popen[bytes]:
         """Run a harmless process whose argv follows PVE's ``kvm -id`` form."""
