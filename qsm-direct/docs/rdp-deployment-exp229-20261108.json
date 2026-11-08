@@ -1,0 +1,72 @@
+{
+ "date": "2026-11-08",
+ "status": "Installed on nodes 172.16.16.17 and 10.30.0.240 at the user's request, after rehearsals on the nested PVE lab. Not published.",
+ "version": "0.4.0+stock4.14~exp229",
+ "source_commits": [
+  "a4ae739",
+  "34af143",
+  "b078864",
+  "e1fb455",
+  "912304d",
+  "66b8a80"
+ ],
+ "what": [
+  "The PVE Console entry is rendered by the shared pve-ui-overlays package instead of qsm-pve-direct's own dpkg-divert, so qsm-pve-direct and qdev-host-pve coexist in any install order. The upgrade takes the template diversion over from older versions and removes the retired injector's bytecode cache and state.",
+  "Signal service: accepts a PVE cluster CA without the key usage extension under Python 3.13 (clusters first installed with an older PVE; every ticket check failed with 502 'authority unavailable').",
+  "PVE UI: enabling QSM Display1 on a VM that already carries the managed guest channel and input arguments (a VM moved off the native dbus-display) no longer appends a second set; QEMU refused the duplicate chardev id.",
+  "Terminal: a VM policy file without a D-Bus address (codec settings only) uses the VM's private bus, as with no file; a VM with an invalid policy is skipped at startup instead of stopping the service for every guest."
+ ],
+ "build": "The same recipe as exp223: core on 172.16.16.200 in /var/tmp/qsm-dev-trixie (browser_bridge and signal unit tests pass in the chroot, Python 3.13), standalone and gateway there, portable Qt guest packages in /var/tmp/qsm-qt-bookworm-20261028 on the controller, then the LXC helper with that Qt deb. Scripts in dist/rdp-hybrid/deployment-exp229-20261108.",
+ "packages_sha256": {
+  "qsm-console-guest_0.4.0+stock4.14~exp229_all.deb": "438dbf8e9c0a850e195f65b9898cab00fbea0ce05f21cae91931f2db030fff59",
+  "qsm-desktop-agent_0.4.0+stock4.14~exp229_amd64.deb": "8e686cbf8f99bab70c733a9bf5663cb4f4ac076b0c645a0b08dc99ac7992ce4c",
+  "qsm-pve-direct-gateway_0.4.0+stock4.14~exp229_all.deb": "534510b3a4d2514504061dabceb3986531f096e6111d55ba49d8691badce0bea",
+  "qsm-pve-direct-lxc_0.4.0+stock4.14~exp229_amd64.deb": "76e63c3d24a5747af72b0575c4c9215faa67bf642feb85aad490b1ae2f4a2c08",
+  "qsm-pve-direct-standalone_0.4.0+stock4.14~exp229_all.deb": "158573560a03a4e19acece46a075fc4ed5f4207854b5e13dc972338162278444",
+  "qsm-pve-direct_0.4.0+stock4.14~exp229_amd64.deb": "365c5b86c0d13cc762b4964337db9e7fc9b45dc875ea3bc076c54c6b74dd6d24",
+  "qsm-qt-input-geometry_0.4.0+stock4.14~exp229_amd64.deb": "6f2f28c0cb7237ead9e7e0823052db33426ec3787d6d59764a64fdd06309ceca"
+ },
+ "nodes": {
+  "172.16.16.17": {
+   "before": "qsm-pve-direct and -lxc exp26 with their own template diversion and the patched pve-manager 9.2.21 left from the older native preview; no standalone profile; VMs 100 and 145 on the native dbus-display.",
+   "after": "Official pve-manager 9.2.21 from download.proxmox.com; qsm-pve-direct, -lxc, -standalone exp229; signalling on TCP 18007; pve-ui-overlays owns the template (overlays qsm-pve-direct, qdev-host). VMs 100 and 145 on QSM Display1 VirGL set through Hardware > Display, VM 100 with the QSM Console sound card; both stopped as before.",
+   "kept": "qemu-server 9.2.11+shared3, pve-container 6.1.14+webrtc2 and libpve-guest-common-perl 6.0.5+webrtc1 are still installed. No guest config uses dbus-display or driver=dbus any more, so the official packages (candidates 9.2.15, 6.1.18, 6.0.7) can replace them with a normal upgrade.",
+   "intermediate": "exp226 was first installed with the patched pve-manager kept, following the guide's section for patched shared-platform nodes; the wrong profile, corrected the same day. During the exp228 step the terminal service failed for about five minutes after VM 100's conversion (codec-only policy, fixed in exp229; restored at once by adding the address line to VM 100's policy).",
+   "checks": [
+    "CT 147 QSM Direct popup through standalone signalling: video in 1.8 and 2.7 s.",
+    "VM 990 with QSM Display1 (CPU) through Hardware > Display: embedded + window 2/2, popup 2/2; switched off again, config identical; with dbus-display also works.",
+    "VM 100 (VirGL, QSM Console audio): popup and embedded + window pass; boots to the Ubuntu login; shut down cleanly.",
+    "VM 145 (VirGL): popup and embedded + window pass; rEFInd, OpenCore and macOS to its login; shut down through the guest agent.",
+    "qdev-host full Hardware-panel cycle on VM 990.",
+    "No amdgpu reset or timeout in the kernel log after the VirGL starts."
+   ],
+   "rollback": "/root/qsm-exp226-install-20261108/ROLLBACK.txt"
+  },
+  "10.30.0.240": {
+   "before": "Official PVE packages; qsm-pve-direct, -standalone, -gateway (enabled), -lxc exp26 with their own template diversion; CT 119 with qsm-console-guest 0.4.0+stock4.13.",
+   "after": "qsm-pve-direct, -standalone, -gateway, -lxc exp229 and pve-ui-overlays 0.1.0 in one transaction; pve-ui-overlays owns the template; the gateway stays enabled and the page carries QSM_DIRECT_ENDPOINT with gateway true. CT 119: qsm-console-guest and qsm-qt-input-geometry exp229, installed from the helper's embedded debs as the helper does it.",
+   "unchanged": "Boot, every VM and CT process, pveproxy and pvedaemon PIDs, dpkg audit empty, no console open during the upgrade. The local signal drop-in 20-local-pve-trust.conf was kept; exp229 no longer needs it.",
+   "checks": [
+    "CT 119 QSM Direct popup through the gateway: login screen in 2.8 s."
+   ],
+   "rollback": "/root/qsm-exp229-install-20261108/ROLLBACK.txt"
+  }
+ },
+ "lab_rehearsal": [
+  "The .17 package set: exp26 + pve-ui-overlays + qdev-host-pve (alongside-legacy), upgrade, takeover, reboot; then the official pve-manager and the standalone profile; consoles of VM 104 (private QSM Display1) and VM 106 (dbus-display) pass, also after reboots.",
+  "The 10.30.0.240 package set: official PVE, exp26 standalone + gateway enabled + lxc, then the exp229 transaction with pve-ui-overlays; consoles through the gateway pass before, after, after a gateway off/on cycle and after a reboot.",
+  "The lab was returned to its original packages and stopped each time."
+ ],
+ "findings": [
+  "lab/proxmox9/qualify-pve-direct-browser-e2e.cjs counts the retired /api2/extjs/.../qsm-direct route and fails on every current build after the video check; the copy in tests/ counts the signal-service POST.",
+  "qsm-pve-direct-lxc enable installs plasma-workspace-wayland, which Debian 13 does not have, so enable fails on a trixie container such as CT 119. The guest there was updated without that package. Not fixed.",
+  "qsm-pve-direct-gateway enable test-binds 127.0.0.1:18006 and 18007 without SO_REUSEADDR, so enabling within about a minute after console traffic fails with 'Address already in use'. Not fixed; retry after TIME_WAIT clears.",
+  "A container's QSM Direct item is enabled only after an asynchronous settings check; a click before that does nothing. Automation must wait for it.",
+  "CT consoles have two slots, each kept for 300 s after closing."
+ ],
+ "not_checked": [
+  "VM 100 and VM 145 desktops after login, and the QSM Console sound path of VM 100 in a browser.",
+  "The official qemu-server/pve-container/libpve-guest-common on .17; the native-preview builds are still installed there.",
+  "Version numbers exp224-exp229 are local to this work; they may collide with numbers chosen later in the main qsm sequence."
+ ]
+}
