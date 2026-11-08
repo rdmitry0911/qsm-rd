@@ -1,0 +1,38 @@
+{
+ "date": "2026-11-08",
+ "status": "published at the user's request",
+ "version": "0.4.0+stock4.14~exp231",
+ "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp231",
+ "apt_repository": "https://rdmitry0911.github.io/qsm-rd/",
+ "workflow_run": 42483732367,
+ "what": "The PVE page entry through pve-ui-overlays, routes on the TCP 8006 gateway, and the signal, Display1 dialog and terminal policy fixes of exp224-exp229. The repository now also serves pve-ui-overlays 0.1.0, qdev-host and qdev-host-pve 0.4.0.",
+ "binaries": "The seven QSM debs and three companions installed on 172.16.16.17, 192.168.64.20 and 10.30.0.240, unchanged. See docs/rdp-deployment-exp231-20261108.json.",
+ "public_history": {
+  "how": "The same filter as for exp223 (upstream/review-stock4.14-exp231-2026-11-08/public-history-filter.sh). Public main fast-forwards from the exp229 records (e819c40).",
+  "commit_map_local_to_public": {
+   "5f1c22e": "79df885",
+   "4b3a1f9": "7fe7d7d"
+  },
+  "evidence_on_the_release": "review-stock4.14-exp231-20261108.tar.gz: dist/rdp-hybrid/deployment-exp231-20261108."
+ },
+ "checks_before_publication": {
+  "secrets": "All text files and archives of the release, 1448 files: no credentials or keys; the only pattern hit is the TURN config template line in the gateway source. No public node addresses in the evidence.",
+  "source_against_build": "All 1403 files of the build archive identical to public commit 79df885; the public tree has 10 more old review artifacts the build leaves out.",
+  "tests": "Browser bridge 283 and signal/gateway 48 in the isolated build; APT manifest tests on the controller."
+ },
+ "checks_after_publication": {
+  "release_download": "All 23 assets identical to the uploaded files; signature and checksums verified with the public key.",
+  "live_apt": "verify.py against the live URL: signed update, all 95 packages downloaded and matched, only 11 allowlisted packages, tampered metadata and a changed deb rejected.",
+  "nodes": "The signed source and pin file (with pve-ui-overlays, qdev-host, qdev-host-pve) configured on all three nodes: installed versions equal the repository candidates, nothing to upgrade."
+ },
+ "companion_releases": {
+  "qdev-host": "https://github.com/rdmitry0911/qdev-host/releases/tag/v0.4.0",
+  "pve-ui-overlays": "https://github.com/rdmitry0911/pve-ui-overlays/releases/tag/v0.1.0 (unchanged)"
+ },
+ "repositories_made_public": "pve-ui-overlays and qdev-host, at the user's word, before this release",
+ "not_done": {
+  "forum": "Not posted: the texts are ready (forum-draft.json); the agent has no forum session.",
+  "other_channels": "pve-devel, Bugzilla and Debian not updated; not requested.",
+  "guests": "Guest packages unchanged on the nodes; the exp231 guest debs are built from the exp223 guest source."
+ }
+}

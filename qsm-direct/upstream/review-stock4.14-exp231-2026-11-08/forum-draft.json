@@ -1,0 +1,11 @@
+{
+  "thread": 187042,
+  "status": "prepared_not_posted",
+  "reason": "The user asked for the texts; posting needs the user's forum account, which the agent does not have.",
+  "drafts": {
+    "topic_187042_update": "upstream/forum-stock4.14-exp231-update-2026-11-08.txt",
+    "new_topic_qdev_host": "https://github.com/rdmitry0911/qdev-host/blob/main/docs/forum-qdev-host-2026-11-08.txt",
+    "new_topic_pve_ui_overlays": "https://github.com/rdmitry0911/pve-ui-overlays/blob/main/docs/forum-pve-ui-overlays-2026-11-08.txt"
+  },
+  "topic_187042_sha256": "51b963561b80a729c8a522becc7a4bd9de55c185384a153e794d6d9c1a163eb5"
+}
