@@ -74,10 +74,16 @@ class GuestManifestTests(unittest.TestCase):
             assets.append({'package': name, 'version': version, 'architecture': arch,
                            'filename': f'{name}_{version}_{arch}.deb', 'sha256': 'b' * 64})
         publisher.validate_manifest(value)
-        # A companion alone is no QSM release, and it keeps its architecture.
+        # Companions may update on their own; a partial QSM set still may not.
         alone = copy.deepcopy(value)
         alone['releases'][-1]['assets'] = [a for a in assets if a['package'] in publisher.COMPANION_PACKAGES]
-        with self.assertRaises(ValueError): publisher.validate_manifest(alone)
+        publisher.validate_manifest(alone)
+        partial = copy.deepcopy(value)
+        partial['releases'][-1]['assets'] = [a for a in assets if a['package'] in publisher.COMPANION_PACKAGES] + \
+            [a for a in assets if a['package'] == 'qsm-pve-direct']
+        with self.assertRaises(ValueError): publisher.validate_manifest(partial)
+        empty = copy.deepcopy(value); empty['releases'][-1]['assets'] = []
+        with self.assertRaises(ValueError): publisher.validate_manifest(empty)
         wrong = copy.deepcopy(value)
         asset = next(a for a in wrong['releases'][-1]['assets'] if a['package'] == 'qdev-host')
         asset.update(architecture='all', filename='qdev-host_9.9.9-test_all.deb')

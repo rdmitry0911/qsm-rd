@@ -65,11 +65,15 @@ def validate_manifest(manifest):
             raise ValueError("invalid source commit")
         all_names = [a["package"] for a in release["assets"]]
         names = set(all_names) - set(COMPANION_PACKAGES)
-        if names != LEGACY_PACKAGES and names != set(PACKAGES):
-            raise ValueError("a release must contain the legacy packages or the complete guest-enabled set")
+        # A companion can also update on its own, without a new QSM build.
+        if names and names != LEGACY_PACKAGES and names != set(PACKAGES):
+            raise ValueError("a release must contain the legacy packages, the complete guest-enabled set, "
+                             "or only companion packages")
+        if not all_names:
+            raise ValueError("a release must contain packages")
         if len(all_names) != len(set(all_names)):
             raise ValueError("duplicate package")
-        if len({a["version"] for a in release["assets"] if a["package"] in PACKAGES}) != 1:
+        if names and len({a["version"] for a in release["assets"] if a["package"] in PACKAGES}) != 1:
             raise ValueError("QSM packages must have matching versions")
         for asset in release["assets"]:
             name, version, arch = (asset[k] for k in ("package", "version", "architecture"))

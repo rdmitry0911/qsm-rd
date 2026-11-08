@@ -39,5 +39,17 @@
   "A 3D application in a guest on virgl-gpu (no Mesa in the test guest).",
   "virgl-gpu with OVMF or SeaBIOS boot screens (the test VM boots its kernel directly).",
   "virgl-gpu on .20 and .240 (packages installed, no VM configured with it)."
- ]
+ ],
+ "vm103_192_168_64_20": {
+  "request": "The user asked for virgl-gpu on VM 103 (Kubuntu, OVMF, 16 GiB) after their own attempt failed.",
+  "their_attempt": "virglgpu0 added from the Hardware panel at 16:34; two starts failed with \"'dbus-display' needs a graphical display, not 'none'\": the VM was on the native shared display of the older preview (dbus-display: 1, audio0 driver=dbus), which qemu-server starts only with a graphical Display; the GPU was removed again at 16:37.",
+  "done": [
+   "Config saved to /root/qsm-exp230-install-20261108/vm103/103.conf.before-virgl.",
+   "The QSM Display1 VirGL args were already present; dbus-display and the native audio0 removed; QSM Console sound added through Hardware > Add > Audio Device.",
+   "virglgpu0 added (vga=1, render node NVIDIA RTX 3080 renderD128): vhost-user-vga behind qdev-rp0, memfd backend 16384 MiB, QSM's virtio-vga-gl replaced."
+  ],
+  "found": "The first start failed in the GPU process with 'Failed to initialize virgl': the unit's DevicePolicy allowed only DRM devices, and NVIDIA's EGL also opens /dev/nvidia*. QEMU then logged 'failed to read msg header' without end (about 3.5 million suppressed journal lines in 30 s) until the VM was stopped. Confirmed with a temporary drop-in, fixed in qdev-host 0.5.1, which also refuses a primary GPU on a dbus-display VM and a second device on one root port.",
+  "result": "With qdev-host 0.5.1 (no drop-in): after a clean shutdown and start the GPU process stays up, nvidia-smi lists /usr/lib/kvm/vhost-user-gpu (99 MiB), the guest has virtio-gpu +virgl with 2 capability sets, KWin and SDDM use Mesa on the virtio-gpu render node, the QSM popup shows the SDDM login (1280x800, 1.2 s, NVENC); no msg-header lines.",
+  "state": "VM 103 running at the SDDM login, nobody logged in."
+ }
 }
