@@ -65,5 +65,31 @@ class GuestManifestTests(unittest.TestCase):
         asset.update(architecture='all',filename=f"qsm-pve-direct-lxc_{asset['version']}_all.deb")
         with self.assertRaises(ValueError):publisher.validate_manifest(value)
 
+    def test_companion_packages_keep_their_own_versions(self):
+        value = self.extended()
+        assets = value['releases'][-1]['assets']
+        for name, version, arch in (('pve-ui-overlays', '0.1.0', 'all'), ('qdev-host', '0.4.0', 'amd64'),
+                                    ('qdev-host-pve', '0.4.0', 'all')):
+            assets.append({'package': name, 'version': version, 'architecture': arch,
+                           'filename': f'{name}_{version}_{arch}.deb', 'sha256': 'b' * 64})
+        publisher.validate_manifest(value)
+        # A companion alone is no QSM release, and it keeps its architecture.
+        alone = copy.deepcopy(value)
+        alone['releases'][-1]['assets'] = [a for a in assets if a['package'] in publisher.COMPANION_PACKAGES]
+        with self.assertRaises(ValueError): publisher.validate_manifest(alone)
+        wrong = copy.deepcopy(value)
+        asset = next(a for a in wrong['releases'][-1]['assets'] if a['package'] == 'qdev-host')
+        asset.update(architecture='all', filename='qdev-host_0.4.0_all.deb')
+        with self.assertRaises(ValueError): publisher.validate_manifest(wrong)
+        # The same companion file cannot be published twice.
+        again = copy.deepcopy(value)
+        second = copy.deepcopy(again['releases'][-1]); second['tag'] = 'v0.4.0-test-again'
+        for asset in second['assets']:
+            if asset['package'] in publisher.PACKAGES:
+                asset['version'] = '0.4.0+test-again'
+                asset['filename'] = f"{asset['package']}_0.4.0+test-again_{asset['architecture']}.deb"
+        again['releases'].append(second)
+        with self.assertRaises(ValueError): publisher.validate_manifest(again)
+
 
 if __name__=='__main__':unittest.main()

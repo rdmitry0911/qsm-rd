@@ -32,6 +32,14 @@ PACKAGES = {
     "qsm-qt-input-geometry": ("amd64",),
 }
 LEGACY_PACKAGES = set(PACKAGES) - {"qsm-desktop-agent", "qsm-qt-input-geometry"}
+# Packages of the same author a QSM release may carry next to its own, each with
+# its own version: pve-ui-overlays is a dependency of qsm-pve-direct since exp224,
+# qdev-host is the PVE device host that shares the page and the gateway with it.
+COMPANION_PACKAGES = {
+    "pve-ui-overlays": ("all",),
+    "qdev-host": ("amd64",),
+    "qdev-host-pve": ("all",),
+}
 
 
 def run(*args, **kwargs):
@@ -55,16 +63,18 @@ def validate_manifest(manifest):
             raise ValueError("unsafe release tag")
         if not re.fullmatch(r"[0-9a-f]{40}", release["source_commit"]):
             raise ValueError("invalid source commit")
-        names = {a["package"] for a in release["assets"]}
+        all_names = [a["package"] for a in release["assets"]]
+        names = set(all_names) - set(COMPANION_PACKAGES)
         if names != LEGACY_PACKAGES and names != set(PACKAGES):
             raise ValueError("a release must contain the legacy packages or the complete guest-enabled set")
-        if len(release["assets"]) != len(names):
+        if len(all_names) != len(set(all_names)):
             raise ValueError("duplicate package")
-        if len({a["version"] for a in release["assets"]}) != 1:
+        if len({a["version"] for a in release["assets"] if a["package"] in PACKAGES}) != 1:
             raise ValueError("QSM packages must have matching versions")
         for asset in release["assets"]:
             name, version, arch = (asset[k] for k in ("package", "version", "architecture"))
-            if arch not in PACKAGES[name] or not re.fullmatch(r"[0-9][0-9A-Za-z.+~:-]*", version):
+            allowed = PACKAGES.get(name) or COMPANION_PACKAGES.get(name) or ()
+            if arch not in allowed or not re.fullmatch(r"[0-9][0-9A-Za-z.+~:-]*", version):
                 raise ValueError("unexpected architecture or version")
             if names == set(PACKAGES) and name == 'qsm-pve-direct-lxc' and arch != 'amd64':
                 raise ValueError('guest-enabled LXC helper contains architecture-specific payloads')
