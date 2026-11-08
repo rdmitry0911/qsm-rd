@@ -2323,11 +2323,17 @@ class BrowserInputState:
 
     Reliable delivery is not timely delivery: a late keyup can leave Linux
     autorepeating a short press for seconds. Fresh browser snapshots lease
-    held keys/buttons for 200 ms. Expiry only releases; a stale snapshot can
-    never manufacture a new press. Older clients retain edge-only operation.
+    held keys for 200 ms. Mouse buttons have no autorepeat, and a late
+    release only ends a drag later, while an early one cuts a resize or a
+    selection short: they are leased for 2 s, which a TURN/TCP path's
+    retransmission stalls (several hundred ms at 100+ ms RTT) do not reach.
+    A snapshot without the button still releases it at once. Expiry only
+    releases; a stale snapshot can never manufacture a new press. Older
+    clients retain edge-only operation.
     """
 
     LEASE_SECONDS = 0.2
+    BUTTON_LEASE_SECONDS = 2.0
     SNAPSHOT_SECONDS = 0.05
 
     def __init__(self, egress: UnixInputEgress, *, now: Callable[[], float] = time.monotonic,
@@ -2387,11 +2393,12 @@ class BrowserInputState:
             buttons = self._snapshot_items(value["buttons"], 1, 5)
             self.leased = True
             self.snapshots += 1
-            for opcode, held, reported in ((INPUT_KEYBOARD, self._keys, keys),
-                                            (INPUT_MOUSE_BUTTON, self._buttons, buttons)):
+            for opcode, held, reported, lease in ((INPUT_KEYBOARD, self._keys, keys, self.LEASE_SECONDS),
+                                                   (INPUT_MOUSE_BUTTON, self._buttons, buttons,
+                                                    self.BUTTON_LEASE_SECONDS)):
                 for key in list(held):
                     if key in reported:
-                        held[key] = now + self.LEASE_SECONDS
+                        held[key] = now + lease
                     else:
                         self._release(opcode, key)
                         del held[key]
@@ -2422,7 +2429,7 @@ class BrowserInputState:
             if action == 2:
                 self.clicks += 1
             elif action == 1:
-                self._buttons[key] = now + self.LEASE_SECONDS if self.leased else float("inf")
+                self._buttons[key] = now + self.BUTTON_LEASE_SECONDS if self.leased else float("inf")
             else:
                 self._buttons.pop(key, None)
             return ack
@@ -2459,7 +2466,8 @@ class BrowserInputState:
         else:
             return
         if down:
-            held[key] = now + self.LEASE_SECONDS if self.leased else float("inf")
+            lease = self.LEASE_SECONDS if opcode == INPUT_KEYBOARD else self.BUTTON_LEASE_SECONDS
+            held[key] = now + lease if self.leased else float("inf")
         else:
             held.pop(key, None)
 

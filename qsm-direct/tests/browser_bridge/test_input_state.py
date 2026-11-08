@@ -8,7 +8,7 @@ from pathlib import Path
 from extensions.browser_bridge.qsm_browser_bridge import (
     BrowserInputState, UnixInputEgress, BridgeError, INPUT_HEADER, INPUT_KEYBOARD,
     BrowserWebRtcBridge,
-    INPUT_KEY_TAP, INPUT_MOUSE_ACTION, INPUT_MOUSE_POSITION,
+    INPUT_KEY_TAP, INPUT_MOUSE_ACTION, INPUT_MOUSE_BUTTON, INPUT_MOUSE_POSITION,
 )
 
 
@@ -213,10 +213,29 @@ class InputStateTests(unittest.TestCase):
     def test_button_lease_and_ownership_use_the_same_safety_boundary(self):
         self.snapshot(self.peer)
         self.peer.handle('{"op":"mouse_button","button":1,"down":true}')
-        self.clock += .21
+        self.clock += BrowserInputState.BUTTON_LEASE_SECONDS + .01
         self.peer.expire()
         self.assertEqual(self.peer.expired_buttons, 1)
         self.assertEqual([p[-1] for _, p in self.sent], [1, 0])
+
+    def test_drag_survives_a_transport_stall_that_expires_a_key(self):
+        # TURN over TCP 8006 at ~120 ms RTT: a retransmission holds back the
+        # 50 ms snapshots for several hundred ms. A held key must still stop
+        # (autorepeat), a held button must not cut the drag short.
+        self.snapshot(self.peer)
+        self.key(self.peer, True)
+        self.mouse(action=1)
+        self.clock += .9
+        self.peer.expire()
+        self.assertEqual((self.peer.expired_keys, self.peer.expired_buttons), (1, 0))
+        self.snapshot(self.peer, buttons=[1])
+        self.clock += 1.9
+        self.peer.expire()
+        self.assertEqual(self.peer.expired_buttons, 0, 'a renewed drag lasts another lease')
+        self.snapshot(self.peer)
+        self.assertFalse(self.peer._buttons, 'a snapshot without the button releases it at once')
+        self.assertEqual(self.sent[-1][1][5], INPUT_MOUSE_BUTTON)
+        self.assertEqual(self.sent[-1][1][-1], 0)
 
     def test_atomic_tap_is_one_local_packet_with_no_held_character(self):
         self.peer.handle('{"op":"key_tap","key":30,"modifiers":[42]}')
@@ -299,7 +318,7 @@ class InputStateTests(unittest.TestCase):
     def test_drag_expiry_never_represses_and_final_coordinate_is_applied(self):
         self.snapshot(self.peer)
         self.mouse(action=1)
-        self.clock += .21
+        self.clock += BrowserInputState.BUTTON_LEASE_SECONDS + .01
         self.snapshot(self.peer,buttons=[1])
         self.assertEqual(self.peer.expired_buttons,1)
         self.assertFalse(self.peer._buttons)
