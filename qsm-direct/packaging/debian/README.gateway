@@ -135,7 +135,7 @@ passwords/tickets, SDP or TURN secrets are logged by the gateway tools.
 
 Other node services on TCP 8006
 -------------------------------
-Since exp230 the gateway also publishes other HTTPS services of the node under a
+Since exp231 the gateway also publishes other HTTPS services of the node under a
 path prefix of TCP 8006, so a browser behind the same single forwarded port
 reaches them too. A package ships one JSON file in
 /usr/share/qsm-pve-direct-gateway/routes.d/; the administrator may add one, or
@@ -153,8 +153,10 @@ stays the service's business: the gateway only forwards, with X-Forwarded-For.
 An invalid file is skipped with a warning and never stops the gateway.
 
 Installing or removing a package with a route file applies it at once (dpkg
-trigger, HAProxy reload, no pveproxy restart, open consoles stay). After editing
-a file under /etc, apply it with:
+trigger, HAProxy reload, no pveproxy restart, open consoles stay). Only the route
+lines of /var/lib/qsm-pve-direct-gateway/haproxy.cfg change; what was added there
+by hand after enable, such as bind lines for more node addresses, stays as it is.
+After editing a file under /etc, apply it with:
 
   qsm-pve-direct-gateway refresh
   qsm-pve-direct-gateway routes       # what is published

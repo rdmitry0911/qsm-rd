@@ -189,6 +189,26 @@ class RouteTests(unittest.TestCase):
         acl = config[config.index('    acl route_0'):config.index('    default_backend pve')]
         self.assertEqual(config.replace(acl, ''), plain + config[config.index('\nbackend route_0') + 1:])
 
+    def test_route_edit_keeps_what_the_administrator_added(self):
+        # A node of the project carried extra bind lines for its other addresses;
+        # a route change must not drop them (2026-11-08, 10.30.0.240).
+        routes = [('qdev-host', 'qdev-host', 8017)]
+        plain = tool.haproxy_config(18007, '192.0.2.5')
+        self.assertEqual(tool.with_routes(plain, routes), tool.haproxy_config(18007, '192.0.2.5', routes))
+        self.assertEqual(tool.with_routes(plain, []), plain)
+        custom = plain.replace('    bind [::]:8006 v6only\n',
+                               '    bind [::]:8006 v6only\n    # other node addresses\n    bind 198.51.100.7:8006\n')
+        added = tool.with_routes(custom, routes)
+        self.assertIn('    bind 198.51.100.7:8006\n', added)
+        self.assertIn('backend route_0\n', added)
+        self.assertEqual(tool.with_routes(added, routes), added)
+        self.assertEqual(tool.with_routes(added, []), custom)
+        two = tool.with_routes(added, [('a-tool', 'a-tool', 9000), ('qdev-host', 'qdev-host', 8017)])
+        self.assertEqual(two.count('\nbackend route_'), 2)
+        self.assertEqual(tool.with_routes(two, []), custom)
+        with self.assertRaises(ValueError):
+            tool.with_routes(plain.replace('    default_backend pve\n', ''), routes)
+
     def test_write_haproxy_checks_the_candidate_and_skips_identical_content(self):
         with tempfile.TemporaryDirectory() as directory:
             state = Path(directory)

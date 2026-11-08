@@ -136,16 +136,55 @@ def routes(directories=ROUTES_DIRS, reader=_read_root_json, warn=None):
     return result
 
 
-def haproxy_config(signal_port, address, extra_routes=()):
-    acls = ''.join(f'    acl route_{i} path_beg /{name}/\n    use_backend route_{i} if route_{i}\n'
+def route_acls(extra_routes):
+    return ''.join(f'    acl route_{i} path_beg /{name}/\n    use_backend route_{i} if route_{i}\n'
                    for i, (_route_id, name, _port) in enumerate(extra_routes))
-    backends = ''.join(f'''backend route_{i}
+
+
+def route_backends(extra_routes):
+    return ''.join(f'''backend route_{i}
     # {route_id}
     mode http
     timeout tunnel 1h
     http-request replace-path ^/{name}/(.*)$ /\\1
     server local 127.0.0.1:{port} ssl verify required ca-file {{RUN}}/ca.pem
 ''' for i, (route_id, name, port) in enumerate(extra_routes)).replace('{RUN}', str(RUN))
+
+
+_ROUTE_LINE = re.compile(r'    (acl route_\d+ path_beg \S+|use_backend route_\d+ if route_\d+)\n')
+
+
+def with_routes(config, extra_routes):
+    """The existing HAProxy configuration with only its route lines replaced.
+
+    Everything else stays byte for byte, including what an administrator added
+    after enable (more bind addresses, for example)."""
+    lines = config.splitlines(keepends=True)
+    kept, skipping = [], False
+    for line in lines:
+        if re.match(r'backend route_\d+\n\Z', line):
+            skipping = True
+            continue
+        if skipping and line[:1] in (' ', '\t'):
+            continue
+        skipping = False
+        if not _ROUTE_LINE.fullmatch(line):
+            kept.append(line)
+    text = ''.join(kept)
+    # The route ACLs belong to the HTTPS frontend, right before its PVE default.
+    start = text.find('\nfrontend https\n')
+    anchor = text.find('    default_backend pve\n', start) if start >= 0 else -1
+    if anchor < 0:
+        raise ValueError('frontend https with default_backend pve not found; edit the HAProxy configuration by hand')
+    text = text[:anchor] + route_acls(extra_routes) + text[anchor:]
+    if not text.endswith('\n'):
+        text += '\n'
+    return text + route_backends(extra_routes)
+
+
+def haproxy_config(signal_port, address, extra_routes=()):
+    acls = route_acls(extra_routes)
+    backends = route_backends(extra_routes)
     return f'''global
     maxconn 1024
     user haproxy
@@ -195,10 +234,8 @@ backend pve
 
 
 def render_haproxy():
-    """The gateway's HAProxy configuration from its saved settings and the current routes."""
-    config = json.loads((ETC / 'gateway.json').read_text())
-    signal = json.loads((ETC / 'signal.json').read_text())
-    return haproxy_config(int(signal.get('port', 18007)), config['relay_ipv4'], routes()).encode()
+    """The installed HAProxy configuration with the current routes."""
+    return with_routes((STATE / 'haproxy.cfg').read_text(), routes()).encode()
 
 
 def write_haproxy(data):
