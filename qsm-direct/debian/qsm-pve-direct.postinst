@@ -5,6 +5,13 @@ case "${1:-}" in
         install -d -o root -g root -m 0700 /etc/qsm-pve-direct
         install -d -o root -g root -m 0750 /etc/qsm-pve-direct/instances.d /etc/qsm-pve-direct/containers.d
         install -d -o root -g root -m 0700 /run/qsm-pve-direct
+        # The page injector this package used to ship is retired (pve-ui-overlays
+        # renders the page now). dpkg removes only the files it shipped, so drop
+        # what that helper created at run time: its bytecode cache and state.
+        rm -rf /usr/lib/qsm-pve-direct/pve9-ui/__pycache__
+        rmdir /usr/lib/qsm-pve-direct/pve9-ui 2>/dev/null || true
+        rm -f /var/lib/qsm-pve-direct/pve9-ui/state.json
+        rmdir /var/lib/qsm-pve-direct/pve9-ui 2>/dev/null || true
         pve-ui-overlays reconcile || echo 'QSM: UI overlay inactive; inspect pve-ui-overlays status' >&2
         if [ -d /run/systemd/system ]; then
             systemctl daemon-reload
@@ -12,9 +19,6 @@ case "${1:-}" in
             deb-systemd-helper enable qsm-pve-direct-cert-reload.timer
             deb-systemd-invoke start qsm-pve-direct-cert-reload.timer
         fi
-        ;;
-    triggered)
-        pve-ui-overlays reconcile || true
         ;;
 esac
 #DEBHELPER#

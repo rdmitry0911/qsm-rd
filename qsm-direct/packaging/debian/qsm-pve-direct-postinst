@@ -40,6 +40,13 @@ case "${1:-}" in
             /usr/lib/qsm-pve-direct/bin/qsm-direct-cert-reload || true
             systemctl enable --now qsm-pve-direct-cert-reload.timer || true
         fi
+        # The page injector this package used to ship is retired (pve-ui-overlays
+        # renders the page now). dpkg removes only the files it shipped, so drop
+        # what that helper created at run time: its bytecode cache and state.
+        rm -rf /usr/lib/qsm-pve-direct/pve9-ui/__pycache__
+        rmdir /usr/lib/qsm-pve-direct/pve9-ui 2>/dev/null || true
+        rm -f /var/lib/qsm-pve-direct/pve9-ui/state.json
+        rmdir /var/lib/qsm-pve-direct/pve9-ui 2>/dev/null || true
         # The overlay descriptor is rendered by pve-ui-overlays (its dpkg trigger
         # does this too); calling it here makes the Console entry immediate.
         /usr/sbin/pve-ui-overlays reconcile || echo "qsm-pve-direct: PVE Console UI was not changed" >&2
