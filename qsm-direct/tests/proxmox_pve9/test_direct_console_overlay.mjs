@@ -473,6 +473,35 @@ assert.deepEqual(
     'disabling the old unlabelled QSM GPU must remove it completely',
 );
 
+// qdev-host's virgl-gpu plugin puts an out-of-process GPU (vhost-user-vga) in
+// args in place of QSM's own. The VirGL display keeps it as managed; QSM must
+// not add its GPU next to it, and must not drop the display it needs.
+{
+    const externalGpu = ' -chardev socket,id=qdev-gpu0,path=/run/qdev-host/321-gpu0/gpu.sock' +
+        ' -device vhost-user-vga,id=gpu0,chardev=qdev-gpu0,bus=qdev-rp0,max_outputs=1,xres=1280,yres=800';
+    const virglDisplay = ' -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128';
+    const managed = '-cpu host' + virglDisplay + managedGuestArgs(321) + managedDirectInputArguments + externalGpu;
+    vmWindow.vmconfig.args = managed;
+    assert.deepEqual(displayOverlay.onGetValues.call(displayPanel, {
+        type: 'none', qsm_direct_display1: 1, qsm_direct_profile: 'virgl', qsm_direct_rendernode: '/dev/dri/renderD128',
+    }), { vga: 'type=none' }, 'saving VirGL with a qdev-host GPU leaves args as they are (no QSM GPU added)');
+    for (const values of [
+        { type: 'std', qsm_direct_display1: 1, qsm_direct_profile: 'cpu' },
+        { type: 'std', qsm_direct_display1: 0 },
+    ]) {
+        assert.throws(() => displayOverlay.onGetValues.call(displayPanel, values), /qdev-host/,
+            'the CPU profile or no display would hide the qdev-host GPU');
+    }
+    vmWindow.vmconfig.args = '-cpu host' + externalGpu;
+    const added = displayOverlay.onGetValues.call(displayPanel, {
+        type: 'none', qsm_direct_display1: 1, qsm_direct_profile: 'virgl', qsm_direct_rendernode: '/dev/dri/renderD128',
+    });
+    assert.doesNotMatch(added.args, /virtio-vga-gl/, 'no QSM GPU next to a qdev-host GPU');
+    assert.match(added.args, /-display dbus,addr=unix:path=\/run\/qsm-pve-direct\/321\/qemu-display1\.bus,gl=on/);
+    assert.equal((added.args.match(/(?:^|\s)-device\s+vhost-user-vga,/g) || []).length, 1);
+    vmWindow.vmconfig.args = '-cpu host';
+}
+
 for (const unsafeArgs of [
     '-device virtio-vga-gl,id=foreign -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128',
     '-device virtio-vga-gl,id=qsm-direct-gpu -device virtio-vga-gl,id=qsm-direct-gpu -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=on,rendernode=/dev/dri/renderD128',

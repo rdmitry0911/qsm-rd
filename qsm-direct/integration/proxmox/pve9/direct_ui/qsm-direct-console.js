@@ -3544,6 +3544,14 @@
     const virtioVgaGlArguments = (args) => args.match(
         /(?:^|\s)-device\s+virtio-vga-gl(?:,[^\s]+)?(?=\s|$)/g,
     ) || [];
+    // A VirGL GPU that qdev-host runs out of process (QEMU vhost-user-gpu, its
+    // virgl-gpu plugin) and writes into args itself. Under the VirGL display it
+    // takes the place of QSM's own GPU; the display needs gl=on to show it.
+    const externalGpuArguments = (args) => args.match(
+        /(?:^|\s)-device\s+vhost-user-(?:vga|gpu-pci),id=[A-Za-z][A-Za-z0-9_-]{0,31},chardev=qdev-[^\s]+(?=\s|$)/g,
+    ) || [];
+    const EXTERNAL_GPU_MESSAGE = 'this VM\'s GPU comes from qdev-host (vhost-user-gpu) and needs the VirGL display: '
+        + 'remove the qdev-host GPU in the Hardware panel first';
     const normaliseArgument = (value) => value.trim();
     const containsArgument = (args, value) => new RegExp(
         `(?:^|\\s)${escapeRegExp(value)}(?=\\s|$)`,
@@ -3602,6 +3610,11 @@
                     input: managedDirectInput(args), audio: Boolean(virglMatch[2]), profile: DISPLAY_PROFILE.virgl,
                     rendernode: virglMatch[1] };
             }
+            if (gpu.length === 0 && externalGpuArguments(args).length === 1) {
+                return { managed: true, legacy: false, legacyGpu: false, externalGpu: true,
+                    guest: managedGuestChannel(args, vmid), input: managedDirectInput(args),
+                    audio: Boolean(virglMatch[2]), profile: DISPLAY_PROFILE.virgl, rendernode: virglMatch[1] };
+            }
             if (gpu.length === 0) {
                 return { managed: false, legacy: true, legacyGpu: false, guest: managedGuestChannel(args, vmid),
                     input: managedDirectInput(args), audio: Boolean(virglMatch[2]), profile: DISPLAY_PROFILE.virgl,
@@ -3637,11 +3650,13 @@
         const gpu = virtioVgaGlArguments(args).map(normaliseArgument);
         audio = audio === undefined ? Boolean(existing.audio) : Boolean(audio);
         const wanted = displayArgument(vmid, profile, rendernode, audio);
+        const external = externalGpuArguments(args).length > 0;
+        if (external && (!want || profile !== DISPLAY_PROFILE.virgl)) { throw new Error(EXTERNAL_GPU_MESSAGE); }
         if (want) {
             if (count === 0) {
                 if (gpu.length !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
                 if (foreignAudio(args)) { throw new Error('unsafe QSM audio arguments'); }
-                const ownedGpu = profile === DISPLAY_PROFILE.virgl ? `${gpuArgument()} ` : '';
+                const ownedGpu = profile === DISPLAY_PROFILE.virgl && !external ? `${gpuArgument()} ` : '';
                 // A VM moved off the native shared display (dbus-display) can
                 // already carry the managed guest channel and input arguments.
                 // Add only what is missing: a second qsm-direct-agent chardev
