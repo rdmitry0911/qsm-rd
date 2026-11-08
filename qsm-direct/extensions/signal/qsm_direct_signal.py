@@ -105,6 +105,13 @@ class PveAuthority:
             # a custom/ACME pveproxy certificate.
             pass
         context.check_hostname = False
+        # Python 3.13 turns on VERIFY_X509_STRICT, which rejects the cluster CA
+        # of every cluster first installed with an older PVE: that CA has no
+        # key usage extension ("CA cert does not include key usage
+        # extension"), and every ticket check then failed with 502. The chain
+        # is still verified against the same anchors; only the strict RFC 5280
+        # profile checks are relaxed, as OpenSSL and pveproxy's clients do.
+        context.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
         self._context = context
 
     def authorize(self, username: str, ticket: str, vmid: int, privilege: str) -> str:

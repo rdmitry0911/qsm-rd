@@ -401,5 +401,63 @@ class RelayPlainTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
 
 
+
+class PveAuthorityTlsTests(unittest.TestCase):
+    """A cluster first installed with an older PVE has a CA without key usage."""
+
+    def _openssl(self, *args: str) -> None:
+        subprocess.run(["openssl", *args], check=True, capture_output=True)
+
+    def test_cluster_ca_without_key_usage_verifies(self) -> None:
+        from extensions.signal.qsm_direct_signal import PveAuthority
+        if shutil.which("openssl") is None:
+            self.skipTest("openssl is not installed")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "ca.cnf").write_text(
+                "[req]\ndistinguished_name=dn\nx509_extensions=ca\n[dn]\n"
+                "[ca]\nbasicConstraints=critical,CA:TRUE\nsubjectKeyIdentifier=hash\n")
+            (root / "srv.ext").write_text("subjectAltName=IP:127.0.0.1\n")
+            self._openssl("req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2", "-subj", "/CN=old-pve-ca",
+                          "-config", str(root / "ca.cnf"), "-keyout", str(root / "ca.key"), "-out", str(root / "ca.pem"))
+            self._openssl("req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=pve-node",
+                          "-keyout", str(root / "srv.key"), "-out", str(root / "srv.csr"))
+            self._openssl("x509", "-req", "-in", str(root / "srv.csr"), "-CA", str(root / "ca.pem"),
+                          "-CAkey", str(root / "ca.key"), "-CAcreateserial", "-days", "2",
+                          "-extfile", str(root / "srv.ext"), "-out", str(root / "srv.pem"))
+            server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            server_context.load_cert_chain(root / "srv.pem", root / "srv.key")
+            listener = socket.create_server(("127.0.0.1", 0))
+            self.addCleanup(listener.close)
+
+            def serve() -> None:
+                for _ in range(2):
+                    connection, _address = listener.accept()
+                    try:
+                        with server_context.wrap_socket(connection, server_side=True):
+                            pass
+                    except (ssl.SSLError, OSError):
+                        pass
+
+            thread = threading.Thread(target=serve, daemon=True)
+            thread.start()
+            port = listener.getsockname()[1]
+
+            def handshake(context: ssl.SSLContext) -> None:
+                with socket.create_connection(("127.0.0.1", port), timeout=5) as raw:
+                    with context.wrap_socket(raw):
+                        pass
+
+            strict = ssl.create_default_context(cafile=str(root / "ca.pem"))
+            strict.check_hostname = False
+            strict.verify_flags |= getattr(ssl, "VERIFY_X509_STRICT", 0)
+            if getattr(ssl, "VERIFY_X509_STRICT", 0):
+                # The fixture reproduces the failure seen on such clusters.
+                with self.assertRaises(ssl.SSLCertVerificationError):
+                    handshake(strict)
+            authority = PveAuthority("https://127.0.0.1:%d" % port, root / "ca.pem")
+            handshake(authority._context)
+            thread.join(timeout=5)
+
 if __name__ == "__main__":
     unittest.main()
