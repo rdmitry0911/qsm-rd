@@ -49,6 +49,7 @@ for required in \
     "$PACKAGE_DIR/qsm-pve-direct-terminal.service" \
     "$PACKAGE_DIR/qsm-pve-direct-ui" \
     "$PACKAGE_DIR/qsm-pve-direct-overlay.json" \
+    "$PACKAGE_DIR/qsm-pve-direct-preinst" \
     "$PACKAGE_DIR/qsm-pve-direct-postinst" \
     "$PACKAGE_DIR/qsm-pve-direct-prerm" \
     "$PACKAGE_DIR/README.qsm-pve-direct" \
@@ -175,6 +176,7 @@ Description: WebRTC graphical console for Proxmox VE 9 (media worker and service
  console support (qemu-server webrtcproxy).  LXC container consoles:
  qsm-pve-direct-lxc.
 EOF
+install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-preinst" "$stage_root/DEBIAN/preinst"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-postinst" "$stage_root/DEBIAN/postinst"
 install -m 0755 "$PACKAGE_DIR/qsm-pve-direct-prerm" "$stage_root/DEBIAN/prerm"
 printf '%s\n' '#!/bin/sh' 'set -e' 'systemctl daemon-reload >/dev/null 2>&1 || true' > "$stage_root/DEBIAN/postrm"

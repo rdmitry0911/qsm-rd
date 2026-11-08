@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+case "${1:-}" in
+    upgrade)
+        # Versions before pve-ui-overlays ran their page injector from
+        # /usr/lib/qsm-pve-direct/pve9-ui, and Python left a bytecode cache
+        # there. Drop it now so dpkg can remove the directory with the old
+        # files; the postinst removes the injector's state.
+        rm -rf /usr/lib/qsm-pve-direct/pve9-ui/__pycache__
+        ;;
+esac
