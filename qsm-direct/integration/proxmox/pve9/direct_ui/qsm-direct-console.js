@@ -58,9 +58,7 @@
     const KEY_INPUT_MODE = Object.freeze({ typing: 'client-repeat', physical: 'guest-repeat' });
     const MOUSE_INPUT_MODE = Object.freeze({ exact: 'exact-clicks', physical: 'physical-buttons' });
     const CONSOLE_SETTING_SCHEMA = Object.freeze({
-        toolbarHotZonePx: { defaultValue: 32, minimum: 4, maximum: 160 },
         toolbarNearbyPx: { defaultValue: 36, minimum: 0, maximum: 240 },
-        toolbarRevealDelayMs: { defaultValue: 650, minimum: 0, maximum: 5000 },
         toolbarHideDelayMs: { defaultValue: 3000, minimum: 250, maximum: 30000 },
         targetFps: { defaultValue: 60, minimum: 10, maximum: 240 },
         playoutDelayMs: { defaultValue: 0, minimum: 0, maximum: 1000 },
@@ -4411,7 +4409,15 @@
         // auto-hid.  This small handle toggles it and works with a finger.
         const revealHandle = document.createElement('button');
         revealHandle.type = 'button';
-        revealHandle.textContent = '☰';
+        // The handle also shows the frame rate the browser decodes (☰ over
+        // the number), refreshed once a second while connected.
+        const revealIcon = document.createElement('span');
+        revealIcon.textContent = '☰';
+        revealIcon.style.cssText = 'display:block';
+        const revealFps = document.createElement('span');
+        revealFps.className = 'qsm-direct-fps';
+        revealFps.style.cssText = 'display:block;margin-top:3px;font-size:10px;line-height:12px;font-variant-numeric:tabular-nums;opacity:.9';
+        revealHandle.append(revealIcon, revealFps);
         revealHandle.setAttribute('aria-controls', toolbar.id);
         revealHandle.style.cssText = 'position:fixed;z-index:11;left:0;top:50%;transform:translateY(-50%);width:26px;height:52px;padding:0;border:0;border-radius:0 8px 8px 0;cursor:pointer;font-size:16px;line-height:1;color:#e5e7eb;background:rgba(17,24,39,.55);pointer-events:auto';
         const status = document.createElement('span');
@@ -5159,9 +5165,7 @@
         });
         settingsForm.style.cssText = 'display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:center';
         const settingLabels = {
-            toolbarHotZonePx: gettext('Left activation zone (px)'),
             toolbarNearbyPx: gettext('Controls nearby area (px)'),
-            toolbarRevealDelayMs: gettext('Left hold delay (ms)'),
             toolbarHideDelayMs: gettext('Controls hide delay (ms)'),
             targetFps: gettext('Target frame rate (FPS)'),
             playoutDelayMs: gettext('Decoder playout delay (ms)'),
@@ -5370,6 +5374,31 @@
         let lastResizeSentAt = 0;
         let firstFrameTimer = null;
         let diagTimer = null;
+        let fpsTimer = null;
+        let fpsFrames = null;
+        let fpsAt = 0;
+        const updateFps = async () => {
+            if (closed || !peer) { return; }
+            let frames = null;
+            let reported = null;
+            try {
+                (await peer.getStats()).forEach((report) => {
+                    if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                        frames = report.framesDecoded || 0;
+                        reported = typeof report.framesPerSecond === 'number' ? report.framesPerSecond : null;
+                    }
+                });
+            } catch (_error) { return; }
+            const now = popup.performance.now();
+            let fps = reported;
+            if (frames !== null && fpsFrames !== null && now > fpsAt && frames >= fpsFrames) {
+                fps = (frames - fpsFrames) * 1000 / (now - fpsAt);
+            }
+            fpsFrames = frames;
+            fpsAt = now;
+            revealFps.textContent = fps === null ? '' : String(Math.round(fps));
+            revealHandle.dataset.fps = revealFps.textContent;
+        };
         let diagPinned = false;
         let diagPointerSent = 0;
         let diagButtonSent = 0;
@@ -5543,10 +5572,12 @@
                 hideToolbarNow();
             }, settings.toolbarHideDelayMs);
         };
+        // The controls open only with the ☰ handle, never because the pointer
+        // passes the left edge on its way to the guest's own panels.  The
+        // pointer near open controls keeps them from hiding just before a click.
         const observeToolbarZone = (event) => {
             const box = video.getBoundingClientRect();
-            const inside = event.clientX >= box.left && event.clientX < box.left + settings.toolbarHotZonePx;
-            pointerInToolbarZone = inside;
+            pointerInToolbarZone = false;
             // The timeout measures continuous absence from the controls and
             // their immediate vicinity, not absence of mouse events. Moving
             // the pointer around the remote desktop therefore cannot keep a
@@ -5557,24 +5588,12 @@
                 event.clientY >= box.top + 12 - settings.toolbarNearbyPx &&
                 event.clientY <= box.top + 12 + toolbar.offsetHeight + settings.toolbarNearbyPx;
             pointerNearToolbar = near;
-            if (near) {
-                if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); toolbarTimer = null; }
-            }
-            if (!inside) {
-                cancelToolbarReveal();
-                hideToolbarSoon();
-                return;
-            }
-            if (toolbarVisible) {
+            if (near && toolbarVisible) {
                 if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); toolbarTimer = null; }
                 return;
             }
-            if (toolbarRevealTimer === null) {
-                toolbarRevealTimer = popup.setTimeout(() => {
-                    toolbarRevealTimer = null;
-                    if (pointerInToolbarZone && !closed) { revealToolbar(); }
-                }, settings.toolbarRevealDelayMs);
-            }
+            cancelToolbarReveal();
+            hideToolbarSoon();
         };
         toolbar.addEventListener('pointerenter', () => {
             pointerInToolbar = true;
@@ -6698,6 +6717,7 @@
             if (firstFrameTimer !== null) { popup.clearTimeout(firstFrameTimer); }
             if (livenessTimer !== null) { popup.clearInterval(livenessTimer); }
             if (diagTimer !== null) { popup.clearInterval(diagTimer); diagTimer = null; }
+            if (fpsTimer !== null) { popup.clearInterval(fpsTimer); fpsTimer = null; }
             if (toolbarTimer !== null) { popup.clearTimeout(toolbarTimer); }
             if (toolbarRevealTimer !== null) { popup.clearTimeout(toolbarRevealTimer); }
             for (const request of guestRequests.values()) {
@@ -6901,6 +6921,7 @@
             try {
             if (!await waitForVmStart()) { return; }
             peer = new RTCPeerConnection(await iceConfiguration());
+            if (fpsTimer === null) { fpsTimer = popup.setInterval(updateFps, 1000); }
             control = peer.createDataChannel('qsm-control', { ordered: true });
             // Cursor positions are latest-state samples. Sending them as a
             // reliable ordered stream lets one congested packet make every

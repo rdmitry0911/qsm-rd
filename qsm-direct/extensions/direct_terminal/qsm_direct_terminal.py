@@ -416,6 +416,64 @@ def _managed_guest_channel_enabled(config: str, vmid: int, vm_runtime_directory:
     return all(re.search(rf"(?:^|\s){re.escape(argument)}(?=\s|$)", args) for argument in expected)
 
 
+# A vhost-user-vga backend that publishes its GPU state (qdev-host's vhost-user-gpu
+# guard, qdev-host 0.5.5 and later) writes gpu-state next to its socket:
+# "state=running|stopping|stopped seq=N".  QEMU 11's side of that device crashes
+# when a display client refreshes the console after a device reset, and spins on
+# descriptor -1 when a client's GL update is acknowledged while the GPU socket is
+# closed (VM start before the guest driver, reset, pause).  So the media worker
+# attaches only while the GPU runs, and leaves within the backend's stop handshake:
+# this service names itself in gpu-state.client and confirms in gpu-state.ack.
+VHOST_USER_DISPLAY_WAIT_SECONDS = 20.0
+VHOST_USER_DISPLAY_POLL_SECONDS = 0.02
+
+
+def _vhost_user_display_state_dir(pid_directory: Path, vmid: int) -> Path | None:
+    """The state directory of the VM's vhost-user-vga backend, if it publishes one."""
+    if not _valid_vmid(vmid):
+        return None
+    try:
+        pid = int(_read_root_file(pid_directory / f"{vmid}.pid", maximum=32).decode("ascii").strip())
+        arguments = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+    except (DirectTerminalError, ValueError, UnicodeDecodeError, OSError):
+        return None
+    chardevs: dict[str, str] = {}
+    displays: list[str] = []
+    for option, value in zip(arguments, arguments[1:]):
+        fields = value.decode("utf-8", "replace").split(",")
+        options = dict(field.split("=", 1) for field in fields[1:] if "=" in field)
+        if option == b"-chardev" and fields[0] == "socket" and "id" in options and "path" in options:
+            chardevs[options["id"]] = options["path"]
+        elif option == b"-device" and fields[0] == "vhost-user-vga" and "chardev" in options:
+            displays.append(options["chardev"])
+    for chardev in displays:
+        path = chardevs.get(chardev)
+        if path and path.startswith("/run/"):
+            directory = Path(path).parent
+            if (directory / "gpu-state").is_file():
+                return directory
+    return None
+
+
+def _vhost_user_display_state(directory: Path) -> tuple[str, int]:
+    try:
+        text = _read_root_file(directory / "gpu-state", maximum=128).decode("ascii")
+        fields = dict(item.split("=", 1) for item in text.split() if "=" in item)
+        return fields.get("state", ""), int(fields.get("seq", "-1"))
+    except (DirectTerminalError, ValueError, UnicodeDecodeError):
+        return "", -1
+
+
+def _write_vhost_user_display_file(directory: Path, name: str, content: str) -> None:
+    temporary = directory / f".{name}.{os.getpid()}"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(descriptor, content.encode("ascii"))
+    finally:
+        os.close(descriptor)
+    os.replace(temporary, directory / name)
+
+
 def _qemu_process_generation(pid_directory: Path, vmid: int) -> str | None:
     """Return the live PVE QEMU generation for ``vmid``.
 
@@ -1014,6 +1072,9 @@ class DirectVmTransport:
     remove_desktop_listener: Callable[[], None] | None = None
     # A container's file helper listens apart from its clipboard agent, per console.
     file_connector: Callable[[float], socket.socket] | None = None
+    # The VM's vhost-user-vga backend state directory (see VHOST_USER_DISPLAY_*).
+    gpu_state_dir: Path | None = None
+    gpu_acked_seq: int = -1
 
 
 class DirectSessionManager:
@@ -1068,6 +1129,56 @@ class DirectSessionManager:
             daemon=True,
         )
         self._reconcile_thread.start()
+        self._vhost_display_thread = threading.Thread(
+            target=self._watch_vhost_user_displays,
+            name="qsm-direct-vhost-display",
+            daemon=True,
+        )
+        self._vhost_display_thread.start()
+
+    async def _wait_for_vhost_user_display(self, vmid: int, directory: Path) -> None:
+        deadline = time.monotonic() + VHOST_USER_DISPLAY_WAIT_SECONDS
+        while True:
+            state, _seq = _vhost_user_display_state(directory)
+            if state == "running":
+                return
+            if time.monotonic() >= deadline:
+                raise DirectTerminalError(
+                    f"direct-terminal VM {vmid} GPU has no display yet (state {state or 'unknown'}); "
+                    "reconnect once the guest has started its desktop")
+            await asyncio.sleep(0.1)
+
+    def _watch_vhost_user_displays(self) -> None:
+        """Leave a vhost-user GPU's display while QEMU stops the device.
+
+        The backend waits in QEMU's synchronous stop for gpu-state.ack; QEMU
+        cannot run its main loop meanwhile, so the worker's D-Bus connection is
+        gone before QEMU refreshes the console or completes a GL update again.
+        """
+        while not self._reconcile_stop.wait(VHOST_USER_DISPLAY_POLL_SECONDS):
+            for key, transport in tuple(self._transports.items()):
+                directory = transport.gpu_state_dir
+                if directory is None:
+                    continue
+                state, seq = _vhost_user_display_state(directory)
+                if state != "stopping" or seq == transport.gpu_acked_seq:
+                    continue
+                transport.gpu_acked_seq = seq
+                try:
+                    os.killpg(transport.worker.pid, signal.SIGKILL)
+                    transport.worker.wait(timeout=0.5)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+                try:
+                    _write_vhost_user_display_file(directory, "gpu-state.ack", f"seq={seq}\n")
+                    (directory / "gpu-state.client").unlink(missing_ok=True)
+                except OSError as error:
+                    print(f"qsm-direct-terminal: vhost-user GPU handshake failed vmid={transport.vmid}: {error}",
+                          file=sys.stderr, flush=True)
+                print(f"qsm-direct-terminal: retiring VM media transport vmid={transport.vmid}: "
+                      f"QEMU stops its vhost-user GPU (seq {seq})", file=sys.stderr, flush=True)
+                if not self._closed:
+                    asyncio.run_coroutine_threadsafe(self._close_vmid_sessions(key), self._loop)
 
     def _configured_vms(self) -> tuple[int, ...]:
         """Return VMIDs whose PVE config has our exact Display1 argument."""
@@ -1607,6 +1718,9 @@ class DirectSessionManager:
             await self._close_vmid_sessions(vmid)
         if generation is None:
             raise DirectTerminalError("direct-terminal VM is not running")
+        gpu_state_dir = _vhost_user_display_state_dir(self._qemu_pid_directory, vmid)
+        if gpu_state_dir is not None:
+            await self._wait_for_vhost_user_display(vmid, gpu_state_dir)
 
         directory = self._runtime_directory / f"vm-{vmid}" / "producer"
         _safe_runtime_directory(directory.parent)
@@ -1726,7 +1840,11 @@ class DirectSessionManager:
                                            "h264_qsv", "hevc_qsv", "h264_vaapi", "hevc_vaapi"},
                 hardware=encoder != "libx264", guest=guest,
                 attached_by_pve=display_fd is not None or shared_profile is not None, pcm=pcm,
-                microphone=MicrophoneRoute(lambda data: pcm.send(PCM_MICROPHONE, data)))
+                microphone=MicrophoneRoute(lambda data: pcm.send(PCM_MICROPHONE, data)),
+                gpu_state_dir=gpu_state_dir)
+            if gpu_state_dir is not None:
+                _, transport.gpu_acked_seq = _vhost_user_display_state(gpu_state_dir)
+                _write_vhost_user_display_file(gpu_state_dir, "gpu-state.client", f"pid={os.getpid()}\n")
             self._attach_desktop_metadata(transport)
             self._transports[vmid] = transport
             print(
@@ -1937,6 +2055,12 @@ class DirectSessionManager:
         if transport.remove_desktop_listener is not None:
             transport.remove_desktop_listener()
         self._terminate_worker(transport.worker)
+        if transport.gpu_state_dir is not None and not any(
+                other.gpu_state_dir == transport.gpu_state_dir for other in self._transports.values()):
+            try:
+                (transport.gpu_state_dir / "gpu-state.client").unlink(missing_ok=True)
+            except OSError:
+                pass
         transport.media.close()
         transport.input.close()
         if transport.guest is not None:

@@ -163,18 +163,14 @@ assert.match(source, /const hideToolbarSoon = \(\) =>/,
     'an idle connected console must auto-hide its floating controls');
 assert.match(source, /toolbar\.style\.transform = 'translateX\(calc\(-100% - 32px\)\)'/,
     'auto-hiding controls must move completely outside the guest picture on the left');
-assert.match(source, /toolbarHotZonePx: \{ defaultValue: 32, minimum: 4, maximum: 160 \}/,
-    'the toolbar activation strip must be a bounded user preference');
-assert.match(source, /toolbarRevealDelayMs: \{ defaultValue: 650, minimum: 0, maximum: 5000 \}/,
-    'the left-edge hold time must be configurable rather than showing controls on any mousemove');
+assert.doesNotMatch(source, /toolbarHotZonePx|toolbarRevealDelayMs/,
+    'the controls open only with the handle, not from a left-edge hover zone');
 assert.match(source, /toolbarHideDelayMs: \{ defaultValue: 3000, minimum: 250, maximum: 30000 \}/,
     'the compact toolbar must hide after three seconds by default');
 assert.match(source, /const observeToolbarZone = \(event\) =>/,
-    'only the left activation strip may schedule a hidden toolbar reveal');
-assert.match(source, /event\.clientX >= box\.left && event\.clientX < box\.left \+ settings\.toolbarHotZonePx/,
-    'the control reveal zone must be measured from the left edge');
-assert.match(source, /settings\.toolbarRevealDelayMs/,
-    'the toolbar reveal timer must use the saved dwell setting');
+    'pointer moves must still keep open controls from hiding just before a click');
+assert.doesNotMatch(source.slice(source.indexOf('const observeToolbarZone'), source.indexOf("toolbar.addEventListener('pointerenter'")),
+    /revealToolbar\(\)/, 'a pointer move must never open hidden controls');
 assert.match(source, /settingsButton\.textContent = '⚙'/,
     'the compact toolbar must expose an icon-only settings control');
 assert.match(source, /fullscreen\.textContent = active \? '⤢' : '⛶'/,
