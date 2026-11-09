@@ -167,6 +167,10 @@ assert.doesNotMatch(source, /toolbarHotZonePx|toolbarRevealDelayMs/,
     'the controls open only with the handle, not from a left-edge hover zone');
 assert.match(source, /toolbarHideDelayMs: \{ defaultValue: 3000, minimum: 250, maximum: 30000 \}/,
     'the compact toolbar must hide after three seconds by default');
+assert.doesNotMatch(source, /toolbarPinned = (?!false;)/,
+    'the handle opens the controls without pinning them: they still hide once the pointer is away');
+assert.match(source, /revealToolbar\(\);\n\s+hideToolbarSoon\(\);/,
+    'controls opened with the handle start their auto-hide at once');
 assert.match(source, /const observeToolbarZone = \(event\) =>/,
     'pointer moves must still keep open controls from hiding just before a click');
 assert.doesNotMatch(source.slice(source.indexOf('const observeToolbarZone'), source.indexOf("toolbar.addEventListener('pointerenter'")),

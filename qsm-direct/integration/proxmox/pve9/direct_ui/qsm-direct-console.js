@@ -5553,15 +5553,16 @@
         };
         // The handle pins the toolbar open (touch has no hover to re-reveal it);
         // a second tap unpins and hides it, giving the guest the full screen.
+        // The handle opens the controls; they close by themselves once the
+        // pointer has stayed away from them for the hide delay, and a press on
+        // the handle while they are open closes them at once.
         revealHandle.addEventListener('click', () => {
-            toolbarPinned = !toolbarVisible;
-            if (toolbarPinned) {
-                revealToolbar();
-                revealHandle.style.background = 'rgba(29,78,216,.9)';
-            } else {
-                revealHandle.style.background = 'rgba(17,24,39,.55)';
+            if (toolbarVisible) {
                 hideToolbarNow();
+                return;
             }
+            revealToolbar();
+            hideToolbarSoon();
         });
         const hideToolbarSoon = () => {
             if (closed || toolbarPinned || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
