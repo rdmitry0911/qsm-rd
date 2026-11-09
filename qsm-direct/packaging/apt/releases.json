@@ -934,6 +934,26 @@
           "sha256": "3343e3746eab3652d19a098bbffe353c1b1580c8d2207fd28a1e22c28047616e"
         }
       ]
+    },
+    {
+      "tag": "v0.4.0-companion-20261110-qdev-host-0.6.2",
+      "source_commit": "e4dd5d4097ca9cf8636342b9dd12b776e222873b",
+      "assets": [
+        {
+          "filename": "qdev-host-pve_0.6.2_all.deb",
+          "package": "qdev-host-pve",
+          "version": "0.6.2",
+          "architecture": "all",
+          "sha256": "016210d7b2e5d531b4fb8e61d31d311205c5d93aac9b64c8e34c613ebf9f5e63"
+        },
+        {
+          "filename": "qdev-host_0.6.2_amd64.deb",
+          "package": "qdev-host",
+          "version": "0.6.2",
+          "architecture": "amd64",
+          "sha256": "b56dcdab6ce24097a13038a6b8db413eaa91b671e0c545f8988435929fb7ded1"
+        }
+      ]
     }
   ]
 }
