@@ -4222,7 +4222,15 @@
         const user = window.Proxmox && Proxmox.UserName;
         if (!ticket || !user) { throw new Error('not authenticated'); }
         const headers = { 'Authorization': `Bearer ${ticket}`, 'X-QSM-User': user };
-        const options = { method, mode: 'cors', cache: 'no-store', credentials: 'omit', headers };
+        // Through the gateway the service has the page's origin, and the request goes with
+        // the page's credentials mode, on the page's own connections. A page opened by IP
+        // address whose certificate names the node (the user accepted the warning) could not
+        // start a console otherwise: Chrome keeps requests without credentials on connections
+        // of their own and did not apply the accepted warning there ("Failed to fetch"). The
+        // PVE cookie that now comes along is ignored; the service authorises only the
+        // Authorization header. On its own port the service is another origin: no cookie.
+        const options = { method, mode: 'cors', cache: 'no-store',
+            credentials: signalEndpoint.gateway ? 'same-origin' : 'omit', headers };
         if (method === 'GET') { options.signal = AbortSignal.timeout(10000); }
         if (method !== 'GET') {
             headers['Content-Type'] = 'application/json';

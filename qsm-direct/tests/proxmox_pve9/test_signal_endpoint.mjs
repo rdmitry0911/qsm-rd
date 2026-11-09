@@ -36,7 +36,7 @@ for (const { endpoint, origin, hostname, expected, prefix = '' } of [
     assert.equal(requests.length, 1);
     assert.equal(requests[0].url, `${expected}${prefix}/nodes/pve-a/lxc/105/qsm-direct-settings`);
     assert.equal(requests[0].options.headers.Authorization, 'Bearer fixture-ticket');
-    assert.equal(requests[0].options.credentials, 'omit');
+    assert.equal(requests[0].options.credentials, endpoint && endpoint.gateway ? 'same-origin' : 'omit');
     const button = { consoleType: 'lxc', nodename: 'pve-a', vmid: 105, callParent() {} };
     definitions.get('PVE.qsmDirect.ConsoleButtonOverlay').initComponent.call(button);
     button.menu.find(item => item.itemId === 'qsm-direct-connection').handler();
