@@ -424,7 +424,7 @@ def _managed_guest_channel_enabled(config: str, vmid: int, vm_runtime_directory:
 # closed (VM start before the guest driver, reset, pause).  So the media worker
 # attaches only while the GPU runs, and leaves within the backend's stop handshake:
 # this service names itself in gpu-state.client and confirms in gpu-state.ack.
-VHOST_USER_DISPLAY_WAIT_SECONDS = 20.0
+VHOST_USER_DISPLAY_WAIT_SECONDS = 12.0  # within the offer's REQUEST_TIMEOUT_SECONDS
 VHOST_USER_DISPLAY_POLL_SECONDS = 0.02
 
 
