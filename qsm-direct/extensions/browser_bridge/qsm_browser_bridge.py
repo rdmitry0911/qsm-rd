@@ -2293,6 +2293,30 @@ class UnixInputEgress:
                 raise BridgeError("local input receiver is unavailable")
             return True
 
+    def replace_receiver(self) -> None:
+        """Accept one new receiver after the service itself stopped the old one.
+
+        The terminal calls this when it deliberately replaces its media worker
+        (QEMU stopped a vhost-user GPU and starts it again): the old connection
+        is dropped at once, so input is discarded rather than failing, and the
+        listener accepts exactly one new receiver of the same identity.
+        """
+        with self._lock:
+            connection, self._connection = self._connection, None
+            self._error = None
+            listener = self._listener
+        if connection is not None:
+            try:
+                connection.close()
+            except OSError:
+                pass
+        if listener is None or self._stopping.is_set():
+            return
+        if self._thread is None or not self._thread.is_alive():
+            self._thread = threading.Thread(target=self._accept,
+                                            name="qsm-browser-input-sink", daemon=True)
+            self._thread.start()
+
     def close(self) -> None:
         self._stopping.set()
         with self._lock:

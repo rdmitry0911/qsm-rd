@@ -428,8 +428,16 @@ VHOST_USER_DISPLAY_WAIT_SECONDS = 12.0  # within the offer's REQUEST_TIMEOUT_SEC
 VHOST_USER_DISPLAY_POLL_SECONDS = 0.02
 
 
+# Display adapters QEMU may give a VM besides a vhost-user GPU; with none of them a
+# vhost-user-gpu-pci is the VM's only, and so its first, display.
+OTHER_DISPLAY_DEVICES = frozenset({
+    "VGA", "secondary-vga", "cirrus-vga", "vmware-svga", "qxl", "qxl-vga", "ati-vga", "bochs-display",
+    "ramfb", "virtio-vga", "virtio-vga-gl", "virtio-gpu-pci", "virtio-gpu-gl-pci", "virtio-gpu-device",
+})
+
+
 def _vhost_user_display_state_dir(pid_directory: Path, vmid: int) -> Path | None:
-    """The state directory of the VM's vhost-user-vga backend, if it publishes one."""
+    """The state directory of the vhost-user GPU that is the VM's display, if it publishes one."""
     if not _valid_vmid(vmid):
         return None
     try:
@@ -439,6 +447,8 @@ def _vhost_user_display_state_dir(pid_directory: Path, vmid: int) -> Path | None
         return None
     chardevs: dict[str, str] = {}
     displays: list[str] = []
+    pci_displays: list[str] = []
+    other_display = False
     for option, value in zip(arguments, arguments[1:]):
         fields = value.decode("utf-8", "replace").split(",")
         options = dict(field.split("=", 1) for field in fields[1:] if "=" in field)
@@ -446,6 +456,13 @@ def _vhost_user_display_state_dir(pid_directory: Path, vmid: int) -> Path | None
             chardevs[options["id"]] = options["path"]
         elif option == b"-device" and fields[0] == "vhost-user-vga" and "chardev" in options:
             displays.append(options["chardev"])
+        elif option == b"-device" and fields[0] == "vhost-user-gpu-pci" and "chardev" in options:
+            pci_displays.append(options["chardev"])
+        elif (option == b"-device" and fields[0] in OTHER_DISPLAY_DEVICES) or \
+                (option == b"-vga" and fields[0] != "none"):
+            other_display = True
+    if not displays and not other_display and len(pci_displays) == 1:
+        displays = pci_displays
     for chardev in displays:
         path = chardevs.get(chardev)
         if path and path.startswith("/run/"):
@@ -1075,6 +1092,11 @@ class DirectVmTransport:
     # The VM's vhost-user-vga backend state directory (see VHOST_USER_DISPLAY_*).
     gpu_state_dir: Path | None = None
     gpu_acked_seq: int = -1
+    # While QEMU restarts the vhost-user GPU the worker is stopped and the browsers
+    # stay connected; a new worker starts from these arguments (pcm fd at the index).
+    display_paused: bool = False
+    worker_arguments: list[str] | None = None
+    worker_pcm_index: int = -1
 
 
 class DirectSessionManager:
@@ -1164,21 +1186,81 @@ class DirectSessionManager:
                 if state != "stopping" or seq == transport.gpu_acked_seq:
                     continue
                 transport.gpu_acked_seq = seq
+                restart = transport.worker_arguments is not None
+                transport.display_paused = restart
                 try:
                     os.killpg(transport.worker.pid, signal.SIGKILL)
                     transport.worker.wait(timeout=0.5)
                 except (OSError, subprocess.TimeoutExpired):
                     pass
+                if restart:
+                    transport.input.replace_receiver()
                 try:
                     _write_vhost_user_display_file(directory, "gpu-state.ack", f"seq={seq}\n")
                     (directory / "gpu-state.client").unlink(missing_ok=True)
                 except OSError as error:
                     print(f"qsm-direct-terminal: vhost-user GPU handshake failed vmid={transport.vmid}: {error}",
                           file=sys.stderr, flush=True)
-                print(f"qsm-direct-terminal: retiring VM media transport vmid={transport.vmid}: "
-                      f"QEMU stops its vhost-user GPU (seq {seq})", file=sys.stderr, flush=True)
-                if not self._closed:
+                if self._closed:
+                    continue
+                if restart:
+                    print(f"qsm-direct-terminal: pausing VM media transport vmid={transport.vmid}: "
+                          f"QEMU stops its vhost-user GPU (seq {seq})", file=sys.stderr, flush=True)
+                    asyncio.run_coroutine_threadsafe(self._resume_vhost_user_display(key, transport), self._loop)
+                else:
+                    print(f"qsm-direct-terminal: retiring VM media transport vmid={transport.vmid}: "
+                          f"QEMU stops its vhost-user GPU (seq {seq})", file=sys.stderr, flush=True)
                     asyncio.run_coroutine_threadsafe(self._close_vmid_sessions(key), self._loop)
+
+    async def _resume_vhost_user_display(self, key: object, transport: DirectVmTransport) -> None:
+        """Start a new media worker once the vhost-user GPU runs again; the browsers stay."""
+        directory = transport.gpu_state_dir
+        while not self._closed and self._transports.get(key) is transport:
+            if _qemu_process_generation(self._qemu_pid_directory, transport.vmid) != transport.qemu_generation:
+                return  # the transport reconcile retires it
+            state, _seq = _vhost_user_display_state(directory) if directory is not None else ("", -1)
+            if state == "running":
+                break
+            await asyncio.sleep(0.1)
+        else:
+            return
+        pcm_ours, pcm_theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        arguments = list(transport.worker_arguments or ())
+        arguments[transport.worker_pcm_index] = str(pcm_theirs.fileno())
+        try:
+            worker = subprocess.Popen(
+                arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=None,
+                env=self._child_environment(), close_fds=True, start_new_session=True,
+                pass_fds=(pcm_theirs.fileno(),))
+        except OSError as error:
+            pcm_ours.close()
+            pcm_theirs.close()
+            print(f"qsm-direct-terminal: VM media transport vmid={transport.vmid} could not resume: {error}",
+                  file=sys.stderr, flush=True)
+            await self._close_vmid_sessions(key)
+            return
+        pcm_theirs.close()
+        await asyncio.sleep(0.12)
+        if worker.poll() is not None or self._transports.get(key) is not transport:
+            pcm_ours.close()
+            self._terminate_worker(worker)
+            await self._close_vmid_sessions(key)
+            return
+        previous_pcm, transport.pcm = transport.pcm, PcmLink(pcm_ours)
+        if previous_pcm is not None:
+            previous_pcm.close()
+        transport.worker = worker
+        for session in self._sessions.values():
+            if session.key == key:
+                session.worker = worker
+        transport.display_paused = False
+        if directory is not None:
+            try:
+                _write_vhost_user_display_file(directory, "gpu-state.client", f"pid={os.getpid()}\n")
+            except OSError:
+                pass
+        print(f"qsm-direct-terminal: VM media transport resumed vmid={transport.vmid} pid={worker.pid}",
+              file=sys.stderr, flush=True)
 
     def _configured_vms(self) -> tuple[int, ...]:
         """Return VMIDs whose PVE config has our exact Display1 argument."""
@@ -1705,6 +1787,10 @@ class DirectSessionManager:
         """
         generation = _qemu_process_generation(self._qemu_pid_directory, vmid)
         existing = self._transports.get(vmid)
+        if existing is not None and existing.display_paused and generation == existing.qemu_generation:
+            deadline = time.monotonic() + VHOST_USER_DISPLAY_WAIT_SECONDS
+            while existing.display_paused and time.monotonic() < deadline and self._transports.get(vmid) is existing:
+                await asyncio.sleep(0.1)
         if existing is not None and generation == existing.qemu_generation and existing.worker.poll() is None:
             if existing.codec != codec:
                 raise DirectTerminalError("direct-terminal VM transport codec changed while active")
@@ -1807,6 +1893,9 @@ class DirectSessionManager:
                 if not vaapi_device:
                     raise DirectTerminalError("direct-terminal VA-API encoder lacks a render node")
                 arguments.extend(["--vaapi-device", vaapi_device])
+            # A worker on the VM's own bus can be started again with a new PCM socket.
+            restart_arguments = (list(arguments) if display_fd is None and clipboard_theirs is None
+                                 else None)
             worker = subprocess.Popen(
                 arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=None,
                 env=self._child_environment(), close_fds=True, start_new_session=True,
@@ -1840,8 +1929,10 @@ class DirectSessionManager:
                                            "h264_qsv", "hevc_qsv", "h264_vaapi", "hevc_vaapi"},
                 hardware=encoder != "libx264", guest=guest,
                 attached_by_pve=display_fd is not None or shared_profile is not None, pcm=pcm,
-                microphone=MicrophoneRoute(lambda data: pcm.send(PCM_MICROPHONE, data)),
-                gpu_state_dir=gpu_state_dir)
+                microphone=MicrophoneRoute(lambda data: transport.pcm.send(PCM_MICROPHONE, data)),
+                gpu_state_dir=gpu_state_dir, worker_arguments=restart_arguments,
+                worker_pcm_index=(restart_arguments.index("--pcm-fd") + 1
+                                  if restart_arguments is not None else -1))
             if gpu_state_dir is not None:
                 _, transport.gpu_acked_seq = _vhost_user_display_state(gpu_state_dir)
                 _write_vhost_user_display_file(gpu_state_dir, "gpu-state.client", f"pid={os.getpid()}\n")
@@ -2092,7 +2183,7 @@ class DirectSessionManager:
             session = self._sessions.get(identifier)
             if session is None:
                 return
-            exit_code = session.worker.poll()
+            exit_code = self._session_worker_exit(session)
             if exit_code is not None:
                 print(
                     f"qsm-direct-terminal: VM media transport ended vmid={session.vmid} "
@@ -2127,10 +2218,19 @@ class DirectSessionManager:
                 return
             await asyncio.sleep(SESSION_WATCH_SECONDS)
 
+    def _session_worker_exit(self, session: DirectSession) -> int | None:
+        """The exit code of the session's media worker; None while it runs or is being replaced."""
+        transport = self._transports.get(session.key)
+        if transport is not None and transport.kind == "vm":
+            if transport.display_paused:
+                return None
+            return transport.worker.poll()
+        return session.worker.poll()
+
     def _collect_expired(self) -> None:
         now = time.monotonic()
         for identifier, session in tuple(self._sessions.items()):
-            if session.worker.poll() is not None:
+            if self._session_worker_exit(session) is not None:
                 asyncio.create_task(self._close_vmid_sessions(session.key))
             elif session.expires_at <= now:
                 asyncio.create_task(self._close_session(identifier))
