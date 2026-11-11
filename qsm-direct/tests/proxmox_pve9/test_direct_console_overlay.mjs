@@ -580,6 +580,160 @@ assert.throws(() => displayOverlay.onGetValues.call(displayPanel, {
 vmWindow.vmconfig.args = '-cpu host';
 
 
+// The keyboard: exactly one USB keyboard, on the first EHCI controller.
+// QEMU sends every key to the USB keyboard it created last, so QSM adds none
+// to a VM that has its own; otherwise one, on q35 at a free ehci.0 port (a
+// bus-less one lands on PVE's ehci-2, where macOS stops polling it), and with
+// QEMU's default placement where ehci.0 does not exist (i440fx).
+{
+    const cpuDisplay = ' -display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus,gl=off';
+    const machineArgs = ' -machine vmport=off -machine i8042=off';
+    const legacyKeyboard = ' -device usb-kbd,id=qsm-direct-keyboard';
+    const ehciKeyboard = (port) => ` -device usb-kbd,id=qsm-direct-keyboard,bus=ehci.0,port=${port}`;
+    const enable = { type: 'std', qsm_direct_display1: 1, qsm_direct_profile: 'cpu' };
+    const disable = { type: 'std', qsm_direct_display1: 0 };
+    const save = (config, values) => {
+        vmWindow.vmconfig = config;
+        return displayOverlay.onGetValues.call(displayPanel, values);
+    };
+    const keyboards = (args) => (args.match(/(?:^|\s)-device\s+'?\{?"?(?:driver"?:"?)?usb-kbd[,"]/g) || []).length;
+    const managed = (vmid, keyboard) => `-cpu host${cpuDisplay}${managedGuestArgs(vmid)}${machineArgs}${keyboard}`;
+
+    // q35 without its own keyboard: one QSM keyboard on ehci.0 port 3.
+    for (const machine of ['q35', 'pc-q35-10.1', 'pc-q35-9.2+pve1', 'type=q35,viommu=intel', 'pc-q35-8.1,viommu=virtio']) {
+        const on = save({ machine, args: '-cpu host' }, enable);
+        assert.equal(on.args, managed(321, ehciKeyboard(3)), `${machine}: the QSM keyboard goes to ehci.0 port 3`);
+        assert.equal(keyboards(on.args), 1, `${machine}: exactly one USB keyboard`);
+        assert.equal(save({ machine, args: on.args }, enable).args, undefined, `${machine}: saving again changes nothing`);
+        assert.equal(save({ machine, args: on.args }, disable).args, '-cpu host', `${machine}: disabling removes it`);
+    }
+    // VirGL profile, q35: the same keyboard.
+    {
+        const on = save({ machine: 'q35', args: '-cpu host' },
+            { type: 'std', qsm_direct_display1: 1, qsm_direct_rendernode: '/dev/dri/renderD128' });
+        assert.ok(on.args.endsWith(machineArgs + ehciKeyboard(3)), 'VirGL on q35: keyboard on ehci.0 port 3');
+    }
+
+    // i440fx (PVE's x86 default) has no ehci.0 (only piix3 uhci, or PVE's
+    // pve-usb.cfg ehci without a second EHCI): QEMU's default placement.
+    for (const machine of [undefined, 'pc', 'pc-i440fx-10.1', 'pc-i440fx-9.2+pve1', 'type=pc,viommu=virtio']) {
+        const on = save({ machine, args: '-cpu host' }, enable);
+        assert.equal(on.args, managed(321, legacyKeyboard), `${machine}: bus-less QSM keyboard on i440fx`);
+        assert.equal(save({ machine, args: on.args }, enable).args, undefined, `${machine}: stable on save`);
+        assert.equal(save({ machine, args: on.args }, disable).args, '-cpu host', `${machine}: disabling removes it`);
+    }
+    // aarch64: qemu-server adds its own usb-kbd (id=keyboard); QSM adds none.
+    assert.equal(save({ machine: 'virt', arch: 'aarch64', args: '-cpu host' }, enable).args,
+        `-cpu host${cpuDisplay}${managedGuestArgs(321)}${machineArgs}`, 'aarch64: no second keyboard');
+
+    // The VM's own keyboard (VM 118: usb-kbd,bus=ehci.0,port=2) receives
+    // QSM's input; QSM adds none and never removes it.
+    for (const own of [
+        '-device usb-kbd,bus=ehci.0,port=2',
+        '-device usb-kbd,id=kbd0',
+        '-device usb-kbd,id=qsm-direct-keyboard,bus=xhci.0',
+        '-device \'{"driver":"usb-kbd","id":"kbd0","bus":"ehci.0","port":"2"}\'',
+    ]) {
+        for (const machine of ['q35', 'pc']) {
+            const args = `-cpu host ${own}`;
+            const on = save({ machine, args }, enable);
+            assert.equal(on.args, `${args}${cpuDisplay}${managedGuestArgs(321)}${machineArgs}`,
+                `${machine} ${own}: QSM adds no keyboard`);
+            assert.equal(keyboards(on.args), 1, `${machine} ${own}: one USB keyboard`);
+            assert.equal(save({ machine, args: on.args }, disable).args, args,
+                `${machine} ${own}: disabling keeps the VM's own keyboard`);
+        }
+    }
+
+    // 0.4.0 configs: the bus-less keyboard still counts as QSM's own.
+    {
+        const legacy = managed(321, legacyKeyboard);
+        assert.equal(save({ machine: 'q35', args: legacy }, enable).args, managed(321, ehciKeyboard(3)),
+            'q35: the 0.4.0 keyboard moves to ehci.0 port 3 in place, without a second one');
+        assert.equal(save({ machine: 'q35', args: legacy }, disable).args, '-cpu host',
+            'disabling a 0.4.0 console removes its keyboard');
+        assert.equal(save({ machine: 'pc', args: legacy }, enable).args, undefined, 'i440fx: the 0.4.0 form is current');
+        // VM 118 as deployed on 2026-11-10: its own keyboard plus the 0.4.0 one.
+        const vm118 = '-device isa-applesmc,osk=x -smbios type=2 -device usb-kbd,bus=ehci.0,port=2 -cpu host' +
+            cpuDisplay + managedGuestArgs(321) + machineArgs + legacyKeyboard +
+            ' -device \'{"driver":"vfio-user-pci","id":"pvg0","bus":"pcie.0","addr":"0x5"}\'';
+        const rewritten = save({ machine: 'q35', args: vm118 }, enable);
+        assert.equal(rewritten.args, vm118.replace(legacyKeyboard, ''), 'the 0.4.0 keyboard next to the own one is dropped');
+        assert.equal(keyboards(rewritten.args), 1, 'VM 118: one USB keyboard');
+        assert.equal(save({ machine: 'q35', args: vm118 }, disable).args,
+            '-device isa-applesmc,osk=x -smbios type=2 -device usb-kbd,bus=ehci.0,port=2 -cpu host' +
+            ' -device \'{"driver":"vfio-user-pci","id":"pvg0","bus":"pcie.0","addr":"0x5"}\'',
+            'VM 118 disable: the own keyboard stays, only QSM arguments leave');
+        // A partially written 0.4.0 set gets the rest, once.
+        const partial = save({ machine: 'q35', args: `-cpu host${cpuDisplay}${managedGuestArgs(321)} -machine vmport=off` }, enable);
+        assert.equal(partial.args, `-cpu host${cpuDisplay}${managedGuestArgs(321)} -machine vmport=off -machine i8042=off${ehciKeyboard(3)}`);
+    }
+
+    // ehci.0 ports already used in args are skipped; PVE's tablet keeps port 1.
+    {
+        const storage = '-cpu host -device usb-storage,bus=ehci.0,port=3,drive=d0';
+        assert.ok(save({ machine: 'q35', args: storage }, enable).args.endsWith(ehciKeyboard(4)), 'port 3 taken: port 4');
+        const json = '-cpu host -device \'{"driver":"usb-storage","bus":"ehci.0","port":3}\' -device usb-host,bus=ehci.0,port=4,hostbus=1,hostport=2';
+        assert.ok(save({ machine: 'q35', args: json }, enable).args.endsWith(ehciKeyboard(5)), 'ports 3, 4 taken: port 5');
+        const otherBus = '-cpu host -device usb-storage,bus=ehci-2.0,port=3,drive=d0 -device usb-host,bus=xhci.0,port=3,hostbus=1,hostport=2';
+        assert.ok(save({ machine: 'q35', args: otherBus }, enable).args.endsWith(ehciKeyboard(3)), 'other buses do not count');
+        const busy = [3, 4, 5, 6].map((port) => ` -device usb-host,bus=ehci.0,port=${port},hostbus=1,hostport=${port}`).join('');
+        assert.ok(save({ machine: 'q35', args: `-cpu host${busy}` }, enable).args.endsWith(ehciKeyboard(2)), 'last free port 2');
+        const full = `-cpu host${busy} -device usb-host,bus=ehci.0,port=2,hostbus=1,hostport=9`;
+        assert.ok(save({ machine: 'q35', args: full }, enable).args.endsWith(legacyKeyboard), 'a full ehci.0: default placement');
+        // A managed keyboard stays on its port while that port is free...
+        const onFive = managed(321, ehciKeyboard(5));
+        assert.equal(save({ machine: 'q35', args: onFive }, enable).args, undefined, 'no churn of a free managed port');
+        // ...and moves when an administrator puts something else there.
+        const collided = `${managed(321, ehciKeyboard(3))} -device usb-storage,bus=ehci.0,port=3,drive=d0`;
+        assert.equal(save({ machine: 'q35', args: collided }, enable).args,
+            `${managed(321, ehciKeyboard(4))} -device usb-storage,bus=ehci.0,port=3,drive=d0`, 'a collision moves it in place');
+        assert.equal(save({ machine: 'q35', args: collided }, disable).args,
+            '-cpu host -device usb-storage,bus=ehci.0,port=3,drive=d0', 'disable leaves the other device');
+    }
+
+    // Audio on/off through the Audio Device dialog rewrites the managed set
+    // with the VM config too.
+    {
+        const audioPanel = definitions.get('PVE.qsmDirect.AudioInputPanelOverlay');
+        const audioWindow = { pveSelNode: { data: { vmid: 321 } },
+            vmconfig: { machine: 'q35', args: managed(321, legacyKeyboard) } };
+        const panel = { up: () => audioWindow, callParent: () => ({}) };
+        const on = audioPanel.onGetValues.call(panel, { device: 'ich9-intel-hda', driver: 'qsm' });
+        assert.ok(on.args.includes(ehciKeyboard(3).trim()) && !on.args.includes(`${legacyKeyboard} `) &&
+            !on.args.endsWith(legacyKeyboard), 'the Audio dialog migrates the 0.4.0 keyboard as well');
+    }
+
+    // Machine dialog: the managed keyboard follows the machine type, since
+    // QEMU refuses bus=ehci.0 on i440fx.
+    {
+        const machineEdit = definitions.get('PVE.qsmDirect.MachineEditOverlay');
+        const machinePanel = definitions.get('PVE.qsmDirect.MachineInputPanelOverlay');
+        assert.ok(machineEdit && machinePanel, 'the Machine dialog is overlaid');
+        const window = { load: (options) => options.success({ result: { data: {
+            machine: 'q35', args: managed(321, ehciKeyboard(3)) } } }) };
+        machineEdit.initComponent.call(Object.assign(window, { callParent() { this.load({}); } }));
+        assert.equal(window.qsmDirectConfig.machine, 'q35', 'the Machine dialog keeps the loaded config');
+        const panelFor = (parent) => ({ up: () => window, callParent: () => ({ ...parent }) });
+        assert.deepEqual(machinePanel.onGetValues.call(panelFor({ delete: 'machine' }), {}),
+            { delete: 'machine', args: managed(321, legacyKeyboard) }, 'q35 -> default i440fx: bus-less keyboard');
+        assert.deepEqual(machinePanel.onGetValues.call(panelFor({ machine: 'pc-i440fx-10.1' }), {}),
+            { machine: 'pc-i440fx-10.1', args: managed(321, legacyKeyboard) }, 'q35 -> i440fx: bus-less keyboard');
+        assert.deepEqual(machinePanel.onGetValues.call(panelFor({ machine: 'pc-q35-10.1' }), {}),
+            { machine: 'pc-q35-10.1' }, 'q35 -> q35: args unchanged');
+        window.qsmDirectConfig = { machine: 'pc', args: managed(321, legacyKeyboard) };
+        assert.deepEqual(machinePanel.onGetValues.call(panelFor({ machine: 'q35' }), {}),
+            { machine: 'q35', args: managed(321, ehciKeyboard(3)) }, 'i440fx -> q35: keyboard to ehci.0');
+        window.qsmDirectConfig = { machine: 'q35', args: '-cpu host -device usb-kbd,bus=ehci.0,port=2' };
+        assert.deepEqual(machinePanel.onGetValues.call(panelFor({ delete: 'machine' }), {}),
+            { delete: 'machine' }, 'an administrator keyboard is never moved');
+        window.qsmDirectConfig = { machine: 'q35', args: '-cpu host' };
+        assert.deepEqual(machinePanel.onGetValues.call(panelFor({ machine: 'pc' }), {}), { machine: 'pc' },
+            'no QSM keyboard: nothing added by the Machine dialog');
+    }
+    vmWindow.vmconfig = { args: '-cpu host' };
+}
+
 // Sound through PVE's own Audio Device dialog: backend "QSM Console" puts the
 // overlay's sound card into args (no audio0); a stock backend takes it out.
 const audioPanelOverlay = definitions.get('PVE.qsmDirect.AudioInputPanelOverlay');

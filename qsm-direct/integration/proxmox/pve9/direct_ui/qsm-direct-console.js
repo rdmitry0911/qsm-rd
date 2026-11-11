@@ -14,7 +14,7 @@
     const NATIVE_QEMU = !VIEWER && typeof PVE !== 'undefined' &&
         typeof PVE.Utils?.openWebRTCViewer === 'function';
     const defineOverride = (name, body) => {
-        const legacyQemu = /\.(DisplayInputPanel|DisplayEdit|AudioInputPanel|AudioEdit|HardwareView|QemuConfig)Overlay$/.test(name);
+        const legacyQemu = /\.(DisplayInputPanel|DisplayEdit|AudioInputPanel|AudioEdit|HardwareView|QemuConfig|MachineInputPanel|MachineEdit)Overlay$/.test(name);
         if (!VIEWER && !(NATIVE_QEMU && legacyQemu)) { Ext.define(name, body); }
     };
     const MIN_VMID = 100;
@@ -3477,15 +3477,32 @@
     // Display1 injects into QEMU's *active* input devices.  q35 normally
     // supplies PS/2 plus VMware's vmmouse; a guest can select either one and
     // make Display1 pointer events disappear even though the WebRTC channel
-    // is healthy.  A direct console owns one explicit USB keyboard and the
-    // existing PVE USB tablet, and removes both legacy alternatives.  Keep
-    // these exact args managed with the Display1 lifecycle: changing back to
-    // a normal PVE display restores PVE's normal input topology.
-    const DIRECT_INPUT_ARGUMENTS = [
+    // is healthy.  A direct console removes both legacy alternatives and
+    // leaves the VM exactly one USB keyboard next to the existing PVE USB
+    // tablet.  Keep these args managed with the Display1 lifecycle: changing
+    // back to a normal PVE display restores PVE's normal input topology.
+    const DIRECT_MACHINE_ARGUMENTS = [
         '-machine vmport=off',
         '-machine i8042=off',
-        '-device usb-kbd,id=qsm-direct-keyboard',
     ];
+    // The keyboard.  QEMU delivers every key to the USB keyboard created
+    // last, so a second keyboard only takes the input away from the first:
+    // a VM whose args already carry its own usb-kbd gets none from QSM.
+    // Otherwise QSM adds one, on the first EHCI controller.  PVE's q35
+    // layout has two (ehci at 00:1d.7, ehci-2 at 00:1a.7, one shared
+    // interrupt line); a keyboard without a bus lands on ehci-2, and macOS
+    // guests intermittently stop polling it there.  On i440fx (or any VM
+    // without PVE's q35 ehci.0) the keyboard keeps QEMU's default placement.
+    // 0.4.0 wrote the bus-less form on every machine type; it stays
+    // recognised as QSM's own and is rewritten when the managed set is.
+    const DIRECT_KEYBOARD_ID = 'qsm-direct-keyboard';
+    const LEGACY_DIRECT_KEYBOARD_ARGUMENT = `-device usb-kbd,id=${DIRECT_KEYBOARD_ID}`;
+    const MANAGED_KEYBOARD_PATTERN = new RegExp(
+        `^-device\\s+usb-kbd,id=${DIRECT_KEYBOARD_ID}(?:,bus=ehci\\.0,port=[1-6])?$`);
+    // ich9-usb-ehci1 has ports 1-6; PVE's usb-tablet is ehci.0 port 1 on q35
+    // and stays reserved, port 2 is PVE's own keyboard slot (aarch64) and
+    // the usual place of an administrator's keyboard, so it is tried last.
+    const DIRECT_KEYBOARD_EHCI_PORTS = [3, 4, 5, 6, 2];
 
     const validNode = (value) => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$/.test(value);
     const validVmid = (value) => Number.isInteger(value) && value >= MIN_VMID && value <= MAX_VMID;
@@ -3557,7 +3574,73 @@
         `(?:^|\\s)${escapeRegExp(value)}(?=\\s|$)`,
     ).test(args);
     const managedGuestChannel = (args, vmid) => guestArguments(vmid).every((value) => containsArgument(args, value));
-    const managedDirectInput = (args) => DIRECT_INPUT_ARGUMENTS.every((value) => containsArgument(args, value));
+    // `-device` values in args, with their QEMU options: the key=value form
+    // (first bare word is the driver) and the JSON form PVE args also allow.
+    const deviceArguments = (args) => [...args.matchAll(/(?:^|\s)(-device\s+(\S+))(?=\s|$)/g)].map((match) => {
+        const text = match[1];
+        let value = match[2];
+        if (/^(['"]).*\1$/.test(value)) { value = value.slice(1, -1); }
+        let options = {};
+        if (value.startsWith('{')) {
+            try {
+                const parsed = JSON.parse(value);
+                if (parsed && typeof parsed === 'object') {
+                    for (const [key, entry] of Object.entries(parsed)) { options[key] = String(entry); }
+                }
+            } catch (_error) { options = {}; }
+        } else {
+            for (const part of value.split(',')) {
+                const equals = part.indexOf('=');
+                if (equals < 0) {
+                    if (options.driver === undefined) { options.driver = part; }
+                } else { options[part.slice(0, equals)] = part.slice(equals + 1); }
+            }
+        }
+        return { text, options };
+    });
+    const managedKeyboardArgument = (args) => {
+        const found = deviceArguments(args).find(({ text }) => MANAGED_KEYBOARD_PATTERN.test(text));
+        return found ? found.text : null;
+    };
+    // Any other usb-kbd, an administrator's own (VM 118: bus=ehci.0,port=2).
+    const ownKeyboard = (args) => deviceArguments(args).some(({ text, options }) =>
+        options.driver === 'usb-kbd' && !MANAGED_KEYBOARD_PATTERN.test(text));
+    // PVE machine property string: `type` is the default key, and
+    // qemu-server's machine_type_is_q35 matches /q35/ in it; no machine
+    // means PVE's default, i440fx ('pc') on x86_64.
+    const machineType = (machine) => {
+        let type = '';
+        for (const part of String(machine || '').split(',')) {
+            if (part.startsWith('type=')) { type = part.slice(5); } else if (!part.includes('=') && !type) { type = part; }
+        }
+        return type;
+    };
+    // qemu-server loads pve-q35(-4.0).cfg, with ich9-usb-ehci1 id=ehci, for
+    // every x86 q35 machine; aarch64 has its own usb-ehci and keyboard.
+    const pveQ35Ehci = (config) => Boolean(config) && (config.arch || 'x86_64') === 'x86_64' &&
+        /q35/.test(machineType(config.machine));
+    const ehci0PortsInUse = (args) => new Set(deviceArguments(args)
+        .filter(({ options }) => options.bus === 'ehci.0' && /^[0-9]+$/.test(options.port || ''))
+        .map(({ options }) => Number(options.port)));
+    // The managed keyboard `args` (without any managed keyboard) should
+    // carry, or null for none.  `config` is the VM config (machine, arch);
+    // without it the current keyboard is kept as it is.
+    const wantedDirectKeyboard = (args, config, current) => {
+        if (ownKeyboard(args)) { return null; }
+        if (config && config.arch === 'aarch64') { return null; } // qemu-server adds usb-kbd id=keyboard
+        if (!config) { return current; }
+        if (!pveQ35Ehci(config)) { return LEGACY_DIRECT_KEYBOARD_ARGUMENT; }
+        const used = ehci0PortsInUse(args);
+        used.add(1); // PVE usb-tablet
+        const currentPort = current && /,port=([1-6])$/.exec(current);
+        const ports = currentPort ? [Number(currentPort[1]), ...DIRECT_KEYBOARD_EHCI_PORTS] : DIRECT_KEYBOARD_EHCI_PORTS;
+        const port = ports.find((value) => !used.has(value));
+        // A full ehci.0 cannot take it; QEMU's default placement still starts.
+        return port === undefined ? LEGACY_DIRECT_KEYBOARD_ARGUMENT
+            : `${LEGACY_DIRECT_KEYBOARD_ARGUMENT},bus=ehci.0,port=${port}`;
+    };
+    const managedDirectInput = (args) => DIRECT_MACHINE_ARGUMENTS.every((value) => containsArgument(args, value)) &&
+        (managedKeyboardArgument(args) !== null || ownKeyboard(args));
     const removeManagedGuestChannel = (args, vmid) => guestArguments(vmid).reduce((current, value) =>
         current.replace(new RegExp(`(?:^|\\s)${escapeRegExp(value)}(?=\\s|$)`), ''), args,
     ).trim().replace(/\s{2,}/g, ' ');
@@ -3582,11 +3665,27 @@
         new RegExp(`(?:^|\\s)${escapeRegExp(value)}(?=\\s|$)`), '',
     ), args).trim().replace(/\s{2,}/g, ' ');
     const withAudio = (args, audio) => audio ? addManagedAudio(args) : removeManagedAudio(args);
-    const addManagedDirectInput = (args) => managedDirectInput(args)
-        ? args : `${args} ${DIRECT_INPUT_ARGUMENTS.filter((value) => !containsArgument(args, value)).join(' ')}`.trim();
-    const removeManagedDirectInput = (args) => DIRECT_INPUT_ARGUMENTS.reduce((current, value) => current.replace(
-        new RegExp(`(?:^|\\s)${escapeRegExp(value)}(?=\\s|$)`), '',
-    ), args).trim().replace(/\s{2,}/g, ' ');
+    // Put the managed keyboard where `config` wants it: migrate a 0.4.0 or
+    // misplaced one in place, drop it next to the VM's own keyboard, and add
+    // it only when `add` (QSM's Display1 owns the VM's input).
+    const placeManagedKeyboard = (args, config, add) => {
+        const current = managedKeyboardArgument(args);
+        if (!current && !add) { return args; }
+        const others = current ? removeArgument(args, current) : args;
+        const wanted = wantedDirectKeyboard(others, config, current);
+        if (current && wanted) { return replaceArgument(args, current, wanted); }
+        if (current) { return others; }
+        return wanted ? `${args} ${wanted}`.trim() : args;
+    };
+    const addManagedDirectInput = (args, config) => placeManagedKeyboard(
+        `${args} ${DIRECT_MACHINE_ARGUMENTS.filter((value) => !containsArgument(args, value)).join(' ')}`.trim(),
+        config, true);
+    // Only what QSM added: an administrator's own keyboard stays.
+    const removeManagedDirectInput = (args) => {
+        const keyboard = managedKeyboardArgument(args);
+        return DIRECT_MACHINE_ARGUMENTS.reduce((current, value) => removeArgument(current, value),
+            keyboard ? removeArgument(args, keyboard) : args);
+    };
     const displayState = (args, vmid) => {
         if (typeof args !== 'string' || !validVmid(vmid)) {
             return { managed: false, legacy: false, legacyGpu: false, profile: DISPLAY_PROFILE.virgl,
@@ -3639,7 +3738,9 @@
         new RegExp(`(?:^|\\s)${escapeRegExp(previous)}(?=\\s|$)`), (value) =>
             value.startsWith(' ') ? ` ${wanted}` : wanted);
     // `audio` undefined keeps what is configured (off for a new console).
-    const updateDisplayArgument = (args, vmid, profile, rendernode, want, audio) => {
+    // `config` is the VM config the keyboard placement depends on (machine,
+    // arch); undefined keeps a configured keyboard where it is.
+    const updateDisplayArgument = (args, vmid, profile, rendernode, want, audio, config) => {
         args = args === undefined || args === null ? '' : args;
         if (typeof args !== 'string' || args.length > MAX_QEMU_ARGS_BYTES || /[\x00-\x1f\x7f]/.test(args)) {
             throw new Error('unsafe QEMU display arguments');
@@ -3662,7 +3763,7 @@
                 // Add only what is missing: a second qsm-direct-agent chardev
                 // stops QEMU with a duplicate id.
                 const added = addManagedDirectInput(addManagedGuestChannel(
-                    `${args} ${ownedGpu}${wanted}`.trim(), vmid));
+                    `${args} ${ownedGpu}${wanted}`.trim(), vmid), config);
                 return audio ? `${added} ${AUDIO_ARGUMENTS.join(' ')}` : added;
             }
             if (!existing.managed && !existing.legacy) {
@@ -3676,19 +3777,19 @@
                         ? updated.replace(/(?:^|\s)-device\s+virtio-vga-gl(?=\s|$)/, '')
                         : removeArgument(updated, gpuArgument());
                 }
-                return addManagedDirectInput(addManagedGuestChannel(updated, vmid));
+                return addManagedDirectInput(addManagedGuestChannel(updated, vmid), config);
             }
             if (existing.profile === DISPLAY_PROFILE.cpu) {
-                return addManagedDirectInput(addManagedGuestChannel(`${updated} ${gpuArgument()}`, vmid));
+                return addManagedDirectInput(addManagedGuestChannel(`${updated} ${gpuArgument()}`, vmid), config);
             }
-            if (existing.managed) { return addManagedDirectInput(addManagedGuestChannel(updated, vmid)); }
+            if (existing.managed) { return addManagedDirectInput(addManagedGuestChannel(updated, vmid), config); }
             if (existing.legacyGpu) {
                 return addManagedDirectInput(addManagedGuestChannel(updated.replace(
                     /(?:^|\s)-device\s+virtio-vga-gl(?=\s|$)/,
                     (value) => value.startsWith(' ') ? ` ${gpuArgument()}` : gpuArgument(),
-                ), vmid));
+                ), vmid), config);
             }
-            return addManagedDirectInput(addManagedGuestChannel(`${updated} ${gpuArgument()}`, vmid));
+            return addManagedDirectInput(addManagedGuestChannel(`${updated} ${gpuArgument()}`, vmid), config);
         }
         if (!existing.managed && !existing.legacy) {
             if (gpu.length !== 0) { throw new Error('unsafe QEMU Display1 device arguments'); }
@@ -3821,7 +3922,8 @@
             const printed = PVE.Parser.printPropertyString(result, 'type');
             const response = printed ? { vga: printed } : { delete: 'vga' };
             const audio = values.qsm_direct_audio === undefined ? undefined : enabled(values.qsm_direct_audio);
-            const changed = updateDisplayArgument(edit.vmconfig.args, vmid, profile, rendernode, active, audio);
+            const changed = updateDisplayArgument(edit.vmconfig.args, vmid, profile, rendernode, active, audio,
+                edit.vmconfig);
             if (changed !== (edit.vmconfig.args || '')) { response.args = changed; }
             return response;
         },
@@ -3843,10 +3945,10 @@
     };
     // The args for switching the QSM sound card on or off; null when the VM
     // has no managed Display1 to carry it.
-    const qsmAudioArgs = (args, vmid, on) => {
+    const qsmAudioArgs = (args, vmid, on, config) => {
         const state = displayState(args, vmid);
         if (!state.managed && !state.legacy) { return null; }
-        return updateDisplayArgument(args, vmid, state.profile, state.rendernode, true, on);
+        return updateDisplayArgument(args, vmid, state.profile, state.rendernode, true, on, config);
     };
 
     defineOverride('PVE.qsmDirect.AudioInputPanelOverlay', {
@@ -3857,7 +3959,7 @@
             const vmid = windowVmid(edit);
             const args = config.args || '';
             if (values.driver === QSM_AUDIO_DRIVER) {
-                const changed = qsmAudioArgs(args, vmid, true);
+                const changed = qsmAudioArgs(args, vmid, true, config);
                 if (changed === null) { throw new Error('QSM Console audio needs QSM Display1'); }
                 const response = {};
                 if (changed !== args) { response.args = changed; }
@@ -3866,7 +3968,7 @@
             }
             const response = this.callParent([values]);
             if (qsmAudioActive(args, vmid)) {
-                response.args = qsmAudioArgs(args, vmid, false);
+                response.args = qsmAudioArgs(args, vmid, false, config);
             }
             return response;
         },
@@ -4009,6 +4111,43 @@
             };
             me.callParent();
             me.load = stockLoad;
+        },
+    });
+
+    // Machine: QSM's keyboard sits on ehci.0 only on q35, which i440fx does
+    // not have (QEMU would refuse to start).  A machine type change moves
+    // the managed keyboard with it; nothing else in args is touched.
+    defineOverride('PVE.qsmDirect.MachineEditOverlay', {
+        override: 'PVE.qemu.MachineEdit',
+        initComponent: function () {
+            const me = this;
+            const stockLoad = me.load;
+            me.load = function (options) {
+                const chained = Ext.apply({}, options);
+                const stockSuccess = chained.success;
+                chained.success = function (response) {
+                    me.qsmDirectConfig = (response && response.result && response.result.data) || null;
+                    if (stockSuccess) { stockSuccess.apply(this, arguments); }
+                };
+                return stockLoad.call(me, chained);
+            };
+            me.callParent();
+            me.load = stockLoad;
+        },
+    });
+    defineOverride('PVE.qsmDirect.MachineInputPanelOverlay', {
+        override: 'PVE.qemu.MachineInputPanel',
+        onGetValues: function (values) {
+            const response = this.callParent([values]);
+            const edit = this.up('proxmoxWindowEdit');
+            const config = edit && edit.qsmDirectConfig;
+            const args = config && typeof config.args === 'string' ? config.args : '';
+            if (!response || !managedKeyboardArgument(args)) { return response; }
+            const deleted = String(response.delete || '').split(',').includes('machine');
+            const machine = deleted ? undefined : (response.machine !== undefined ? response.machine : config.machine);
+            const changed = placeManagedKeyboard(args, { ...config, machine }, false);
+            if (changed !== args) { response.args = changed; }
+            return response;
         },
     });
 
