@@ -444,11 +444,13 @@ void test_cropped_video_rate_preserves_desktop_quality_and_ignores_brief_loss() 
     using Clock = qmdp::CroppedVideoRate::Clock;
     const Clock::time_point start {};
     qmdp::CroppedVideoRate rate;
-    CHECK(rate.update(start, false, 8000, 8000, true) == 8000U);
+    const auto full = rate.update(start, false, 8000, 8000, true);
+    CHECK(full == qmdp::CroppedVideoRate::full_plane(8000U));
+    CHECK(full * qmdp::VideoBudget::transport_percent <= 8000U * 100U && full >= 7000U);
     // The original no-crop desktop cannot change quality, even on a long
     // constrained link. Its raw byte admission remains the fallback.
     for (unsigned n = 1; n < 100; ++n) {
-        CHECK(rate.update(start + n * 1s, false, 500, 8000, false) == 8000U);
+        CHECK(rate.update(start + n * 1s, false, 500, 8000, false) == full);
     }
     const auto cropped = rate.update(start + 100s, true, 8000, 8000, true);
     CHECK(cropped < 8000U);
@@ -458,7 +460,7 @@ void test_cropped_video_rate_preserves_desktop_quality_and_ignores_brief_loss() 
     CHECK(rate.update(start + 111s, true, 8000, 8000, false) == cropped);
     CHECK(rate.update(start + 120s, true, 8000, 8000, false) == cropped);
     // A new fullscreen picture restores the fixed-quality original rate.
-    CHECK(rate.update(start + 121s, false, 1500, 8000, false) == 8000U);
+    CHECK(rate.update(start + 121s, false, 1500, 8000, false) == full);
 }
 
 void test_cropped_video_rate_tracks_sustained_steps_without_chasing_jitter() {
@@ -509,6 +511,29 @@ void test_cropped_video_rate_fits_the_shared_wire_budget_at_full_cadence() {
         }
     }
     CHECK(frames >= 595U);
+}
+
+void test_full_plane_codec_target_fits_the_open_path_at_full_cadence() {
+    using namespace std::chrono_literals;
+    const qmdp::VideoBudget::Clock::time_point start {};
+    for (const auto maximum : {2000U, 8000U, 20000U, 100000U}) {
+        qmdp::CroppedVideoRate rate;
+        qmdp::VideoBudget budget;
+        const auto codec = rate.update(start, false, maximum, maximum, true);
+        unsigned frames = 0;
+        // AMD VA-API CBR pads every full-plane picture, an idle one too, to
+        // its codec target per frame (hz-main, Mesa 25.0.7: 16.7 KB at
+        // 8 Mbit/s and 60 fps). Raw admission charges the 12% transport
+        // reserve on top, so a codec target equal to the open path admitted
+        // only 60/1.12 = 53.6 pictures/s although nothing was congested.
+        for (unsigned n = 0; n < 600; ++n) {
+            if (budget.ready(start + n * 16667us, maximum)) {
+                budget.account(codec * 1000U / 8U / 60U);
+                ++frames;
+            }
+        }
+        CHECK(frames >= 595U);
+    }
 }
 
 void test_cropped_scene_burst_is_bounded_and_paid_before_another_capture() {
@@ -596,7 +621,7 @@ void test_codec_scene_guard_preserves_urgent_repair_and_pending_lifetimes() {
     // Explicit recovery passes no previous-picture hint: never postpone
     // the IDR needed to repair an invalid prediction chain.
     CHECK(rate.update(start + 11617ms, true, 1500, 8000, false, 0) == 1050U);
-    CHECK(rate.update(start + 12s, false, 500, 8000, false, 50000) == 8000U);
+    CHECK(rate.update(start + 12s, false, 500, 8000, false, 50000) == qmdp::CroppedVideoRate::full_plane(8000U));
     CHECK(rate.update(start + 13s, true, 1500, 8000, true, 50000) == 1050U);
 }
 
@@ -611,7 +636,7 @@ void test_packet_confirmed_crop_repair_preserves_ordinary_quality_guards() {
     CHECK(rate.update(start + 2100ms, true, 500, 8000, false, 0, true) == 1050U);
     CHECK(rate.update(start + 3100ms, true, 500, 8000, false, 0, true) == 500U);
     // Full-desktop quality remains fixed even with explicit confirmation.
-    CHECK(rate.update(start + 4s, false, 500, 8000, false, 0, true) == 8000U);
+    CHECK(rate.update(start + 4s, false, 500, 8000, false, 0, true) == qmdp::CroppedVideoRate::full_plane(8000U));
     // A halving of the path can require a smaller-than-half codec cut after
     // the previous upward codec dwell. Confirmation applies that real target.
     qmdp::CroppedVideoRate stepped;
@@ -702,6 +727,7 @@ int main() {
     test_cropped_video_rate_preserves_desktop_quality_and_ignores_brief_loss();
     test_cropped_video_rate_tracks_sustained_steps_without_chasing_jitter();
     test_cropped_video_rate_fits_the_shared_wire_budget_at_full_cadence();
+    test_full_plane_codec_target_fits_the_open_path_at_full_cadence();
     test_cropped_scene_burst_is_bounded_and_paid_before_another_capture();
     test_severe_crop_decrease_has_a_short_confirmed_boundary_only();
     test_codec_retune_after_a_scene_burst_admits_one_fresh_picture();

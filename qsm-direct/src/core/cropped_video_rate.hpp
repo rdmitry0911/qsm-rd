@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <optional>
 
+#include "video_budget.hpp"
+
 namespace qmdp {
 
 // Only video under exact UI may trade codec quality for motion cadence: exact
@@ -34,6 +36,16 @@ public:
         return static_cast<std::uint32_t>(cropped ? std::max(frame, burst) : frame);
     }
 
+    // Video without exact UI keeps one fixed codec target, but raw admission
+    // pays every emitted byte plus the transport reserve from that same path.
+    // A target equal to the path made an encoder that meets its target self-
+    // throttle on an open link: AMD VA-API CBR pads even an idle picture to
+    // target/fps, so only fps/1.12 pictures/s were admitted (53 of 60).
+    static std::uint32_t full_plane(std::uint32_t maximum) {
+        maximum = std::clamp(maximum, 500U, 100'000U);
+        return std::max(500U, maximum * 100U / VideoBudget::transport_percent / 50U * 50U);
+    }
+
     std::uint32_t update(Clock::time_point now, bool cropped,
                          std::uint32_t requested, std::uint32_t maximum,
                          bool opening, std::uint64_t previous_access_unit_bytes = 0,
@@ -41,7 +53,7 @@ public:
         maximum = std::clamp(maximum, 500U, 100'000U);
         requested = std::clamp(requested, 500U, maximum);
         const auto desired = cropped
-            ? std::max(500U, requested * 70U / 100U / 50U * 50U) : maximum;
+            ? std::max(500U, requested * 70U / 100U / 50U * 50U) : full_plane(maximum);
         if (!current_ || opening || cropped != cropped_) {
             current_ = desired;
             cropped_ = cropped;

@@ -16,6 +16,9 @@ namespace qmdp {
 class VideoBudget {
 public:
     using Clock = std::chrono::steady_clock;
+    // Every admitted byte is charged with room for RTP/SRTP/IP and
+    // retransmissions. A codec target must leave this share of the path.
+    static constexpr unsigned transport_percent = 112U;
 
     bool ready(Clock::time_point now, std::uint32_t bitrate_kbps, unsigned ui_reservation = 0) {
         std::lock_guard lock(mutex_);
@@ -28,7 +31,7 @@ public:
             // stalls video for that burst's complete transmission time.
             // Include wire/liveness headroom so a sustained 15% payload
             // share can retire its overhead rather than accumulating debt.
-            const double observed = std::min(auxiliary_, std::max(reserved * 1.12, refill * .20));
+            const double observed = std::min(auxiliary_, std::max(reserved * transport_percent / 100.0, refill * .20));
             credit_ += refill - std::max(reserved, observed);
             auxiliary_ -= observed;
         }
@@ -53,12 +56,12 @@ public:
         std::lock_guard lock(mutex_);
         // Leave room for RTP/SRTP/IP and retransmissions. Tiny idle P-frames
         // remain inexpensive and can keep the negotiated cadence.
-        credit_ -= static_cast<double>(bytes) * 1.12;
+        credit_ -= static_cast<double>(bytes) * transport_percent / 100.0;
     }
 
     void account_auxiliary(std::size_t bytes) {
         std::lock_guard lock(mutex_);
-        const double cost = static_cast<double>(bytes) * 1.12;
+        const double cost = static_cast<double>(bytes) * transport_percent / 100.0;
         auxiliary_ += cost;
     }
 

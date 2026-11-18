@@ -208,8 +208,11 @@ Use instances.d/<VMID>.conf for VMs or containers.d/<VMID>.conf for LXC.
 The value is in decimal kbit/s (500–100000), and survives codec changes and
 re-running the LXC setup helper. The encoder rate/VBV budget and RTP pacing
 are derived from the same value; the pacer allows 25% overhead/recovery
-headroom and a bounded burst. Audio and packet/network overhead are additional
-to the configured video rate. With NVENC, software H.264, QSV or VA-API this
+headroom and a bounded burst. Raw-picture admission charges a 12% transport
+reserve against the configured rate, so a full-desktop encoder targets
+100/112 of it (7.1 Mbit/s for 8 Mbit/s) and keeps full cadence on an open
+path even when it pads every picture to its target (AMD VA-API CBR). Audio
+is additional to the configured video rate. With NVENC, software H.264, QSV or VA-API this
 is the ceiling for automatic congestion control. The worker preserves its
 configured encoder settings while adaptation changes the budget for admitting
 raw pictures. Limited bandwidth reduces motion cadence; static reference
