@@ -1908,6 +1908,21 @@ class UnixInputEgress:
         self._refresh_sequence = 0
         self._refresh_rate = 0
         self._refresh_at = float('-inf')
+        # Contract CONSOLE-ACTIVE-SIZE-1.  Every Console of this producer
+        # reaches the display through the worker's one Display1 connection,
+        # and Console.SetUIInfo keeps no per-caller state (QEMU
+        # ui/dbus-console.c dbus_console_set_ui_info: last writer wins), so
+        # two Consoles of different sizes each pulled the guest to their own
+        # size.  Only the active Console's size request is forwarded: the
+        # Console with the latest user input, else the most recently attached
+        # one.  Every other Console is passive: its requests are withheld and
+        # it shows the active Console's size scaled.  Each Console is told its
+        # role; a Console that becomes active asks once for its window size.
+        self._size_consoles: dict[object, Callable[[bool], None]] = {}
+        self._size_input: dict[object, int] = {}
+        self._size_input_serial = 0
+        self._size_active: object | None = None
+        self.size_requests_withheld = 0
 
     def start(self) -> None:
         UnixTapIngress._validate_runtime_directory(self._runtime_directory)
@@ -2074,6 +2089,13 @@ class UnixInputEgress:
     def send_peer_packet(self, owner: object, packet: bytes) -> bool:
         """Serialize state edges and retain per-console ownership."""
         opcode = packet[5]
+        if opcode == INPUT_RESIZE:
+            with self._input_state_lock:
+                if self._size_consoles and owner is not self._size_active:
+                    # A passive Console's window never resizes the guest.
+                    self.size_requests_withheld += 1
+                    return False
+                return self._send_packet(packet)
         if opcode == INPUT_MOUSE_ACTION:
             button, action = struct.unpack_from("!BB", packet, INPUT_HEADER.size)
             desired = set(struct.unpack_from("!" + "H" * ((len(packet) - INPUT_HEADER.size - 10) // 2),
@@ -2118,6 +2140,64 @@ class UnixInputEgress:
                 # An expired drag still needs its final coordinate applied.
                 return self._send_packet(packet)
             return True
+
+    def attach_size_console(self, owner: object, notify: Callable[[bool], None]) -> None:
+        """Admit a Console (its control channel opened) to the display size
+        arbitration; ``notify(active)`` tells it its role now and on change."""
+        with self._input_state_lock:
+            self._size_consoles.pop(owner, None)
+            self._size_consoles[owner] = notify
+            calls = self._select_size_console(announce=owner, reason="attach")
+        self._notify_size_roles(calls)
+
+    def detach_size_console(self, owner: object) -> None:
+        """Retire a Console; an active one hands the size to the next."""
+        with self._input_state_lock:
+            self._size_input.pop(owner, None)
+            if self._size_consoles.pop(owner, None) is None:
+                return
+            calls = self._select_size_console(reason="detach")
+        self._notify_size_roles(calls)
+
+    def note_console_input(self, owner: object) -> None:
+        """A Console delivered user input: it is the active Console."""
+        with self._input_state_lock:
+            if owner not in self._size_consoles:
+                return
+            self._size_input_serial += 1
+            self._size_input[owner] = self._size_input_serial
+            if owner is self._size_active:
+                return
+            calls = self._select_size_console(reason="input")
+        self._notify_size_roles(calls)
+
+    def _select_size_console(self, *, announce: object | None = None,
+                             reason: str) -> list[tuple[Callable[[bool], None], bool]]:
+        previous = self._size_active
+        with_input = [owner for owner in self._size_consoles if owner in self._size_input]
+        if with_input:
+            active = max(with_input, key=self._size_input.__getitem__)
+        else:
+            # Insertion order is attach order.
+            active = next(reversed(self._size_consoles), None)
+        self._size_active = active
+        if active is not previous:
+            print(f"qsm-direct-terminal: display size console changed on {reason} "
+                  f"consoles={len(self._size_consoles)} withheld={self.size_requests_withheld}",
+                  file=sys.stderr, flush=True)
+        return [(notify, owner is active) for owner, notify in self._size_consoles.items()
+                if owner is announce or (active is not previous and owner in (active, previous))]
+
+    @staticmethod
+    def _notify_size_roles(calls: list[tuple[Callable[[bool], None], bool]]) -> None:
+        # Outside the lock: a role is a control-channel message.  Tell the
+        # passive Consoles first, so that the guest's next size is asked
+        # only after every other Console has stopped asking.
+        for notify, active in sorted(calls, key=lambda call: call[1]):
+            try:
+                notify(active)
+            except Exception:
+                pass
 
     def _release_extra_modifiers(self, owner: object, desired: set[int]) -> None:
         for modifier in (self._key_owners.keys() & MODIFIER_KEYS) - desired:
@@ -2433,6 +2513,7 @@ class BrowserInputState:
     def handle_pointer(self, raw: object) -> None:
         self.expire()
         self.egress.send_browser_pointer_message(raw, self.pointer_order)
+        self.egress.note_console_input(self)
 
     def handle(self, raw: object) -> dict[str, Any] | None:
         if not isinstance(raw, str) or not raw.isascii() or not 1 <= len(raw) <= MAX_CONTROL_MESSAGE_BYTES:
@@ -2470,6 +2551,12 @@ class BrowserInputState:
         if packet[5] == INPUT_MOUSE_POSITION:
             self.handle_pointer(raw)
             return None
+        # User input makes this Console the one whose window sizes the guest
+        # (CONSOLE-ACTIVE-SIZE-1).  A release ends earlier input; it is no
+        # new input of its own.
+        if (packet[5] in (INPUT_KEY_TAP, INPUT_MOUSE_ACTION, INPUT_SCROLL) or
+                (packet[5] in (INPUT_KEYBOARD, INPUT_MOUSE_BUTTON) and value.get("down") is True)):
+            self.egress.note_console_input(self)
         ack = None
         if packet[5] == INPUT_MOUSE_ACTION:
             ack = {"op": "qsm_mouse_ack", "sequence": value["sequence"]}
@@ -2883,6 +2970,10 @@ class BrowserWebRtcBridge:
         if not self._closed:
             self._send_control(dict(result))
 
+    def _display_size_role(self, active: bool) -> None:
+        """Tell this Console whether its window sizes the guest display."""
+        self._send_control({"op": "qsm_display_role", "version": 1, "active": bool(active)})
+
     def _receive_cursor(self, cursor: GuestCursor) -> None:
         """Accept an ingress-loop cursor update and publish latest state.
 
@@ -3078,10 +3169,13 @@ class BrowserWebRtcBridge:
                 if self._input_watchdog is None:
                     self._input_watchdog = asyncio.create_task(self._watch_input())
                 self._ui_peer.announce()
+                if not self._closed and not self._input_ended:
+                    self.input.attach_size_console(self._input_state, self._display_size_role)
 
             @channel.on("close")
             def on_control_close() -> None:
                 self._input_ended = True
+                self.input.detach_size_console(self._input_state)
                 self._input_state.release()
                 self._set_lossless_ui(False)
             if getattr(channel, "readyState", None) == "open":
@@ -3870,6 +3964,7 @@ class BrowserWebRtcBridge:
         await self._ui_peer.close()
         # Release this browser's authority before any asynchronous teardown,
         # including when the shared producer stays alive for another viewer.
+        self.input.detach_size_console(self._input_state)
         self._input_state.release()
         if self._input_watchdog is not None:
             self._input_watchdog.cancel()

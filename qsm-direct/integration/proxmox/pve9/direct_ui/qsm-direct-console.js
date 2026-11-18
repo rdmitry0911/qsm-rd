@@ -5563,6 +5563,16 @@
         let resizeRefusalText = '';
         let lastRequestedSize = '';
         let acceptResizeResult = () => undefined;
+        // Several Consoles can show one VM display, and Display1 takes the
+        // size of whichever asked last.  The terminal forwards only the
+        // active Console's size requests (CONSOLE-ACTIVE-SIZE-1: the Console
+        // with the latest user input, else the most recently attached one)
+        // and tells each Console its role (qsm_display_role).  A passive
+        // Console asks for nothing and shows the active Console's size
+        // scaled; becoming active asks once for its window size.  Until a
+        // role arrives (an older terminal) this Console behaves as active.
+        let displayPassive = false;
+        let acceptDisplayRole = () => undefined;
         // Last moment this Console forwarded pointer or key input.  A black
         // picture right after input is a booting or genuinely black guest,
         // not a sleeping one, so the wake hint is withheld for a few seconds.
@@ -7243,6 +7253,9 @@
                     // This window size was answered already.  A request the
                     // guest has not presented is not re-sent: the display
                     // keeps it and the guest applies it when it can.
+                    // A passive Console's window never sizes the guest: the
+                    // picture of the active Console's size is scaled into it.
+                    if (displayPassive) { return; }
                     if (identity === lastResize) { return; }
                     // The display's current size is this Console's pending
                     // request, otherwise the picture the guest presents.
@@ -7346,6 +7359,27 @@
                 if (!guestAsleepHint) { status.textContent = resizeRefusalText; }
                 if (!resizeStatusShown) { revealToolbar(); }
                 resizeStatusShown = true;
+            };
+            // The terminal's display size role for this Console.
+            acceptDisplayRole = (message) => {
+                if (closed || message.version !== 1 || typeof message.active !== 'boolean') { return; }
+                const passive = !message.active;
+                if (passive === displayPassive) { return; }
+                displayPassive = passive;
+                if (passive) {
+                    // The guest keeps the active Console's size: no request
+                    // of this Console's is pending, none is re-sent, and the
+                    // status line has nothing of its own size to explain.
+                    pendingResizeIdentity = '';
+                    if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); resizeRetryTimer = null; }
+                    if (resizeStatusShown) { resizeStatusShown = false; updateMediaStatus(); }
+                    return;
+                }
+                // Active again: ask once for this window's size (nothing when
+                // the guest presents it already).  A live resize in progress
+                // asks at its end, as any drag does.
+                lastResize = '';
+                if (resizeTimer === null) { resize(true); }
             };
             const flushPointer = (reliable = false) => {
                 if (pointerTimer !== null) {
@@ -7477,6 +7511,8 @@
                     acceptGuestCursorShape(message);
                 } else if (message.op === 'qsm_resize_result') {
                     acceptResizeResult(message);
+                } else if (message.op === 'qsm_display_role') {
+                    acceptDisplayRole(message);
                 }
             });
             // aiortc closes every server-side data channel while retiring a

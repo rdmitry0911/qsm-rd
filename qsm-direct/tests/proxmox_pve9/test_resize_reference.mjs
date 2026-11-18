@@ -101,6 +101,12 @@ function harness({ box, display, decoded = true, opened = true, answer = () => '
     // other accepted size is one guest display hot-plug cycle, after which the
     // guest presents that size.
     const display_ = { accepted: `${display[0]}x${display[1]}`, modeChanges: 0, unchanged: 0 };
+    // The terminal's display size role for this Console (qsm_display_role).
+    const terminal = { passive: false, withheld: 0 };
+    const role = (active) => {
+        terminal.passive = !active;
+        control.emit('message', { data: JSON.stringify({ op: 'qsm_display_role', version: 1, active }) });
+    };
     const present = (width, height) => {
         const firstFrame = !guest.decoded;
         guest.decoded = true;
@@ -134,6 +140,9 @@ function harness({ box, display, decoded = true, opened = true, answer = () => '
         send: (value) => {
             if (!channel.open) { return false; }
             sent.push(value);
+            // The terminal withholds a passive Console's size requests
+            // (CONSOLE-ACTIVE-SIZE-1, test_input_state.py ActiveConsoleSizeTests).
+            if (value.op === 'resize' && terminal.passive) { terminal.withheld += 1; return true; }
             if (value.op === 'resize') { setUiInfo(value); }
             return true;
         } });
@@ -168,8 +177,10 @@ function harness({ box, display, decoded = true, opened = true, answer = () => '
     };
     const open = () => { channel.open = true; control.emit('open'); };
     const firstFrame = () => present(guest.width, guest.height);
+    // Another Console's accepted size: qdev-host keeps it, the guest presents it.
+    const other = (width, height) => { display_.accepted = `${width}x${height}`; present(width, height); };
     return { ...state, clock, sent, guest, video, status, counters, display: display_, tick, layout, sizes, work,
-        open, firstFrame, present };
+        open, firstFrame, present, other, role, terminal };
 }
 
 // An OS window drag: a new window size every stepMs.  rests maps a step index to
@@ -347,6 +358,97 @@ scenario('another console: followed, not fought', () => {
     drag(h, path([1600, 900], [1500, 900], 10));
     h.work(5_000);
     assert.deepEqual(h.sizes(), ['1600x900', '1500x900']);
+});
+
+// Contract CONSOLE-ACTIVE-SIZE-1, the Console side: the terminal takes the
+// guest display size only from the active Console and tells every Console its
+// role.  Spec (user, 2026-11-18): only the active Console is listened to; the
+// other adapts (scales) to it.
+
+scenario('passive console: its window never asks', () => {
+    // Another Console keeps the guest at 1920x1080.  This Console opens at
+    // 1280x800 (its opening request is withheld by the terminal), is told it is
+    // passive, and its user drags its window: no size request, no "kept its own
+    // size" explanation, the active Console's picture stays scaled.
+    const h = harness({ box: [1280, 800], display: [1920, 1080], opened: false });
+    // The terminal decides the role when the channel opens, before this
+    // Console's first message; the role message itself arrives after.
+    h.terminal.passive = true;
+    h.open();
+    h.role(false);
+    h.work(6_000);
+    drag(h, path([1280, 800], [1600, 1000], 30));
+    h.work(10_000);
+    h.fullscreen();
+    h.work(5_000);
+    assert.deepEqual(h.sizes(), ['1280x800'], 'a passive Console asks for nothing after its role arrives');
+    assert.equal(h.display.modeChanges, 0);
+    assert.deepEqual([h.guest.width, h.guest.height], [1920, 1080], 'the active Console\'s size is kept');
+    assert.doesNotMatch(h.status.textContent, /kept its own size/, 'a passive Console has no size of its own to explain');
+});
+
+scenario('passive to active: one request for the window size', () => {
+    // Input in this Console makes it active: it asks once for its window size,
+    // and the guest follows it; nothing is re-sent afterwards.
+    const h = harness({ box: [1280, 800], display: [1920, 1080] });
+    h.role(false);
+    drag(h, path([1280, 800], [1440, 900], 20));
+    h.work(5_000);
+    assert.deepEqual(h.sizes(), []);
+    h.role(true);
+    assert.deepEqual(h.sizes(), ['1440x900'], 'becoming active asks once, at once');
+    h.work(20_000);
+    h.role(true);
+    h.work(5_000);
+    assert.deepEqual(h.sizes(), ['1440x900'], 'and only once');
+    assert.equal(h.display.modeChanges, 1);
+    assert.deepEqual([h.guest.width, h.guest.height], [1440, 900]);
+});
+
+scenario('becoming active during a drag asks at its end', () => {
+    // The end-of-drag gate still holds: activity that arrives mid-drag asks for
+    // the final size when the drag ends, once.
+    const h = harness({ box: [1280, 800], display: [1920, 1080] });
+    h.role(false);
+    const sizes = path([1280, 800], [1600, 900], 40);
+    drag(h, sizes.slice(0, 20));
+    h.role(true);
+    assert.deepEqual(h.sizes(), [], 'no request while the window is being resized');
+    drag(h, sizes.slice(20));
+    h.tick(1_000);
+    h.work(10_000);
+    assert.deepEqual(h.sizes(), ['1600x900'], 'one request for the final size of the drag');
+    assert.equal(h.display.modeChanges, 1);
+});
+
+scenario('becoming active at the presented size asks nothing', () => {
+    // R3 still holds for a role change: the guest already presents this window.
+    const h = harness({ box: [1920, 1080], display: [1920, 1080] });
+    h.role(false);
+    h.work(3_000);
+    h.role(true);
+    h.work(10_000);
+    assert.deepEqual(h.sizes(), []);
+    assert.equal(h.display.modeChanges, 0);
+});
+
+scenario('active, passive, active: one request per switch', () => {
+    // A user switching between two Consoles: each switch to this Console is
+    // one request for its window size; while passive the other Console's size
+    // is followed (presented) and not fought.
+    const h = harness({ box: [1280, 800], display: [1280, 800] });
+    h.role(true);
+    h.work(3_000);
+    h.role(false);
+    h.other(1920, 1080);            // the other Console's size
+    h.work(10_000);
+    h.role(true);
+    h.work(10_000);
+    h.role(false);
+    h.other(1920, 1080);
+    h.work(10_000);
+    assert.deepEqual(h.sizes(), ['1280x800'], 'one request for the one switch back to this Console');
+    assert.equal(h.display.modeChanges, 1);
 });
 
 let failed = 0;

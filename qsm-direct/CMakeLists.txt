@@ -245,6 +245,11 @@ if(BUILD_TESTING)
                 -s ${CMAKE_CURRENT_SOURCE_DIR}/tests/browser_bridge -p test_lossless_ui.py -v)
         set_tests_properties(qsm_lossless_ui_protocol PROPERTIES
             ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}" TIMEOUT 20)
+        add_test(NAME qsm_browser_input_state
+            COMMAND ${Python3_EXECUTABLE} -m unittest discover
+                -s ${CMAKE_CURRENT_SOURCE_DIR}/tests/browser_bridge -p test_input_state.py -v)
+        set_tests_properties(qsm_browser_input_state PROPERTIES
+            ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}" TIMEOUT 20)
         add_test(NAME qsm_signal_endpoint
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/signal/test_endpoint.py)
@@ -354,6 +359,11 @@ if(BUILD_TESTING)
                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/proxmox_pve9/test_direct_console_overlay.mjs
             )
             set_tests_properties(qsm_direct_pve_console_overlay PROPERTIES TIMEOUT 20)
+            add_test(NAME qsm_two_console_headless
+                COMMAND ${Python3_EXECUTABLE} -m unittest discover
+                    -s ${CMAKE_CURRENT_SOURCE_DIR}/tests/browser_bridge -p test_two_console_headless.py -v)
+            set_tests_properties(qsm_two_console_headless PROPERTIES
+                ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}" TIMEOUT 60)
             foreach(browser_test file_manager exact_ui decoded_presentation local_cursor receiver_playout video_presentation video_received pointer_pacing touch_gestures keyboard_state keyboard_capture mouse_state host_shortcuts resize_refusal resize_reference)
                 add_test(NAME qsm_${browser_test}
                     COMMAND ${QSM_DIRECT_NODE_EXECUTABLE}

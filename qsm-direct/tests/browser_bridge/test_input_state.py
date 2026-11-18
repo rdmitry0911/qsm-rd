@@ -8,7 +8,7 @@ from pathlib import Path
 from extensions.browser_bridge.qsm_browser_bridge import (
     BrowserInputState, UnixInputEgress, BridgeError, INPUT_HEADER, INPUT_KEYBOARD,
     BrowserWebRtcBridge,
-    INPUT_KEY_TAP, INPUT_MOUSE_ACTION, INPUT_MOUSE_BUTTON, INPUT_MOUSE_POSITION,
+    INPUT_KEY_TAP, INPUT_MOUSE_ACTION, INPUT_MOUSE_BUTTON, INPUT_MOUSE_POSITION, INPUT_RESIZE,
 )
 
 
@@ -382,6 +382,159 @@ class SharedBridgeInputTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 await first.close()
                 await second.close()
+
+
+class ActiveConsoleSizeTests(unittest.IsolatedAsyncioTestCase):
+    """Contract CONSOLE-ACTIVE-SIZE-1: one VM display, several Consoles.
+
+    Spec (user, 2026-11-18): only the ACTIVE Console sizes the guest display;
+    the others adapt (scale) to it.  Active = the Console with the latest user
+    input (keyboard/pointer); when none has delivered input yet, the most
+    recently attached one.  QEMU parity: Display1 Console.SetUIInfo has no
+    per-caller arbitration (qemu 11.1.3 ui/dbus-console.c:189-217, last
+    writer wins) and every Console of a VM reaches it through the worker's
+    one D-Bus connection, so the arbitration is the terminal's.
+
+    Real BrowserWebRtcBridge peers sharing one UnixInputEgress (one media
+    worker); the data channels are doubles and the worker is the captured
+    packet list.  Not end-to-end evidence.
+    """
+
+    class Channel:
+        def __init__(self, label='qsm-control'):
+            from pyee import EventEmitter
+            self._events = EventEmitter()
+            self.label = label
+            self.ordered = label == 'qsm-control'
+            self.maxRetransmits = None if label == 'qsm-control' else 0
+            self.maxPacketLifeTime = None
+            self.readyState = 'open'
+            self.messages = []
+
+        def on(self, *args): return self._events.on(*args)
+        def emit(self, *args): self._events.emit(*args)
+        def send(self, message): self.messages.append(json.loads(message))
+        def close(self):
+            self.readyState = 'closed'
+            self.emit('close')
+
+        def roles(self):
+            return [m['active'] for m in self.messages if m.get('op') == 'qsm_display_role']
+
+    async def asyncSetUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        root = Path(self.directory.name)
+        self.egress = UnixInputEgress(root)
+        self.sent = []
+        self.egress._send_packet = lambda packet: self.sent.append(packet) or True
+        self.bridges = []
+        self.root = root
+
+    async def asyncTearDown(self):
+        for bridge in self.bridges:
+            await bridge.close()
+
+    def attach(self, name):
+        bridge = BrowserWebRtcBridge(self.root / name, shared_input=self.egress)
+        self.bridges.append(bridge)
+        control, pointer = self.Channel(), self.Channel('qsm-pointer')
+        bridge._on_datachannel(control)
+        bridge._on_datachannel(pointer)
+        return control, pointer
+
+    @staticmethod
+    def resize(channel, width, height):
+        channel.emit('message', json.dumps({'op': 'resize', 'width': width, 'height': height, 'fps': 60}))
+
+    @staticmethod
+    def move(pointer, sequence=1):
+        pointer.emit('message', json.dumps({'op': 'mouse_position', 'x': 10, 'y': 10,
+                                            'width': 640, 'height': 480, 'sequence': sequence}))
+
+    @staticmethod
+    def click(control):
+        control.emit('message', json.dumps({'op': 'mouse_action', 'button': 1, 'action': 2, 'sequence': 1,
+                                            'x': 1, 'y': 1, 'width': 64, 'height': 64, 'modifiers': []}))
+
+    def sizes(self):
+        return ['%dx%d' % struct.unpack_from('!II', p, INPUT_HEADER.size) for p in self.sent if p[5] == INPUT_RESIZE]
+
+    async def test_a_two_consoles_of_different_sizes_apply_only_the_active_size(self):
+        # The VM118 pair (vm118-pvg0.log 17:18:57-18:30:02 CET, one Display1
+        # sender): ui_info alternated 1280x798 / 1324x626.
+        a, a_pointer = self.attach('a')
+        self.resize(a, 1280, 798)              # A's channel opening asks for its window
+        self.move(a_pointer)                   # the user works in A
+        b, _ = self.attach('b')
+        self.resize(b, 1324, 626)             # B's channel opening asks for its window
+        for _ in range(5):                     # both windows keep reporting their sizes
+            self.resize(a, 1280, 798)
+            self.resize(b, 1324, 626)
+        self.assertEqual(set(self.sizes()), {'1280x798'},
+                         'only the active Console (latest input) sizes the guest; no alternation')
+        self.assertEqual(a.roles(), [True])
+        self.assertEqual(b.roles(), [False], 'a Console attached after input elsewhere is passive')
+
+    async def test_b_input_on_the_other_console_switches_the_size_once(self):
+        a, a_pointer = self.attach('a')
+        self.resize(a, 1280, 800)
+        self.click(a)
+        b, b_pointer = self.attach('b')
+        self.resize(b, 1920, 1080)             # withheld: A is active
+        self.move(b_pointer)                   # the user moves into B
+        self.assertEqual(a.roles(), [True, False])
+        self.assertEqual(b.roles(), [False, True], 'B is told once that it is active')
+        self.resize(b, 1920, 1080)             # B's answer to its role: its window size, once
+        for sequence in range(2, 6):           # more input in B, A still reports its window
+            self.move(b_pointer, sequence)
+            self.resize(a, 1280, 800)
+        self.assertEqual(self.sizes(), ['1280x800', '1920x1080'], 'one switch, one request, no alternation')
+        self.assertEqual(b.roles(), [False, True], 'further input in the active Console changes no role')
+
+    async def test_c_passive_console_resize_requests_nothing(self):
+        a, a_pointer = self.attach('a')
+        self.resize(a, 1280, 800)
+        self.move(a_pointer)
+        b, _ = self.attach('b')
+        before = len(self.sent)
+        for width in (1300, 1400, 1500, 1600):  # the user drags B's window without input in it
+            self.resize(b, width, 900)
+        self.assertEqual(self.sent[before:], [], 'a passive Console window change is no guest resize')
+        self.assertEqual(self.egress.size_requests_withheld, 4)
+
+    async def test_d_active_console_detach_falls_back_to_the_latest_attached(self):
+        a, a_pointer = self.attach('a')
+        self.resize(a, 1280, 800)
+        self.move(a_pointer)
+        b, _ = self.attach('b')
+        c, _ = self.attach('c')
+        self.resize(b, 1600, 900)
+        self.resize(c, 1920, 1080)
+        a.close()                               # the active Console goes away
+        self.assertEqual(c.roles(), [False, True], 'the most recently attached remaining Console takes over')
+        self.assertEqual(b.roles(), [False], 'the other remaining Console stays passive')
+        self.resize(c, 1920, 1080)
+        self.resize(b, 1600, 900)
+        self.assertEqual(self.sizes(), ['1280x800', '1920x1080'], 'one request for the fallback, none from B')
+
+    async def test_first_attached_console_is_active_until_a_later_one_attaches_without_input(self):
+        a, _ = self.attach('a')
+        self.resize(a, 1280, 800)
+        b, _ = self.attach('b')                 # nobody has delivered input: the latest attached
+        self.resize(b, 1920, 1080)
+        self.resize(a, 1280, 800)
+        self.assertEqual(self.sizes(), ['1280x800', '1920x1080'])
+        self.assertEqual((a.roles(), b.roles()), ([True, False], [True]))
+
+    async def test_releases_and_lease_expiry_are_not_input(self):
+        a, _ = self.attach('a')
+        b, _ = self.attach('b')                 # B active (latest attached)
+        a.emit('message', json.dumps({'op': 'keyboard', 'key': 30, 'down': False, 'modifiers': 0}))
+        a.emit('message', json.dumps({'op': 'mouse_button', 'button': 1, 'down': False}))
+        self.assertEqual(a.roles(), [True, False], 'a release is no new input of A')
+        a.emit('message', json.dumps({'op': 'keyboard', 'key': 30, 'down': True, 'modifiers': 0}))
+        self.assertEqual(a.roles(), [True, False, True], 'a key press is')
 
 
 if __name__ == '__main__': unittest.main()
