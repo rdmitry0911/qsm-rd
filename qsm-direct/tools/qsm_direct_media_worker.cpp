@@ -24,6 +24,7 @@
 #include "core/video_envelope.hpp"
 #include "core/capture_frame_queue.hpp"
 #include "core/lossless_ui.hpp"
+#include "core/ui_info_result.hpp"
 #include "interfaces/media_adapter.hpp"
 #include "pipeline/desktop_session.hpp"
 #include "qemu/qemu_dbus_display.hpp"
@@ -105,6 +106,9 @@ constexpr std::uint32_t packet_ui = 0x00000080U;
 constexpr std::uint32_t packet_capture_time = 0x00000100U;
 constexpr std::uint32_t packet_region = 0x00000200U;
 constexpr std::uint32_t packet_refresh = 0x00000400U;
+// The display's error reply to a browser size request (qmdp::UiInfoError),
+// one bounded record that the bridge relays to the browser consoles.
+constexpr std::uint32_t packet_ui_info = 0x00000800U;
 constexpr std::uint32_t input_magic = 0x51534d49U; // QSMI
 constexpr std::uint8_t input_version = 1U;
 constexpr std::uint8_t input_mouse_position = 1U;
@@ -525,6 +529,10 @@ public:
         return send(video_, ui_number_.fetch_add(1U) + 1U, packet_ui, payload);
     }
 
+    bool send_ui_info_result(std::span<const std::uint8_t> payload) noexcept {
+        return send(video_, ui_info_number_.fetch_add(1U) + 1U, packet_ui_info, payload);
+    }
+
     void send_audio(std::span<const std::uint8_t> data) noexcept {
         send(audio_, ++audio_number_, packet_audio, data);
     }
@@ -689,6 +697,7 @@ private:
     std::uint32_t audio_number_ {};
     std::atomic<std::uint32_t> cursor_number_ {};
     std::atomic<std::uint32_t> ui_number_ {};
+    std::atomic<std::uint32_t> ui_info_number_ {};
     std::uint64_t video_access_units_ {};
     std::uint64_t video_records_ {};
     std::uint64_t video_send_failures_ {};
@@ -1245,6 +1254,10 @@ public:
             ++ui_revision_;
         }
         ui_cv_.notify_one();
+    }
+
+    void ui_info_result(std::span<const std::uint8_t> payload) noexcept {
+        (void) sink_.send_ui_info_result(payload);
     }
 
     void keyboard_activity() noexcept {
@@ -2150,7 +2163,7 @@ public:
                   DirectMediaAdapter &media, std::uint32_t fps,
                   bool allow_unsupported_ui_info)
         : path_(std::move(path)), session_(session), media_(media), fps_(fps),
-          allow_unsupported_ui_info_(allow_unsupported_ui_info) {}
+          ui_info_(allow_unsupported_ui_info) {}
 
     ~InputReceiver() { stop(); }
 
@@ -2213,16 +2226,26 @@ private:
         if (width < 64U || height < 64U || width > 16'384U || height > 16'384U || fps < 10U || fps > 240U) {
             return;
         }
-        if (!ui_info_supported_) { return; }
-        try {
+        const bool was_supported = ui_info_.supported();
+        const auto refusal = ui_info_.request([&] {
             session_.set_ui_info({.request_id = ++resize_id_, .width = width, .height = height,
                                   .refresh_millihz = fps * 1000U, .remote_scale_percent = 100U});
-        } catch (...) {
-            if (!allow_unsupported_ui_info_) { throw; }
+        });
+        if (refusal) {
+            // The display answered this size with an error reply.  It is the
+            // terminal answer to this request: the browser keeps its scaled
+            // view and learns why, instead of re-sending the size until the
+            // decoded picture changes.  Input keeps flowing either way.
+            media_.ui_info_result(qmdp::encode_ui_info_result(*refusal, width, height));
+            if (was_supported) {
+                std::cerr << "QSM_DIRECT_MEDIA_UI_INFO_REFUSED kind="
+                          << static_cast<unsigned>(refusal->kind()) << " size=" << width << 'x'
+                          << height << " error=" << refusal->name() << '\n' << std::flush;
+            }
+        } else if (was_supported && !ui_info_.supported()) {
             // The browser can still display and map input to the current
             // scanout. Log only a stable local diagnostic rather than a
             // D-Bus-provided error string.
-            ui_info_supported_ = false;
             std::cerr << "QSM_DIRECT_MEDIA_UI_INFO_UNSUPPORTED fixed_scanout=yes\n" << std::flush;
         }
     }
@@ -2421,8 +2444,7 @@ private:
     std::array<bool, 5U> pressed_buttons_ {};
     std::unordered_set<std::uint16_t> pressed_keys_;
     bool absolute_pointer_ {false};
-    bool allow_unsupported_ui_info_ {false};
-    bool ui_info_supported_ {true};
+    qmdp::UiInfoRequests ui_info_;
     std::uint64_t resize_id_ {};
 };
 

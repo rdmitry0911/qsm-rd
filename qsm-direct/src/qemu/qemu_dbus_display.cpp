@@ -1,4 +1,5 @@
 #include "qemu/qemu_dbus_display.hpp"
+#include "qemu/qemu_dbus_protocol.hpp"
 
 #ifdef QMDP_HAS_GBM
 #include "capture/dmabuf_readback.hpp"
@@ -709,6 +710,13 @@ void QemuDbusDisplay::set_ui_info(const ViewportRequest& request) {
             yoff,
             request.width,
             request.height);
+        const sd_bus_error& reply_error = error.value();
+        if (result < 0 && reply_error.name != nullptr) {
+            // An error reply answers this request; the connection is intact.
+            throw UiInfoError(qemu_dbus::classify_ui_info_error(reply_error.name),
+                              reply_error.name,
+                              reply_error.message != nullptr ? reply_error.message : "");
+        }
         dbus::check(result, "QEMU SetUIInfo", error.get());
     });
 }

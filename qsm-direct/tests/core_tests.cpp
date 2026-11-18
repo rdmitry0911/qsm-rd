@@ -7,10 +7,12 @@
 #include "core/video_budget.hpp"
 #include "core/cropped_video_rate.hpp"
 #include "core/capture_frame_queue.hpp"
+#include "core/ui_info_result.hpp"
 #include "capture/cpu_framebuffer.hpp"
 #include "interfaces/media_adapter.hpp"
 #include "interfaces/qemu_display.hpp"
 #include "pipeline/desktop_session.hpp"
+#include "qemu/qemu_dbus_protocol.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -21,6 +23,8 @@
 #include <memory>
 #include <mutex>
 #include <numbers>
+#include <stdexcept>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <unistd.h>
@@ -684,7 +688,114 @@ void test_capture_history_has_a_byte_bound_as_well_as_a_frame_bound() {
 
 }  // namespace
 
+// Contract UIINFO-REFUSAL-1: Display1 SetUIInfo error names (QEMU
+// ui/dbus-error.c) decide the outcome; anything else is a failure that a
+// later request may not meet again.
+void test_ui_info_error_names_decide_the_refusal() {
+    using qmdp::UiInfoRefusal;
+    using qmdp::qemu_dbus::classify_ui_info_error;
+    CHECK(classify_ui_info_error("org.qemu.Display1.Error.Invalid") == UiInfoRefusal::invalid);
+    CHECK(classify_ui_info_error("org.qemu.Display1.Error.Unsupported") == UiInfoRefusal::unsupported);
+    CHECK(classify_ui_info_error("org.qemu.Display1.Error.Failed") == UiInfoRefusal::failed);
+    CHECK(classify_ui_info_error("org.freedesktop.DBus.Error.NoReply") == UiInfoRefusal::failed);
+    CHECK(classify_ui_info_error("org.qemu.Display1.Error.InvalidMode") == UiInfoRefusal::failed);
+    CHECK(classify_ui_info_error("") == UiInfoRefusal::failed);
+}
+
+void test_ui_info_requests_report_each_refusal_and_keep_input_alive() {
+    using qmdp::UiInfoError;
+    using qmdp::UiInfoRefusal;
+    int calls = 0;
+    const auto throwing = [&](UiInfoRefusal kind, const char *name, const char *reason) {
+        return [&calls, kind, name, reason] { ++calls; throw UiInfoError(kind, name, reason); };
+    };
+
+    // Invalid answers that size only: the next request asks the display again.
+    qmdp::UiInfoRequests requests(false);
+    auto answer = requests.request(throwing(UiInfoRefusal::invalid,
+        "org.qemu.Display1.Error.Invalid", "1630x572 refused: no mode"));
+    CHECK(answer && answer->kind() == UiInfoRefusal::invalid);
+    CHECK(answer && answer->reason() == "1630x572 refused: no mode");
+    CHECK(requests.supported());
+    CHECK(!requests.request([&] { ++calls; }));
+    CHECK(calls == 2);
+
+    // Failed is transient: reported, and the display is asked again.
+    answer = requests.request(throwing(UiInfoRefusal::failed,
+        "org.qemu.Display1.Error.Failed", "device not ready"));
+    CHECK(answer && answer->kind() == UiInfoRefusal::failed);
+    CHECK(requests.supported());
+    CHECK(!requests.request([&] { ++calls; }));
+    CHECK(calls == 4);
+
+    // Unsupported ends size requests for the session.  Every later request
+    // is answered from the recorded reply without calling the display, so a
+    // console which joins later learns it too.
+    answer = requests.request(throwing(UiInfoRefusal::unsupported,
+        "org.qemu.Display1.Error.Unsupported", "SetUIInfo is not supported"));
+    CHECK(answer && answer->kind() == UiInfoRefusal::unsupported);
+    CHECK(!requests.supported());
+    answer = requests.request([&] { ++calls; });
+    CHECK(answer && answer->kind() == UiInfoRefusal::unsupported);
+    CHECK(answer && answer->reason() == "SetUIInfo is not supported");
+    CHECK(calls == 5);
+
+    // Without a typed reply the former policy stays: a fixed-scanout profile
+    // stops asking silently, any other profile propagates the failure.
+    qmdp::UiInfoRequests fixed(true);
+    CHECK(!fixed.request([&] { ++calls; throw std::logic_error("not running"); }));
+    CHECK(!fixed.supported());
+    CHECK(!fixed.request([&] { ++calls; }));
+    CHECK(calls == 6);
+    qmdp::UiInfoRequests strict(false);
+    bool propagated = false;
+    try {
+        (void) strict.request([&] { throw std::logic_error("not running"); });
+    } catch (const std::logic_error&) {
+        propagated = true;
+    }
+    CHECK(propagated);
+}
+
+void test_ui_info_result_record_is_bounded_and_literal() {
+    using qmdp::UiInfoError;
+    using qmdp::UiInfoRefusal;
+    const auto record = qmdp::encode_ui_info_result(
+        UiInfoError(UiInfoRefusal::invalid, "org.qemu.Display1.Error.Invalid", "1630x572 refused: x"),
+        1630U, 572U);
+    const std::string name = "org.qemu.Display1.Error.Invalid";
+    const std::string reason = "1630x572 refused: x";
+    CHECK(record.size() == 12U + name.size() + reason.size());
+    CHECK(record.size() > 12U && record[0] == 1U && record[1] == 1U);
+    CHECK(record.size() > 12U && record[2] == 0U && record[3] == 0U && record[4] == 0x06U && record[5] == 0x5eU);
+    CHECK(record.size() > 12U && record[6] == 0U && record[7] == 0U && record[8] == 0x02U && record[9] == 0x3cU);
+    CHECK(record.size() > 12U && std::size_t {record[10]} == name.size());
+    CHECK(std::string(record.begin() + 11, record.begin() + 11 + static_cast<long>(name.size())) == name);
+    CHECK(std::size_t {record[11U + name.size()]} == reason.size());
+    CHECK(std::string(record.end() - static_cast<long>(reason.size()), record.end()) == reason);
+
+    // Peer text becomes printable ASCII of bounded length; a name keeps
+    // only D-Bus name characters.
+    const auto hostile = qmdp::encode_ui_info_result(
+        UiInfoError(UiInfoRefusal::failed, std::string("a\"<b>") + std::string(300U, 'n'),
+                    std::string("line\nbreak\x01\xff") + std::string(400U, 'r')),
+        64U, 64U);
+    CHECK(hostile[1] == 3U);
+    CHECK(std::size_t {hostile[10]} == qmdp::ui_info_result_max_name);
+    const std::string hostile_name(hostile.begin() + 11, hostile.begin() + 11 + 255);
+    CHECK(hostile_name.substr(0, 5) == "a__b_");
+    const std::size_t reason_at = 11U + 255U;
+    CHECK(std::size_t {hostile[reason_at]} == qmdp::ui_info_result_max_reason);
+    const std::string hostile_reason(hostile.begin() + static_cast<long>(reason_at) + 1, hostile.end());
+    CHECK(hostile_reason.size() == qmdp::ui_info_result_max_reason);
+    CHECK(hostile_reason.substr(0, 14) == "line?break??rr");
+    CHECK(hostile.size() == reason_at + 1U + qmdp::ui_info_result_max_reason);
+}
+
 int main() {
+    test_ui_info_error_names_decide_the_refusal();
+    test_ui_info_requests_report_each_refusal_and_keep_input_alive();
+    test_ui_info_result_record_is_bounded_and_literal();
     test_unique_fd();
     test_latest_frame_mailbox();
     test_resize_coalescer();

@@ -1,7 +1,10 @@
 #pragma once
 
+#include "core/ui_info_result.hpp"
+
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace qmdp::qemu_dbus {
 
@@ -21,6 +24,21 @@ inline constexpr char introspectable_interface[] =
 
 [[nodiscard]] inline std::string console_path(std::uint32_t console_id) {
     return std::string(root_path) + "/Console_" + std::to_string(console_id);
+}
+
+// Display1 error names, as QEMU registers them in ui/dbus-error.c.
+inline constexpr char error_failed[] = "org.qemu.Display1.Error.Failed";
+inline constexpr char error_invalid[] = "org.qemu.Display1.Error.Invalid";
+inline constexpr char error_unsupported[] = "org.qemu.Display1.Error.Unsupported";
+
+// SetUIInfo outcome by error name; the reply's message text is only for
+// people.  QEMU replies Unsupported for a console without ui_info (for
+// example Standard VGA).  A name outside the three Display1 errors is a
+// transport or peer failure, which a later request may not meet again.
+[[nodiscard]] inline UiInfoRefusal classify_ui_info_error(std::string_view name) noexcept {
+    if (name == error_invalid) { return UiInfoRefusal::invalid; }
+    if (name == error_unsupported) { return UiInfoRefusal::unsupported; }
+    return UiInfoRefusal::failed;
 }
 
 inline constexpr char listener_introspection_xml[] = R"xml(

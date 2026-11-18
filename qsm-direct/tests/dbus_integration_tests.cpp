@@ -1,3 +1,4 @@
+#include "core/ui_info_result.hpp"
 #include "pipeline/desktop_session.hpp"
 #include "qemu/qemu_dbus_display.hpp"
 #include "software/cpu_frame_sink.hpp"
@@ -8,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -167,6 +169,74 @@ int main() {
         CHECK(wait_until(2s, [&] { return stopped_session.display_failed(); }));
         CHECK(stopped_session.stats().display_failed);
         stopped_session.stop();
+
+        // Contract UIINFO-REFUSAL-1 (QEMU ui/dbus-error.c names, the
+        // qdev-host Display1 refusal): an error reply to Console.SetUIInfo
+        // is the typed answer to that one request, keyed by the error name.
+        // The message is carried verbatim for people; the display keeps
+        // serving input and later sizes.
+        qmdp::test::MockQemuDbusServer refusing_qemu({
+            .width = 320U,
+            .height = 180U,
+            .fps = 60U,
+            .ui_info_errors = {
+                {1630U, 572U, "org.qemu.Display1.Error.Invalid",
+                 "1630x572 refused: no matching device mode"},
+                {1200U, 700U, "org.qemu.Display1.Error.Unsupported",
+                 "SetUIInfo is not supported"},
+                {1000U, 600U, "org.qemu.Display1.Error.Failed", "device not ready"},
+                {900U, 500U, "org.freedesktop.DBus.Error.NoReply", "no reply"},
+            },
+        });
+        auto refusing_client_fd = refusing_qemu.take_client_fd();
+        refusing_qemu.start();
+        qmdp::QemuDbusOptions refusing_display_options;
+        refusing_display_options.destination.clear();
+        refusing_display_options.p2p_fd = std::move(refusing_client_fd);
+        refusing_display_options.call_timeout = 2s;
+        refusing_display_options.pump_interval = 10ms;
+        qmdp::QemuDbusDisplay refusing_display(std::move(refusing_display_options));
+        qmdp::CpuFrameSink refusing_sink({});
+        qmdp::DesktopSession refusing_session(refusing_display, refusing_sink, {.frame_wait = 20ms});
+        refusing_session.start();
+        CHECK(wait_until(2s, [&] { return refusing_sink.stats().frames >= 1U; }));
+        const auto refusal_of = [&](std::uint32_t width, std::uint32_t height)
+                -> std::optional<qmdp::UiInfoError> {
+            try {
+                refusing_session.set_ui_info({.request_id = 1U, .width = width, .height = height});
+            } catch (const qmdp::UiInfoError& error) {
+                return error;
+            } catch (const std::exception& error) {
+                std::cerr << "untyped SetUIInfo error for " << width << 'x' << height
+                          << ": " << error.what() << '\n';
+            }
+            return std::nullopt;
+        };
+        const auto invalid = refusal_of(1630U, 572U);
+        CHECK(invalid && invalid->kind() == qmdp::UiInfoRefusal::invalid);
+        CHECK(invalid && invalid->name() == "org.qemu.Display1.Error.Invalid");
+        CHECK(invalid && invalid->reason() == "1630x572 refused: no matching device mode");
+        const auto unsupported = refusal_of(1200U, 700U);
+        CHECK(unsupported && unsupported->kind() == qmdp::UiInfoRefusal::unsupported);
+        CHECK(unsupported && unsupported->reason() == "SetUIInfo is not supported");
+        const auto failed = refusal_of(1000U, 600U);
+        CHECK(failed && failed->kind() == qmdp::UiInfoRefusal::failed);
+        CHECK(failed && failed->name() == "org.qemu.Display1.Error.Failed");
+        const auto other = refusal_of(900U, 500U);
+        CHECK(other && other->kind() == qmdp::UiInfoRefusal::failed);
+        CHECK(other && other->name() == "org.freedesktop.DBus.Error.NoReply");
+        // The same connection still applies an accepted size and input.
+        CHECK(!refusal_of(426U, 242U));
+        refusing_session.key(0x1EU, true);
+        refusing_session.key(0x1EU, false);
+        CHECK(wait_until(2s, [&] {
+            const auto stats = refusing_qemu.stats();
+            return stats.resize_requests == 1U && stats.width == 426U &&
+                   stats.keyboard_events == 2U;
+        }));
+        CHECK(!refusing_session.display_failed());
+        refusing_session.stop();
+        refusing_qemu.stop();
 
         CHECK(display_stats.mapped_scanouts >= 2U);
         CHECK(display_stats.mapped_updates >= 5U);

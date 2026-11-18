@@ -335,6 +335,12 @@ int MockQemuDbusServer::handle_main_message(sd_bus_message *message) {
                     "read Console.SetUIInfo");
         (void) xoff;
         (void) yoff;
+        for (const auto& refusal : options_.ui_info_errors) {
+            if (refusal.width == width && refusal.height == height) {
+                return sd_bus_reply_method_errorf(message, refusal.name.c_str(), "%s",
+                                                  refusal.message.c_str());
+            }
+        }
         if (width == 0U || height == 0U || width > 4096U || height > 4096U) {
             return sd_bus_reply_method_errorf(message,
                                               "org.qemu.Display1.Error.InvalidMode",
