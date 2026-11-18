@@ -1,0 +1,48 @@
+{
+  "date": "2026-11-18",
+  "status": "published at the user's request",
+  "version": "0.4.0+stock4.14~exp242",
+  "release": "https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261118-stock4.14-exp242",
+  "apt_repository": "https://rdmitry0911.github.io/qsm-rd/",
+  "main_release_commit": "606b04495796bf0a8a7f6cf88165c3a93e6f6389",
+  "package_source_commit": "1e3a5441f5858dc2a3e200330bd1e2edd6c03783",
+  "workflow_run": 44349166855,
+  "workflow_conclusion": "success",
+  "merged_branch": "feat/external-display1-profile",
+  "meaningful_commits_retained": 9,
+  "omitted_no_op_pair": [
+    "2a84328",
+    "58cce59"
+  ],
+  "feature_head_tree_equals_package_source": true,
+  "what": "External Display1 profile for a qdev-host display device; input/gateway and GPU stop/restart coordination since exp233; one managed USB keyboard on the first EHCI; VA-API driver dependency and CPU fallback diagnostics.",
+  "checks_before_publication": {
+    "build_archive_comparison": {
+      "regular_files": 1424,
+      "mismatches": 0,
+      "sha256": "cb8bc5417e58a39c75b7090c324fbb5b716da4a1f18c583e3a0d08e9cf16f0e3"
+    },
+    "packages": "Six existing exp242 debs retained byte-for-byte; matching desktop agent built from the same extracted source.",
+    "pve_python_tests_passed": 94,
+    "javascript_test_programs_passed": [
+      "test_direct_console_overlay.mjs",
+      "test_signal_endpoint.mjs"
+    ],
+    "browser_bridge_tests_passed": 284,
+    "bridge_environment": "Debian 13, Python 3.13, aiortc 1.11.0; real random devices bound in a private mount namespace",
+    "apt_local": "Signed update, all 125 package downloads and SHA256 checks; tampered metadata and deb rejected.",
+    "release_scan": "1440 text/source/evidence files scanned for private-key and GitHub/GitLab-token patterns; no hits."
+  },
+  "checks_after_publication": {
+    "github_assets": "All 23 release assets downloaded and byte-identical to their local originals; signed SHA256SUMS verified with the public key.",
+    "live_apt": "Signed update without authentication warnings; all 125 packages downloaded and SHA256 verified; only 11 allowlisted package names; tampered metadata and deb rejected.",
+    "live_page_and_manifest": "Both name exp242.",
+    "existing_nodes": "Read-only check: two nodes already have all four host profiles at exp242 and external Display1 buses. No node package installation or VM start/restart by this publication."
+  },
+  "forum": {
+    "status": "ready text; the user explicitly chose to publish it themselves",
+    "path": "qsm-direct/upstream/forum-stock4.14-exp242-update-2026-11-18.txt",
+    "thread": "https://forum.proxmox.com/threads/187042/"
+  },
+  "limits": "No new guest hardware, GPU reset, macOS or performance runs during this publication. Guest packages do not need upgrading for these host changes."
+}

@@ -45,8 +45,8 @@ Then reload PVE with cache bypass and reopen consoles. QSM service
 restarts interrupt console connections, while guests keep running.
 No guest package update is needed for these changes.
 
-The release checks covered 94 PVE Python tests, the overlay and
-signalling browser tests, and 284 bridge tests, including a run with
+The release checks covered 94 PVE Python tests, the UI and
+signalling JavaScript tests, and 284 bridge tests, including a run with
 Debian 13's WebRTC libraries. The packages are already on my two
 nodes. This publication did not repeat the earlier guest hardware
 tests, so I am not claiming new performance numbers.
