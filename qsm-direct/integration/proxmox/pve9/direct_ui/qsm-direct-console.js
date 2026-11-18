@@ -72,7 +72,7 @@
     // 256 ms after the first browser mouse or key event, and never without
     // one.  This constant is how long an all-black picture is tolerated
     // before the Console explains it; a locked guest that keeps scanning out
-    // its last picture is covered by the stalled-resize path instead.
+    // its last picture is covered by the resize status check instead.
     const GUEST_SLEEP_HINT_MS = 4000;
 
     const applyExactUiDefault = (settings, policy) => {
@@ -5534,16 +5534,22 @@
         // so a packet which took a longer SCTP path cannot move a held window
         // backwards after a newer coordinate already reached the guest.
         let pointerSequence = 0;
+        // Ends a live resize of this window (see resize() below).
         let resizeTimer = null;
+        // One look at the presented picture after a size request (status
+        // line only), or the bounded re-request after a Failed answer.
         let resizeRetryTimer = null;
-        let resizeRetryIdentity = '';
-        let resizeRetryAttempts = 0;
-        // Set once the fast retry budget is spent without the guest adopting
-        // the requested mode; the next wake attempt (input) re-issues it.
-        let resizeStalled = false;
-        let stalledRetryCount = 0;
-        let lastStalledRetryAt = 0;
-        let retryStalledResize = () => undefined;
+        // This Console's size request that the guest has not presented yet,
+        // as `WxH@FPS`; empty once presented, answered with an error, or
+        // overtaken by another size on the shared display.
+        let pendingResizeIdentity = '';
+        // How long after a size request the guest has had its hot-plug cycle;
+        // a picture still at the old size then is explained, not re-requested.
+        const RESIZE_VERIFY_MS = 4000;
+        // Display1 Error.Failed is transient: the same size is asked again,
+        // once per Failed answer, at most this many times.
+        const RESIZE_FAILED_RETRIES = 3;
+        let resizeFailedRetries = 0;
         // True while the status line carries the resize text, so convergence
         // restores "Connected" without overwriting an unrelated message.
         let resizeStatusShown = false;
@@ -5701,15 +5707,18 @@
         // after the actual pointer position and pin a resize/edge cursor in
         // the top-left corner of the guest image.
         let latestGuestCursorSequence = -1;
+        // The window size (`WxH@FPS`) this Console last answered: requested,
+        // or found equal to the display's.  An unchanged window is never
+        // asked for again, so a stale size is not re-asserted.
         let lastResize = '';
-        // The last guest scanout size this console actually saw applied.  It
-        // distinguishes "the guest is ignoring my resize (still my previous
-        // size)" — which should keep retrying — from "another console resized
-        // the shared guest" (a new size that is neither my request nor my
-        // previous one) — which this console must FOLLOW rather than fight, so
-        // the console that is being stretched stays the reference and does not
-        // end up showing a scaled picture because a background console kept
-        // re-asserting its own smaller size.
+        // The guest picture size when the pending request was sent.  It
+        // distinguishes "the guest has not applied my request yet (still my
+        // previous size)" from "another console resized the shared guest" (a
+        // new size that is neither my request nor my previous one) — which
+        // this console must FOLLOW rather than fight, so the console that is
+        // being stretched stays the reference and does not end up showing a
+        // scaled picture because a background console kept re-asserting its
+        // own smaller size.
         let lastAppliedSize = '';
         let mediaPolicyLoading = false;
         const cancelToolbarReveal = () => {
@@ -7031,9 +7040,6 @@
                 if (guestAsleepHint) {
                     guestAsleepHint = false;
                     updateMediaStatus();
-                    // The guest just woke: give a stalled size request its
-                    // one re-issue now rather than waiting for more input.
-                    retryStalledResize();
                 }
             }
         };
@@ -7194,13 +7200,22 @@
             };
             video.addEventListener('loadeddata', updateMediaStatus);
             video.addEventListener('playing', updateMediaStatus);
-            // KWin/SDDM applies a virtio-gpu hotplug event asynchronously.
-            // QEMU exposes its new scanout almost immediately, but a second
-            // distinct mode sent during that compositor transition can leave
-            // the greeter painting its previous canvas into the new buffer.
-            // Treat an operating-system resize as an end-of-drag action and
-            // serialize mode changes.  The initial/full-screen request still
-            // dispatches immediately when no transition is pending.
+            // Size requests follow the reference UI, Virtualization.framework's
+            // VZVirtualMachineView (apple-virgl
+            // analysis/20261118-FIX-CANDIDATE-UIINFO-HID-STOP.md): setFrameSize:
+            // sends no display reconfiguration while the window is in a live
+            // resize, viewDidEndLiveResize sends exactly one for the whole
+            // drag, a size equal to the display's current one is not sent, and
+            // nothing is re-sent on a timer or on input.  Each accepted size
+            // is a full guest display hot-plug cycle (offline, connect
+            // interrupt, EDID, online; KWin/SDDM applies a virtio-gpu hotplug
+            // asynchronously too), so every intermediate size of a drag would
+            // reconfigure the whole guest desktop.  A browser reports no
+            // live-resize begin or end: a layout size change starts or
+            // continues one, and the window size being stable for the settle
+            // window ends it.  The channel opening and the explicit full-screen
+            // and maximise transitions are not live resizes and dispatch at
+            // once; two distinct modes are still kept the settle time apart.
             const resize = (immediate = false) => {
                 const dispatch = () => {
                     resizeTimer = null;
@@ -7225,140 +7240,64 @@
                         if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); resizeRetryTimer = null; }
                         return;
                     }
-                    if (identity !== lastResize) {
-                        const remainingSettle = Math.max(0,
-                            lastResizeSentAt + settings.resizeSettleMs - Date.now());
-                        if (remainingSettle > 0) {
-                            // Read dimensions again when the compositor has
-                            // settled: a user may have continued dragging.
-                            resizeTimer = popup.setTimeout(dispatch, remainingSettle);
-                            return;
-                        }
-                        if (identity !== resizeRetryIdentity) {
-                            // A genuinely new window geometry restarts the
-                            // fast budget and the stalled bookkeeping.
-                            resizeRetryAttempts = 0;
-                            resizeStalled = false;
-                            stalledRetryCount = 0;
-                            // This is a fresh stretch of THIS console: the guest
-                            // size we are changing away from is the current one,
-                            // so record it as the baseline.  The retry then
-                            // distinguishes "guest has not applied my request
-                            // yet" (still this baseline → keep pushing) from
-                            // "another console changed it" (a different size →
-                            // yield), instead of mistaking our own not-yet-
-                            // applied request for someone else's change.
-                            if (remoteVideoWidth() > 0 && remoteVideoHeight() > 0) {
-                                lastAppliedSize = `${remoteVideoWidth()}x${remoteVideoHeight()}`;
-                            }
-                        }
-                        resizeRetryIdentity = identity;
+                    // This window size was answered already.  A request the
+                    // guest has not presented is not re-sent: the display
+                    // keeps it and the guest applies it when it can.
+                    if (identity === lastResize) { return; }
+                    // The display's current size is this Console's pending
+                    // request, otherwise the picture the guest presents.
+                    const presented = remoteVideoWidth() > 0 && remoteVideoHeight() > 0
+                        ? `${remoteVideoWidth()}x${remoteVideoHeight()}` : '';
+                    if (identity === (pendingResizeIdentity || (presented && `${presented}@${value.fps}`))) {
                         lastResize = identity;
-                        lastResizeSentAt = Date.now();
-                        lastRequestedSize = size;
-                        send({ op: 'resize', ...value });
+                        return;
                     }
-                    // Control SCTP is reliable, but a D-Bus/guest mode
-                    // change can race a resize immediately after a window or
-                    // full-screen transition. Do not permanently letterbox
-                    // the Console after one early request: retry until the
-                    // decoded frame itself confirms the target geometry.
+                    const remainingSettle = Math.max(0,
+                        lastResizeSentAt + settings.resizeSettleMs - Date.now());
+                    if (remainingSettle > 0) {
+                        // Read dimensions again when the guest has settled
+                        // from the previous mode change.
+                        resizeTimer = popup.setTimeout(dispatch, remainingSettle);
+                        return;
+                    }
+                    // Before the control channel opens nothing is asked: its
+                    // opening requests the then-current window size.
+                    if (!send({ op: 'resize', ...value })) { return; }
+                    if (size !== lastRequestedSize) { resizeFailedRetries = 0; }
+                    lastAppliedSize = presented;
+                    pendingResizeIdentity = identity;
+                    lastResize = identity;
+                    lastResizeSentAt = Date.now();
+                    lastRequestedSize = size;
+                    // The next presented picture answers the request.  One
+                    // look after the guest's hot-plug cycle only explains a
+                    // picture still at the old size; it never asks again.
                     if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); }
                     resizeRetryTimer = popup.setTimeout(() => {
                         resizeRetryTimer = null;
-                        if (closed || resizeRetryIdentity !== identity) { return; }
-                        const current = dimensions(video, sessionFps);
-                        const currentIdentity = `${current.width}x${current.height}@${current.fps}`;
-                        if (currentIdentity !== identity) { resize(false); return; }
-                        if (remoteVideoWidth() === current.width && remoteVideoHeight() === current.height) {
-                            resizeRetryAttempts = 0;
-                            resizeStalled = false;
-                            lastAppliedSize = `${remoteVideoWidth()}x${remoteVideoHeight()}`;
-                            // The geometry converged: clear a "kept its own
-                            // size" line left behind by an earlier stall,
-                            // and only that line — a keyboard-capture or
-                            // clipboard message must survive a resize.
-                            if (resizeStatusShown) {
-                                resizeStatusShown = false;
-                                updateMediaStatus();
-                            }
-                            return;
-                        }
-                        // The guest is a different size than we asked for.  If
-                        // it moved to a size that is neither our request nor the
-                        // size we previously saw, another Console resized the
-                        // shared guest — it is the reference now.  Follow it:
-                        // re-sending our size here would drag the stretched
-                        // console back and leave it showing a scaled desktop.
-                        const guestSize = `${remoteVideoWidth()}x${remoteVideoHeight()}`;
-                        if (remoteVideoWidth() > 0 && remoteVideoHeight() > 0 &&
-                            lastAppliedSize && guestSize !== lastAppliedSize) {
-                            lastAppliedSize = guestSize;
-                            resizeRetryAttempts = 0;
-                            resizeStalled = false;
-                            resizeRetryIdentity = '';
-                            lastResize = '';
-                            if (resizeStatusShown) { resizeStatusShown = false; updateMediaStatus(); }
-                            return;
-                        }
-                        if (resizeRetryAttempts < 16) {
-                            resizeRetryAttempts += 1;
-                            lastResize = '';
-                            resize(true);
-                            return;
-                        }
-                        // Sixteen fast retries cover an ordinary compositor
-                        // transition.  A guest that still keeps its own mode
-                        // is almost always one whose session is locked or
-                        // whose output is off: it applies the pending mode
-                        // when it wakes, and re-sending every 250 ms until
-                        // then only makes it re-evaluate a request it is
-                        // ignoring.  Stop here; the input path re-issues the
-                        // request once per wake attempt (retryStalledResize).
-                        resizeStalled = true;
+                        if (closed || pendingResizeIdentity !== identity) { return; }
+                        const shown = `${remoteVideoWidth()}x${remoteVideoHeight()}`;
+                        // Applied, or another Console moved the shared guest on.
+                        if (shown === size || (lastAppliedSize && shown !== lastAppliedSize)) { return; }
+                        // A guest that keeps its old mode is almost always one
+                        // whose session is locked or whose output is off; it
+                        // applies the display's pending mode when it wakes.
                         if (guestAsleepHint || guestFrameIsDark() === null) { return; }
                         status.textContent = gettext('Guest display kept its own size. If the guest is asleep or locked, move the mouse or press a key here.');
                         if (!resizeStatusShown) { revealToolbar(); }
                         resizeStatusShown = true;
-                    }, 250);
+                    }, RESIZE_VERIFY_MS);
                 };
                 if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); resizeTimer = null; }
                 if (immediate) { dispatch(); }
-                else { resizeTimer = popup.setTimeout(dispatch, settings.resizeDebounceMs); }
+                else {
+                    resizeTimer = popup.setTimeout(dispatch,
+                        Math.max(settings.resizeDebounceMs, settings.resizeSettleMs));
+                }
             };
             resizeConsole = resize;
-            // A locked or sleeping guest adopts the last requested mode when
-            // it wakes.  Ordinary input is the wake signal, so every input
-            // burst re-issues a stalled request exactly once (3 s throttle)
-            // with a short verification burst instead of an endless loop.
-            retryStalledResize = () => {
-                if (!resizeStalled || closed) { return; }
-                // If the guest is now at a size other than the one we last saw
-                // applied, another Console is driving the shared resolution.
-                // Yield: this console follows the reference instead of shoving
-                // its own size back on every mouse move.
-                if (remoteVideoWidth() > 0 && lastAppliedSize &&
-                    `${remoteVideoWidth()}x${remoteVideoHeight()}` !== lastAppliedSize) {
-                    resizeStalled = false;
-                    lastAppliedSize = `${remoteVideoWidth()}x${remoteVideoHeight()}`;
-                    return;
-                }
-                const now = Date.now();
-                if (now - lastStalledRetryAt < 3000) { return; }
-                // A guest that keeps its own mode after several wake
-                // attempts is one that cannot follow the window at all
-                // (Standard VGA rejects Display1 resize requests); leave it
-                // letterboxed rather than asking again on every gesture.
-                if (stalledRetryCount >= 6) { return; }
-                stalledRetryCount += 1;
-                lastStalledRetryAt = now;
-                resizeRetryAttempts = 8;
-                lastResize = '';
-                resize(true);
-            };
             noteGuestInput = () => {
                 lastInputSentAt = Date.now();
-                retryStalledResize();
             };
             const clearResizeRefusal = () => {
                 if (!refusedResizeSize) { return; }
@@ -7379,12 +7318,28 @@
                 } else if (message.result === 'refused' && size === lastRequestedSize) {
                     refusedResizeSize = size;
                     text = gettext('The guest display refused this window size; the picture is scaled.');
+                } else if (message.result === 'failed' && size === lastRequestedSize) {
+                    // A transient failure: the display did not take the size,
+                    // so its current one is the presented picture.  Ask once
+                    // more after the settle time, at most a fixed number of
+                    // times per size, and never in the middle of a live resize
+                    // (its end asks for the then-current size anyway).
+                    pendingResizeIdentity = '';
+                    if (resizeFailedRetries >= RESIZE_FAILED_RETRIES) { return; }
+                    resizeFailedRetries += 1;
+                    if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); }
+                    resizeRetryTimer = popup.setTimeout(() => {
+                        resizeRetryTimer = null;
+                        if (closed || resizeUnsupported || lastRequestedSize !== size) { return; }
+                        lastResize = '';
+                        if (resizeTimer === null) { resize(true); }
+                    }, settings.resizeSettleMs);
+                    return;
                 } else {
-                    // A transient failure, or another Console's size: the
-                    // bounded verification retry above stays in charge.
+                    // Another Console's size: its own Console handles it.
                     return;
                 }
-                resizeStalled = false;
+                pendingResizeIdentity = '';
                 if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); resizeRetryTimer = null; }
                 const reason = typeof message.message === 'string' ? message.message.slice(0, 240) : '';
                 resizeRefusalText = reason ? `${text} ${reason}` : text;
@@ -7541,35 +7496,42 @@
             // its stale dimensions and left the window that the user had
             // just resized letterboxed.  Only this popup's CSS box and its
             // explicit full-screen transition are authority to request a
-            // mode.  The video event merely lets its outstanding retry yield
-            // to the newer Console request.
+            // mode.  The video event only tells this Console whether the
+            // guest presents its request (the reference compares the next
+            // presented frame and does not ask again).
             video.addEventListener('resize', () => {
                 syncExactGeometry();
                 placeGuestCursor();
                 reflowView();
-                // The retry identity carries the session FPS; a literal
+                // The request identity carries the session FPS; a literal
                 // "@60" here left the convergence branch unreachable for
                 // any other target frame rate.
                 const visible = `${remoteVideoWidth()}x${remoteVideoHeight()}@${sessionFps}`;
-                if (visible === resizeRetryIdentity) {
-                    resizeRetryAttempts = 0;
-                    resizeStalled = false;
-                    // The guest shows the requested size after all.
+                const shown = `${remoteVideoWidth()}x${remoteVideoHeight()}`;
+                if (visible === pendingResizeIdentity || (refusedResizeSize && shown === refusedResizeSize)) {
+                    // The guest shows the requested size (a refused one
+                    // after all, when another Console's request got it).
+                    pendingResizeIdentity = '';
+                    if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); resizeRetryTimer = null; }
                     if (refusedResizeSize) { refusedResizeSize = ''; resizeRefusalText = ''; }
                     if (resizeStatusShown) {
-                        // A guest that woke up adopted the stalled request
+                        // A guest that woke up adopted the pending request
                         // on its own: drop the "kept its own size" line.
                         resizeStatusShown = false;
                         updateMediaStatus();
                     }
                     return;
                 }
+                // Still the picture that the pending request replaces.
+                if (pendingResizeIdentity && lastAppliedSize && shown === lastAppliedSize) { return; }
+                // Any other size: another Console (or the guest itself) set
+                // the shared display.  That is its current size now; this
+                // Console asks again only when its own window changes.
                 if (resizeRetryTimer !== null) {
                     popup.clearTimeout(resizeRetryTimer);
                     resizeRetryTimer = null;
                 }
-                resizeRetryIdentity = '';
-                resizeRetryAttempts = 0;
+                pendingResizeIdentity = '';
             });
             // Control follows the pointer into the console: entering the guest
             // rectangle takes keyboard and clipboard focus at once, without

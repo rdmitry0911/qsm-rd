@@ -117,13 +117,15 @@ assert.match(source, /const action = document\.exitFullscreen\(\);/,
     'Escape in full screen must explicitly request the native popup exit');
 assert.match(source, /Guest display kept its own size\. If the guest is asleep or locked, move the mouse or press a key here\./,
     'a missed guest resize must be visible and name the wake action rather than silently leaving a letterboxed console');
-assert.match(source, /resizeStalled = true;\s*if \(guestAsleepHint \|\| guestFrameIsDark\(\) === null\) \{ return; \}/,
-    'after the fast retry budget the Console must stop re-sending and defer to the sleep hint or to a missing picture');
-assert.match(source, /retryStalledResize = \(\) => \{[\s\S]*?if \(now - lastStalledRetryAt < 3000\) \{ return; \}[\s\S]*?if \(stalledRetryCount >= 6\) \{ return; \}[\s\S]*?resizeRetryAttempts = 8;/,
-    'a stalled resize must be re-issued once per wake attempt, at most six times, with a short verification burst');
+assert.match(source, /if \(guestAsleepHint \|\| guestFrameIsDark\(\) === null\) \{ return; \}\s*status\.textContent = gettext\('Guest display kept its own size\./,
+    'an unapplied size request is explained once, deferring to the sleep hint or to a missing picture');
+// UIINFO-CADENCE-1 (test_resize_reference.mjs): the reference UI never re-sends
+// a size request on a timer or on input; the display keeps it for a waking guest.
+assert.doesNotMatch(source, /retryStalledResize|resizeStalled|stalledRetryCount/,
+    'input and wake-up must not re-issue a Display1 size request');
 for (const hook of ['const queuePointer = (value) => {\n                noteGuestInput();',
     'noteGuestInput();\n            if (down) {']) {
-    assert.ok(source.includes(hook), 'ordinary pointer and key input must note guest input and re-issue a stalled Display1 resize');
+    assert.ok(source.includes(hook), 'ordinary pointer and key input must note guest input for the sleep hint');
 }
 assert.match(source, /const visible = `\$\{remoteVideoWidth\(\)\}x\$\{remoteVideoHeight\(\)\}@\$\{sessionFps\}`;/,
     'the decoded-resize identity must carry the session FPS, or convergence is never recognised off 60 FPS');

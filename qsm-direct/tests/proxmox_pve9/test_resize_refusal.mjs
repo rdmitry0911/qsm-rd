@@ -108,10 +108,11 @@ const REFUSED = { result: 'refused', width: 1630, height: 572, error: 'org.qemu.
     assert.match(h.status.textContent, /refused this window size/,
         'a later media status update keeps the reason instead of a bare Connected');
 
-    // A new window size is a new request.
+    // A new window size is a new request, once the live resize has ended
+    // (the window was stable for the settle window; test_resize_reference.mjs).
     h.video.box = { width: 1600, height: 572 };
     h.resize(false);
-    h.tick(500);
+    h.tick(1_000);
     assert.equal(h.resizes(1600, 572).length, 1, 'a different size is requested again');
     assert.equal(h.status.textContent, 'Connected', 'the refusal of the old size is withdrawn');
     h.guest.width = 1600; h.guest.height = 572;
@@ -122,7 +123,7 @@ const REFUSED = { result: 'refused', width: 1630, height: 572, error: 'org.qemu.
     // Returning to the refused size is again a new request.
     h.video.box = { width: 1630, height: 572 };
     h.resize(false);
-    h.tick(500);
+    h.tick(1_000);
     assert.equal(h.resizes(1630, 572).length, 2, 'the earlier refused size is asked for once more');
     h.result(REFUSED);
     h.work(30_000);
@@ -130,13 +131,19 @@ const REFUSED = { result: 'refused', width: 1630, height: 572, error: 'org.qemu.
 }
 
 {
-    // Another Console's refused size does not stop this Console's request.
+    // Another Console's refused size does not answer this Console's request:
+    // that request stays pending (and, as every request, is not re-sent on a
+    // timer or on input; UIINFO-CADENCE-1 R4 in test_resize_reference.mjs).
     const h = harness();
     h.resize(true);
     h.result({ ...REFUSED, width: 1500, height: 500, message: '1500x500 refused' });
-    h.tick(1_000);
-    assert.ok(h.resizes(1630, 572).length > 1, 'a refusal of a different size leaves the retry in charge');
+    h.work(10_000);
+    assert.equal(h.resizes(1630, 572).length, 1, 'a refusal of a different size is not this request\'s answer');
     assert.doesNotMatch(h.status.textContent, /refused/);
+    h.guest.width = 1630; h.guest.height = 572;
+    h.video.emit('resize');
+    h.updateMediaStatus();
+    assert.equal(h.status.textContent, 'Connected', 'the pending request converges as usual');
 }
 
 {
