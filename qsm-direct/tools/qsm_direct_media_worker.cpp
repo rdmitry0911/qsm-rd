@@ -985,8 +985,14 @@ private:
             (void) av_dict_set(&options, "async_depth", "1", 0);
             // AMD pads CBR with filler up to the target even for a static picture,
             // which is what delays exact pixels on a shared path. VBR at the
-            // same maximum keeps the VBV bound without that padding.
-            (void) av_dict_set(&options, "rc_mode", cropped_ ? "VBR" : "CBR", 0);
+            // same maximum keeps the VBV bound without that padding. This holds
+            // for the full plane as well: on a Raphael iGPU (Mesa 25.0.7) CBR at
+            // 8 Mbit/s and 60 fps pads a static 1080p picture to 16.7 KB per
+            // frame (one filler NAL each), VBR emits about 90 bytes. With CBR an
+            // idle desktop filled the byte budget (7.8 Mbit/s) and the media
+            // tick admitted only 44 of 60 pictures. NVENC uses VBR for the same
+            // reason.
+            (void) av_dict_set(&options, "rc_mode", "VBR", 0);
             // Without a floor VBR spends its whole maximum refining a static picture.
             if (cropped_) { context_->qmin = cropped_qmin(); }
         } else {
