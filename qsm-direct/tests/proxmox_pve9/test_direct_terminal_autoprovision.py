@@ -93,6 +93,146 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             f"vga: std\nargs: {bus.replace('gl=on,rendernode=/dev/dri/renderD128', 'gl=off')} {secondary}\n", 321, runtime),
             "cpu", "PVE's Standard VGA stays the first display next to an additional qdev-host GPU")
 
+    # The external profile, with the config shapes of three real VMs: 103 (VirGL
+    # display, qdev-host vhost-user GPU), 104 and 118 (macOS, vga none, a qdev-host
+    # vfio-user PVG device whose unit serves Display1 with --display-bus).
+    QSM_AGENT = ("-chardev socket,id=qsm-direct-agent,path=/run/qsm-pve-direct/{vmid}/qsm-agent.sock,server=on,"
+                 "wait=off -device virtio-serial-pci,id=qsm-direct-serial "
+                 "-device virtserialport,chardev=qsm-direct-agent,name=org.qsm.direct.agent")
+    PVG = ("-device '{{\"driver\":\"vfio-user-pci\",\"id\":\"{id}\",\"bus\":\"pcie.0\",\"addr\":\"0x5\","
+           "\"socket\":{{\"type\":\"unix\",\"path\":\"/run/qdev-host/{vmid}-{id}/vfio.sock\"}},"
+           "\"romfile\":\"/opt/apple-virgl/roms/ApplePVG-stock-eeee.rom\"}}'")
+    VM104_ARGS = (
+        "-readconfig /var/lib/qdev-host/tb/104.cfg -acpitable file=/var/lib/qdev-host/tb/104.aml "
+        "-cpu Skylake-Client-v4,vendor=GenuineIntel -device qemu-xhci -device usb-kbd -device usb-tablet "
+        "-device isa-applesmc,osk=\"ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc\" "
+        + QSM_AGENT.format(vmid=104) +
+        " -machine vmport=off -machine i8042=off -device usb-kbd,id=qsm-direct-keyboard "
+        "-global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off "
+        "-object memory-backend-memfd,id=applevirgl-mem,size=32768M,share=on -machine memory-backend=applevirgl-mem "
+        "-chardev socket,id=applevirgl-qmp,path=/run/applevirgl/104-qmp.sock,server=on,wait=off "
+        "-mon chardev=applevirgl-qmp,mode=control " + PVG.format(vmid=104, id="pvg0"))
+    VM118_ARGS = (
+        "-device isa-applesmc,osk=\"ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc\" -smbios type=2 "
+        "-device usb-kbd,bus=ehci.0,port=2 -global nec-usb-xhci.msi=off "
+        "-global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off "
+        "-cpu Haswell-noTSX,vendor=GenuineIntel,+invtsc,+hypervisor,kvm=on,vmware-cpuid-freq=on "
+        "-global vmware-svga.vgamem_mb=1 " + QSM_AGENT.format(vmid=118) +
+        " -machine vmport=off -machine i8042=off "
+        "-object memory-backend-memfd,id=applevirgl-mem,size=32768M,share=on -machine memory-backend=applevirgl-mem "
+        "-chardev socket,id=applevirgl-qmp,path=/run/applevirgl/118-qmp.sock,server=on,wait=off "
+        "-mon chardev=applevirgl-qmp,mode=control " + PVG.format(vmid=118, id="pvg0"))
+    VM118_QEMU_DISPLAY = " -display dbus,addr=unix:path=/run/qsm-pve-direct/118/qemu-display1.bus,gl=off"
+    VM103_ARGS = (
+        QSM_AGENT.format(vmid=103) + " -machine vmport=off -machine i8042=off -device usb-kbd,id=qsm-direct-keyboard "
+        "-device pcie-root-port,id=qdev-rp0,bus=pcie.0,addr=0x08,chassis=60,slot=60,port=60,pref64-reserve=256M,"
+        "mem-reserve=16M -display dbus,addr=unix:path=/run/qsm-pve-direct/103/qemu-display1.bus,gl=on,"
+        "rendernode=/dev/dri/renderD128,audiodev=qsm-direct-audio -audiodev dbus,id=qsm-direct-audio,"
+        "in.frequency=48000,in.channels=2,out.frequency=48000,out.channels=2 -device ich9-intel-hda,id=qsm-direct-hda "
+        "-device hda-micro,id=qsm-direct-hda-codec,bus=qsm-direct-hda.0,audiodev=qsm-direct-audio "
+        "-object memory-backend-memfd,id=qdev-mem,size=16384M,share=on -machine memory-backend=qdev-mem "
+        "-chardev socket,id=qdev-virglgpu0,path=/run/qdev-host/103-virglgpu0/gpu.sock "
+        "-device vhost-user-gpu-pci,id=virglgpu0,chardev=qdev-virglgpu0,bus=qdev-rp0,max_outputs=1,xres=1280,yres=800")
+
+    @staticmethod
+    def _qdev_unit(directory: Path, vmid: int, device: str, *, runtime: Path = Path("/run/qsm-pve-direct"),
+                   bus: str | None = None, extra: str = "", mode: int = 0o640) -> Path:
+        """A unit env as qdevctl writes it (118) or a VM hook keeps it (104)."""
+        bus = f"unix:path={runtime}/{vmid}/qemu-display1.bus" if bus is None else bus
+        display = f" --display-bus {bus}" if bus else ""
+        path = directory / f"{vmid}-{device}.env"
+        path.write_text(
+            f"QDEV_ARGS=--plugin /usr/lib/qdev-host/plugins/apple-pvg.so --socket /run/qdev-host/{vmid}-{device}/vfio.sock "
+            f"--dump-dir /var/lib/qdev-host --vm-name VM{vmid}-{device} --qemu-qmp /run/applevirgl/{vmid}-qmp.sock "
+            f"--control /run/qdev-host/{vmid}-{device}/ctl.sock --plugin-args xres=1920,yres=1080{display}{extra}\n",
+            encoding="utf-8")
+        os.chmod(path, mode)
+        return path
+
+    def test_a_qdev_host_display1_device_is_the_external_profile(self) -> None:
+        runtime = Path("/run/qsm-pve-direct")
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-qdev-units.") as temporary:
+            units = Path(temporary)
+            self._qdev_unit(units, 104, "pvg0", extra=" --display-name org.qemu")
+            self._qdev_unit(units, 118, "pvg0")
+            self._qdev_unit(units, 103, "virglgpu0", bus="")
+            profile = lambda config, vmid: _managed_display_profile(config, vmid, runtime, units)  # noqa: E731
+            self.assertEqual(profile(f"vga: none\nargs: {self.VM104_ARGS}\n", 104), "external")
+            self.assertEqual(profile(f"vga: none\nargs: {self.VM118_ARGS}\n", 118), "external",
+                             "118 after QEMU's own -display is removed")
+            self.assertTrue(_managed_display_enabled(f"vga: none\nargs: {self.VM118_ARGS}\n", 118, runtime, units))
+            self.assertEqual(profile(f"vga: none\nargs: {self.VM103_ARGS}\n", 103), "virgl",
+                             "the VirGL display with a qdev-host GPU is unchanged")
+            self.assertEqual(profile(f"vga: type=none\nargs: {self.VM104_ARGS}\n", 104), "external")
+            self.assertEqual(profile(f"vga: none\nargs: {self.VM104_ARGS}\n\n[PENDING]\nvga: std\n", 104),
+                             "external", "a pending change does not hide the running display")
+            other = self.PVG.format(vmid=104, id="tb0")
+            self.assertEqual(profile(f"vga: none\nargs: {self.VM104_ARGS} {other}\n", 104), "external",
+                             "another vfio-user device without a display is not a second display")
+
+    def test_the_external_profile_refuses_everything_it_does_not_own(self) -> None:
+        runtime = Path("/run/qsm-pve-direct")
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-qdev-units.") as temporary:
+            units = Path(temporary)
+            unit = self._qdev_unit(units, 104, "pvg0")
+            profile = lambda config, vmid=104, directory=units: _managed_display_profile(  # noqa: E731
+                config, vmid, runtime, directory)
+            vm104 = f"vga: none\nargs: {self.VM104_ARGS}\n"
+            self.assertEqual(profile(vm104), "external")
+            # 118 as found: QEMU's own -display dbus on the same bus (both would claim org.qemu).
+            self._qdev_unit(units, 118, "pvg0")
+            self.assertIsNone(profile(f"vga: none\nargs: {self.VM118_ARGS}{self.VM118_QEMU_DISPLAY}\n", 118))
+            # PVE's own adapter (implicit Standard VGA, or an explicit one) is another display.
+            for vga in ("", "vga: std\n", "vga: vmware\n", "vga: virtio\n", "vga: virtio-gl\n", "vga: none,memory=16\n"):
+                self.assertIsNone(profile(f"{vga}args: {self.VM104_ARGS}\n"), vga or "absent vga")
+            # Another display adapter or QEMU display in args.
+            for added in ("-device VGA", "-device vmware-svga,id=v", "-device virtio-vga-gl,id=qsm-direct-gpu",
+                          "-device virtio-gpu-pci", "-vga std", "-display gtk", "-spice port=5900",
+                          "-chardev socket,id=qdev-g,path=/run/qdev-host/104-g/gpu.sock "
+                          "-device vhost-user-gpu-pci,id=g,chardev=qdev-g"):
+                self.assertIsNone(profile(f"vga: none\nargs: {self.VM104_ARGS} {added}\n"), added)
+            # No unit, or another VM's device socket in this VM's args.
+            self.assertIsNone(profile(vm104, directory=units / "missing"))
+            self.assertIsNone(profile(f"vga: none\nargs: {self.VM104_ARGS.replace('/104-pvg0/', '/105-pvg0/')}\n"))
+            self.assertIsNone(profile(vm104.replace("/run/qdev-host/104-pvg0/vfio.sock", "/run/other/vfio.sock")))
+            self.assertIsNone(profile("vga: none\nargs: -device '{\"driver\":\"vfio-user-pci\"'\n"),
+                              "an unparseable device is not read as a display")
+            self.assertIsNone(profile(f"vga: none\nargs: {self.VM104_ARGS} '\n"), "unbalanced quoting")
+            # The unit must declare exactly this VM's bus, for this device, as org.qemu.
+            for bus, extra in (("", ""),
+                               ("unix:path=/run/qsm-pve-direct/105/qemu-display1.bus", ""),
+                               ("unix:path=/run/qdev/other.bus", ""),
+                               (None, " --display-name org.example"),
+                               (None, " --display-bus unix:path=/run/qsm-pve-direct/104/qemu-display1.bus"),
+                               (None, " --socket /run/qdev-host/104-other/vfio.sock")):
+                self._qdev_unit(units, 104, "pvg0", bus=bus, extra=extra)
+                self.assertIsNone(profile(vm104), (bus, extra))
+            self._qdev_unit(units, 104, "pvg0", extra=" --display-name=org.qemu")
+            self.assertEqual(profile(vm104), "external", "--name=value is the same option")
+            # Two devices serving the same bus would both claim org.qemu.
+            self._qdev_unit(units, 104, "pvg1")
+            self.assertIsNone(profile(f"vga: none\nargs: {self.VM104_ARGS} {self.PVG.format(vmid=104, id='pvg1')}\n"))
+            # The unit file must be root's and not writable by others, with one plain QDEV_ARGS.
+            self._qdev_unit(units, 104, "pvg0", mode=0o664)
+            self.assertIsNone(profile(vm104), "a group-writable unit")
+            self._qdev_unit(units, 104, "pvg0")
+            text = unit.read_text(encoding="utf-8")
+            for content in (text + text, text.replace("QDEV_ARGS=", "QDEV_ARGS=\"") , "# no arguments\n"):
+                unit.write_text(content, encoding="utf-8")
+                self.assertIsNone(profile(vm104), content[:24])
+            unit.write_text(text, encoding="utf-8")
+            unit.rename(units / "real.env")
+            unit.symlink_to(units / "real.env")
+            self.assertIsNone(profile(vm104), "a symlinked unit")
+            unit.unlink()
+            (units / "real.env").rename(unit)
+            self.assertEqual(profile(vm104), "external")
+            os.chmod(units, 0o777)
+            try:
+                self.assertIsNone(profile(vm104), "a unit directory writable by others")
+            finally:
+                os.chmod(units, 0o700)
+
     def test_a_pending_change_does_not_hide_the_running_display(self) -> None:
         runtime = Path("/run/qsm-pve-direct")
         bus = "-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus"
@@ -336,6 +476,45 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK", unit)
         self.assertIn("KillSignal=SIGINT", unit)
         self.assertIn("KillMode=process", unit)
+
+    def test_service_start_prepares_the_bus_an_external_display_device_joins(self) -> None:
+        """After a node reboot qdev-host's --display-bus must find the VM's bus before the VM starts."""
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-external-bus.") as temporary:
+            root = Path(temporary)
+            instance_directory = root / "instances"
+            pve_config_directory = root / "qemu-server"
+            vm_runtime_directory = root / "display"
+            units = root / "units"
+            for directory in (instance_directory, pve_config_directory, units):
+                directory.mkdir(mode=0o700)
+            for vmid in (104, 105):
+                config = pve_config_directory / f"{vmid}.conf"
+                config.write_text(f"vga: none\nargs: {self.VM104_ARGS.replace('104', str(vmid))}\n", encoding="utf-8")
+                os.chmod(config, 0o600)
+            self._qdev_unit(units, 104, "pvg0", runtime=vm_runtime_directory)
+            self._qdev_unit(units, 105, "pvg0", runtime=vm_runtime_directory, bus="")  # no Display1
+            manager = DirectSessionManager(
+                instance_directory=instance_directory, runtime_directory=root / "sessions",
+                vm_runtime_directory=vm_runtime_directory, pve_config_directory=pve_config_directory,
+                local_node=None, qdev_unit_directory=units)
+            bus_process = None
+            try:
+                socket_path = vm_runtime_directory / "104" / "qemu-display1.bus"
+                self.assertTrue(stat.S_ISSOCK(socket_path.lstat().st_mode),
+                                "the bus exists when the service is ready, before the VM starts")
+                self.assertEqual(socket_path.lstat().st_mode & 0o077, 0)
+                bus_process = manager._dbus._children[104]
+                self.assertTrue(manager._display_is_configured(104))
+                self.assertEqual(manager._configured_vms(), (104,))
+                self.assertFalse(manager._display_is_configured(105))
+                self.assertFalse((vm_runtime_directory / "105" / "qemu-display1.bus").exists(),
+                                 "a qdev-host device without Display1 gets no bus")
+                self._qdev_unit(units, 104, "pvg0", runtime=vm_runtime_directory, bus="")
+                self.assertFalse(manager._display_is_configured(104), "the unit's declaration is re-read")
+            finally:
+                manager.close()
+                if bus_process is not None:
+                    manager._dbus._terminate(bus_process)
 
     def test_saved_display1_argument_starts_a_private_bus_without_policy_file(self) -> None:
         with tempfile.TemporaryDirectory(prefix="qsm-direct-autoprovision.") as temporary:

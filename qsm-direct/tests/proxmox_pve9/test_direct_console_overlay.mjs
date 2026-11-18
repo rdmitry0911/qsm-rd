@@ -720,6 +720,55 @@ assert.equal(delayedEnabled, true, 'the first VM view must enable QSM Direct wit
 assert.equal(delayedConsole.xtype, 'pveQsmDirectConsole',
     'the existing Console card must switch even while the toolbar is rendered late');
 
+// External display: a qdev-host vfio-user device serves Display1 itself (the
+// shapes of VM 104 and 118: vga none, no QEMU -display, the device in args).
+// The terminal service checks the device's qdev-host unit; the entry follows
+// the config shape only, and never for another display next to it.
+{
+    const savedRequest = Proxmox.Utils.API2Request;
+    const pvg = (vmid, id = 'pvg0') => ` -device '{"driver":"vfio-user-pci","id":"${id}","bus":"pcie.0","addr":"0x5",`
+        + `"socket":{"type":"unix","path":"/run/qdev-host/${vmid}-${id}/vfio.sock"},`
+        + '"romfile":"/opt/apple-virgl/roms/ApplePVG-stock-eeee.rom"}\'';
+    const vm104 = '-cpu Skylake-Client-v4,vendor=GenuineIntel -device qemu-xhci -device usb-kbd -device usb-tablet'
+        + managedGuestArgs(104) + managedDirectInputArguments + pvg(104);
+    const vm118 = '-smbios type=2 -device usb-kbd,bus=ehci.0,port=2 -global vmware-svga.vgamem_mb=1'
+        + managedGuestArgs(118) + ' -machine vmport=off -machine i8042=off' + pvg(118);
+    for (const [vmid, config, expected, why] of [
+        [104, { vga: 'none', args: vm104 }, true, 'VM 104'],
+        [118, { vga: 'none', args: vm118 }, true, 'VM 118 without QEMU\'s own -display'],
+        [104, { vga: 'type=none', args: vm104 }, true, 'type=none'],
+        [104, { vga: 'none', args: vm104.replace(pvg(104), ' -device vfio-user-pci,id=pvg0,socket.type=unix,'
+            + 'socket.path=/run/qdev-host/104-pvg0/vfio.sock') }, true, 'key=value device form'],
+        [104, { args: vm104 }, false, 'PVE default Standard VGA'],
+        [104, { vga: 'std', args: vm104 }, false, 'PVE Standard VGA'],
+        [104, { vga: 'none', args: vm104.replace(pvg(104), pvg(105)) }, false, 'another VM\'s device'],
+        [104, { vga: 'none', args: vm104.replace(pvg(104), '') }, false, 'no qdev-host device'],
+        [104, { vga: 'none', args: vm104 + ' -device vmware-svga,id=v' }, false, 'another adapter'],
+        [104, { vga: 'none', args: vm104 + ' -device \'{"driver":"virtio-vga","id":"v"}\'' }, false, 'JSON adapter'],
+        [104, { vga: 'none', args: vm104 + ' -vga std' }, false, '-vga'],
+        [104, { vga: 'none', args: vm104 + ' -display gtk' }, false, 'a QEMU display'],
+        [104, { vga: 'none', 'dbus-display': 1, args: vm104 }, false, 'the shared display bus'],
+        [104, { vga: 'none' }, false, 'no args'],
+    ]) {
+        Proxmox.Utils.API2Request = request => request.success({ result: { data: config } });
+        let available;
+        qemuConfigOverlay.initComponent.call({
+            pveSelNode: { data: { node: 'pve-a', vmid } },
+            callParent: () => undefined,
+            down: () => ({ setEnableQsmDirect: value => { available = value; } }),
+        });
+        assert.equal(available, expected, why);
+    }
+    Proxmox.Utils.API2Request = savedRequest;
+    const panel = { up: () => ({ vmconfig: { vga: 'none', args: vm104 }, pveSelNode: { data: { vmid: 104 } } }) };
+    for (const profile of ['virgl', 'cpu']) {
+        assert.throws(() => displayOverlay.onGetValues.call(panel, {
+            type: profile === 'cpu' ? 'std' : 'none', qsm_direct_display1: 1, qsm_direct_profile: profile,
+            qsm_direct_rendernode: '/dev/dri/renderD128',
+        }), /qdev-host device/, `QSM Display1 (${profile}) must not add a second display to an external one`);
+    }
+}
+
 // Switching only the PVE web UI must retain consoles for running native VMs
 // and must not add a second -display when their VGA dialog is saved.
 {

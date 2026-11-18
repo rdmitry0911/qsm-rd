@@ -17,6 +17,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import signal
 import socket
 import socketserver
@@ -312,12 +313,146 @@ def _pve_vga_option(config: str) -> dict[str, str] | None:
     return None
 
 
-def _managed_display_profile(config: str, vmid: int, vm_runtime_directory: Path) -> str | None:
+# qdev-host runs each out-of-process PCI device of a VM as the unit
+# qdev-host-device@VMID-ID with ``QDEV_ARGS`` from this directory (written by
+# qdevctl from /etc/qdev-host/vms/VMID.json, or by a VM's own hook). With
+# ``--display-bus`` the device serves org.qemu.Display1 itself, as ``org.qemu``
+# on the VM's private bus: then it is the VM's display, and QEMU has none.
+QDEV_HOST_UNIT_DIRECTORY = Path("/etc/qdev-host/units")
+QDEV_HOST_UNIT_MAX_BYTES = 16 * 1024
+_QDEV_VFIO_USER_SOCKET_PATTERN = re.compile(
+    r"\A/run/qdev-host/([1-9][0-9]{1,8})-([A-Za-z][A-Za-z0-9_-]{0,31})/vfio\.sock\Z")
+_QDEV_UNIT_OPTIONS = ("--socket", "--display-bus", "--display-name")
+
+
+def _qdev_host_unit_arguments(directory: Path, unit: str) -> list[str] | None:
+    """``QDEV_ARGS`` of one qdev-host device unit, split as systemd splits ``$QDEV_ARGS``.
+
+    The file must be root's, not writable by others, and hold exactly one
+    unquoted ``QDEV_ARGS``; anything else is not read as a display declaration.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        parent = directory.lstat()
+        descriptor = os.open(directory / f"{unit}.env", flags)
+    except OSError:
+        return None
+    try:
+        metadata = os.fstat(descriptor)
+        if (not stat.S_ISDIR(parent.st_mode) or parent.st_mode & 0o022 or
+                not stat.S_ISREG(metadata.st_mode) or metadata.st_mode & 0o022 or
+                (os.geteuid() == 0 and (metadata.st_uid != 0 or parent.st_uid != 0)) or
+                metadata.st_size > QDEV_HOST_UNIT_MAX_BYTES):
+            return None
+        content = os.read(descriptor, QDEV_HOST_UNIT_MAX_BYTES + 1)
+    except OSError:
+        return None
+    finally:
+        os.close(descriptor)
+    if len(content) > QDEV_HOST_UNIT_MAX_BYTES or b"\x00" in content:
+        return None
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    values = [line.removeprefix("QDEV_ARGS=") for line in text.splitlines() if line.startswith("QDEV_ARGS=")]
+    if len(values) != 1 or any(character in values[0] for character in "\"'\\$"):
+        return None
+    return values[0].split()
+
+
+def _qdev_host_option_values(arguments: list[str]) -> dict[str, list[str]]:
+    """The values of the options this profile reads (``--name value`` or ``--name=value``)."""
+    values: dict[str, list[str]] = {name: [] for name in _QDEV_UNIT_OPTIONS}
+    for index, argument in enumerate(arguments):
+        name, separator, value = argument.partition("=")
+        if name not in values:
+            continue
+        if separator:
+            values[name].append(value)
+        elif index + 1 < len(arguments):
+            values[name].append(arguments[index + 1])
+        else:
+            values[name].append("")
+    return values
+
+
+def _qemu_device_driver_and_socket(value: str) -> tuple[str, str | None] | None:
+    """Driver and Unix socket path of one ``-device`` value (QEMU's JSON or key=value form)."""
+    if value.startswith("{"):
+        try:
+            device = json.loads(value)
+        except ValueError:
+            return None
+        if not isinstance(device, dict) or not isinstance(device.get("driver"), str):
+            return None
+        endpoint = device.get("socket")
+        path = (endpoint.get("path") if isinstance(endpoint, dict) and endpoint.get("type") == "unix" and
+                isinstance(endpoint.get("path"), str) else None)
+        return device["driver"], path
+    fields = value.split(",")
+    options = dict(field.split("=", 1) for field in fields[1:] if "=" in field)
+    return fields[0], (options.get("socket.path") if options.get("socket.type") == "unix" else None)
+
+
+def _external_display_unit(args: str, vmid: int, vm_runtime_directory: Path,
+                           unit_directory: Path) -> str | None:
+    """The one qdev-host vfio-user device of ``args`` that serves this VM's Display1 bus.
+
+    Its unit runs ``qdev-host ... --socket <that device's vfio.sock>
+    --display-bus unix:path=<VM runtime>/VMID/qemu-display1.bus`` with no other
+    ``--display-name`` than ``org.qemu``. Any QEMU display or other display
+    adapter in ``args`` refuses the profile, and so do two such devices: both
+    would claim ``org.qemu``.
+    """
+    try:
+        tokens = shlex.split(args)
+    except ValueError:
+        return None
+    sockets: list[str] = []
+    for option, value in zip(tokens, tokens[1:] + [""]):
+        if option in {"-display", "-vga", "-spice", "-nographic"}:
+            return None
+        if option != "-device":
+            continue
+        device = _qemu_device_driver_and_socket(value)
+        if device is None:
+            return None
+        driver, path = device
+        if driver in OTHER_DISPLAY_DEVICES or driver in {"vhost-user-vga", "vhost-user-gpu-pci"}:
+            return None
+        if driver == "vfio-user-pci" and path is not None:
+            sockets.append(path)
+    expected_bus = f"unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus"
+    units: list[str] = []
+    for path in sockets:
+        match = _QDEV_VFIO_USER_SOCKET_PATTERN.fullmatch(path)
+        if match is None or int(match.group(1)) != vmid:
+            continue
+        unit = f"{vmid}-{match.group(2)}"
+        arguments = _qdev_host_unit_arguments(unit_directory, unit)
+        if arguments is None:
+            continue
+        options = _qdev_host_option_values(arguments)
+        if not options["--display-bus"]:
+            continue
+        if (options["--display-bus"] != [expected_bus] or options["--socket"] != [path] or
+                options["--display-name"] not in ([], ["org.qemu"])):
+            return None  # a display declaration this profile does not own
+        units.append(unit)
+    return units[0] if len(units) == 1 else None
+
+
+def _managed_display_profile(config: str, vmid: int, vm_runtime_directory: Path,
+                             qdev_unit_directory: Path = QDEV_HOST_UNIT_DIRECTORY) -> str | None:
     """Accept one explicitly owned Display1 profile from the PVE config.
 
     The VirGL profile owns its ``virtio-vga-gl`` adapter and needs ``gl=on``.
     The portable CPU profile intentionally owns no adapter in ``args``: PVE
     supplies Standard VGA or non-GL VirtIO VGA and Display1 uses ``gl=off``.
+    The external profile has neither a PVE adapter (``vga: none``) nor a QEMU
+    display: one qdev-host vfio-user device serves Display1 on the private bus
+    (see ``_external_display_unit``), captured like the CPU profile.
     Keeping those forms exact prevents this service from attaching a private
     bus to an administrator's unrelated QEMU display configuration.
     """
@@ -366,11 +501,15 @@ def _managed_display_profile(config: str, vmid: int, vm_runtime_directory: Path)
     if (count == 1 and not gpu_arguments and vga_type in {"std", "virtio", "vmware"} and
             cpu_display.search(args) is not None):
         return "cpu"
+    if (count == 0 and not gpu_arguments and not external and vga in {"none", "type=none"} and
+            _external_display_unit(args, vmid, vm_runtime_directory, qdev_unit_directory) is not None):
+        return "external"
     return None
 
 
-def _managed_display_enabled(config: str, vmid: int, vm_runtime_directory: Path) -> bool:
-    return _managed_display_profile(config, vmid, vm_runtime_directory) is not None
+def _managed_display_enabled(config: str, vmid: int, vm_runtime_directory: Path,
+                             qdev_unit_directory: Path = QDEV_HOST_UNIT_DIRECTORY) -> bool:
+    return _managed_display_profile(config, vmid, vm_runtime_directory, qdev_unit_directory) is not None
 
 
 def _capture_render_node(config: str, profile: str, *, managed: bool = False) -> str | None:
@@ -1108,8 +1247,10 @@ class DirectSessionManager:
                  qemu_pid_directory: Path = Path("/run/qemu-server"),
                  container_instance_directory: Path = Path("/etc/qsm-pve-direct/containers.d"),
                  lxc_config_directory: Path | None = None,
-                 lxc_runtime_config_directory: Path = Path("/var/lib/lxc")) -> None:
+                 lxc_runtime_config_directory: Path = Path("/var/lib/lxc"),
+                 qdev_unit_directory: Path = QDEV_HOST_UNIT_DIRECTORY) -> None:
         self._instance_directory = instance_directory
+        self._qdev_unit_directory = qdev_unit_directory
         self._runtime_directory = runtime_directory
         self._vm_runtime_directory = vm_runtime_directory
         self._pve_config_directory = pve_config_directory
@@ -1279,7 +1420,8 @@ class DirectSessionManager:
             if not _valid_vmid(vmid):
                 continue
             config = _read_pve_vm_config(entry)
-            if config is not None and _managed_display_enabled(config, vmid, self._vm_runtime_directory):
+            if config is not None and _managed_display_enabled(config, vmid, self._vm_runtime_directory,
+                                                               self._qdev_unit_directory):
                 result.append(vmid)
         return tuple(result)
 
@@ -1455,7 +1597,8 @@ class DirectSessionManager:
             return False
         config = _read_pve_vm_config(self._pve_config_directory / f"{vmid}.conf")
         return config is not None and (_shared_display_profile(config) is not None or
-                                      _managed_display_enabled(config, vmid, self._vm_runtime_directory))
+                                      _managed_display_enabled(config, vmid, self._vm_runtime_directory,
+                                                               self._qdev_unit_directory))
 
     def _start_configured_display_buses(self) -> tuple[int, ...]:
         """Create QEMU buses before the user starts a Display1-configured VM."""
@@ -1841,7 +1984,8 @@ class DirectSessionManager:
                 vga = _pve_vga_option(config) if config is not None else None
                 profile = "virgl" if vga is not None and vga.get("type") == "virtio-gl" else "cpu"
             else:
-                profile = (_managed_display_profile(config, vmid, self._vm_runtime_directory)
+                profile = (_managed_display_profile(config, vmid, self._vm_runtime_directory,
+                                                    self._qdev_unit_directory)
                            if config is not None else None)
             if profile is None:
                 raise DirectTerminalError("direct-terminal VM Display1 configuration changed")
@@ -1875,7 +2019,9 @@ class DirectSessionManager:
                 "--video-bitrate-kbps", str(_video_bitrate_kbps(policy)),
                 "--initial-size", f"{width}x{height}",
             ]
-            if profile == "cpu":
+            if profile in {"cpu", "external"}:
+                # The external profile is the same non-GL capture; whether its
+                # device offers the guest a requested size is up to its plugin.
                 arguments.append("--allow-unsupported-ui-info")
             capture_node = _capture_render_node(config or "", profile,
                 managed=shared_profile is None and display_fd is None)

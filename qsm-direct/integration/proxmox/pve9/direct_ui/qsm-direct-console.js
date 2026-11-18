@@ -3716,8 +3716,27 @@
         [1, '1', true].includes(config['dbus-display']) &&
         ['virtio-gl', 'std', 'virtio', 'vmware', 'cirrus', 'qxl', 'qxl2', 'qxl3', 'qxl4']
             .includes(stockVgaType(config.vga || 'std')));
+    // External display: a qdev-host vfio-user device (its unit runs qdev-host
+    // with --display-bus) serves Display1 itself on the VM's private bus, so PVE
+    // has no adapter (vga none) and QEMU no display. The browser cannot read
+    // that unit; the terminal service checks it before any console starts, and
+    // this predicate only keeps the console entry to the same config shape.
+    const QDEV_OTHER_DISPLAY_DEVICES = /(?:^|\s)-device\s+['"]?(?:\{[^\s]*"driver"\s*:\s*")?(?:VGA|secondary-vga|cirrus-vga|vmware-svga|qxl|qxl-vga|ati-vga|bochs-display|ramfb|virtio-vga|virtio-vga-gl|virtio-gpu-pci|virtio-gpu-gl-pci|virtio-gpu-device|vhost-user-vga|vhost-user-gpu-pci)(?=[,"\s]|$)/;
+    const qdevVfioUserSocket = (vmid) => new RegExp(
+        `(?:socket\\.path=|"path"\\s*:\\s*")/run/qdev-host/${vmid}-[A-Za-z][A-Za-z0-9_-]{0,31}/vfio\\.sock(?=[,"\\s]|$)`);
+    const EXTERNAL_DISPLAY_MESSAGE = 'this VM\'s display comes from a qdev-host device (Display1 on its own bus): '
+        + 'QSM Display1 would add a second display; leave it off, the QSM Console already shows the device';
+    const externalDisplayConfigured = (config, vmid) => {
+        if (!config || typeof config.args !== 'string' || !validVmid(vmid)) { return false; }
+        const args = config.args;
+        return ['none', 'type=none'].includes(String(config.vga || '').trim()) &&
+            ![1, '1', true].includes(config['dbus-display']) &&
+            displayCount(args) === 0 && !/(?:^|\s)-(?:vga|spice|nographic)(?:\s|$)/.test(args) &&
+            !QDEV_OTHER_DISPLAY_DEVICES.test(args) && /vfio-user-pci/.test(args) &&
+            qdevVfioUserSocket(vmid).test(args);
+    };
     const consoleConfigured = (config, vmid) => sharedDisplayConfigured(config) ||
-        displayState(config && config.args, vmid).managed;
+        displayState(config && config.args, vmid).managed || externalDisplayConfigured(config, vmid);
     const effectiveDisplayAdapter = (active, profile, vga) => {
         if (!active) { return gettext('PVE Graphic card: ') + stockVgaType(vga || 'none'); }
         if (profile === DISPLAY_PROFILE.virgl) {
@@ -3799,6 +3818,9 @@
             }
             if (active && profile === DISPLAY_PROFILE.cpu && !CPU_DISPLAY_VGA_TYPES.has(values.type)) {
                 throw new Error('CPU Display1 requires PVE Graphic card Standard VGA, VirtIO or VMware');
+            }
+            if (active && externalDisplayConfigured(edit.vmconfig, vmid)) {
+                throw new Error(EXTERNAL_DISPLAY_MESSAGE);
             }
             // PVE 9 does not populate `memory` for every VGA type. Passing an
             // explicit `undefined` becomes `vga.memory=undefined` at the API
