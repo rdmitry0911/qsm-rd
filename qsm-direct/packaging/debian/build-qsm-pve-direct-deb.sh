@@ -166,7 +166,7 @@ Section: net
 Priority: optional
 Architecture: amd64
 Maintainer: Dmitry R <rdmitry0911@gmail.com>
-Depends: libc6 (>= 2.38), libopus0 (>= 1.3), zlib1g, libstdc++6 (>= 13), libsystemd0, libavcodec61, libavutil59, libswscale8, libwayland-client0, libxkbcommon0, dbus, ffmpeg, python3, python3-aiortc, python3-av, pve-manager, qemu-server, pve-ui-overlays (>= 0.1.0)
+Depends: libc6 (>= 2.38), libopus0 (>= 1.3), zlib1g, libstdc++6 (>= 13), libsystemd0, libavcodec61, libavutil59, libswscale8, libwayland-client0, libxkbcommon0, dbus, ffmpeg, mesa-va-drivers | va-driver, python3, python3-aiortc, python3-av, pve-manager, qemu-server, pve-ui-overlays (>= 0.1.0)
 Description: WebRTC graphical console for Proxmox VE 9 (media worker and service)
  qsm-pve-direct streams the display of a VM (QEMU D-Bus display) or of an LXC
  container console to the browser over WebRTC, hardware-encoded (NVENC,

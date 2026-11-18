@@ -21,6 +21,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Sequence
@@ -159,6 +160,21 @@ def _hevc_candidates() -> tuple[DirectEncoderSelection, ...]:
     )
 
 
+def _candidate_name(selection: DirectEncoderSelection) -> str:
+    if selection.vaapi_device is None:
+        return selection.encoder
+    return f"{selection.encoder}@{selection.vaapi_device}"
+
+
+def _failure_reason(stderr: bytes | None) -> str:
+    """Return FFmpeg's last error line for a failed candidate, bounded and printable."""
+    lines = [line.strip() for line in (stderr or b"").decode("utf-8", "replace").splitlines()
+             if line.strip()]
+    if not lines:
+        return ""
+    return "".join(ch if ch.isprintable() else "?" for ch in lines[-1])[:160]
+
+
 def _select(*, codec: str, run: Run, which: Which, timeout_seconds: float,
             candidates: Sequence[DirectEncoderSelection]) -> DirectEncoderSelection:
     codec_name = "H.264" if codec == "h264" else "HEVC"
@@ -170,16 +186,25 @@ def _select(*, codec: str, run: Run, which: Which, timeout_seconds: float,
     failures: list[str] = []
     for selection in candidates:
         command = _command(selection, ffmpeg=ffmpeg)
+        name = _candidate_name(selection)
         try:
             completed = run(
                 command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, check=False, timeout=timeout_seconds)
         except (OSError, subprocess.TimeoutExpired) as error:
-            failures.append(f"{selection.encoder}: {type(error).__name__}")
+            failures.append(f"{name}: {type(error).__name__}")
             continue
         if completed.returncode == 0 and completed.stdout:
+            if failures and selection.encoder == "libx264":
+                # The CPU fallback is a capacity change an administrator must
+                # be able to see and correct (for example a missing VA-API
+                # driver package), not a silent outcome of the probe.
+                print(f"qsm-direct-terminal: no hardware {codec_name} encoder initialized, "
+                      f"using libx264 (" + "; ".join(failures) + ")",
+                      file=sys.stderr, flush=True)
             return selection
-        failures.append(f"{selection.encoder}: exit {completed.returncode}")
+        reason = _failure_reason(completed.stderr)
+        failures.append(f"{name}: exit {completed.returncode}" + (f" ({reason})" if reason else ""))
     raise DirectEncoderProbeError(
         f"no direct {codec_name} encoder initialized (" + "; ".join(failures) + ")")
 

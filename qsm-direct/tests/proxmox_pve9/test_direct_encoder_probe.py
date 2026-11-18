@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import subprocess
 import sys
 import unittest
@@ -50,11 +52,53 @@ class DirectEncoderProbeTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 1, b"", b"unavailable")
             return success(command)
 
-        selected = probe.select_auto_h264_encoder(
-            run=run, which=lambda _: "/usr/bin/ffmpeg",
-            candidates=(probe.DirectEncoderSelection("h264_nvenc"),
-                        probe.DirectEncoderSelection("libx264")))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            selected = probe.select_auto_h264_encoder(
+                run=run, which=lambda _: "/usr/bin/ffmpeg",
+                candidates=(probe.DirectEncoderSelection("h264_nvenc"),
+                            probe.DirectEncoderSelection("libx264")))
         self.assertEqual(selected, probe.DirectEncoderSelection("libx264"))
+        self.assertIn("no hardware H.264 encoder initialized, using libx264", stderr.getvalue())
+        self.assertIn("h264_nvenc: exit 1 (unavailable)", stderr.getvalue())
+
+    def test_cpu_fallback_names_each_failed_accelerator_with_its_ffmpeg_error(self) -> None:
+        # hz-main 2026-11-18: no VA driver was installed, so h264_vaapi on the
+        # render node failed with FFmpeg's own device error while the journal
+        # showed only encoder=libx264.
+        def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+            del kwargs
+            encoder = command[command.index("-c:v") + 1]
+            if encoder == "h264_vaapi":
+                return subprocess.CompletedProcess(
+                    command, 251, b"",
+                    b"[AVHWDeviceContext @ 0x1] Failed to initialise VAAPI connection: -1 (unknown libva error).\n"
+                    b"Device creation failed: -5.\n")
+            if encoder == "libx264":
+                return success(command)
+            return subprocess.CompletedProcess(command, 1, b"", b"")
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            selected = probe.select_auto_h264_encoder(
+                run=run, which=lambda _: "/usr/bin/ffmpeg",
+                candidates=(probe.DirectEncoderSelection("h264_nvenc"),
+                            probe.DirectEncoderSelection("h264_vaapi", "/dev/dri/renderD128"),
+                            probe.DirectEncoderSelection("libx264")))
+        self.assertEqual(selected, probe.DirectEncoderSelection("libx264"))
+        message = stderr.getvalue()
+        self.assertIn("h264_nvenc: exit 1;", message)
+        self.assertIn("h264_vaapi@/dev/dri/renderD128: exit 251 (Device creation failed: -5.)", message)
+
+    def test_hardware_selection_is_silent(self) -> None:
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            selected = probe.select_auto_h264_encoder(
+                run=success, which=lambda _: "/usr/bin/ffmpeg",
+                candidates=(probe.DirectEncoderSelection("h264_vaapi", "/dev/dri/renderD128"),
+                            probe.DirectEncoderSelection("libx264")))
+        self.assertEqual(selected, probe.DirectEncoderSelection("h264_vaapi", "/dev/dri/renderD128"))
+        self.assertEqual(stderr.getvalue(), "")
 
     def test_auto_reports_a_node_without_any_usable_encoder(self) -> None:
         with self.assertRaisesRegex(probe.DirectEncoderProbeError, "no direct H.264 encoder"):
