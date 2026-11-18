@@ -974,6 +974,61 @@
           "sha256": "6192adbf8b56121b3ed5693d1c2dbce068e4c464beda8a0eff46db02117f61dc"
         }
       ]
+    },
+    {
+      "tag": "v0.4.0-qsm-direct-20261118-stock4.14-exp242",
+      "source_commit": "1e3a5441f5858dc2a3e200330bd1e2edd6c03783",
+      "assets": [
+        {
+          "filename": "qsm-console-guest_0.4.0+stock4.14~exp242_all.deb",
+          "package": "qsm-console-guest",
+          "version": "0.4.0+stock4.14~exp242",
+          "architecture": "all",
+          "sha256": "406cc1fd16e5fb179a75cc51ffa5e79614469ff522a1ea946eba704bbfa26831"
+        },
+        {
+          "filename": "qsm-desktop-agent_0.4.0+stock4.14~exp242_amd64.deb",
+          "package": "qsm-desktop-agent",
+          "version": "0.4.0+stock4.14~exp242",
+          "architecture": "amd64",
+          "sha256": "32fc07a7904dede431a573c6ec8dc08374b4bb8c1e1a340c67a009777417d833"
+        },
+        {
+          "filename": "qsm-pve-direct-gateway_0.4.0+stock4.14~exp242_all.deb",
+          "package": "qsm-pve-direct-gateway",
+          "version": "0.4.0+stock4.14~exp242",
+          "architecture": "all",
+          "sha256": "fd259514d6d19ba71b346c89439a8d2d5266e56fd07225ea3513862510d79b08"
+        },
+        {
+          "filename": "qsm-pve-direct-lxc_0.4.0+stock4.14~exp242_amd64.deb",
+          "package": "qsm-pve-direct-lxc",
+          "version": "0.4.0+stock4.14~exp242",
+          "architecture": "amd64",
+          "sha256": "6f6eee12db73844d1bad42a5549fa2d143c65665dc418c05ebcb96196e6c2785"
+        },
+        {
+          "filename": "qsm-pve-direct-standalone_0.4.0+stock4.14~exp242_all.deb",
+          "package": "qsm-pve-direct-standalone",
+          "version": "0.4.0+stock4.14~exp242",
+          "architecture": "all",
+          "sha256": "ac80cac1d98d2bdde1195954ec492a5d12e0c69c5ca6a36aed9af929047881a1"
+        },
+        {
+          "filename": "qsm-pve-direct_0.4.0+stock4.14~exp242_amd64.deb",
+          "package": "qsm-pve-direct",
+          "version": "0.4.0+stock4.14~exp242",
+          "architecture": "amd64",
+          "sha256": "b34428782363b9eab063c55db93a2f7f9628c9c0f67d3dcdbc24610323fc951e"
+        },
+        {
+          "filename": "qsm-qt-input-geometry_0.4.0+stock4.14~exp242_amd64.deb",
+          "package": "qsm-qt-input-geometry",
+          "version": "0.4.0+stock4.14~exp242",
+          "architecture": "amd64",
+          "sha256": "c9e6399b7288f693a0a9f67f7161a8f37dfdbb2db11b48a372dfa0c587c2f140"
+        }
+      ]
     }
   ]
 }

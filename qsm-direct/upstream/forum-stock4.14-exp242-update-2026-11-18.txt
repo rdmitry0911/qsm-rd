@@ -1,0 +1,67 @@
+Hi guys,
+
+a new preview is on the signed APT repository:
+0.4.0+stock4.14~exp242. This brings the changes I have been running
+locally since exp233 into the public release.
+
+QSM can now show a display device that qdev-host runs through
+vfio-user and that provides its own Display1 interface. The QSM Console
+appears for that VM, and QSM prepares its display bus before the VM
+starts, including after a node reboot. For this setup, leave the
+QSM Display1 toggle off: the device already provides the display.
+Whether the guest can change its resolution depends on the device.
+
+There are input fixes too. A QSM-managed console now keeps one USB
+keyboard, preserving your own if the VM already has one. On x86 q35,
+QSM puts its keyboard on a free port of the first EHCI controller.
+This addresses keyboard input intermittently disappearing in macOS
+with PVE's q35 USB layout. For an existing QSM-managed VM, save its
+Display settings, then stop/start it when convenient so QEMU uses the
+updated keyboard placement. The upgrade does not restart VMs.
+
+Dragging and resizing windows also survive a short stall through the
+TCP 8006 gateway. The toolbar stays behind the console handle and
+still hides by itself. With qdev-host's vhost-user-gpu guard, QSM can
+wait for the GPU to become ready and keep a supported managed console
+session through a guest GPU stop/restart. This does not fix the QEMU
+bugs themselves; those reports and fixes are still being handled
+upstream.
+
+One packaging fix matters for AMD and Intel hosts: QSM now depends on
+a VA-API driver. If automatic encoder selection still falls back to
+the CPU, the terminal journal says which hardware encoder failed and
+why. Encoder priorities and the video rate-control settings are
+unchanged in this release.
+
+To update, include all QSM profiles installed on the node:
+
+[CODE]
+apt update
+apt install --only-upgrade qsm-archive-keyring qsm-pve-direct qsm-pve-direct-standalone
+[/CODE]
+
+Add qsm-pve-direct-lxc and qsm-pve-direct-gateway if installed.
+Then reload PVE with cache bypass and reopen consoles. QSM service
+restarts interrupt console connections, while guests keep running.
+No guest package update is needed for these changes.
+
+The release checks covered 94 PVE Python tests, the overlay and
+signalling browser tests, and 284 bridge tests, including a run with
+Debian 13's WebRTC libraries. The packages are already on my two
+nodes. This publication did not repeat the earlier guest hardware
+tests, so I am not claiming new performance numbers.
+
+Release notes, source, matching packages and signed checksums:
+https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261118-stock4.14-exp242
+
+APT repository:
+https://rdmitry0911.github.io/qsm-rd/
+
+Feedback on external display devices and on macOS keyboard input
+would be useful. Please include the guest, browser, encoder and
+whether you use direct UDP or the TCP 8006 gateway.
+
+Project sponsor: Takt (https://taktcycles.com/).
+
+Thank you,
+Dmitry

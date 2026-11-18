@@ -4,7 +4,16 @@ Proxmox takes no pull requests: patches go to `pve-devel@lists.proxmox.com`
 with `git send-email`, and every contributor signs a CLA first
 ([developer documentation](https://pve.proxmox.com/wiki/Developer_Documentation)).
 
-## Current status (2026-11-08, evening)
+## Current status (2026-11-18)
+
+[Stock4.14~exp242](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261118-stock4.14-exp242)
+publishes the external Display1 profile for qdev-host devices, input and gateway
+fixes since exp233, the first-EHCI keyboard placement, and VA-API driver/fallback
+diagnostics. [Release notes](release-stock4.14-exp242-2026-11-18.txt) and
+[forum update](forum-stock4.14-exp242-update-2026-11-18.txt).
+Guest packages do not need an update for these changes.
+
+## Previous publication (2026-11-08, evening)
 
 [Stock4.14~exp233](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp233)
 is the current signed APT preview. On top of exp231 (PVE page entry through

@@ -29,8 +29,20 @@ also updates the old saved one-finger selection default.
 
 ## Installation profiles
 
-[Stock4.14~exp233 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp233)
+[Stock4.14~exp242 source, debs and instructions](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261118-stock4.14-exp242)
 are the current preview, also on the [signed APT repository](https://rdmitry0911.github.io/qsm-rd/).
+
+**Stock4.14~exp242 (2026-11-18).** The console accepts a qdev-host device
+that provides its own Display1 interface, with its private bus prepared before
+VM startup. It also brings the input and gateway fixes developed since exp233:
+a held drag survives a brief TCP stall, a managed q35 VM keeps one USB keyboard
+on its first EHCI controller, and supported managed vhost-user GPU consoles
+wait for the GPU and retain their browser session through its stop/restart.
+The core depends on a VA-API driver and logs hardware encoder failures before
+automatic CPU fallback. Existing VM keyboard placement changes on the next
+managed Display settings rewrite and VM start; guests are not restarted by the
+upgrade. See the [release notes](upstream/release-stock4.14-exp242-2026-11-18.txt).
+Guest packages need no update for these changes.
 
 **Stock4.14~exp231 (2026-11-08).** The PVE page entry is rendered by the shared
 [pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays) package, a new

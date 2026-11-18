@@ -1,0 +1,94 @@
+QSM Direct 0.4.0+stock4.14~exp242
+External Display1 devices, reliable input and visible encoder fallback
+
+Unofficial preview for Proxmox VE 9 / Debian 13, amd64. Uses official
+Proxmox packages. Signed APT repository:
+https://rdmitry0911.github.io/qsm-rd/
+
+Changes since the published exp233
+
+An external Display1 profile accepts a qdev-host vfio-user display device
+that serves org.qemu.Display1 itself on the VM's private bus. The VM has
+vga: none and no QEMU display adapter or -display backend. QSM prepares
+the bus before the VM starts, including after a node reboot, and offers
+the QSM Console. The terminal validates the matching root-owned qdev-host
+unit and its socket and bus declaration. Leave the QSM Display1 toggle
+off for this profile; enabling it would add a second display owner.
+Capture is non-GL; guest resize support depends on the device plugin.
+
+CPU/VirGL Display1 profiles keep one USB keyboard. An administrator's
+keyboard is retained without adding another. On x86 q35, a QSM-managed
+keyboard uses a free port on the first EHCI controller; aarch64 keeps
+PVE's keyboard, and i440fx keeps its default bus placement. The Machine
+dialog adjusts the managed keyboard when switching machine types. This
+addresses intermittent missing keyboard input in macOS guests with
+PVE's two-EHCI q35 topology. For an existing managed VM, save its Display
+settings to rewrite the managed arguments, then stop/start the VM when
+convenient. Installing the package does not rewrite running VMs.
+
+The core package now depends on mesa-va-drivers | va-driver. If automatic
+encoder selection falls back to libx264, the terminal journal names the
+failed hardware candidates, their render nodes for VA-API, and FFmpeg's
+last error. Encoder selection order and hardware/software/auto policies
+are unchanged. The full-plane VA-API encoder retains CBR; an experimental
+VBR change was reverted before this release.
+
+Held mouse buttons survive a brief TURN/TCP stall without ending a drag
+or resize. Their watchdog is 2 s; held keys retain the 200 ms watchdog.
+Gateway signalling uses the PVE page's authenticated connection context.
+The controls remain behind the console handle and still hide by
+themselves; the frame-rate indicator is available there.
+
+With qdev-host's vhost-user-gpu guard, QSM waits for a usable GPU display
+within the offer timeout. For the supported managed display path it
+pauses and recreates its media worker across a guest GPU stop/restart,
+keeping the browser session. This is coordination with the guard, not
+an upstream QEMU fix or a guarantee for arbitrary display backends.
+
+Update
+
+    apt update
+    apt install --only-upgrade qsm-archive-keyring qsm-pve-direct qsm-pve-direct-standalone
+
+Include qsm-pve-direct-lxc and qsm-pve-direct-gateway in the same command
+when installed. Update all installed host profiles together. Keep
+pve-ui-overlays in the repository's Package pin line. Reload PVE with
+cache bypass and reopen consoles. QSM services restart and interrupt
+open consoles; the package upgrade does not restart guests. No guest
+package update is required for these changes. Matching guest packages
+are included for complete installations.
+
+Verification
+
+The six existing exp242 packages were built from a git archive of commit
+1e3a5441f5858dc2a3e200330bd1e2edd6c03783. Every one of its 1424 regular
+files was compared with that commit and matched. The missing desktop
+agent was built from the same extracted source in Debian 13. The Qt
+geometry package was built in Debian 12, host packages in Debian 13.
+The original package versions and payloads were retained.
+
+94 PVE Python tests, the PVE overlay and signalling endpoint browser
+test programs, and 284 browser-bridge tests passed. The bridge suite was
+also run against Debian 13's aiortc 1.11.0 with proper chroot devices.
+The installed exp242 version and external Display1 buses were checked
+read-only on two nodes. This release work did not boot stopped VMs or
+repeat guest application, GPU reset, macOS or POWER hardware tests.
+
+Review material
+
+Release tag and package source:
+1e3a5441f5858dc2a3e200330bd1e2edd6c03783
+
+The nine meaningful commits of feat/external-display1-profile are
+included. Its VBR experiment and revert are omitted; their combined
+tree exactly matches this source commit. Release documentation and APT
+manifest updates are subsequent main-branch metadata commits.
+
+Attached: seven QSM packages, the existing pve-ui-overlays dependency,
+source archive, build provenance, install guides and signed SHA256SUMS.
+Installation guides in the tagged source retain their historical labels;
+use the release's INSTALL-APT.txt, INSTALL-STOCK.txt and
+INSTALL-GATEWAY.txt for this version.
+
+Signing key: BA99528182B7EADD0199B6986A09741B1DBEAEF2
+Project sponsor: Takt (https://taktcycles.com/).

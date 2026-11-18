@@ -5,7 +5,7 @@ LXC containers), hardware-encoded where the node has an encoder.
 
 Project sponsor: [Takt](https://taktcycles.com/).
 
-[Latest standalone preview: stock4.14~exp233](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261108-stock4.14-exp233)
+[Latest standalone preview: stock4.14~exp242](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261118-stock4.14-exp242)
 runs on official PVE 9 packages. Its PVE page entry goes through the shared
 [pve-ui-overlays](https://github.com/rdmitry0911/pve-ui-overlays) package, so other
 PVE web UI add-ons coexist with it, and the optional TCP 8006 gateway also carries
