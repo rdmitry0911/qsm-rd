@@ -5547,6 +5547,16 @@
         // True while the status line carries the resize text, so convergence
         // restores "Connected" without overwriting an unrelated message.
         let resizeStatusShown = false;
+        // The display device's answer to a size request (qsm_resize_result,
+        // its Display1 Console.SetUIInfo error).  A refused size is not asked
+        // for again until this Console requests another size; a display that
+        // does not follow UI sizes is not asked again in this session.  Both
+        // keep the scaled view and say why on the status line.
+        let refusedResizeSize = '';
+        let resizeUnsupported = false;
+        let resizeRefusalText = '';
+        let lastRequestedSize = '';
+        let acceptResizeResult = () => undefined;
         // Last moment this Console forwarded pointer or key input.  A black
         // picture right after input is a booting or genuinely black guest,
         // not a sleeping one, so the wake hint is withheld for a few seconds.
@@ -7039,6 +7049,8 @@
                 // output is off; a decoded frame alone is not proof of a
                 // visible desktop.
                 if (!guestAsleepHint) { status.textContent = gettext('Connected'); }
+                // A refused window size stays explained while it is requested.
+                if (!guestAsleepHint && resizeRefusalText) { status.textContent = resizeRefusalText; }
                 if (firstFrameTimer !== null) {
                     popup.clearTimeout(firstFrameTimer);
                     firstFrameTimer = null;
@@ -7202,6 +7214,17 @@
                     // already reports the new one.
                     if (video.width !== value.width) { video.width = value.width; }
                     if (video.height !== value.height) { video.height = value.height; }
+                    const size = `${value.width}x${value.height}`;
+                    // A new window size is a new request: a refusal covered
+                    // only the size it answered.
+                    if (refusedResizeSize && size !== refusedResizeSize) { clearResizeRefusal(); }
+                    if (resizeUnsupported || size === refusedResizeSize) {
+                        // The display answered this size with a refusal, or
+                        // does not follow UI sizes: keep the scaled view
+                        // rather than asking again on a timer or on input.
+                        if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); resizeRetryTimer = null; }
+                        return;
+                    }
                     if (identity !== lastResize) {
                         const remainingSettle = Math.max(0,
                             lastResizeSentAt + settings.resizeSettleMs - Date.now());
@@ -7232,6 +7255,7 @@
                         resizeRetryIdentity = identity;
                         lastResize = identity;
                         lastResizeSentAt = Date.now();
+                        lastRequestedSize = size;
                         send({ op: 'resize', ...value });
                     }
                     // Control SCTP is reliable, but a D-Bus/guest mode
@@ -7335,6 +7359,38 @@
             noteGuestInput = () => {
                 lastInputSentAt = Date.now();
                 retryStalledResize();
+            };
+            const clearResizeRefusal = () => {
+                if (!refusedResizeSize) { return; }
+                refusedResizeSize = '';
+                resizeRefusalText = '';
+                if (resizeStatusShown) { resizeStatusShown = false; updateMediaStatus(); }
+            };
+            // The worker relays the display's error reply to a size request,
+            // keyed by its D-Bus error name; the message is only shown.
+            acceptResizeResult = (message) => {
+                if (closed || !Number.isInteger(message.width) || !Number.isInteger(message.height)) { return; }
+                const size = `${message.width}x${message.height}`;
+                let text;
+                if (message.result === 'unsupported') {
+                    resizeUnsupported = true;
+                    refusedResizeSize = '';
+                    text = gettext('The guest display does not follow the window size; the picture is scaled.');
+                } else if (message.result === 'refused' && size === lastRequestedSize) {
+                    refusedResizeSize = size;
+                    text = gettext('The guest display refused this window size; the picture is scaled.');
+                } else {
+                    // A transient failure, or another Console's size: the
+                    // bounded verification retry above stays in charge.
+                    return;
+                }
+                resizeStalled = false;
+                if (resizeRetryTimer !== null) { popup.clearTimeout(resizeRetryTimer); resizeRetryTimer = null; }
+                const reason = typeof message.message === 'string' ? message.message.slice(0, 240) : '';
+                resizeRefusalText = reason ? `${text} ${reason}` : text;
+                if (!guestAsleepHint) { status.textContent = resizeRefusalText; }
+                if (!resizeStatusShown) { revealToolbar(); }
+                resizeStatusShown = true;
             };
             const flushPointer = (reliable = false) => {
                 if (pointerTimer !== null) {
@@ -7464,6 +7520,8 @@
                     } catch (_error) { /* Ignore malformed guest clipboard notifications. */ }
                 } else if (message.op === 'qsm_guest_cursor_shape') {
                     acceptGuestCursorShape(message);
+                } else if (message.op === 'qsm_resize_result') {
+                    acceptResizeResult(message);
                 }
             });
             // aiortc closes every server-side data channel while retiring a
@@ -7496,6 +7554,8 @@
                 if (visible === resizeRetryIdentity) {
                     resizeRetryAttempts = 0;
                     resizeStalled = false;
+                    // The guest shows the requested size after all.
+                    if (refusedResizeSize) { refusedResizeSize = ''; resizeRefusalText = ''; }
                     if (resizeStatusShown) {
                         // A guest that woke up adopted the stalled request
                         // on its own: drop the "kept its own size" line.

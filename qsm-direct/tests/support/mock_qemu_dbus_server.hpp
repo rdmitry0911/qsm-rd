@@ -9,8 +9,18 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace qmdp::test {
+
+// A Console.SetUIInfo size that the mock answers with this error reply,
+// as a display device which refuses it would.
+struct MockUiInfoError {
+    std::uint32_t width {};
+    std::uint32_t height {};
+    std::string name;
+    std::string message;
+};
 
 struct MockQemuDbusOptions {
     std::uint32_t width {320U};
@@ -19,6 +29,7 @@ struct MockQemuDbusOptions {
     bool enable_audio {true};
     std::uint32_t audio_sample_rate {48000U};
     std::uint16_t audio_channels {2U};
+    std::vector<MockUiInfoError> ui_info_errors {};
 };
 
 // In-process protocol peer used to validate the QEMU Display1 integration

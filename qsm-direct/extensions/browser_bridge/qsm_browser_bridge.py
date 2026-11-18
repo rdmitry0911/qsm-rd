@@ -76,6 +76,12 @@ PACKET_UI = 0x00000080
 PACKET_CAPTURE_TIME = 0x00000100
 PACKET_REGION = 0x00000200
 PACKET_REFRESH = 0x00000400
+# The display's error reply to a browser size request (Console.SetUIInfo).
+PACKET_UI_INFO = 0x00000800
+UI_INFO_VERSION = 1
+UI_INFO_RESULTS = {1: "refused", 2: "unsupported", 3: "failed"}
+UI_INFO_NAME = re.compile(r"[A-Za-z0-9_.]{1,255}")
+UI_INFO_REASON = re.compile(r"[\x20-\x7e]{0,240}")
 CURSOR_HEADER = struct.Struct("!BBQQiiHHHH")
 CURSOR_VERSION = 1
 CURSOR_VISIBLE = 0x01
@@ -1589,7 +1595,8 @@ class UnixTapIngress:
                  video_track: _PacketTrack, audio_track: _PacketTrack, *, fps: int,
                  expected_uid: int | None = None,
                  on_cursor: Callable[[GuestCursor], None] | None = None,
-                 on_ui: Callable[[bytes], None] | None = None) -> None:
+                 on_ui: Callable[[bytes], None] | None = None,
+                 on_ui_info: Callable[[dict[str, Any]], None] | None = None) -> None:
         self._runtime_directory = runtime_directory
         self._loop = loop
         self._video_track = video_track
@@ -1598,6 +1605,7 @@ class UnixTapIngress:
         self._audio_assembler = _AudioAssembler()
         self._on_cursor = on_cursor
         self._on_ui = on_ui
+        self._on_ui_info = on_ui_info
         self._cursor_shapes: dict[int, GuestCursor] = {}
         self._expected_uid = os.geteuid() if expected_uid is None else expected_uid
         if not isinstance(self._expected_uid, int) or self._expected_uid < 0:
@@ -1739,6 +1747,28 @@ class UnixTapIngress:
         return GuestCursor(sequence, shape_id, visible, x, y, width, height,
                            hotspot_x, hotspot_y, shape.bgra)
 
+    @staticmethod
+    def decode_ui_info(flags: int, fragment: int, data: bytes) -> dict[str, Any]:
+        """Turn the worker's SetUIInfo refusal record into a browser message.
+
+        The display's error name decides the result; the message text is
+        relayed literally for people and already bounded to printable ASCII.
+        """
+        if flags != PACKET_UI_INFO | PACKET_FIRST | PACKET_END or fragment != 0 or len(data) < 12:
+            raise BridgeError("malformed display size result")
+        version, code, width, height, name_length = struct.unpack_from("!BBIIB", data)
+        reason_at = 11 + name_length
+        if (version != UI_INFO_VERSION or code not in UI_INFO_RESULTS or
+                not 64 <= width <= 16384 or not 64 <= height <= 16384 or
+                len(data) <= reason_at or len(data) != reason_at + 1 + data[reason_at]):
+            raise BridgeError("malformed display size result")
+        name = data[11:reason_at].decode("ascii", "replace")
+        reason = data[reason_at + 1:].decode("ascii", "replace")
+        if UI_INFO_NAME.fullmatch(name) is None or UI_INFO_REASON.fullmatch(reason) is None:
+            raise BridgeError("malformed display size result")
+        return {"op": "qsm_resize_result", "result": UI_INFO_RESULTS[code],
+                "width": width, "height": height, "error": name, "message": reason}
+
     def _serve(self, listener: socket.socket, is_audio: bool) -> None:
         assembler = self._audio_assembler if is_audio else self._video_assembler
         track = self._audio_track if is_audio else self._video_track
@@ -1783,6 +1813,11 @@ class UnixTapIngress:
                             raise BridgeError("invalid exact UI packet framing")
                         if self._on_ui is not None:
                             self._loop.call_soon_threadsafe(self._on_ui, packet[PACKET_HEADER.size:])
+                        continue
+                    if not is_audio and packet_flags & PACKET_UI_INFO:
+                        result = self.decode_ui_info(packet_flags, fragment, packet[PACKET_HEADER.size:])
+                        if self._on_ui_info is not None:
+                            self._loop.call_soon_threadsafe(self._on_ui_info, result)
                         continue
                     if bool(packet_flags & PACKET_AUDIO) != is_audio:
                         raise BridgeError("local media packet arrived on the wrong socket")
@@ -2533,11 +2568,15 @@ class SharedMediaIngress:
         self._video = _TrackFanout()
         self._audio = _TrackFanout()
         self._cursors = _CursorFanout()
+        # A size result answers whichever console asked for that size; each
+        # console compares it with its own request.  Nothing is retained: the
+        # worker answers every later request again.
+        self._ui_info_listeners: set[Callable[[dict[str, Any]], None]] = set()
         self.ui = exact_ui.Source()
         self._ingress = UnixTapIngress(
             runtime_directory, loop, self._video, self._audio, fps=fps,
             expected_uid=expected_producer_uid, on_cursor=self._cursors.put_nowait,
-            on_ui=self.ui.feed)
+            on_ui=self.ui.feed, on_ui_info=self._publish_ui_info)
         self._started = False
         self._closed = False
 
@@ -2580,12 +2619,25 @@ class SharedMediaIngress:
         if on_cursor is not None:
             self._cursors.unsubscribe(on_cursor)
 
+    def subscribe_ui_info(self, listener: Callable[[dict[str, Any]], None]) -> None:
+        if self._closed:
+            raise BridgeError("shared browser media source is closed")
+        self._ui_info_listeners.add(listener)
+
+    def unsubscribe_ui_info(self, listener: Callable[[dict[str, Any]], None]) -> None:
+        self._ui_info_listeners.discard(listener)
+
+    def _publish_ui_info(self, result: dict[str, Any]) -> None:
+        for listener in tuple(self._ui_info_listeners):
+            listener(result)
+
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
         self._ingress.close()
         self._cursors.close()
+        self._ui_info_listeners.clear()
 
 
 class BrowserWebRtcBridge:
@@ -2638,6 +2690,7 @@ class BrowserWebRtcBridge:
         self._cursor_channel: object | None = None
         self._control_channel: object | None = None
         self._cursor_listener = self._receive_cursor
+        self._ui_info_listener = self._receive_ui_info
         self._ui_source = shared_media.ui if shared_media is not None else exact_ui.Source()
         if shared_media is None:
             self.video_track = _PacketTrack("video", maximum_queue=VIDEO_QUEUE_DEPTH)
@@ -2645,9 +2698,11 @@ class BrowserWebRtcBridge:
             self.ingress = UnixTapIngress(runtime_directory, self._loop, self.video_track,
                                            self.audio_track, fps=fps,
                                            expected_uid=expected_producer_uid,
-                                           on_cursor=self._cursor_listener, on_ui=self._ui_source.feed)
+                                           on_cursor=self._cursor_listener, on_ui=self._ui_source.feed,
+                                           on_ui_info=self._ui_info_listener)
         else:
             self.video_track, self.audio_track = shared_media.subscribe(self._cursor_listener)
+            shared_media.subscribe_ui_info(self._ui_info_listener)
             self.ingress = None
         self._owns_input = shared_input is None
         self._pointer_order = PointerSequenceFilter()
@@ -2822,6 +2877,11 @@ class BrowserWebRtcBridge:
         except Exception:
             # SCTP closure is ordinary browser lifecycle, not a media failure.
             return False
+
+    def _receive_ui_info(self, result: dict[str, Any]) -> None:
+        """Relay the display's answer to a size request to this console."""
+        if not self._closed:
+            self._send_control(dict(result))
 
     def _receive_cursor(self, cursor: GuestCursor) -> None:
         """Accept an ingress-loop cursor update and publish latest state.
@@ -3829,6 +3889,7 @@ class BrowserWebRtcBridge:
             assert self._shared_media is not None
             self._shared_media.unsubscribe(self.video_track, self.audio_track,
                                            self._cursor_listener)
+            self._shared_media.unsubscribe_ui_info(self._ui_info_listener)
         if self._owns_input:
             self.input.close()
         await self._pc.close()
@@ -3864,6 +3925,7 @@ __all__ = [
     "PACKET_HEADER",
     "PACKET_IDR",
     "PACKET_MAGIC",
+    "PACKET_UI_INFO",
     "SharedMediaIngress",
     "UnixTapIngress",
     "UnixInputEgress",

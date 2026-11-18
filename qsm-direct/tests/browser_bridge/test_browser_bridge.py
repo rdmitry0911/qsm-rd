@@ -794,6 +794,110 @@ class BrowserBridgeAsyncTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 await bridge.close()
 
+    # Contract UIINFO-REFUSAL-1, worker record (src/core/ui_info_result.hpp):
+    # u8 version 1, u8 result (1 Invalid, 2 Unsupported, 3 Failed),
+    # u32 width, u32 height, u8 name length, name, u8 reason length, reason.
+    UI_INFO_PACKET = 0x00000800
+
+    @staticmethod
+    def _ui_info_record(code: int, width: int, height: int, name: bytes, reason: bytes) -> bytes:
+        return (bytes((1, code)) + width.to_bytes(4, "big") + height.to_bytes(4, "big") +
+                bytes((len(name),)) + name + bytes((len(reason),)) + reason)
+
+    class _Control:
+        readyState = "open"
+        bufferedAmount = 0
+
+        def __init__(self):
+            self.messages = []
+
+        def send(self, data):
+            self.messages.append(json.loads(data))
+
+        def results(self):
+            return [m for m in self.messages if m.get("op") == "qsm_resize_result"]
+
+    async def _wait_results(self, channel, count: int) -> list:
+        deadline = time.monotonic() + 2
+        while len(channel.results()) < count and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        return channel.results()
+
+    async def test_display_size_refusal_reaches_the_console_by_error_name(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="qsm-browser-ui-info.") as directory:
+            bridge = BrowserWebRtcBridge(Path(directory), fps=60)
+            channel = self._Control()
+            bridge._control_channel = channel
+            try:
+                video_context, _audio_context = bridge.start_taps()
+                video_path = video_context.removeprefix("unix:")
+                flags = PACKET_FIRST | PACKET_END | self.UI_INFO_PACKET
+                self._send(video_path, 1, 0, flags, self._ui_info_record(
+                    1, 1630, 572, b"org.qemu.Display1.Error.Invalid",
+                    b"1630x572 refused: no matching device mode"))
+                self._send(video_path, 2, 0, flags, self._ui_info_record(
+                    2, 1200, 700, b"org.qemu.Display1.Error.Unsupported", b"SetUIInfo is not supported"))
+                self._send(video_path, 3, 0, flags, self._ui_info_record(
+                    3, 1000, 600, b"org.qemu.Display1.Error.Failed", b""))
+                results = await self._wait_results(channel, 3)
+                self.assertEqual(results, [
+                    {"op": "qsm_resize_result", "result": "refused", "width": 1630, "height": 572,
+                     "error": "org.qemu.Display1.Error.Invalid",
+                     "message": "1630x572 refused: no matching device mode"},
+                    {"op": "qsm_resize_result", "result": "unsupported", "width": 1200, "height": 700,
+                     "error": "org.qemu.Display1.Error.Unsupported",
+                     "message": "SetUIInfo is not supported"},
+                    {"op": "qsm_resize_result", "result": "failed", "width": 1000, "height": 600,
+                     "error": "org.qemu.Display1.Error.Failed", "message": ""},
+                ])
+                bridge.ingress.raise_if_failed()
+                # The record is not a picture: nothing reached the video track.
+                with self.assertRaises(asyncio.TimeoutError):
+                    await asyncio.wait_for(bridge.video_track.recv(), 0.2)
+
+                # Text that a status line could not show literally is a
+                # malformed local record, not a message.
+                self._send(video_path, 4, 0, flags, self._ui_info_record(
+                    1, 1630, 572, b"org.qemu.Display1.Error.Invalid", b"bad\ntext"))
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline:
+                    try:
+                        bridge.ingress.raise_if_failed()
+                    except BridgeError:
+                        break
+                    await asyncio.sleep(0.01)
+                with self.assertRaises(BridgeError):
+                    bridge.ingress.raise_if_failed()
+                self.assertEqual(len(channel.results()), 3)
+            finally:
+                await bridge.close()
+
+    async def test_shared_display_size_result_reaches_every_open_console(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="qsm-browser-ui-info-fanout.") as directory:
+            source = SharedMediaIngress(Path(directory), asyncio.get_running_loop(), fps=60)
+            source.start()
+            first = BrowserWebRtcBridge(Path(directory) / "first", fps=60, shared_media=source)
+            second = BrowserWebRtcBridge(Path(directory) / "second", fps=60, shared_media=source)
+            first_channel, second_channel = self._Control(), self._Control()
+            first._control_channel, second._control_channel = first_channel, second_channel
+            flags = PACKET_FIRST | PACKET_END | self.UI_INFO_PACKET
+            try:
+                self._send(os.fspath(source.video_path), 1, 0, flags, self._ui_info_record(
+                    1, 1630, 572, b"org.qemu.Display1.Error.Invalid", b"1630x572 refused"))
+                self.assertEqual(len(await self._wait_results(first_channel, 1)), 1)
+                self.assertEqual(len(await self._wait_results(second_channel, 1)), 1)
+                self.assertEqual(first_channel.results(), second_channel.results())
+                await first.close()
+                self._send(os.fspath(source.video_path), 2, 0, flags, self._ui_info_record(
+                    2, 1200, 700, b"org.qemu.Display1.Error.Unsupported", b""))
+                self.assertEqual(len(await self._wait_results(second_channel, 2)), 2)
+                self.assertEqual(len(first_channel.results()), 1, "a closed console is unsubscribed")
+                source.raise_if_failed()
+            finally:
+                await first.close()
+                await second.close()
+                source.close()
+
     async def test_duplicate_scanout_cursor_is_bounded_and_lost_final_position_is_refreshed(self) -> None:
         class Channel:
             readyState = "open"
