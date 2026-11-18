@@ -731,6 +731,48 @@ vmWindow.vmconfig.args = '-cpu host';
         assert.deepEqual(machinePanel.onGetValues.call(panelFor({ machine: 'pc' }), {}), { machine: 'pc' },
             'no QSM keyboard: nothing added by the Machine dialog');
     }
+    // The firmware: an OVMF VM (bios=ovmf) gets no '-machine i8042=off'.
+    // OVMF's ResetSystemLib performs EfiResetWarm only through the i8042
+    // (port 0x64, 0xfe) and then CpuDeadLoop(): without the controller every
+    // firmware warm reset hangs the VM (VM 104, 2026-11-18). QEMU still gives
+    // the keys to the USB keyboard and the pointer to the tablet. SeaBIOS
+    // keeps it off. ostype is not the predicate: VM 104 (macOS) is 'l26'.
+    {
+        const ovmfMachineArgs = ' -machine vmport=off';
+        const ovmf = (vmid, keyboard) => `-cpu host${cpuDisplay}${managedGuestArgs(vmid)}${ovmfMachineArgs}${keyboard}`;
+        for (const ostype of ['other', 'l26', 'win11', undefined]) {
+            const config = (args) => ({ machine: 'q35', bios: 'ovmf', ostype, args });
+            const on = save(config('-cpu host'), enable);
+            assert.equal(on.args, ovmf(321, ehciKeyboard(3)), `OVMF ${ostype}: vmport=off and the keyboard, no i8042=off`);
+            assert.equal(save(config(on.args), enable).args, undefined, `OVMF ${ostype}: saving again changes nothing`);
+            assert.equal(save(config(on.args), disable).args, '-cpu host', `OVMF ${ostype}: disabling removes it`);
+        }
+        // A console saved by an earlier QSM loses only its i8042=off on the next save.
+        const earlier = managed(321, ehciKeyboard(3));
+        assert.equal(save({ machine: 'q35', bios: 'ovmf', args: earlier }, enable).args, ovmf(321, ehciKeyboard(3)),
+            'OVMF: the i8042=off an earlier QSM wrote is dropped in place');
+        assert.equal(save({ machine: 'q35', bios: 'ovmf', args: earlier }, disable).args, '-cpu host',
+            'OVMF: disabling an earlier console removes all of its arguments');
+        // VM 118 (OVMF, its own keyboard on ehci.0 port 2): only i8042=off leaves.
+        const vm118 = '-device isa-applesmc,osk=x -smbios type=2 -device usb-kbd,bus=ehci.0,port=2 -cpu host' +
+            cpuDisplay + managedGuestArgs(321) + machineArgs +
+            ' -device \'{"driver":"vfio-user-pci","id":"pvg0","bus":"pcie.0","addr":"0x5"}\'';
+        assert.equal(save({ machine: 'q35', bios: 'ovmf', ostype: 'other', args: vm118 }, enable).args,
+            vm118.replace(' -machine i8042=off', ''), 'VM 118 on OVMF: i8042=off leaves, the own keyboard stays');
+        // SeaBIOS, PVE's default or explicit, keeps the PS/2 controller off.
+        for (const bios of [undefined, 'seabios']) {
+            assert.equal(save({ machine: 'q35', bios, args: '-cpu host' }, enable).args, managed(321, ehciKeyboard(3)),
+                `${bios}: i8042=off is still added`);
+        }
+        // The Audio dialog rewrites the managed set with the VM's firmware too.
+        const audioPanel = definitions.get('PVE.qsmDirect.AudioInputPanelOverlay');
+        const audioWindow = { pveSelNode: { data: { vmid: 321 } },
+            vmconfig: { machine: 'q35', bios: 'ovmf', args: earlier } };
+        const on = audioPanel.onGetValues.call({ up: () => audioWindow, callParent: () => ({}) },
+            { device: 'ich9-intel-hda', driver: 'qsm' });
+        assert.doesNotMatch(on.args, /i8042/, 'the Audio dialog drops i8042=off on OVMF');
+        assert.match(on.args, /-machine vmport=off/, 'and keeps vmport=off');
+    }
     vmWindow.vmconfig = { args: '-cpu host' };
 }
 

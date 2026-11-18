@@ -3473,16 +3473,30 @@
         catch (_error) { /* The active popup remains usable without persistence. */ }
     };
     // Display1 injects into QEMU's *active* input devices.  q35 normally
-    // supplies PS/2 plus VMware's vmmouse; a guest can select either one and
+    // supplies PS/2 plus VMware's vmmouse; a guest can select vmmouse and
     // make Display1 pointer events disappear even though the WebRTC channel
-    // is healthy.  A direct console removes both legacy alternatives and
-    // leaves the VM exactly one USB keyboard next to the existing PVE USB
-    // tablet.  Keep these args managed with the Display1 lifecycle: changing
-    // back to a normal PVE display restores PVE's normal input topology.
-    const DIRECT_MACHINE_ARGUMENTS = [
-        '-machine vmport=off',
-        '-machine i8042=off',
-    ];
+    // is healthy.  A direct console removes vmmouse (and on SeaBIOS PS/2 as
+    // well) and leaves the VM exactly one USB keyboard next to the existing
+    // PVE USB tablet.  Keep these args managed with the Display1 lifecycle:
+    // changing back to a normal PVE display restores PVE's normal input
+    // topology.
+    const DIRECT_MACHINE_ARGUMENTS = ['-machine vmport=off'];
+    // The PS/2 controller stays for OVMF.  OVMF's ResetSystemLib performs
+    // EfiResetWarm only through the i8042 (port 0x64, value 0xfe), then
+    // CpuDeadLoop(): with i8042=off every firmware warm reset hangs the VM
+    // before any OS starts (BdsDxe requests one when MemoryTypeInformation
+    // grows; VM 104 on 2026-11-18).  PS/2 cannot take QSM's input: QEMU
+    // gives an event to the first *activated* handler, usb-kbd activates
+    // itself when realized and usb-tablet when the guest polls it, while the
+    // PS/2 keyboard and mouse never activate (ui/input.c, hw/input/hid.c,
+    // ps2.c, QEMU 11.0 and 11.1; a macOS 26.2 guest with i8042 on received
+    // every QMP key and pointer event through USB, none through PS/2).
+    // The firmware, `bios` in the VM config, is the predicate: the hang is
+    // OVMF's for every guest OS, and ostype does not name macOS (VM 104 is
+    // 'l26').  SeaBIOS VMs keep i8042=off.  Without a config, an i8042
+    // argument stays as it is configured.
+    const PS2_OFF_ARGUMENT = '-machine i8042=off';
+    const ovmfFirmware = (config) => Boolean(config) && config.bios === 'ovmf';
     // The keyboard.  QEMU delivers every key to the USB keyboard created
     // last, so a second keyboard only takes the input away from the first:
     // a VM whose args already carry its own usb-kbd gets none from QSM.
@@ -3675,13 +3689,19 @@
         if (current) { return others; }
         return wanted ? `${args} ${wanted}`.trim() : args;
     };
-    const addManagedDirectInput = (args, config) => placeManagedKeyboard(
-        `${args} ${DIRECT_MACHINE_ARGUMENTS.filter((value) => !containsArgument(args, value)).join(' ')}`.trim(),
-        config, true);
+    // An OVMF VM drops the i8042=off an earlier QSM wrote; SeaBIOS gets it.
+    const addManagedDirectInput = (args, config) => {
+        const current = ovmfFirmware(config) ? removeArgument(args, PS2_OFF_ARGUMENT) : args;
+        const wanted = config && !ovmfFirmware(config)
+            ? [...DIRECT_MACHINE_ARGUMENTS, PS2_OFF_ARGUMENT] : DIRECT_MACHINE_ARGUMENTS;
+        return placeManagedKeyboard(
+            `${current} ${wanted.filter((value) => !containsArgument(current, value)).join(' ')}`.trim(),
+            config, true);
+    };
     // Only what QSM added: an administrator's own keyboard stays.
     const removeManagedDirectInput = (args) => {
         const keyboard = managedKeyboardArgument(args);
-        return DIRECT_MACHINE_ARGUMENTS.reduce((current, value) => removeArgument(current, value),
+        return [...DIRECT_MACHINE_ARGUMENTS, PS2_OFF_ARGUMENT].reduce((current, value) => removeArgument(current, value),
             keyboard ? removeArgument(args, keyboard) : args);
     };
     const displayState = (args, vmid) => {
