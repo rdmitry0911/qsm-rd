@@ -1282,6 +1282,8 @@ class DirectSessionManager:
         # initialized encoder rather than a GPU-name guess, so heterogeneous
         # nodes naturally advertise HEVC only where it can be used.
         self._auto_encoders: dict[str, DirectEncoderSelection] = {}
+        # Why the automatic HEVC lane was refused, probed once like a success.
+        self._hevc_unavailable: str | None = None
         self._vm_locks: dict[int, asyncio.Lock] = {}
         self._closed = False
         self._transport_reconcile_future: Future[None] | None = None
@@ -1868,11 +1870,18 @@ class DirectSessionManager:
             cached = self._auto_encoders.get("hevc")
             if cached is not None:
                 return cached
+            if getattr(self, "_hevc_unavailable", None) is not None:
+                raise DirectTerminalError("direct-terminal has no usable hardware HEVC encoder")
             try:
                 # HEVC deliberately has no software fallback: its automatic
                 # selection promise means a working accelerator was verified.
                 selection = select_hardware_hevc_encoder()
             except DirectEncoderProbeError as error:
+                # ``auto`` then streams H.264.  The refusal is a property of
+                # this node's encoder stack, so it is decided (and named) once
+                # instead of re-probing the accelerators on every Console.
+                self._hevc_unavailable = str(error)
+                print(f"qsm-direct-terminal: {error}; HEVC is not offered", file=sys.stderr, flush=True)
                 raise DirectTerminalError("direct-terminal has no usable hardware HEVC encoder") from error
             self._auto_encoders["hevc"] = selection
             return selection

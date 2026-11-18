@@ -2,6 +2,8 @@
 """Container console policy: /etc/qsm-pve-direct/containers.d/<vmid>.conf."""
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import sys
 import tempfile
@@ -59,6 +61,31 @@ class ContainerPolicyTests(unittest.TestCase):
         selection = manager._select_encoder("h264", policy)
         self.assertEqual((selection.encoder, selection.vaapi_device),
                          ("h264_vaapi", "/dev/dri/renderD129"))
+
+    def test_a_refused_hevc_lane_is_probed_once_and_named(self) -> None:
+        terminal = sys.modules[DirectSessionManager.__module__]
+        probe_error = terminal.DirectEncoderProbeError
+        calls: list[int] = []
+
+        def refuse() -> object:
+            calls.append(1)
+            raise probe_error("no direct HEVC encoder initialized (hevc_vaapi@/dev/dri/renderD128: "
+                              "stream geometry 1466x686, not 1410x686)")
+
+        manager = DirectSessionManager.__new__(DirectSessionManager)
+        manager._auto_encoders = {}
+        original = terminal.select_hardware_hevc_encoder
+        terminal.select_hardware_hevc_encoder = refuse
+        stderr = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(stderr):
+                for _ in range(3):
+                    with self.assertRaises(DirectTerminalError):
+                        manager._select_encoder("hevc", {})
+        finally:
+            terminal.select_hardware_hevc_encoder = original
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(stderr.getvalue().count("stream geometry 1466x686"), 1)
 
     def test_render_node_rejects_other_paths_and_traversal(self) -> None:
         for value in ("", "/dev/dri/card0", "/etc/shadow", "/dev/dri/renderD128/../card0",

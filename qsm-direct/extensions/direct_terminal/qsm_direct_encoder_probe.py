@@ -28,8 +28,15 @@ from typing import Callable, Sequence
 
 
 _RENDER_NODE = re.compile(r"/dev/dri/renderD[0-9]{1,4}\Z")
-_PROBE_WIDTH = 640
-_PROBE_HEIGHT = 360
+# The browser presents exactly the picture the stream's sequence header
+# declares, and a Console compares that picture with the size it asked the
+# guest for.  Probe at an even 4:2:0 size which is neither a multiple of 64
+# wide nor of 8 high, so an encoder that pads its coded picture but declares a
+# wrong cropping window fails here instead of after a window resize: AMD
+# hevc_vaapi (Mesa 25.0, FFmpeg 7.1) declares 1466x686 for this input.
+_PROBE_WIDTH = 1410
+_PROBE_HEIGHT = 686
+_GEOMETRY = re.compile(rb"\A([1-9][0-9]{0,4}),([1-9][0-9]{0,4})\s*\Z")
 _PROBE_TIMEOUT_SECONDS = 8.0
 
 
@@ -175,6 +182,21 @@ def _failure_reason(stderr: bytes | None) -> str:
     return "".join(ch if ch.isprintable() else "?" for ch in lines[-1])[:160]
 
 
+def _stream_geometry(stream: bytes, *, codec: str, ffprobe: str, run: Run,
+                     timeout_seconds: float) -> tuple[int, int] | None:
+    """Return the picture size a decoder presents for one elementary stream."""
+    try:
+        completed = run(
+            [ffprobe, "-hide_banner", "-v", "error", "-f", codec, "-i", "pipe:0",
+             "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0"],
+            input=stream, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            check=False, timeout=timeout_seconds)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = _GEOMETRY.match(completed.stdout or b"") if completed.returncode == 0 else None
+    return (int(match[1]), int(match[2])) if match else None
+
+
 def _select(*, codec: str, run: Run, which: Which, timeout_seconds: float,
             candidates: Sequence[DirectEncoderSelection]) -> DirectEncoderSelection:
     codec_name = "H.264" if codec == "h264" else "HEVC"
@@ -183,6 +205,9 @@ def _select(*, codec: str, run: Run, which: Which, timeout_seconds: float,
     ffmpeg = which("ffmpeg")
     if not ffmpeg:
         raise DirectEncoderProbeError(f"FFmpeg is unavailable for direct {codec_name} encoding")
+    ffprobe = which("ffprobe")
+    if not ffprobe:
+        raise DirectEncoderProbeError(f"FFprobe is unavailable to verify direct {codec_name} geometry")
     failures: list[str] = []
     for selection in candidates:
         command = _command(selection, ffmpeg=ffmpeg)
@@ -195,6 +220,15 @@ def _select(*, codec: str, run: Run, which: Which, timeout_seconds: float,
             failures.append(f"{name}: {type(error).__name__}")
             continue
         if completed.returncode == 0 and completed.stdout:
+            geometry = _stream_geometry(completed.stdout, codec=codec, ffprobe=ffprobe, run=run,
+                                        timeout_seconds=timeout_seconds)
+            if geometry != (_PROBE_WIDTH, _PROBE_HEIGHT):
+                # The encoder initialized, but a browser would present another
+                # picture than the guest scanout it was given, so a Console
+                # could never converge on its window after a resize.
+                seen = f"{geometry[0]}x{geometry[1]}" if geometry else "unreadable"
+                failures.append(f"{name}: stream geometry {seen}, not {_PROBE_WIDTH}x{_PROBE_HEIGHT}")
+                continue
             if failures and selection.encoder == "libx264":
                 # The CPU fallback is a capacity change an administrator must
                 # be able to see and correct (for example a missing VA-API
