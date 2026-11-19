@@ -931,6 +931,10 @@ assert.equal(delayedConsole.xtype, 'pveQsmDirectConsole',
         + managedGuestArgs(104) + managedDirectInputArguments + pvg(104);
     const vm118 = '-smbios type=2 -device usb-kbd,bus=ehci.0,port=2 -global vmware-svga.vgamem_mb=1'
         + managedGuestArgs(118) + ' -machine vmport=off -machine i8042=off' + pvg(118);
+    const extAudioBackend = ' -audiodev dbus,id=qsm-direct-audio,in.frequency=48000,in.channels=2,out.frequency=48000,'
+        + 'out.channels=2 -device usb-audio,id=qsm-direct-usb-audio,bus=usb-bus.0,port=4,audiodev=qsm-direct-audio';
+    const audioDisplay = ' -display dbus,p2p=yes,audiodev=qsm-direct-audio';
+    const extAudio = extAudioBackend + audioDisplay;
     for (const [vmid, config, expected, why] of [
         [104, { vga: 'none', args: vm104 }, true, 'VM 104'],
         [118, { vga: 'none', args: vm118 }, true, 'VM 118 without QEMU\'s own -display'],
@@ -947,6 +951,29 @@ assert.equal(delayedConsole.xtype, 'pveQsmDirectConsole',
         [104, { vga: 'none', args: vm104 + ' -display gtk' }, false, 'a QEMU display'],
         [104, { vga: 'none', 'dbus-display': 1, args: vm104 }, false, 'the shared display bus'],
         [104, { vga: 'none' }, false, 'no args'],
+        // QSM sound on the external profile (VM 145/104/118 shapes): exactly one
+        // audio-only p2p display naming QSM's one dbus audiodev; the terminal
+        // accepts the same shape (qsm_direct_terminal EXTERNAL_AUDIO_DISPLAY).
+        [104, { vga: 'none', args: vm104 + extAudio }, true, 'VM 104 with QSM sound'],
+        [118, { vga: 'none', args: vm118 + extAudio }, true, 'VM 118 with QSM sound'],
+        [145, { vga: 'none', args: vm104.replace(pvg(104), pvg(145)).replaceAll('/104/', '/145/') + ' -audiodev '
+            + 'dbus,id=qsm-direct-audio,in.frequency=48000,in.channels=2,out.frequency=48000,out.channels=2'
+            + ' -device qemu-xhci,id=qsm-xhci,bus=pci.2,addr=0xc'
+            + ' -device usb-audio,id=qsm-direct-usb-audio,bus=qsm-xhci.0,port=1,audiodev=qsm-direct-audio'
+            + audioDisplay }, true, 'VM 145 with QSM sound on its own xHCI'],
+        [104, { vga: 'none', args: vm104 + audioDisplay }, false, 'an audio-only display without QSM\'s audiodev'],
+        [104, { vga: 'none', args: vm104 + extAudio + audioDisplay }, false, 'a second audio-only display'],
+        [104, { vga: 'none', args: vm104 + extAudioBackend + extAudio }, false, 'two QSM dbus audiodevs'],
+        [104, { vga: 'none', args: vm104 + extAudioBackend + ' -display dbus,p2p=yes' }, false,
+            'a p2p display without audiodev'],
+        [104, { vga: 'none', args: vm104 + extAudioBackend + ' -display dbus,p2p=yes,audiodev=other' }, false,
+            'another audiodev name'],
+        [104, { vga: 'none', args: vm104 + extAudio + ',gl=on' }, false, 'a p2p display with GL'],
+        [104, { vga: 'none', args: vm104 + extAudioBackend
+            + ' -display dbus,addr=unix:path=/run/other/104/qemu.bus,audiodev=qsm-direct-audio' },
+            false, 'an addressed dbus display'],
+        [104, { vga: 'none', args: vm104 + extAudio + ' -display gtk' }, false, 'another display next to the audio one'],
+        [104, { vga: 'std', args: vm104 + extAudio }, false, 'PVE Standard VGA with QSM sound'],
     ]) {
         Proxmox.Utils.API2Request = request => request.success({ result: { data: config } });
         let available;

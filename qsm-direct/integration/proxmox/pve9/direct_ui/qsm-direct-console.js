@@ -3847,12 +3847,28 @@
         `(?:socket\\.path=|"path"\\s*:\\s*")/run/qdev-host/${vmid}-[A-Za-z][A-Za-z0-9_-]{0,31}/vfio\\.sock(?=[,"\\s]|$)`);
     const EXTERNAL_DISPLAY_MESSAGE = 'this VM\'s display comes from a qdev-host device (Display1 on its own bus): '
         + 'QSM Display1 would add a second display; leave it off, the QSM Console already shows the device';
+    // The external profile's sound (terminal EXTERNAL_AUDIO_DISPLAY): QEMU's
+    // dbus audiodev exists only with QEMU's own -display dbus, so such a VM
+    // carries exactly one audio-only p2p display naming QSM's audiodev, next
+    // to exactly one `-audiodev dbus,id=qsm-direct-audio`. It has no console
+    // and no address; the qdev-host unit relays its Audio on the private bus.
+    // Any other QEMU display still refuses the profile, as in the terminal.
+    const EXTERNAL_AUDIO_DISPLAY = `dbus,p2p=yes,audiodev=${DIRECT_AUDIO_ID}`;
+    const externalAudioDisplays = (args) => (args.match(new RegExp(
+        `(?:^|\\s)-display\\s+${escapeRegExp(EXTERNAL_AUDIO_DISPLAY)}(?=\\s|$)`, 'g')) || []).length;
+    const qsmDbusAudiodevs = (args) => [...args.matchAll(/(?:^|\s)-audiodev\s+(\S+)(?=\s|$)/g)]
+        .filter((match) => {
+            const parts = match[1].split(',');
+            return parts[0] === 'dbus' && parts.slice(1).includes(`id=${DIRECT_AUDIO_ID}`);
+        }).length;
     const externalDisplayConfigured = (config, vmid) => {
         if (!config || typeof config.args !== 'string' || !validVmid(vmid)) { return false; }
         const args = config.args;
+        const audioDisplays = externalAudioDisplays(args);
+        if (audioDisplays > 1 || (audioDisplays === 1 && qsmDbusAudiodevs(args) !== 1)) { return false; }
         return ['none', 'type=none'].includes(String(config.vga || '').trim()) &&
             ![1, '1', true].includes(config['dbus-display']) &&
-            displayCount(args) === 0 && !/(?:^|\s)-(?:vga|spice|nographic)(?:\s|$)/.test(args) &&
+            displayCount(args) === audioDisplays && !/(?:^|\s)-(?:vga|spice|nographic)(?:\s|$)/.test(args) &&
             !QDEV_OTHER_DISPLAY_DEVICES.test(args) && /vfio-user-pci/.test(args) &&
             qdevVfioUserSocket(vmid).test(args);
     };
