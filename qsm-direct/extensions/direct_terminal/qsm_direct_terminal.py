@@ -395,6 +395,15 @@ def _qemu_device_driver_and_socket(value: str) -> tuple[str, str | None] | None:
     return fields[0], (options.get("socket.path") if options.get("socket.type") == "unix" else None)
 
 
+# The external profile's sound: QEMU's dbus audiodev exists only with QEMU's own
+# -display dbus, so such a VM carries an audio-only p2p display that names QSM's
+# audiodev. It has no graphic console and no address of its own: its one client
+# is the qdev-host unit (QMP add_client), which exports QEMU's Audio next to the
+# device's console on the private bus.
+EXTERNAL_AUDIO_DISPLAY = "dbus,p2p=yes,audiodev=qsm-direct-audio"
+_EXTERNAL_AUDIO_DISPLAY_PATTERN = re.compile(rf"(?:^|\s)-display\s+{re.escape(EXTERNAL_AUDIO_DISPLAY)}(?=\s|$)")
+
+
 def _external_display_unit(args: str, vmid: int, vm_runtime_directory: Path,
                            unit_directory: Path) -> str | None:
     """The one qdev-host vfio-user device of ``args`` that serves this VM's Display1 bus.
@@ -403,14 +412,23 @@ def _external_display_unit(args: str, vmid: int, vm_runtime_directory: Path,
     --display-bus unix:path=<VM runtime>/VMID/qemu-display1.bus`` with no other
     ``--display-name`` than ``org.qemu``. Any QEMU display or other display
     adapter in ``args`` refuses the profile, and so do two such devices: both
-    would claim ``org.qemu``.
+    would claim ``org.qemu``. The one exception is the audio-only display
+    ``-display dbus,p2p=yes,audiodev=qsm-direct-audio`` next to exactly one
+    ``-audiodev dbus,id=qsm-direct-audio``: it shows nothing (no console) and
+    is the VM's sound, which the unit relays.
     """
     try:
         tokens = shlex.split(args)
     except ValueError:
         return None
     sockets: list[str] = []
+    audio_display = audio_backend = 0
     for option, value in zip(tokens, tokens[1:] + [""]):
+        if option == "-audiodev" and value.split(",", 1)[0] == "dbus" and "id=qsm-direct-audio" in value.split(",")[1:]:
+            audio_backend += 1
+        if option == "-display" and value == EXTERNAL_AUDIO_DISPLAY:
+            audio_display += 1
+            continue
         if option in {"-display", "-vga", "-spice", "-nographic"}:
             return None
         if option != "-device":
@@ -423,6 +441,8 @@ def _external_display_unit(args: str, vmid: int, vm_runtime_directory: Path,
             return None
         if driver == "vfio-user-pci" and path is not None:
             sockets.append(path)
+    if audio_display > 1 or (audio_display and audio_backend != 1):
+        return None  # the audio-only display names exactly QSM's one dbus audiodev
     expected_bus = f"unix:path={vm_runtime_directory}/{vmid}/qemu-display1.bus"
     units: list[str] = []
     for path in sockets:
@@ -501,7 +521,8 @@ def _managed_display_profile(config: str, vmid: int, vm_runtime_directory: Path,
     if (count == 1 and not gpu_arguments and vga_type in {"std", "virtio", "vmware"} and
             cpu_display.search(args) is not None):
         return "cpu"
-    if (count == 0 and not gpu_arguments and not external and vga in {"none", "type=none"} and
+    external_audio = 1 if _EXTERNAL_AUDIO_DISPLAY_PATTERN.search(args) else 0
+    if (count == external_audio and not gpu_arguments and not external and vga in {"none", "type=none"} and
             _external_display_unit(args, vmid, vm_runtime_directory, qdev_unit_directory) is not None):
         return "external"
     return None

@@ -233,6 +233,48 @@ class DirectTerminalAutoprovisionTests(unittest.TestCase):
             finally:
                 os.chmod(units, 0o700)
 
+    # QSM sound on an external display: QEMU's dbus audiodev needs QEMU's own
+    # -display dbus, here an audio-only p2p one (no console, no address) whose
+    # client is the qdev-host unit; the sound card keeps 118's PVE audio0 shape.
+    EXTERNAL_AUDIO = (" -audiodev dbus,id=qsm-direct-audio,in.frequency=48000,in.channels=2,out.frequency=48000,"
+                      "out.channels=2 -device ich9-intel-hda,id=audiodev0,bus=pci.2,addr=0xc "
+                      "-device hda-micro,id=audiodev0-codec0,bus=audiodev0.0,cad=0,audiodev=qsm-direct-audio "
+                      "-device hda-duplex,id=audiodev0-codec1,bus=audiodev0.0,cad=1,audiodev=qsm-direct-audio "
+                      "-display dbus,p2p=yes,audiodev=qsm-direct-audio")
+
+    def test_the_external_profile_takes_qsm_sound_on_an_audio_only_qemu_display(self) -> None:
+        runtime = Path("/run/qsm-pve-direct")
+        with tempfile.TemporaryDirectory(prefix="qsm-direct-qdev-units.") as temporary:
+            units = Path(temporary)
+            self._qdev_unit(units, 104, "pvg0", extra=" --display-name org.qemu")
+            self._qdev_unit(units, 118, "pvg0")
+            profile = lambda config, vmid=118: _managed_display_profile(config, vmid, runtime, units)  # noqa: E731
+            self.assertEqual(profile(f"vga: none\nargs: {self.VM118_ARGS}{self.EXTERNAL_AUDIO}\n"), "external")
+            self.assertEqual(profile(f"vga: none\nargs: {self.VM104_ARGS}{self.EXTERNAL_AUDIO}\n", 104), "external")
+            self.assertTrue(_managed_display_enabled(f"vga: none\nargs: {self.VM118_ARGS}{self.EXTERNAL_AUDIO}\n", 118,
+                                                     runtime, units))
+            audiodev = self.EXTERNAL_AUDIO.split(" -device ")[0]
+            display = " -display dbus,p2p=yes,audiodev=qsm-direct-audio"
+            refused = {
+                "the display without QSM's audiodev": self.EXTERNAL_AUDIO.replace(audiodev, ""),
+                "two QSM audiodevs": self.EXTERNAL_AUDIO + audiodev,
+                "a second audio-only display": self.EXTERNAL_AUDIO + display,
+                "a p2p display without audiodev": self.EXTERNAL_AUDIO.replace(display, " -display dbus,p2p=yes"),
+                "another audiodev name": self.EXTERNAL_AUDIO.replace(display, display.replace("qsm-direct-audio",
+                                                                                              "other")),
+                "a p2p display with GL": self.EXTERNAL_AUDIO.replace(display, display + ",gl=on"),
+                "an addressed dbus display": self.EXTERNAL_AUDIO.replace(
+                    display, " -display dbus,addr=unix:path=/run/qsm-pve-direct/118/qemu-display1.bus,"
+                             "audiodev=qsm-direct-audio"),
+                "an audio display next to QEMU's own console display": self.EXTERNAL_AUDIO + self.VM118_QEMU_DISPLAY,
+                "an audiodev that is not dbus": self.EXTERNAL_AUDIO.replace("-audiodev dbus,", "-audiodev pa,"),
+            }
+            for reason, extra in refused.items():
+                self.assertIsNone(profile(f"vga: none\nargs: {self.VM118_ARGS}{extra}\n"), reason)
+            self.assertIsNone(profile(f"vga: std\nargs: {self.VM118_ARGS}{self.EXTERNAL_AUDIO}\n"),
+                              "PVE's own adapter is still another display")
+            self.assertEqual(profile(f"vga: none\nargs: {self.VM118_ARGS}\n"), "external", "sound stays optional")
+
     def test_a_pending_change_does_not_hide_the_running_display(self) -> None:
         runtime = Path("/run/qsm-pve-direct")
         bus = "-display dbus,addr=unix:path=/run/qsm-pve-direct/321/qemu-display1.bus"
