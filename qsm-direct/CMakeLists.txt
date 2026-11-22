@@ -256,6 +256,14 @@ if(BUILD_TESTING)
                 -s ${CMAKE_CURRENT_SOURCE_DIR}/tests/browser_bridge -p test_lossless_ui.py -v)
         set_tests_properties(qsm_lossless_ui_protocol PROPERTIES
             ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}" TIMEOUT 20)
+        if(QSM_STANDALONE_PYTHON_READY EQUAL 0)
+            # The bridge imports aiortc/av; the SCTP receive backport targets aiortc 1.11.
+            add_test(NAME qsm_sctp_ordered_delivery
+                COMMAND ${Python3_EXECUTABLE} -m unittest discover
+                    -s ${CMAKE_CURRENT_SOURCE_DIR}/tests/browser_bridge -p test_sctp_receive.py -v)
+            set_tests_properties(qsm_sctp_ordered_delivery PROPERTIES
+                ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}" TIMEOUT 20)
+        endif()
         add_test(NAME qsm_signal_endpoint
             COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/signal/test_endpoint.py)

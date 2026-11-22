@@ -1,0 +1,16 @@
+{
+  "date": "2026-11-22",
+  "base_commit": "9df055c",
+  "defect": "aiortc 1.11 InboundStream.pop_messages kept start_pos after a delivered message; a deliverable ordered message with a non-contiguous TSN stayed queued and a FORWARD TSN of the lossy pointer channel pruned it, so the ordered qsm-control channel (keyboard, buttons, resize) stalled for the rest of the session while video continued",
+  "field_symptom": "standalone console over WireGuard, ~120 ms RTT, Chrome on macOS 26.3: keyboard and mouse stopped after 20 s and after 3.5 min; the size after leaving full screen was never sent",
+  "fix": "aiortc 1.16.0 InboundStream.pop_messages/prune_chunks and FORWARD TSN sequence update, backported in qsm_browser_bridge.py for aiortc < 1.16 (Debian trixie / PVE 9 ship python3-aiortc 1.11.0)",
+  "unit_tests": {"test_sctp_receive": "9 OK with aiortc 1.11.0; 5 OK and 4 skipped with aiortc 1.16.0",
+                 "browser_bridge_suite_aiortc_1_11": "293 OK", "browser_bridge_suite_aiortc_1_16": "293 OK (4 version-specific skips)",
+                 "standalone_suite": "33 OK"},
+  "lossy_path_reproduction": {
+    "tool": "lab/sctp-lossy-path/run-lossy-path.sh (unprivileged netns, netem 60 ms each way, Chromium headless, QEMU TCG guest redrawing its screen)",
+    "before_fix_1pct_loss": ["input stopped after ~50 s (snapshots 973)", "input stopped after ~15 s (snapshots 370; control stream stuck at seq 399 while the cumulative TSN advanced)"],
+    "after_fix": ["1% loss 150 s: snapshots grew to 2794", "2% loss 150 s: snapshots grew to 2994",
+                  "2% loss 120 s (lab script, aiortc 1.11 + backport, across a TSN wrap): 2393", "2% loss 120 s (aiortc 1.16.0, no backport): 2193"]
+  }
+}
