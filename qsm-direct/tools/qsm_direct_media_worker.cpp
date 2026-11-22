@@ -184,6 +184,7 @@ struct Size {
 
 struct Options {
     std::string dbus_address;
+    std::string dbus_destination {"org.qemu"};
     int dbus_fd = -1;
     int clipboard_fd = -1;
     // Optional SOCK_SEQPACKET to the terminal carrying 48 kHz stereo s16le
@@ -230,6 +231,7 @@ struct Options {
            "--video-socket unix:PATH --audio-socket unix:PATH "
            "--input-socket unix:PATH [options]\n\n"
         << "  --codec h264|hevc           browser-negotiated video codec (default: h264)\n"
+        << "  --dbus-destination NAME     Display1 bus name (default: org.qemu)\n"
         << "  --encoder NAME              FFmpeg encoder matching --codec (default: libx264)\n"
         << "  --fallback-encoder libx264  recover an automatic hardware encoder at runtime\n"
         << "  --vaapi-device /dev/dri/renderD<N>  VA-API node for *_vaapi\n"
@@ -292,6 +294,11 @@ Options parse_options(int argc, char **argv) {
         const std::string_view argument(argv[index]);
         if (argument == "--dbus-address") {
             options.dbus_address = next(index, argument);
+        } else if (argument == "--dbus-destination") {
+            options.dbus_destination = next(index, argument);
+            if (options.dbus_destination.empty() || options.dbus_destination.size() > 255U) {
+                throw WorkerError("invalid Display1 D-Bus destination");
+            }
         } else if (argument == "--pcm-fd") {
             const std::string value(next(index, argument));
             if (value.empty() || value.find_first_not_of("0123456789") != std::string::npos ||
@@ -2758,7 +2765,7 @@ int run(const Options &options) {
         display_options.bus_address = options.dbus_address;
         // QEMU owns org.qemu on the VM's private bus, whether qemu-server or
         // a legacy add-on installation created that bus.
-        display_options.destination = "org.qemu";
+        display_options.destination = options.dbus_destination;
     }
     if (options.clipboard_fd >= 0) {
         display_options.clipboard_fd = qmdp::UniqueFd(options.clipboard_fd);

@@ -1,0 +1,4 @@
+#%PAM-1.0
+# Password authentication and account expiry policy of this host.
+@include common-auth
+@include common-account

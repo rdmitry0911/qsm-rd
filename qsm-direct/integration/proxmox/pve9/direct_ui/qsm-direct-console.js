@@ -5463,6 +5463,15 @@
             mediaPolicyTitle, mediaPolicyHint, mediaPolicyForm, saveMediaPolicy, gesturesTitle, gesturesHint,
             gesturesForm, resetGestures, exactUiLabel, exactUiStatus, settingsForm, settingsActions);
         toolbar.append(status, captureKeyboard, fullscreen, copy, paste, filesButton, audio, mic, kbButton, diagButton, settingsButton);
+        if (VIEWER?.standalone && VIEWER.home) {
+            const guests = document.createElement('button');
+            guests.type = 'button';
+            guests.textContent = gettext('Guests');
+            guests.title = gettext('Return to your guest list');
+            guests.style.cssText = 'padding:4px;cursor:pointer;pointer-events:auto';
+            guests.addEventListener('click', () => { close(); popup.location.assign(VIEWER.home); });
+            toolbar.append(guests);
+        }
         if (VIEWER?.standalone) {
             // These controls need the PVE guest-agent/PCM adapters. Ordinary
             // QEMU still receives keyboard, pointer and resize over Display1.

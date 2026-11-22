@@ -10,23 +10,36 @@
     html { color-scheme: dark; background: #0f172a; color: #f8fafc; font: 16px system-ui, sans-serif; }
     body { margin: 0; }
     main { max-width: 30rem; margin: 12vh auto; padding: 1.5rem; }
+    main [hidden] { display: none; }
     h1 { font-size: 1.5rem; }
     main label, main input, main button { display: block; box-sizing: border-box; width: 100%; }
     main input, main button { font: inherit; padding: .7rem; margin: .6rem 0 1rem; }
     main button { cursor: pointer; }
     #error { color: #fda4af; }
+    #guest-list { list-style: none; padding: 0; }
+    #guest-list li { display: flex; gap: 1rem; align-items: center; justify-content: space-between;
+        border: 1px solid #334155; border-radius: .5rem; padding: 1rem; margin: .75rem 0; }
+    #guest-list a { color: #93c5fd; white-space: nowrap; }
+    #guests .actions { display: flex; gap: .5rem; }
   </style>
   <script defer src="/standalone.js"></script>
 </head>
 <body>
   <main>
     <h1>QSM — QEMU console</h1>
-    <p>Enter the access token from the console server.</p>
+    <p id="intro">Sign in with your account on the QEMU host.</p>
     <form id="login">
-      <label for="token">Access token</label>
-      <input id="token" name="token" type="password" autocomplete="off" required autofocus>
-      <button type="submit">Connect</button>
+      <label>Username <input id="username" name="username" autocomplete="username" required autofocus></label>
+      <label>Password <input id="password" name="password" type="password" autocomplete="current-password" required></label>
+      <label hidden>Access token <input id="token" name="token" type="password" autocomplete="off"></label>
+      <button type="submit">Sign in</button>
     </form>
+    <section id="guests" hidden>
+      <h2>Your guests</h2>
+      <p id="empty" hidden>No guests with QSM are running under this account.</p>
+      <ul id="guest-list"></ul>
+      <div class="actions"><button id="refresh" type="button">Refresh</button><button id="logout" type="button">Sign out</button></div>
+    </section>
     <p id="error" role="alert"></p>
   </main>
 </body>

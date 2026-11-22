@@ -85,6 +85,7 @@ async def qualify(args):
                 reservation.bind(("127.0.0.1", 0))
                 port = reservation.getsockname()[1]
             command = ["bash", str(ROOT / "scripts/run-qsm-standalone.sh"),
+                       "--auth", "token",
                        "--worker", str(args.worker.resolve()), "--dbus-address", address,
                        "--port", str(port), "--fps", "30",
                        "--name", "Standalone E2E QEMU"]

@@ -1,0 +1,65 @@
+{
+  "date": "2026-11-22",
+  "base_commit": "602ff47",
+  "mode": "Linux PAM host login and per-user QEMU guest selection",
+  "standalone_unit_tests": 18,
+  "browser_bridge_regression_tests": 284,
+  "javascript_checks": [
+    "QSM_DIRECT_PVE_UI_OVERLAY_OK",
+    "QSM_RECEIVER_PLAYOUT_OK"
+  ],
+  "real_multiuser_browser_gate": {
+    "result": "PASS",
+    "real_pam_password_login": true,
+    "wrong_password_rejected": true,
+    "expired_account_rejected": true,
+    "own_guests_only": true,
+    "guest_without_display1_hidden": true,
+    "foreign_guest_rejected": true,
+    "session_cookie_http_only_secure_strict": true,
+    "csrf_required": true,
+    "reload_keeps_login": true,
+    "media_bridge_and_encoder_run_as_owner": true,
+    "keyboard_and_mouse_visible_in_two_real_guests": true,
+    "logout_closes_only_its_owner": true,
+    "revoked_cookie_rejected": true,
+    "return_to_guests_and_reconnect": true,
+    "server_shutdown_reaps_agents_and_workers": true,
+    "qemu_left_running": true,
+    "browser": "156.0.8078.4",
+    "page_errors": []
+  },
+  "legacy_token_tls_regression": {
+    "result": "PASS",
+    "tls": true,
+    "token_mode": "provided",
+    "qemu": "QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+    "browser": "156.0.8078.4",
+    "accel": "tcg",
+    "real_guest_input": true,
+    "keyboard_visible_in_guest": true,
+    "mouse_visible_in_guest": true,
+    "fixed_vga_resize": true,
+    "second_tab_refused": true,
+    "reconnect": true,
+    "worker_cleanup": true,
+    "qemu_left_running": true,
+    "no_proxmox_or_extjs": true,
+    "page_errors": []
+  },
+  "test_account_cleanup": "All uniquely named temporary test accounts and their processes were removed.",
+  "installed_runtime": "Root-owned public code and venv; user agents/media workers run as authenticated owner.",
+  "external_https_probe": {
+    "login_page": 200,
+    "auth_mode": "pam",
+    "anonymous_guest_list": 401
+  },
+  "coverage_limits": [
+    "CPU non-GL Display1, standard VGA and H.264 were qualified.",
+    "GPU encoders, audio and WAN/NAT traversal were not qualified by this gate."
+  ],
+  "evidence": [
+    "/tmp/qsm-host-login-final-20261122",
+    "/tmp/qsm-token-regression-host-login-20261122"
+  ]
+}

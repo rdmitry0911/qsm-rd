@@ -118,6 +118,7 @@ class ConsoleServer:
 
     async def asset(self, request: web.Request) -> web.Response:
         files = {"/": (ASSETS / "index.html", "text/html"),
+                 "/console": (ASSETS / "index.html", "text/html"),
                  "/standalone.js": (ASSETS / "standalone.js", "text/javascript"),
                  "/console.js": (VIEWER, "text/javascript")}
         path, kind = files[request.path]
@@ -128,6 +129,9 @@ class ConsoleServer:
         # the offer. A failed attachment never controls or restarts QEMU.
         return web.json_response({"data": {"status": "running", "name": self.args.name,
                                           "fps": self.args.fps}})
+
+    async def config(self, _request: web.Request) -> web.Response:
+        return web.json_response({"data": {"auth": "token"}})
 
     async def offer(self, request: web.Request) -> web.Response:
         try:
@@ -182,8 +186,9 @@ class ConsoleServer:
 
     def application(self) -> web.Application:
         app = web.Application(middlewares=[self.boundary], client_max_size=MAX_BODY)
-        for path in ("/", "/standalone.js", "/console.js"):
+        for path in ("/", "/console", "/standalone.js", "/console.js"):
             app.router.add_get(path, self.asset)
+        app.router.add_get("/config", self.config)
         app.router.add_get("/api/status", self.status)
         app.router.add_post("/api/offer", self.offer)
         app.router.add_delete("/api/console/{session:[0-9a-f]{32}}", self.disconnect)
@@ -213,7 +218,8 @@ class ConsoleSession:
     async def _start(self, offer: dict) -> dict[str, str]:
         args = self.server.args
         self.bridge = BrowserWebRtcBridge(
-            self.directory, fps=args.fps, video_codec="h264", video_bitrate_kbps=args.bitrate)
+            self.directory, fps=args.fps, video_codec="h264", video_bitrate_kbps=args.bitrate,
+            use_node_gateway=False)
         video, audio = self.bridge.start_taps()
         command = [str(args.worker), "--dbus-address", args.dbus_address,
                    "--video-socket", video, "--audio-socket", audio,
@@ -222,6 +228,8 @@ class ConsoleSession:
                    "--video-bitrate-kbps", str(args.bitrate), "--fps", str(args.fps),
                    "--initial-size", f"{offer['width'] // 2 * 2}x{offer['height'] // 2 * 2}",
                    "--allow-unsupported-ui-info"]
+        if getattr(args, "dbus_destination", None):
+            command.extend(["--dbus-destination", args.dbus_destination])
         for option in ("vaapi_device", "capture_render_node"):
             value = getattr(args, option)
             if value is not None:
@@ -312,7 +320,11 @@ class ConsoleSession:
 
 def arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    source = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument("--auth", choices=("pam", "token"), default="pam",
+                        help="host account login (default) or legacy single-guest token")
+    parser.add_argument("--pam-service", default="qsm-standalone")
+    parser.add_argument("--session-hours", type=int, default=8)
+    source = parser.add_mutually_exclusive_group()
     source.add_argument("--dbus-address", help="QEMU's local Unix D-Bus address")
     source.add_argument("--dbus-address-file", type=Path, help="file containing that address")
     parser.add_argument("--worker", type=Path, default=shutil.which("qsm-direct-media-worker"),
@@ -338,10 +350,21 @@ def arguments(argv: list[str] | None = None) -> argparse.Namespace:
             raise ValueError("port must be 1..65535, fps 10..240, bitrate 500..100000")
         if args.encoder == "h264_vaapi" and args.vaapi_device is None:
             raise ValueError("h264_vaapi requires --vaapi-device")
-        if args.dbus_address_file is not None:
-            args.dbus_address = args.dbus_address_file.read_text().strip()
-        if not args.dbus_address.startswith("unix:") or len(args.dbus_address) > 4096 or "\n" in args.dbus_address:
-            raise ValueError("Display1 requires a local unix: D-Bus address on the QEMU host")
+        if args.auth == "token":
+            if args.dbus_address_file is not None:
+                args.dbus_address = args.dbus_address_file.read_text().strip()
+            if (not args.dbus_address or not args.dbus_address.startswith("unix:") or
+                    len(args.dbus_address) > 4096 or "\n" in args.dbus_address):
+                raise ValueError("--auth token requires a local Display1 address")
+        else:
+            if args.dbus_address or args.dbus_address_file or args.token_file:
+                raise ValueError("PAM mode discovers guests per user; omit D-Bus and token arguments")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", args.pam_service) or not 1 <= args.session_hours <= 24:
+                raise ValueError("invalid PAM service or session lifetime (1..24 hours)")
+            policy = Path("/etc/pam.d") / args.pam_service
+            metadata = policy.stat()
+            if metadata.st_uid != 0 or metadata.st_mode & 0o022 or not stat.S_ISREG(metadata.st_mode):
+                raise ValueError("PAM policy must be a root-owned, non-writable regular file")
         args.origin, args.origins = network_policy(args)
     except (OSError, ValueError) as error:
         parser.error(str(error))
@@ -352,14 +375,19 @@ async def run(args: argparse.Namespace) -> None:
     # Short paths also leave room for the bridge's Unix socket names.
     with tempfile.TemporaryDirectory(prefix="qsm-") as directory:
         runtime = Path(directory)
-        token_file = args.token_file
-        if token_file is None:
-            token_file = runtime / "access-token"
-            fd = os.open(token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "w") as stream:
-                stream.write(secrets.token_urlsafe(32) + "\n")
-        token = read_token(token_file)
-        server = ConsoleServer(args, runtime, token, args.origins)
+        token_file = None
+        if args.auth == "pam":
+            from .host_server import HostConsoleServer
+            server = HostConsoleServer(args, runtime, args.origins)
+        else:
+            token_file = args.token_file
+            if token_file is None:
+                token_file = runtime / "access-token"
+                fd = os.open(token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "w") as stream:
+                    stream.write(secrets.token_urlsafe(32) + "\n")
+            token = read_token(token_file)
+            server = ConsoleServer(args, runtime, token, args.origins)
         runner = web.AppRunner(server.application(), access_log=None)
         await runner.setup()
         stopped = asyncio.Event()
@@ -375,7 +403,10 @@ async def run(args: argparse.Namespace) -> None:
             site = web.TCPSite(runner, args.listen, args.port, ssl_context=context)
             await site.start()
             print(f"QSM console: {args.origin}/", flush=True)
-            print(f"Access token file: {token_file}", flush=True)
+            if token_file is not None:
+                print(f"Access token file: {token_file}", flush=True)
+            else:
+                print("Login: host username and password (PAM)", flush=True)
             await stopped.wait()
         finally:
             await runner.cleanup()

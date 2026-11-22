@@ -9,9 +9,10 @@ permission. Nothing to install on the client.
 Project sponsor: [Takt](https://taktcycles.com/).
 
 For a QEMU guest managed outside Proxmox, the source tree also has an
-[independent browser-console launcher](docs/STANDALONE_QEMU.md). It attaches
-to an existing Display1 bus, uses the same QSM viewer and media worker, and
-authenticates with a private access token. No PVE installation is needed.
+[independent browser-console launcher](docs/STANDALONE_QEMU.md). Sign in with
+your host username and password, choose one of your running Display1 guests,
+and use the same QSM viewer and media worker. PAM verifies the host account;
+media runs as the guest's Unix owner. No PVE installation is needed.
 This source launcher is separate from the PVE `qsm-pve-direct-standalone`
 installation profile below and is not part of the exp242 APT packages.
 

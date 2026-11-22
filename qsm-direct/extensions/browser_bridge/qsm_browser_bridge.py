@@ -2606,7 +2606,7 @@ class BrowserWebRtcBridge:
                  video_codec: str = "h264", video_bitrate_kbps: int = 8000,
                  video_rate: AdaptiveVideoRate | None = None,
                  on_microphone: Callable[[object, bytes], None] | None = None,
-                 file_token: str | None = None) -> None:
+                 file_token: str | None = None, use_node_gateway: bool = True) -> None:
         if video_codec not in VIDEO_CODECS:
             raise BridgeError("invalid direct browser video codec")
         _install_h264_packetizer()
@@ -2628,6 +2628,7 @@ class BrowserWebRtcBridge:
         self._closed = False
         self._on_terminal = on_terminal
         self._file_token = file_token
+        self._use_node_gateway = use_node_gateway
         self._terminal_notified = False
         self._latest_cursor: GuestCursor | None = None
         self._sent_cursor_state: tuple | None = None
@@ -3758,7 +3759,7 @@ class BrowserWebRtcBridge:
         if self._pc.localDescription is None:
             raise BridgeError("cannot create browser WebRTC answer")
         try:
-            gateway = read_gateway()
+            gateway = read_gateway() if self._use_node_gateway else None
             if gateway is not None:
                 ports = [candidate.port for transport in ice_transports
                          for candidate in transport.iceGatherer.getLocalCandidates()

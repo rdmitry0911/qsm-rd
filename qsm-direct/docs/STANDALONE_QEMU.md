@@ -1,89 +1,159 @@
 # QSM browser console for ordinary QEMU
 
-The source launcher `scripts/run-qsm-standalone.sh` attaches QSM to a QEMU
-guest without Proxmox or libvirt integration. It reuses the shipped QSM
-viewer, Display1 media worker, H.264 WebRTC transport, exact UI, keyboard,
-mouse, touch controls and display scaling. Run it **on the QEMU host**, as a
-user allowed to connect to the guest's private D-Bus. No root service or
-guest software is required.
+QSM can attach to QEMU guests outside Proxmox. Open the web page, sign in
+with your **QEMU host username and password**, and choose a running guest.
+The list contains only that Unix user's QEMU processes with Display1 enabled.
+The browser receives a session automatically; no token copying is needed.
 
-The server attaches to an already running QEMU and never starts, stops or
-reconfigures that process. It owns its encoder worker and allows one browser
-console at a time. Closing the tab releases input and stops that worker;
-reopening attaches to the same running guest.
+The same QSM viewer, H.264 WebRTC media worker, exact UI, keyboard, mouse,
+touch controls and scaling are used. QSM runs on the QEMU host and attaches
+to existing guests. It never starts, stops or reconfigures their QEMU processes.
+One browser console per guest is allowed; different guests can be used at once.
 
-This is separate from `qsm-pve-direct-standalone`, which installs the PVE
-console on stock Proxmox. Do not install PVE packages on a plain QEMU host.
-The new launcher is available from source; exp242 binaries/APT are unchanged.
+This source launcher is separate from `qsm-pve-direct-standalone`, which
+installs the PVE console on stock Proxmox. Do not install PVE packages on a
+plain QEMU host. The exp242 binaries/APT do not contain this source addition.
 
-## Build and Python environment
+## Build and install
 
-On Debian/Ubuntu, install the native build dependencies (and QEMU if needed):
+On Debian/Ubuntu:
 
 ```sh
 sudo apt install g++ cmake ninja-build pkg-config libsystemd-dev libopus-dev \
     libavcodec-dev libavutil-dev libswscale-dev zlib1g-dev ffmpeg \
-    python3-venv dbus qemu-system-x86 qemu-system-gui
+    python3-venv libpam0g libpam-modules dbus qemu-system-x86 qemu-system-gui
 cd qsm-direct
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target qsm-direct-media-worker -j4
-python3 -m venv .venv-standalone
-.venv-standalone/bin/pip install --only-binary=av -r extensions/standalone/requirements.txt
+sudo bash scripts/install-qsm-standalone.sh
 ```
 
-The default encoder is CPU `libx264`. GPU capture development libraries are
-optional for this path. The worker links the host's FFmpeg; PyAV in the
-Python environment only packetizes its encoded output. The pinned aiortc
-version matches the API qualified by QSM's bridge.
+The installer puts a root-owned, user-readable runtime in
+`/opt/qsm-standalone`, creates its Python environment and installs the
+`qsm-standalone` PAM policy. Pass another absolute prefix as its first
+argument, or set `BUILD_DIR` for another native build. An existing PAM policy
+is preserved. No existing host account or password is changed.
 
-## Export the guest's screen
+The default encoder is CPU `libx264`; GPU capture libraries are optional.
+The native worker links the host's FFmpeg. Python/PyAV only packetize its
+encoded output. The Python requirements pin the aiortc API qualified by QSM.
 
-Check that `qemu-system-x86_64 -display help` lists `dbus`. The QEMU process
-must export `org.qemu.Display1` on a **local Unix D-Bus message bus**, under
-the `org.qemu` name. QSM captures console 0. VNC/SPICE addresses and QMP
-sockets are not Display1 addresses.
+## Export each guest's screen
 
-For an existing QEMU launch command, keep its machine, disk, firmware and
-device arguments. Run it inside a private `dbus-run-session`, save
-`DBUS_SESSION_BUS_ADDRESS` to a private file, and select `-display dbus,gl=off`
-instead of its GTK/SDL display backend. An already running QEMU without
-the D-Bus display backend normally needs a QEMU process restart to enable it.
-Do not add a second virtual graphics device to an existing guest just for QSM.
+`qemu-system-x86_64 -display help` must list `dbus`. Each guest must expose
+Display1 on a **local Unix D-Bus message bus**, under the `org.qemu` name.
+Use a separate private bus per guest. QSM captures console 0. A VNC/SPICE
+address or QMP socket is not a Display1 address.
 
-For a new CPU-display test guest, the repository provides a complete example.
-In terminal 1, from `qsm-direct`:
+Keep the guest's own machine, disk, firmware and device arguments. Select
+`-display dbus,gl=off` instead of its GTK/SDL display backend and run QEMU in
+a private `dbus-run-session`. Either pass the bus with
+`-display dbus,addr=unix:path=…,gl=off` or inherit `DBUS_SESSION_BUS_ADDRESS`.
+Discovery reads these settings from the owner's QEMU process. A QEMU started
+without the D-Bus backend normally needs a process restart to enable it.
+Do not add another graphics device just for QSM.
+
+For a new CPU-display test guest, the repository's example creates the
+private bus, non-GL VirtIO VGA, USB input and D-Bus audio:
 
 ```sh
 ACCEL=kvm VM_NAME=guest DISK_IMAGE=/path/to/guest.qcow2 \
     bash scripts/launch-qemu-dbus-cpu-example.sh
 ```
 
-This example selects a non-GL VirtIO VGA and USB input, creates a private bus,
-and writes its address to `/tmp/qmdp-guest/dbus.address`. The script remains
-running for the guest's lifetime. Use `ACCEL=tcg` when KVM is unavailable.
-Use your guest's own launch command for custom firmware/device configurations.
+Run it as the user who will log in to QSM. Use `ACCEL=tcg` without KVM.
+For guests with custom firmware/devices, use their own launch command.
 
-## Open the browser console
+## Start the host login page
 
-In terminal 2, from `qsm-direct`:
+For local testing:
 
 ```sh
-PYTHON="$PWD/.venv-standalone/bin/python" \
-    bash scripts/run-qsm-standalone.sh \
+sudo env PYTHONPATH=/opt/qsm-standalone \
+    /opt/qsm-standalone/.venv/bin/python -m extensions.standalone.server \
+    --worker /opt/qsm-standalone/bin/qsm-direct-media-worker
+```
+
+Open `http://127.0.0.1:18008/`. Sign in with an existing host account,
+choose **Open console** next to a guest, and use **Guests** in the console
+controls to return to the list. Refreshing the page keeps the login.
+**Sign out** revokes the web session and closes its consoles, leaving QEMU
+running. The session expires after eight hours; `--session-hours 1..24`
+sets another absolute lifetime.
+
+Running the entry service as root allows host-wide authentication. It uses
+PAM `common-auth` and `common-account`, including locked/expired-account
+policy. Each media agent and encoder is started with the authenticated
+owner's UID, primary group and supplementary groups. The service checks the
+QEMU PID, process start time and D-Bus owner before passing its unique D-Bus
+connection name to the worker. Client requests cannot choose an address,
+UID or arbitrary process to capture.
+
+For a single-user installation, the entry service can instead run as that
+user. Only its own host account can then authenticate. The installed source
+and virtual environment must be readable by any account whose agent is used;
+the installer provides those permissions without exposing a private checkout.
+
+Passwords go only to a short-lived PAM helper through stdin. They are not
+put in process arguments, environment variables, browser storage or logs.
+An opaque HttpOnly session cookie is issued after login (Secure on HTTPS,
+SameSite=Strict). Mutating API calls also require a session CSRF token and
+the configured page Origin. Failed login attempts and concurrent PAM helpers
+are bounded. The standalone entry does not read PVE gateway configuration.
+
+For another computer, use HTTPS with a certificate trusted by its browser:
+
+```sh
+sudo env PYTHONPATH=/opt/qsm-standalone \
+    /opt/qsm-standalone/.venv/bin/python -m extensions.standalone.server \
+    --worker /opt/qsm-standalone/bin/qsm-direct-media-worker \
+    --listen 0.0.0.0 --port 18008 \
+    --public-url https://qemu.example.net:18008 \
+    --tls-cert /path/to/fullchain.pem --tls-key /path/to/privkey.pem
+```
+
+Non-loopback binds require TLS. Wildcard binds also require `--public-url`;
+only its configured Host/Origin is accepted. Proxy-provided identity is not
+used. WebRTC media/input use direct UDP: the browser needs a route to the
+host's ICE candidates, through a LAN or VPN, as well as the HTTPS port. This
+launcher does not set up TURN, NAT traversal or the PVE TCP gateway.
+
+## Media options
+
+`--fps 30 --bitrate 8000` sets the frame rate and ceiling in kbit/s.
+H.264 is used for browser compatibility. Hardware encoders can be selected
+with `--encoder h264_vaapi --vaapi-device /dev/dri/renderD128`,
+`--encoder h264_qsv`, or `--encoder h264_nvenc`, with their corresponding
+host drivers and FFmpeg support. Explicit hardware failures are reported
+rather than silently changing to CPU. GPU/device qualification is separate
+from the CPU-mode tests below.
+
+For GL Display1 capture, `--capture-render-node /dev/dri/renderD128` selects
+the host capture GPU. Its compatibility is the same as in the core worker.
+Browser-local input/display settings remain available; encoder, bitrate and
+frame rate are launch options. Standard VGA without `SetUIInfo` keeps its
+fixed guest resolution when the browser is resized.
+
+Audio playback is available when QEMU exports D-Bus audio, for example using
+`-display dbus,gl=off,audiodev=dbus0 -audiodev dbus,id=dbus0` and a sound
+device attached to `dbus0`. The example launch script does this. PVE
+agent/PCM adapters are not wired here, so file transfer, agent clipboard and
+microphone controls are hidden. Screen and input need no guest software.
+
+## Optional single-guest token mode
+
+The earlier source interface remains available explicitly as `--auth token`.
+It needs one D-Bus address and accepts the existing private token file:
+
+```sh
+PYTHON=/opt/qsm-standalone/.venv/bin/python \
+    /opt/qsm-standalone/scripts/run-qsm-standalone.sh --auth token \
+    --worker /opt/qsm-standalone/bin/qsm-direct-media-worker \
     --dbus-address-file /tmp/qmdp-guest/dbus.address --name guest
 ```
 
-The launcher finds `build/qsm-direct-media-worker`. Set `BUILD_DIR` or pass
-`--worker /absolute/path/to/qsm-direct-media-worker` for another build.
-`--dbus-address 'unix:path=…'` can replace the address file.
-
-The server prints its URL, initially `http://127.0.0.1:18008/`, and the path
-to a mode-0600 access-token file. Read that file in another terminal and paste
-its contents into the browser login form. The token itself is never printed
-by the server or included in a URL. It stays in page memory, so reloading
-asks for it again. A generated token file is deleted when the server exits.
-
-For a stable token, generate your own private file once:
+Without `--token-file`, the server generates a private token and prints only
+its file path. The file is deleted on shutdown. For a persistent token:
 
 ```sh
 mkdir -p "$HOME/.config/qsm"
@@ -93,86 +163,48 @@ chmod 700 "$HOME/.config/qsm"
 chmod 600 "$HOME/.config/qsm/guest.token"
 ```
 
-Then add `--token-file "$HOME/.config/qsm/guest.token"`. The file must be
-owned by the server user, inaccessible to other users and not a symlink.
-Everyone holding this token can view and control this one guest.
-
-For remote browser access, use TLS and a certificate trusted by that browser:
-
-```sh
-PYTHON="$PWD/.venv-standalone/bin/python" \
-    bash scripts/run-qsm-standalone.sh \
-    --dbus-address-file /tmp/qmdp-guest/dbus.address --name guest \
-    --listen 0.0.0.0 --port 18008 \
-    --public-url https://qemu.example.net:18008 \
-    --tls-cert /path/to/fullchain.pem --tls-key /path/to/privkey.pem \
-    --token-file "$HOME/.config/qsm/guest.token"
-```
-
-Non-loopback binds require TLS. Wildcard binds also require `--public-url`;
-the server accepts only its configured Host/Origin. Proxy-forwarded identity
-and PVE credentials are not used. WebRTC media/input use direct UDP, so the
-browser must be able to reach the host's ICE candidates as well as the HTTPS
-port. This launcher does not configure TURN, a PVE TCP gateway or NAT traversal.
-
-## Encoding and supported controls
-
-`--fps 30 --bitrate 8000` chooses the worker frame rate and video ceiling in
-kbit/s. H.264 is used for browser compatibility. To choose hardware encoding,
-pass `--encoder h264_vaapi --vaapi-device /dev/dri/renderD128`,
-`--encoder h264_qsv`, or `--encoder h264_nvenc`, with the corresponding host
-driver and FFmpeg encoder available. An explicit hardware encoder failure
-is reported in the server log; the default CPU mode requires no GPU.
-For GL Display1 capture, the existing worker also accepts
-`--capture-render-node /dev/dri/renderD128`; GL/device compatibility is the
-same as in the core worker and is not established by the CPU-mode test below.
-
-The browser keeps QSM's local display/input preferences. Encoder, bitrate
-and frame rate are server launch options; the PVE media-policy editor is
-hidden. Standard VGA without `SetUIInfo` remains connected at its fixed
-guest resolution when the browser is resized.
-
-Playback audio is available when QEMU exports D-Bus audio, for example with
-`-display dbus,gl=off,audiodev=dbus0 -audiodev dbus,id=dbus0` and a guest
-sound device attached to `dbus0`; the example launch script configures this.
-The non-PVE entry does not wire the PVE guest-agent/PCM adapters: file
-transfer, agent clipboard and microphone controls are hidden. No in-guest
-desktop agent is required for the screen and input.
-
-If the console is busy, close its other browser tab before reconnecting. If
-the browser disappears without clean shutdown, the connection watchdog
-releases the session after transport failure. A failed connection is also
-bounded by a 30-second negotiation lease. Stopping the server with Ctrl-C
-releases its worker while leaving the attached QEMU running.
+Add `--token-file "$HOME/.config/qsm/guest.token"`. It must be owned by the
+service user, private, and not a symlink. This optional mode still asks for
+the token after a browser refresh. Normal PAM mode never asks for one.
 
 ## Verification
 
-The [2026-11-22 validation record](standalone-qemu-validation-20261122.json)
-contains the qualified versions, HTTP/HTTPS browser results and remaining
-hardware/audio/network coverage limits.
+The [host-login validation record](standalone-host-login-validation-20261122.json)
+records the real PAM/two-user browser gate and the regression checks.
 
-The API tests verify token/Host/Origin enforcement, request bounds and
-cleanup after a worker fails to start:
+From the source `qsm-direct` directory, with the Python requirements installed:
 
 ```sh
-PYTHONPATH=. .venv-standalone/bin/python -m unittest discover -s tests/standalone -v
+PYTHONPATH=. /opt/qsm-standalone/.venv/bin/python -m unittest discover -s tests/standalone -v
 ```
 
-The browser test runs the **complete shipped viewer** with no ExtJS or PVE.
-It boots its own 512-byte BIOS guest in real QEMU under TCG, observes a green
-half-screen after a browser keypress and a red half-screen after browser
-mouse input, resizes and reconnects, checks the second-tab limit and verifies
-worker cleanup without killing QEMU. Screenshots and logs go to a new output
-directory, and test processes/credentials are removed afterwards:
+The API/discovery tests cover owner filtering, PID reuse, session cookies,
+CSRF, logout/expiry, login rate limits and failed-worker/shutdown cleanup.
+CMake registers these tests when its Python has the required packages.
+
+`tests/standalone/host_browser_e2e.py` is an explicit root-only integration
+gate. It creates two unique temporary Unix accounts, assigns random test-only
+passwords via stdin, boots real QEMU/TCG guests under their UIDs, logs in
+through the shipped browser page and observes their keyboard/mouse responses.
+It checks foreign-guest rejection, hidden non-Display1 guests, session reload,
+logout revocation, expired-account rejection and agent/worker cleanup without
+stopping QEMU. Accounts/processes are removed in `finally`; existing users
+and their passwords are untouched. Use a root-owned installation readable
+by those users and a test Python with `playwright` and `pillow` installed.
+The browser only accepts a throwaway test certificate in this gate.
+
+For example, run the gate from the checkout with a separate browser-test
+environment containing `aiohttp`, `playwright` and `pillow`:
 
 ```sh
-.venv-standalone/bin/pip install playwright pillow
-.venv-standalone/bin/python tests/standalone/browser_e2e.py \
-    --worker "$PWD/build/qsm-direct-media-worker" \
-    --output /tmp/qsm-browser-check \
-    --browser /usr/bin/google-chrome
+sudo /path/to/browser-test-venv/bin/python tests/standalone/host_browser_e2e.py \
+    --server-root /opt/qsm-standalone \
+    --python /opt/qsm-standalone/.venv/bin/python \
+    --worker /opt/qsm-standalone/bin/qsm-direct-media-worker \
+    --browser /usr/bin/google-chrome --output /tmp/qsm-host-login-check
 ```
 
-Add `--tls` and choose another new output directory to exercise HTTPS with a
-throwaway certificate. The test browser alone accepts that certificate;
-the console's authentication and WebRTC transport checks stay enabled.
+`tests/standalone/browser_e2e.py` checks the optional token mode in real
+QEMU/TCG through the complete viewer, with `--tls` for HTTPS. The original
+[validation record](standalone-qemu-validation-20261122.json) documents that
+mode's screen/input tests and hardware/audio/network coverage limits.
