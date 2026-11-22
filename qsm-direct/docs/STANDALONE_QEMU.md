@@ -90,6 +90,7 @@ mkdir -p "$HOME/.config/qsm"
 chmod 700 "$HOME/.config/qsm"
 (umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(32))' \
     > "$HOME/.config/qsm/guest.token")
+chmod 600 "$HOME/.config/qsm/guest.token"
 ```
 
 Then add `--token-file "$HOME/.config/qsm/guest.token"`. The file must be
