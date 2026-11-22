@@ -144,18 +144,23 @@ async def qualify(args):
                         report["idle_before_keyboard_s"] = before
                         report["screendump_before_keyboard"] = screendump(args.control, output / "guest-before-key.ppm")
                         await page.locator("video").focus()
+                        sent = time.monotonic()
                         # A printable key: a lone modifier is a viewer shortcut gesture, not guest input.
                         await page.keyboard.press(args.key)
                         await asyncio.sleep(.7)
                         report["screendump_after_keyboard"] = screendump(args.control, output / "guest-after-key.ppm")
                         after = idle(args.idle_probe)
                         report["idle_after_keyboard_s"] = after
-                        assert before >= 4 and after < 2, "keyboard input did not reach the guest"
+                        # Without input the idle time only grows; with it, it is at most the time since sending.
+                        report["keyboard_sent_ago_s"] = round(time.monotonic() - sent, 2)
+                        assert before >= 4 and after < before and after <= report["keyboard_sent_ago_s"] + .5, \
+                            "keyboard input did not reach the guest"
                         deadline = time.monotonic() + 30
                         while (before := idle(args.idle_probe)) < 4 and time.monotonic() < deadline:
                             await asyncio.sleep(1)
                         report["idle_before_mouse_s"] = before
                         box = await page.locator("video").bounding_box()
+                        sent = time.monotonic()
                         for step in range(8):
                             await page.mouse.move(box["x"] + box["width"] * (.05 + step * .01),
                                                   box["y"] + box["height"] * .5)
@@ -165,7 +170,9 @@ async def qualify(args):
                         report["screendump_after_mouse"] = screendump(args.control, output / "guest-after-mouse.ppm")
                         after = idle(args.idle_probe)
                         report["idle_after_mouse_s"] = after
-                        assert before >= 4 and after < 2, "mouse input did not reach the guest"
+                        report["mouse_sent_ago_s"] = round(time.monotonic() - sent, 2)
+                        assert before >= 4 and after < before and after <= report["mouse_sent_ago_s"] + .5, \
+                            "mouse input did not reach the guest"
                         report["input_path"] = "browser -> QSM worker -> qdev-host Display1 Console_0 -> QMP input-send-event"
                     frames = await page.evaluate(
                         "() => document.querySelector('video').getVideoPlaybackQuality?.().totalVideoFrames ?? null")
