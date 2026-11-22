@@ -61,9 +61,129 @@ from aiortc.rtcrtpparameters import (RTCRtcpFeedback, RTCRtpCodecParameters,
 from aiortc.rtp import (RTCP_PSFB_PLI, RTCP_PSFB_APP, RtcpPsfbPacket,
                         RtcpRrPacket, RtcpSrPacket, RtpPacket, unpack_remb_fci)
 from aiortc.sdp import SessionDescription
+import aiortc.rtcsctptransport as aiortc_sctp
 
 
-PACKET_MAGIC = 0x51534D50  # "QSMP", encoded as a network-order u32.
+# aiortc 1.11 SCTP receive fix, ported from aiortc 1.16.0
+# (aiortc/rtcsctptransport.py InboundStream.pop_messages/prune_chunks and the
+# FORWARD TSN sequence update; BSD-3-Clause, Copyright (c) Jeremy Lainé).
+# After delivering one message, 1.11 treated the next queued chunk of the same
+# stream as a fragment of that message. A deliverable ordered message whose TSN
+# did not follow directly (other channels' TSNs in between) then waited in the
+# reassembly queue, and a FORWARD TSN for the lossy pointer channel pruned it
+# undelivered. The ordered control channel (keyboard, buttons, resize) then
+# stalled for the rest of the session while video continued: seen over a VPN
+# with ~120 ms RTT and packet loss.
+def _sctp_pop_messages(self):
+    pos = 0
+    start_pos = None
+    while pos < len(self.reassembly):
+        chunk = self.reassembly[pos]
+        if start_pos is None:
+            ordered = not (chunk.flags & aiortc_sctp.SCTP_DATA_UNORDERED)
+            if not (chunk.flags & aiortc_sctp.SCTP_DATA_FIRST_FRAG):
+                if ordered:
+                    break
+                pos += 1
+                continue
+            if ordered and aiortc_sctp.uint16_gt(chunk.stream_seq, self.sequence_number):
+                break
+            expected_tsn = chunk.tsn
+            start_pos = pos
+        elif chunk.tsn != expected_tsn:
+            if ordered:
+                break
+            start_pos = None
+            pos += 1
+            continue
+
+        if chunk.flags & aiortc_sctp.SCTP_DATA_LAST_FRAG:
+            user_data = b"".join(c.user_data for c in self.reassembly[start_pos:pos + 1])
+            self.reassembly = self.reassembly[:start_pos] + self.reassembly[pos + 1:]
+            if ordered and chunk.stream_seq == self.sequence_number:
+                self.sequence_number = aiortc_sctp.uint16_add(self.sequence_number, 1)
+            pos = start_pos
+            # The next chunk starts a new message.
+            start_pos = None
+            yield (chunk.stream_id, chunk.protocol, user_data)
+        else:
+            pos += 1
+
+        expected_tsn = aiortc_sctp.tsn_plus_one(expected_tsn)
+
+
+def _sctp_prune_chunks(self, tsn):
+    # Keep a message whose fragments run up to the TSN and continue after it
+    # (RFC 3758 section 3.6); fragments have consecutive TSNs (RFC 9260 6.9).
+    pos = -1
+    for i, chunk in enumerate(self.reassembly):
+        if aiortc_sctp.uint32_gte(tsn, chunk.tsn):
+            pos = i
+        else:
+            break
+    start = pos + 1
+    if (pos >= 0 and self.reassembly[pos].tsn == tsn and
+            not (self.reassembly[pos].flags & aiortc_sctp.SCTP_DATA_LAST_FRAG)):
+        expected_tsn = tsn
+        for i in range(pos, -1, -1):
+            chunk = self.reassembly[i]
+            if chunk.tsn != expected_tsn:
+                break
+            if chunk.flags & aiortc_sctp.SCTP_DATA_FIRST_FRAG:
+                start = i
+                break
+            expected_tsn = aiortc_sctp.tsn_minus_one(expected_tsn)
+    size = sum(len(chunk.user_data) for chunk in self.reassembly[:start])
+    self.reassembly = self.reassembly[start:]
+    return size
+
+
+async def _sctp_receive_forward_tsn_chunk(self, chunk):
+    self._sack_needed = True
+    if aiortc_sctp.uint32_gte(self._last_received_tsn, chunk.cumulative_tsn):
+        return
+
+    def is_obsolete(x):
+        return aiortc_sctp.uint32_gt(x, self._last_received_tsn)
+
+    self._last_received_tsn = chunk.cumulative_tsn
+    self._sack_misordered = set(filter(is_obsolete, self._sack_misordered))
+    for tsn in sorted(self._sack_misordered):
+        if tsn == aiortc_sctp.tsn_plus_one(self._last_received_tsn):
+            self._last_received_tsn = tsn
+        else:
+            break
+    self._sack_duplicates = list(filter(is_obsolete, self._sack_duplicates))
+    self._sack_misordered = set(filter(is_obsolete, self._sack_misordered))
+    for stream_id, stream_seq in chunk.streams:
+        inbound_stream = self._get_inbound_stream(stream_id)
+        # Never move backwards: a FORWARD TSN can report a message again.
+        sequence_number = aiortc_sctp.uint16_add(stream_seq, 1)
+        if aiortc_sctp.uint16_gt(sequence_number, inbound_stream.sequence_number):
+            inbound_stream.sequence_number = sequence_number
+        for message in inbound_stream.pop_messages():
+            self._advertised_rwnd += len(message[2])
+            await self._receive(*message)
+    for _stream_id, inbound_stream in self._inbound_streams.items():
+        self._advertised_rwnd += inbound_stream.prune_chunks(self._last_received_tsn)
+
+
+def _aiortc_version() -> tuple[int, ...]:
+    import aiortc
+    return tuple(int(part) for part in re.findall(r"\d+", getattr(aiortc, "__version__", "0"))[:3])
+
+
+# 1.16.0 carries these fixes (and more FORWARD TSN state); never replace them.
+AIORTC_SCTP_RECEIVE_PATCHED = _aiortc_version() < (1, 16, 0)
+AIORTC_SCTP_RECEIVE_ORIGINAL = (aiortc_sctp.InboundStream.pop_messages, aiortc_sctp.InboundStream.prune_chunks,
+                                aiortc_sctp.RTCSctpTransport._receive_forward_tsn_chunk)
+if AIORTC_SCTP_RECEIVE_PATCHED:
+    aiortc_sctp.InboundStream.pop_messages = _sctp_pop_messages
+    aiortc_sctp.InboundStream.prune_chunks = _sctp_prune_chunks
+    aiortc_sctp.RTCSctpTransport._receive_forward_tsn_chunk = _sctp_receive_forward_tsn_chunk
+
+
+PACKET_MAGIC =0x51534D50  # "QSMP", encoded as a network-order u32.
 PACKET_HEADER = struct.Struct("!IIIII")
 PACKET_FIRST = 0x00000001
 PACKET_END = 0x00000002
