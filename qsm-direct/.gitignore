@@ -1,4 +1,5 @@
 build/
+.venv-standalone/
 build-*/
 .build-*/
 cmake-build-*/

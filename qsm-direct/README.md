@@ -8,6 +8,13 @@ permission. Nothing to install on the client.
 
 Project sponsor: [Takt](https://taktcycles.com/).
 
+For a QEMU guest managed outside Proxmox, the source tree also has an
+[independent browser-console launcher](docs/STANDALONE_QEMU.md). It attaches
+to an existing Display1 bus, uses the same QSM viewer and media worker, and
+authenticates with a private access token. No PVE installation is needed.
+This source launcher is separate from the PVE `qsm-pve-direct-standalone`
+installation profile below and is not part of the exp242 APT packages.
+
 The [exact UI layer](docs/EXACT_UI.md) is on by default since
 [stock4.14~exp216](https://github.com/rdmitry0911/qsm-rd/releases/tag/v0.4.0-qsm-direct-20261106-stock4.14-exp216):
 text and other UI areas arrive as the guest's own pixels, losslessly, above video

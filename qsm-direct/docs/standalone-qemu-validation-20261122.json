@@ -1,0 +1,81 @@
+{
+  "date": "2026-11-22",
+  "base_commit": "55d2612fa8ed52ba2e4266cc64f653f0b5db6314",
+  "mode": "ordinary QEMU Display1, no Proxmox",
+  "native_worker": "fresh source build, CPU libx264, native FFmpeg 6.1",
+  "python_dependencies": {
+    "python": "3.12.3",
+    "aiortc": "1.11.0",
+    "av": "14.2.0",
+    "aiohttp": "3.14.5"
+  },
+  "standalone_api_and_lifecycle_tests": {
+    "passed": 8,
+    "ctest": "qsm_standalone_console"
+  },
+  "existing_browser_bridge_tests": {
+    "passed": 284
+  },
+  "existing_pve_javascript_tests": [
+    "QSM_DIRECT_PVE_UI_OVERLAY_OK",
+    "QSM_RECEIVER_PLAYOUT_OK"
+  ],
+  "browser_e2e": {
+    "http": {
+      "result": "PASS",
+      "tls": false,
+      "token_mode": "generated_and_removed",
+      "qemu": "QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+      "browser": "156.0.8078.4",
+      "accel": "tcg",
+      "real_guest_input": true,
+      "keyboard_visible_in_guest": true,
+      "mouse_visible_in_guest": true,
+      "fixed_vga_resize": true,
+      "second_tab_refused": true,
+      "reconnect": true,
+      "worker_cleanup": true,
+      "qemu_left_running": true,
+      "no_proxmox_or_extjs": true,
+      "page_errors": []
+    },
+    "https": {
+      "result": "PASS",
+      "tls": true,
+      "token_mode": "provided",
+      "qemu": "QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1.18)",
+      "browser": "156.0.8078.4",
+      "accel": "tcg",
+      "real_guest_input": true,
+      "keyboard_visible_in_guest": true,
+      "mouse_visible_in_guest": true,
+      "fixed_vga_resize": true,
+      "second_tab_refused": true,
+      "reconnect": true,
+      "worker_cleanup": true,
+      "qemu_left_running": true,
+      "no_proxmox_or_extjs": true,
+      "page_errors": []
+    }
+  },
+  "qualified_paths": [
+    "QEMU standard VGA, non-GL CPU capture",
+    "H.264 direct UDP WebRTC",
+    "actual BIOS guest response to browser keyboard and mouse",
+    "browser resize with fixed guest scanout",
+    "clean tab close and reconnect",
+    "SIGTERM during active console",
+    "server shutdown during an unfinished offer",
+    "generated and supplied access tokens",
+    "HTTPS wildcard listener with explicit public origin"
+  ],
+  "not_qualified": [
+    "GPU capture and hardware encoders in the new launcher",
+    "audio playback in the new launcher",
+    "remote WAN/NAT connectivity"
+  ],
+  "evidence_directories": [
+    "/tmp/qsm-standalone-final-http-20261122",
+    "/tmp/qsm-standalone-final-https-20261122"
+  ]
+}

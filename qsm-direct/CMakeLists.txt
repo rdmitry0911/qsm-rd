@@ -240,6 +240,17 @@ if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter)
 
     if(Python3_Interpreter_FOUND)
+        execute_process(COMMAND ${Python3_EXECUTABLE} -c
+            "import aiohttp, aiortc; assert aiortc.__version__.startswith('1.11.')"
+            RESULT_VARIABLE QSM_STANDALONE_PYTHON_READY
+            OUTPUT_QUIET ERROR_QUIET)
+        if(QSM_STANDALONE_PYTHON_READY EQUAL 0)
+            add_test(NAME qsm_standalone_console
+                COMMAND ${Python3_EXECUTABLE} -m unittest discover
+                    -s ${CMAKE_CURRENT_SOURCE_DIR}/tests/standalone -v)
+            set_tests_properties(qsm_standalone_console PROPERTIES
+                ENVIRONMENT "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}" TIMEOUT 30)
+        endif()
         add_test(NAME qsm_lossless_ui_protocol
             COMMAND ${Python3_EXECUTABLE} -m unittest discover
                 -s ${CMAKE_CURRENT_SOURCE_DIR}/tests/browser_bridge -p test_lossless_ui.py -v)

@@ -4408,6 +4408,7 @@
     // logged-in user (cookie + CSRF token of the page): qemu-server checks
     // VM.Console and attaches the node's WebRTC console service.
     const pveWebrtcOffer = async (params) => {
+        if (VIEWER?.transport) { return VIEWER.transport.offer(params); }
         const body = new URLSearchParams();
         for (const [key, value] of Object.entries(params || {})) {
             if (value !== undefined && value !== null) { body.append(key, String(value)); }
@@ -4430,6 +4431,10 @@
     // Ordinary PVE reads (VM run state) still use the stock protected API; only
     // the QSM SDP exchange and codec policy use the signalling service above.
     const apiValue = (url, method, params, target) => new Promise((resolve, reject) => {
+        if (VIEWER?.transport) {
+            VIEWER.transport.status().then(resolve, reject);
+            return;
+        }
         Proxmox.Utils.API2Request({ url, method, params, waitMsgTarget: target,
             success: ({ result }) => resolve(result && result.data),
             failure: () => reject(new Error('PVE request failed')),
@@ -4487,7 +4492,7 @@
             }
         };
         const document = popup.document;
-        document.title = gettext('QSM Direct Console');
+        document.title = VIEWER?.standalone ? `${VIEWER.name} — QSM Console` : gettext('QSM Direct Console');
         document.documentElement.style.cssText = 'width:100%;height:100%;background:#000';
         // A viewport meta is added only for the separate WINDOW console: there
         // the document IS the top-level page, so width=device-width makes it map
@@ -4550,7 +4555,7 @@
         // its RTP clock cannot be mutated under an existing viewer. Freeze
         // the selected FPS for this session; a changed preference applies
         // when the next fresh worker is launched, as stated in the panel.
-        const sessionFps = settings.targetFps;
+        const sessionFps = VIEWER?.standalone ? VIEWER.fps : settings.targetFps;
         // Keep the video viewport equal to the entire popup.  The controls
         // deliberately float above it: a desktop console must not silently
         // lose a row of guest pixels merely because its window has controls.
@@ -5001,7 +5006,9 @@
         settingsTitle.textContent = gettext('Console settings');
         settingsTitle.style.cssText = 'font-weight:600;font-size:15px;margin:0 0 8px';
         const settingsHint = document.createElement('p');
-        settingsHint.textContent = gettext('Display controls are saved only in this browser. The guest media policy is saved on this Proxmox node. Changes apply after all consoles for this guest are closed and a new connection is opened.');
+        settingsHint.textContent = VIEWER?.standalone
+            ? gettext('Display controls are saved only in this browser. The console server sets the encoder, bitrate and frame rate when it starts.')
+            : gettext('Display controls are saved only in this browser. The guest media policy is saved on this Proxmox node. Changes apply after all consoles for this guest are closed and a new connection is opened.');
         settingsHint.style.cssText = 'margin:0 0 10px;color:#cbd5e1;line-height:1.35';
         const mediaPolicyTitle = document.createElement('div');
         mediaPolicyTitle.textContent = gettext('This guest — media policy');
@@ -5079,6 +5086,12 @@
         saveMediaPolicy.type = 'button';
         saveMediaPolicy.textContent = gettext('Save guest media policy');
         saveMediaPolicy.style.cssText = 'margin:0 0 14px;padding:4px 9px;cursor:pointer';
+        if (VIEWER?.standalone) {
+            for (const element of [mediaPolicyTitle, mediaPolicyHint, mediaPolicyForm, saveMediaPolicy]) {
+                element.hidden = true;
+                element.style.display = 'none';
+            }
+        }
         const keyboardPolicyTitle = document.createElement('div');
         keyboardPolicyTitle.textContent = gettext('Keyboard shortcut priority');
         keyboardPolicyTitle.style.cssText = 'font-weight:600;margin:0 0 8px';
@@ -5335,6 +5348,7 @@
         };
         const settingInputs = new Map();
         for (const [name, definition] of Object.entries(CONSOLE_SETTING_SCHEMA)) {
+            if (VIEWER?.standalone && name === 'targetFps') { continue; }
             const label = document.createElement('label');
             const input = document.createElement('input');
             const inputId = `qsm-direct-setting-${name}`;
@@ -5449,6 +5463,11 @@
             mediaPolicyTitle, mediaPolicyHint, mediaPolicyForm, saveMediaPolicy, gesturesTitle, gesturesHint,
             gesturesForm, resetGestures, exactUiLabel, exactUiStatus, settingsForm, settingsActions);
         toolbar.append(status, captureKeyboard, fullscreen, copy, paste, filesButton, audio, mic, kbButton, diagButton, settingsButton);
+        if (VIEWER?.standalone) {
+            // These controls need the PVE guest-agent/PCM adapters. Ordinary
+            // QEMU still receives keyboard, pointer and resize over Display1.
+            for (const element of [copy, paste, mic]) { element.style.display = 'none'; }
+        }
         // On-screen diagnostics for the case a client shows no picture (mostly
         // phones/tablets/TVs where remote logs are unreachable). Hidden until a
         // few seconds pass with no decoded frame, then it prints the video and
@@ -6341,6 +6360,7 @@
             ['auto', 'hardware', 'software'].includes(value.encoder) &&
             Number.isInteger(value.bitrate) && value.bitrate >= 500 && value.bitrate <= 100000;
         const loadVmMediaPolicy = async () => {
+            if (VIEWER?.standalone) { return; }
             if (mediaPolicyLoading || closed) { return; }
             mediaPolicyLoading = true;
             codecInput.disabled = true;
@@ -6872,6 +6892,7 @@
             stopMicrophone();
             if (fileManager) { fileManager.destroy(); }
             if (peer) { peer.close(); }
+            VIEWER?.transport?.close();
             if (closeWatcher !== null) { window.clearInterval(closeWatcher); }
             if (pointerTimer !== null) { popup.clearTimeout(pointerTimer); }
             if (resizeTimer !== null) { popup.clearTimeout(resizeTimer); }
@@ -8005,7 +8026,7 @@
                 status.textContent = message;
                 close();
                 closeSurface();
-                Ext.Msg.alert(gettext('QSM Direct'), message);
+                if (!VIEWER?.standalone) { Ext.Msg.alert(gettext('QSM Direct'), message); }
             }
         };
         connect();
@@ -8023,7 +8044,7 @@
     // protected VM config and before the user opens Console. This card does
     // not add a second navigation entry and deliberately renders in PVE's
     // existing Console area instead of opening a second browser window.
-    Ext.define('PVE.qsmDirect.ConsolePanel', {
+    defineOverride('PVE.qsmDirect.ConsolePanel', {
         extend: 'Ext.panel.Panel',
         alias: 'widget.pveQsmDirectConsole',
         layout: 'fit',
@@ -8341,6 +8362,11 @@
     });
 
     if (VIEWER) {
-        Ext.onReady(() => openConsole(null, VIEWER.node, VIEWER.vmid, null, 'qemu'));
+        const startViewer = () => openConsole(null, VIEWER.node, VIEWER.vmid, null, 'qemu');
+        if (VIEWER.standalone) {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', startViewer, { once: true });
+            } else { startViewer(); }
+        } else { Ext.onReady(startViewer); }
     }
 }());

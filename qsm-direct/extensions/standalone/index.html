@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QSM — QEMU console</title>
+  <link rel="icon" href="data:,">
+  <style>
+    html { color-scheme: dark; background: #0f172a; color: #f8fafc; font: 16px system-ui, sans-serif; }
+    body { margin: 0; }
+    main { max-width: 30rem; margin: 12vh auto; padding: 1.5rem; }
+    h1 { font-size: 1.5rem; }
+    main label, main input, main button { display: block; box-sizing: border-box; width: 100%; }
+    main input, main button { font: inherit; padding: .7rem; margin: .6rem 0 1rem; }
+    main button { cursor: pointer; }
+    #error { color: #fda4af; }
+  </style>
+  <script defer src="/standalone.js"></script>
+</head>
+<body>
+  <main>
+    <h1>QSM — QEMU console</h1>
+    <p>Enter the access token from the console server.</p>
+    <form id="login">
+      <label for="token">Access token</label>
+      <input id="token" name="token" type="password" autocomplete="off" required autofocus>
+      <button type="submit">Connect</button>
+    </form>
+    <p id="error" role="alert"></p>
+  </main>
+</body>
+</html>

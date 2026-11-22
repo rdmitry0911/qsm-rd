@@ -1,0 +1,4 @@
+# Match the aiortc API used and qualified by the existing QSM bridge.
+aiortc==1.11.0
+av>=14,<15
+aiohttp>=3.9,<4
