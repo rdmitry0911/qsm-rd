@@ -222,6 +222,8 @@ the token after a browser refresh. Normal PAM mode never asks for one.
 
 The [host-login validation record](standalone-host-login-validation-20261122.json)
 records the real PAM/two-user browser gate and the regression checks.
+The [qdev-host display validation record](standalone-qdev-display-validation-20261122.json)
+records the accelerated-guest gate (`tests/standalone/qdev_display_e2e.py`).
 
 From the source `qsm-direct` directory, with the Python requirements installed:
 
