@@ -76,7 +76,9 @@
         for (const guest of result.guests) {
             const item = document.createElement('li');
             const title = document.createElement('span');
-            title.textContent = `${guest.name} · PID ${guest.pid}`;
+            title.textContent = guest.display
+                ? `${guest.name} · PID ${guest.pid} · qdev-host display${guest.display.name ? ` ${guest.display.name}` : ''}`
+                : `${guest.name} · PID ${guest.pid}`;
             const open = document.createElement('a');
             open.href = `/console?guest=${encodeURIComponent(guest.id)}`;
             open.textContent = 'Open console';
@@ -91,7 +93,7 @@
         error.textContent = '';
         document.querySelector('#intro').textContent = `Signed in as ${login.user}`;
         const guest = new URLSearchParams(location.search).get('guest');
-        if (location.pathname === '/console' && /^\d+-\d+$/.test(guest || '')) {
+        if (location.pathname === '/console' && /^\d+-\d+(?:-\d+-\d+)?$/.test(guest || '')) {
             try { await startConsole(guest); return; }
             catch (failure) { error.textContent = failure.message; }
         }

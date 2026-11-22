@@ -350,7 +350,7 @@ class HostConsoleServer(ConsoleServer):
         app.router.add_get("/api/session", self.session_info)
         app.router.add_post("/api/logout", self.logout)
         app.router.add_get("/api/guests", self.guests)
-        prefix = "/api/guests/{guest:[0-9]+-[0-9]+}"
+        prefix = "/api/guests/{guest:[0-9]+-[0-9]+(?:-[0-9]+-[0-9]+)?}"
         app.router.add_get(prefix + "/status", self.guest_status)
         app.router.add_post(prefix + "/offer", self.guest_offer)
         app.router.add_delete(prefix + "/console/{session:[0-9a-f]{32}}", self.guest_disconnect)

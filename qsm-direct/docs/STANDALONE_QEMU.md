@@ -2,7 +2,9 @@
 
 QSM can attach to QEMU guests outside Proxmox. Open the web page, sign in
 with your **QEMU host username and password**, and choose a running guest.
-The list contains only that Unix user's QEMU processes with Display1 enabled.
+The list contains only that Unix user's QEMU processes with Display1 enabled,
+including guests whose screen is a qdev-host device (for example an
+accelerated GPU).
 The browser receives a session automatically; no token copying is needed.
 
 The same QSM viewer, H.264 WebRTC media worker, exact UI, keyboard, mouse,
@@ -63,6 +65,55 @@ ACCEL=kvm VM_NAME=guest DISK_IMAGE=/path/to/guest.qcow2 \
 
 Run it as the user who will log in to QSM. Use `ACCEL=tcg` without KVM.
 For guests with custom firmware/devices, use their own launch command.
+
+## Guests whose screen is a qdev-host device
+
+A VM whose display is an out-of-process [qdev-host](https://github.com/rdmitry0911/qdev-host)
+vfio-user device, for example an accelerated paravirtual GPU, has no QEMU
+console to capture: QEMU runs with `-vga none -display none` and the
+accelerated picture exists only in qdev-host. qdev-host serves the same
+`org.qemu.Display1` interface itself. Such a guest is listed after login next
+to ordinary QEMU guests, marked **qdev-host display**, and opens the same
+console. Its keyboard and mouse are relayed by qdev-host to the VM.
+
+Run, as the user who logs in to QSM, one private bus per device, qdev-host
+on that bus, and give QEMU a QMP socket that only qdev-host uses for input:
+
+```sh
+dbus-daemon --session --nofork --address=unix:path=$RUN/display1.bus &
+qdev-host --plugin … --socket $RUN/gpu.sock \
+    --display-bus unix:path=$RUN/display1.bus --vm-name guest \
+    --qemu-qmp $RUN/qmp-input.sock &
+qemu-system-x86_64 -name guest … -vga none -display none \
+    -device '{"driver":"vfio-user-pci","id":"gpu","socket":{"type":"unix","path":"'$RUN'/gpu.sock"}}' \
+    -qmp unix:$RUN/qmp-input.sock,server=on,wait=off
+```
+
+`--display-name` may name another bus name than `org.qemu`; a qdev-host with
+only `--display-p2p` is not listed. QEMU and qdev-host may be started through
+a bundled dynamic loader (`ld-linux-x86-64.so.2 --library-path … PROGRAM`).
+
+How a device display is paired with its guest (design): a qdev-host process
+and a QEMU process are paired only when
+
+1. both belong to the logged-in user (all four `Uid:` values in `/proc`);
+2. qdev-host declares exactly one `--display-bus` (a local `unix:` address)
+   and one absolute `--socket`;
+3. the kernel's AF_UNIX table (`sock_diag`, read per request) shows that
+   qdev-host holds an accepted connection on that socket path whose peer
+   socket is held by that QEMU, the vfio-user connection itself, so a
+   hot-plugged device pairs too and a name or path declared on a command line
+   never pairs processes on its own;
+4. when a console is opened, the bus name's unique owner reports qdev-host's
+   PID and the user's UID, and both processes and their connection are read
+   again unchanged (same PIDs and start times).
+
+The guest entry is identified by both processes' PIDs and start times, so a
+restarted qdev-host or QEMU is a new entry. A device connected to several
+QEMU processes, or a kernel without `sock_diag`, lists no device display;
+ordinary QEMU guests are unaffected. Processes that are not dumpable (for
+example started with file capabilities) cannot be inspected and are not
+listed.
 
 ## Start the host login page
 
@@ -178,7 +229,8 @@ From the source `qsm-direct` directory, with the Python requirements installed:
 PYTHONPATH=. /opt/qsm-standalone/.venv/bin/python -m unittest discover -s tests/standalone -v
 ```
 
-The API/discovery tests cover owner filtering, PID reuse, session cookies,
+The API/discovery tests cover owner filtering, PID reuse, qdev-host device
+display pairing (including the kernel socket table), session cookies,
 CSRF, logout/expiry, login rate limits and failed-worker/shutdown cleanup.
 CMake registers these tests when its Python has the required packages.
 
