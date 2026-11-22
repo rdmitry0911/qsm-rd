@@ -39,6 +39,17 @@ from playwright.async_api import async_playwright  # noqa: E402
 from extensions.standalone import host_server, server  # noqa: E402
 
 
+def screendump(control, path):
+    """qdev-host's own picture (control socket ``screendump FILE``), for the before/after record."""
+    if control is None:
+        return None
+    with socket.socket(socket.AF_UNIX) as link:
+        link.settimeout(8)
+        link.connect(str(control))
+        link.sendall(f"screendump {path}\n".encode())
+        return link.recv(4096).decode(errors="replace").strip()
+
+
 def idle(command):
     result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
     return float(result.stdout.strip().split()[-1])
@@ -131,9 +142,12 @@ async def qualify(args):
                         while (before := idle(args.idle_probe)) < 4 and time.monotonic() < deadline:
                             await asyncio.sleep(1)
                         report["idle_before_keyboard_s"] = before
+                        report["screendump_before_keyboard"] = screendump(args.control, output / "guest-before-key.ppm")
                         await page.locator("video").focus()
-                        await page.keyboard.press("Shift")
-                        await asyncio.sleep(.5)
+                        # A printable key: a lone modifier is a viewer shortcut gesture, not guest input.
+                        await page.keyboard.press(args.key)
+                        await asyncio.sleep(.7)
+                        report["screendump_after_keyboard"] = screendump(args.control, output / "guest-after-key.ppm")
                         after = idle(args.idle_probe)
                         report["idle_after_keyboard_s"] = after
                         assert before >= 4 and after < 2, "keyboard input did not reach the guest"
@@ -143,13 +157,16 @@ async def qualify(args):
                         report["idle_before_mouse_s"] = before
                         box = await page.locator("video").bounding_box()
                         for step in range(8):
-                            await page.mouse.move(box["x"] + box["width"] * (.3 + step * .05),
+                            await page.mouse.move(box["x"] + box["width"] * (.05 + step * .01),
                                                   box["y"] + box["height"] * .5)
                             await asyncio.sleep(.05)
-                        await asyncio.sleep(.5)
+                        await page.mouse.click(box["x"] + box["width"] * .12, box["y"] + box["height"] * .5)
+                        await asyncio.sleep(.7)
+                        report["screendump_after_mouse"] = screendump(args.control, output / "guest-after-mouse.ppm")
                         after = idle(args.idle_probe)
                         report["idle_after_mouse_s"] = after
                         assert before >= 4 and after < 2, "mouse input did not reach the guest"
+                        report["input_path"] = "browser -> QSM worker -> qdev-host Display1 Console_0 -> QMP input-send-event"
                     frames = await page.evaluate(
                         "() => document.querySelector('video').getVideoPlaybackQuality?.().totalVideoFrames ?? null")
                     report["video"]["decoded_frames_end"] = frames
@@ -178,6 +195,8 @@ if __name__ == "__main__":
     parser.add_argument("--guest", required=True, help="the guest's QEMU -name")
     parser.add_argument("--idle-probe", help="shell command printing the guest's input idle seconds")
     parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument("--key", default="a", help="printable key typed into the guest's focused field")
+    parser.add_argument("--control", type=Path, help="qdev-host --control socket for before/after screendumps")
     parser.add_argument("--pam-service", default="qsm-standalone",
                         help="an installed root-owned PAM policy name (checked by the server, not used here)")
     parser.add_argument("--output", type=Path, required=True)
