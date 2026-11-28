@@ -1109,6 +1109,19 @@
           "sha256": "0cc3b7b2f5b957918c27bf40f0fafc635bd222a16f4a803f376cb782c188e9ee"
         }
       ]
+    },
+    {
+      "tag": "v0.4.0-companion-20261128-pve-ui-overlays-0.1.1",
+      "source_commit": "bf8d841a507b6d4cb4674e709b13811206e99773",
+      "assets": [
+        {
+          "filename": "pve-ui-overlays_0.1.1_all.deb",
+          "package": "pve-ui-overlays",
+          "version": "0.1.1",
+          "architecture": "all",
+          "sha256": "c41f880314fc1bebaf151c20992960d9c0c6dee68bd108d2070920bfdb5935b1"
+        }
+      ]
     }
   ]
 }
